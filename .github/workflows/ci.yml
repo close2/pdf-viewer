@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail on warnings. The lint policy in Cargo.toml sets levels to `warn` so that a
+  # local build stays usable; CI is where they become errors.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # Fast feedback: formatting and lints before anything expensive runs.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The Arlington PDF Model is a submodule and the object-model validation
+          # layer is generated from it, so a shallow checkout without it would not
+          # build.
+          submodules: true
+
+      - name: Install the pinned toolchain
+        # rust-toolchain.toml pins the version; this action reads it rather than
+        # taking a version here, so the pin has exactly one home.
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # GitHub runners have no GPU and no display. lavapipe is Mesa's software
+      # Vulkan implementation, which lets the GPU backend run its full pipeline --
+      # including compute shaders -- entirely on the CPU. It is slow, but it makes
+      # GPU-path correctness testable in CI at all, and it is deterministic across
+      # runners in a way real drivers are not.
+      - name: Install a software Vulkan driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+          vulkaninfo --summary || true
+
+      - name: Reference renderers for the comparison harness
+        run: sudo apt-get install -y poppler-utils mupdf-tools ghostscript
+
+      - run: cargo test --workspace
+
+  # Supply chain. Separated so that an advisory published upstream does not mask a
+  # genuine test failure, and vice versa.
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # Miri and the fuzz build need nightly, which is why rust-toolchain.toml pins
+  # stable and these ask for nightly explicitly.
+  nightly:
+    runs-on: ubuntu-latest
+    continue-on-error: true # advisory until the parser exists and this earns its keep
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Miri interprets rather than executes, so it cannot run the GPU backend or
+      # anything else that touches a driver. It is pointed at the pure-Rust crates,
+      # which are precisely the ones that will parse untrusted input.
+      - name: Miri on the pure-Rust core
+        run: cargo +nightly miri test -p pdf-render

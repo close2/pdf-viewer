@@ -90,7 +90,9 @@ compiler-enforced rather than conventional.
 - [x] `rust-toolchain.toml` pinned to an exact version
 - [x] `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.gitignore`
 - [ ] Vulkan packages (§7) — needs a global install
-- [ ] CI skeleton — blocked on choosing a CI host; nothing to write until then
+- [x] CI — GitHub Actions in `.github/workflows/ci.yml`: fmt, clippy, tests with
+      `mesa-vulkan-drivers` for a software Vulkan adapter, `cargo-deny`, and an advisory
+      Miri job
 
 ### Phase 1 — Workspace skeleton — *done*
 Crate graph above with safety attributes in place. `pdf-render` defines the display list,
@@ -126,7 +128,11 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
   `tiny-skia`; fills, strokes and nested clips verified, output byte-identical across
   runs, PNG artefact written for inspection. 9 tests. Confirmed `tiny-skia` covers all
   sixteen PDF blend modes.
-- **B.** winit window + wgpu surface + Vello scene; measure frame time on the 890M.
+- **B.** ~~GPU backend on Vello/wgpu.~~ **Done (headless part).** Offscreen render with
+  no window or display server; cross-backend agreement with `render-cpu` verified within
+  measured tolerances; row-padding readback covered. 7 tests. See ADR 0004.
+  *Outstanding:* the winit window that presents a surface, which cannot be verified
+  headlessly and is left for manual confirmation.
 - **C.** Arlington TSV → generated Rust validation tables; verify against a known object.
 - **D.** Sandboxed child process returning a tile over shared memory.
 - **E.** Harness end-to-end: CPU-backend render vs `pdftoppm` on a hand-written PDF.
@@ -171,8 +177,14 @@ This is what keeps the suite trustworthy enough to stay enabled.
 ### Goldens
 
 Snapshots of *our own* output, separate from reference comparison, catching
-commit-to-commit regressions including in deliberately-divergent areas. RADV and lavapipe
-will not produce identical pixels, so goldens are per-backend or tolerance-based.
+commit-to-commit regressions including in deliberately-divergent areas.
+
+**Correction to an earlier assumption here.** This originally said RADV and lavapipe
+would not produce identical pixels, so goldens had to be per-backend. Measurement showed
+the opposite: for the vector path they are byte-identical, because Vello's compute
+pipeline has no driver-dependent fixed-function rasterisation. Goldens can therefore be
+shared across adapters, and a test pins that property so its loss is noticed. Checked on
+one vendor and simple scenes only — text and images may still diverge. See ADR 0004.
 
 On failure, emit side-by-side plus difference heatmap as CI artifacts — diagnosis must
 take seconds.

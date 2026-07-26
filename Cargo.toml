@@ -20,6 +20,9 @@ pdf-model = { path = "crates/pdf-model" }
 pdf-font = { path = "crates/pdf-font" }
 pdf-render = { path = "crates/pdf-render" }
 render-cpu = { path = "crates/render-cpu" }
+render-gpu = { path = "crates/render-gpu" }
+raster-compare = { path = "crates/raster-compare" }
+test-scenes = { path = "crates/test-scenes" }
 viewer-core = { path = "crates/viewer-core" }
 
 # Error handling
@@ -38,6 +41,15 @@ flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
 # correctness oracle and sits on the startup critical path, so predictability
 # outranks sharing a scene model with the GPU backend. See doc/adr/0002.
 tiny-skia = "0.12.0"
+
+# GPU rasteriser. `vello` re-exports the exact `wgpu` it was built against as
+# `vello::wgpu`; that re-export is used rather than a separate wgpu dependency, so
+# version skew between the two is impossible by construction.
+vello = "0.9.0"
+# Minimal block_on. wgpu's device setup is async but the rasteriser interface is
+# synchronous, and pulling in a full async runtime for two awaits would violate the
+# startup-cost rules in CLAUDE.md.
+pollster = "0.4.0"
 
 # Fonts. Memory-safe replacement for FreeType; covers OpenType/TrueType/CFF.
 # Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.
