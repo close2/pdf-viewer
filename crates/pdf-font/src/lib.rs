@@ -22,6 +22,11 @@
 
 #![forbid(unsafe_code)]
 
+// Retained though not yet on the loading path: it builds the sfnt container a bare CFF
+// needs, which is the first half of supporting those fonts. See the refusal in
+// `embedded_program` for why the second half must land before either is used.
+pub mod cff;
+
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -450,9 +455,22 @@ fn embedded_program(
             .map(|value| value.as_bytes().to_vec())
             .unwrap_or_default();
         if matches!(subtype.as_slice(), b"Type1C" | b"CIDFontType0C") || is_bare_cff(&data) {
+            // `cff::wrap_in_sfnt` builds a container skrifa accepts, and the outlines are
+            // then readable — but that is only half the problem, and shipping the half
+            // would be worse than shipping neither.
+            //
+            // A CFF font maps a character code to a glyph through its *charset* (glyph
+            // names) combined with the PDF `/Encoding`, not through a `cmap` table. The
+            // synthesised container has no `cmap`, so lookup silently falls through to
+            // treating the code as a glyph index — which loads successfully, reports
+            // nothing unsupported, and draws the wrong glyphs or none at all.
+            //
+            // Refusing keeps the failure visible until the charset mapping exists. See
+            // `cff::wrap_in_sfnt`, which is retained and tested for that work.
             return Err(FontError::UnsupportedProgram {
                 name: name.to_owned(),
-                kind: "bare CFF (needs wrapping in an sfnt container before skrifa can read it)",
+                kind: "bare CFF (container synthesis works; charset-based code-to-glyph \
+                       mapping is still needed)",
             });
         }
 

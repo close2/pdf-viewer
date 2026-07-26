@@ -211,7 +211,7 @@ fn every_specification_pdf_interprets() {
 #[test]
 fn writes_an_inspectable_render_of_a_real_page() {
     let doc_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc");
-    let path = doc_dir.join("ISO-14289-1-2014-sponsored.pdf");
+    let path = doc_dir.join("PDF20_AN001-BPC.pdf");
     let bytes = std::fs::read(&path).expect("corpus file is readable");
 
     let document = Document::open(bytes).expect("valid PDF");
