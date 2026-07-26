@@ -70,18 +70,18 @@ same colour at the same point.
 ## Consequences
 
 Every shading in the `doc/` corpus now draws; the only thing still reported there is a soft
-mask, which is transparency rather than shading. Across the pdf.js corpus, 1765 of 1793
-shadings build, and all 28 failures are the mesh types.
+mask, which is transparency rather than shading. Across the pdf.js corpus **all 1793
+shadings build**, mesh types included.
 
 PDF functions and colour spaces arrived with this and are worth more than the shadings:
 functions are needed by soft masks, transfer functions and `Separation` spaces, and the
 colour-space work makes `Separation`, `DeviceN`, `Indexed` and `Lab` exact everywhere
 rather than only in shadings.
 
-The GPU backend does **not** draw shadings yet and reports them. That is deliberate: the
-comparison harness excludes a page a backend says it cannot draw, so the two backends stay
-honestly different rather than quietly so. Vello has native gradients, so axial and radial
-should map across much as they did for `tiny-skia`.
+Both backends draw them, and three scenes in the headless suite hold them to agreement.
+That check is what makes the GPU work verifiable at all: the CPU backend's colours are
+pinned against known values and against poppler, so agreement carries that verification
+across rather than restating it.
 
 ## Meshes needed measurement, not reasoning
 

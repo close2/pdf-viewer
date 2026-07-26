@@ -1969,7 +1969,6 @@ name = "render-gpu"
 version = "0.1.0"
 dependencies = [
  "pdf-render",
- "png",
  "pollster",
  "raster-compare",
  "render-cpu",
