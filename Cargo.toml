@@ -13,17 +13,19 @@ repository = "https://github.com/example/pdf-viewer"
 # Dependency versions are pinned once here and referenced as `dep.workspace = true`
 # from member crates, so a version appears in exactly one place in the tree.
 [workspace.dependencies]
-# Internal
-pdf-spec = { path = "crates/pdf-spec" }
-pdf-syntax = { path = "crates/pdf-syntax" }
-pdf-model = { path = "crates/pdf-model" }
-pdf-font = { path = "crates/pdf-font" }
-pdf-render = { path = "crates/pdf-render" }
-render-cpu = { path = "crates/render-cpu" }
-render-gpu = { path = "crates/render-gpu" }
-raster-compare = { path = "crates/raster-compare" }
-test-scenes = { path = "crates/test-scenes" }
-viewer-core = { path = "crates/viewer-core" }
+# Internal. Each carries an explicit version as well as a path: a bare path
+# dependency is a wildcard requirement, which the ban policy in deny.toml rejects, and
+# which would also prevent publishing these crates.
+pdf-spec = { path = "crates/pdf-spec", version = "0.1.0" }
+pdf-syntax = { path = "crates/pdf-syntax", version = "0.1.0" }
+pdf-model = { path = "crates/pdf-model", version = "0.1.0" }
+pdf-font = { path = "crates/pdf-font", version = "0.1.0" }
+pdf-render = { path = "crates/pdf-render", version = "0.1.0" }
+render-cpu = { path = "crates/render-cpu", version = "0.1.0" }
+render-gpu = { path = "crates/render-gpu", version = "0.1.0" }
+raster-compare = { path = "crates/raster-compare", version = "0.1.0" }
+test-scenes = { path = "crates/test-scenes", version = "0.1.0" }
+viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 
 # Error handling
 thiserror = "2.0.19"
@@ -51,7 +53,23 @@ vello = "0.9.0"
 # startup-cost rules in CLAUDE.md.
 pollster = "0.4.0"
 # Windowing. 0.30 is the current stable line; 0.31 is still a beta series.
-winit = "0.30.13"
+#
+# `wayland-csd-adwaita` is deliberately off. It draws Adwaita-style client-side
+# decorations, and reaches them via ab_glyph -> owned_ttf_parser -> ttf-parser, which
+# is unmaintained (RUSTSEC-2026-0192) with no safe upgrade. The advisory's recommended
+# replacement is `skrifa`, which this project already uses for its own font work.
+#
+# The cost is no client-side decorations under a compositor that offers none. KDE's
+# KWin provides server-side decorations, and the CSD fallback exists mainly for GNOME,
+# so this is the right trade for a KDE-targeted viewer. If GNOME support matters later,
+# the answer is decorations drawn with our own font stack rather than pulling an
+# unmaintained parser back in.
+winit = { version = "0.30.13", default-features = false, features = [
+    "rwh_06",
+    "x11",
+    "wayland",
+    "wayland-dlopen",
+] }
 
 # Fonts. Memory-safe replacement for FreeType; covers OpenType/TrueType/CFF.
 # Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.

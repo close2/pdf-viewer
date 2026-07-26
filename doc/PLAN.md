@@ -133,9 +133,9 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
   measured tolerances; row-padding readback covered. 7 tests. See ADR 0004.
   The interactive half is `cargo run --release --example spike-window -p viewer-ui`:
   winit 0.30 window, Vello scene blitted to the swapchain, resize handling, frame times
-  on stdout. It compiles and links but is **unverified by the agent** — running it needs
-  an X authority cookie that the `AI` user does not have, so it fails at
-  `XOpenDisplayFailed`. Manual confirmation required.
+  on stdout. **Confirmed working by the project owner**; the agent cannot run it, having
+  no X authority cookie. It calls `render_gpu::build_scene`, the same translation the
+  headless tests exercise, so the window cannot diverge from what CI checks.
 - **C.** Arlington TSV → generated Rust validation tables; verify against a known object.
 - **D.** Sandboxed child process returning a tile over shared memory.
 - **E.** Harness end-to-end: CPU-backend render vs `pdftoppm` on a hand-written PDF.
@@ -241,6 +241,21 @@ mupdf-tools 1.28.0, ghostscript 10.07.1, qpdf 12.3.2, imagemagick 7.1.2.27, pyth
 kio/kconfig/ki18n 6.28.0.
 
 GPU: AMD Strix (Radeon 880M / 890M), RDNA 3.5. Session: X11 (`DISPLAY=:0`).
+
+### Dependency policy notes
+
+- `winit` is built with `default-features = false` and without `wayland-csd-adwaita`.
+  That feature draws Adwaita client-side decorations via
+  `ab_glyph -> owned_ttf_parser -> ttf-parser`, which is unmaintained
+  (RUSTSEC-2026-0192) with no safe upgrade. KWin provides server-side decorations, so
+  the loss only affects compositors that offer none — chiefly GNOME.
+- Internal crates carry an explicit `version` alongside `path`. A bare path dependency
+  is a wildcard requirement, which the ban policy rejects and which would block
+  publishing.
+- `CC0-1.0` is allowed: a public-domain dedication, reached via `hexf-parse` under
+  naga.
+- `cargo-deny` is installed in the agent user's `~/.cargo/bin`, so the supply-chain
+  gate can be reproduced locally before pushing.
 
 ### Packages
 

@@ -33,8 +33,35 @@
 
 mod scene;
 
-use pdf_render::{ClipId, Color, DisplayList, Raster, RasterFormat, Rasterizer, TargetSpec};
+use pdf_render::{
+    ClipId, Color, DisplayList, Raster, RasterFormat, Rasterizer, TargetSpec, Transform,
+};
 use vello::wgpu;
+
+/// Translates a display list into a Vello scene.
+///
+/// `to_device` maps page space to device space.
+///
+/// Exposed because window presentation needs the *same* translation as offscreen
+/// rasterisation, but renders into a surface texture this crate did not allocate. A
+/// caller that reimplemented the translation would silently drift — clips, blend modes
+/// and stroke handling would diverge from what the tests cover, so the window would
+/// show something the test suite never checks.
+///
+/// This does leak `vello::Scene` into the public API. That is acceptable for a crate
+/// whose entire purpose is the Vello backend, and the display list remains the
+/// portable contract.
+///
+/// # Errors
+///
+/// As [`GpuRasterizer::rasterize`]: unsupported commands or paints, and dangling or
+/// cyclic clip chains.
+pub fn build_scene(
+    list: &DisplayList,
+    to_device: Transform,
+) -> Result<vello::Scene, GpuRasterError> {
+    scene::build(list, to_device)
+}
 
 /// How long to wait for the GPU before giving up on a readback.
 ///

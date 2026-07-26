@@ -33,10 +33,10 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Instant;
 
-use pdf_render::{TargetSpec, Transform};
+use pdf_render::TargetSpec;
 use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu::CurrentSurfaceTexture;
-use vello::{AaConfig, AaSupport, Renderer, RendererOptions, Scene, wgpu};
+use vello::{AaConfig, AaSupport, Renderer, RendererOptions, wgpu};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -192,9 +192,11 @@ fn render(context: &RenderContext, state: &mut State) {
     let width = state.surface.config.width;
     let height = state.surface.config.height;
 
-    // Fit the page to the window rather than assuming a scale, so resizing is visibly
-    // correct rather than merely not crashing.
-    let scale = f64::from(width) / f64::from(list.page_size.width);
+    // Fit the whole page inside the window, taking the smaller of the two ratios so that
+    // neither dimension overflows. Fitting on width alone crops the bottom whenever the
+    // window is proportionally taller than the page.
+    let scale = (f64::from(width) / f64::from(list.page_size.width))
+        .min(f64::from(height) / f64::from(list.page_size.height));
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a window dimension divided by a page dimension is a small ratio"
@@ -202,9 +204,11 @@ fn render(context: &RenderContext, state: &mut State) {
     let target =
         TargetSpec::for_page(&list, scale as f32, GENEROUS).expect("window-sized target is valid");
 
-    // The device transform from `for_page` assumes a page-sized raster; here the raster
-    // is the window, so the surface dimensions are used directly.
-    let scene = build_scene(&list, target.transform);
+    // Deliberately the same translation the headless tests exercise, rather than a
+    // second one that could drift from it. An earlier version of this spike had its own
+    // simplified builder that ignored clips, so the window showed a scene the test suite
+    // never checked — exactly the divergence this avoids.
+    let scene = render_gpu::build_scene(&list, target.transform).expect("scene is supported");
 
     let handle = &context.devices[state.surface.dev_id];
     state
@@ -259,81 +263,4 @@ fn render(context: &RenderContext, state: &mut State) {
     );
     handle.queue.submit(Some(encoder.finish()));
     frame.present();
-}
-
-/// Builds a Vello scene directly, mirroring `render-gpu`'s translation.
-///
-/// `render-gpu`'s translation is deliberately private, since the display list is the
-/// public contract rather than the Vello scene. This spike re-implements the small
-/// subset it needs; it is not a second renderer, and nothing depends on it.
-fn build_scene(list: &pdf_render::DisplayList, to_device: Transform) -> Scene {
-    use pdf_render::{Command, Paint};
-    use vello::kurbo;
-
-    let mut scene = Scene::new();
-
-    for command in list.commands() {
-        // Clips are exercised by the headless tests; this spike draws unclipped so that
-        // it stays a windowing check rather than a second rasteriser to maintain.
-        let (Command::Fill {
-            path,
-            transform,
-            paint,
-            ..
-        }
-        | Command::Stroke {
-            path,
-            transform,
-            paint,
-            ..
-        }) = command
-        else {
-            continue;
-        };
-
-        let mut bez = kurbo::BezPath::new();
-        for step in path.commands() {
-            use pdf_render::PathCommand as P;
-            match *step {
-                P::MoveTo(p) => bez.move_to((f64::from(p.x), f64::from(p.y))),
-                P::LineTo(p) => bez.line_to((f64::from(p.x), f64::from(p.y))),
-                P::CurveTo(a, b, c) => bez.curve_to(
-                    (f64::from(a.x), f64::from(a.y)),
-                    (f64::from(b.x), f64::from(b.y)),
-                    (f64::from(c.x), f64::from(c.y)),
-                ),
-                P::Close => bez.close_path(),
-            }
-        }
-
-        let combined = transform.then(to_device);
-        let affine = kurbo::Affine::new([
-            f64::from(combined.a),
-            f64::from(combined.b),
-            f64::from(combined.c),
-            f64::from(combined.d),
-            f64::from(combined.e),
-            f64::from(combined.f),
-        ]);
-
-        let Paint::Solid(colour) = *paint else {
-            continue;
-        };
-        let brush = vello::peniko::Color::new([colour.r, colour.g, colour.b, colour.a]);
-
-        match command {
-            Command::Stroke { stroke, .. } => {
-                scene.stroke(
-                    &kurbo::Stroke::new(f64::from(stroke.width)),
-                    affine,
-                    brush,
-                    None,
-                    &bez,
-                );
-            }
-            _ => scene.fill(vello::peniko::Fill::NonZero, affine, brush, None, &bez),
-        }
-    }
-
-    scene
 }

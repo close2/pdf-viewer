@@ -20,10 +20,12 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "MIT",
-    "MIT-0",
     "MPL-2.0",
     "Unicode-3.0",
     "Zlib",
+    # Public-domain dedication, so strictly more permissive than the rest of this list.
+    # Reached via hexf-parse, a hex-float parser used by naga (wgpu's shader compiler).
+    "CC0-1.0",
 ]
 confidence-threshold = 0.93
 
