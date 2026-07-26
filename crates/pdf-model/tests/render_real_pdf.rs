@@ -202,47 +202,57 @@ fn every_specification_pdf_interprets() {
     }
 }
 
-/// Renders the first page of a real document to a PNG for visual inspection.
+/// Renders real pages to PNGs for visual inspection.
 ///
 /// The metrics say text and images are being emitted; this is how a human confirms they
 /// are in the right places. Not an assertion about pixels — there is no reference to
 /// assert against while the page is still incomplete — but a failure to render at all, or
 /// a page that comes out blank, is caught here.
+///
+/// The two documents are chosen to exercise the two routes a CFF font can take to a
+/// glyph, which no metric distinguishes: `PDF20_AN001-BPC.pdf` embeds name-keyed CFF in
+/// simple fonts, and `ISO_32000-2_sponsored_EC3.pdf` embeds CID-keyed CFF in composite
+/// ones. A mapping defect in either shows up as wrong glyphs, not as an error.
 #[test]
-fn writes_an_inspectable_render_of_a_real_page() {
+fn writes_inspectable_renders_of_real_pages() {
     let doc_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc");
-    let path = doc_dir.join("PDF20_AN001-BPC.pdf");
-    let bytes = std::fs::read(&path).expect("corpus file is readable");
-
-    let document = Document::open(bytes).expect("valid PDF");
-    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-    let interpretation = pdf_model::interpret(&document, &page);
-
-    let list = interpretation.display_list;
-    assert!(
-        !list.commands().is_empty(),
-        "a real page should produce drawing commands"
-    );
-
-    let target = TargetSpec::for_page(&list, 150.0 / 72.0, GENEROUS).expect("valid target");
-    let raster = CpuRasterizer::new()
-        .rasterize(&list, target)
-        .expect("supported");
-
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("real-page");
     std::fs::create_dir_all(&dir).expect("writable");
-    let out = dir.join("page1.png");
 
-    let file = std::fs::File::create(&out).expect("writable");
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), raster.width, raster.height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder
-        .write_header()
-        .expect("valid header")
-        .write_image_data(&raster.data)
-        .expect("pixel data matches the dimensions");
+    for (file, label) in [
+        ("PDF20_AN001-BPC.pdf", "name-keyed-cff"),
+        ("ISO_32000-2_sponsored_EC3.pdf", "cid-keyed-cff"),
+        ("Well-Tagged-PDF-WTPDF-1.0.pdf", "mixed"),
+    ] {
+        let bytes = std::fs::read(doc_dir.join(file)).expect("corpus file is readable");
+        let document = Document::open(bytes).expect("valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let interpretation = pdf_model::interpret(&document, &page);
 
-    println!("wrote {}", out.display());
-    println!("unsupported: {:?}", interpretation.unsupported);
+        let list = interpretation.display_list;
+        assert!(
+            !list.commands().is_empty(),
+            "{file}: a real page should produce drawing commands"
+        );
+
+        let target = TargetSpec::for_page(&list, 150.0 / 72.0, GENEROUS).expect("valid target");
+        let raster = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+
+        let out = dir.join(format!("{label}.png"));
+        let handle = std::fs::File::create(&out).expect("writable");
+        let mut encoder =
+            png::Encoder::new(std::io::BufWriter::new(handle), raster.width, raster.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .expect("valid header")
+            .write_image_data(&raster.data)
+            .expect("pixel data matches the dimensions");
+
+        println!("wrote {}", out.display());
+        println!("  {file} unsupported: {:?}", interpretation.unsupported);
+    }
 }

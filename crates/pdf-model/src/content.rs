@@ -41,6 +41,15 @@ const MAX_STATE_DEPTH: usize = 256;
 /// a decompression bomb aimed at the renderer rather than at memory.
 const MAX_OPERATIONS: usize = 4_000_000;
 
+/// Most operands one operator may take before the rest are refused.
+///
+/// Every operator in the specification takes at most six operands except `TJ` and `d`,
+/// which take arrays. A `TJ` array holds one entry per text run and one per kerning
+/// adjustment between them, so a single justified line of text routinely runs to several
+/// hundred entries — a bound of 64 silently cut real sentences in half. This is set well
+/// above any legitimate line while still bounding what one operator can allocate.
+const MAX_OPERANDS: usize = 8192;
+
 /// Deepest nesting of form `XObject`s.
 ///
 /// A form may draw another form, and a form that draws itself is a cycle. The
@@ -89,6 +98,16 @@ pub struct Interpretation {
     pub display_list: DisplayList,
     /// What could not be drawn. Empty means the page is complete.
     pub unsupported: Vec<Unsupported>,
+    /// The page's text, in the order the content stream showed it.
+    ///
+    /// Produced by the same pass that draws the glyphs, and from the same code-to-glyph
+    /// decisions, which is what makes it worth comparing against another extractor: a
+    /// difference is evidence about the *rendering*, not about a separate text pipeline
+    /// that might be wrong in its own way.
+    ///
+    /// This is reading order as the producer wrote it, which is not always visual order.
+    /// It carries no layout analysis and does not try to reconstruct columns.
+    pub text: String,
 }
 
 impl Interpretation {
@@ -213,6 +232,8 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         text_operations: 0,
         operations: 0,
         fonts: BTreeMap::new(),
+        text: String::new(),
+        text_cursor: None,
     };
 
     let base = base_transform(page);
@@ -229,6 +250,7 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
     Interpretation {
         display_list: interpreter.list,
         unsupported,
+        text: interpreter.text,
     }
 }
 
@@ -277,6 +299,10 @@ struct Interpreter<'a> {
     /// A page names the same font on every `Tf`, and parsing a font program is expensive,
     /// so this is what keeps text rendering from being dominated by font loading.
     fonts: BTreeMap<String, Option<Rc<pdf_font::LoadedFont>>>,
+    /// The page's text, accumulated as the glyphs are placed.
+    text: String,
+    /// Where the last glyph ended, used to decide where a space belongs.
+    text_cursor: Option<(f32, f32)>,
 }
 
 impl Interpreter<'_> {
@@ -332,8 +358,18 @@ impl Interpreter<'_> {
             let operator = match token {
                 pdf_syntax::Token::Keyword(word) => word,
                 other => {
-                    if operands.len() < 64 {
+                    if operands.len() < MAX_OPERANDS {
                         operands.push(token_to_object(other));
+                    } else {
+                        // Dropping operands silently truncates the page: a `TJ` array is
+                        // one operand per run *and* per kerning adjustment, so a single
+                        // justified line can be hundreds, and the text simply stopped
+                        // mid-sentence with nothing reported. The bound stays, because a
+                        // hostile stream can otherwise make one operator allocate without
+                        // limit — but reaching it is now a reported defect.
+                        self.note(Unsupported::LimitReached {
+                            limit: "MAX_OPERANDS",
+                        });
                     }
                     continue;
                 }
@@ -1115,8 +1151,40 @@ impl Interpreter<'_> {
         let size = state.text.size;
         let scale = state.text.horizontal_scale;
 
+        // How wide a gap has to be before it means a word break rather than kerning.
+        //
+        // Measured against the font's own space, because that is what a word break is made
+        // of. A fixed fraction of the font size cannot work: a title set with loose
+        // tracking moves each glyph further than a body-text space, and judging it by size
+        // alone spells "Clarification" as "Clar if ic at ion".
+        let space_em = font.advance(32);
+        let word_gap = if space_em > 0.0 {
+            space_em * size * 0.6
+        } else {
+            size * 0.25
+        };
+
         for code in font.decode(bytes) {
             let advance_em = font.advance(code);
+
+            // A content stream has no notion of words or lines; it has positions. A glyph
+            // placed left of, or well below, where the last one ended began a new line,
+            // and one placed a noticeable gap to the right of it began a new word. These
+            // are the only two separators reconstructed, because anything more is layout
+            // analysis and belongs to a consumer of this text rather than to the drawing
+            // pass. `pdftotext` does do that analysis, which is why the comparison
+            // normalises whitespace away.
+            // The text-space origin under the matrix is simply its translation.
+            let here = (text_matrix.e, text_matrix.f);
+            if let Some((last_x, last_y)) = self.text_cursor {
+                let gap = here.0 - last_x;
+                if (here.1 - last_y).abs() > size * 0.5 {
+                    self.text.push('\n');
+                } else if gap > word_gap {
+                    self.text.push(' ');
+                }
+            }
+            font.text(code, &mut self.text);
 
             if !invisible
                 && size != 0.0
@@ -1152,6 +1220,7 @@ impl Interpreter<'_> {
             };
             let shift = (advance_em * size + state.text.char_spacing + word) * scale;
             *text_matrix = Transform::translate(shift, 0.0).then(*text_matrix);
+            self.text_cursor = Some((text_matrix.e, text_matrix.f));
         }
 
         if matches!(state.text.render_mode, 1 | 2 | 5 | 6) {
