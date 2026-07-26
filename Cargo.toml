@@ -95,6 +95,13 @@ seccompiler = "0.5.0"
 # Development-only. Cargo has no `workspace.dev-dependencies`; these are declared
 # here and referenced from a member's `[dev-dependencies]` with `workspace = true`.
 criterion = "0.8.2"
+# Instruction-count benchmarking, through Valgrind. Wall-clock timings vary with CPU
+# frequency, thermal state and whatever else the machine is doing — during this project's
+# own work a change measured as both a 24% regression and an 8.5% improvement twenty
+# minutes apart, purely from background build load. Counting instructions is deterministic,
+# which is what a CI gate needs to be. Requires `valgrind`, and
+# `cargo install iai-callgrind-runner` at a matching version.
+iai-callgrind = "0.16.1"
 proptest = "1.11.0"
 # PNG encoding for test artefacts and, later, the comparison harness. Straight-alpha
 # RGBA in, which matches `Raster`'s documented format with no conversion.

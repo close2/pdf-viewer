@@ -6,9 +6,24 @@
 [advisories]
 version = 2
 yanked = "deny"
-# No ignores. An accepted advisory must be recorded here with a comment explaining
-# why it does not apply, so that the exception is reviewable rather than invisible.
-ignore = []
+# An accepted advisory is recorded here with a comment explaining why it does not apply,
+# so that the exception is reviewable rather than invisible.
+ignore = [
+    # Both reach the tree only through `iai-callgrind`, which is a dev-dependency of
+    # `pdf-model` used to count instructions for the performance gates. Neither appears in
+    # the shipped dependency graph at all — `cargo tree -e normal --workspace` finds no
+    # occurrence of either — so no code a user runs contains them.
+    #
+    # Both advisories are "unmaintained" rather than a vulnerability: no exploit, no fix to
+    # take. The exposure is limited to a developer or CI machine running `cargo bench`, and
+    # the alternative is to give up deterministic performance measurement, which the
+    # startup and page-turn gates in CLAUDE.md depend on.
+    #
+    # Revisit when iai-callgrind updates: `bincode` has several maintained replacements and
+    # `proc-macro-error2` is only used by its macro crate.
+    "RUSTSEC-2025-0141", # bincode 1.x unmaintained, via iai-callgrind
+    "RUSTSEC-2026-0173", # proc-macro-error2 unmaintained, via iai-callgrind-macros
+]
 
 [licenses]
 version = 2

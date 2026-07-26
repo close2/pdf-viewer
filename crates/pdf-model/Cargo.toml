@@ -17,6 +17,7 @@ zune-jpeg.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+iai-callgrind.workspace = true
 pdfref.workspace = true
 png.workspace = true
 raster-compare.workspace = true
@@ -28,4 +29,8 @@ workspace = true
 
 [[bench]]
 name = "interpret"
+harness = false
+
+[[bench]]
+name = "instructions"
 harness = false
