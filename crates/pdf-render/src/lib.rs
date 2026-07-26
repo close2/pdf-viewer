@@ -26,7 +26,7 @@ pub mod display_list;
 pub mod geom;
 pub mod paint;
 
-pub use backend::{Raster, RasterFormat, Rasterizer, TargetSpec};
-pub use display_list::{ClipId, Command, DisplayList};
+pub use backend::{BackendError, MAX_EXTENT, Raster, RasterFormat, Rasterizer, TargetSpec};
+pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use paint::{BlendMode, Color, FillRule, LineCap, LineJoin, Paint, Stroke};

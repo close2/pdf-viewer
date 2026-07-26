@@ -34,6 +34,11 @@ rayon = "1.12.0"
 # costs no safety.
 flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
 
+# CPU rasteriser. Chosen over vello_cpu for maturity: this backend is the
+# correctness oracle and sits on the startup critical path, so predictability
+# outranks sharing a scene model with the GPU backend. See doc/adr/0002.
+tiny-skia = "0.12.0"
+
 # Fonts. Memory-safe replacement for FreeType; covers OpenType/TrueType/CFF.
 # Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.
 skrifa = "0.45.1"
@@ -50,6 +55,9 @@ seccompiler = "0.5.0"
 # here and referenced from a member's `[dev-dependencies]` with `workspace = true`.
 criterion = "0.8.2"
 proptest = "1.11.0"
+# PNG encoding for test artefacts and, later, the comparison harness. Straight-alpha
+# RGBA in, which matches `Raster`'s documented format with no conversion.
+png = "0.18.1"
 
 # Lints applied to every member via `[lints] workspace = true`.
 #

@@ -8,6 +8,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+pdf-render.workspace = true
+thiserror.workspace = true
+tiny-skia.workspace = true
+
+[dev-dependencies]
+png.workspace = true
 
 [lints]
 workspace = true

@@ -68,6 +68,19 @@ while the GPU initialises on another thread (see `CLAUDE.md` principle 2). That 
 CPU backend on the **startup critical path**, not merely in the test harness — which
 raises the bar on its maturity and predictability further still.
 
-Consequence to watch: `tiny-skia` covers a subset of Skia. Coverage of soft masks and the
-four non-separable blend modes must be confirmed during Phase 5A, and anything missing is
-implemented in `render-cpu` above `tiny-skia` rather than worked around silently.
+Coverage was the main risk, since `tiny-skia` implements a subset of Skia. Checked
+against 0.12.0 during Phase 5A:
+
+- **All sixteen PDF blend modes are present**, including the four non-separable ones
+  (`Hue`, `Saturation`, `Color`, `Luminosity`). The mapping in `render-cpu::convert` is
+  therefore total, with no fallback arm that could silently composite incorrectly.
+- **Clipping** is covered by `Mask` with `fill_path` and `intersect_path`, which supports
+  the nested clip chains PDF produces.
+- **Soft masks** appear feasible via `Mask::from_pixmap` with a luminance mask type,
+  though this is not yet exercised.
+
+Still to confirm: shadings (PDF types 1–7) and tiling patterns have no direct
+`tiny-skia` equivalent beyond linear and radial gradients, so higher shading types will
+be evaluated in `render-cpu` above `tiny-skia`. Anything missing is implemented there
+rather than worked around silently — unsupported input returns an error, so the
+comparison harness sees a failure rather than a plausible-looking wrong image.

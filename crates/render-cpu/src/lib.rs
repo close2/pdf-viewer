@@ -1,19 +1,320 @@
 //! CPU rasteriser backend; the correctness oracle for the GPU backend.
 //!
-//! Implements [`pdf_render::Rasterizer`] on the CPU. Its role is twofold: it is the
-//! fallback when no usable GPU is present, and — more importantly — it is the
-//! reference against which `render-gpu` is validated.
+//! Implements [`pdf_render::Rasterizer`] on the CPU using `tiny-skia`. This backend
+//! has three jobs, and the second and third are why it exists first:
 //!
-//! That second role is why this backend exists first. Both backends consume the same
-//! [`pdf_render::DisplayList`], so any difference between their outputs is a backend
-//! defect rather than a difference in how the document was interpreted. That is a far
-//! tighter test than comparing against another PDF viewer, where antialiasing and
-//! colour handling differ for legitimate reasons.
+//! 1. It renders when no usable GPU is present.
+//! 2. It is the **reference** against which `render-gpu` is validated. Both backends
+//!    consume the same [`pdf_render::DisplayList`], so any difference between their
+//!    outputs is a backend defect rather than a difference in how the document was
+//!    interpreted — a far tighter test than comparing against another PDF viewer,
+//!    where antialiasing and colour handling differ for legitimate reasons.
+//! 3. It is the **startup path**. Creating a GPU device and compiling pipelines costs
+//!    tens to hundreds of milliseconds, so page one renders here while the GPU
+//!    initialises on another thread.
 //!
-//! Correctness therefore outranks speed here, and where the two conflict this
-//! backend chooses the clearer construction. Speed is `render-gpu`'s responsibility.
-//!
-//! Implemented in Phase 5A. The rasteriser library choice is still open — see
-//! `doc/adr/0002-cpu-rasteriser.md`.
+//! Correctness therefore outranks speed in this crate. Where the two conflict, this
+//! backend takes the clearer construction and leaves optimisation to `render-gpu`.
+//! See `doc/adr/0002-cpu-rasteriser-first.md`.
 
 #![forbid(unsafe_code)]
+
+mod convert;
+
+use std::collections::{HashMap, HashSet};
+
+use pdf_render::display_list::Clip;
+use pdf_render::{
+    BackendError, ClipId, Color, Command, DisplayList, Paint, Raster, RasterFormat, Rasterizer,
+    TargetSpec,
+};
+
+/// Renders display lists on the CPU.
+#[derive(Debug, Clone)]
+pub struct CpuRasterizer {
+    background: Color,
+    anti_alias: bool,
+}
+
+impl CpuRasterizer {
+    /// Creates a rasteriser that paints onto an opaque white background.
+    ///
+    /// White rather than transparent because a PDF page is conceptually opaque white
+    /// unless the document paints otherwise, and because the reference renderers used
+    /// by the comparison harness (`pdftoppm`, `mutool draw`) do the same. Matching
+    /// them removes an entire class of spurious differences.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            background: Color::WHITE,
+            anti_alias: true,
+        }
+    }
+
+    /// Sets the background colour painted before any command.
+    ///
+    /// [`Color::TRANSPARENT`] is the right choice when compositing a page over
+    /// something else, such as a page-edge shadow in the viewer.
+    #[must_use]
+    pub fn with_background(mut self, background: Color) -> Self {
+        self.background = background;
+        self
+    }
+
+    /// Enables or disables antialiasing.
+    ///
+    /// Disabling it is useful when diffing against a reference renderer that was
+    /// itself run without antialiasing, since it makes exact pixel comparison
+    /// meaningful rather than merely approximate.
+    #[must_use]
+    pub fn with_anti_alias(mut self, anti_alias: bool) -> Self {
+        self.anti_alias = anti_alias;
+        self
+    }
+
+    /// Builds the `tiny-skia` paint for a resolved paint and blend mode.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CpuRasterError::UnsupportedPaint`] for a paint variant this backend
+    /// does not implement yet. [`Paint`] is `#[non_exhaustive]`, so shadings and
+    /// patterns will be added to it before this backend handles them; failing loudly
+    /// in the interim is deliberate, because a silent fallback colour would give the
+    /// comparison harness a plausible-looking wrong image.
+    fn paint(
+        &self,
+        paint: Paint,
+        blend: pdf_render::BlendMode,
+    ) -> Result<tiny_skia::Paint<'static>, CpuRasterError> {
+        let colour = match paint {
+            Paint::Solid(colour) => colour,
+            other => return Err(CpuRasterError::UnsupportedPaint(format!("{other:?}"))),
+        };
+        Ok(tiny_skia::Paint {
+            shader: tiny_skia::Shader::SolidColor(convert::color(colour)),
+            blend_mode: convert::blend_mode(blend),
+            anti_alias: self.anti_alias,
+            ..tiny_skia::Paint::default()
+        })
+    }
+}
+
+impl Default for CpuRasterizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Rasterizer for CpuRasterizer {
+    type Error = CpuRasterError;
+
+    fn name(&self) -> &'static str {
+        "cpu"
+    }
+
+    fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
+        let mut pixmap = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+            CpuRasterError::Allocation {
+                width: target.width,
+                height: target.height,
+            },
+        )?;
+        pixmap.fill(convert::color(self.background));
+
+        let to_device = target.transform;
+        let mut masks = MaskCache::new(target, self.anti_alias);
+
+        for command in list.commands() {
+            // Resolved before the match so that both arms share one code path for
+            // clip handling; a per-arm lookup would be a place for them to diverge.
+            let clip = match command.clip() {
+                Some(id) => Some(masks.get(list, id)?),
+                None => None,
+            };
+
+            match command {
+                Command::Fill {
+                    path,
+                    transform,
+                    fill_rule,
+                    paint,
+                    blend,
+                    ..
+                } => {
+                    let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
+                    pixmap.fill_path(
+                        &path,
+                        &self.paint(*paint, *blend)?,
+                        convert::fill_rule(*fill_rule),
+                        convert::transform(transform.then(to_device)),
+                        clip,
+                    );
+                }
+                Command::Stroke {
+                    path,
+                    transform,
+                    stroke,
+                    paint,
+                    blend,
+                    ..
+                } => {
+                    let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
+                    pixmap.stroke_path(
+                        &path,
+                        &self.paint(*paint, *blend)?,
+                        &convert::stroke(stroke),
+                        convert::transform(transform.then(to_device)),
+                        clip,
+                    );
+                }
+                // `Command` is `#[non_exhaustive]`, so text and image commands will
+                // appear here before this backend implements them. Erroring keeps an
+                // unimplemented command visible instead of rendering a page that looks
+                // almost right.
+                other => {
+                    return Err(CpuRasterError::UnsupportedCommand(format!("{other:?}")));
+                }
+            }
+        }
+
+        Ok(Raster {
+            width: target.width,
+            height: target.height,
+            format: RasterFormat::Rgba8,
+            // `tiny-skia` stores premultiplied alpha internally; `Raster` is documented
+            // as straight alpha, so the conversion happens here at the backend boundary
+            // rather than being left to every consumer to remember.
+            data: pixmap.take_demultiplied(),
+        })
+    }
+}
+
+/// Builds and memoises clip masks.
+///
+/// A clip commonly applies to thousands of consecutive commands, so rasterising its
+/// mask once per command would dominate the render. Masks are built on first use and
+/// reused for the remainder of the page.
+struct MaskCache {
+    target: TargetSpec,
+    anti_alias: bool,
+    built: HashMap<ClipId, tiny_skia::Mask>,
+}
+
+impl MaskCache {
+    fn new(target: TargetSpec, anti_alias: bool) -> Self {
+        Self {
+            target,
+            anti_alias,
+            built: HashMap::new(),
+        }
+    }
+
+    /// Returns the mask for `id`, building it and any missing ancestors.
+    fn get(&mut self, list: &DisplayList, id: ClipId) -> Result<&tiny_skia::Mask, CpuRasterError> {
+        if !self.built.contains_key(&id) {
+            let chain = Self::resolve_chain(list, id)?;
+            self.build_chain(list, &chain)?;
+        }
+        self.built.get(&id).ok_or(CpuRasterError::UnknownClip(id))
+    }
+
+    /// Walks parent links from `id` to the root, returning the chain root-first.
+    ///
+    /// Iterative rather than recursive, and bounded by a seen-set: a deep or cyclic
+    /// chain is reachable from a malformed document, and recursion there would exhaust
+    /// the stack. Both a cycle and a dangling reference are reported as errors.
+    fn resolve_chain(list: &DisplayList, id: ClipId) -> Result<Vec<ClipId>, CpuRasterError> {
+        let mut chain = Vec::new();
+        let mut seen = HashSet::new();
+        let mut current = Some(id);
+
+        while let Some(this) = current {
+            if !seen.insert(this) {
+                return Err(CpuRasterError::CyclicClip(this));
+            }
+            let clip = list.clip(this).ok_or(CpuRasterError::UnknownClip(this))?;
+            chain.push(this);
+            current = clip.parent;
+        }
+
+        chain.reverse();
+        Ok(chain)
+    }
+
+    /// Builds every mask in a root-first chain, reusing any already built.
+    fn build_chain(&mut self, list: &DisplayList, chain: &[ClipId]) -> Result<(), CpuRasterError> {
+        for &id in chain {
+            if self.built.contains_key(&id) {
+                continue;
+            }
+            let clip = list.clip(id).ok_or(CpuRasterError::UnknownClip(id))?;
+            let mask = self.build_one(clip)?;
+            self.built.insert(id, mask);
+        }
+        Ok(())
+    }
+
+    /// Builds a single mask. Requires that any parent has already been built.
+    fn build_one(&self, clip: &Clip) -> Result<tiny_skia::Mask, CpuRasterError> {
+        let path = convert::path(&clip.path).ok_or(CpuRasterError::InvalidPath)?;
+        let transform = convert::transform(clip.transform.then(self.target.transform));
+        let fill_rule = convert::fill_rule(clip.fill_rule);
+
+        if let Some(parent) = clip.parent {
+            // Nested: start from the parent's coverage and intersect, so the effective
+            // clip is the intersection of the whole chain.
+            let mut mask = self
+                .built
+                .get(&parent)
+                .ok_or(CpuRasterError::UnknownClip(parent))?
+                .clone();
+            mask.intersect_path(&path, fill_rule, self.anti_alias, transform);
+            Ok(mask)
+        } else {
+            // Root: a fresh mask is fully opaque-clipped, so filling the path opens it.
+            let mut mask = tiny_skia::Mask::new(self.target.width, self.target.height).ok_or(
+                CpuRasterError::Allocation {
+                    width: self.target.width,
+                    height: self.target.height,
+                },
+            )?;
+            mask.fill_path(&path, fill_rule, self.anti_alias, transform);
+            Ok(mask)
+        }
+    }
+}
+
+/// Failures specific to the CPU backend.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum CpuRasterError {
+    /// A pixmap or mask of the requested size could not be allocated.
+    #[error("could not allocate a {width}x{height} buffer")]
+    Allocation {
+        /// Requested width in pixels.
+        width: u32,
+        /// Requested height in pixels.
+        height: u32,
+    },
+    /// A path was empty or contained non-finite coordinates.
+    ///
+    /// Reported rather than skipped: silently drawing nothing would hand the
+    /// comparison harness a plausible-looking wrong image instead of a failure.
+    #[error("path is empty or contains non-finite coordinates")]
+    InvalidPath,
+    /// A command referenced a clip that is not present in the display list.
+    #[error("clip {0:?} is not present in this display list")]
+    UnknownClip(ClipId),
+    /// A clip's parent chain forms a cycle.
+    #[error("clip {0:?} is part of a cyclic parent chain")]
+    CyclicClip(ClipId),
+    /// A command variant this backend does not implement yet.
+    #[error("command not supported by the CPU backend: {0}")]
+    UnsupportedCommand(String),
+    /// A paint variant this backend does not implement yet.
+    #[error("paint not supported by the CPU backend: {0}")]
+    UnsupportedPaint(String),
+    /// A failure originating in the shared backend layer.
+    #[error(transparent)]
+    Target(#[from] BackendError),
+}
