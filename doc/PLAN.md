@@ -35,8 +35,8 @@ vector art, high-DPI, and thumbnail grids.
 
 **Why CPU first.** Reaches a correct rendered page soonest, and yields a **same-scene
 oracle**: diffing our own CPU and GPU backends on an identical display list is far tighter
-than any cross-viewer comparison, because both consume the same input. `vello_cpu` keeps
-both backends on one scene model, so the swap stays cheap.
+than any cross-viewer comparison, because both consume the same input. Measured at mean
+0.0136/255 between `tiny-skia` and Vello — see ADR 0004.
 
 **Why Qt was dropped.** Qt was justified by native KDE file dialogs and accessibility.
 Neither holds: `xdg-desktop-portal-kde` is installed, so *any* toolkit gets native KDE
@@ -69,7 +69,7 @@ pdf-viewer/
 │  ├─ pdf-model/      # document model, page tree              [forbid(unsafe_code)]
 │  ├─ pdf-font/       # skrifa integration, Type1/Type3        [forbid(unsafe_code)]
 │  ├─ pdf-render/     # display list, backend trait            [forbid(unsafe_code)]
-│  ├─ render-cpu/     # vello_cpu backend — the oracle
+│  ├─ render-cpu/     # tiny-skia backend — oracle + startup path
 │  ├─ render-gpu/     # vello/wgpu backend              [unsafe allowed]
 │  ├─ pdf-sandbox/    # seccomp + landlock + IPC
 │  ├─ viewer-core/    # app logic, toolkit-agnostic
@@ -89,7 +89,7 @@ compiler-enforced rather than conventional.
 - [x] rustup adopted; stable 1.97.1 + nightly with Miri installed
 - [x] `rust-toolchain.toml` pinned to an exact version
 - [x] `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.gitignore`
-- [ ] Vulkan packages (§7) — needs a global install
+- [x] Vulkan packages: vulkan-radeon, vulkan-swrast, validation layers, mupdf
 - [x] CI — GitHub Actions in `.github/workflows/ci.yml`: fmt, clippy, tests with
       `mesa-vulkan-drivers` for a software Vulkan adapter, `cargo-deny`, and an advisory
       Miri job
@@ -131,8 +131,11 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
 - **B.** ~~GPU backend on Vello/wgpu.~~ **Done (headless part).** Offscreen render with
   no window or display server; cross-backend agreement with `render-cpu` verified within
   measured tolerances; row-padding readback covered. 7 tests. See ADR 0004.
-  *Outstanding:* the winit window that presents a surface, which cannot be verified
-  headlessly and is left for manual confirmation.
+  The interactive half is `cargo run --release --example spike-window -p viewer-ui`:
+  winit 0.30 window, Vello scene blitted to the swapchain, resize handling, frame times
+  on stdout. It compiles and links but is **unverified by the agent** — running it needs
+  an X authority cookie that the `AI` user does not have, so it fails at
+  `XOpenDisplayFailed`. Manual confirmation required.
 - **C.** Arlington TSV → generated Rust validation tables; verify against a known object.
 - **D.** Sandboxed child process returning a tile over shared memory.
 - **E.** Harness end-to-end: CPU-backend render vs `pdftoppm` on a hand-written PDF.
