@@ -24,6 +24,7 @@
 #![forbid(unsafe_code)]
 
 pub mod content;
+pub mod function;
 pub mod image;
 pub mod page;
 
