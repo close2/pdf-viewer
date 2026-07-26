@@ -343,19 +343,32 @@ fn unpack(
                 (ColourSpace::Cmyk, _) => {
                     let at = x.saturating_mul(4);
                     let read = |offset: usize| {
-                        maybe_invert(
+                        f32::from(maybe_invert(
                             row.get(at.saturating_add(offset)).copied().unwrap_or(0),
                             invert,
-                        )
+                        )) / 255.0
                     };
-                    let (c, m, y_, k) = (read(0), read(1), read(2), read(3));
-                    // The same naive conversion the content interpreter uses, for the same
-                    // reason: colour management belongs with the colour work.
-                    let inv = |value: u8| 255u16.saturating_sub(u16::from(value));
-                    let combine = |component: u8| {
-                        u8::try_from(inv(component).saturating_mul(inv(k)) / 255).unwrap_or(0)
+                    // The *same* conversion a `k` operator or an `scn` in DeviceCMYK gets.
+                    // Having a second one here is how the same colour came to render
+                    // differently depending on whether it was drawn as a fill or as an
+                    // image, which is exactly the bug this crate should not have.
+                    let colour = crate::colour::ColourSpace::Cmyk.to_rgb(&[
+                        read(0),
+                        read(1),
+                        read(2),
+                        read(3),
+                    ]);
+                    let byte = |value: f32| {
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            clippy::cast_sign_loss,
+                            reason = "a colour component is clamped to 0.0..=1.0 upstream"
+                        )]
+                        {
+                            (value.clamp(0.0, 1.0) * 255.0).round() as u8
+                        }
                     };
-                    out.extend_from_slice(&[combine(c), combine(m), combine(y_), 255]);
+                    out.extend_from_slice(&[byte(colour.r), byte(colour.g), byte(colour.b), 255]);
                 }
             }
         }

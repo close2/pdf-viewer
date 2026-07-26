@@ -244,13 +244,20 @@ fn a_shading_in_another_colour_space_is_converted() {
                 /C0 [0 1 1 0] /C1 [1 1 0 0] /N 1 >> >>";
     let raster = render(pdf_with(cmyk, "/Sh0 sh"));
 
-    // Cyan 0, magenta 1, yellow 1 is red; cyan 1, magenta 1, yellow 0 is blue.
+    // Cyan 0, magenta 1, yellow 1 is process red, and cyan 1, magenta 1, yellow 0 is
+    // process blue — not the `#FF0000` and `#0000FF` a naive conversion gives. The point
+    // of the test is that the shading is converted through the same colour space as
+    // everything else, so the values are the ones `colour.rs` pins against the reference
+    // renderers, give or take the ramp's own sampling.
     let (r, g, b, _) = pixel(&raster, 1, 50);
-    assert!(r > 240 && g < 15 && b < 15, "expected red, got {r},{g},{b}");
+    assert!(
+        (225..=245).contains(&r) && g < 40 && b < 50,
+        "expected process red near (237,28,36), got {r},{g},{b}"
+    );
     let (r, g, b, _) = pixel(&raster, 98, 50);
     assert!(
-        r < 15 && g < 15 && b > 240,
-        "expected blue, got {r},{g},{b}"
+        r < 60 && g < 60 && (135..=160).contains(&b),
+        "expected process blue near (46,49,146), got {r},{g},{b}"
     );
 }
 

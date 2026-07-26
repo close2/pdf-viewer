@@ -629,7 +629,7 @@ impl Interpreter<'_> {
                 }
                 b"k" | b"K" => {
                     if let Some(values) = numbers_from(&operands, 4) {
-                        let colour = cmyk(values[0], values[1], values[2], values[3]);
+                        let colour = ColourSpace::Cmyk.to_rgb(&values);
                         assign_colour(
                             &mut state,
                             operator.as_slice() == b"k",
@@ -1788,25 +1788,6 @@ fn cell_extent(bbox: &[f32], axis: usize) -> Option<f32> {
     let low = bbox.get(axis)?;
     let high = bbox.get(axis.checked_add(2)?)?;
     non_zero(high - low)
-}
-
-/// Converts CMYK to RGB.
-///
-/// The naive conversion, which is what a viewer without colour management can do. A
-/// managed pipeline would run the values through the document's output intent; that belongs
-/// with the colour work, and doing it approximately here is honest about being approximate.
-fn cmyk(c: f32, m: f32, y: f32, k: f32) -> Color {
-    let (c, m, y, k) = (
-        clamp_unit(c.into()),
-        clamp_unit(m.into()),
-        clamp_unit(y.into()),
-        clamp_unit(k.into()),
-    );
-    Color::rgb(
-        (1.0 - c) * (1.0 - k),
-        (1.0 - m) * (1.0 - k),
-        (1.0 - y) * (1.0 - k),
-    )
 }
 
 /// Clamps a value to `0.0..=1.0` as an `f32`.
