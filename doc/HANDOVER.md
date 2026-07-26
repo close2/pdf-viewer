@@ -1,22 +1,22 @@
 # Handover
 
-Written 2026-07-26, at the end of the first working session. Read `/CLAUDE.md` first —
-it holds the four non-negotiable principles and they are not optional. This file is the
-state of play, the traps, and what to do next.
+Written 2026-07-26, updated at the end of the second working session. Read `/CLAUDE.md`
+first — it holds the four non-negotiable principles and they are not optional. This file
+is the state of play, the traps, and what to do next.
 
 ## Where we are
 
-A PDF **renderer** that opens real files and draws pages. Not yet a viewer you would read
-a document in, because a good share of text still does not render — see
-[The single most valuable next task](#the-single-most-valuable-next-task).
+A PDF **renderer** that opens real files and draws pages, with embedded text rendering
+correctly on every document in the corpus.
 
-- **99 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **116 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks.
-- **2 commits unpushed** at time of writing (`git log origin/main..HEAD`).
 - The parser reads all fourteen specification PDFs in `doc/`, including ISO 32000-2 itself:
   1023 pages, 101 318 objects.
 - Our render of the fixture agrees with poppler, mupdf and ghostscript, and is
   byte-identical to mupdf.
+- **Every** corpus document renders page one with nothing unsupported except shadings on
+  three of them. All fourteen extract **100% of the words `pdftotext` finds**.
 
 ### Run it
 
@@ -33,6 +33,7 @@ quits. The title bar names anything on the page that could not be drawn.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent
 cargo test --workspace
+cargo bench -p pdf-model                   # interpretation, the time-to-first-page path
 cargo deny check
 cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
 ```
@@ -44,7 +45,7 @@ cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document` | Touches untrusted bytes first |
 | `pdf-model` | Page tree, content interpreter, image decode | Where PDF semantics live |
-| `pdf-font` | Glyph outlines via `skrifa` | `cff.rs` is half-finished on purpose |
+| `pdf-font` | Glyph outlines via `skrifa` | `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path |
 | `render-gpu` | Vello/wgpu backend | Headless by construction |
@@ -68,8 +69,23 @@ drawn. It was caught only by rendering a page and looking at it.
 
 `Interpretation::is_complete()` tells you what the interpreter *knows* it skipped. It
 cannot tell you that a font loaded and produced garbage. For any font or colour work,
-render `doc/PDF20_AN001-BPC.pdf` page 1 and **look at it**. There is a test that writes
-the PNG: `cargo test -p pdf-model --test render_real_pdf -- --nocapture writes_an_inspectable`.
+render the corpus pages and **look at them**. There is a test that writes the PNGs:
+`cargo test -p pdf-model --test render_real_pdf -- --nocapture writes_inspectable`.
+It covers both CFF routes, because no metric distinguishes them.
+
+Since that warning was written, two automated checks have been added that *do* catch a
+wrong mapping, both in `crates/pdf-font/src/lib.rs`:
+
+- `the_pdf_widths_agree_with_the_font_programs_own_advances` — the document's `/Widths`
+  and the CFF charstring's own advance are independent statements of the same fact, so
+  they agree only if the code reached the glyph the producer meant. This is the strongest
+  check in the tree: it verifies the mapping without consulting the mapping.
+- `an_uncovered_code_has_no_glyph_rather_than_a_guessed_one` — pins the absence of the
+  code-as-glyph-index fall-through.
+
+Both were confirmed to fail when the defects they describe are deliberately reintroduced.
+They are complementary: an off-by-one charset trips only the first, a reinstated
+fall-through only the second. Neither replaces looking at the page.
 
 ### 2. Test against real documents, not hand-written fragments
 
@@ -121,49 +137,80 @@ Each of these is reported at runtime rather than silently skipped.
 
 | Missing | Size | Notes |
 |---|---|---|
-| Bare CFF code→glyph | Small | Container half done; see below |
-| Non-embedded fonts | Small | Needs a substitution *policy* first |
 | Embedded CMap streams | Medium | Parse `begincidrange`/`begincidchar` |
 | Predefined CMaps | Medium | Needs vendored data — licensing decision |
-| Type1 fonts | Large | eexec, Type1 charstrings, convert to Type2 |
+| Type1 fonts | Medium | `read_fonts::ps::type1` exists — check before writing any |
 | Shadings, patterns | Large | PDF types 1–7 |
 | Transparency groups, soft masks | Large | `/SMask` in `/ExtGState` |
 | JBIG2, JPX | — | **Blocked on the sandbox, deliberately** |
 | Encryption | Medium | RC4/AES, `/Encrypt` |
 | Annotations, forms | Large | |
 | Sandbox (Spike D) | Medium | seccomp-BPF + Landlock |
-| Text extraction metric | Small | Compare against `pdftotext` |
 
 ## The single most valuable next task
 
-**Bare CFF code→glyph mapping.** It unblocks four corpus documents that currently render
-no text at all, and it is contained.
+**Shadings and patterns.** It is the only thing still reported unsupported anywhere in the
+corpus (three documents, `Sh0` and an `/SMask` in `/GS3`), and PDF types 1–7 are a
+self-contained piece of work with a clear specification.
 
-Half is done: `pdf_font::cff::wrap_in_sfnt` builds an sfnt container skrifa accepts, with
-the glyph count read from the font's own `CharStrings` index. It is tested and *not* on the
-loading path.
+After that the corpus stops being a useful guide, because it will be fully rendered. The
+next targets are then chosen by what real-world documents need rather than by what `doc/`
+happens to contain: **encryption** (a large share of documents in the wild), **annotations
+and forms**, and **Type1 fonts** — for which `read_fonts::ps::type1` already exists, so
+check it before estimating.
 
-The missing half, in `crates/pdf-font/`:
+**`doc/pdf.js` is a submodule** (Apache-2.0, pinned at v6.1.200) and is worth more than the
+metrics it already supplied. `test/pdfs/` holds 974 real PDFs and 459 more behind link
+files — a corpus two orders of magnitude larger and far nastier than `doc/`, including the
+malformed files this parser will eventually meet. Running the interpreter over it is
+probably the single highest-value test expansion available. It is optional to clone: the
+generated metrics are checked in, so the build never needs it.
 
-1. Parse the CFF `charset` (formats 0, 1, 2) to get a name SID per glyph ID, resolved via
-   the standard-strings table plus the font's String INDEX. Roughly 80 lines of the same
-   byte-parsing already in `cff.rs`.
-2. Add `StandardEncoding` / `WinAnsiEncoding` tables (256 entries each) and apply
-   `/Encoding`'s `/Differences` array over the base.
-3. Join them into `name → GID`, then `code → name → GID`.
-4. Remove the refusal at `crates/pdf-font/src/lib.rs` (~line 465) and **replace the
-   fall-through in `LoadedFont::glyph_for`** — the `.or_else(|| u16::try_from(code).ok())`
-   branch is what silently produced wrong glyphs. It is correct for subset TrueType fonts
-   and wrong for CFF, so it must become conditional on the mapping.
+### Two habits this session earned
 
-Verify by rendering a page and looking at it, not by checking `unsupported`.
+**Look in `read-fonts` before writing font-format code.** The previous handover specified
+~80 lines of CFF charset parsing plus two 256-entry tables, and all of it already existed
+in `read_fonts::ps`, which `skrifa` re-exports as `skrifa::raw`. See ADR 0006. The same
+module also holds `type1`, `charmap` and `agl` — `agl` is now enabled and carries the
+Adobe Glyph List, so nothing needs transcribing.
 
-After that, **non-embedded fonts** is the next-smallest: drive advances from the PDF
-`/Widths` array regardless of which substitute font is used, so glyphs land in the right
-places even when their shapes differ.
+**Wall-clock benchmarks lie under load; count instructions instead.** A `Command::Fill`
+change measured as a 24% *regression* on `cargo bench` and as an 8.5% *improvement* twenty
+minutes later, purely from background build load. `valgrind --tool=callgrind` on
+`crates/pdf-model/examples/callgrind_interpret.rs` settled it deterministically: 2.065 G
+instructions before, 1.951 G after. Always A/B in one sitting, and prefer the instruction
+count. `iai-callgrind` wraps this into a bench harness and is the right basis for the CI
+perf gates `CLAUDE.md` asks for — not yet wired up.
+
+**Measure before optimising, and delete what does not measure.** `glyph_for` builds a
+`FontRef` per character, which looks like an obvious cache. Caching it changed a dense page
+by less than run-to-run noise (3587 lookups, 211 distinct codes), so the cache was removed
+and the reason written where the next person will look. The same session's *real* win was
+found the same way: hoisting a string allocation out of `substitute::find` took a difficult
+lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
 
 ## Things worth knowing
 
+- **`doc/md/` holds Markdown conversions of every corpus PDF**, with real tables. When you
+  need spec data — encoding tables, operator lists, value constraints — extract it from
+  there rather than writing it from memory. The `WinAnsiEncoding` and `MacRomanEncoding`
+  tables in `pdf-font` came out of `doc/md/ISO_32000-2_sponsored_EC3.md` Table D.2 that
+  way, and the extraction caught three things memory would have got wrong: PDF's
+  `MacRomanEncoding` is not Mac OS Roman, and Table D.2's *notes* assign `space` at 160
+  and 202, `hyphen` at 173, and every unused WinAnsi code above 32 to `bullet`.
+- **The Arlington model is the object model, not the semantics.** It says `/BaseEncoding`
+  must be one of three names; it does not say what those encodings contain. Do not expect
+  glyph data, operator semantics or rendering rules from it.
+- **`Interpretation::text` is a readback of what was drawn**, accumulated by the same loop
+  that places the glyphs, and `crates/pdf-model/tests/text_extraction.rs` compares it
+  against `pdftotext` over the whole corpus. It is the only check that catches a code
+  reaching a *plausible* wrong glyph. It found the operand-cap defect below on its first
+  run, and it is known to bite: reverting that fix scores 93.2%, and shifting every
+  `/ToUnicode` entry by one code scores 58.7%.
+- **Silent caps are defects, not safety.** The interpreter dropped operands past the 64th,
+  which truncated any `TJ` array holding a justified line — three sentences on the
+  specification's own title page ended mid-word, with `unsupported: []`. Bounds against
+  hostile input are right; reaching one without saying so is not. Every bound now reports.
 - **The display list is deliberately flat.** `tiny-skia` wants per-clip masks, Vello wants
   a layer stack; both translate. That neither library's model is native is the evidence the
   neutral form is right, and it is what lets the CPU backend validate the GPU one on
