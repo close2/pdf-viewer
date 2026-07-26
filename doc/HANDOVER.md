@@ -9,7 +9,7 @@ is the state of play, the traps, and what to do next.
 A PDF **renderer** that opens real files and draws pages, with embedded text rendering
 correctly on every document in the corpus.
 
-- **138 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **151 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks.
 - The parser reads all fourteen specification PDFs in `doc/`, including ISO 32000-2 itself:
   1023 pages, 101 318 objects.
@@ -18,7 +18,7 @@ correctly on every document in the corpus.
 - **Every** corpus document renders page one with nothing unsupported except a soft mask on
   three of them. All fourteen extract **100% of the words `pdftotext` finds**.
 - `doc/pdf.js` is a submodule with **974 real test documents**. All 974 open; 1501 of 1501
-  PDF functions parse; 1765 of 1793 shadings build, the 28 failures all mesh types.
+  PDF functions parse; **all 1793 shadings build**, mesh types included.
 
 ### Run it
 
@@ -142,9 +142,8 @@ Each of these is reported at runtime rather than silently skipped.
 | Embedded CMap streams | Medium | Parse `begincidrange`/`begincidchar` |
 | Predefined CMaps | Medium | Needs vendored data — licensing decision |
 | Type1 fonts | Medium | `read_fonts::ps::type1` exists — check before writing any |
-| Mesh shadings | Medium | Types 4–7; the display-list side is done, see ADR 0008 |
-| Tiling patterns | Medium | Pattern type 1, commoner than all meshes combined |
-| Shadings on the GPU backend | Small | Vello has native gradients; CPU is done |
+| Sampled shadings on the GPU | Small | Type 1 only; reported, 2 documents of 974 |
+| Colour management | Large | `DeviceCMYK` is uncalibrated; visible against poppler |
 | Transparency groups, soft masks | Large | `/SMask` in `/ExtGState`; the last thing `doc/` reports |
 | JBIG2, JPX | — | **Blocked on the sandbox, deliberately** |
 | Encryption | Medium | RC4/AES, `/Encrypt` |
@@ -164,10 +163,8 @@ one-off survey into a gate.
 Do not expect it to be quiet. Triage will take a session.
 
 After that, by what the corpus says real documents need rather than by what `doc/` contains:
-**tiling patterns** (955 occurrences, 35 documents — commoner than every mesh type
-combined), **mesh shadings** (ADR 0008 leaves the display-list side finished), **soft masks**
-(the last thing `doc/` reports), and **encryption**. **Type1 fonts** remain worth checking
-`read_fonts::ps::type1` for before estimating.
+**soft masks** (the last thing `doc/` reports), **encryption**, and **annotations**.
+**Type1 fonts** remain worth checking `read_fonts::ps::type1` for before estimating.
 
 **`doc/pdf.js` is a submodule** (Apache-2.0, pinned at v6.1.200) and is worth more than the
 metrics it already supplied. `test/pdfs/` holds 974 real PDFs and 459 more behind link
@@ -191,6 +188,11 @@ minutes later, purely from background build load. `valgrind --tool=callgrind` on
 instructions before, 1.951 G after. Always A/B in one sitting, and prefer the instruction
 count. `iai-callgrind` wraps this into a bench harness and is the right basis for the CI
 perf gates `CLAUDE.md` asks for — not yet wired up.
+
+**Two rasterisers disagreeing is information, not noise.** The CPU-versus-GPU agreement
+test is what found that Vello needed the same mesh seam repair `tiny-skia` did, after a
+comment here had confidently claimed otherwise. Where the backends differ, one of them is
+wrong; sweeping a constant against that test is how its value was chosen.
 
 **Survey the corpus before designing.** The shading work started with a survey of what
 `ShadingType`, `FunctionType` and `PatternType` values actually occur across 974 documents.

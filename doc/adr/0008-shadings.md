@@ -1,6 +1,6 @@
 # ADR 0008 — Seven shading types, four display-list kinds
 
-Status: accepted, 2026-07-26. Mesh types 4–7 are **not implemented**; they are reported.
+Status: accepted, 2026-07-26. All seven types are implemented, on both backends.
 
 ## Context
 
@@ -25,10 +25,14 @@ A survey of the pdf.js corpus (974 documents) shows the distribution is extremel
 ## Decision
 
 **The display list carries four kinds, not seven.** Axial and radial stay distinct because
-both rasterisers implement them natively — `tiny-skia`'s radial gradient takes a radius for
-*each* circle, which is exactly PDF's model rather than the common single-circle
-simplification. Type 1 reduces to a grid of samples. The four mesh types would all arrive
-as triangles, since that is what they all describe.
+both rasterisers implement them natively — and both take a radius for *each* circle, which
+is exactly PDF's model rather than the common single-circle simplification. Type 1 reduces
+to a grid of samples. The four mesh types all arrive as triangles, since that is what they
+all describe.
+
+That both `tiny-skia` and Vello express these in the same terms, without translation, is
+the evidence that the neutral form is the right one — the same argument ADR 0002 makes for
+the display list as a whole.
 
 Nothing is lost by that grouping except the type's number, which no backend needs.
 
@@ -79,15 +83,49 @@ comparison harness excludes a page a backend says it cannot draw, so the two bac
 honestly different rather than quietly so. Vello has native gradients, so axial and radial
 should map across much as they did for `tiny-skia`.
 
+## Meshes needed measurement, not reasoning
+
+Neither rasteriser has Gouraud shading, so both subdivide each triangle until its corner
+colours agree to within one part in five hundred and fill it flat. Subdivision is by
+quarters rather than halves: repeatedly splitting one edge produces slivers, and slivers
+rasterise with seams.
+
+Abutting triangles then do not tile exactly. Coverage along a shared edge does not sum to
+one and the backdrop shows through — as nine isolated white pinholes on the specification's
+own Coons page under `tiny-skia`, and as a hairline along *every* shared edge under Vello,
+which antialiases each edge.
+
+A comment written here first claimed Vello needed no repair because it composites analytic
+coverage. That was wrong, and only measuring showed it. Growing each triangle so neighbours
+overlap fixes both, and sweeping the amount against the CPU-versus-GPU agreement test gave
+mean errors of 12.2 at no overlap, 4.2 at 0.35 px, 1.8 at 0.7 px, and within tolerance at
+0.8 px — with the CPU backend antialiasing its triangles too, which it can do safely
+because overlapping edges sum to full coverage where abutting ones do not.
+
+Both backends use the same number for the same reason. They have to: two different
+approximations of one thing would leave them disagreeing for a reason unrelated to either.
+
+## Tiling patterns are expanded, not painted
+
+A tiling pattern (`/PatternType 1`) is a content stream rather than a paint, so it never
+becomes one. The filled path becomes a clip and the cell is replayed once per tile position
+inside it. No display-list concept is added, no backend learns what a pattern is, and the
+result stays resolution-independent because the cell is real geometry rather than a
+rendered image. Tile counts are bounded and reaching the bound is reported.
+
+Two things about tiling patterns are easy to get wrong and invisible afterwards. `/XStep`
+and `/YStep` are allowed to differ from the cell's bounding box — that is how a pattern
+tiles with space around each figure — and the phase comes from the pattern matrix relative
+to the *page*, not to the transform in force at the fill. Both have tests, because both
+still produce something that looks like a pattern.
+
 ## What is not done
 
-**Mesh shadings (types 4–7).** They need a bit-packed vertex stream reader and, for types 6
-and 7, Coons and tensor patch subdivision. `pdf_render::Triangle` already carries the
-representation and the subdivision helpers the backends would need — `is_flat`,
-`subdivide` — because the display-list side of the design is settled; only the reading and
-the drawing are missing. They are 1.6% of shadings in the wild and are reported as
-unimplemented, so they are visible rather than silently blank.
+**Sampled shadings on the GPU.** A type 1 shading becomes a grid of samples, which
+`tiny-skia` takes as a pattern; the Vello path reports it instead. Eighteen occurrences in
+two documents of 974, and reported rather than silently wrong.
 
-**Tiling patterns (pattern type 1)** are a content stream drawn repeatedly, not a shading,
-and are a separate piece of work. They are commoner than every mesh type combined — 955
-occurrences across 35 documents — and are the more valuable of the two.
+**Colour management.** Our `DeviceCMYK` conversion is the uncalibrated one, and on a
+CMYK mesh that is a visible saturation difference against poppler even where the geometry
+matches exactly. That is a pre-existing gap `colour.rs` documents, not a shading one, but
+meshes are where it shows most.
