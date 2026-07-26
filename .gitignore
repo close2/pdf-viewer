@@ -1,0 +1,17 @@
+/target
+**/*.rs.bk
+*.profraw
+
+# Fuzzing: the corpus and crash artefacts are large and machine-generated. Crashers
+# that matter are promoted into `tests/regression/` as committed fixtures instead,
+# so a reproducer never lives only in an ignored directory.
+/fuzz/target
+/fuzz/artifacts
+/fuzz/corpus
+
+# Comparison-harness output: renders, diffs and heatmaps are regenerated on demand.
+/target/pdfref
+/corpus-cache
+
+# Claude Code local settings (per-user, not shared).
+.claude/settings.local.json

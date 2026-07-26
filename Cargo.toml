@@ -1,0 +1,102 @@
+[workspace]
+# `tools/*` (the reference-comparison harness and corpus manager) joins in Phase 3,
+# when those binaries have real implementations to hold.
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+license = "MPL-2.0"
+repository = "https://github.com/example/pdf-viewer"
+
+# Dependency versions are pinned once here and referenced as `dep.workspace = true`
+# from member crates, so a version appears in exactly one place in the tree.
+[workspace.dependencies]
+# Internal
+pdf-spec = { path = "crates/pdf-spec" }
+pdf-syntax = { path = "crates/pdf-syntax" }
+pdf-model = { path = "crates/pdf-model" }
+pdf-font = { path = "crates/pdf-font" }
+pdf-render = { path = "crates/pdf-render" }
+render-cpu = { path = "crates/render-cpu" }
+viewer-core = { path = "crates/viewer-core" }
+
+# Error handling
+thiserror = "2.0.19"
+
+# Parallelism. Used for tile rasterisation, image decode and thumbnail grids —
+# never for the parser, which is sequential over shared mutable document state.
+rayon = "1.12.0"
+
+# FlateDecode is on the hot path of essentially every PDF. The `zlib-rs` backend
+# is a pure-Rust rewrite that is performance-competitive with C zlib-ng, so this
+# costs no safety.
+flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
+
+# Fonts. Memory-safe replacement for FreeType; covers OpenType/TrueType/CFF.
+# Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.
+skrifa = "0.45.1"
+
+# Image codecs, pure Rust.
+zune-jpeg = "0.5.15"
+zune-png = "0.5.2"
+
+# Sandboxing
+landlock = "0.4.6"
+seccompiler = "0.5.0"
+
+# Development-only. Cargo has no `workspace.dev-dependencies`; these are declared
+# here and referenced from a member's `[dev-dependencies]` with `workspace = true`.
+criterion = "0.8.2"
+proptest = "1.11.0"
+
+# Lints applied to every member via `[lints] workspace = true`.
+#
+# `unsafe_code` is deliberately NOT set here. It is declared per crate at the top
+# of each `lib.rs`, so a reader sees a crate's safety posture in the crate itself
+# rather than having to consult this file. See CLAUDE.md principle 3.
+[workspace.lints.rust]
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Every panicking path must be a deliberate, documented decision.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+# Arithmetic on untrusted input is a correctness and DoS concern, not a style one.
+arithmetic_side_effects = "warn"
+cast_possible_truncation = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+# Documentation quality.
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# Benchmarks and profiling need symbols with release-grade optimisation.
+# `panic` is not set: Cargo ignores it for the bench profile, and a setting that has
+# no effect is worse than no setting because it implies one.
+[profile.bench]
+inherits = "release"
+debug = true
+
+# Fuzzing and sanitiser runs: optimised, with overflow checks kept on so that
+# arithmetic bugs surface as findings rather than silently wrapping.
+[profile.fuzz]
+inherits = "release"
+debug = true
+debug-assertions = true
+overflow-checks = true
+lto = "thin"
+codegen-units = 16
+panic = "unwind"

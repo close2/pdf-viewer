@@ -1,0 +1,12 @@
+# Pinned so that every checkout and every CI run builds with the same compiler.
+# An exact version rather than "stable": a floating channel means a toolchain
+# upgrade can change build results without any commit in this repository, which
+# defeats the point of pinning. Bumping this is a reviewed change like any other.
+#
+# Nightly is needed for `cargo fuzz` and Miri and is requested explicitly at those
+# call sites (`cargo +nightly ...`) rather than pinned here, so that ordinary builds
+# never silently depend on an unstable compiler.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
