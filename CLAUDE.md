@@ -1,5 +1,8 @@
 # Project: PDF Viewer
 
+> **New here?** Read `doc/HANDOVER.md` after this file: current state, traps, and
+> what to do next.
+
 A PDF viewer in Rust, targeting Acrobat-class fidelity, with the goal of being the
 noticeably fastest PDF viewer available — and clean enough to be taught from.
 
