@@ -128,10 +128,7 @@ fn luminance(raster: &Raster, count: usize) -> Vec<f32> {
 
 /// Elementwise product of two equally long signals.
 fn product(left: &[f32], right: &[f32]) -> Vec<f32> {
-    left.iter()
-        .zip(right)
-        .map(|(a, b)| *a * *b)
-        .collect()
+    left.iter().zip(right).map(|(a, b)| *a * *b).collect()
 }
 
 /// The normalised one-dimensional Gaussian window.

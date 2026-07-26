@@ -1,8 +1,10 @@
 # Handover
 
-Written 2026-07-26, updated at the end of the second working session. Read `/CLAUDE.md`
-first — it holds the four non-negotiable principles and they are not optional. This file
-is the state of play, the traps, and what to do next.
+Written 2026-07-26, updated at the end of the third working session. Read `/CLAUDE.md`
+first — it holds the five non-negotiable principles and they are not optional. **Principle
+5 is new and it changes how to work**: the specification is the only source of truth, and
+agreement with poppler, mupdf or pdf.js is evidence that we read it right, never the
+definition of right. This file is the state of play, the traps, and what to do next.
 
 ## Where we are
 
@@ -107,7 +109,25 @@ interpreter, `FontError`, `ImageError`, `CpuRasterError::UnsupportedCommand`. Th
 politeness — it is what makes the comparison harness trustworthy and what caught trap 1.
 Do not "helpfully" fall back to a default that renders something plausible.
 
-### 4. `#[expect]`, never `#[allow]`
+### 4. Colour: one conversion, and the specification often does not have an answer
+
+Three separate `DeviceCMYK` → RGB conversions used to live in this tree and they disagreed.
+`0.5 0 0 0.5 k` gave a red channel of 0.25; the same colour through `scn` gave 0.0; a CMYK
+image gave a third answer. Nothing about a rendered page reveals that — each looks like a
+plausible colour. `crates/pdf-model/tests/colour_paths.rs` now drives one value through all
+three routes and demands they agree; it was verified to fail when the old code is restored.
+
+Add no fourth path. `ColourSpace::to_rgb` is the only place a colour becomes RGB.
+
+The other half is harder to hold onto: **ISO 32000-2 defines no `DeviceCMYK` conversion at
+all**. §8.6.4.4 says "concentrations of process colourants" and stops; §8.6.5.7 NOTE 3 says
+nothing in PDF describes the device. What the specification *does* say is where to ask —
+`/DefaultCMYK` (§8.6.5.6, normative), an output intent's `/DestOutputProfile` (§14.11.5),
+and an `ICCBased` profile — and all three are implemented and all three outrank the
+fallback table. When you touch that table, do not reach for what another renderer produces:
+read ADR 0009, and if you change it, change it as a documented choice.
+
+### 5. `#[expect]`, never `#[allow]`
 
 Every lint exception in the tree is `#[expect(..., reason = "...")]`. It errors when it
 stops being necessary, which has already removed several stale ones. A bare `allow` hides
@@ -143,7 +163,7 @@ Each of these is reported at runtime rather than silently skipped.
 | Predefined CMaps | Medium | Needs vendored data — licensing decision |
 | Type1 fonts | Medium | `read_fonts::ps::type1` exists — check before writing any |
 | Sampled shadings on the GPU | Small | Type 1 only; reported, 2 documents of 974 |
-| Colour management | Large | `DeviceCMYK` is uncalibrated; visible against poppler |
+| Rendering intents beyond `AbsoluteColorimetric` | Small | Read and recorded; `A2B0` is not yet selected for `Perceptual` |
 | Transparency groups, soft masks | Large | `/SMask` in `/ExtGState`; the last thing `doc/` reports |
 | JBIG2, JPX | — | **Blocked on the sandbox, deliberately** |
 | Encryption | Medium | RC4/AES, `/Encrypt` |
@@ -236,9 +256,16 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
   byte-identical input.
 - **RADV and lavapipe produce byte-identical output**, so goldens need not be per-adapter.
   A test pins this; if it fails, the assumption has broken, not the code.
-- **Pixel comparison cannot police text.** The reference renderers disagree with each other
-  at worst-tile 26–28 on text pages — glyph hinting, not error. `Tolerance::TEXT_HEAVY`
-  documents this as a weak gate. Text correctness belongs to the extraction metric.
+- **Pixel comparison cannot police text, so there is a second kind of metric now.** The
+  reference renderers disagree with each other at worst-tile 26–28 on text pages — glyph
+  hinting, not error — and no threshold fixes that, because the noise floor is above the
+  signal. `raster_compare::Comparison::structural_similarity` (SSIM) measures whether the
+  same shapes are in the same places instead, and `Tolerance` now bounds it: 0.99 for
+  vector, 0.90 for text. Both numbers were measured over 153 reference-against-reference
+  pairs from the corpus, and the doc comment records that the distribution is *continuous*
+  — 0.8990, 0.8993, 0.8998 and 0.9009 all occur — so 0.90 is a choice about which
+  population to exclude (font substitution) and not a discovered boundary. Text
+  *correctness* still belongs to the extraction metric.
 - **`test-scenes` holds the same page twice**, as a display list and as PDF bytes. That
   pairing is what let the harness work before a parser existed, and it is checked by a test
   that renders both and demands identical pixels.

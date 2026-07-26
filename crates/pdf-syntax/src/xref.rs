@@ -277,14 +277,23 @@ fn read_classic_table(input: &[u8], offset: usize, limits: Limits) -> Option<Sec
                 for index in 0..count {
                     // Each entry is `oooooooooo ggggg n` — but the fixed 20-byte layout is
                     // widely got wrong, so the entries are tokenised rather than sliced.
+                    //
+                    // A subsection whose declared count overruns the entries actually
+                    // present runs straight into whatever follows them, which is normally
+                    // the `trailer` keyword. So each abandoned entry rewinds first: reading
+                    // on from *after* the offending token steps over that keyword, and the
+                    // section then has no trailer, no `/Root`, and no pages — from a
+                    // document whose every object is intact. `outline_goto_action.pdf`
+                    // declares twelve entries and supplies eleven.
+                    let entry_at = lexer.position();
                     let Some(crate::Token::Integer(position)) = lexer.next_token() else {
-                        return Some(finish(entries, input, lexer.position(), limits));
+                        return Some(finish(entries, input, entry_at, limits));
                     };
                     let Some(crate::Token::Integer(_generation)) = lexer.next_token() else {
-                        return Some(finish(entries, input, lexer.position(), limits));
+                        return Some(finish(entries, input, entry_at, limits));
                     };
                     let Some(crate::Token::Keyword(kind)) = lexer.next_token() else {
-                        return Some(finish(entries, input, lexer.position(), limits));
+                        return Some(finish(entries, input, entry_at, limits));
                     };
 
                     // `f` marks a free entry, which names no object.

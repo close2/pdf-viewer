@@ -1558,6 +1558,7 @@ dependencies = [
  "pdfref",
  "png",
  "raster-compare",
+ "rayon",
  "render-cpu",
  "test-scenes",
  "thiserror 2.0.19",

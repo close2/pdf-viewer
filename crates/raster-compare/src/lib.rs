@@ -164,9 +164,7 @@ pub fn compare_with_tile(
             for y in tile_y..tile_y + tile_h {
                 for x in tile_x..tile_x + tile_w {
                     let pixel = (y as usize) * (width as usize) + (x as usize);
-                    tile_similarity += f64::from(
-                        similarity.get(pixel).copied().unwrap_or(1.0),
-                    );
+                    tile_similarity += f64::from(similarity.get(pixel).copied().unwrap_or(1.0));
                     let index = pixel * 4;
                     for channel in 0..4 {
                         let a = left.data[index + channel];
@@ -181,8 +179,7 @@ pub fn compare_with_tile(
                 }
             }
             total_similarity += tile_similarity;
-            let tile_mean_similarity =
-                tile_similarity / (f64::from(tile_w) * f64::from(tile_h));
+            let tile_mean_similarity = tile_similarity / (f64::from(tile_w) * f64::from(tile_h));
             if tile_mean_similarity < worst_tile_similarity {
                 worst_tile_similarity = tile_mean_similarity;
                 worst_tile_similarity_at = (tile_x, tile_y);
@@ -360,7 +357,11 @@ mod structural_tests {
         let mut data = Vec::with_capacity((size as usize) * (size as usize) * 4);
         for _ in 0..size {
             for x in 0..size {
-                let value = if (x / bar).is_multiple_of(2) { dark } else { light };
+                let value = if (x / bar).is_multiple_of(2) {
+                    dark
+                } else {
+                    light
+                };
                 data.extend_from_slice(&[value, value, value, 255]);
             }
         }
@@ -473,8 +474,16 @@ mod structural_tests {
         let hole = compare(&page, &holed).expect("same size and format");
 
         assert_eq!(
-            (edge.mean_error, edge.worst_tile_error, edge.differing_fraction),
-            (hole.mean_error, hole.worst_tile_error, hole.differing_fraction),
+            (
+                edge.mean_error,
+                edge.worst_tile_error,
+                edge.differing_fraction
+            ),
+            (
+                hole.mean_error,
+                hole.worst_tile_error,
+                hole.differing_fraction
+            ),
             "the fixtures are built to be indistinguishable to the pixel metrics"
         );
         assert!(

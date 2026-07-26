@@ -157,3 +157,51 @@ fn a_lying_stream_length_is_recovered_from() {
     // The declared length is impossible, so `endstream` decides the extent instead.
     assert_eq!(&*stream.data, b"HELLO", "the data should stop at endstream");
 }
+
+/// A subsection that promises more entries than it supplies must still find its trailer.
+///
+/// The last thing a classic `xref` table's entries run into is the `trailer` keyword. A
+/// subsection header whose count overruns the entries present therefore reads that keyword
+/// as an entry, and a reader that resumes from *after* the offending token has stepped over
+/// the only thing that names `/Root`. The result is a document with no catalogue and no
+/// pages, produced from a file whose every object is intact — which is exactly the kind of
+/// failure that looks like a missing feature rather than a parsing bug.
+///
+/// Found in the pdf.js corpus: `outline_goto_action.pdf` declares twelve entries and writes
+/// eleven. The fixture here reproduces it in twenty lines so the regression is pinned
+/// without the submodule.
+#[test]
+fn a_subsection_counting_more_entries_than_it_has_still_finds_the_trailer() {
+    let objects = [
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
+    ];
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in objects {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    // Five entries are declared -- the free entry and four objects -- but only the free
+    // entry and three objects are written. The count is the lie under test, and what the
+    // fifth entry runs into is the `trailer` keyword.
+    out.push_str("xref\n0 5\n0000000000 65535 f \n");
+    for offset in &offsets {
+        out.push_str(&format!("{offset:010} 00000 n \n"));
+    }
+    out.push_str(&format!(
+        "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    ));
+
+    let document = Document::open(out.into_bytes()).expect("the objects are all intact");
+    let catalog = document
+        .catalog()
+        .expect("the trailer names /Root and must be found");
+    assert!(
+        document.get_key(&catalog, "Pages").as_dict().is_some(),
+        "and the page tree must be reachable through it"
+    );
+}
