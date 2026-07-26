@@ -1,0 +1,3 @@
+[submodule "doc/arlington-pdf-model"]
+	path = doc/arlington-pdf-model
+	url = https://github.com/pdf-association/arlington-pdf-model.git
