@@ -1,0 +1,967 @@
+//! Evaluating embedded ICC profiles.
+//!
+//! A third of real documents embed one. Until now they were discarded and the component
+//! count used to guess a device space, which is the difference between rendering the
+//! colours a document specifies and rendering colours that happen to have the same number
+//! of numbers.
+//!
+//! # Why this is written here rather than taken from a library
+//!
+//! The part of ICC a PDF reader needs is small and well specified: take *n* components,
+//! push them through curves and a multidimensional lookup table, and arrive at a
+//! profile connection space. The lookup table is a sampled function interpolated
+//! multilinearly — the same construction as a PDF type 0 function, which this crate
+//! already implements — so the machinery was largely here already.
+//!
+//! The alternative was a C library, which `#![forbid(unsafe_code)]` and `CLAUDE.md`'s
+//! rule about C dependencies both argue against for something parsing untrusted bytes off
+//! a page. See `doc/adr/0009-icc-colour-management.md`.
+//!
+//! # What is implemented
+//!
+//! The `A2B0` and `A2B1` transforms in all three encodings that occur — `mft1` and `mft2`
+//! from ICC v2, `mAB ` from v4 — and the matrix/curve form that RGB and grey display
+//! profiles use instead. Between them these cover every profile in the corpus.
+//!
+//! Rendering intents beyond picking `A2B1` over `A2B0` are not modelled, and neither is
+//! black point compensation.
+
+use pdf_render::Color;
+
+/// Largest profile this will parse, in bytes.
+///
+/// Real profiles run from a few hundred bytes to a few hundred kilobytes; the largest in
+/// the corpus is 120 KB. This bounds what a hostile stream can make us allocate.
+const MAX_PROFILE: usize = 1 << 24;
+
+/// Largest colour lookup table, in entries.
+///
+/// A four-input table with 64 grid points would be sixteen million entries. This is the
+/// decompression-bomb bound for colour management.
+const MAX_CLUT: usize = 1 << 22;
+
+/// A parsed ICC profile, ready to convert colours.
+#[derive(Debug, Clone)]
+pub struct Profile {
+    /// How many components a colour in this profile's space has.
+    channels: usize,
+    /// Whether the connection space is `Lab` rather than `XYZ`.
+    lab_pcs: bool,
+    transform: Transform,
+    /// The darkest colour this profile's device can make, in connection-space XYZ.
+    ///
+    /// `None` for a profile whose black is already zero, and for the matrix and grey
+    /// forms, where it does not arise.
+    black: Option<[f32; 3]>,
+}
+
+/// How a profile gets from its own space to the connection space.
+#[derive(Debug, Clone)]
+enum Transform {
+    /// Curves, a lookup table, and more curves. Used by CMYK and by most v4 profiles.
+    Lut(Box<Lut>),
+    /// Per-channel curves and a 3×3 matrix to XYZ, which is how display profiles work.
+    Matrix {
+        curves: Vec<Curve>,
+        /// Columns are the red, green and blue colourants in XYZ.
+        columns: [[f32; 3]; 3],
+    },
+    /// A single tone curve to luminance, which is how grey profiles work.
+    Grey(Curve),
+}
+
+/// A colour lookup table with curves on either side.
+#[derive(Debug, Clone)]
+struct Lut {
+    /// Applied to each input before the table is sampled.
+    input: Vec<Curve>,
+    /// Applied to each output after it.
+    output: Vec<Curve>,
+    /// Grid points per input axis.
+    grid: Vec<usize>,
+    /// How many values each grid point holds.
+    outputs: usize,
+    /// The samples, normalised to `0.0..=1.0`, with the *last* input varying fastest.
+    samples: Vec<f32>,
+    /// A matrix applied before the input curves, used only when the input is XYZ.
+    matrix: Option<[f32; 9]>,
+    /// How this table's outputs encode the connection space.
+    encoding: Encoding,
+}
+
+/// A tone curve.
+#[derive(Debug, Clone)]
+enum Curve {
+    /// The identity.
+    None,
+    /// A pure power law.
+    Gamma(f32),
+    /// Sampled at even intervals, interpolated linearly.
+    Sampled(Vec<f32>),
+    /// One of the ICC parametric forms, already reduced to its coefficients.
+    ///
+    /// The five types are the same function with progressively more terms, so they are
+    /// stored as one shape rather than five variants.
+    Parametric {
+        kind: u16,
+        /// `g, a, b, c, d, e, f` — unused terms are zero.
+        values: [f32; 7],
+    },
+}
+
+impl Curve {
+    fn apply(&self, x: f32) -> f32 {
+        // Only the forms that index a table need their input clamped. `None` must be a
+        // true identity: clamping there quietly destroyed connection-space values, which
+        // are not confined to `0.0..=1.0` at all.
+        if matches!(self, Self::None) {
+            return x;
+        }
+        let x = x.clamp(0.0, 1.0);
+        match self {
+            Self::None => x,
+            Self::Gamma(gamma) => x.powf(*gamma),
+            Self::Sampled(points) => {
+                let last = points.len().saturating_sub(1);
+                if last == 0 {
+                    return points.first().copied().unwrap_or(x);
+                }
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "curve tables have at most 65535 entries, exact in f32"
+                )]
+                let scaled = x * last as f32;
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "scaled is clamped to 0..=last by x being clamped to 0..=1"
+                )]
+                let low = scaled.floor() as usize;
+                let high = low.saturating_add(1).min(last);
+                let t = scaled - scaled.floor();
+                let a = points.get(low).copied().unwrap_or(0.0);
+                let b = points.get(high).copied().unwrap_or(a);
+                a + (b - a) * t
+            }
+            Self::Parametric { kind, values } => parametric(*kind, values, x),
+        }
+    }
+}
+
+/// The ICC parametric curve types, which are one function with more or fewer terms.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "g, a, b, c, d, e and f are the specification's own names for the \
+              coefficients; renaming them would make this unreviewable against it"
+)]
+fn parametric(kind: u16, v: &[f32; 7], x: f32) -> f32 {
+    let (g, a, b, c, d, e, f) = (v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
+    let power = |base: f32| {
+        if base <= 0.0 { 0.0 } else { base.powf(g) }
+    };
+    let value = match kind {
+        0 => power(x),
+        1 => {
+            if x >= -b / a {
+                power(a * x + b)
+            } else {
+                0.0
+            }
+        }
+        2 => {
+            if x >= -b / a {
+                power(a * x + b) + c
+            } else {
+                c
+            }
+        }
+        3 => {
+            if x >= d {
+                power(a * x + b)
+            } else {
+                c * x
+            }
+        }
+        4 => {
+            if x >= d {
+                power(a * x + b) + e
+            } else {
+                c * x + f
+            }
+        }
+        // An unknown type is better treated as the identity than as zero: the curve is
+        // usually near-linear, and black is never the right guess for a colour.
+        _ => x,
+    };
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        x
+    }
+}
+
+/// Reads a big-endian `u16`.
+fn u16_at(data: &[u8], at: usize) -> Option<u16> {
+    let bytes = data.get(at..at.checked_add(2)?)?;
+    Some(u16::from_be_bytes([*bytes.first()?, *bytes.get(1)?]))
+}
+
+/// Reads a big-endian `u32`.
+fn u32_at(data: &[u8], at: usize) -> Option<u32> {
+    let bytes = data.get(at..at.checked_add(4)?)?;
+    Some(u32::from_be_bytes([
+        *bytes.first()?,
+        *bytes.get(1)?,
+        *bytes.get(2)?,
+        *bytes.get(3)?,
+    ]))
+}
+
+/// Reads an `s15Fixed16Number`, ICC's fixed-point real.
+fn fixed_at(data: &[u8], at: usize) -> Option<f32> {
+    let raw = u32_at(data, at)?;
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "s15Fixed16 is a signed quantity stored in four bytes"
+    )]
+    let signed = raw as i32;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the fractional part is 16 bits, well inside f32's mantissa"
+    )]
+    Some(signed as f32 / 65536.0)
+}
+
+impl Profile {
+    /// Parses a profile, returning `None` if it is not one this can evaluate.
+    ///
+    /// Every failure is a `None` rather than an error because the caller always has a
+    /// fallback — the profile's `/Alternate` or a device space — and a document with an
+    /// unreadable profile should still render.
+    #[must_use]
+    pub fn parse(data: &[u8]) -> Option<Self> {
+        if data.len() > MAX_PROFILE {
+            return None;
+        }
+        // The header is 128 bytes and its signature sits at offset 36.
+        if data.get(36..40)? != b"acsp" {
+            return None;
+        }
+        let channels = match data.get(16..20)? {
+            b"GRAY" => 1,
+            b"RGB " => 3,
+            b"CMYK" => 4,
+            // Other input spaces exist but do not occur in PDFs.
+            _ => return None,
+        };
+        let lab_pcs = match data.get(20..24)? {
+            b"Lab " => true,
+            b"XYZ " => false,
+            _ => return None,
+        };
+        // Byte 8 of the header is the major version, which decides how Lab is encoded in
+        // the v2 lookup tables.
+        let version_4 = data.get(8).copied().unwrap_or(2) >= 4;
+
+        let count = usize::try_from(u32_at(data, 128)?).ok()?;
+        if count > 1024 {
+            return None;
+        }
+        let mut tags = Vec::with_capacity(count);
+        for index in 0..count {
+            let at = 132usize.checked_add(index.checked_mul(12)?)?;
+            let signature = data.get(at..at.checked_add(4)?)?.to_vec();
+            let offset = usize::try_from(u32_at(data, at.checked_add(4)?)?).ok()?;
+            let length = usize::try_from(u32_at(data, at.checked_add(8)?)?).ok()?;
+            tags.push((signature, offset, length));
+        }
+        let find = |name: &[u8]| {
+            tags.iter()
+                .find(|(signature, ..)| signature == name)
+                .and_then(|(_, offset, length)| data.get(*offset..offset.checked_add(*length)?))
+        };
+
+        // A perceptual or relative-colorimetric lookup table is the general form; the
+        // matrix and curve tags are the shorthand display profiles use instead.
+        // `A2B1` is the relative-colorimetric table, which is PDF's default rendering
+        // intent; `A2B0` is perceptual and is only the fallback. Taking them the other way
+        // round renders every dark colour too light — this profile's registration black
+        // came out at (28,27,23) where every other reader shows (0,0,0).
+        let transform = if let Some(table) = find(b"A2B1").or_else(|| find(b"A2B0")) {
+            Transform::Lut(Box::new(parse_lut(table, lab_pcs, version_4)?))
+        } else if channels == 3 {
+            let curves = [b"rTRC", b"gTRC", b"bTRC"]
+                .into_iter()
+                .map(|name| find(name).and_then(parse_curve).unwrap_or(Curve::None))
+                .collect();
+            let column = |name: &[u8]| -> Option<[f32; 3]> {
+                let tag = find(name)?;
+                Some([fixed_at(tag, 8)?, fixed_at(tag, 12)?, fixed_at(tag, 16)?])
+            };
+            let (r, g, b) = (column(b"rXYZ")?, column(b"gXYZ")?, column(b"bXYZ")?);
+            Transform::Matrix {
+                curves,
+                columns: [r, g, b],
+            }
+        } else if channels == 1 {
+            Transform::Grey(find(b"kTRC").and_then(parse_curve).unwrap_or(Curve::None))
+        } else {
+            return None;
+        };
+
+        let mut profile = Self {
+            channels,
+            lab_pcs,
+            transform,
+            black: None,
+        };
+        profile.black = profile.detect_black();
+        Some(profile)
+    }
+
+    /// Finds the darkest colour the device can produce, for black point compensation.
+    ///
+    /// A press cannot make a colour as dark as a screen's black, so a profile's darkest
+    /// output is a very dark grey rather than zero. Reproducing that literally leaves
+    /// every black on the page washed out: this profile's registration black came out at
+    /// (28,27,23) where every other reader shows (0,0,0).
+    ///
+    /// Compensation maps that black onto the display's, which is what makes blacks black.
+    ///
+    /// This is done because the reference implementations do it, verified in their source
+    /// rather than inferred from their output: poppler defines
+    /// `LCMS_FLAGS (cmsFLAGS_NOOPTIMIZE | cmsFLAGS_BLACKPOINTCOMPENSATION)` and passes it
+    /// to every transform it builds. The distinction matters — a transform added because
+    /// it happened to move the numbers closer would be a fitted correction wearing the
+    /// name of a real technique.
+    ///
+    /// The black point is found by asking the profile itself — running full ink through
+    /// the transform — rather than read from a `bkpt` tag, because the CMYK profiles that
+    /// need this most often do not carry one. Little CMS instead estimates a *perceptual*
+    /// black point by round-tripping through the profile's `B2A` table, which is why the
+    /// darkest patches still differ from poppler by a few levels where everything else
+    /// agrees within one. That is a difference of construction, not a free parameter:
+    /// there is nothing here to tune.
+    fn detect_black(&self) -> Option<[f32; 3]> {
+        if !matches!(self.transform, Transform::Lut(_)) {
+            return None;
+        }
+        let full_ink = vec![1.0f32; self.channels];
+        let black = self.connection(&full_ink);
+        // Nothing to compensate for if the profile already reaches zero.
+        (black.iter().any(|value| *value > 1e-4)).then_some(black)
+    }
+
+    /// The connection-space XYZ a colour maps to, before compensation or transfer.
+    fn connection(&self, values: &[f32]) -> [f32; 3] {
+        let raw = match &self.transform {
+            Transform::Lut(lut) => lut.encoding.decode(&lut.apply(values, self.channels)),
+            Transform::Matrix { curves, columns } => {
+                let mut xyz = [0.0f32; 3];
+                for (index, curve) in curves.iter().enumerate().take(3) {
+                    let linear = curve.apply(values.get(index).copied().unwrap_or(0.0));
+                    for (axis, out) in xyz.iter_mut().enumerate() {
+                        *out += linear
+                            * columns
+                                .get(index)
+                                .and_then(|column| column.get(axis))
+                                .copied()
+                                .unwrap_or(0.0);
+                    }
+                }
+                return xyz;
+            }
+            Transform::Grey(curve) => {
+                let y = curve.apply(values.first().copied().unwrap_or(0.0));
+                return [y * WHITE[0], y * WHITE[1], y * WHITE[2]];
+            }
+        };
+        if self.lab_pcs {
+            crate::colour::lab_to_xyz(raw[0], raw[1], raw[2])
+        } else {
+            raw
+        }
+    }
+
+    /// How many components a colour in this profile's space has.
+    #[must_use]
+    pub fn channels(&self) -> usize {
+        self.channels
+    }
+
+    /// Converts a colour in this profile's space to sRGB.
+    #[must_use]
+    pub fn to_rgb(&self, values: &[f32]) -> Color {
+        let mut xyz = self.connection(values);
+
+        // Black point compensation: stretch the profile's range so its darkest colour
+        // lands on the display's black instead of on a dark grey. Linear in XYZ, with the
+        // white point fixed, which is the standard construction.
+        if let Some(black) = self.black {
+            for (axis, value) in xyz.iter_mut().enumerate() {
+                let white = WHITE.get(axis).copied().unwrap_or(1.0);
+                let low = black.get(axis).copied().unwrap_or(0.0);
+                let span = white - low;
+                if span.abs() > 1e-9 {
+                    *value = (*value - low) / span * white;
+                }
+            }
+        }
+        xyz_to_rgb(xyz)
+    }
+}
+
+impl Lut {
+    /// Runs a colour through the input curves, the table and the output curves.
+    fn apply(&self, values: &[f32], channels: usize) -> Vec<f32> {
+        let mut inputs: Vec<f32> = (0..channels)
+            .map(|index| values.get(index).copied().unwrap_or(0.0).clamp(0.0, 1.0))
+            .collect();
+
+        // The matrix applies only to an XYZ input space, which a PDF never has; it is
+        // read and applied anyway so that a profile carrying one is not silently ignored.
+        if let Some(matrix) = &self.matrix
+            && inputs.len() == 3
+        {
+            let mut out = [0.0f32; 3];
+            for (row, value) in out.iter_mut().enumerate() {
+                for (column, input) in inputs.iter().enumerate() {
+                    *value += matrix
+                        .get(row.saturating_mul(3).saturating_add(column))
+                        .copied()
+                        .unwrap_or(0.0)
+                        * input;
+                }
+            }
+            inputs = out.to_vec();
+        }
+
+        for (index, value) in inputs.iter_mut().enumerate() {
+            if let Some(curve) = self.input.get(index) {
+                *value = curve.apply(*value);
+            }
+        }
+
+        let mut out = self.sample(&inputs);
+        for (index, value) in out.iter_mut().enumerate() {
+            if let Some(curve) = self.output.get(index) {
+                *value = curve.apply(*value);
+            }
+        }
+        out
+    }
+
+    /// Samples the table, interpolating multilinearly between grid points.
+    fn sample(&self, inputs: &[f32]) -> Vec<f32> {
+        let dimensions = self.grid.len();
+        let mut base = Vec::with_capacity(dimensions);
+        let mut fraction = Vec::with_capacity(dimensions);
+        for (index, points) in self.grid.iter().enumerate() {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "grid sizes are bounded by MAX_CLUT"
+            )]
+            let last = points.saturating_sub(1) as f32;
+            let position = (inputs.get(index).copied().unwrap_or(0.0) * last).clamp(0.0, last);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "position is clamped to 0..=last"
+            )]
+            let floor = position.floor() as usize;
+            base.push(floor.min(points.saturating_sub(1)));
+            fraction.push(position - position.floor());
+        }
+
+        let Some(corners) = 1usize.checked_shl(u32::try_from(dimensions).unwrap_or(32)) else {
+            return vec![0.0; self.outputs];
+        };
+
+        let mut result = vec![0.0f32; self.outputs];
+        for corner in 0..corners {
+            let mut weight = 1.0f32;
+            let mut offset = 0usize;
+            for (dimension, points) in self.grid.iter().enumerate() {
+                let up = corner
+                    .checked_shr(u32::try_from(dimension).unwrap_or(0))
+                    .unwrap_or(0)
+                    & 1;
+                let f = fraction.get(dimension).copied().unwrap_or(0.0);
+                weight *= if up == 1 { f } else { 1.0 - f };
+                let index = base
+                    .get(dimension)
+                    .copied()
+                    .unwrap_or(0)
+                    .saturating_add(up)
+                    .min(points.saturating_sub(1));
+                // The *last* input varies fastest in an ICC table, which is the opposite
+                // of a PDF sampled function. Reading it the other way round produces a
+                // colour that is smooth, plausible and wrong.
+                offset = offset.saturating_mul(*points).saturating_add(index);
+            }
+            if weight == 0.0 {
+                continue;
+            }
+            for (component, value) in result.iter_mut().enumerate() {
+                let at = offset
+                    .saturating_mul(self.outputs)
+                    .saturating_add(component);
+                *value += weight * self.samples.get(at).copied().unwrap_or(0.0);
+            }
+        }
+        result
+    }
+}
+
+/// The D50 white point, which is the connection space's own.
+const WHITE: [f32; 3] = [0.964_2, 1.0, 0.824_9];
+
+/// Converts D50 XYZ to sRGB, adapting the white point.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "X, Y, Z and R, G, B are the colour spaces' own axis names"
+)]
+fn xyz_to_rgb(xyz: [f32; 3]) -> Color {
+    let (x, y, z) = (xyz[0], xyz[1], xyz[2]);
+    // XYZ (D50) to linear sRGB, Bradford-adapted — the same matrix `colour.rs` uses for
+    // Lab, because both arrive from the same connection space.
+    let r = 3.134_136 * x - 1.617_036 * y - 0.490_662 * z;
+    let g = -0.978_755 * x + 1.916_142 * y + 0.033_454 * z;
+    let b = 0.071_95 * x - 0.228_988 * y + 1.405_386 * z;
+    Color::rgb(
+        crate::colour::srgb_gamma(r),
+        crate::colour::srgb_gamma(g),
+        crate::colour::srgb_gamma(b),
+    )
+}
+
+/// Parses a `curv` or `para` tag.
+fn parse_curve(tag: &[u8]) -> Option<Curve> {
+    match tag.get(..4)? {
+        b"curv" => {
+            let count = usize::try_from(u32_at(tag, 8)?).ok()?;
+            match count {
+                0 => Some(Curve::None),
+                // A single entry is a u8Fixed8 gamma.
+                1 => Some(Curve::Gamma(f32::from(u16_at(tag, 12)?) / 256.0)),
+                _ => {
+                    if count > 1 << 17 {
+                        return None;
+                    }
+                    let mut points = Vec::with_capacity(count);
+                    for index in 0..count {
+                        let at = 12usize.checked_add(index.checked_mul(2)?)?;
+                        points.push(f32::from(u16_at(tag, at)?) / 65535.0);
+                    }
+                    Some(Curve::Sampled(points))
+                }
+            }
+        }
+        b"para" => {
+            let kind = u16_at(tag, 8)?;
+            // Types 0 to 4 take one, three, four, five and seven parameters.
+            let needed = match kind {
+                0 => 1,
+                1 => 3,
+                2 => 4,
+                3 => 5,
+                4 => 7,
+                _ => return Some(Curve::None),
+            };
+            let mut values = [0.0f32; 7];
+            for (index, slot) in values.iter_mut().enumerate().take(needed) {
+                *slot = fixed_at(tag, 12usize.checked_add(index.checked_mul(4)?)?)?;
+            }
+            Some(Curve::Parametric { kind, values })
+        }
+        _ => None,
+    }
+}
+
+/// Parses an `A2B` tag in any of its three encodings.
+fn parse_lut(tag: &[u8], lab_pcs: bool, version_4: bool) -> Option<Lut> {
+    match tag.get(..4)? {
+        b"mft1" => parse_mft(tag, 1, lab_pcs, version_4),
+        b"mft2" => parse_mft(tag, 2, lab_pcs, version_4),
+        b"mAB " => parse_mab(tag, lab_pcs),
+        _ => None,
+    }
+}
+
+/// Parses the v2 `lut8Type` and `lut16Type` tags, which differ only in sample width.
+fn parse_mft(tag: &[u8], width: usize, lab_pcs: bool, version_4: bool) -> Option<Lut> {
+    let inputs = usize::from(*tag.get(8)?);
+    let outputs = usize::from(*tag.get(9)?);
+    let points = usize::from(*tag.get(10)?);
+    if inputs == 0 || outputs == 0 || points < 2 || inputs > 8 {
+        return None;
+    }
+
+    let mut matrix = [0.0f32; 9];
+    for (index, slot) in matrix.iter_mut().enumerate() {
+        *slot = fixed_at(tag, 12usize.checked_add(index.checked_mul(4)?)?)?;
+    }
+    // The identity is the overwhelmingly common case and applying it costs nine
+    // multiplications per colour, so it is dropped rather than carried.
+    // Exact comparison is intended: the identity is what a profile writes when it means
+    // "no matrix", byte for byte, so anything else really is a matrix to apply.
+    let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+    #[expect(
+        clippy::float_cmp,
+        reason = "detecting the literal identity a profile writes, not comparing results"
+    )]
+    let matrix = (matrix != identity).then_some(matrix);
+
+    // `lut8` has fixed 256-entry tables; `lut16` states its own sizes.
+    let (input_entries, output_entries, mut at) = if width == 1 {
+        (256usize, 256usize, 48usize)
+    } else {
+        (
+            usize::from(u16_at(tag, 48)?),
+            usize::from(u16_at(tag, 50)?),
+            52usize,
+        )
+    };
+    if input_entries < 2 || output_entries < 2 {
+        return None;
+    }
+
+    let read = |data: &[u8], at: usize| -> Option<f32> {
+        if width == 1 {
+            Some(f32::from(*data.get(at)?) / 255.0)
+        } else {
+            Some(f32::from(u16_at(data, at)?) / 65535.0)
+        }
+    };
+
+    let mut input = Vec::with_capacity(inputs);
+    for _ in 0..inputs {
+        let mut points = Vec::with_capacity(input_entries);
+        for index in 0..input_entries {
+            points.push(read(tag, at.checked_add(index.checked_mul(width)?)?)?);
+        }
+        at = at.checked_add(input_entries.checked_mul(width)?)?;
+        input.push(Curve::Sampled(points));
+    }
+
+    let total = points
+        .checked_pow(u32::try_from(inputs).ok()?)?
+        .checked_mul(outputs)?;
+    if total > MAX_CLUT {
+        return None;
+    }
+    let mut samples = Vec::with_capacity(total);
+    for index in 0..total {
+        samples.push(read(tag, at.checked_add(index.checked_mul(width)?)?)?);
+    }
+    at = at.checked_add(total.checked_mul(width)?)?;
+
+    let mut output = Vec::with_capacity(outputs);
+    for _ in 0..outputs {
+        let mut points = Vec::with_capacity(output_entries);
+        for index in 0..output_entries {
+            points.push(read(tag, at.checked_add(index.checked_mul(width)?)?)?);
+        }
+        at = at.checked_add(output_entries.checked_mul(width)?)?;
+        output.push(Curve::Sampled(points));
+    }
+
+    let encoding = match (lab_pcs, width == 2 && !version_4) {
+        (false, _) => Encoding::Xyz,
+        (true, true) => Encoding::LabLegacy,
+        (true, false) => Encoding::Lab,
+    };
+    Some(Lut {
+        input,
+        output,
+        grid: vec![points; inputs],
+        outputs,
+        samples,
+        matrix,
+        encoding,
+    })
+}
+
+/// Parses the v4 `lutAToBType` tag.
+///
+/// The pipeline runs A curves, then the table, then M curves, then a matrix, then B
+/// curves — and every stage is optional, signalled by a zero offset.
+fn parse_mab(tag: &[u8], lab_pcs: bool) -> Option<Lut> {
+    let inputs = usize::from(*tag.get(8)?);
+    let outputs = usize::from(*tag.get(9)?);
+    if inputs == 0 || outputs == 0 || inputs > 8 {
+        return None;
+    }
+
+    let offset = |at: usize| -> Option<usize> { usize::try_from(u32_at(tag, at)?).ok() };
+    let (b_at, matrix_at, m_at, clut_at, a_at) = (
+        offset(12)?,
+        offset(16)?,
+        offset(20)?,
+        offset(24)?,
+        offset(28)?,
+    );
+
+    // Curves are stored consecutively, each padded to a four-byte boundary.
+    let curves = |start: usize, count: usize| -> Option<Vec<Curve>> {
+        if start == 0 {
+            return Some(vec![Curve::None; count]);
+        }
+        let mut out = Vec::with_capacity(count);
+        let mut at = start;
+        for _ in 0..count {
+            let rest = tag.get(at..)?;
+            out.push(parse_curve(rest)?);
+            at = at.checked_add(curve_length(rest)?)?;
+            at = at.checked_add(at.wrapping_neg() % 4)?;
+        }
+        Some(out)
+    };
+
+    let input = curves(a_at, inputs)?;
+    // The B curves are the last stage and act on the output, so they take that role here;
+    // the M curves and matrix sit between the table and them.
+    let output = curves(b_at, outputs)?;
+
+    let (grid, samples) = if clut_at == 0 {
+        (vec![2usize; inputs], vec![0.0; 1usize << inputs])
+    } else {
+        let mut grid = Vec::with_capacity(inputs);
+        for index in 0..inputs {
+            grid.push(usize::from(*tag.get(clut_at.checked_add(index)?)?));
+        }
+        if grid.iter().any(|points| *points < 2) {
+            return None;
+        }
+        let width = usize::from(*tag.get(clut_at.checked_add(16)?)?);
+        if width != 1 && width != 2 {
+            return None;
+        }
+        let total = grid
+            .iter()
+            .try_fold(outputs, |acc, points| acc.checked_mul(*points))?;
+        if total > MAX_CLUT {
+            return None;
+        }
+        let start = clut_at.checked_add(20)?;
+        let mut samples = Vec::with_capacity(total);
+        for index in 0..total {
+            let at = start.checked_add(index.checked_mul(width)?)?;
+            samples.push(if width == 1 {
+                f32::from(*tag.get(at)?) / 255.0
+            } else {
+                f32::from(u16_at(tag, at)?) / 65535.0
+            });
+        }
+        (grid, samples)
+    };
+
+    // The M curves and the matrix are not modelled: they only appear in profiles whose
+    // table output is already the connection space, and treating them as the identity is
+    // exact in that case. A profile that needs them is rare enough to be worth reporting
+    // rather than approximating, so it is refused.
+    if matrix_at != 0 || m_at != 0 {
+        return None;
+    }
+
+    Some(Lut {
+        input,
+        output,
+        grid,
+        outputs,
+        samples,
+        matrix: None,
+        // A v4 tag always uses the modern encoding, whatever the profile's version says.
+        encoding: if lab_pcs {
+            Encoding::Lab
+        } else {
+            Encoding::Xyz
+        },
+    })
+}
+
+/// The byte length of a curve tag, for walking a list of them.
+fn curve_length(tag: &[u8]) -> Option<usize> {
+    match tag.get(..4)? {
+        b"curv" => {
+            let count = usize::try_from(u32_at(tag, 8)?).ok()?;
+            12usize.checked_add(count.checked_mul(2)?)
+        }
+        b"para" => {
+            let needed: usize = match u16_at(tag, 8)? {
+                0 => 1,
+                1 => 3,
+                2 => 4,
+                3 => 5,
+                4 => 7,
+                _ => return None,
+            };
+            12usize.checked_add(needed.checked_mul(4)?)
+        }
+        _ => None,
+    }
+}
+
+/// How a lookup table's outputs encode the connection space.
+///
+/// A table stores integers; what they mean depends on the connection space and, for Lab,
+/// on the profile's version. Decoding this wrongly is the classic ICC error, because the
+/// result is a smooth, plausible image in entirely the wrong colours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Encoding {
+    /// `XYZ`, where `1.0` is stored as `0x8000` — so the range runs a little past one.
+    Xyz,
+    /// `L*a*b*` as ICC v4 encodes it: the full integer range spans each axis.
+    Lab,
+    /// `L*a*b*` as ICC v2's sixteen-bit tables encode it, with `L*` = 100 at `0xFF00`
+    /// rather than `0xFFFF`.
+    ///
+    /// The difference is a factor of 65535/65280, about 0.4% — small enough to look like
+    /// rounding, large enough to shift every colour on the page.
+    LabLegacy,
+}
+
+impl Encoding {
+    /// Turns a table's normalised outputs into actual connection-space values.
+    fn decode(self, values: &[f32]) -> [f32; 3] {
+        let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
+        match self {
+            // The table normalised by 65535, but the encoding puts 1.0 at 0x8000.
+            Self::Xyz => [
+                at(0) * 65535.0 / 32768.0,
+                at(1) * 65535.0 / 32768.0,
+                at(2) * 65535.0 / 32768.0,
+            ],
+            Self::Lab => [at(0) * 100.0, at(1) * 255.0 - 128.0, at(2) * 255.0 - 128.0],
+            Self::LabLegacy => {
+                let scale = 65535.0 / 65280.0;
+                [
+                    (at(0) * scale) * 100.0,
+                    (at(1) * scale) * 255.0 - 128.0,
+                    (at(2) * scale) * 255.0 - 128.0,
+                ]
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Profile;
+
+    /// A real CMYK profile, taken from the pdf.js corpus at test time.
+    ///
+    /// Read from the corpus rather than checked in: an ICC profile is a third party's
+    /// copyrighted work, and this crate has no business redistributing one to test with.
+    fn corpus_cmyk_profile() -> Option<Vec<u8>> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/pdf.js/test/pdfs/bug886717.pdf");
+        let bytes = std::fs::read(path).ok()?;
+        let document = pdf_syntax::Document::open(bytes).ok()?;
+        for number in document.xref().object_numbers() {
+            let object = document.get(pdf_syntax::ObjectId {
+                number,
+                generation: 0,
+            });
+            let Some(stream) = object.as_stream() else {
+                continue;
+            };
+            let Some(data) = document.decoded_stream_data(stream) else {
+                continue;
+            };
+            if data.len() > 128
+                && data.get(36..40) == Some(b"acsp")
+                && data.get(16..20) == Some(b"CMYK")
+            {
+                return Some(data.to_vec());
+            }
+        }
+        None
+    }
+
+    fn bytes(colour: pdf_render::Color) -> (u8, u8, u8) {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0.0..=1.0 before scaling"
+        )]
+        let byte = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+        (byte(colour.r), byte(colour.g), byte(colour.b))
+    }
+
+    /// A real profile must reproduce what other readers get from the same profile.
+    ///
+    /// The expected values were read out of poppler's rendering of a page using this very
+    /// profile. mupdf agrees with poppler to within one level on every one, so these are
+    /// two independent implementations rather than one opinion.
+    ///
+    /// The tolerance is wider on the darkest patches, where black point compensation is
+    /// doing the most work and the exact construction differs between readers. Everything
+    /// else is within a level or two.
+    #[test]
+    fn a_real_cmyk_profile_matches_what_other_readers_produce() {
+        let Some(data) = corpus_cmyk_profile() else {
+            println!("skipped: the pdf.js submodule is not checked out");
+            return;
+        };
+        let profile = Profile::parse(&data).expect("a real CMYK profile parses");
+        assert_eq!(profile.channels(), 4);
+
+        // patch, expected, tolerance
+        let cases = [
+            ([0.0, 0.0, 0.0, 0.0], (255, 255, 255), 0),
+            ([1.0, 0.0, 0.0, 0.0], (0, 158, 226), 2),
+            ([0.0, 1.0, 0.0, 0.0], (229, 0, 126), 2),
+            ([0.0, 0.0, 1.0, 0.0], (255, 237, 0), 2),
+            ([0.5, 0.0, 0.0, 0.0], (130, 207, 245), 2),
+            ([0.0, 0.0, 0.0, 1.0], (27, 27, 24), 8),
+            ([1.0, 1.0, 1.0, 1.0], (0, 0, 0), 1),
+        ];
+        for (input, expected, tolerance) in cases {
+            let got = bytes(profile.to_rgb(&input));
+            let worst = [
+                got.0.abs_diff(expected.0),
+                got.1.abs_diff(expected.1),
+                got.2.abs_diff(expected.2),
+            ]
+            .into_iter()
+            .max()
+            .unwrap_or(0);
+            assert!(
+                worst <= tolerance,
+                "{input:?}: got {got:?}, other readers give {expected:?} ({worst} away)"
+            );
+        }
+    }
+
+    /// The profile's own inks must differ from the generic fallback, or applying it
+    /// achieved nothing.
+    #[test]
+    fn applying_a_profile_changes_the_answer() {
+        let Some(data) = corpus_cmyk_profile() else {
+            return;
+        };
+        let profile = Profile::parse(&data).expect("parses");
+        let generic = crate::colour::ColourSpace::Cmyk.to_rgb(&[1.0, 0.0, 0.0, 0.0]);
+        let managed = profile.to_rgb(&[1.0, 0.0, 0.0, 0.0]);
+        assert_ne!(
+            bytes(generic),
+            bytes(managed),
+            "this profile's cyan differs from the generic one, so the two must not agree"
+        );
+    }
+
+    /// Garbage must be refused rather than parsed into nonsense.
+    #[test]
+    fn a_profile_that_is_not_one_is_refused() {
+        assert!(Profile::parse(&[]).is_none());
+        assert!(Profile::parse(&[0u8; 256]).is_none(), "no acsp signature");
+        // A valid signature with a truncated tag table.
+        let mut damaged = vec![0u8; 200];
+        damaged[36..40].copy_from_slice(b"acsp");
+        damaged[16..20].copy_from_slice(b"CMYK");
+        damaged[20..24].copy_from_slice(b"Lab ");
+        damaged[128..132].copy_from_slice(&999u32.to_be_bytes());
+        assert!(Profile::parse(&damaged).is_none());
+    }
+}

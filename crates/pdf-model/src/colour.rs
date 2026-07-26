@@ -63,6 +63,11 @@ pub enum ColourSpace {
         /// The tint transform.
         transform: Box<Function>,
     },
+    /// A colour space defined by an embedded ICC profile.
+    Icc {
+        /// The parsed profile.
+        profile: Box<crate::icc::Profile>,
+    },
     /// A pattern space, which carries no colour of its own.
     ///
     /// It may name an *underlying* space, and that is not decoration: an uncoloured
@@ -138,6 +143,16 @@ impl ColourSpace {
                 let stream = items.get(1).map(|item| document.resolve(item))?;
                 let stream = stream.as_stream()?;
 
+                // The profile itself is the document's own statement of what its numbers
+                // mean, so it wins over everything below.
+                if let Some(data) = document.decoded_stream_data(stream)
+                    && let Some(profile) = crate::icc::Profile::parse(&data)
+                {
+                    return Some(Self::Icc {
+                        profile: Box::new(profile),
+                    });
+                }
+
                 // `/Alternate` is the producer's own statement of what to use when the
                 // profile cannot be applied. Preferring it over a guess from `/N` is what
                 // the specification asks for and is free: a document saying its profile
@@ -160,29 +175,7 @@ impl ColourSpace {
                     _ => Some(Self::Rgb),
                 }
             }
-            b"Indexed" | b"I" => {
-                let base =
-                    Self::parse_at(document, items.get(1)?, resources, depth.saturating_add(1))?;
-                let high = usize::try_from(
-                    items
-                        .get(2)
-                        .map(|item| document.resolve(item))
-                        .and_then(|item| item.as_integer())?,
-                )
-                .ok()?;
-                let table = items.get(3).map(|item| document.resolve(item))?;
-                let bytes = match &table {
-                    Object::String(bytes) => bytes.clone(),
-                    Object::Stream(stream) => document.decoded_stream_data(stream)?,
-                    _ => return None,
-                };
-                let lookup = bytes.iter().map(|byte| f32::from(*byte) / 255.0).collect();
-                Some(Self::Indexed {
-                    base: Box::new(base),
-                    lookup,
-                    high,
-                })
-            }
+            b"Indexed" | b"I" => Self::parse_indexed(document, items, resources, depth),
             b"Separation" | b"DeviceN" => {
                 let is_separation = family.as_slice() == b"Separation";
                 let inputs = if is_separation {
@@ -204,6 +197,34 @@ impl ColourSpace {
             }
             _ => None,
         }
+    }
+
+    /// Reads an `Indexed` space: a base space, a maximum index, and a palette.
+    fn parse_indexed(
+        document: &Document,
+        items: &[Object],
+        resources: &Dictionary,
+        depth: usize,
+    ) -> Option<Self> {
+        let base = Self::parse_at(document, items.get(1)?, resources, depth.saturating_add(1))?;
+        let high = usize::try_from(
+            items
+                .get(2)
+                .map(|item| document.resolve(item))
+                .and_then(|item| item.as_integer())?,
+        )
+        .ok()?;
+        let table = items.get(3).map(|item| document.resolve(item))?;
+        let bytes = match &table {
+            Object::String(bytes) => bytes.clone(),
+            Object::Stream(stream) => document.decoded_stream_data(stream)?,
+            _ => return None,
+        };
+        Some(Self::Indexed {
+            base: Box::new(base),
+            lookup: bytes.iter().map(|byte| f32::from(*byte) / 255.0).collect(),
+            high,
+        })
     }
 
     /// Resolves a space named directly, looking it up in the resources if need be.
@@ -269,6 +290,7 @@ impl ColourSpace {
     pub fn components(&self) -> usize {
         match self {
             Self::Gray | Self::Indexed { .. } => 1,
+            Self::Icc { profile } => profile.channels(),
             // A pattern is named, not given as components; where an uncoloured one takes
             // a colour, that colour belongs to the underlying space.
             Self::Pattern { base } => base.as_ref().map_or(1, |base| base.components()),
@@ -297,6 +319,7 @@ impl ColourSpace {
             }
             Self::Rgb => Color::rgb(channel(at(0)), channel(at(1)), channel(at(2))),
             Self::Cmyk => cmyk(at(0), at(1), at(2), at(3)),
+            Self::Icc { profile } => profile.to_rgb(values),
             Self::Lab { range } => lab(at(0), at(1), at(2), *range),
             Self::Indexed { base, lookup, high } => {
                 let components = base.components();
@@ -445,6 +468,18 @@ fn expand(value: f32) -> f32 {
     }
 }
 
+/// Converts CIE L*a*b* to D50 XYZ, for callers outside this module.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "a*, b*, and the intermediate m, l, n are the formula's own names"
+)]
+pub(crate) fn lab_to_xyz(lightness: f32, a: f32, b: f32) -> [f32; 3] {
+    let m = (lightness.clamp(0.0, 100.0) + 16.0) / 116.0;
+    let l = m + a / 500.0;
+    let n = m - b / 200.0;
+    [0.964_2 * expand(l), expand(m), 0.824_9 * expand(n)]
+}
+
 /// Converts CIE L*a*b* to sRGB through XYZ, using the D50 white point PDF specifies.
 #[expect(
     clippy::many_single_char_names,
@@ -477,6 +512,11 @@ fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> Color {
     let bl = 0.071_95 * x - 0.228_988 * y + 1.405_386 * z;
 
     Color::rgb(gamma(r), gamma(g), gamma(bl))
+}
+
+/// The sRGB transfer function, for callers outside this module.
+pub(crate) fn srgb_gamma(value: f32) -> f32 {
+    gamma(value)
 }
 
 /// The sRGB transfer function.
