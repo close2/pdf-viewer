@@ -165,3 +165,57 @@ fn a_grey_is_the_same_however_it_is_drawn() {
     assert_eq!(by_operator, by_scn);
     assert_eq!(by_operator, by_image, "0x40 is exactly 0.25 of 255");
 }
+
+/// `/DefaultCMYK` replaces the device space, as the specification requires.
+///
+/// ISO 32000-2 §8.6.5.6: when a device colour space is selected, the resources'
+/// `/ColorSpace` dictionary is checked for the matching `Default` entry, and "if such an
+/// entry is present, its value **shall** be used as the colour space for the operation
+/// currently being performed". A document uses this to say what press its `DeviceCMYK`
+/// means; a reader that ignores it renders those pages in the wrong colours and has no
+/// way of knowing.
+#[test]
+fn a_default_colour_space_replaces_the_device_space() {
+    // A `/DefaultCMYK` that maps every ink to a fixed green, through a Separation-style
+    // tint transform, so the substitution is unmistakable in the output.
+    let space = "5 0 obj\n[/DeviceN [/C /M /Y /K] /DeviceRGB 6 0 R]\nendobj\n\
+                 6 0 obj\n<< /FunctionType 2 /Domain [0 1 0 1 0 1 0 1] \
+                 /C0 [0 1 0] /C1 [0 1 0] /N 1 >>\nendobj\n";
+    let with_default = centre_colour(pdf_with(
+        space,
+        "/ColorSpace << /DefaultCMYK 5 0 R >>",
+        "1 0 0 0 k 0 0 20 20 re f",
+    ));
+    assert_eq!(
+        with_default,
+        (0, 255, 0),
+        "the document's /DefaultCMYK must be used in place of DeviceCMYK"
+    );
+
+    // Without the entry the same content is process cyan, as before.
+    let without = centre_colour(pdf_with("", "", "1 0 0 0 k 0 0 20 20 re f"));
+    assert_eq!(
+        without,
+        (0, 173, 239),
+        "and DeviceCMYK is unaffected otherwise"
+    );
+}
+
+/// An `ICCBased` space uses its `/Alternate` rather than a guess from `/N`.
+#[test]
+fn an_icc_space_prefers_its_stated_alternate() {
+    // Three components, so a guess from /N would say DeviceRGB. The /Alternate says the
+    // profile stands in for a Lab space instead, and that is what the producer meant.
+    let profile = "5 0 obj\n<< /N 3 /Alternate [/Lab << /Range [-100 100 -100 100] >>] \
+                   /Length 0 >>\nstream\n\nendstream\nendobj\n";
+    let colour = centre_colour(pdf_with(
+        profile,
+        "/ColorSpace << /CS0 [/ICCBased 5 0 R] >>",
+        "/CS0 cs 100 0 0 scn 0 0 20 20 re f",
+    ));
+    // L* of 100 with no a* or b* is white; read as DeviceRGB it would be pure red.
+    assert!(
+        colour.0 > 250 && colour.1 > 250 && colour.2 > 250,
+        "expected Lab white, got {colour:?} — /Alternate was ignored"
+    );
+}

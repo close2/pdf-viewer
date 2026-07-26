@@ -134,12 +134,24 @@ impl ColourSpace {
                     .unwrap_or([-100.0, 100.0, -100.0, 100.0]);
                 Some(Self::Lab { range })
             }
-            // An ICC profile is described by how many components it takes; without an ICC
-            // engine the device space with that many components is the specification's own
-            // stated fallback.
             b"ICCBased" => {
                 let stream = items.get(1).map(|item| document.resolve(item))?;
                 let stream = stream.as_stream()?;
+
+                // `/Alternate` is the producer's own statement of what to use when the
+                // profile cannot be applied. Preferring it over a guess from `/N` is what
+                // the specification asks for and is free: a document saying its profile
+                // stands in for `Lab` or a `Separation` gets that, rather than whichever
+                // device space happens to have the same component count.
+                if let Some(alternate) = stream.dict.get("Alternate")
+                    && let Some(space) =
+                        Self::parse_at(document, alternate, resources, depth.saturating_add(1))
+                {
+                    return Some(space);
+                }
+
+                // Failing that, the device space with the same component count — which is
+                // the fallback the specification itself describes.
                 match document.get_key(&stream.dict, "N").as_integer() {
                     Some(1) => Some(Self::Gray),
                     Some(4) => Some(Self::Cmyk),
@@ -201,6 +213,23 @@ impl ColourSpace {
         resources: &Dictionary,
         depth: usize,
     ) -> Option<Self> {
+        // Choosing a device space is a request to use the *default* space standing in for
+        // it, where the resources name one. ISO 32000-2 §8.6.5.6: "If such an entry is
+        // present, its value shall be used as the colour space for the operation currently
+        // being performed." This is how a producer says "my DeviceCMYK means this press",
+        // and ignoring it renders those documents in the wrong colours entirely.
+        let default = match name {
+            "DeviceGray" | "G" | "CalGray" => Some("DefaultGray"),
+            "DeviceRGB" | "RGB" | "CalRGB" => Some("DefaultRGB"),
+            "DeviceCMYK" | "CMYK" => Some("DefaultCMYK"),
+            _ => None,
+        };
+        if let Some(default) = default
+            && let Some(space) = Self::named_default(document, default, resources, depth)
+        {
+            return Some(space);
+        }
+
         match name {
             "DeviceGray" | "G" | "CalGray" => return Some(Self::Gray),
             "DeviceRGB" | "RGB" | "CalRGB" => return Some(Self::Rgb),
@@ -214,6 +243,24 @@ impl ColourSpace {
         let table = document.get_key(resources, "ColorSpace");
         let table = table.as_dict()?;
         let entry = table.get(name)?;
+        Self::parse_at(document, entry, resources, depth.saturating_add(1))
+    }
+
+    /// Resolves a `/DefaultGray`, `/DefaultRGB` or `/DefaultCMYK` entry, if present.
+    ///
+    /// A default that resolves back to the device space it replaces would recurse for
+    /// ever, so the lookup is bounded by the same depth limit as everything else here.
+    fn named_default(
+        document: &Document,
+        key: &str,
+        resources: &Dictionary,
+        depth: usize,
+    ) -> Option<Self> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        let table = document.get_key(resources, "ColorSpace");
+        let entry = table.as_dict()?.get(key)?;
         Self::parse_at(document, entry, resources, depth.saturating_add(1))
     }
 

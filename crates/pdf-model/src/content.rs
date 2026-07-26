@@ -605,37 +605,28 @@ impl Interpreter<'_> {
                 b"W*" => pending_clip = Some(FillRule::EvenOdd),
 
                 // --- colour ---
+                // `g`, `rg` and `k` set a device space and a colour together — or the
+                // matching `Default` space, where the resources name one, which is why
+                // these resolve the space rather than naming it directly.
                 b"g" | b"G" => {
                     if let Some(grey) = number_at(&operands, 0) {
-                        let colour = Color::rgb(grey, grey, grey);
-                        assign_colour(
-                            &mut state,
-                            operator.as_slice() == b"g",
-                            colour,
-                            ColourSpace::Gray,
-                        );
+                        let space = device_space(self.document, "DeviceGray", resources);
+                        let colour = space.to_rgb(&[grey]);
+                        assign_colour(&mut state, operator.as_slice() == b"g", colour, space);
                     }
                 }
                 b"rg" | b"RG" => {
                     if let Some(values) = numbers_from(&operands, 3) {
-                        let colour = Color::rgb(values[0], values[1], values[2]);
-                        assign_colour(
-                            &mut state,
-                            operator.as_slice() == b"rg",
-                            colour,
-                            ColourSpace::Rgb,
-                        );
+                        let space = device_space(self.document, "DeviceRGB", resources);
+                        let colour = space.to_rgb(&values);
+                        assign_colour(&mut state, operator.as_slice() == b"rg", colour, space);
                     }
                 }
                 b"k" | b"K" => {
                     if let Some(values) = numbers_from(&operands, 4) {
-                        let colour = ColourSpace::Cmyk.to_rgb(&values);
-                        assign_colour(
-                            &mut state,
-                            operator.as_slice() == b"k",
-                            colour,
-                            ColourSpace::Cmyk,
-                        );
+                        let space = device_space(self.document, "DeviceCMYK", resources);
+                        let colour = space.to_rgb(&values);
+                        assign_colour(&mut state, operator.as_slice() == b"k", colour, space);
                     }
                 }
                 b"cs" | b"CS" => {
@@ -1771,6 +1762,20 @@ fn as_f32(index: i32) -> f32 {
     {
         index as f32
     }
+}
+
+/// Resolves a device colour space, honouring a `Default` entry that stands in for it.
+///
+/// Falls back to the device space itself when the resources name no replacement, or when
+/// the replacement cannot be understood — a document is better rendered in device colours
+/// than not at all.
+fn device_space(document: &Document, name: &str, resources: &Dictionary) -> ColourSpace {
+    let named = Object::Name(Name::new(name.as_bytes().to_vec()));
+    ColourSpace::parse(document, &named, resources).unwrap_or(match name {
+        "DeviceGray" => ColourSpace::Gray,
+        "DeviceCMYK" => ColourSpace::Cmyk,
+        _ => ColourSpace::Rgb,
+    })
 }
 
 /// Returns a step only if it is usable as one.
