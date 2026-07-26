@@ -6,6 +6,7 @@
 # that matter are promoted into `tests/regression/` as committed fixtures instead,
 # so a reproducer never lives only in an ignored directory.
 /fuzz/target
+/fuzz/Cargo.lock
 /fuzz/artifacts
 /fuzz/corpus
 

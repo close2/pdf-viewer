@@ -8,6 +8,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+pdf-spec.workspace = true
+flate2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+test-scenes.workspace = true
 
 [lints]
 workspace = true

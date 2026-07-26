@@ -85,6 +85,21 @@ jobs:
 
       # Miri interprets rather than executes, so it cannot run the GPU backend or
       # anything else that touches a driver. It is pointed at the pure-Rust crates,
-      # which are precisely the ones that will parse untrusted input.
+      # which are precisely the ones that parse untrusted input.
       - name: Miri on the pure-Rust core
-        run: cargo +nightly miri test -p pdf-render
+        run: cargo +nightly miri test -p pdf-render -p pdf-syntax --lib
+
+      # Building the fuzz targets every push is what stops them rotting: a target that no
+      # longer compiles is discovered here rather than the next time someone wants to fuzz.
+      - name: Build the fuzz targets
+        run: |
+          cargo install cargo-fuzz --locked
+          cargo +nightly fuzz build --dev
+
+      # A short run on every push, seeded from the committed corpus. Not a substitute for a
+      # long campaign, but it catches a regression that reintroduces an easily-reached crash.
+      - name: Fuzz briefly
+        run: |
+          cargo +nightly fuzz run lexer -- -runs=50000 -max_len=1024
+          cargo +nightly fuzz run object -- -runs=50000 -max_len=1024
+          cargo +nightly fuzz run document -- -runs=20000 -max_len=4096

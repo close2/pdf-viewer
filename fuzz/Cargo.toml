@@ -1,0 +1,44 @@
+[package]
+name = "pdf-viewer-fuzz"
+description = "Fuzz targets for the PDF parser."
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Not a workspace member: cargo-fuzz builds this with its own profile and sanitiser
+# settings, and including it would apply those to the whole workspace.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+pdf-syntax = { path = "../crates/pdf-syntax" }
+
+[profile.release]
+debug = true
+# Overflow checks stay on: an arithmetic bug that wraps silently is exactly what fuzzing
+# should surface, and in a release profile it would otherwise pass unnoticed.
+overflow-checks = true
+
+[[bin]]
+name = "lexer"
+path = "fuzz_targets/lexer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "object"
+path = "fuzz_targets/object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "document"
+path = "fuzz_targets/document.rs"
+test = false
+doc = false
+bench = false

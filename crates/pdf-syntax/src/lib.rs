@@ -1,18 +1,40 @@
 //! PDF lexer, object parser and cross-reference resolution.
 //!
-//! This is the crate that touches untrusted bytes first, and it is consequently the
-//! most security-sensitive code in the project. It parses tokens, objects, streams
-//! and the cross-reference table or stream, and it resolves indirect references.
+//! This is the crate that touches untrusted bytes first, and is consequently the most
+//! security-sensitive code in the project. It turns a byte slice into an object graph and
+//! nothing more: a page tree is a dictionary here, not a page. Meaning belongs to
+//! `pdf-model`.
 //!
-//! It deliberately does *not* interpret meaning: a page tree is a dictionary here,
-//! not a page tree. Semantics belong to `pdf-model`. Keeping the split sharp means
-//! the fuzzing surface is a pure byte-slice-to-object-graph function with no
-//! higher-level state to configure.
+//! Keeping that split sharp is what makes the fuzzing surface a pure
+//! bytes-to-object-graph function with no higher-level state to configure.
 //!
-//! Every entry point must terminate on arbitrary input. Malformed files are the
-//! normal case, not the exception: real-world PDFs routinely have broken xref
-//! tables that must be recovered by scanning, and a viewer that refuses them is
-//! useless. Recovery must be bounded, because unbounded recovery is a denial of
-//! service.
+//! # Malformed files are the normal case
+//!
+//! Real-world PDFs routinely have broken cross-reference tables, wrong `/Length` values,
+//! missing `endobj` keywords and truncated streams. A reader that rejects them is not
+//! useful, so this crate recovers where recovery is well-defined — and every recovery is
+//! *bounded*, because unbounded recovery is a denial of service.
+//!
+//! # What protects against what
+//!
+//! Rust removes memory corruption. It does not remove resource exhaustion, so [`Limits`]
+//! bounds nesting depth, container sizes and stream lengths. Exceeding a bound is an
+//! error naming the bound — never a panic, and never a silently truncated object, which
+//! would render a wrong page while reporting success.
 
 #![forbid(unsafe_code)]
+
+pub mod document;
+pub mod error;
+pub mod filter;
+pub mod lexer;
+pub mod object;
+pub mod parser;
+pub mod xref;
+
+pub use document::Document;
+pub use error::{SyntaxError, SyntaxResult};
+pub use lexer::{Lexer, Token};
+pub use object::{Dictionary, Name, Object, ObjectId, Stream};
+pub use parser::{Limits, Parser};
+pub use xref::{Location, XrefTable};
