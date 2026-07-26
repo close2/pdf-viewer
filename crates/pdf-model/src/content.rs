@@ -125,16 +125,47 @@ impl Interpretation {
     }
 }
 
+/// What a `/Pattern` colour space's `scn` selected.
+///
+/// The two kinds are drawn in completely different ways. A shading pattern is a paint and
+/// travels into the display list as one. A tiling pattern is a *content stream*, replayed
+/// once per tile inside a clip shaped like the path being filled — so it never becomes a
+/// paint and is expanded here instead.
+#[derive(Debug, Clone)]
+enum PatternPaint {
+    /// A shading pattern (`/PatternType 2`).
+    Shading(Arc<Shading>),
+    /// A tiling pattern (`/PatternType 1`).
+    Tiling(Rc<Tiling>),
+}
+
+/// A tiling pattern: a cell of content, and how to repeat it.
+#[derive(Debug)]
+struct Tiling {
+    /// The cell's content stream.
+    content: Arc<[u8]>,
+    /// The resources its operators name.
+    resources: Dictionary,
+    /// Spacing between cells, in pattern space. Never zero.
+    step: (f32, f32),
+    /// Maps pattern space to the page's default space.
+    to_page: Transform,
+    /// The colour an uncoloured pattern is poured through, if it is uncoloured.
+    ///
+    /// `/PaintType 2` cells carry no colour of their own; the colour comes from `scn`.
+    tint: Option<Color>,
+}
+
 /// One level of PDF graphics state.
 #[derive(Debug, Clone)]
 struct GraphicsState {
     transform: Transform,
     clip: Option<ClipId>,
     fill: Color,
-    /// The shading pattern set as the fill colour, if the fill space is `/Pattern`.
-    fill_shading: Option<Arc<Shading>>,
+    /// The pattern set as the fill colour, if the fill space is `/Pattern`.
+    fill_pattern: Option<PatternPaint>,
     /// As above, for stroking.
-    stroke_shading: Option<Arc<Shading>>,
+    stroke_pattern: Option<PatternPaint>,
     stroke_colour: Color,
     stroke: Stroke,
     blend: BlendMode,
@@ -194,8 +225,8 @@ impl GraphicsState {
             transform: base,
             clip: None,
             fill: Color::BLACK,
-            fill_shading: None,
-            stroke_shading: None,
+            fill_pattern: None,
+            stroke_pattern: None,
             stroke_colour: Color::BLACK,
             stroke: Stroke::default(),
             blend: BlendMode::Normal,
@@ -209,8 +240,10 @@ impl GraphicsState {
 
     /// Returns the fill colour with the constant alpha applied.
     fn fill_paint(&self) -> Paint {
-        // A pattern replaces the colour entirely; PDF has no notion of tinting one.
-        if let Some(shading) = &self.fill_shading {
+        // A shading pattern replaces the colour entirely; PDF has no notion of tinting
+        // one. A tiling pattern is not a paint at all — it is drawn by replaying its
+        // content stream — so it leaves the colour alone here.
+        if let Some(PatternPaint::Shading(shading)) = &self.fill_pattern {
             return Paint::Shading(Arc::clone(shading));
         }
         Paint::Solid(Color {
@@ -221,7 +254,7 @@ impl GraphicsState {
 
     /// Returns the stroke colour with the constant alpha applied.
     fn stroke_paint(&self) -> Paint {
-        if let Some(shading) = &self.stroke_shading {
+        if let Some(PatternPaint::Shading(shading)) = &self.stroke_pattern {
             return Paint::Shading(Arc::clone(shading));
         }
         Paint::Solid(Color {
@@ -793,7 +826,15 @@ impl Interpreter<'_> {
             // `B` fills *and* strokes one path, and both commands then describe the same
             // geometry; sharing it means the copy happens once rather than twice.
             let shared = Arc::new(path.clone());
-            if let Some(rule) = fill {
+
+            // A tiling pattern is not a paint: its cell is a content stream, replayed
+            // across the area the path covers. Doing that here rather than in the display
+            // list keeps the list flat — no backend needs to know what a pattern is.
+            if let (Some(rule), Some(PatternPaint::Tiling(tiling))) =
+                (fill, state.fill_pattern.clone())
+            {
+                self.tile(&shared, rule, &tiling, state);
+            } else if let Some(rule) = fill {
                 self.list.push(Command::Fill {
                     path: Arc::clone(&shared),
                     transform: state.transform,
@@ -949,20 +990,25 @@ impl Interpreter<'_> {
             .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
             .next()
         {
-            let shading = self.pattern_shading(&name, resources);
+            // Numeric operands alongside the name are the colour an *uncoloured* tiling
+            // pattern is poured through, in the pattern's underlying space.
+            let tint: Vec<f32> = (0..operands.len())
+                .filter_map(|index| number_at(operands, index))
+                .collect();
+            let pattern = self.pattern(&name, resources, &tint, state, fill);
             if fill {
-                state.fill_shading = shading;
+                state.fill_pattern = pattern;
             } else {
-                state.stroke_shading = shading;
+                state.stroke_pattern = pattern;
             }
             return;
         }
 
         // Setting an ordinary colour clears any pattern the space had selected.
         if fill {
-            state.fill_shading = None;
+            state.fill_pattern = None;
         } else {
-            state.stroke_shading = None;
+            state.stroke_pattern = None;
         }
 
         let space = if fill {
@@ -1243,6 +1289,87 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Paints a tiling pattern over the area a path covers.
+    ///
+    /// The path becomes a clip and the pattern's cell is replayed once per tile position
+    /// inside it. Expanding the tiling here rather than inventing a display-list paint for
+    /// it keeps the list flat: a backend never learns what a pattern is, and the result is
+    /// resolution-independent because the cell is real geometry rather than a rendered
+    /// image.
+    fn tile(&mut self, path: &Arc<Path>, rule: FillRule, tiling: &Tiling, state: &GraphicsState) {
+        /// Most cells one pattern fill may draw.
+        ///
+        /// A small cell over a large area is an enormous number of tiles, and the content
+        /// stream inside each one is unbounded. This is the bound that keeps a pattern
+        /// from becoming a decompression bomb with extra steps.
+        const MAX_TILES: usize = 4096;
+
+        // The pattern is anchored to the page, so the question "which cells does this path
+        // touch" has to be asked in the pattern's own coordinates.
+        let Some(to_pattern) = tiling.to_page.invert() else {
+            self.note(Unsupported::Shading {
+                name: "a tiling pattern's matrix is degenerate".to_owned(),
+            });
+            return;
+        };
+        let path_to_pattern = state.transform.then(to_pattern);
+
+        let Some(bounds) = bounds_of(path, path_to_pattern) else {
+            return;
+        };
+        let (first_column, last_column) = span(bounds.0, bounds.2, tiling.step.0);
+        let (first_row, last_row) = span(bounds.1, bounds.3, tiling.step.1);
+
+        let columns = last_column.saturating_sub(first_column).saturating_add(1);
+        let rows = last_row.saturating_sub(first_row).saturating_add(1);
+        let total = usize::try_from(columns)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(usize::try_from(rows).unwrap_or(usize::MAX));
+        if total > MAX_TILES {
+            self.note(Unsupported::LimitReached { limit: "MAX_TILES" });
+            return;
+        }
+
+        // The path clips every cell, so a tile that falls outside it contributes nothing.
+        let clip = Clip {
+            path: (**path).clone(),
+            transform: state.transform,
+            fill_rule: rule,
+            parent: state.clip,
+        };
+        let Ok(clip) = self.list.add_clip(clip) else {
+            self.note(Unsupported::LimitReached { limit: "max_clips" });
+            return;
+        };
+        let clip = Some(clip);
+
+        for row in first_row..=last_row {
+            for column in first_column..=last_column {
+                let offset = Transform::translate(
+                    tiling.step.0 * as_f32(column),
+                    tiling.step.1 * as_f32(row),
+                );
+                let mut cell = GraphicsState::initial(offset.then(tiling.to_page));
+                cell.clip = clip;
+                cell.blend = state.blend;
+                cell.fill_alpha = state.fill_alpha;
+                cell.stroke_alpha = state.stroke_alpha;
+                // An uncoloured pattern is a stencil: its content sets no colour, and the
+                // colour given alongside the pattern name is what pours through it.
+                if let Some(tint) = tiling.tint {
+                    cell.fill = tint;
+                    cell.stroke_colour = tint;
+                }
+                self.run(
+                    &tiling.content,
+                    &tiling.resources,
+                    &cell,
+                    MAX_FORM_DEPTH - 1,
+                );
+            }
+        }
+    }
+
     /// Paints a shading across the current clip, for the `sh` operator.
     ///
     /// `sh` covers the whole clipping region rather than a path, so the geometry drawn is
@@ -1286,11 +1413,15 @@ impl Interpreter<'_> {
         }
     }
 
-    /// Resolves a pattern name to a shading, for `scn` in a `/Pattern` colour space.
-    ///
-    /// Returns `None` for a tiling pattern, which is a content stream rather than a
-    /// shading and is not drawn yet.
-    fn pattern_shading(&mut self, name: &str, resources: &Dictionary) -> Option<Arc<Shading>> {
+    /// Resolves a pattern name, for `scn` in a `/Pattern` colour space.
+    fn pattern(
+        &mut self,
+        name: &str,
+        resources: &Dictionary,
+        tint: &[f32],
+        state: &GraphicsState,
+        fill: bool,
+    ) -> Option<PatternPaint> {
         let object = self.resource(resources, "Pattern", name)?;
         let dict = match &object {
             Object::Dictionary(dict) => dict.clone(),
@@ -1299,6 +1430,11 @@ impl Interpreter<'_> {
         };
 
         match self.document.get_key(&dict, "PatternType").as_integer() {
+            Some(1) => {
+                return self
+                    .tiling(&object, &dict, tint, state, fill)
+                    .map(PatternPaint::Tiling);
+            }
             Some(2) => {}
             other => {
                 self.note(Unsupported::Shading {
@@ -1320,7 +1456,7 @@ impl Interpreter<'_> {
             resources,
             matrix.then(self.base),
         ) {
-            Ok(shading) => Some(Arc::new(shading)),
+            Ok(shading) => Some(PatternPaint::Shading(Arc::new(shading))),
             Err(error) => {
                 self.note(Unsupported::Shading {
                     name: format!("/{name}: {error}"),
@@ -1328,6 +1464,89 @@ impl Interpreter<'_> {
                 None
             }
         }
+    }
+
+    /// Reads a tiling pattern's cell and how it repeats.
+    fn tiling(
+        &mut self,
+        object: &Object,
+        dict: &Dictionary,
+        tint: &[f32],
+        state: &GraphicsState,
+        fill: bool,
+    ) -> Option<Rc<Tiling>> {
+        let stream = object.as_stream()?;
+        let content = self.document.decoded_stream_data(stream)?;
+
+        // `/XStep` and `/YStep` may differ from the cell's bounding box, which is how a
+        // pattern tiles with gaps or with overlap. Zero would mean an infinite number of
+        // cells in one place, so the specification forbids it and so does this.
+        let step_x = self
+            .document
+            .get_key(dict, "XStep")
+            .as_number()
+            .map_or(0.0, narrow);
+        let step_y = self
+            .document
+            .get_key(dict, "YStep")
+            .as_number()
+            .map_or(0.0, narrow);
+        let bbox = self.document.get_key(dict, "BBox");
+        let bbox: Vec<f32> = bbox
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| self.document.resolve(item).as_number().map(narrow))
+                    .collect()
+            })
+            .unwrap_or_default();
+        // A missing or zero step falls back to the cell's own size, which is what a
+        // producer means by it and what other readers assume.
+        let step = (
+            non_zero(step_x).or_else(|| cell_extent(&bbox, 0))?,
+            non_zero(step_y).or_else(|| cell_extent(&bbox, 1))?,
+        );
+
+        let resources = self
+            .document
+            .get_key(dict, "Resources")
+            .as_dict()
+            .cloned()
+            .unwrap_or_default();
+
+        // `/PaintType 2` describes a stencil rather than a picture: the cell carries no
+        // colour and the current colour is poured through it.
+        let tint = match self.document.get_key(dict, "PaintType").as_integer() {
+            Some(2) => {
+                let space = if fill {
+                    &state.fill_space
+                } else {
+                    &state.stroke_space
+                };
+                // A bare `/Pattern` names no underlying space, so the operand count is the
+                // only evidence of what the colour is — the same fallback `scn` uses when
+                // a declared space and its operands disagree.
+                let space = match space {
+                    ColourSpace::Pattern { base: None } => match tint.len() {
+                        3 => ColourSpace::Rgb,
+                        4 => ColourSpace::Cmyk,
+                        _ => ColourSpace::Gray,
+                    },
+                    other => other.clone(),
+                };
+                Some(space.to_rgb(tint))
+            }
+            _ => None,
+        };
+
+        Some(Rc::new(Tiling {
+            content,
+            resources,
+            step,
+            to_page: crate::shading::matrix_of(self.document, dict, "Matrix").then(self.base),
+            tint,
+        }))
     }
 
     /// Looks up a named resource of a given category.
@@ -1490,12 +1709,85 @@ fn assign_colour(state: &mut GraphicsState, fill: bool, colour: Color, space: Co
     if fill {
         state.fill = colour;
         state.fill_space = space;
-        state.fill_shading = None;
+        state.fill_pattern = None;
     } else {
         state.stroke_colour = colour;
         state.stroke_space = space;
-        state.stroke_shading = None;
+        state.stroke_pattern = None;
     }
+}
+
+/// The bounding box of a path once transformed, as `(min_x, min_y, max_x, max_y)`.
+fn bounds_of(path: &Path, transform: Transform) -> Option<(f32, f32, f32, f32)> {
+    let mut bounds: Option<(f32, f32, f32, f32)> = None;
+    let mut visit = |point: Point| {
+        let at = transform.apply(point);
+        if !at.x.is_finite() || !at.y.is_finite() {
+            return;
+        }
+        bounds = Some(match bounds {
+            None => (at.x, at.y, at.x, at.y),
+            Some((x0, y0, x1, y1)) => (x0.min(at.x), y0.min(at.y), x1.max(at.x), y1.max(at.y)),
+        });
+    };
+    for command in path.commands() {
+        match command {
+            PathCommand::MoveTo(point) | PathCommand::LineTo(point) => visit(*point),
+            // A curve stays inside the hull of its control points, so those bound it —
+            // loosely, which only ever draws tiles that turn out to be clipped away.
+            PathCommand::CurveTo(a, b, c) => {
+                visit(*a);
+                visit(*b);
+                visit(*c);
+            }
+            PathCommand::Close => {}
+        }
+    }
+    bounds
+}
+
+/// The range of tile indices covering an interval, given a step.
+fn span(low: f32, high: f32, step: f32) -> (i32, i32) {
+    /// Bounds the index range so a huge path or a tiny step cannot overflow.
+    const LIMIT: f32 = 1e6;
+
+    let first = (low / step).floor().clamp(-LIMIT, LIMIT);
+    let last = (high / step).ceil().clamp(-LIMIT, LIMIT);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "both are clamped to a million, well inside i32"
+    )]
+    {
+        (first as i32, last as i32)
+    }
+}
+
+/// Widens a tile index for arithmetic in pattern space.
+fn as_f32(index: i32) -> f32 {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "tile indices are clamped to a million, exact in f32"
+    )]
+    {
+        index as f32
+    }
+}
+
+/// Returns a step only if it is usable as one.
+///
+/// A zero step would place every cell on top of the last, which is an infinite loop rather
+/// than a pattern; the specification forbids it. A negative one is legal and tiles in the
+/// other direction, so only its magnitude matters here.
+fn non_zero(step: f32) -> Option<f32> {
+    let step = step.abs();
+    (step.is_finite() && step > 0.0).then_some(step)
+}
+
+/// The width or height of a pattern cell's bounding box, as a fallback step.
+fn cell_extent(bbox: &[f32], axis: usize) -> Option<f32> {
+    let low = bbox.get(axis)?;
+    let high = bbox.get(axis.checked_add(2)?)?;
+    non_zero(high - low)
 }
 
 /// Converts CMYK to RGB.

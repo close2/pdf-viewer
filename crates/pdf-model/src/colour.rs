@@ -64,7 +64,14 @@ pub enum ColourSpace {
         transform: Box<Function>,
     },
     /// A pattern space, which carries no colour of its own.
-    Pattern,
+    ///
+    /// It may name an *underlying* space, and that is not decoration: an uncoloured
+    /// tiling pattern is a stencil, and the colour poured through it is given in this
+    /// space rather than in any of the pattern's own.
+    Pattern {
+        /// The space an uncoloured pattern's colour is given in, if one was named.
+        base: Option<Box<ColourSpace>>,
+    },
 }
 
 impl ColourSpace {
@@ -103,7 +110,14 @@ impl ColourSpace {
             b"DeviceGray" | b"G" | b"CalGray" => Some(Self::Gray),
             b"DeviceRGB" | b"RGB" | b"CalRGB" => Some(Self::Rgb),
             b"DeviceCMYK" | b"CMYK" => Some(Self::Cmyk),
-            b"Pattern" => Some(Self::Pattern),
+            b"Pattern" => Some(Self::Pattern {
+                base: items
+                    .get(1)
+                    .and_then(|item| {
+                        Self::parse_at(document, item, resources, depth.saturating_add(1))
+                    })
+                    .map(Box::new),
+            }),
             b"Lab" => {
                 let dict = items.get(1).map(|item| document.resolve(item));
                 let dict = dict.as_ref().and_then(Object::as_dict);
@@ -191,7 +205,9 @@ impl ColourSpace {
             "DeviceGray" | "G" | "CalGray" => return Some(Self::Gray),
             "DeviceRGB" | "RGB" | "CalRGB" => return Some(Self::Rgb),
             "DeviceCMYK" | "CMYK" => return Some(Self::Cmyk),
-            "Pattern" => return Some(Self::Pattern),
+            // A bare `/Pattern` names no underlying space; the caller falls back on the
+            // operand count when one is needed.
+            "Pattern" => return Some(Self::Pattern { base: None }),
             _ => {}
         }
         // Anything else is a name in the page's `/ColorSpace` resource dictionary.
@@ -205,7 +221,10 @@ impl ColourSpace {
     #[must_use]
     pub fn components(&self) -> usize {
         match self {
-            Self::Gray | Self::Indexed { .. } | Self::Pattern => 1,
+            Self::Gray | Self::Indexed { .. } => 1,
+            // A pattern is named, not given as components; where an uncoloured one takes
+            // a colour, that colour belongs to the underlying space.
+            Self::Pattern { base } => base.as_ref().map_or(1, |base| base.components()),
             Self::Rgb | Self::Lab { .. } => 3,
             Self::Cmyk => 4,
             Self::Separation { inputs, .. } => *inputs,
@@ -268,9 +287,11 @@ impl ColourSpace {
                 let converted = transform.eval(values);
                 alternate.to_rgb_at(&converted, depth.saturating_add(1))
             }
-            // A pattern has no colour of its own; black is the least surprising stand-in
-            // and the caller should not be asking.
-            Self::Pattern => Color::BLACK,
+            // A pattern has no colour of its own. Where it names an underlying space, an
+            // uncoloured pattern's colour is in that; otherwise there is nothing to say.
+            Self::Pattern { base } => base.as_ref().map_or(Color::BLACK, |base| {
+                base.to_rgb_at(values, depth.saturating_add(1))
+            }),
         }
     }
 }

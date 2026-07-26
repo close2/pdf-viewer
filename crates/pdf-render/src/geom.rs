@@ -195,6 +195,28 @@ impl Transform {
     pub fn determinant(self) -> f32 {
         self.a * self.d - self.b * self.c
     }
+
+    /// Returns the transform that undoes this one.
+    ///
+    /// `None` when the transform collapses geometry to a line or a point, which has no
+    /// inverse. Needed wherever a question is asked in one space about a shape defined in
+    /// another — which region of a pattern's own coordinates a filled path covers, for
+    /// instance.
+    #[must_use]
+    pub fn invert(self) -> Option<Self> {
+        let determinant = self.determinant();
+        if !determinant.is_finite() || determinant == 0.0 {
+            return None;
+        }
+        Some(Self {
+            a: self.d / determinant,
+            b: -self.b / determinant,
+            c: -self.c / determinant,
+            d: self.a / determinant,
+            e: (self.c * self.f - self.e * self.d) / determinant,
+            f: (self.e * self.b - self.a * self.f) / determinant,
+        })
+    }
 }
 
 impl Default for Transform {
@@ -308,5 +330,49 @@ mod tests {
         assert_eq!(r.max, Point::new(10.0, 20.0));
         assert_eq!(r.width(), 10.0);
         assert_eq!(r.height(), 15.0);
+    }
+}
+
+#[cfg(test)]
+mod invert_tests {
+    use super::{Point, Transform};
+
+    /// Inverting and reapplying must return the original point.
+    ///
+    /// Checked with a transform that scales, shears, rotates and translates at once,
+    /// because an inverse that is wrong only in its translation still passes on a pure
+    /// scale — which is the mistake that is easy to make and hard to see.
+    #[test]
+    fn a_transform_composed_with_its_inverse_is_the_identity() {
+        let transform = Transform::new(2.0, 0.5, -0.25, 3.0, 17.0, -9.0);
+        let inverse = transform.invert().expect("this transform is invertible");
+
+        for point in [
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 0.0),
+            Point::new(0.0, 1.0),
+            Point::new(-13.5, 42.25),
+        ] {
+            let round_trip = inverse.apply(transform.apply(point));
+            assert!(
+                (round_trip.x - point.x).abs() < 1e-3 && (round_trip.y - point.y).abs() < 1e-3,
+                "{point:?} became {round_trip:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_collapsing_transform_has_no_inverse() {
+        // Both rows the same: everything maps onto one line.
+        assert!(
+            Transform::new(1.0, 1.0, 2.0, 2.0, 0.0, 0.0)
+                .invert()
+                .is_none()
+        );
+        assert!(
+            Transform::new(0.0, 0.0, 0.0, 0.0, 5.0, 5.0)
+                .invert()
+                .is_none()
+        );
     }
 }
