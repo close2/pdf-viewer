@@ -218,3 +218,65 @@ fn a_truncated_file_does_not_hang_or_panic() {
         }
     }
 }
+
+/// A file whose `%PDF-` header is missing must still be read if its objects survive.
+///
+/// Headers are lost to transfer damage and to producers that never wrote one. Both
+/// poppler and mupdf recover such files and read them; refusing on the header alone
+/// rejected a document whose every object was intact. Found by opening the pdf.js test
+/// corpus, where exactly one file of 974 failed for this reason.
+#[test]
+fn a_file_with_no_header_is_recovered_rather_than_refused() {
+    let intact = test_scenes::basic_pdf();
+    let header = intact
+        .windows(5)
+        .position(|window| window == b"%PDF-")
+        .expect("the fixture has a header");
+
+    // Replace the header with a comment of the same length, so every byte offset in the
+    // file — and therefore the cross-reference table — stays valid.
+    let mut damaged = intact.clone();
+    for byte in damaged
+        .get_mut(header..header.saturating_add(5))
+        .expect("the header is inside the file")
+    {
+        *byte = b'%';
+    }
+
+    let document = Document::open(damaged).expect("a headerless PDF is still a PDF");
+    // `was_recovered` reports recovery *by scan* specifically, and this file needs none:
+    // blanking the header leaves every byte offset unchanged, so the cross-reference
+    // table still resolves. The header was never load bearing, which is the point.
+    assert!(
+        pdf_model_free_page_count(&document) > 0,
+        "recovery must actually yield the page tree, not merely an empty document"
+    );
+}
+
+/// Counts pages without depending on `pdf-model`, which sits above this crate.
+fn pdf_model_free_page_count(document: &Document) -> usize {
+    let Ok(catalog) = document.catalog() else {
+        return 0;
+    };
+    let pages = document.get_key(&catalog, "Pages");
+    let Some(pages) = pages.as_dict() else {
+        return 0;
+    };
+    usize::try_from(
+        document
+            .get_key(pages, "Count")
+            .as_integer()
+            .unwrap_or_default(),
+    )
+    .unwrap_or_default()
+}
+
+/// Something that is not a PDF at all must still be refused, and say so.
+#[test]
+fn a_file_that_is_not_a_pdf_is_still_refused() {
+    // Relaxing the header check must not turn "not a PDF" into "an empty PDF": a caller
+    // handed a font or a JPEG has to be told, not given a document with no pages.
+    let not_a_pdf = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    assert!(Document::open(not_a_pdf).is_err());
+    assert!(Document::open(vec![0u8; 4096]).is_err());
+}

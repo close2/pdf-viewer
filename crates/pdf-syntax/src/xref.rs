@@ -120,22 +120,18 @@ const MAX_XREF_SECTIONS: usize = 1024;
 ///
 /// # Errors
 ///
-/// [`SyntaxError::NoHeader`] if the file has no `%PDF-` header, and
-/// [`SyntaxError::NoCrossReferences`] if neither the table nor a scan yields any object.
+/// [`SyntaxError::NoHeader`] if the file has no `%PDF-` header *and* no objects could be
+/// found either, and [`SyntaxError::NoCrossReferences`] if neither the table nor a scan
+/// yields any object.
 pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     // The header may be preceded by junk — files served through mail gateways acquire it —
     // so the specification's "first line" is relaxed to "somewhere near the start".
     let header_window = input.len().min(1024);
-    if !input
+    let has_header = input
         .get(..header_window)
         .unwrap_or_default()
         .windows(5)
-        .any(|window| window == b"%PDF-")
-    {
-        return Err(SyntaxError::NoHeader {
-            searched: header_window,
-        });
-    }
+        .any(|window| window == b"%PDF-");
 
     if let Some(table) = read_from_startxref(input, limits)
         && !table.is_empty()
@@ -144,10 +140,21 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     }
 
     // The table was absent, unreadable, or empty. Scan.
+    //
+    // A missing header does not stop this. Files lose their header to transfer damage and
+    // to producers that never wrote one, and the objects after it are usually intact — so
+    // refusing on the header alone rejects documents both poppler and mupdf recover and
+    // read. The header is a diagnosis, not a gate: it only decides which error is reported
+    // when nothing is found.
     let mut table = scan_for_objects(input, limits);
     table.recovered_by_scan = true;
 
     if table.is_empty() {
+        if !has_header {
+            return Err(SyntaxError::NoHeader {
+                searched: header_window,
+            });
+        }
         return Err(SyntaxError::NoCrossReferences {
             detail: "the cross-reference table was unusable and no object headers were found"
                 .to_owned(),
