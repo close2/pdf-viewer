@@ -1,3 +1,6 @@
 [submodule "doc/arlington-pdf-model"]
 	path = doc/arlington-pdf-model
 	url = https://github.com/pdf-association/arlington-pdf-model.git
+[submodule "doc/pdf.js"]
+	path = doc/pdf.js
+	url = https://github.com/mozilla/pdf.js.git
