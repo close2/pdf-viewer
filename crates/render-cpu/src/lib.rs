@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod convert;
+mod shading;
 
 use std::collections::{HashMap, HashSet};
 
@@ -81,17 +82,21 @@ impl CpuRasterizer {
     /// patterns will be added to it before this backend handles them; failing loudly
     /// in the interim is deliberate, because a silent fallback colour would give the
     /// comparison harness a plausible-looking wrong image.
-    fn paint(
+    fn paint<'a>(
         &self,
-        paint: Paint,
+        paint: &Paint,
         blend: pdf_render::BlendMode,
-    ) -> Result<tiny_skia::Paint<'static>, CpuRasterError> {
-        let colour = match paint {
-            Paint::Solid(colour) => colour,
+        to_device: pdf_render::Transform,
+        scratch: &'a mut Option<tiny_skia::Pixmap>,
+    ) -> Result<tiny_skia::Paint<'a>, CpuRasterError> {
+        let shader = match paint {
+            Paint::Solid(colour) => tiny_skia::Shader::SolidColor(convert::color(*colour)),
+            Paint::Shading(shading) => shading::shader(shading, to_device, scratch)
+                .ok_or_else(|| CpuRasterError::UnsupportedPaint(format!("{shading:?}")))?,
             other => return Err(CpuRasterError::UnsupportedPaint(format!("{other:?}"))),
         };
         Ok(tiny_skia::Paint {
-            shader: tiny_skia::Shader::SolidColor(convert::color(colour)),
+            shader,
             blend_mode: convert::blend_mode(blend),
             anti_alias: self.anti_alias,
             ..tiny_skia::Paint::default()
@@ -142,9 +147,12 @@ impl Rasterizer for CpuRasterizer {
                     ..
                 } => {
                     let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
+                    // A sampled shading's pixels are borrowed by its shader, so they need
+                    // somewhere to live for exactly as long as this call.
+                    let mut scratch = None;
                     pixmap.fill_path(
                         &path,
-                        &self.paint(*paint, *blend)?,
+                        &self.paint(paint, *blend, to_device, &mut scratch)?,
                         convert::fill_rule(*fill_rule),
                         convert::transform(transform.then(to_device)),
                         clip,
@@ -159,9 +167,10 @@ impl Rasterizer for CpuRasterizer {
                     ..
                 } => {
                     let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
+                    let mut scratch = None;
                     pixmap.stroke_path(
                         &path,
-                        &self.paint(*paint, *blend)?,
+                        &self.paint(paint, *blend, to_device, &mut scratch)?,
                         &convert::stroke(stroke),
                         convert::transform(transform.then(to_device)),
                         clip,

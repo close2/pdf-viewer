@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use pdf_render::Shading;
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin, Paint, Path,
@@ -129,6 +130,10 @@ struct GraphicsState {
     transform: Transform,
     clip: Option<ClipId>,
     fill: Color,
+    /// The shading pattern set as the fill colour, if the fill space is `/Pattern`.
+    fill_shading: Option<Arc<Shading>>,
+    /// As above, for stroking.
+    stroke_shading: Option<Arc<Shading>>,
     stroke_colour: Color,
     stroke: Stroke,
     blend: BlendMode,
@@ -188,6 +193,8 @@ impl GraphicsState {
             transform: base,
             clip: None,
             fill: Color::BLACK,
+            fill_shading: None,
+            stroke_shading: None,
             stroke_colour: Color::BLACK,
             stroke: Stroke::default(),
             blend: BlendMode::Normal,
@@ -201,6 +208,10 @@ impl GraphicsState {
 
     /// Returns the fill colour with the constant alpha applied.
     fn fill_paint(&self) -> Paint {
+        // A pattern replaces the colour entirely; PDF has no notion of tinting one.
+        if let Some(shading) = &self.fill_shading {
+            return Paint::Shading(Arc::clone(shading));
+        }
         Paint::Solid(Color {
             a: self.fill.a * self.fill_alpha,
             ..self.fill
@@ -209,6 +220,9 @@ impl GraphicsState {
 
     /// Returns the stroke colour with the constant alpha applied.
     fn stroke_paint(&self) -> Paint {
+        if let Some(shading) = &self.stroke_shading {
+            return Paint::Shading(Arc::clone(shading));
+        }
         Paint::Solid(Color {
             a: self.stroke_colour.a * self.stroke_alpha,
             ..self.stroke_colour
@@ -235,6 +249,8 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         fonts: BTreeMap::new(),
         text: String::new(),
         text_cursor: None,
+        base: base_transform(page),
+        page: size,
     };
 
     let base = base_transform(page);
@@ -300,6 +316,14 @@ struct Interpreter<'a> {
     /// A page names the same font on every `Tf`, and parsing a font program is expensive,
     /// so this is what keeps text rendering from being dominated by font loading.
     fonts: BTreeMap<String, Option<Rc<pdf_font::LoadedFont>>>,
+    /// Maps PDF user space to page space.
+    ///
+    /// Pattern space is defined relative to the page's default coordinates rather than to
+    /// the transform in force when a pattern is used, so this is kept for patterns and
+    /// must not be confused with the current transform.
+    base: Transform,
+    /// The page's extent, used to bound a shading painted by `sh`.
+    page: Size,
     /// The page's text, accumulated as the glyphs are placed.
     text: String,
     /// Where the last glyph ended, used to decide where a space belongs.
@@ -571,7 +595,7 @@ impl Interpreter<'_> {
                 }
                 b"sc" | b"scn" | b"SC" | b"SCN" => {
                     let fill = matches!(operator.as_slice(), b"sc" | b"scn");
-                    self.set_colour(&operands, &mut state, fill);
+                    self.set_colour(&operands, resources, &mut state, fill);
                 }
 
                 // --- text ---
@@ -701,7 +725,7 @@ impl Interpreter<'_> {
                 // --- shadings and inline images ---
                 b"sh" => {
                     let name = name_at(&operands, 0).unwrap_or_default();
-                    self.note(Unsupported::Shading { name });
+                    self.paint_shading(&name, resources, &state);
                 }
                 b"BI" => {
                     // An inline image runs to `EI` and its data is not PDF syntax, so the
@@ -866,15 +890,11 @@ impl Interpreter<'_> {
         };
 
         let components = match name.as_str() {
-            "DeviceGray" | "G" | "CalGray" => 1,
+            // A pattern carries no components of its own; `scn` names one instead, so it
+            // reports one alongside the single-component spaces.
+            "DeviceGray" | "G" | "CalGray" | "Pattern" => 1,
             "DeviceRGB" | "RGB" | "CalRGB" | "Lab" => 3,
             "DeviceCMYK" | "CMYK" => 4,
-            "Pattern" => {
-                self.note(Unsupported::Shading {
-                    name: "Pattern".to_owned(),
-                });
-                1
-            }
             _ => self.resolved_space_components(resources, &name),
         };
 
@@ -948,19 +968,34 @@ impl Interpreter<'_> {
     }
 
     /// Sets a colour from `sc`/`scn` operands, interpreting them by component count.
-    fn set_colour(&mut self, operands: &[Object], state: &mut GraphicsState, fill: bool) {
+    fn set_colour(
+        &mut self,
+        operands: &[Object],
+        resources: &Dictionary,
+        state: &mut GraphicsState,
+        fill: bool,
+    ) {
         // A trailing name means a pattern rather than a colour.
-        if operands.iter().any(|operand| operand.as_name().is_some()) {
-            let name = operands
-                .iter()
-                .filter_map(|operand| operand.as_name())
-                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-                .next()
-                .unwrap_or_default();
-            self.note(Unsupported::Shading {
-                name: format!("pattern /{name}"),
-            });
+        if let Some(name) = operands
+            .iter()
+            .filter_map(|operand| operand.as_name())
+            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+            .next()
+        {
+            let shading = self.pattern_shading(&name, resources);
+            if fill {
+                state.fill_shading = shading;
+            } else {
+                state.stroke_shading = shading;
+            }
             return;
+        }
+
+        // Setting an ordinary colour clears any pattern the space had selected.
+        if fill {
+            state.fill_shading = None;
+        } else {
+            state.stroke_shading = None;
         }
 
         let expected = if fill {
@@ -1235,6 +1270,93 @@ impl Interpreter<'_> {
             self.note(Unsupported::Operator {
                 operator: format!("text render mode {}", state.text.render_mode),
             });
+        }
+    }
+
+    /// Paints a shading across the current clip, for the `sh` operator.
+    ///
+    /// `sh` covers the whole clipping region rather than a path, so the geometry drawn is
+    /// the page itself and the clip does the shaping. Where the shading does not extend,
+    /// it paints nothing, so the covered area is only ever as large as the shading says.
+    fn paint_shading(&mut self, name: &str, resources: &Dictionary, state: &GraphicsState) {
+        let Some(object) = self.resource(resources, "Shading", name) else {
+            self.note(Unsupported::Shading {
+                name: format!("/{name} is not in /Shading"),
+            });
+            return;
+        };
+
+        // `sh` is drawn in the current user space, unlike a pattern.
+        match crate::shading::build(self.document, &object, resources, state.transform) {
+            Ok(shading) => {
+                let mut path = Path::new();
+                path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+                path.push(PathCommand::LineTo(Point::new(self.page.width, 0.0)));
+                path.push(PathCommand::LineTo(Point::new(
+                    self.page.width,
+                    self.page.height,
+                )));
+                path.push(PathCommand::LineTo(Point::new(0.0, self.page.height)));
+                path.push(PathCommand::Close);
+
+                self.list.push(Command::Fill {
+                    path: Arc::new(path),
+                    // The page rectangle is already in page space, so it needs no further
+                    // transform; the shading carries its own.
+                    transform: Transform::IDENTITY,
+                    fill_rule: FillRule::NonZero,
+                    paint: Paint::Shading(Arc::new(shading)),
+                    clip: state.clip,
+                    blend: state.blend,
+                });
+            }
+            Err(error) => self.note(Unsupported::Shading {
+                name: format!("/{name}: {error}"),
+            }),
+        }
+    }
+
+    /// Resolves a pattern name to a shading, for `scn` in a `/Pattern` colour space.
+    ///
+    /// Returns `None` for a tiling pattern, which is a content stream rather than a
+    /// shading and is not drawn yet.
+    fn pattern_shading(&mut self, name: &str, resources: &Dictionary) -> Option<Arc<Shading>> {
+        let object = self.resource(resources, "Pattern", name)?;
+        let dict = match &object {
+            Object::Dictionary(dict) => dict.clone(),
+            Object::Stream(stream) => stream.dict.clone(),
+            _ => return None,
+        };
+
+        match self.document.get_key(&dict, "PatternType").as_integer() {
+            Some(2) => {}
+            other => {
+                self.note(Unsupported::Shading {
+                    name: format!("/{name} is pattern type {}", other.unwrap_or(0)),
+                });
+                return None;
+            }
+        }
+
+        // A pattern is positioned relative to the page's default space, not to the
+        // transform in force where it is used. Getting this wrong moves every gradient on
+        // the page by whatever the current transform happened to be.
+        let matrix = crate::shading::matrix_of(self.document, &dict, "Matrix");
+        let shading_object = self.document.get_key(&dict, "Shading");
+
+        match crate::shading::build(
+            self.document,
+            &shading_object,
+            resources,
+            matrix.then(self.base),
+        ) {
+            Ok(shading) => Some(Arc::new(shading)),
+            Err(error) => {
+                self.note(Unsupported::Shading {
+                    name: format!("/{name}: {error}"),
+                });
+                None
+            }
         }
     }
 

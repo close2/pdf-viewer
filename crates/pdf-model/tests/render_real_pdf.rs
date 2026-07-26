@@ -223,6 +223,8 @@ fn writes_inspectable_renders_of_real_pages() {
         ("PDF20_AN001-BPC.pdf", "name-keyed-cff"),
         ("ISO_32000-2_sponsored_EC3.pdf", "cid-keyed-cff"),
         ("Well-Tagged-PDF-WTPDF-1.0.pdf", "mixed"),
+        // An axial shading painted by `sh`, plus a soft mask that is still unsupported.
+        ("ISO-14289-1-2014-sponsored.pdf", "axial-shading"),
     ] {
         let bytes = std::fs::read(doc_dir.join(file)).expect("corpus file is readable");
         let document = Document::open(bytes).expect("valid PDF");

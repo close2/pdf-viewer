@@ -129,9 +129,12 @@ fn stroke(s: &Stroke) -> kurbo::Stroke {
 }
 
 /// Extracts the solid colour from a paint.
-fn solid(paint: Paint) -> Result<Color, GpuRasterError> {
+fn solid(paint: &Paint) -> Result<Color, GpuRasterError> {
     match paint {
-        Paint::Solid(colour) => Ok(colour),
+        Paint::Solid(colour) => Ok(*colour),
+        // Shadings are not drawn here yet. Reporting keeps the two backends honestly
+        // different rather than quietly so: the comparison harness excludes a page this
+        // backend says it cannot draw, instead of blaming the difference on the GPU.
         other => Err(GpuRasterError::UnsupportedPaint(format!("{other:?}"))),
     }
 }
@@ -171,7 +174,7 @@ pub(crate) fn build(
                 let shape = bez_path(path);
                 let at = affine(transform.then(to_device));
                 let rule = fill_rule(*rule);
-                let brush = color(solid(*paint)?);
+                let brush = color(solid(paint)?);
 
                 // A non-normal blend mode needs its own layer: Vello composites a
                 // layer against its backdrop with the layer's blend mode, and there
@@ -195,7 +198,7 @@ pub(crate) fn build(
             } => {
                 let shape = bez_path(path);
                 let at = affine(transform.then(to_device));
-                let brush = color(solid(*paint)?);
+                let brush = color(solid(paint)?);
                 let style = stroke(s);
 
                 // The stroke width is in the command's own coordinate space, and the

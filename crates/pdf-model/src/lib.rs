@@ -23,10 +23,12 @@
 
 #![forbid(unsafe_code)]
 
+pub mod colour;
 pub mod content;
 pub mod function;
 pub mod image;
 pub mod page;
+pub mod shading;
 
 pub use content::{Interpretation, Unsupported, interpret};
 pub use page::{Page, Pages};

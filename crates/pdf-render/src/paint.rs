@@ -62,14 +62,19 @@ impl Color {
 
 /// How a region is painted.
 ///
-/// Only solid colour is represented today. Shadings (PDF types 1–7), tiling
-/// patterns, and image paints are added here as the renderer grows; the enum is
-/// non-exhaustive so that adding them is not a breaking change for backends.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Tiling patterns are not represented yet; the enum is non-exhaustive so that adding
+/// them is not a breaking change for backends.
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Paint {
     /// A single uniform colour.
     Solid(Color),
+    /// A smooth colour transition.
+    ///
+    /// Shared rather than owned because one shading commonly paints many commands: a
+    /// pattern set as the fill colour applies to every path filled until the colour
+    /// changes again.
+    Shading(std::sync::Arc<crate::shading::Shading>),
 }
 
 /// Which points count as inside a path.
