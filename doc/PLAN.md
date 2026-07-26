@@ -122,8 +122,10 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
 - `cargo-deny`, `cargo-audit`
 
 ### Phase 5 — De-risking spikes (before PDF code)
-- **A.** Headless `vello_cpu` render → byte-deterministic PNG. Fully scriptable, no X
-  needed, proves the CI path. *Do this first.*
+- **A.** ~~Headless CPU render → byte-deterministic output.~~ **Done.** `render-cpu` on
+  `tiny-skia`; fills, strokes and nested clips verified, output byte-identical across
+  runs, PNG artefact written for inspection. 9 tests. Confirmed `tiny-skia` covers all
+  sixteen PDF blend modes.
 - **B.** winit window + wgpu surface + Vello scene; measure frame time on the 890M.
 - **C.** Arlington TSV → generated Rust validation tables; verify against a known object.
 - **D.** Sandboxed child process returning a tile over shared memory.
