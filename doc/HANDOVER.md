@@ -9,14 +9,16 @@ is the state of play, the traps, and what to do next.
 A PDF **renderer** that opens real files and draws pages, with embedded text rendering
 correctly on every document in the corpus.
 
-- **116 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **138 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks.
 - The parser reads all fourteen specification PDFs in `doc/`, including ISO 32000-2 itself:
   1023 pages, 101 318 objects.
 - Our render of the fixture agrees with poppler, mupdf and ghostscript, and is
   byte-identical to mupdf.
-- **Every** corpus document renders page one with nothing unsupported except shadings on
+- **Every** corpus document renders page one with nothing unsupported except a soft mask on
   three of them. All fourteen extract **100% of the words `pdftotext` finds**.
+- `doc/pdf.js` is a submodule with **974 real test documents**. All 974 open; 1501 of 1501
+  PDF functions parse; 1765 of 1793 shadings build, the 28 failures all mesh types.
 
 ### Run it
 
@@ -140,8 +142,10 @@ Each of these is reported at runtime rather than silently skipped.
 | Embedded CMap streams | Medium | Parse `begincidrange`/`begincidchar` |
 | Predefined CMaps | Medium | Needs vendored data — licensing decision |
 | Type1 fonts | Medium | `read_fonts::ps::type1` exists — check before writing any |
-| Shadings, patterns | Large | PDF types 1–7 |
-| Transparency groups, soft masks | Large | `/SMask` in `/ExtGState` |
+| Mesh shadings | Medium | Types 4–7; the display-list side is done, see ADR 0008 |
+| Tiling patterns | Medium | Pattern type 1, commoner than all meshes combined |
+| Shadings on the GPU backend | Small | Vello has native gradients; CPU is done |
+| Transparency groups, soft masks | Large | `/SMask` in `/ExtGState`; the last thing `doc/` reports |
 | JBIG2, JPX | — | **Blocked on the sandbox, deliberately** |
 | Encryption | Medium | RC4/AES, `/Encrypt` |
 | Annotations, forms | Large | |
@@ -149,15 +153,21 @@ Each of these is reported at runtime rather than silently skipped.
 
 ## The single most valuable next task
 
-**Shadings and patterns.** It is the only thing still reported unsupported anywhere in the
-corpus (three documents, `Sh0` and an `/SMask` in `/GS3`), and PDF types 1–7 are a
-self-contained piece of work with a clear specification.
+**Run the interpreter over `doc/pdf.js/test/pdfs`.** It is 974 real documents against
+`doc/`'s fourteen, and it is deliberately full of the malformed files this parser will meet.
+Every survey run against it during the shading work found something: one document that
+would not open at all, and the exact distribution of shading and function types that shaped
+the design. Wiring it in as a test — open, interpret, rasterise, assert no panic and that
+whatever is unsupported is *reported* — is the highest-value thing left, because it turns a
+one-off survey into a gate.
 
-After that the corpus stops being a useful guide, because it will be fully rendered. The
-next targets are then chosen by what real-world documents need rather than by what `doc/`
-happens to contain: **encryption** (a large share of documents in the wild), **annotations
-and forms**, and **Type1 fonts** — for which `read_fonts::ps::type1` already exists, so
-check it before estimating.
+Do not expect it to be quiet. Triage will take a session.
+
+After that, by what the corpus says real documents need rather than by what `doc/` contains:
+**tiling patterns** (955 occurrences, 35 documents — commoner than every mesh type
+combined), **mesh shadings** (ADR 0008 leaves the display-list side finished), **soft masks**
+(the last thing `doc/` reports), and **encryption**. **Type1 fonts** remain worth checking
+`read_fonts::ps::type1` for before estimating.
 
 **`doc/pdf.js` is a submodule** (Apache-2.0, pinned at v6.1.200) and is worth more than the
 metrics it already supplied. `test/pdfs/` holds 974 real PDFs and 459 more behind link
@@ -181,6 +191,13 @@ minutes later, purely from background build load. `valgrind --tool=callgrind` on
 instructions before, 1.951 G after. Always A/B in one sitting, and prefer the instruction
 count. `iai-callgrind` wraps this into a bench harness and is the right basis for the CI
 perf gates `CLAUDE.md` asks for — not yet wired up.
+
+**Survey the corpus before designing.** The shading work started with a survey of what
+`ShadingType`, `FunctionType` and `PatternType` values actually occur across 974 documents.
+It showed axial shadings outnumbering every mesh type sixty to one, and tiling patterns
+outnumbering all meshes combined — which set the order of work and would not have been
+guessed. `cargo run --release -p pdf-model --example survey` is gone, but it was twenty
+lines over `document.xref().object_numbers()`.
 
 **Measure before optimising, and delete what does not measure.** `glyph_for` builds a
 `FontRef` per character, which looks like an obvious cache. Caching it changed a dense page
