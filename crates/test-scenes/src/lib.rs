@@ -220,3 +220,104 @@ pub fn unaligned_full_bleed() -> DisplayList {
 
     list
 }
+
+/// The [`basic`] scene expressed as a minimal PDF file.
+///
+/// # The invariant this crate exists to hold
+///
+/// These bytes and [`basic`] must describe *the same page*. That pairing is what makes
+/// the reference-comparison harness meaningful: it renders this PDF with `pdftoppm`,
+/// `mutool` and `gs`, renders [`basic`] with our own backends, and compares. If the two
+/// descriptions drifted apart, every comparison would report a difference that is
+/// nobody's bug.
+///
+/// Keeping both in one file is the whole point — a reviewer can check them against each
+/// other without leaving the module.
+///
+/// The content stream mirrors [`basic`] operator for operator:
+///
+/// ```text
+/// 1 0 0 rg  100 100 200 200 re f          red square (100,100)-(300,300)
+/// q  400 400 50 50 re  W n                clip to the lower-left quarter
+///    0 1 0 rg  400 400 100 100 re f       green square, clipped
+/// Q
+/// 0 0 1 RG  10 w  50 600 m 545 600 l S    blue stroke along y=600
+/// ```
+///
+/// Once `pdf-syntax` exists, this same file becomes a parser fixture, and the display
+/// list will be produced *from* it rather than written alongside it.
+#[must_use]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "object indices and the cross-reference size are bounded by a four-element \
+              literal array, so no operation here can overflow"
+)]
+pub fn basic_pdf() -> Vec<u8> {
+    // Mirrors `basic()`. Any edit here needs the matching edit there.
+    let content = b"1 0 0 rg\n\
+                    100 100 200 200 re\n\
+                    f\n\
+                    q\n\
+                    400 400 50 50 re\n\
+                    W n\n\
+                    0 1 0 rg\n\
+                    400 400 100 100 re\n\
+                    f\n\
+                    Q\n\
+                    0 0 1 RG\n\
+                    10 w\n\
+                    50 600 m\n\
+                    545 600 l\n\
+                    S\n"
+    .to_vec();
+
+    let objects: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] \
+             /Contents 4 0 R /Resources << >> >>",
+            A4.width, A4.height
+        )
+        .into_bytes(),
+        [
+            format!("<< /Length {} >>\nstream\n", content.len()).into_bytes(),
+            content,
+            b"endstream".to_vec(),
+        ]
+        .concat(),
+    ];
+
+    // The header's binary comment marks the file as containing 8-bit data, which is what
+    // tells tools not to treat it as text. Required by the specification for any file
+    // with binary content, and harmless here.
+    let mut out: Vec<u8> = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n".to_vec();
+
+    // Byte offsets are recorded as objects are written, because the cross-reference table
+    // must point at each object's first byte. Computing them afterwards from a finished
+    // buffer is the classic way to get an off-by-one that only some readers tolerate.
+    let mut offsets = Vec::with_capacity(objects.len());
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n", index + 1).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+
+    let xref_offset = out.len();
+    let size = objects.len() + 1;
+    out.extend_from_slice(format!("xref\n0 {size}\n").as_bytes());
+    // Entry zero is the head of the free list, and its format is fixed by the spec.
+    out.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in &offsets {
+        // Exactly 20 bytes per entry, trailing space included: readers may index into
+        // this table arithmetically rather than parsing it.
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n")
+            .as_bytes(),
+    );
+
+    out
+}

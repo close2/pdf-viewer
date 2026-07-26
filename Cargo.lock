@@ -1307,6 +1307,18 @@ name = "pdf-syntax"
 version = "0.1.0"
 
 [[package]]
+name = "pdfref"
+version = "0.1.0"
+dependencies = [
+ "pdf-render",
+ "png",
+ "raster-compare",
+ "render-cpu",
+ "test-scenes",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "peniko"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
