@@ -14,7 +14,6 @@ thiserror.workspace = true
 vello.workspace = true
 
 [dev-dependencies]
-png.workspace = true
 raster-compare.workspace = true
 render-cpu.workspace = true
 test-scenes.workspace = true

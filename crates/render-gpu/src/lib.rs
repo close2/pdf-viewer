@@ -32,6 +32,7 @@
 #![forbid(unsafe_code)]
 
 mod scene;
+mod shading;
 
 use pdf_render::{
     ClipId, Color, DisplayList, Raster, RasterFormat, Rasterizer, TargetSpec, Transform,

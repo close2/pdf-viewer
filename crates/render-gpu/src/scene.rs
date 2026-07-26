@@ -32,7 +32,7 @@ use crate::GpuRasterError;
 /// `kurbo::Affine::new` takes `[a, b, c, d, e, f]` in the same order and with the
 /// same meaning as a PDF matrix, so this is a direct widening to `f64`. Pinned by a
 /// test, because a transposition would misplace all geometry.
-fn affine(t: Transform) -> kurbo::Affine {
+pub(crate) fn affine(t: Transform) -> kurbo::Affine {
     kurbo::Affine::new([
         f64::from(t.a),
         f64::from(t.b),
@@ -70,7 +70,7 @@ fn fill_rule(rule: FillRule) -> peniko::Fill {
 }
 
 /// Converts a colour. Both sides use straight alpha with components in `0.0..=1.0`.
-fn color(c: Color) -> peniko::Color {
+pub(crate) fn color(c: Color) -> peniko::Color {
     peniko::Color::new([c.r, c.g, c.b, c.a])
 }
 
@@ -128,13 +128,63 @@ fn stroke(s: &Stroke) -> kurbo::Stroke {
     out
 }
 
-/// Extracts the solid colour from a paint.
-fn solid(paint: &Paint) -> Result<Color, GpuRasterError> {
+/// Encodes one fill command.
+///
+/// Separate from the dispatch loop because a fill has three shapes: an ordinary brush, a
+/// brush under a blend layer, and a mesh, which is not a brush at all.
+fn encode_fill(
+    scene: &mut vello::Scene,
+    shape: &kurbo::BezPath,
+    at: kurbo::Affine,
+    rule: peniko::Fill,
+    paint: &Paint,
+    blend: BlendMode,
+    to_device: Transform,
+) -> Result<(), GpuRasterError> {
+    // A mesh carries a colour per triangle corner, which no brush can express, so it is
+    // drawn triangle by triangle inside a layer clipped to the shape.
+    if let Paint::Shading(shading) = paint
+        && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
+    {
+        scene.push_layer(rule, blend_mode(blend), 1.0, at, shape);
+        crate::shading::fill_mesh(scene, triangles, shading.transform.then(to_device));
+        scene.pop_layer();
+        return Ok(());
+    }
+
+    let (brush, brush_at) = brush_for(paint, to_device)?;
+
+    // A non-normal blend mode needs its own layer: Vello composites a layer against its
+    // backdrop with the layer's blend mode, and there is no per-draw blend parameter. The
+    // layer is clipped to the shape being drawn, so the blend applies exactly where paint
+    // lands.
+    if blend == BlendMode::Normal {
+        scene.fill(rule, at, &brush, brush_at, shape);
+    } else {
+        scene.push_layer(rule, blend_mode(blend), 1.0, at, shape);
+        scene.fill(rule, at, &brush, brush_at, shape);
+        scene.pop_layer();
+    }
+    Ok(())
+}
+
+/// Turns a paint into a Vello brush and the transform that positions it.
+///
+/// A shading's transform goes on the *brush*, not on the shape: a pattern is anchored to
+/// the page rather than to the path being filled.
+fn brush_for(
+    paint: &Paint,
+    to_device: Transform,
+) -> Result<(peniko::Brush, Option<kurbo::Affine>), GpuRasterError> {
     match paint {
-        Paint::Solid(colour) => Ok(*colour),
-        // Shadings are not drawn here yet. Reporting keeps the two backends honestly
-        // different rather than quietly so: the comparison harness excludes a page this
-        // backend says it cannot draw, instead of blaming the difference on the GPU.
+        Paint::Solid(colour) => Ok((peniko::Brush::Solid(color(*colour)), None)),
+        Paint::Shading(shading) => crate::shading::brush(shading, to_device).ok_or_else(|| {
+            // A mesh is drawn by the caller; anything else reaching here is a kind this
+            // backend cannot express. Reporting keeps the two backends honestly different
+            // rather than quietly so: the comparison harness excludes a page a backend
+            // says it cannot draw, instead of blaming the difference on the GPU.
+            GpuRasterError::UnsupportedPaint(format!("{:?}", shading.kind))
+        }),
         other => Err(GpuRasterError::UnsupportedPaint(format!("{other:?}"))),
     }
 }
@@ -171,22 +221,15 @@ pub(crate) fn build(
                 blend,
                 ..
             } => {
-                let shape = bez_path(path);
-                let at = affine(transform.then(to_device));
-                let rule = fill_rule(*rule);
-                let brush = color(solid(paint)?);
-
-                // A non-normal blend mode needs its own layer: Vello composites a
-                // layer against its backdrop with the layer's blend mode, and there
-                // is no per-draw blend parameter. The layer is clipped to the shape
-                // being drawn, so the blend applies exactly where paint lands.
-                if *blend == BlendMode::Normal {
-                    scene.fill(rule, at, brush, None, &shape);
-                } else {
-                    scene.push_layer(rule, blend_mode(*blend), 1.0, at, &shape);
-                    scene.fill(rule, at, brush, None, &shape);
-                    scene.pop_layer();
-                }
+                encode_fill(
+                    &mut scene,
+                    &bez_path(path),
+                    affine(transform.then(to_device)),
+                    fill_rule(*rule),
+                    paint,
+                    *blend,
+                    to_device,
+                )?;
             }
             Command::Stroke {
                 path,
@@ -198,13 +241,13 @@ pub(crate) fn build(
             } => {
                 let shape = bez_path(path);
                 let at = affine(transform.then(to_device));
-                let brush = color(solid(paint)?);
+                let (brush, brush_at) = brush_for(paint, to_device)?;
                 let style = stroke(s);
 
                 // The stroke width is in the command's own coordinate space, and the
                 // transform scales it along with the geometry, as PDF specifies.
                 if *blend == BlendMode::Normal {
-                    scene.stroke(&style, at, brush, None, &shape);
+                    scene.stroke(&style, at, &brush, brush_at, &shape);
                 } else {
                     // Clipping the layer to the *unstroked* path would cut the stroke
                     // in half, since a stroke straddles its path. The stroke outline
@@ -212,7 +255,7 @@ pub(crate) fn build(
                     let outline =
                         kurbo::stroke(shape.iter(), &style, &kurbo::StrokeOpts::default(), 0.1);
                     scene.push_layer(peniko::Fill::NonZero, blend_mode(*blend), 1.0, at, &outline);
-                    scene.stroke(&style, at, brush, None, &shape);
+                    scene.stroke(&style, at, &brush, brush_at, &shape);
                     scene.pop_layer();
                 }
             }

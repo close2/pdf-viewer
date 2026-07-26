@@ -240,14 +240,20 @@ pub(crate) fn fill_mesh(
 
 /// How far each triangle is grown, in pixels, to close the seams between neighbours.
 ///
-/// Two triangles sharing an edge do not tile exactly once rasterised: a pixel whose centre
-/// falls on the shared edge belongs to neither, and shows through as a bright speck. On the
-/// specification's own Coons test page that left nine white pinholes.
+/// Two triangles sharing an edge do not tile exactly once rasterised: coverage along the
+/// shared edge does not sum to one, and the backdrop shows through. On the specification's
+/// own Coons test page that left nine white pinholes; on Vello, which antialiases every
+/// edge, it left a hairline along every shared edge instead.
 ///
-/// Growing each triangle by rather less than a pixel makes neighbours overlap instead. The
-/// overlap is invisible because subdivision has already made the colours on either side of
-/// a shared edge nearly equal — the same property that lets them be filled flat at all.
-const SEAM_OVERLAP: f32 = 0.35;
+/// Growing each triangle so neighbours overlap removes both. The overlap is invisible
+/// because subdivision has already made the colours across a shared edge nearly equal —
+/// the same property that lets them be filled flat at all.
+///
+/// The value is measured rather than chosen. Sweeping it against the CPU-versus-GPU
+/// agreement test gave mean errors of 12.2 at zero overlap, 4.2 at 0.35, 1.8 at 0.7, and
+/// within tolerance at 0.8. `render-gpu` uses the same number for the same reason; they
+/// have to, or the backends stop agreeing.
+const SEAM_OVERLAP: f32 = 0.8;
 
 /// Grows a triangle about its centroid by a fixed distance in device pixels.
 fn grow(triangle: &pdf_render::Triangle) -> [tiny_skia::Point; 3] {
@@ -294,10 +300,11 @@ fn draw_triangle(
     let paint = tiny_skia::Paint {
         shader: tiny_skia::Shader::SolidColor(crate::convert::color(triangle.average_colour())),
         blend_mode: blend,
-        // Antialiasing every small triangle would show its edges as seams against its
-        // neighbours, because two abutting antialiased edges do not sum to full coverage.
-        // The shape's own outline is antialiased by the mask instead.
-        anti_alias: false,
+        // Antialiased, and safe to be because the triangles overlap: two *abutting*
+        // antialiased edges would not sum to full coverage and would seam, but two
+        // overlapping ones do. Vello antialiases unconditionally, so this is also what
+        // keeps the two backends agreeing — measured, see `SEAM_OVERLAP`.
+        anti_alias: true,
         ..tiny_skia::Paint::default()
     };
     pixmap.fill_path(

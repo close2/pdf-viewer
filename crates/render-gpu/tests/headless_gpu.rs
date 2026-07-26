@@ -235,3 +235,140 @@ fn hardware_and_software_adapters_agree_exactly() {
         comparison.max_error
     );
 }
+
+/// Builds a page-sized display list whose only content is one shading.
+fn shaded_page(kind: pdf_render::ShadingKind) -> pdf_render::DisplayList {
+    use pdf_render::{
+        BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Shading,
+        Size, Transform,
+    };
+
+    let size = Size::new(200.0, 200.0);
+    let mut list = DisplayList::new(size);
+
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(10.0, 10.0)));
+    path.push(PathCommand::LineTo(Point::new(190.0, 10.0)));
+    path.push(PathCommand::LineTo(Point::new(190.0, 190.0)));
+    path.push(PathCommand::LineTo(Point::new(10.0, 190.0)));
+    path.push(PathCommand::Close);
+
+    let _ = Color::BLACK;
+    list.push(Command::Fill {
+        path: std::sync::Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(std::sync::Arc::new(Shading {
+            kind,
+            transform: Transform::IDENTITY,
+        })),
+        clip: None,
+        blend: BlendMode::Normal,
+    });
+    list
+}
+
+/// A red-to-blue ramp, shared by the gradient scenes below.
+fn ramp() -> pdf_render::Ramp {
+    pdf_render::Ramp::sample(|t| pdf_render::Color::rgb(1.0 - t, 0.0, t))
+}
+
+/// Both backends implement axial shadings natively, so they must agree on one.
+///
+/// This is what makes the GPU shading work checkable at all: the CPU backend's colours
+/// have already been pinned against known values and against poppler, so agreement here
+/// carries that verification across.
+#[test]
+fn cpu_and_gpu_agree_on_an_axial_shading() {
+    let list = shaded_page(pdf_render::ShadingKind::Axial {
+        start: pdf_render::Point::new(10.0, 0.0),
+        end: pdf_render::Point::new(190.0, 0.0),
+        ramp: ramp(),
+        extend: (true, true),
+    });
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+    assert_within_tolerance(
+        "axial shading",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
+
+/// A two-circle radial, which is PDF's general case and which both rasterisers take
+/// directly rather than as a single-circle approximation.
+#[test]
+fn cpu_and_gpu_agree_on_a_radial_shading() {
+    let list = shaded_page(pdf_render::ShadingKind::Radial {
+        start: pdf_render::Point::new(100.0, 100.0),
+        start_radius: 10.0,
+        end: pdf_render::Point::new(100.0, 100.0),
+        end_radius: 85.0,
+        ramp: ramp(),
+        extend: (true, true),
+    });
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+    assert_within_tolerance(
+        "radial shading",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
+
+/// A mesh, which neither rasteriser can shade natively and which both therefore
+/// subdivide into flat triangles.
+///
+/// The two do that with the same thresholds but not the same rasteriser, so this is the
+/// scene most likely to expose a difference in how the subdivision was applied.
+#[test]
+fn cpu_and_gpu_agree_on_a_mesh_shading() {
+    use pdf_render::{Color, Point, Triangle};
+
+    let triangles = vec![
+        Triangle {
+            points: [
+                Point::new(20.0, 20.0),
+                Point::new(180.0, 20.0),
+                Point::new(20.0, 180.0),
+            ],
+            colours: [
+                Color::rgb(1.0, 0.0, 0.0),
+                Color::rgb(0.0, 1.0, 0.0),
+                Color::rgb(0.0, 0.0, 1.0),
+            ],
+        },
+        Triangle {
+            points: [
+                Point::new(180.0, 20.0),
+                Point::new(180.0, 180.0),
+                Point::new(20.0, 180.0),
+            ],
+            colours: [
+                Color::rgb(0.0, 1.0, 0.0),
+                Color::rgb(1.0, 1.0, 0.0),
+                Color::rgb(0.0, 0.0, 1.0),
+            ],
+        },
+    ];
+
+    let list = shaded_page(pdf_render::ShadingKind::Mesh {
+        triangles: triangles.into(),
+    });
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+    assert_within_tolerance(
+        "mesh shading",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
