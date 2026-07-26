@@ -138,8 +138,9 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
   headless tests exercise, so the window cannot diverge from what CI checks.
 - **C.** Arlington TSV → generated Rust validation tables; verify against a known object.
 - **D.** Sandboxed child process returning a tile over shared memory.
-- **E.** Harness end-to-end: CPU-backend render vs `pdftoppm` on a hand-written PDF.
-  Validates metric plumbing before a parser exists.
+- **E.** ~~Harness end-to-end.~~ **Done.** `tools/pdfref` with the triangulation rule,
+  size normalisation, failure artefacts and a divergence-survey CLI. Our CPU render is
+  byte-identical to mupdf on the fixture. 15 tests. See ADR 0005.
 
 ## 4. Reference-comparison harness
 
@@ -155,16 +156,31 @@ evidence we rely on.
 
 ### Expect inexact agreement
 
-Exact pixel equality is impossible even *between* poppler and mupdf: they differ in
-antialiasing, gamma, subpixel glyph positioning, MediaBox-vs-CropBox choice, and pixel
-rounding. A harness built on exact comparison produces false positives until it gets
-ignored. Tolerance is a design requirement, not a concession.
+Exact pixel equality is impossible even *between* poppler and mupdf. A harness built on
+exact comparison produces false positives until it gets ignored, so tolerance is a design
+requirement, not a concession. Measured (ADR 0005):
+
+| Content | References differ from each other by | Usable gate |
+|---|---|---|
+| Vector (fixture) | mean 0.002–0.047, worst tile 0.4–1.1 | tight: worst tile 5.0 |
+| Text (spec PDFs) | worst tile 26–28, 2.7% of pixels | weak only: worst tile 40 |
+
+Page dimensions also disagree: A4 is 595.276 units wide, so poppler and mupdf render 596
+pixels where ghostscript renders 595. Reconciled by cropping to the common size when the
+spread is at most one pixel per axis, and always reported.
+
+**Pixel comparison cannot police text.** The disagreement on text pages is confined to
+glyph outlines and one-pixel borders — hinting and antialiasing, not error — and its
+magnitude exceeds any tolerance that would still catch a wrong glyph. Text correctness is
+therefore metric 2's job, not metric 3's.
 
 ### Metrics ladder (cheapest and strictest first)
 
 1. **Geometry** — page count, dimensions, rotation. Exact match required.
 2. **Text** — our extraction vs `pdftotext`. Validates encoding and `ToUnicode`
-   *independently of rendering*, isolating a whole error class.
+   *independently of rendering*, isolating a whole error class. **Now load-bearing, not
+   optional:** measurement showed pixel comparison cannot police text at all (see below),
+   so this is the only metric that can.
 3. **Structural similarity** — SSIM / blurred difference, per-corpus tolerance.
 4. **Localized max error** — tile the page, report worst tile. Mean metrics average away a
    single missing glyph on a dense page; this is the one people forget.
