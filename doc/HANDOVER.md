@@ -11,7 +11,7 @@ definition of right. This file is the state of play, the traps, and what to do n
 A PDF **renderer** that opens real files and draws pages, with embedded text rendering
 correctly on every document in the corpus.
 
-- **151 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **171 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks.
 - The parser reads all fourteen specification PDFs in `doc/`, including ISO 32000-2 itself:
   1023 pages, 101 318 objects.
@@ -19,8 +19,13 @@ correctly on every document in the corpus.
   byte-identical to mupdf.
 - **Every** corpus document renders page one with nothing unsupported except a soft mask on
   three of them. All fourteen extract **100% of the words `pdftotext` finds**.
-- `doc/pdf.js` is a submodule with **974 real test documents**. All 974 open; 1501 of 1501
-  PDF functions parse; **all 1793 shadings build**, mesh types included.
+- `doc/pdf.js` is a submodule with **974 real test documents**, and they are now a **gate**
+  rather than a survey: all 974 open, 955 reach page one, and everything the remaining 271
+  cannot draw is *reported*. 1501 of 1501 PDF functions parse; **all 1793 shadings build**,
+  mesh types included.
+- Colour resolves from the document — `ICCBased` profiles are evaluated by an A2B evaluator
+  written here, `/DefaultCMYK` and output intents are honoured, and there is exactly one
+  `DeviceCMYK` conversion instead of the three that used to disagree. See ADR 0009.
 
 ### Run it
 
@@ -37,6 +42,7 @@ quits. The title bar names anything on the page that could not be drawn.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent
 cargo test --workspace
+cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~41 s
 cargo bench -p pdf-model                   # interpretation, the time-to-first-page path
 cargo deny check
 cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
@@ -172,19 +178,52 @@ Each of these is reported at runtime rather than silently skipped.
 
 ## The single most valuable next task
 
-**Run the interpreter over `doc/pdf.js/test/pdfs`.** It is 974 real documents against
-`doc/`'s fourteen, and it is deliberately full of the malformed files this parser will meet.
-Every survey run against it during the shading work found something: one document that
-would not open at all, and the exact distribution of shading and function types that shaped
-the design. Wiring it in as a test — open, interpret, rasterise, assert no panic and that
-whatever is unsupported is *reported* — is the highest-value thing left, because it turns a
-one-off survey into a gate.
+**The CPU rasteriser builds one page-sized clip mask per distinct clip, and caches every
+one without bound.** The corpus gate found it on its first run.
 
-Do not expect it to be quiet. Triage will take a session.
+`bug1721218_reduced.pdf` is an 825 kB file with a 612×792 page. It interprets in 414 ms and
+then **rasterises in 39.6 seconds**, holding about 1.7 GB while it does. It references
+**3576 distinct clips**; `MaskCache` in `crates/render-cpu/src/lib.rs` builds a
+`tiny_skia::Mask` the size of the whole page for each one and keeps them all in a
+`HashMap` with no eviction.
+
+The cost is `clips × page area`, and that is measured rather than inferred: halving the
+scale gives 10.6 s and quartering it 3.0 s, which is quadratic in the linear scale.
+
+Both halves matter and they are different problems:
+
+- **Time.** A mask only needs to cover the clip's own bounds. Most of these 3576 are small.
+  `tiny_skia`'s API wants a mask matching the pixmap, so this is not a one-line change —
+  it may mean drawing into a bounded sub-pixmap and compositing, or special-casing
+  axis-aligned rectangular clips, which is what `re W n` produces and is very common.
+- **Memory.** `MaskCache` needs a budget and an eviction policy regardless. 1.7 GB from one
+  small file is denial-of-service surface, and principle 3 asks for exactly this bound.
+
+Measure before choosing: `cargo run --release -p pdf-model --example open_one -- <file>
+[scale]` prints the interpret and rasterise split and the distinct clip count, in a process
+that can be killed. That example exists because of this bug.
 
 After that, by what the corpus says real documents need rather than by what `doc/` contains:
-**soft masks** (the last thing `doc/` reports), **encryption**, and **annotations**.
-**Type1 fonts** remain worth checking `read_fonts::ps::type1` for before estimating.
+**soft masks** (26 documents, and the last thing `doc/` reports), **encryption** (11 of the
+19 documents that cannot reach page one), and **annotations**. **Type1 fonts** remain worth
+checking `read_fonts::ps::type1` for before estimating.
+
+### What the corpus gate reports today
+
+Ratcheted in `crates/pdf-model/tests/corpus.rs`; the numbers only ever go down.
+
+| | count | |
+|---|---|---|
+| unopenable | 0 | and it should stay there |
+| no page one | 19 | 11 encrypted, 8 with unrecoverable page trees |
+| draws incompletely | 271 | 152 JBIG2/JPX, 73 text, 26 soft mask, 19 transparency group, 1 bound reached |
+| slower than 30 s | 1 | named, not counted — the clip defect above |
+
+**The time budget reports; it cannot enforce.** A Rust thread cannot be cancelled, so a
+document that never returns hangs the suite rather than failing it. A real budget has to
+live inside the interpreter and the rasteriser. `PDFVIEWER_CORPUS_TRACE=1` names each
+document on stderr as it starts and finishes, which is how a hang gets identified from a
+killed run.
 
 **`doc/pdf.js` is a submodule** (Apache-2.0, pinned at v6.1.200) and is worth more than the
 metrics it already supplied. `test/pdfs/` holds 974 real PDFs and 459 more behind link
@@ -193,7 +232,7 @@ malformed files this parser will eventually meet. Running the interpreter over i
 probably the single highest-value test expansion available. It is optional to clone: the
 generated metrics are checked in, so the build never needs it.
 
-### Two habits this session earned
+### Habits these sessions earned
 
 **Look in `read-fonts` before writing font-format code.** The previous handover specified
 ~80 lines of CFF charset parsing plus two 256-entry tables, and all of it already existed
@@ -220,6 +259,14 @@ It showed axial shadings outnumbering every mesh type sixty to one, and tiling p
 outnumbering all meshes combined — which set the order of work and would not have been
 guessed. `cargo run --release -p pdf-model --example survey` is gone, but it was twenty
 lines over `document.xref().object_numbers()`.
+
+**A test written to isolate one rule finds what a corpus cannot.** The ICC evaluator agreed
+with two other readers on every real profile in the corpus. Writing a test that assembles a
+profile *by hand* — to check that the `u1Fixed15` PCS encoding is decoded as the ICC format
+specifies — produced a profile whose darkest colour equals its white point, and black point
+compensation divided by a span of floating-point noise and turned white into pure green. No
+real profile is shaped that way, so no amount of corpus agreement would have surfaced it.
+Synthetic fixtures and real corpora catch different things; neither replaces the other.
 
 **Measure before optimising, and delete what does not measure.** `glyph_for` builds a
 `FontRef` per character, which looks like an obvious cache. Caching it changed a dense page
@@ -269,5 +316,15 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
 - **`test-scenes` holds the same page twice**, as a display list and as PDF bytes. That
   pairing is what let the harness work before a parser existed, and it is checked by a test
   that renders both and demands identical pixels.
+- **`doc/` holds more than ISO 32000-2.** `PDF20_AN001-BPC.md` is the PDF Association's
+  application note on black point compensation, written by ISO 32000's own
+  co-project-leader, and it settled a design question the base specification leaves to
+  ISO 18619 — which black to align, and why `AbsoluteColorimetric` must not compensate. It
+  had been sitting unread while the same question was being answered by looking at what
+  other renderers do. Check what is already in `doc/md/` before concluding the
+  specification is silent.
+- **Debug builds are ~15× slower here, and it changes what a test can assert.** The corpus
+  gate is 41 s in release and about ten minutes in debug. Any test with a timing assertion
+  is meaningless at debug speed; run those in release and say so in the test.
 - `cargo-deny` is installed in the agent's `~/.cargo/bin`; run it before pushing rather
   than finding out from a red pipeline.
