@@ -136,7 +136,9 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
   on stdout. **Confirmed working by the project owner**; the agent cannot run it, having
   no X authority cookie. It calls `render_gpu::build_scene`, the same translation the
   headless tests exercise, so the window cannot diverge from what CI checks.
-- **C.** Arlington TSV → generated Rust validation tables; verify against a known object.
+- **C.** ~~Arlington TSV → generated validation tables.~~ **Done.** 611 objects, 3973 key
+  rows, `static` tables generated in ~0.5 s with zero startup cost. Verified against ISO
+  32000-2 tables 29 and 31. 12 tests. See ADR 0003.
 - **D.** Sandboxed child process returning a tile over shared memory.
 - **E.** ~~Harness end-to-end.~~ **Done.** `tools/pdfref` with the triangulation rule,
   size normalisation, failure artefacts and a divergence-survey CLI. Our CPU render is
@@ -232,8 +234,11 @@ IndirectReference, Inheritable, DefaultValue, PossibleValues, SpecialCase, Link,
 - `Link` encodes the object graph, giving typed traversal.
 - Directly serves principles 1 and 4: no shortcuts, and legible to a reader.
 
-Open question: how much of `SpecialCase` (a small predicate language) to implement in
-codegen versus by hand. Needs a spike — see Phase 5C.
+Resolved in Spike C: `SinceVersion`'s predicates are a closed set of two shapes and are
+modelled exactly; `Required` is uniformly `fn:IsRequired(...)`. `SpecialCase` and
+predicate-bearing `PossibleValues` are carried verbatim and unevaluated, because an
+evaluator needs a document to evaluate against and so belongs after `pdf-syntax`. See
+ADR 0003 for the measured breakdown.
 
 ## 6. Security architecture
 
