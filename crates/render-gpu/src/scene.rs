@@ -213,6 +213,54 @@ pub(crate) fn build(
                     scene.pop_layer();
                 }
             }
+            Command::Image {
+                image,
+                transform,
+                alpha,
+                blend,
+                ..
+            } => {
+                if !image.is_consistent() {
+                    return Err(GpuRasterError::InvalidImage {
+                        width: image.width,
+                        height: image.height,
+                        bytes: image.data.len(),
+                    });
+                }
+
+                // Vello draws an image over a rectangle in *pixel* units, so the transform
+                // must map pixel space onto the unit square before the command's own
+                // transform. The vertical flip is because PDF's y-up space puts the image's
+                // first row at the top of the unit square.
+                let width = f64::from(image.width);
+                let height = f64::from(image.height);
+                let to_unit = kurbo::Affine::new([1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0]);
+                #[expect(
+                    clippy::arithmetic_side_effects,
+                    reason = "composing two affine transforms is floating-point \
+                              multiplication, which cannot overflow"
+                )]
+                let at = affine(transform.then(to_device)) * to_unit;
+
+                let data = peniko::ImageData {
+                    data: peniko::Blob::new(std::sync::Arc::new(image.data.to_vec())),
+                    format: peniko::ImageFormat::Rgba8,
+                    // Straight alpha, matching `pdf_render::Image`'s documented format.
+                    alpha_type: peniko::ImageAlphaType::Alpha,
+                    width: image.width,
+                    height: image.height,
+                };
+                let brush = peniko::ImageBrush::new(data).with_alpha(alpha.clamp(0.0, 1.0));
+
+                if *blend == BlendMode::Normal {
+                    scene.draw_image(&brush, at);
+                } else {
+                    let unit = kurbo::Rect::new(0.0, 0.0, width, height);
+                    scene.push_layer(peniko::Fill::NonZero, blend_mode(*blend), 1.0, at, &unit);
+                    scene.draw_image(&brush, at);
+                    scene.pop_layer();
+                }
+            }
             other => {
                 return Err(GpuRasterError::UnsupportedCommand(format!("{other:?}")));
             }

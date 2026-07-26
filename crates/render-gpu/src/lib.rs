@@ -461,6 +461,16 @@ pub enum GpuRasterError {
     /// A paint variant this backend does not implement yet.
     #[error("paint not supported by the GPU backend: {0}")]
     UnsupportedPaint(String),
+    /// An image's dimensions and buffer length disagree.
+    #[error("image is {width}x{height} but holds {bytes} bytes")]
+    InvalidImage {
+        /// Declared width.
+        width: u32,
+        /// Declared height.
+        height: u32,
+        /// Actual buffer length.
+        bytes: usize,
+    },
     /// A command referenced a clip that is not present in the display list.
     #[error("clip {0:?} is not present in this display list")]
     UnknownClip(ClipId),

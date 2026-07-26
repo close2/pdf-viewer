@@ -167,10 +167,24 @@ impl Rasterizer for CpuRasterizer {
                         clip,
                     );
                 }
-                // `Command` is `#[non_exhaustive]`, so text and image commands will
-                // appear here before this backend implements them. Erroring keeps an
-                // unimplemented command visible instead of rendering a page that looks
-                // almost right.
+                Command::Image {
+                    image,
+                    transform,
+                    alpha,
+                    blend,
+                    ..
+                } => {
+                    let placement = ImagePlacement {
+                        transform: *transform,
+                        alpha: *alpha,
+                        blend: *blend,
+                        to_device,
+                    };
+                    self.draw_image(&mut pixmap, image, placement, clip)?;
+                }
+                // `Command` is `#[non_exhaustive]`, so new commands will appear here before
+                // this backend implements them. Erroring keeps an unimplemented command
+                // visible instead of rendering a page that looks almost right.
                 other => {
                     return Err(CpuRasterError::UnsupportedCommand(format!("{other:?}")));
                 }
@@ -187,6 +201,126 @@ impl Rasterizer for CpuRasterizer {
             data: pixmap.take_demultiplied(),
         })
     }
+}
+
+/// Where and how an image is placed.
+///
+/// Grouped because these four always travel together, and passing them separately made
+/// the call site a row of unlabelled arguments.
+#[derive(Debug, Clone, Copy)]
+struct ImagePlacement {
+    transform: pdf_render::Transform,
+    alpha: f32,
+    blend: pdf_render::BlendMode,
+    to_device: pdf_render::Transform,
+}
+
+impl CpuRasterizer {
+    /// Draws an image mapped onto the unit square.
+    ///
+    /// `tiny-skia` has no image primitive, so this fills the unit square with a pattern
+    /// shader whose own transform maps image pixels onto it. The composed transform is:
+    /// scale by `1/width` and `1/height` to reach the unit square, flip vertically because
+    /// PDF's y-up space puts the image's *first* row at the top, then the command's
+    /// transform, then the device transform.
+    ///
+    /// Nearest-neighbour would alias badly when a page is viewed at less than full size,
+    /// which is the common case, so bilinear filtering is used.
+    fn draw_image(
+        &self,
+        pixmap: &mut tiny_skia::Pixmap,
+        image: &pdf_render::Image,
+        placement: ImagePlacement,
+        clip: Option<&tiny_skia::Mask>,
+    ) -> Result<(), CpuRasterError> {
+        let ImagePlacement {
+            transform,
+            alpha,
+            blend,
+            to_device,
+        } = placement;
+        if !image.is_consistent() {
+            return Err(CpuRasterError::InvalidImage {
+                width: image.width,
+                height: image.height,
+                bytes: image.data.len(),
+            });
+        }
+
+        // `tiny-skia` pixmaps are premultiplied; `Image` is documented as straight alpha,
+        // so the conversion happens here at the boundary.
+        let mut samples = tiny_skia::Pixmap::new(image.width, image.height).ok_or(
+            CpuRasterError::Allocation {
+                width: image.width,
+                height: image.height,
+            },
+        )?;
+        for (target, source) in samples
+            .pixels_mut()
+            .iter_mut()
+            .zip(image.data.chunks_exact(4))
+        {
+            let a = source[3];
+            // `from_rgba` rejects a channel exceeding its alpha, which `premultiply`
+            // cannot produce; a fully transparent pixel is the safe fallback if it ever
+            // does, since it changes nothing on the page.
+            *target = tiny_skia::PremultipliedColorU8::from_rgba(
+                premultiply(source[0], a),
+                premultiply(source[1], a),
+                premultiply(source[2], a),
+                a,
+            )
+            .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
+        }
+
+        let width = f32::from(u16::try_from(image.width).unwrap_or(u16::MAX));
+        let height = f32::from(u16::try_from(image.height).unwrap_or(u16::MAX));
+        // Image space (pixels, y down) to the unit square (y up).
+        let to_unit = pdf_render::Transform::new(1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0);
+        let pattern_transform = convert::transform(to_unit.then(transform).then(to_device));
+
+        let paint = tiny_skia::Paint {
+            shader: tiny_skia::Pattern::new(
+                samples.as_ref(),
+                tiny_skia::SpreadMode::Pad,
+                tiny_skia::FilterQuality::Bilinear,
+                alpha.clamp(0.0, 1.0),
+                pattern_transform,
+            ),
+            blend_mode: convert::blend_mode(blend),
+            anti_alias: self.anti_alias,
+            ..tiny_skia::Paint::default()
+        };
+
+        // The unit square, transformed into device space by the paint's own matrix above.
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.push_rect(tiny_skia::Rect::from_xywh(0.0, 0.0, 1.0, 1.0).ok_or(
+            CpuRasterError::InvalidImage {
+                width: 1,
+                height: 1,
+                bytes: 0,
+            },
+        )?);
+        let square = builder.finish().ok_or(CpuRasterError::InvalidPath)?;
+
+        pixmap.fill_path(
+            &square,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            convert::transform(transform.then(to_device)),
+            clip,
+        );
+        Ok(())
+    }
+}
+
+/// Multiplies a straight-alpha channel by its alpha.
+fn premultiply(value: u8, alpha: u8) -> u8 {
+    // Rounded rather than truncated, so a fully opaque pixel round-trips exactly.
+    let scaled = u16::from(value)
+        .saturating_mul(u16::from(alpha))
+        .saturating_add(127);
+    u8::try_from(scaled / 255).unwrap_or(u8::MAX)
 }
 
 /// Builds and memoises clip masks.
@@ -314,6 +448,16 @@ pub enum CpuRasterError {
     /// A paint variant this backend does not implement yet.
     #[error("paint not supported by the CPU backend: {0}")]
     UnsupportedPaint(String),
+    /// An image's dimensions and buffer length disagree.
+    #[error("image is {width}x{height} but holds {bytes} bytes")]
+    InvalidImage {
+        /// Declared width.
+        width: u32,
+        /// Declared height.
+        height: u32,
+        /// Actual buffer length.
+        bytes: usize,
+    },
     /// A failure originating in the shared backend layer.
     #[error(transparent)]
     Target(#[from] BackendError),

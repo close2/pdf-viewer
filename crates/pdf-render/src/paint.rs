@@ -196,3 +196,33 @@ impl BlendMode {
         )
     }
 }
+
+/// Decoded image samples, ready to draw.
+///
+/// Always straight-alpha RGBA8, whatever the document's colour space and bit depth were:
+/// converting once when the image is decoded means neither backend needs to know about
+/// PDF colour spaces, which is the same reason [`Color`] is already resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Image {
+    /// Width in samples.
+    pub width: u32,
+    /// Height in samples.
+    pub height: u32,
+    /// Row-major RGBA8 samples, top row first, with no row padding.
+    pub data: std::sync::Arc<[u8]>,
+}
+
+impl Image {
+    /// Returns `true` if the dimensions and buffer length agree.
+    ///
+    /// Worth checking at the boundary: a mismatch means an indexing bug downstream, and
+    /// a backend that trusted the dimensions would read past the end of a short buffer or
+    /// silently render garbage.
+    #[must_use]
+    pub fn is_consistent(&self) -> bool {
+        let expected = (self.width as usize)
+            .saturating_mul(self.height as usize)
+            .saturating_mul(4);
+        self.data.len() == expected && self.width > 0 && self.height > 0
+    }
+}

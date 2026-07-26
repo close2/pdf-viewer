@@ -24,6 +24,7 @@
 #![forbid(unsafe_code)]
 
 pub mod content;
+pub mod image;
 pub mod page;
 
 pub use content::{Interpretation, Unsupported, interpret};

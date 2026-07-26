@@ -12,9 +12,12 @@ pdf-font.workspace = true
 pdf-render.workspace = true
 pdf-spec.workspace = true
 pdf-syntax.workspace = true
+thiserror.workspace = true
+zune-jpeg.workspace = true
 
 [dev-dependencies]
 pdfref.workspace = true
+png.workspace = true
 raster-compare.workspace = true
 render-cpu.workspace = true
 test-scenes.workspace = true

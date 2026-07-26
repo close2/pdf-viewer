@@ -1,7 +1,7 @@
 //! The resolved drawing command buffer.
 
 use crate::geom::{Path, Rect, Size, Transform};
-use crate::paint::{BlendMode, FillRule, Paint, Stroke};
+use crate::paint::{BlendMode, FillRule, Image, Paint, Stroke};
 
 /// Identifies a clip region within a [`DisplayList`].
 ///
@@ -57,6 +57,24 @@ pub enum Command {
         /// How the result combines with the backdrop.
         blend: BlendMode,
     },
+    /// Draws a decoded image into the unit square.
+    ///
+    /// PDF images occupy the unit square in user space, with the image's *top* row at
+    /// y = 1: the transform carries everything else, including the flip that PDF's y-up
+    /// space requires. Keeping that convention here rather than baking a flip into the
+    /// samples means the image data is exactly what the file contained.
+    Image {
+        /// The decoded samples.
+        image: Image,
+        /// Transform mapping the unit square into page space.
+        transform: Transform,
+        /// Constant alpha applied on top of the image's own, in `0.0..=1.0`.
+        alpha: f32,
+        /// Active clip, or `None` for unclipped.
+        clip: Option<ClipId>,
+        /// How the result combines with the backdrop.
+        blend: BlendMode,
+    },
     /// Draws the outline of a path.
     Stroke {
         /// Geometry to stroke.
@@ -79,7 +97,7 @@ impl Command {
     #[must_use]
     pub fn clip(&self) -> Option<ClipId> {
         match self {
-            Self::Fill { clip, .. } | Self::Stroke { clip, .. } => *clip,
+            Self::Fill { clip, .. } | Self::Stroke { clip, .. } | Self::Image { clip, .. } => *clip,
         }
     }
 }

@@ -8,6 +8,7 @@ Project principles live in `/CLAUDE.md` and take precedence over anything here.
 | Area | Decision | Notes |
 |---|---|---|
 | Language | Rust | Eliminates the dominant CVE class in PDF viewers |
+| Images | `zune-jpeg` + in-tree sample unpacking | JBIG2/JPX deferred to the sandbox |
 | Rasterizer | **CPU first, GPU behind a trait** | `tiny-skia` → `vello`/wgpu (ADR 0002) |
 | Fonts | `skrifa` | Memory-safe FreeType replacement; Type1/Type3 in-tree |
 | Windowing | `winit` | Qt dropped — see below |

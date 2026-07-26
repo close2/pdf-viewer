@@ -978,7 +978,20 @@ impl Interpreter<'_> {
             .unwrap_or_default();
 
         if subtype == b"Image" {
-            self.note(Unsupported::Image { name });
+            // A PDF image occupies the unit square in user space, so the command's
+            // transform is the current transform and nothing else.
+            match crate::image::decode(self.document, &stream, state.fill) {
+                Ok(image) => self.list.push(Command::Image {
+                    image,
+                    transform: state.transform,
+                    alpha: state.fill_alpha,
+                    clip: state.clip,
+                    blend: state.blend,
+                }),
+                Err(error) => self.note(Unsupported::Image {
+                    name: format!("{name}: {error}"),
+                }),
+            }
             return;
         }
         if subtype != b"Form" {

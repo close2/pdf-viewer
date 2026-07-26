@@ -29,4 +29,4 @@ pub mod paint;
 pub use backend::{BackendError, MAX_EXTENT, Raster, RasterFormat, Rasterizer, TargetSpec};
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
-pub use paint::{BlendMode, Color, FillRule, LineCap, LineJoin, Paint, Stroke};
+pub use paint::{BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke};
