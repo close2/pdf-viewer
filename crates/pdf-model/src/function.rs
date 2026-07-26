@@ -522,18 +522,23 @@ impl Sampled {
 }
 
 /// Reads big-endian bit fields of arbitrary width from a byte slice.
-struct BitReader<'a> {
+pub(crate) struct BitReader<'a> {
     data: &'a [u8],
     bit: usize,
 }
 
 impl<'a> BitReader<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    pub(crate) fn new(data: &'a [u8]) -> Self {
         Self { data, bit: 0 }
     }
 
+    /// How many bits have been consumed.
+    pub(crate) fn position(&self) -> usize {
+        self.bit
+    }
+
     /// Reads the next `bits` bits, or `None` past the end of the data.
-    fn read(&mut self, bits: u32) -> Option<u32> {
+    pub(crate) fn read(&mut self, bits: u32) -> Option<u32> {
         let mut value = 0u32;
         for _ in 0..bits {
             let byte = self.data.get(self.bit.checked_div(8)?)?;

@@ -89,6 +89,10 @@ pub fn build(
         ),
         2 => (axial(document, &dict, &space)?, Transform::IDENTITY),
         3 => (radial(document, &dict, &space)?, Transform::IDENTITY),
+        4..=7 => (
+            mesh(document, &resolved, &dict, &space, kind)?,
+            Transform::IDENTITY,
+        ),
         other => return Err(ShadingError::UnsupportedType { kind: other }),
     };
 
@@ -215,6 +219,41 @@ fn radial(
         end_radius: coords[5],
         ramp: ramp(document, dict, space)?,
         extend: extend(document, dict),
+    })
+}
+
+/// Reads one of the four mesh types into triangles.
+fn mesh(
+    document: &Document,
+    object: &Object,
+    dict: &Dictionary,
+    space: &ColourSpace,
+    kind: i64,
+) -> Result<ShadingKind, ShadingError> {
+    let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
+        detail: "a mesh shading must be a stream".to_owned(),
+    })?;
+
+    // A mesh may state colours directly or as a single parameter through a function; the
+    // reader needs to know which, so `/Function` is optional here rather than required.
+    let functions = match document.get_key(dict, "Function") {
+        Object::Null => Vec::new(),
+        object => {
+            Function::parse_group(document, &object).map_err(|e| ShadingError::Malformed {
+                detail: e.to_string(),
+            })?
+        }
+    };
+
+    let triangles =
+        crate::mesh::read(document, stream, kind, space, &functions).ok_or_else(|| {
+            ShadingError::Malformed {
+                detail: format!("the type {kind} mesh stream could not be read"),
+            }
+        })?;
+
+    Ok(ShadingKind::Mesh {
+        triangles: triangles.into(),
     })
 }
 

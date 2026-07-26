@@ -26,8 +26,9 @@ use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin, Paint, Path,
     PathCommand, Point, Size, Stroke, Transform,
 };
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, Name, Object};
 
+use crate::colour::ColourSpace;
 use crate::page::Page;
 
 /// Deepest nesting of `q`/`Q` that will be tracked.
@@ -139,10 +140,10 @@ struct GraphicsState {
     blend: BlendMode,
     fill_alpha: f32,
     stroke_alpha: f32,
-    /// How many components the current fill colour space expects, used to read `sc`/`scn`.
-    fill_components: usize,
+    /// The current fill colour space, which decides how `sc`/`scn` operands are read.
+    fill_space: ColourSpace,
     /// As above, for stroking.
-    stroke_components: usize,
+    stroke_space: ColourSpace,
     /// Text state, which `q`/`Q` saves and restores along with everything else.
     text: TextState,
 }
@@ -200,8 +201,8 @@ impl GraphicsState {
             blend: BlendMode::Normal,
             fill_alpha: 1.0,
             stroke_alpha: 1.0,
-            fill_components: 1,
-            stroke_components: 1,
+            fill_space: ColourSpace::Gray,
+            stroke_space: ColourSpace::Gray,
             text: TextState::default(),
         }
     }
@@ -574,19 +575,34 @@ impl Interpreter<'_> {
                 b"g" | b"G" => {
                     if let Some(grey) = number_at(&operands, 0) {
                         let colour = Color::rgb(grey, grey, grey);
-                        assign_colour(&mut state, operator.as_slice() == b"g", colour, 1);
+                        assign_colour(
+                            &mut state,
+                            operator.as_slice() == b"g",
+                            colour,
+                            ColourSpace::Gray,
+                        );
                     }
                 }
                 b"rg" | b"RG" => {
                     if let Some(values) = numbers_from(&operands, 3) {
                         let colour = Color::rgb(values[0], values[1], values[2]);
-                        assign_colour(&mut state, operator.as_slice() == b"rg", colour, 3);
+                        assign_colour(
+                            &mut state,
+                            operator.as_slice() == b"rg",
+                            colour,
+                            ColourSpace::Rgb,
+                        );
                     }
                 }
                 b"k" | b"K" => {
                     if let Some(values) = numbers_from(&operands, 4) {
                         let colour = cmyk(values[0], values[1], values[2], values[3]);
-                        assign_colour(&mut state, operator.as_slice() == b"k", colour, 4);
+                        assign_colour(
+                            &mut state,
+                            operator.as_slice() == b"k",
+                            colour,
+                            ColourSpace::Cmyk,
+                        );
                     }
                 }
                 b"cs" | b"CS" => {
@@ -877,7 +893,12 @@ impl Interpreter<'_> {
         }
     }
 
-    /// Sets a colour space, recording how many components its colours will have.
+    /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
+    ///
+    /// The space itself is kept rather than only its component count, so that `Separation`
+    /// and `DeviceN` colours go through their tint transform and `Indexed` ones through
+    /// their table. Reading them by component count alone treats a single ink tint as a
+    /// grey level, which is a plausible and wrong colour.
     fn set_colour_space(
         &mut self,
         operands: &[Object],
@@ -889,82 +910,28 @@ impl Interpreter<'_> {
             return;
         };
 
-        let components = match name.as_str() {
-            // A pattern carries no components of its own; `scn` names one instead, so it
-            // reports one alongside the single-component spaces.
-            "DeviceGray" | "G" | "CalGray" | "Pattern" => 1,
-            "DeviceRGB" | "RGB" | "CalRGB" | "Lab" => 3,
-            "DeviceCMYK" | "CMYK" => 4,
-            _ => self.resolved_space_components(resources, &name),
-        };
+        let space = ColourSpace::parse(
+            self.document,
+            &Object::Name(Name::new(name.as_bytes().to_vec())),
+            resources,
+        );
+        let space = space.unwrap_or_else(|| {
+            self.note(Unsupported::Shading {
+                name: format!("colour space /{name}"),
+            });
+            ColourSpace::Gray
+        });
 
         // Setting a colour space resets the colour to its initial value: black for the
         // device spaces. Omitting this leaves the previous space's colour in place, which
         // shows up as content painted in the wrong colour.
-        let colour = Color::BLACK;
         if fill {
-            state.fill_components = components;
-            state.fill = colour;
+            state.fill_space = space;
+            state.fill = Color::BLACK;
         } else {
-            state.stroke_components = components;
-            state.stroke_colour = colour;
+            state.stroke_space = space;
+            state.stroke_colour = Color::BLACK;
         }
-    }
-
-    /// Determines the component count of a named colour space resource.
-    fn resolved_space_components(&mut self, resources: &Dictionary, name: &str) -> usize {
-        let Some(space) = self.resource(resources, "ColorSpace", name) else {
-            return 1;
-        };
-
-        match &space {
-            Object::Name(family) => match family.as_bytes() {
-                b"DeviceRGB" | b"CalRGB" => 3,
-                b"DeviceCMYK" => 4,
-                _ => 1,
-            },
-            Object::Array(items) => {
-                let family = items
-                    .first()
-                    .map(|item| self.document.resolve(item))
-                    .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
-                    .unwrap_or_default();
-                match family.as_slice() {
-                    b"CalRGB" | b"Lab" => 3,
-                    b"ICCBased" => self.icc_components(items),
-                    // One component each: a grey level, an index into a lookup table, or a
-                    // single ink tint.
-                    b"CalGray" | b"Indexed" | b"I" | b"Separation" => 1,
-                    b"DeviceN" => items
-                        .get(1)
-                        .map(|item| self.document.resolve(item))
-                        .and_then(|item| item.as_array().map(<[Object]>::len))
-                        .unwrap_or(1),
-                    _ => {
-                        self.note(Unsupported::Shading {
-                            name: format!(
-                                "colour space {}",
-                                String::from_utf8_lossy(family.as_slice())
-                            ),
-                        });
-                        1
-                    }
-                }
-            }
-            _ => 1,
-        }
-    }
-
-    /// Reads `/N` from an `ICCBased` stream, which gives its component count.
-    fn icc_components(&self, items: &[Object]) -> usize {
-        items
-            .get(1)
-            .map(|item| self.document.resolve(item))
-            .and_then(|item| item.as_dict().cloned())
-            .and_then(|dict| self.document.get_key(&dict, "N").as_integer())
-            .and_then(|value| usize::try_from(value).ok())
-            .filter(|count| matches!(count, 1 | 3 | 4))
-            .unwrap_or(3)
     }
 
     /// Sets a colour from `sc`/`scn` operands, interpreting them by component count.
@@ -998,24 +965,27 @@ impl Interpreter<'_> {
             state.stroke_shading = None;
         }
 
-        let expected = if fill {
-            state.fill_components
+        let space = if fill {
+            &state.fill_space
         } else {
-            state.stroke_components
+            &state.stroke_space
         };
         let values: Vec<f32> = (0..operands.len())
             .filter_map(|index| number_at(operands, index))
             .collect();
 
-        // Take the operand count as authoritative where it disagrees with the declared
-        // space: producers get `/CS` wrong more often than they get the operand count wrong.
-        let colour = match values.len() {
-            1 => Color::rgb(values[0], values[0], values[0]),
-            3 => Color::rgb(values[0], values[1], values[2]),
-            4 => cmyk(values[0], values[1], values[2], values[3]),
-            _ => {
+        // Where the operand count disagrees with the declared space, the operands win:
+        // producers get `/CS` wrong more often than they get the operand count wrong, and
+        // a device space with a matching component count is the likeliest intent.
+        let colour = match (values.len(), space.components()) {
+            (0, _) => return,
+            (given, expected) if given == expected => space.to_rgb(&values),
+            (1, _) => ColourSpace::Gray.to_rgb(&values),
+            (3, _) => ColourSpace::Rgb.to_rgb(&values),
+            (4, _) => ColourSpace::Cmyk.to_rgb(&values),
+            (given, expected) => {
                 self.note(Unsupported::Shading {
-                    name: format!("{} colour components (expected {expected})", values.len()),
+                    name: format!("{given} colour components (expected {expected})"),
                 });
                 return;
             }
@@ -1408,7 +1378,7 @@ fn token_to_object(token: pdf_syntax::Token) -> Object {
     match token {
         pdf_syntax::Token::Integer(value) => Object::Integer(value),
         pdf_syntax::Token::Real(value) => Object::Real(value),
-        pdf_syntax::Token::Name(bytes) => Object::Name(pdf_syntax::Name::new(bytes)),
+        pdf_syntax::Token::Name(bytes) => Object::Name(Name::new(bytes)),
         pdf_syntax::Token::String(bytes) => Object::String(bytes.into()),
         // Arrays and dictionaries appear as operands to `d`, `TJ` and `BDC`. Recognising
         // the brackets is enough for the operators this interpreter implements; a full
@@ -1512,14 +1482,19 @@ fn set_dash(operands: &[Object], stroke: &mut Stroke) {
     }
 }
 
-/// Assigns a colour to the fill or stroke slot and records its component count.
-fn assign_colour(state: &mut GraphicsState, fill: bool, colour: Color, components: usize) {
+/// Assigns a colour to the fill or stroke slot, along with the space that set it.
+///
+/// `g`, `rg` and `k` set a device space and a colour in one operator, so they replace
+/// whatever `cs` had selected — including a pattern.
+fn assign_colour(state: &mut GraphicsState, fill: bool, colour: Color, space: ColourSpace) {
     if fill {
         state.fill = colour;
-        state.fill_components = components;
+        state.fill_space = space;
+        state.fill_shading = None;
     } else {
         state.stroke_colour = colour;
-        state.stroke_components = components;
+        state.stroke_space = space;
+        state.stroke_shading = None;
     }
 }
 

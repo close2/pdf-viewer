@@ -254,23 +254,100 @@ fn a_shading_in_another_colour_space_is_converted() {
     );
 }
 
-/// A shading type this crate does not implement must be reported, not skipped.
+/// A free-form triangle mesh, whose corner colours must land at its corners.
+///
+/// The data is written as ASCII hex so the fixture stays readable: a mesh stream is a bit
+/// stream of packed coordinates and components, and a binary blob in a test tells the
+/// reader nothing about what it is meant to contain.
 #[test]
-fn an_unimplemented_shading_type_is_reported() {
-    let mesh = "<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 16 \
-                /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1 0 1 0 1] >>";
-    let bytes = pdf_with(mesh, "/Sh0 sh");
+fn a_triangle_mesh_puts_its_corner_colours_at_its_corners() {
+    // Eight bits each for the flag, both coordinates and all three components, so every
+    // vertex is six whole bytes and needs no padding.
+    //
+    // Three vertices, each `flag x y r g b`:
+    //   (0,0) red, (100,0) green, (0,100) blue — a right triangle filling the lower left.
+    //   `/Decode` maps the raw 0..255 range onto 0..100, so `FF` is the far corner.
+    let data = "00 00 00 FF 00 00  00 FF 00 00 FF 00  00 00 FF 00 00 FF >";
+    let mesh = format!(
+        "<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 8 \
+         /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1 0 1 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let raster = render(pdf_with(&mesh, "/Sh0 sh"));
+
+    // Well inside each corner, the colour is that corner's.
+    let (r, g, b, a) = pixel(&raster, 4, 95);
+    assert_eq!(a, 255, "the mesh must paint inside the triangle");
+    assert!(
+        r > 200 && g < 60 && b < 60,
+        "corner one should be red: {r},{g},{b}"
+    );
+
+    let (r, g, b, _) = pixel(&raster, 92, 95);
+    assert!(
+        g > 200 && r < 60 && b < 60,
+        "corner two should be green: {r},{g},{b}"
+    );
+
+    let (r, g, b, _) = pixel(&raster, 4, 6);
+    assert!(
+        b > 200 && r < 60 && g < 60,
+        "corner three should be blue: {r},{g},{b}"
+    );
+
+    // The middle of the triangle is a blend of all three, not any one of them.
+    let (r, g, b, _) = pixel(&raster, 30, 62);
+    assert!(
+        r > 30 && g > 30 && b > 30,
+        "the interior should be interpolated, got {r},{g},{b}"
+    );
+
+    // Outside the triangle nothing is painted: a mesh covers only its own area, even
+    // though `sh` names the whole clip.
+    assert_eq!(
+        pixel(&raster, 90, 8).3,
+        0,
+        "a mesh must not paint outside its triangles"
+    );
+}
+
+/// A shading type that does not exist must be reported, not skipped.
+#[test]
+fn an_unknown_shading_type_is_reported() {
+    let bogus = "<< /ShadingType 9 /ColorSpace /DeviceRGB >>";
+    let bytes = pdf_with(bogus, "/Sh0 sh");
     let document = Document::open(bytes).expect("valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
 
     assert!(
         !interpretation.is_complete(),
-        "an unimplemented shading type must be reported rather than silently skipped"
+        "an unknown shading type must be reported rather than silently skipped"
     );
     let reported = format!("{:?}", interpretation.unsupported);
     assert!(
-        reported.contains("shading type 4"),
+        reported.contains("shading type 9"),
         "the report should name the type: {reported}"
+    );
+}
+
+/// A mesh whose stream is truncated must be reported rather than drawn in part.
+#[test]
+fn a_truncated_mesh_is_reported() {
+    // One vertex where three are needed.
+    let data = "00 00 00 FF 00 00 >";
+    let mesh = format!(
+        "<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 8 \
+         /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1 0 1 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let bytes = pdf_with(&mesh, "/Sh0 sh");
+    let document = Document::open(bytes).expect("valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    assert!(
+        !pdf_model::interpret(&document, &page).is_complete(),
+        "a mesh with no complete triangle must be reported"
     );
 }

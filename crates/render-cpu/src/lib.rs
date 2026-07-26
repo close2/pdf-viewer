@@ -147,6 +147,27 @@ impl Rasterizer for CpuRasterizer {
                     ..
                 } => {
                     let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
+
+                    // A mesh carries a colour per triangle corner, which no shader can
+                    // express, so it is drawn triangle by triangle inside the shape rather
+                    // than as a paint over it.
+                    if let Paint::Shading(shading) = paint
+                        && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
+                    {
+                        shading::fill_mesh(
+                            &mut pixmap,
+                            &path,
+                            triangles,
+                            shading.transform.then(to_device),
+                            convert::fill_rule(*fill_rule),
+                            convert::transform(transform.then(to_device)),
+                            clip,
+                            convert::blend_mode(*blend),
+                            self.anti_alias,
+                        );
+                        continue;
+                    }
+
                     // A sampled shading's pixels are borrowed by its shader, so they need
                     // somewhere to live for exactly as long as this call.
                     let mut scratch = None;

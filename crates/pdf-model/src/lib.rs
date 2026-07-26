@@ -27,6 +27,7 @@ pub mod colour;
 pub mod content;
 pub mod function;
 pub mod image;
+pub mod mesh;
 pub mod page;
 pub mod shading;
 
