@@ -8,6 +8,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+pdf-render.workspace = true
+pdf-spec.workspace = true
+pdf-syntax.workspace = true
+
+[dev-dependencies]
+pdfref.workspace = true
+raster-compare.workspace = true
+render-cpu.workspace = true
+test-scenes.workspace = true
 
 [lints]
 workspace = true

@@ -1,14 +1,30 @@
 //! Document and page-tree model built over parsed PDF objects.
 //!
-//! Gives meaning to the object graph from `pdf-syntax`: the catalogue, the page
-//! tree with attribute inheritance, resource dictionaries, outlines, and named
-//! destinations. Validation of object shapes is delegated to `pdf-spec`.
+//! Gives meaning to the object graph from `pdf-syntax`: the catalogue, the page tree with
+//! attribute inheritance, and the content streams that describe what a page looks like.
 //!
-//! Page access is lazy by design. Time-to-first-page is the metric a user
-//! perceives, and eagerly walking a page tree of several thousand nodes to open a
-//! document is the single most common reason viewers feel slow to start. Nothing
-//! here may require a full-document traversal to render page one.
+//! # What this crate decides
 //!
-//! Implemented after Phase 5.
+//! Page access is lazy. Time-to-first-page is the metric a user perceives, and eagerly
+//! walking a page tree of several thousand nodes to open a document is the most common
+//! reason viewers feel slow to start, so nothing here requires a full-document traversal to
+//! render page one.
+//!
+//! Content interpretation happens once, here, producing the resolved display list that
+//! `pdf-render` defines. Backends therefore contain no PDF semantics — which is what allows
+//! the CPU backend to validate the GPU one on byte-identical input.
+//!
+//! # Incomplete pages are visible
+//!
+//! Text and images are not yet drawn. [`content::Interpretation`] reports what it could not
+//! draw rather than silently omitting it, because a page that looks plausible and is wrong
+//! is the worst failure a viewer can have — and it would make the comparison harness report
+//! a pass on a page missing half its content.
 
 #![forbid(unsafe_code)]
+
+pub mod content;
+pub mod page;
+
+pub use content::{Interpretation, Unsupported, interpret};
+pub use page::{Page, Pages};

@@ -1287,6 +1287,15 @@ version = "0.1.0"
 [[package]]
 name = "pdf-model"
 version = "0.1.0"
+dependencies = [
+ "pdf-render",
+ "pdf-spec",
+ "pdf-syntax",
+ "pdfref",
+ "raster-compare",
+ "render-cpu",
+ "test-scenes",
+]
 
 [[package]]
 name = "pdf-render"
