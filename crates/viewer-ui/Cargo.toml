@@ -8,17 +8,19 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+pdf-model.workspace = true
+pdf-render.workspace = true
+pdf-syntax.workspace = true
+pollster.workspace = true
+render-gpu.workspace = true
+vello.workspace = true
 winit.workspace = true
 
 # The interactive spike example needs a scene, a target and a device. These are
 # dev-dependencies because the shell itself will drive rendering through `viewer-core`
 # rather than reaching for a backend directly.
 [dev-dependencies]
-pdf-render.workspace = true
-pollster.workspace = true
-render-gpu.workspace = true
 test-scenes.workspace = true
-vello.workspace = true
 
 [lints]
 workspace = true

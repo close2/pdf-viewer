@@ -124,6 +124,13 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
 - Miri on the pure-Rust core; ASan/UBSan on any FFI
 - `cargo-deny`, `cargo-audit`
 
+### The viewer
+
+`cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf` opens a real file.
+Arrow keys or Page Up/Down turn pages; the title bar names anything on the page that could
+not be drawn, because a viewer that shows an incomplete page confidently is worse than one
+that admits the gap.
+
 ### Phase 5 — De-risking spikes (before PDF code)
 - **A.** ~~Headless CPU render → byte-deterministic output.~~ **Done.** `render-cpu` on
   `tiny-skia`; fills, strokes and nested clips verified, output byte-identical across

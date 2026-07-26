@@ -2098,7 +2098,9 @@ version = "0.1.0"
 name = "viewer-ui"
 version = "0.1.0"
 dependencies = [
+ "pdf-model",
  "pdf-render",
+ "pdf-syntax",
  "pollster",
  "render-gpu",
  "test-scenes",
