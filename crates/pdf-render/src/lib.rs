@@ -1,0 +1,32 @@
+//! Backend-agnostic rendering interface.
+//!
+//! This crate defines *what* is to be drawn; it contains no rasteriser. Backends
+//! (`render-cpu`, `render-gpu`) consume the types defined here and produce pixels.
+//!
+//! # Why a resolved display list
+//!
+//! A PDF content stream is a state machine: `q`/`Q` push and pop a graphics state
+//! containing the current transformation matrix, clip path, colour, and more. Each
+//! drawing operator acts relative to that accumulated state.
+//!
+//! Passing that model to a backend would force every backend to reimplement the
+//! state machine — and to reimplement it *identically*, or the backends would
+//! disagree. Instead, the content-stream interpreter resolves the state machine
+//! once: every [`Command`] in a [`DisplayList`] carries its absolute transform and
+//! an explicit clip reference. Backends therefore contain no PDF semantics at all.
+//!
+//! This is what makes the CPU backend usable as a correctness oracle for the GPU
+//! backend: both consume byte-identical input, so any difference in their output is
+//! a backend bug rather than a difference in interpretation.
+
+#![forbid(unsafe_code)]
+
+pub mod backend;
+pub mod display_list;
+pub mod geom;
+pub mod paint;
+
+pub use backend::{Raster, RasterFormat, Rasterizer, TargetSpec};
+pub use display_list::{ClipId, Command, DisplayList};
+pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
+pub use paint::{BlendMode, Color, FillRule, LineCap, LineJoin, Paint, Stroke};
