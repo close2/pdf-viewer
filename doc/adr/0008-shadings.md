@@ -80,8 +80,8 @@ rather than only in shadings.
 
 Both backends draw them, and three scenes in the headless suite hold them to agreement.
 That check is what makes the GPU work verifiable at all: the CPU backend's colours are
-pinned against known values and against poppler, so agreement carries that verification
-across rather than restating it.
+pinned against values derived from the specification, so agreement carries that
+verification across rather than restating it.
 
 ## Meshes needed measurement, not reasoning
 
@@ -125,7 +125,7 @@ still produce something that looks like a pattern.
 `tiny-skia` takes as a pattern; the Vello path reports it instead. Eighteen occurrences in
 two documents of 974, and reported rather than silently wrong.
 
-**Colour management.** Our `DeviceCMYK` conversion is the uncalibrated one, and on a
-CMYK mesh that is a visible saturation difference against poppler even where the geometry
-matches exactly. That is a pre-existing gap `colour.rs` documents, not a shading one, but
-meshes are where it shows most.
+**Colour management** was a gap here when this was written — meshes are where an
+uncalibrated `DeviceCMYK` shows most — and ADR 0009 has since closed it. Mesh vertex
+colours resolve through the same single conversion as every other colour, so a document
+that states its press is now honoured on a mesh as it is on a fill.

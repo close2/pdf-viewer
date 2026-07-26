@@ -8,7 +8,7 @@ noticeably fastest PDF viewer available — and clean enough to be taught from.
 
 ## Non-negotiable principles
 
-These four are stated by the project owner and override convenience, velocity, and any
+These are stated by the project owner and override convenience, velocity, and any
 default habit. When a suggestion conflicts with one of these, say so explicitly rather
 than quietly compromising.
 
@@ -86,6 +86,34 @@ build an application cleanly.
 - Every non-obvious decision gets an ADR in `doc/adr/` — the reasoning matters as much as
   the result.
 - Prefer the clear construction over the clever one.
+
+### 5. The specification is the only source of truth
+
+Stated by the project owner, and absolute:
+
+> Never use the other libraries as source of truth. The truth is the spec only. If we have
+> the same results as the other libraries, we can assume that we understood the spec
+> correctly — but if not, we don't try to match what the others do, we find out what the
+> spec says.
+
+poppler, mupdf, ghostscript, pdf.js and Acrobat are **evidence about our reading**, never
+the definition of correct. The direction of inference runs one way: agreement raises
+confidence that we understood the specification; disagreement is a question to take back to
+the specification, never a target to move toward.
+
+In practice:
+
+- A test's expected value must be derivable from the specification, and its comment must
+  say *from where*. "This is what poppler produces" is not a justification for anything.
+- When another implementation disagrees, find the clause. Either we misread it, or they
+  did, or it is genuinely unspecified — and those three have different consequences.
+- Where the specification genuinely defines nothing (`DeviceCMYK` → RGB is the standing
+  example), say so plainly, make a deliberate choice, and document it *as a choice*.
+  Presenting a de-facto convention as though it were derived is the failure mode this rule
+  exists to prevent.
+- Curve-fitting to another renderer's output is forbidden outright. An implementation is
+  correct for all valid PDFs or it is not correct; tuning constants until a corpus matches
+  produces neither correctness nor knowledge.
 
 ### On the tension between 2 and 4
 

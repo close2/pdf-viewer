@@ -322,25 +322,45 @@ impl Profile {
     /// Finds the darkest colour the device can produce, for black point compensation.
     ///
     /// A press cannot make a colour as dark as a screen's black, so a profile's darkest
-    /// output is a very dark grey rather than zero. Reproducing that literally leaves
-    /// every black on the page washed out: this profile's registration black came out at
-    /// (28,27,23) where every other reader shows (0,0,0).
+    /// output is a very dark grey rather than zero. Reproducing that literally leaves every
+    /// black on the page washed out — this profile's registration black comes out at
+    /// (28,27,23), a visibly grey "black".
     ///
-    /// Compensation maps that black onto the display's, which is what makes blacks black.
+    /// ISO 32000-2 §8.6.5.9 is about exactly this: `/UseBlackPtComp` in the graphics state
+    /// takes `ON`, `OFF` or `Default`, `ON` means "according to the provisions in
+    /// ISO 18619", and `Default` — the initial value — is "left to the PDF processor to
+    /// determine". Compensating by default is therefore a choice the specification provides
+    /// for, and the cases where it is *not* permitted are honoured by
+    /// [`Self::to_rgb_with`].
     ///
-    /// This is done because the reference implementations do it, verified in their source
-    /// rather than inferred from their output: poppler defines
-    /// `LCMS_FLAGS (cmsFLAGS_NOOPTIMIZE | cmsFLAGS_BLACKPOINTCOMPENSATION)` and passes it
-    /// to every transform it builds. The distinction matters — a transform added because
-    /// it happened to move the numbers closer would be a fitted correction wearing the
-    /// name of a real technique.
+    /// What compensation must achieve is defined without ambiguity, and not only by
+    /// ISO 18619. PDF 2.0 Application Note 001 (`doc/md/PDF20_AN001-BPC.md`), written by
+    /// ISO 32000's own co-project-leader to interpret this feature, states it as "aligning
+    /// the darkest colour that could be described by the colour space of the data to be
+    /// displayed with the darkest colour that the output profile for the display device
+    /// (screen or print) can produce". That sentence is what the code below implements, and
+    /// it settles the design question the arithmetic cannot: the black to be aligned is the
+    /// one *the source colour space* describes, which is why it is found by pushing full
+    /// ink through this profile.
     ///
-    /// The black point is found by asking the profile itself — running full ink through
-    /// the transform — rather than read from a `bkpt` tag, because the CMYK profiles that
-    /// need this most often do not carry one. Little CMS instead estimates a *perceptual*
-    /// black point by round-tripping through the profile's `B2A` table, which is why the
-    /// darkest patches still differ from poppler by a few levels where everything else
-    /// agrees within one. That is a difference of construction, not a free parameter:
+    /// The same note observes that BPC is "very similar to what switching between absolute
+    /// and relative colorimetric rendering intents does at the highlight end" — the reason
+    /// [`Self::to_rgb_with`] must refuse to compensate under `AbsoluteColorimetric`.
+    ///
+    /// The *arithmetic* by which the alignment is done is ISO 18619's, and that is a
+    /// normative reference this project does not hold; a linear mapping between the two
+    /// black points meets the stated goal, but it is not a transcription of the standard.
+    /// Worth knowing if the numbers in the last few percent ever have to be defended.
+    ///
+    /// Full ink is used rather than a `bkpt` tag because the CMYK profiles that need this
+    /// most often carry no such tag, and one that is absent cannot be honoured.
+    ///
+    /// This yields a *colorimetric* black point: the darkest colour the profile itself says
+    /// the space reaches, which is what the application note's wording asks for. An
+    /// alternative construction estimates a *perceptual* one by round-tripping through the
+    /// profile's `B2A` table; readers built on Little CMS take that route, and the two agree
+    /// everywhere except in the darkest few percent. Recorded because it explains a residual
+    /// disagreement that comes from a choice of construction rather than a free parameter —
     /// there is nothing here to tune.
     fn detect_black(&self) -> Option<[f32; 3]> {
         if !matches!(self.transform, Transform::Lut(_)) {
@@ -348,8 +368,16 @@ impl Profile {
         }
         let full_ink = vec![1.0f32; self.channels];
         let black = self.connection(&full_ink);
-        // Nothing to compensate for if the profile already reaches zero.
-        (black.iter().any(|value| *value > 1e-4)).then_some(black)
+        // Compensation aligns a *range*, so it needs one: the colour found has to be
+        // darker than the white it is being stretched away from, on every axis. A profile
+        // whose fullest ink is no darker than its white describes no range to align — and
+        // stretching one anyway divides by a span at or below zero, which does not produce
+        // a slightly wrong colour but an arbitrary one.
+        let usable = black
+            .iter()
+            .zip(WHITE)
+            .all(|(value, white)| *value < white && *value > 1e-4);
+        usable.then_some(black)
     }
 
     /// The connection-space XYZ a colour maps to, before compensation or transfer.
@@ -389,20 +417,29 @@ impl Profile {
         self.channels
     }
 
-    /// Converts a colour in this profile's space to sRGB.
+    /// Converts a colour in this profile's space to sRGB, with black point compensation.
     #[must_use]
     pub fn to_rgb(&self, values: &[f32]) -> Color {
+        self.to_rgb_with(values, true)
+    }
+
+    /// Converts a colour, choosing whether to compensate for the black point.
+    #[must_use]
+    pub fn to_rgb_with(&self, values: &[f32], black_point: bool) -> Color {
         let mut xyz = self.connection(values);
 
         // Black point compensation: stretch the profile's range so its darkest colour
         // lands on the display's black instead of on a dark grey. Linear in XYZ, with the
         // white point fixed, which is the standard construction.
-        if let Some(black) = self.black {
+        if let Some(black) = self.black.filter(|_| black_point) {
             for (axis, value) in xyz.iter_mut().enumerate() {
                 let white = WHITE.get(axis).copied().unwrap_or(1.0);
                 let low = black.get(axis).copied().unwrap_or(0.0);
                 let span = white - low;
-                if span.abs() > 1e-9 {
+                // Positive by construction — `detect_black` refuses anything else — but
+                // the division is guarded rather than assumed, since the alternative is
+                // silently emitting infinities into the page.
+                if span > 1e-9 {
                     *value = (*value - low) / span * white;
                 }
             }
@@ -889,17 +926,178 @@ mod tests {
         (byte(colour.r), byte(colour.g), byte(colour.b))
     }
 
-    /// A real profile must reproduce what other readers get from the same profile.
+    /// Assembles a v2 ICC profile with a single `A2B1` lookup table.
     ///
-    /// The expected values were read out of poppler's rendering of a page using this very
-    /// profile. mupdf agrees with poppler to within one level on every one, so these are
-    /// two independent implementations rather than one opinion.
+    /// Everything here is positional, so it doubles as a statement of the layout the parser
+    /// is expected to read: a 128-byte header, a tag count, one 12-byte tag entry, then the
+    /// `mft2` tag itself — sizes, input curves, CLUT, output curves, in that order.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    fn lut16_profile(space: [u8; 4], pcs: [u8; 4], clut: &[u16], outputs: usize) -> Vec<u8> {
+        let mut header = vec![0u8; 128];
+        header[8] = 2; // major version: v2, which is what selects the legacy Lab encoding
+        header[16..20].copy_from_slice(&space);
+        header[20..24].copy_from_slice(&pcs);
+        header[36..40].copy_from_slice(b"acsp");
+
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"mft2");
+        tag.extend_from_slice(&[0; 4]);
+        tag.push(1); // one input channel
+        tag.push(u8::try_from(outputs).expect("small"));
+        tag.push(2); // two grid points, so the CLUT is just the two ends
+        tag.push(0);
+        for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+            tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+        }
+        tag.extend_from_slice(&2u16.to_be_bytes()); // input table entries
+        tag.extend_from_slice(&2u16.to_be_bytes()); // output table entries
+        // An identity input curve, the CLUT, then identity output curves.
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+        for value in clut {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+        for _ in 0..outputs {
+            for value in [0u16, 0xFFFF] {
+                tag.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+
+        let mut out = header;
+        out.extend_from_slice(&1u32.to_be_bytes()); // one tag
+        out.extend_from_slice(b"A2B1");
+        out.extend_from_slice(&144u32.to_be_bytes()); // 128 + 4 + 12
+        out.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
+        out.extend_from_slice(&tag);
+        out
+    }
+
+    /// The PCS decoding must follow the ICC encoding, which is not a plain 0..1 scaling.
+    ///
+    /// XYZ in a lookup table is `u1Fixed15`: `0x8000` is 1.0, so the representable range
+    /// runs a little past one rather than stopping at it. Reading the entries as a fraction
+    /// of `0xFFFF` — the obvious thing, and what every other table in the format does —
+    /// halves every value, which turns white into a mid grey and every colour into a darker
+    /// version of itself. That is a difference no test comparing colours *within* one
+    /// rendering can see, since everything moves together.
+    ///
+    /// So the CLUT here holds D50 white in that encoding and the profile must produce
+    /// white. `0.9642 × 32768` is 31596; the entry read as a fraction of `0xFFFF` would be
+    /// 0.482, and the result a grey around 187.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    fn xyz_in_a_lookup_table_is_decoded_as_the_icc_encoding_specifies() {
+        let white = [
+            (0.964_2 * 32768.0) as u16,
+            32768,
+            (0.824_9 * 32768.0) as u16,
+        ];
+        // Grid point zero is black, grid point one is the white above.
+        let clut = [0, 0, 0, white[0], white[1], white[2]];
+        let profile = Profile::parse(&lut16_profile(*b"GRAY", *b"XYZ ", &clut, 3))
+            .expect("the assembled profile parses");
+
+        assert_eq!(bytes(profile.to_rgb(&[1.0])), (255, 255, 255));
+        assert_eq!(bytes(profile.to_rgb(&[0.0])), (0, 0, 0));
+    }
+
+    /// Interpolation between grid points is linear in the connection space.
+    ///
+    /// With two grid points there is nothing to interpolate *between* except the ends, so
+    /// the midpoint is exactly half the white point in XYZ — and half of D50's Y is 0.5,
+    /// which sRGB encodes as 188 rather than 128. That the answer is not 128 is the point:
+    /// interpolating after the transfer curve rather than before it would give 128, and
+    /// would be wrong by 60 levels in the middle of every gradient.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    fn the_lookup_table_interpolates_in_the_connection_space() {
+        let white = [
+            (0.964_2 * 32768.0) as u16,
+            32768,
+            (0.824_9 * 32768.0) as u16,
+        ];
+        let clut = [0, 0, 0, white[0], white[1], white[2]];
+        let profile = Profile::parse(&lut16_profile(*b"GRAY", *b"XYZ ", &clut, 3))
+            .expect("the assembled profile parses");
+
+        let (r, g, b) = bytes(profile.to_rgb(&[0.5]));
+        // Neutral to within a level: the white point's components do not land on exact
+        // multiples of 1/32768, so the fixture's own encoding of them is a fraction of a
+        // level off. That is the table's precision, not the interpolation's.
+        assert!(
+            (187..=189).contains(&r) && r.abs_diff(g) <= 1 && g.abs_diff(b) <= 1,
+            "half of D50 white is a neutral 188, got {r},{g},{b}"
+        );
+    }
+
+    /// A profile that cannot reach black has its range stretched so that it does.
+    ///
+    /// PDF 2.0 Application Note 001 defines this as "aligning the darkest colour that could
+    /// be described by the colour space of the data ... with the darkest colour that the
+    /// output profile for the display device ... can produce". Here the profile's darkest
+    /// colour is a tenth of the white point, and the display's is zero, so full ink must
+    /// come out at zero — and turning compensation off must leave it where the profile put
+    /// it. Both directions matter: §8.6.5.9 lets a document demand either.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    fn black_point_compensation_aligns_the_darkest_colour_the_profile_reaches() {
+        let dark = [
+            (0.096_42 * 32768.0) as u16,
+            3277,
+            (0.082_49 * 32768.0) as u16,
+        ];
+        let white = [
+            (0.964_2 * 32768.0) as u16,
+            32768,
+            (0.824_9 * 32768.0) as u16,
+        ];
+        // Grid point one is full ink here, so the darkest the profile reaches is `dark`.
+        let clut = [white[0], white[1], white[2], dark[0], dark[1], dark[2]];
+        let profile = Profile::parse(&lut16_profile(*b"GRAY", *b"XYZ ", &clut, 3))
+            .expect("the assembled profile parses");
+
+        assert_eq!(
+            bytes(profile.to_rgb(&[1.0])),
+            (0, 0, 0),
+            "compensation must bring the profile's darkest colour to the display's"
+        );
+        let (r, g, b) = bytes(profile.to_rgb_with(&[1.0], false));
+        assert!(
+            r > 80 && g > 80 && b > 80,
+            "without compensation the same colour stays the grey the profile describes, \
+             got {r},{g},{b}"
+        );
+    }
+
+    /// Independent evaluators of the same profile should agree with us.
+    ///
+    /// This is corroboration, not a definition: the ICC encoding decides what this profile
+    /// means, and the tests above pin that directly. What agreement here adds is evidence
+    /// that we read a *real* profile's tags the way their author intended — a profile with
+    /// curves, a sixteen-cubed CLUT and four input channels exercises far more of the
+    /// format than anything hand-assembled. If it ever disagrees, the profile's own tables
+    /// decide who is wrong, not the majority.
     ///
     /// The tolerance is wider on the darkest patches, where black point compensation is
-    /// doing the most work and the exact construction differs between readers. Everything
-    /// else is within a level or two.
+    /// doing the most work and the construction differs as `detect_black` describes.
     #[test]
-    fn a_real_cmyk_profile_matches_what_other_readers_produce() {
+    fn a_real_cmyk_profile_agrees_with_independent_evaluators() {
         let Some(data) = corpus_cmyk_profile() else {
             println!("skipped: the pdf.js submodule is not checked out");
             return;

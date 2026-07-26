@@ -276,7 +276,7 @@ fn ramp() -> pdf_render::Ramp {
 /// Both backends implement axial shadings natively, so they must agree on one.
 ///
 /// This is what makes the GPU shading work checkable at all: the CPU backend's colours
-/// have already been pinned against known values and against poppler, so agreement here
+/// have already been pinned against values derived from the specification, so agreement here
 /// carries that verification across.
 #[test]
 fn cpu_and_gpu_agree_on_an_axial_shading() {

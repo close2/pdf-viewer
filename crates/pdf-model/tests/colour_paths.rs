@@ -17,7 +17,8 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "test code: a malformed fixture or an out-of-range pixel should fail loudly, \
-              and the fixtures are small enough that no index can overflow"
+              the fixtures are small enough that no index can overflow, and the ICC \
+              fixture's constants are written as the fixed-point values it encodes"
 )]
 
 use std::fmt::Write as _;
@@ -30,8 +31,13 @@ const GENEROUS: u64 = 1 << 30;
 
 /// Builds a one-page PDF from a content stream and an optional extra object.
 fn pdf_with(extra: &str, resources: &str, content: &str) -> Vec<u8> {
+    pdf_with_catalog(extra, "", resources, content)
+}
+
+/// The same, with extra entries in the document catalog.
+fn pdf_with_catalog(extra: &str, catalog: &str, resources: &str, content: &str) -> Vec<u8> {
     let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {catalog} >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] \
          /Resources << {resources} >> /Contents 4 0 R >>\nendobj\n\
@@ -217,5 +223,127 @@ fn an_icc_space_prefers_its_stated_alternate() {
     assert!(
         colour.0 > 250 && colour.1 > 250 && colour.2 > 250,
         "expected Lab white, got {colour:?} — /Alternate was ignored"
+    );
+}
+
+/// A CMYK profile built to say one thing, so a test can tell whether it was consulted.
+///
+/// Four input channels and two grid points per channel, which makes the table exactly the
+/// sixteen ink corners — the same shape as the fallback it is replacing. Corner eight is
+/// pure cyan, and it is set to the XYZ that sRGB renders as full green, a colour no press
+/// makes and the fallback table never produces. Full ink is set to zero so the profile
+/// reaches true black and needs no compensation, keeping the expected value exact.
+fn green_cyan_profile() -> Vec<u8> {
+    // XYZ, D50, of sRGB's green primary, in the `u1Fixed15` encoding lookup tables use.
+    let green: [u16; 3] = [12620, 23491, 3182];
+    let mut clut = vec![0u16; 16 * 3];
+    clut[8 * 3..8 * 3 + 3].copy_from_slice(&green);
+
+    let mut header = vec![0u8; 128];
+    header[8] = 2;
+    header[16..20].copy_from_slice(b"CMYK");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+
+    let mut tag = Vec::new();
+    tag.extend_from_slice(b"mft2");
+    tag.extend_from_slice(&[0; 4]);
+    tag.extend_from_slice(&[4, 3, 2, 0]); // four in, three out, two grid points
+    for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+        tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+    }
+    tag.extend_from_slice(&2u16.to_be_bytes());
+    tag.extend_from_slice(&2u16.to_be_bytes());
+    for _ in 0..4 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    for value in &clut {
+        tag.extend_from_slice(&value.to_be_bytes());
+    }
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+
+    let mut out = header;
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(b"A2B1");
+    out.extend_from_slice(&144u32.to_be_bytes());
+    out.extend_from_slice(&(tag.len() as u32).to_be_bytes());
+    out.extend_from_slice(&tag);
+    out
+}
+
+/// Objects five and six: an output intent whose profile is [`green_cyan_profile`].
+fn output_intent_objects() -> String {
+    let mut hex = String::new();
+    for byte in green_cyan_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    format!(
+        "5 0 obj\n<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier (test) \
+         /DestOutputProfile 6 0 R >>\nendobj\n\
+         6 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\n\
+         endobj\n",
+        hex.len().saturating_add(1)
+    )
+}
+
+/// An output intent says what the document's device colours mean.
+///
+/// ISO 32000-2 §14.11.5: an output intent's `/DestOutputProfile` is "an ICC profile stream
+/// defining the transformation from the PDF document's source colours to output device
+/// colourants", and §8.6.5.7 NOTE 3 names it as the one thing in a PDF that can describe
+/// the calibration its device colours were prepared for. A document that carries one has
+/// said what its `DeviceCMYK` means, and guessing instead renders it in the wrong colours.
+#[test]
+fn an_output_intent_says_what_the_documents_device_colours_mean() {
+    let colour = centre_colour(pdf_with_catalog(
+        &output_intent_objects(),
+        "/OutputIntents [5 0 R]",
+        "",
+        "1 0 0 0 k 0 0 20 20 re f",
+    ));
+    // Within a level: the green primary's XYZ does not land on exact multiples of
+    // 1/32768, so the fixture's own encoding of it is a fraction of a level off. The
+    // fallback's process cyan is 173 away in green, so nothing here is a near miss.
+    let (r, g, b) = colour;
+    assert!(
+        r <= 1 && g >= 254 && b <= 1,
+        "the output intent's profile must decide what `1 0 0 0 k` looks like, got {colour:?}"
+    );
+
+    // Without it, the same content is the process cyan of the assumed press.
+    let without = centre_colour(pdf_with("", "", "1 0 0 0 k 0 0 20 20 re f"));
+    assert_eq!(without, (0, 173, 239));
+}
+
+/// A `/DefaultCMYK` in the page's resources outranks the document's output intent.
+///
+/// §8.6.5.6 says a `Default` entry "shall be used"; §8.6.5.7 NOTE 3 says an output intent
+/// "can suggest" a calibration. One is a requirement about this operation and the other is
+/// a statement about the document, so the nearer and stronger of the two wins.
+#[test]
+fn a_default_space_outranks_the_output_intent() {
+    let objects = format!(
+        "{}7 0 obj\n[/DeviceN [/C /M /Y /K] /DeviceRGB 8 0 R]\nendobj\n\
+         8 0 obj\n<< /FunctionType 2 /Domain [0 1 0 1 0 1 0 1] /C0 [0 0 1] /C1 [0 0 1] \
+         /N 1 >>\nendobj\n",
+        output_intent_objects()
+    );
+
+    let colour = centre_colour(pdf_with_catalog(
+        &objects,
+        "/OutputIntents [5 0 R]",
+        "/ColorSpace << /DefaultCMYK 7 0 R >>",
+        "1 0 0 0 k 0 0 20 20 re f",
+    ));
+    assert_eq!(
+        colour,
+        (0, 0, 255),
+        "the resources' /DefaultCMYK must win over the document's output intent"
     );
 }

@@ -125,6 +125,25 @@ impl Interpretation {
     }
 }
 
+/// Whether black point compensation applies, per ISO 32000-2 §8.6.5.9.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlackPoint {
+    /// `/UseBlackPtComp ON`, or the processor's own default.
+    On,
+    /// `/UseBlackPtComp OFF`, or any rendering intent of `AbsColorimetric` — for which
+    /// the specification says the entry "shall be treated as OFF" whatever it holds.
+    Off,
+    /// `/UseBlackPtComp Default`, which the specification leaves to the processor.
+    Default,
+}
+
+impl BlackPoint {
+    /// Whether to compensate. `Default` does, which is this processor's determination.
+    fn applies(self) -> bool {
+        self != Self::Off
+    }
+}
+
 /// What a `/Pattern` colour space's `scn` selected.
 ///
 /// The two kinds are drawn in completely different ways. A shading pattern is a paint and
@@ -171,6 +190,11 @@ struct GraphicsState {
     blend: BlendMode,
     fill_alpha: f32,
     stroke_alpha: f32,
+    /// Whether black point compensation applies to CIE-based conversions.
+    ///
+    /// ISO 32000-2 §8.6.5.9. `Default` is the initial value and leaves the choice to the
+    /// processor; this one compensates, which is what makes blacks black.
+    black_point: BlackPoint,
     /// The current fill colour space, which decides how `sc`/`scn` operands are read.
     fill_space: ColourSpace,
     /// As above, for stroking.
@@ -232,6 +256,7 @@ impl GraphicsState {
             blend: BlendMode::Normal,
             fill_alpha: 1.0,
             stroke_alpha: 1.0,
+            black_point: BlackPoint::Default,
             fill_space: ColourSpace::Gray,
             stroke_space: ColourSpace::Gray,
             text: TextState::default(),
@@ -285,6 +310,7 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         text_cursor: None,
         base: base_transform(page),
         page: size,
+        output_intent: output_intent_space(document),
     };
 
     let base = base_transform(page);
@@ -358,6 +384,14 @@ struct Interpreter<'a> {
     base: Transform,
     /// The page's extent, used to bound a shading painted by `sh`.
     page: Size,
+    /// The colour space the document's output intent describes, if it has one.
+    ///
+    /// ISO 32000-2 §14.11.5: an output intent's `/DestOutputProfile` is "an ICC profile
+    /// stream defining the transformation from the PDF document's source colours to
+    /// output device colourants". §8.6.5.7 NOTE 3 names it as the one thing in a PDF that
+    /// can say how its device colours are calibrated, so it is what a device space means
+    /// when nothing nearer to hand says otherwise.
+    output_intent: Option<ColourSpace>,
     /// The page's text, accumulated as the glyphs are placed.
     text: String,
     /// Where the last glyph ended, used to decide where a space belongs.
@@ -610,22 +644,22 @@ impl Interpreter<'_> {
                 // these resolve the space rather than naming it directly.
                 b"g" | b"G" => {
                     if let Some(grey) = number_at(&operands, 0) {
-                        let space = device_space(self.document, "DeviceGray", resources);
-                        let colour = space.to_rgb(&[grey]);
+                        let space = self.device_space("DeviceGray", resources);
+                        let colour = convert(&space, &[grey], state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"g", colour, space);
                     }
                 }
                 b"rg" | b"RG" => {
                     if let Some(values) = numbers_from(&operands, 3) {
-                        let space = device_space(self.document, "DeviceRGB", resources);
-                        let colour = space.to_rgb(&values);
+                        let space = self.device_space("DeviceRGB", resources);
+                        let colour = convert(&space, &values, state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"rg", colour, space);
                     }
                 }
                 b"k" | b"K" => {
                     if let Some(values) = numbers_from(&operands, 4) {
-                        let space = device_space(self.document, "DeviceCMYK", resources);
-                        let colour = space.to_rgb(&values);
+                        let space = self.device_space("DeviceCMYK", resources);
+                        let colour = convert(&space, &values, state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"k", colour, space);
                     }
                 }
@@ -780,7 +814,19 @@ impl Interpreter<'_> {
                 // content and compatibility sections carry structure rather than drawing;
                 // rendering intent needs colour management; and flatness tolerance is a
                 // hint about curve subdivision that the rasteriser decides for itself.
-                b"BMC" | b"BDC" | b"EMC" | b"MP" | b"DP" | b"BX" | b"EX" | b"ri" | b"i" => {}
+                b"ri" => {
+                    // Absolute colorimetry reproduces the source's measured colours,
+                    // including its own paper white and black; compensating for the black
+                    // point would defeat that, so the specification forbids it here.
+                    if let Some(name) = name_at(&operands, 0) {
+                        state.black_point = if name == "AbsoluteColorimetric" {
+                            BlackPoint::Off
+                        } else {
+                            BlackPoint::Default
+                        };
+                    }
+                }
+                b"BMC" | b"BDC" | b"EMC" | b"MP" | b"DP" | b"BX" | b"EX" | b"i" => {}
 
                 other => {
                     self.note(Unsupported::Operator {
@@ -901,6 +947,20 @@ impl Interpreter<'_> {
                 state.stroke.width = (width as f32).max(0.0);
             }
         }
+        // ISO 32000-2 §8.6.5.9 and its table entry: `/UseBlackPtComp` takes ON, OFF or
+        // Default, and a rendering intent of AbsColorimetric forces it off regardless.
+        if let Object::Name(value) = self.document.get_key(dict, "UseBlackPtComp") {
+            state.black_point = match value.as_bytes() {
+                b"ON" => BlackPoint::On,
+                b"OFF" => BlackPoint::Off,
+                _ => BlackPoint::Default,
+            };
+        }
+        if let Object::Name(intent) = self.document.get_key(dict, "RI")
+            && intent.as_bytes() == b"AbsoluteColorimetric"
+        {
+            state.black_point = BlackPoint::Off;
+        }
         match self.document.get_key(dict, "BM") {
             Object::Name(name) => state.blend = blend_mode(name.as_bytes()),
             Object::Array(items) => {
@@ -1016,7 +1076,7 @@ impl Interpreter<'_> {
         // a device space with a matching component count is the likeliest intent.
         let colour = match (values.len(), space.components()) {
             (0, _) => return,
-            (given, expected) if given == expected => space.to_rgb(&values),
+            (given, expected) if given == expected => convert(space, &values, state.black_point),
             (1, _) => ColourSpace::Gray.to_rgb(&values),
             (3, _) => ColourSpace::Rgb.to_rgb(&values),
             (4, _) => ColourSpace::Cmyk.to_rgb(&values),
@@ -1540,6 +1600,43 @@ impl Interpreter<'_> {
         }))
     }
 
+    /// Resolves a device colour space to what the document says it means.
+    ///
+    /// Three sources, in the order the specification puts them. A `/Default` entry in the
+    /// resources §8.6.5.6 says *shall* be used. Failing that, the output intent describes
+    /// the device the document's colours were prepared for, which §8.6.5.7 NOTE 3 names as
+    /// the only thing in a PDF that can. Failing both, the device space itself — for which
+    /// the specification defines no conversion at all, so what happens then is this
+    /// processor's own choice and is documented as such in `colour.rs`.
+    fn device_space(&self, name: &str, resources: &Dictionary) -> ColourSpace {
+        let named = Object::Name(Name::new(name.as_bytes().to_vec()));
+        if let Some(space) = ColourSpace::parse(self.document, &named, resources) {
+            // `parse` returns the device space itself when no `/Default` entry replaces
+            // it, so an output intent gets its turn only when nothing did.
+            let replaced = !matches!(
+                (&space, name),
+                (ColourSpace::Gray, "DeviceGray")
+                    | (ColourSpace::Rgb, "DeviceRGB")
+                    | (ColourSpace::Cmyk, "DeviceCMYK")
+            );
+            if replaced {
+                return space;
+            }
+        }
+
+        if let Some(intent) = &self.output_intent
+            && intent.components() == expected_components(name)
+        {
+            return intent.clone();
+        }
+
+        match name {
+            "DeviceGray" => ColourSpace::Gray,
+            "DeviceCMYK" => ColourSpace::Cmyk,
+            _ => ColourSpace::Rgb,
+        }
+    }
+
     /// Looks up a named resource of a given category.
     fn resource(&self, resources: &Dictionary, category: &str, name: &str) -> Option<Object> {
         let table = self.document.get_key(resources, category);
@@ -1764,18 +1861,51 @@ fn as_f32(index: i32) -> f32 {
     }
 }
 
-/// Resolves a device colour space, honouring a `Default` entry that stands in for it.
+/// How many components a device space's colours have.
+fn expected_components(name: &str) -> usize {
+    match name {
+        "DeviceGray" => 1,
+        "DeviceCMYK" => 4,
+        _ => 3,
+    }
+}
+
+/// Converts a colour, honouring the graphics state's black point setting.
+fn convert(space: &ColourSpace, values: &[f32], black_point: BlackPoint) -> Color {
+    if black_point.applies() {
+        space.to_rgb(values)
+    } else {
+        space.to_rgb_without_black_point(values)
+    }
+}
+
+/// Reads the colour space a document's output intent describes.
 ///
-/// Falls back to the device space itself when the resources name no replacement, or when
-/// the replacement cannot be understood — a document is better rendered in device colours
-/// than not at all.
-fn device_space(document: &Document, name: &str, resources: &Dictionary) -> ColourSpace {
-    let named = Object::Name(Name::new(name.as_bytes().to_vec()));
-    ColourSpace::parse(document, &named, resources).unwrap_or(match name {
-        "DeviceGray" => ColourSpace::Gray,
-        "DeviceCMYK" => ColourSpace::Cmyk,
-        _ => ColourSpace::Rgb,
-    })
+/// Only a profile whose own space is one a PDF can name is useful here; an output intent
+/// for a device with some other colourant model says nothing about `DeviceCMYK`.
+fn output_intent_space(document: &Document) -> Option<ColourSpace> {
+    let catalog = document.catalog().ok()?;
+    let intents = document.get_key(&catalog, "OutputIntents");
+    // The specification is explicit that PDF carries no selector for choosing among
+    // several, so the first usable one is taken.
+    for intent in intents.as_array()? {
+        let intent = document.resolve(intent);
+        let Some(dict) = intent.as_dict() else {
+            continue;
+        };
+        let profile = document.get_key(dict, "DestOutputProfile");
+        let Some(stream) = profile.as_stream() else {
+            continue;
+        };
+        if let Some(data) = document.decoded_stream_data(stream)
+            && let Some(parsed) = crate::icc::Profile::parse(&data)
+        {
+            return Some(ColourSpace::Icc {
+                profile: Box::new(parsed),
+            });
+        }
+    }
+    None
 }
 
 /// Returns a step only if it is usable as one.

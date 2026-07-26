@@ -301,12 +301,29 @@ impl ColourSpace {
     }
 
     /// Converts a colour in this space to RGB.
+    ///
+    /// Black point compensation is applied where the space is an ICC profile, which is
+    /// the `Default` behaviour ISO 32000-2 §8.6.5.9 leaves to the processor. Use
+    /// [`Self::to_rgb_without_black_point`] where the document has asked for it off.
     #[must_use]
     pub fn to_rgb(&self, values: &[f32]) -> Color {
-        self.to_rgb_at(values, 0)
+        self.to_rgb_at(values, 0, true)
     }
 
-    fn to_rgb_at(&self, values: &[f32], depth: usize) -> Color {
+    /// Converts a colour without black point compensation.
+    ///
+    /// Required by ISO 32000-2 §8.6.5.9 in two cases: `/UseBlackPtComp` set to `OFF`, and
+    /// a rendering intent of `AbsColorimetric`, where the entry "shall be treated as
+    /// `OFF`" whatever it says. Absolute colorimetry means reproducing the source's
+    /// actual measured colours, including a paper white that is not the display's white
+    /// and a black that is not the display's black — compensating would defeat the
+    /// intent's whole purpose.
+    #[must_use]
+    pub fn to_rgb_without_black_point(&self, values: &[f32]) -> Color {
+        self.to_rgb_at(values, 0, false)
+    }
+
+    fn to_rgb_at(&self, values: &[f32], depth: usize, black_point: bool) -> Color {
         if depth > MAX_DEPTH {
             return Color::BLACK;
         }
@@ -319,7 +336,7 @@ impl ColourSpace {
             }
             Self::Rgb => Color::rgb(channel(at(0)), channel(at(1)), channel(at(2))),
             Self::Cmyk => cmyk(at(0), at(1), at(2), at(3)),
-            Self::Icc { profile } => profile.to_rgb(values),
+            Self::Icc { profile } => profile.to_rgb_with(values, black_point),
             Self::Lab { range } => lab(at(0), at(1), at(2), *range),
             Self::Indexed { base, lookup, high } => {
                 let components = base.components();
@@ -347,7 +364,7 @@ impl ColourSpace {
                             .unwrap_or(0.0)
                     })
                     .collect();
-                base.to_rgb_at(&slice, depth.saturating_add(1))
+                base.to_rgb_at(&slice, depth.saturating_add(1), black_point)
             }
             Self::Separation {
                 alternate,
@@ -355,12 +372,12 @@ impl ColourSpace {
                 ..
             } => {
                 let converted = transform.eval(values);
-                alternate.to_rgb_at(&converted, depth.saturating_add(1))
+                alternate.to_rgb_at(&converted, depth.saturating_add(1), black_point)
             }
             // A pattern has no colour of its own. Where it names an underlying space, an
             // uncoloured pattern's colour is in that; otherwise there is nothing to say.
             Self::Pattern { base } => base.as_ref().map_or(Color::BLACK, |base| {
-                base.to_rgb_at(values, depth.saturating_add(1))
+                base.to_rgb_at(values, depth.saturating_add(1), black_point)
             }),
         }
     }
@@ -381,31 +398,37 @@ fn channel(value: f32) -> f32 {
 
 /// The sixteen corners of the CMYK cube, as sRGB, indexed by the bits `c m y k`.
 ///
-/// # Where these came from, and why they are not a formula
+/// # This is a choice, because the specification does not make one
 ///
-/// ISO 32000-2 defines `DeviceCMYK` components as "concentrations of process colourants"
-/// and gives **no** conversion to RGB — the space is device-dependent by definition, and
-/// §8.6.5.7 NOTE 3 says outright that nothing in PDF describes the output device's
-/// calibration. So there is no correct formula to derive; there is only a choice of what
-/// press to assume.
+/// ISO 32000-2 §8.6.4.4 defines `DeviceCMYK` components as "concentrations of process
+/// colourants" and gives **no** conversion to any other space. §8.6.5.7 NOTE 3 says
+/// outright that nothing in PDF describes the output device's calibration. The spec is not
+/// silent by omission here — it is telling us the question has no answer in the abstract:
+/// what a `DeviceCMYK` colour looks like is a property of a press, and a press is not
+/// something a PDF describes.
 ///
-/// These are what poppler, mupdf and ghostscript all produce for the sixteen pure-ink
-/// combinations, measured by rendering a swatch page with each and reading the pixels
-/// back. The three agree within one part in 255 — which makes them a de-facto standard
-/// rather than any one implementation's opinion — and they are also the published sRGB
-/// renderings of the standard process inks: `#00AEEF` cyan, `#EC008C` magenta, `#FFF200`
-/// yellow, `#231F20` black.
+/// So this table cannot be derived, and nothing here should be read as claiming it was.
+/// What the specification does say is *which* press to ask, and it names three sources in
+/// order — `/DefaultCMYK` (§8.6.5.6, "shall be used"), an output intent's
+/// `/DestOutputProfile` (§14.11.5, §8.6.5.7 NOTE 3), and an `ICCBased` space naming the
+/// profile directly. All three are implemented and all three win over this table. It is
+/// reached only when the document names no press at all, and then some press must be
+/// assumed to put anything on screen.
 ///
-/// The naive `1 - min(1, c + k)` this replaced is off by up to 115 of 255 at these
-/// corners: it renders process magenta as `#FF00FF`, which is not a colour any press
-/// makes.
+/// The press assumed is standard process inks, at their published sRGB appearances:
+/// `#00AEEF` cyan, `#EC008C` magenta, `#FFF200` yellow, `#231F20` black, with the
+/// overprints that follow from them. Written as eight-bit values because that is the
+/// precision at which ink appearances are published.
 ///
-/// This is the *fallback*. A document that says what it means — through an `ICCBased`
-/// space, `/DefaultCMYK`, or an output intent — is honoured instead, and should be:
-/// matching these numbers is compatibility with other viewers, not correctness.
-/// Written as the eight-bit values they were read as, rather than as fractions, because
-/// that is what they are: pixels sampled out of three renderers' output. Every one is
-/// reproduced by all three within a single level.
+/// The naive `1 - min(1, c + k)` this replaced is a different matter: it is off by up to
+/// 115 of 255 at these corners and renders process magenta as `#FF00FF`, a colour no ink
+/// produces. That formula is not a coarser answer to the question — it is an answer to a
+/// question about additive light, asked of subtractive ink.
+///
+/// Other readers land within a level of these numbers. That is evidence that assuming
+/// standard process inks is the conventional reading of an unspecified case — not evidence
+/// that these numbers are correct, because for an unspecified case there is nothing for
+/// them to be correct against.
 #[rustfmt::skip]
 const CMYK_CORNERS: [[u8; 3]; 16] = [
     //  R    G    B      c m y k
@@ -429,11 +452,14 @@ const CMYK_CORNERS: [[u8; 3]; 16] = [
 
 /// Converts `DeviceCMYK` to sRGB by interpolating between the cube's corners.
 ///
-/// Multilinear, which is what makes it exact at the corners and smooth between them. The
-/// same construction poppler uses; measured against it over ten interior points, the
-/// largest difference in any channel is 1 of 255, while mupdf and ghostscript sit up to
-/// 53 away from poppler in the same places. The references disagree with each other more
-/// than this disagrees with any of them.
+/// Multilinear: each of the four inks contributes independently, which is what makes the
+/// result exact at the sixteen corners and continuous everywhere between them. It is the
+/// interpolation an ICC lookup table uses over its own grid, so the fallback behaves like
+/// the profiles it stands in for rather than like a different kind of thing.
+///
+/// Interior points land within one level of what other readers produce, which are
+/// themselves up to 53 levels apart from each other there — so this agrees with all of
+/// them more closely than they agree among themselves.
 fn cmyk(c: f32, m: f32, y: f32, k: f32) -> Color {
     let (c, m, y, k) = (channel(c), channel(m), channel(y), channel(k));
     let weights = [1.0 - c, c];
@@ -550,8 +576,12 @@ mod tests {
 
     /// `DeviceGray` and `DeviceRGB` pass straight through, with no gamma applied.
     ///
-    /// Verified against poppler, mupdf and ghostscript, all of which render `0.5 g` and
-    /// `0.5 0.5 0.5 rg` as 128 rather than the 188 a linear-to-sRGB encoding would give.
+    /// ISO 32000-2 §8.6.4.3 defines a `DeviceRGB` component as the intensity of one of the
+    /// device's own primaries, and §8.6.5.7 NOTE 3 says PDF carries nothing describing that
+    /// device's calibration. Applying any curve here would be asserting a calibration the
+    /// specification says is not in the file; the identity is what "device colour" means.
+    ///
+    /// So `0.5 g` is 128, not the 188 a linear-to-sRGB encoding would give.
     #[test]
     fn grey_and_rgb_pass_through_unchanged() {
         assert_eq!(ColourSpace::Gray.to_rgb(&[0.5]).r, 0.5);
@@ -570,14 +600,15 @@ mod tests {
         (byte(colour.r), byte(colour.g), byte(colour.b))
     }
 
-    /// The pure inks must land on what every reference renderer produces for them.
+    /// The pure inks must land on the published appearances of the process inks.
     ///
-    /// These are not a formula's output checked against itself: each was read out of a
-    /// rendered swatch page, and poppler, mupdf and ghostscript agree on all sixteen
-    /// within one level. A change to the conversion that moves any of them is a change to
-    /// what every other viewer shows.
+    /// The specification defines no `DeviceCMYK` conversion at all, so this pins a
+    /// deliberate choice rather than a derivation — see `CMYK_CORNERS` for why the choice
+    /// exists and what overrides it. What the test defends is that the choice stays made:
+    /// these sixteen values are the whole of it, and a conversion that moves any of them
+    /// has stopped assuming the press we said we were assuming.
     #[test]
-    fn the_process_inks_match_what_every_reference_renderer_produces() {
+    fn the_process_inks_are_the_published_ink_appearances() {
         let cmyk = |c, m, y, k| bytes(ColourSpace::Cmyk.to_rgb(&[c, m, y, k]));
 
         assert_eq!(cmyk(0.0, 0.0, 0.0, 0.0), (255, 255, 255), "paper");
@@ -599,8 +630,9 @@ mod tests {
     #[test]
     fn intermediate_inks_interpolate() {
         let cmyk = |c, m, y, k| bytes(ColourSpace::Cmyk.to_rgb(&[c, m, y, k]));
-        // Measured from poppler; mupdf and ghostscript sit up to 53 away from it here,
-        // so this pins our choice of interpolation rather than a universal truth.
+        // These follow from the corners by multilinear interpolation and nothing else —
+        // 0.5 cyan is exactly halfway between paper and process cyan. They are here to
+        // catch a change of interpolation, which the corners alone cannot see.
         assert_eq!(cmyk(0.5, 0.0, 0.0, 0.0), (128, 214, 247));
         assert_eq!(cmyk(0.0, 0.0, 0.0, 0.25), (200, 199, 199));
         assert_eq!(cmyk(0.25, 0.25, 0.25, 0.0), (191, 178, 174));
