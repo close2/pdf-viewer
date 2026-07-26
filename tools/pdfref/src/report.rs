@@ -201,12 +201,16 @@ pub fn summarise(case: &str, triangulation: &Triangulation) -> String {
     for (reference, comparison) in &triangulation.ours {
         let _ = writeln!(
             out,
-            "    {:<12} mean {:>7.4}  worst tile {:>8.4} at {:?}  differing {:>7.4}%",
+            "    {:<12} mean {:>7.4}  worst tile {:>8.4} at {:?}  differing {:>7.4}%  \
+             ssim {:>6.4}  worst ssim {:>6.4} at {:?}",
             reference.name(),
             comparison.mean_error,
             comparison.worst_tile_error,
             comparison.worst_tile_at,
-            comparison.differing_fraction * 100.0
+            comparison.differing_fraction * 100.0,
+            comparison.structural_similarity,
+            comparison.worst_tile_similarity,
+            comparison.worst_tile_similarity_at
         );
     }
 
@@ -216,11 +220,14 @@ pub fn summarise(case: &str, triangulation: &Triangulation) -> String {
     for (left, right, comparison) in &triangulation.between_references {
         let _ = writeln!(
             out,
-            "    {:<12} vs {:<12} mean {:>7.4}  worst tile {:>8.4}",
+            "    {:<12} vs {:<12} mean {:>7.4}  worst tile {:>8.4}  ssim {:>6.4}  \
+             worst ssim {:>6.4}",
             left.name(),
             right.name(),
             comparison.mean_error,
-            comparison.worst_tile_error
+            comparison.worst_tile_error,
+            comparison.structural_similarity,
+            comparison.worst_tile_similarity
         );
     }
 

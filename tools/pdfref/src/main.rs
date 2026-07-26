@@ -244,6 +244,19 @@ fn compare_pairs(
                     if worst.is_none_or(|(_, _, value)| comparison.worst_tile_error > value) {
                         worst = Some((*left_ref, *right_ref, comparison.worst_tile_error));
                     }
+                    // Printed per pair rather than summarised, because this survey's
+                    // purpose is to establish where the references' own noise floor sits
+                    // and a single worst number cannot show a distribution.
+                    println!(
+                        "  {stem}: {left_ref} vs {right_ref}  mean {:.4}  worst tile {:.4}  \
+                         ssim {:.4}  worst ssim {:.4} at {:?}  worst tile at {:?}",
+                        comparison.mean_error,
+                        comparison.worst_tile_error,
+                        comparison.structural_similarity,
+                        comparison.worst_tile_similarity,
+                        comparison.worst_tile_similarity_at,
+                        comparison.worst_tile_at
+                    );
                 }
                 Err(e) => {
                     // A size mismatch here means the renderers read the page geometry

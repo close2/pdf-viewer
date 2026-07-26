@@ -20,6 +20,7 @@ criterion.workspace = true
 iai-callgrind.workspace = true
 pdfref.workspace = true
 png.workspace = true
+rayon.workspace = true
 raster-compare.workspace = true
 render-cpu.workspace = true
 test-scenes.workspace = true

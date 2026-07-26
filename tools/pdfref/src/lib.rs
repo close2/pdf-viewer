@@ -27,7 +27,13 @@
 //! Tolerantly, via [`raster_compare`]. Exact equality is unachievable between correct
 //! implementations, so [`Tolerance`] bounds mean error, worst-tile error and the
 //! fraction of noticeably differing pixels. The worst-tile bound is the load-bearing
-//! one: a missing glyph moves the mean less than antialiasing noise does.
+//! one among those: a missing glyph moves the mean less than antialiasing noise does.
+//!
+//! On text, none of the three is enough — the disagreement between two correct renderers
+//! over glyph edges is larger than the disagreement a wrong glyph would cause. So
+//! [`Tolerance`] also bounds structural similarity, which measures whether the same shapes
+//! are in the same places rather than how far pixels moved, and which is what makes a text
+//! page gateable on something better than "not blank".
 
 #![forbid(unsafe_code)]
 
@@ -53,6 +59,12 @@ pub struct Tolerance {
     pub max_worst_tile: f64,
     /// Maximum fraction of channels differing noticeably, in `0.0..=1.0`.
     pub max_differing_fraction: f64,
+    /// Minimum mean structural similarity, in `-1.0..=1.0`.
+    ///
+    /// Independent of the three bounds above, which all measure how far pixels moved.
+    /// This one measures whether the same things are in the same places, and it is the
+    /// bound that does the work on text.
+    pub min_structural_similarity: f64,
 }
 
 impl Tolerance {
@@ -62,10 +74,16 @@ impl Tolerance {
     /// by a mean of 0.002 to 0.047 and a worst tile of 0.4 to 1.1. These bounds sit an
     /// order of magnitude above that floor, and far below what a genuine defect produces:
     /// a single missing shape pushes worst-tile error past 150.
+    ///
+    /// The structural bound is measured the same way. Across a 51-document sample of the
+    /// pdf.js corpus, the pages where every reference pair already falls inside the three
+    /// pixel bounds above have a structural similarity of 0.9971 at worst and 0.9999 at
+    /// the median. 0.99 sits just under that floor.
     pub const VECTOR: Self = Self {
         max_mean: 1.0,
         max_worst_tile: 5.0,
         max_differing_fraction: 0.01,
+        min_structural_similarity: 0.99,
     };
 
     /// Bounds for pages containing substantial text.
@@ -76,20 +94,38 @@ impl Tolerance {
     /// single-pixel shape borders — the interiors of filled areas are identical — so it is
     /// hinting and antialiasing, not a rendering error.
     ///
-    /// # This is a weak gate, deliberately
+    /// # The pixel bounds here are weak, and the structural bound is what gates
     ///
-    /// Accepting a worst tile of 40 means a genuinely wrong glyph would pass. Whole-page
-    /// pixel comparison simply cannot police text between independent rasterisers: the
-    /// noise floor is above the signal. Text correctness belongs to the *text extraction*
-    /// metric — comparing our extraction against `pdftotext` — which checks encoding and
-    /// `ToUnicode` handling independently of how glyphs are painted.
+    /// A worst tile of 40 would let a genuinely wrong glyph through. Whole-page pixel
+    /// comparison cannot police text between independent rasterisers: the noise floor is
+    /// above the signal, and no choice of number fixes that.
     ///
-    /// Use this to catch gross failures on text pages (a missing block, an inverted page)
-    /// and rely on extraction for the rest.
+    /// `min_structural_similarity` is the bound that can. Measured over a 51-document
+    /// sample of the pdf.js corpus, 153 reference-against-reference pairs:
+    ///
+    /// | structural similarity | what those pairs are |
+    /// |---|---|
+    /// | 0.94 to 1.00, 84% of pairs | ordinary antialiasing and hinting disagreement |
+    /// | 0.80 to 0.94 | `standard_fonts`, `tracemonkey_freetext`, `issue1905` — pages where each renderer substitutes a *different* font |
+    /// | 0.62 to 0.80 | the same, more severely |
+    /// | 0.00 to 0.04 | one renderer produced nothing at all (JBIG2 symbol dictionaries) |
+    ///
+    /// The distribution is continuous, not bimodal: there is no empty band to put a
+    /// threshold in, and 0.8990, 0.8993, 0.8998 and 0.9009 all occur. So 0.90 is a
+    /// deliberate choice about *which* population to exclude rather than a natural
+    /// boundary, and what it excludes is font substitution. That is the right call: when
+    /// two references pick different substitutes there is no single correct rendering to
+    /// hold us to, and [`crate::Outcome::Ambiguous`] is exactly where such a page belongs.
+    ///
+    /// Text *correctness* still belongs to the extraction metric — comparing our output
+    /// against `pdftotext` — which checks encoding and `ToUnicode` independently of how
+    /// glyphs are painted. What changed is that this gate is no longer only capable of
+    /// catching an inverted or blank page.
     pub const TEXT_HEAVY: Self = Self {
         max_mean: 5.0,
         max_worst_tile: 40.0,
         max_differing_fraction: 0.05,
+        min_structural_similarity: 0.90,
     };
 
     /// The strict bounds, [`Self::VECTOR`].
@@ -104,6 +140,7 @@ impl Tolerance {
         comparison.mean_error <= self.max_mean
             && comparison.worst_tile_error <= self.max_worst_tile
             && comparison.differing_fraction <= self.max_differing_fraction
+            && comparison.structural_similarity >= self.min_structural_similarity
     }
 }
 
