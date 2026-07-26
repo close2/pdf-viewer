@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+pdf-font.workspace = true
 pdf-render.workspace = true
 pdf-spec.workspace = true
 pdf-syntax.workspace = true

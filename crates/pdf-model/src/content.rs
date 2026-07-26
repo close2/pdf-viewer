@@ -17,6 +17,7 @@
 //! exclude the page from comparison rather than reporting a false difference.
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use pdf_render::display_list::Clip;
 use pdf_render::{
@@ -69,6 +70,11 @@ pub enum Unsupported {
         /// The operator, as written.
         operator: String,
     },
+    /// A font could not be loaded, so its text was not drawn.
+    Font {
+        /// Why, from `pdf-font`.
+        detail: String,
+    },
     /// A bound was reached and interpretation stopped early.
     LimitReached {
         /// Which bound.
@@ -112,6 +118,47 @@ struct GraphicsState {
     fill_components: usize,
     /// As above, for stroking.
     stroke_components: usize,
+    /// Text state, which `q`/`Q` saves and restores along with everything else.
+    text: TextState,
+}
+
+/// The text-related part of the graphics state.
+///
+/// Separate from the text *object* state (`Tm` and `Tlm`), which the specification resets
+/// at every `BT` and which therefore does not survive `q`/`Q`.
+#[derive(Debug, Clone)]
+struct TextState {
+    /// The resource name of the current font, and the font itself once loaded.
+    font: Option<Rc<pdf_font::LoadedFont>>,
+    /// Font size, in unscaled text-space units.
+    size: f32,
+    /// Character spacing, added to every glyph's advance.
+    char_spacing: f32,
+    /// Word spacing, added to the advance of a single-byte code 32.
+    word_spacing: f32,
+    /// Horizontal scaling, as a factor rather than the percentage the operator takes.
+    horizontal_scale: f32,
+    /// Leading, the vertical distance `T*` moves.
+    leading: f32,
+    /// Rise, which lifts the baseline for superscripts.
+    rise: f32,
+    /// Rendering mode: whether glyphs are filled, stroked, both, or invisible.
+    render_mode: i64,
+}
+
+impl Default for TextState {
+    fn default() -> Self {
+        Self {
+            font: None,
+            size: 0.0,
+            char_spacing: 0.0,
+            word_spacing: 0.0,
+            horizontal_scale: 1.0,
+            leading: 0.0,
+            rise: 0.0,
+            render_mode: 0,
+        }
+    }
 }
 
 impl GraphicsState {
@@ -128,6 +175,7 @@ impl GraphicsState {
             stroke_alpha: 1.0,
             fill_components: 1,
             stroke_components: 1,
+            text: TextState::default(),
         }
     }
 
@@ -164,6 +212,7 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         unsupported: BTreeMap::new(),
         text_operations: 0,
         operations: 0,
+        fonts: BTreeMap::new(),
     };
 
     let base = base_transform(page);
@@ -223,6 +272,11 @@ struct Interpreter<'a> {
     unsupported: BTreeMap<Unsupported, Unsupported>,
     text_operations: usize,
     operations: usize,
+    /// Fonts already loaded, keyed by resource name.
+    ///
+    /// A page names the same font on every `Tf`, and parsing a font program is expensive,
+    /// so this is what keeps text rendering from being dominated by font loading.
+    fonts: BTreeMap<String, Option<Rc<pdf_font::LoadedFont>>>,
 }
 
 impl Interpreter<'_> {
@@ -243,13 +297,6 @@ impl Interpreter<'_> {
         clippy::too_many_lines,
         reason = "a bytecode dispatch table reads better whole than split; see above"
     )]
-    #[expect(
-        clippy::match_same_arms,
-        reason = "two arms are empty for different reasons — text state is not implemented \
-                  *yet* and will need code once glyphs are drawn, whereas marked content \
-                  will never affect geometry. Merging them would erase a distinction that \
-                  tells the next reader which one is unfinished work."
-    )]
     fn run(
         &mut self,
         content: &[u8],
@@ -268,6 +315,9 @@ impl Interpreter<'_> {
         let mut current = Point::new(0.0, 0.0);
         let mut pending_clip: Option<FillRule> = None;
         let mut in_text = false;
+        // The text object's own matrices, which `BT` resets and `q`/`Q` do not touch.
+        let mut text_matrix = Transform::IDENTITY;
+        let mut line_matrix = Transform::IDENTITY;
 
         while let Some(token) = lexer.next_token() {
             self.operations = self.operations.saturating_add(1);
@@ -488,18 +538,125 @@ impl Interpreter<'_> {
                 }
 
                 // --- text ---
-                b"BT" => in_text = true,
-                b"ET" => in_text = false,
-                b"Tj" | b"TJ" | b"'" | b"\"" => {
-                    // Counted rather than drawn: fonts are not implemented, and drawing
-                    // nothing while reporting success would be the worst outcome.
-                    self.text_operations = self.text_operations.saturating_add(1);
+                b"BT" => {
+                    in_text = true;
+                    // Both matrices reset at the start of every text object.
+                    text_matrix = Transform::IDENTITY;
+                    line_matrix = Transform::IDENTITY;
                 }
-                // Text state and positioning operators change no geometry this renderer
-                // uses yet, so they are accepted silently. They will matter once glyphs are
-                // drawn, and are listed explicitly so that adding them is a visible edit.
-                b"Tf" | b"Td" | b"TD" | b"Tm" | b"T*" | b"TL" | b"Tc" | b"Tw" | b"Tz" | b"Ts"
-                | b"Tr" => {}
+                b"ET" => in_text = false,
+                b"Tf" => {
+                    if let Some(name) = name_at(&operands, 0) {
+                        state.text.font = self.font(resources, &name);
+                    }
+                    if let Some(size) = number_at(&operands, 1) {
+                        state.text.size = size;
+                    }
+                }
+                b"Tc" => {
+                    if let Some(value) = number_at(&operands, 0) {
+                        state.text.char_spacing = value;
+                    }
+                }
+                b"Tw" => {
+                    if let Some(value) = number_at(&operands, 0) {
+                        state.text.word_spacing = value;
+                    }
+                }
+                b"Tz" => {
+                    if let Some(percent) = number_at(&operands, 0) {
+                        state.text.horizontal_scale = percent / 100.0;
+                    }
+                }
+                b"TL" => {
+                    if let Some(value) = number_at(&operands, 0) {
+                        state.text.leading = value;
+                    }
+                }
+                b"Ts" => {
+                    if let Some(value) = number_at(&operands, 0) {
+                        state.text.rise = value;
+                    }
+                }
+                b"Tr" => {
+                    if let Some(mode) = integer_at(&operands, 0) {
+                        state.text.render_mode = mode;
+                    }
+                }
+                b"Td" => {
+                    if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
+                        line_matrix = Transform::translate(x, y).then(line_matrix);
+                        text_matrix = line_matrix;
+                    }
+                }
+                b"TD" => {
+                    if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
+                        // `TD` is `Td` with the side effect of setting the leading.
+                        state.text.leading = -y;
+                        line_matrix = Transform::translate(x, y).then(line_matrix);
+                        text_matrix = line_matrix;
+                    }
+                }
+                b"Tm" => {
+                    if let Some(matrix) = matrix_from(&operands) {
+                        line_matrix = matrix;
+                        text_matrix = matrix;
+                    }
+                }
+                b"T*" => {
+                    line_matrix = Transform::translate(0.0, -state.text.leading).then(line_matrix);
+                    text_matrix = line_matrix;
+                }
+                b"Tj" => {
+                    if let Some(bytes) = string_at(&operands, 0) {
+                        self.show_text(&bytes, &state, &mut text_matrix);
+                    }
+                }
+                b"TJ" => {
+                    // The array operand is not reconstructed by the content lexer, so the
+                    // strings and the numeric adjustments between them arrive as separate
+                    // operands in order — which is enough to render them correctly.
+                    for operand in &operands {
+                        match operand {
+                            Object::String(bytes) => {
+                                self.show_text(bytes, &state, &mut text_matrix);
+                            }
+                            other => {
+                                if let Some(adjust) = other.as_number() {
+                                    // A positive adjustment moves *left*: it is subtracted,
+                                    // in thousandths of an em, scaled by size and horizontal
+                                    // scaling.
+                                    let shift = -narrow(adjust) / 1000.0
+                                        * state.text.size
+                                        * state.text.horizontal_scale;
+                                    text_matrix =
+                                        Transform::translate(shift, 0.0).then(text_matrix);
+                                }
+                            }
+                        }
+                    }
+                }
+                b"'" => {
+                    line_matrix = Transform::translate(0.0, -state.text.leading).then(line_matrix);
+                    text_matrix = line_matrix;
+                    if let Some(bytes) = string_at(&operands, 0) {
+                        self.show_text(&bytes, &state, &mut text_matrix);
+                    }
+                }
+                b"\"" => {
+                    // `aw ac string "` sets word and character spacing, then shows.
+                    if let Some(word) = number_at(&operands, 0) {
+                        state.text.word_spacing = word;
+                    }
+                    if let Some(character) = number_at(&operands, 1) {
+                        state.text.char_spacing = character;
+                    }
+                    line_matrix = Transform::translate(0.0, -state.text.leading).then(line_matrix);
+                    text_matrix = line_matrix;
+                    if let Some(bytes) = string_at(&operands, 2) {
+                        self.show_text(&bytes, &state, &mut text_matrix);
+                    }
+                }
 
                 // --- XObjects ---
                 b"Do" => self.draw_xobject(&operands, resources, &state, form_depth),
@@ -887,6 +1044,110 @@ impl Interpreter<'_> {
         self.run(&data, &form_resources, &inner, form_depth.saturating_add(1));
     }
 
+    /// Loads a font by resource name, caching the result including failures.
+    ///
+    /// A failure is cached too: a page that names an unloadable font on every `Tf` should
+    /// pay for the attempt once, and should report it once.
+    fn font(&mut self, resources: &Dictionary, name: &str) -> Option<Rc<pdf_font::LoadedFont>> {
+        if let Some(cached) = self.fonts.get(name) {
+            return cached.clone();
+        }
+
+        let loaded = self
+            .resource(resources, "Font", name)
+            .and_then(|object| object.as_dict().cloned())
+            .map(|dict| pdf_font::LoadedFont::load(self.document, &dict, name));
+
+        let result = match loaded {
+            Some(Ok(font)) => Some(Rc::new(font)),
+            Some(Err(error)) => {
+                self.note(Unsupported::Font {
+                    detail: error.to_string(),
+                });
+                None
+            }
+            None => {
+                self.note(Unsupported::Font {
+                    detail: format!("no /Font resource named /{name}"),
+                });
+                None
+            }
+        };
+
+        self.fonts.insert(name.to_owned(), result.clone());
+        result
+    }
+
+    /// Draws a string, advancing the text matrix.
+    ///
+    /// # The positioning arithmetic
+    ///
+    /// Each glyph is placed by the text rendering matrix, which is the font size and
+    /// horizontal scaling, times the text matrix, times the current transform. The advance
+    /// after each glyph is `(w0 * size + char_spacing + word_spacing) * horizontal_scale`,
+    /// where `w0` is the glyph's width in em units and word spacing applies only to a
+    /// single-byte code 32.
+    ///
+    /// Getting the order wrong produces text that is present but misplaced, which looks
+    /// like a font bug and is really an arithmetic one.
+    fn show_text(&mut self, bytes: &[u8], state: &GraphicsState, text_matrix: &mut Transform) {
+        let Some(font) = state.text.font.clone() else {
+            self.text_operations = self.text_operations.saturating_add(1);
+            return;
+        };
+
+        // Mode 3 is invisible text, and mode 7 adds to the clip without painting. Both are
+        // used for the OCR layer under a scanned image, where drawing them would be wrong.
+        let invisible = matches!(state.text.render_mode, 3 | 7);
+        let size = state.text.size;
+        let scale = state.text.horizontal_scale;
+
+        for code in font.decode(bytes) {
+            let advance_em = font.advance(code);
+
+            if !invisible
+                && size != 0.0
+                && let Some(outline) = font.outline(code)
+            {
+                {
+                    // Glyph space to text space: scale by the font size, apply horizontal
+                    // scaling and rise, then the text matrix and the current transform.
+                    let glyph_to_text =
+                        Transform::new(size * scale, 0.0, 0.0, size, 0.0, state.text.rise);
+                    let transform = glyph_to_text.then(*text_matrix).then(state.transform);
+
+                    self.list.push(Command::Fill {
+                        path: (*outline).clone(),
+                        transform,
+                        // Glyph outlines are non-zero filled; even-odd would hollow out
+                        // counters that overlap, such as in a bold 'B'.
+                        fill_rule: FillRule::NonZero,
+                        // Mode 1 strokes rather than fills; approximated as a fill, which
+                        // is closer than drawing nothing, and noted so it is not silent.
+                        paint: state.fill_paint(),
+                        clip: state.clip,
+                        blend: state.blend,
+                    });
+                }
+            }
+
+            // Word spacing applies only to the single-byte code 32.
+            let word = if code == 32 {
+                state.text.word_spacing
+            } else {
+                0.0
+            };
+            let shift = (advance_em * size + state.text.char_spacing + word) * scale;
+            *text_matrix = Transform::translate(shift, 0.0).then(*text_matrix);
+        }
+
+        if matches!(state.text.render_mode, 1 | 2 | 5 | 6) {
+            self.note(Unsupported::Operator {
+                operator: format!("text render mode {}", state.text.render_mode),
+            });
+        }
+    }
+
     /// Looks up a named resource of a given category.
     fn resource(&self, resources: &Dictionary, category: &str, name: &str) -> Option<Object> {
         let table = self.document.get_key(resources, category);
@@ -1000,6 +1261,22 @@ fn matrix_from(operands: &[Object]) -> Option<Transform> {
     Some(Transform::new(
         values[0], values[1], values[2], values[3], values[4], values[5],
     ))
+}
+
+/// Reads operand `index` as a string.
+fn string_at(operands: &[Object], index: usize) -> Option<Vec<u8>> {
+    operands.get(index)?.as_string().map(<[u8]>::to_vec)
+}
+
+/// Narrows a PDF number to `f32`.
+fn narrow(value: f64) -> f32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a text adjustment outside f32's range is not a position on a page"
+    )]
+    {
+        value as f32
+    }
 }
 
 /// Reads operand `index` as a name.
