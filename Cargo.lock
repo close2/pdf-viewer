@@ -1295,6 +1295,7 @@ version = "0.1.0"
 dependencies = [
  "pdf-render",
  "pdf-syntax",
+ "read-fonts 0.42.1",
  "skrifa 0.45.1",
  "thiserror 2.0.19",
 ]

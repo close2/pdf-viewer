@@ -74,6 +74,16 @@ winit = { version = "0.30.13", default-features = false, features = [
 # Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.
 skrifa = "0.45.1"
 
+# skrifa's parsing layer, named directly only to turn on `agl`, which skrifa itself does
+# not enable. The Adobe Glyph List maps a glyph name to the character it draws, and both
+# halves of non-embedded font support need it: a substitute font is addressed through its
+# `cmap`, which is keyed by character, while PDF addresses a simple font by glyph name;
+# and text extraction needs the same mapping when a font has no `/ToUnicode`.
+#
+# The version is pinned to the one skrifa depends on so cargo unifies them into a single
+# build rather than compiling two copies. Keep them in step when upgrading skrifa.
+read-fonts = { version = "0.42.1", features = ["agl"] }
+
 # Image codecs, pure Rust.
 zune-jpeg = "0.5.15"
 zune-png = "0.5.2"
