@@ -22,8 +22,18 @@
 //! Always assert on both: the mean catches broad shifts such as a gamma or colour
 //! error, the worst tile catches concentrated ones such as missing or misplaced
 //! geometry.
+//!
+//! # The metric that answers a different question
+//!
+//! Both of those measure *how far apart* pixels are, and that quantity has a noise floor
+//! set by antialiasing which, on text, rises above the signal.
+//! [`Comparison::structural_similarity`] measures whether the two images have the same
+//! structure instead, which is nearly unaffected by how heavily an edge is antialiased and
+//! collapses when something is the wrong shape or in the wrong place. See [`ssim`].
 
 #![forbid(unsafe_code)]
+
+mod ssim;
 
 use pdf_render::{Raster, RasterFormat};
 
@@ -61,6 +71,20 @@ pub struct Comparison {
     /// Useful for separating "everything is slightly off" from "a small region is
     /// completely wrong" when the two metrics above disagree.
     pub differing_fraction: f64,
+    /// Mean structural similarity over the image, in `-1.0..=1.0`, where 1.0 is identical.
+    ///
+    /// Insensitive to the antialiasing and hinting differences that dominate every metric
+    /// above, and sensitive to geometry being absent, displaced or the wrong shape. This is
+    /// what makes a meaningful gate on text pages possible at all.
+    pub structural_similarity: f64,
+    /// The lowest per-tile mean structural similarity.
+    ///
+    /// Stands to [`Self::structural_similarity`] as [`Self::worst_tile_error`] stands to
+    /// [`Self::mean_error`]: one missing glyph on a dense page barely moves the mean, and
+    /// takes its own tile close to zero.
+    pub worst_tile_similarity: f64,
+    /// Where the least similar tile begins, in pixels from the top-left.
+    pub worst_tile_similarity_at: (u32, u32),
 }
 
 /// A channel difference at or below this is treated as noise for
@@ -125,6 +149,10 @@ pub fn compare_with_tile(
     let mut differing = 0u64;
     let mut worst_tile_error = 0.0f64;
     let mut worst_tile_at = (0, 0);
+    let similarity = ssim::map(left, right);
+    let mut total_similarity = 0.0f64;
+    let mut worst_tile_similarity = f64::INFINITY;
+    let mut worst_tile_similarity_at = (0, 0);
 
     for tile_y in (0..height).step_by(tile as usize) {
         for tile_x in (0..width).step_by(tile as usize) {
@@ -132,9 +160,14 @@ pub fn compare_with_tile(
             let tile_h = tile.min(height - tile_y);
 
             let mut tile_diff = 0u64;
+            let mut tile_similarity = 0.0f64;
             for y in tile_y..tile_y + tile_h {
                 for x in tile_x..tile_x + tile_w {
-                    let index = ((y as usize) * (width as usize) + (x as usize)) * 4;
+                    let pixel = (y as usize) * (width as usize) + (x as usize);
+                    tile_similarity += f64::from(
+                        similarity.get(pixel).copied().unwrap_or(1.0),
+                    );
+                    let index = pixel * 4;
                     for channel in 0..4 {
                         let a = left.data[index + channel];
                         let b = right.data[index + channel];
@@ -146,6 +179,13 @@ pub fn compare_with_tile(
                         }
                     }
                 }
+            }
+            total_similarity += tile_similarity;
+            let tile_mean_similarity =
+                tile_similarity / (f64::from(tile_w) * f64::from(tile_h));
+            if tile_mean_similarity < worst_tile_similarity {
+                worst_tile_similarity = tile_mean_similarity;
+                worst_tile_similarity_at = (tile_x, tile_y);
             }
 
             total_diff += tile_diff;
@@ -174,12 +214,25 @@ pub fn compare_with_tile(
     let (mean_error, differing_fraction) =
         (total_diff as f64 / channels, differing as f64 / channels);
 
+    let pixels = f64::from(width) * f64::from(height);
     Ok(Comparison {
         mean_error,
         max_error,
         worst_tile_error,
         worst_tile_at,
         differing_fraction,
+        // An empty raster is vacuously identical to another empty one.
+        structural_similarity: if pixels > 0.0 {
+            total_similarity / pixels
+        } else {
+            1.0
+        },
+        worst_tile_similarity: if worst_tile_similarity.is_finite() {
+            worst_tile_similarity
+        } else {
+            1.0
+        },
+        worst_tile_similarity_at,
     })
 }
 
@@ -235,6 +288,8 @@ mod tests {
         assert_eq!(result.max_error, 0);
         assert_eq!(result.worst_tile_error, 0.0);
         assert_eq!(result.differing_fraction, 0.0);
+        assert!(result.structural_similarity > 0.999_9);
+        assert!(result.worst_tile_similarity > 0.999_9);
     }
 
     #[test]
@@ -280,6 +335,209 @@ mod tests {
         assert_eq!(
             result.differing_fraction, 0.0,
             "but 3 levels is not 'differing'"
+        );
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    reason = "test code over fixtures whose dimensions are written three lines above the \
+              index that reads them"
+)]
+mod structural_tests {
+    use super::{compare, ssim};
+    use pdf_render::{Raster, RasterFormat};
+
+    /// A page of vertical stripes `bar` pixels wide, alternating two grey levels.
+    ///
+    /// Sixteen pixels by default, which is several times the eleven-pixel window the index
+    /// uses. Features narrower than the window are a legitimate thing to render, but they
+    /// make a poor fixture: the index would then be measuring the window's own response
+    /// rather than the difference between the two images.
+    fn stripes(size: u32, bar: u32, dark: u8, light: u8) -> Raster {
+        let mut data = Vec::with_capacity((size as usize) * (size as usize) * 4);
+        for _ in 0..size {
+            for x in 0..size {
+                let value = if (x / bar).is_multiple_of(2) { dark } else { light };
+                data.extend_from_slice(&[value, value, value, 255]);
+            }
+        }
+        Raster {
+            width: size,
+            height: size,
+            format: RasterFormat::Rgba8,
+            data,
+        }
+    }
+
+    /// Overwrites a column range with one grey level.
+    fn paint_columns(raster: &mut Raster, columns: std::ops::Range<u32>, value: u8) {
+        for y in 0..raster.height {
+            for x in columns.clone() {
+                let at = ((y * raster.width + x) as usize) * 4;
+                raster.data[at] = value;
+                raster.data[at + 1] = value;
+                raster.data[at + 2] = value;
+            }
+        }
+    }
+
+    /// The formula itself, on the one input whose answer can be written down.
+    ///
+    /// Two uniform images have no variance and no covariance, so every term involving them
+    /// cancels and the index reduces to `(2ab + C1) / (a² + b² + C1)`. For greys of 100 and
+    /// 140 that is `0.945_958` exactly, independent of image size, window and everything else
+    /// this module does. A test that pins the whole pipeline against one hand-computed
+    /// number is worth more than several that only compare it against itself.
+    #[test]
+    fn two_uniform_images_give_the_index_its_closed_form() {
+        let a = Raster {
+            width: 32,
+            height: 32,
+            format: RasterFormat::Rgba8,
+            data: [100, 100, 100, 255].repeat(32 * 32),
+        };
+        let b = Raster {
+            data: [140, 140, 140, 255].repeat(32 * 32),
+            ..a.clone()
+        };
+
+        let result = compare(&a, &b).expect("same size and format");
+        assert!(
+            (result.structural_similarity - 0.945_958).abs() < 1e-4,
+            "expected the closed form 0.945958, got {}",
+            result.structural_similarity
+        );
+    }
+
+    /// The separable window must give the same answer as the window it stands in for.
+    ///
+    /// The Gaussian is applied as two one-dimensional passes because 11×11 taps per pixel,
+    /// five times over, is the difference between a comparison harness that runs on every
+    /// page and one that does not. Separability is exact in theory; this checks that it is
+    /// exact in the implementation, which is the only claim the optimisation rests on.
+    #[test]
+    fn the_separable_window_matches_the_two_dimensional_one() {
+        let a = stripes(48, 7, 20, 230);
+        let mut b = a.clone();
+        paint_columns(&mut b, 10..14, 120);
+
+        let fast = ssim::map(&a, &b);
+        let slow = ssim::reference_map(&a, &b);
+        assert_eq!(fast.len(), slow.len());
+        for (index, (quick, direct)) in fast.iter().zip(&slow).enumerate() {
+            assert!(
+                (quick - direct).abs() < 1e-4,
+                "pixel {index}: separable {quick} against direct {direct}"
+            );
+        }
+    }
+
+    /// The property that justifies the metric existing, tested fairly.
+    ///
+    /// Two perturbations of the same page, constructed to be *identical* to the pixel
+    /// metrics: the same number of pixels, moved by the same amount, in the same colour.
+    /// One shifts the boundary column of each bar, which is what two correct rasterisers do
+    /// differently. The other punches the same columns out of the middle of each bar, which
+    /// is a hole that should not be there.
+    ///
+    /// Mean error, worst tile and differing fraction cannot tell these apart — they are
+    /// equal to the last decimal, because the metrics only count how far pixels moved. The
+    /// structural index is what distinguishes an edge that landed differently from a
+    /// feature that is not there.
+    ///
+    /// The separation on this fixture is 0.824 against 0.750 — real, and smaller than the
+    /// metric's reputation suggests, because a 32-pixel tile averages the affected columns
+    /// against a great deal of untouched page. It is recorded here as the *floor* of what
+    /// the index buys on synthetic content; what it buys on real pages, where the noise is
+    /// dense rather than confined to one column per bar, is a separate measurement and
+    /// belongs with the tolerances that use it.
+    #[test]
+    fn an_edge_shifting_and_a_hole_are_the_same_to_the_pixel_metrics() {
+        let page = stripes(128, 16, 0, 255);
+
+        // The boundary column of every dark bar, lightened.
+        let mut shifted = page.clone();
+        for bar in (0..128).step_by(32) {
+            paint_columns(&mut shifted, bar..bar + 1, 128);
+        }
+        // The same count of columns, the same colour, in the middle of every dark bar.
+        let mut holed = page.clone();
+        for bar in (0..128).step_by(32) {
+            paint_columns(&mut holed, bar + 8..bar + 9, 128);
+        }
+
+        let edge = compare(&page, &shifted).expect("same size and format");
+        let hole = compare(&page, &holed).expect("same size and format");
+
+        assert_eq!(
+            (edge.mean_error, edge.worst_tile_error, edge.differing_fraction),
+            (hole.mean_error, hole.worst_tile_error, hole.differing_fraction),
+            "the fixtures are built to be indistinguishable to the pixel metrics"
+        );
+        assert!(
+            edge.worst_tile_similarity > hole.worst_tile_similarity + 0.05,
+            "the structural index must tell them apart: edge {} against hole {}",
+            edge.worst_tile_similarity,
+            hole.worst_tile_similarity
+        );
+    }
+
+    /// The complementary property: a defect the pixel metrics struggle with must be found.
+    ///
+    /// One stripe removed from a page of stripes — the missing-glyph case, which moves the
+    /// whole-page mean by a fraction of a percent. The tile containing it must come out
+    /// structurally dissimilar rather than merely different in value.
+    #[test]
+    fn a_missing_stripe_collapses_the_similarity_of_its_tile() {
+        let full = stripes(128, 16, 0, 255);
+        let mut missing = full.clone();
+        paint_columns(&mut missing, 32..48, 255);
+
+        let result = compare(&full, &missing).expect("same size and format");
+        assert!(
+            result.structural_similarity > 0.8,
+            "most of the page is untouched: {}",
+            result.structural_similarity
+        );
+        // Against the 0.99 the softened-edge fixture keeps, this is not a near miss: the
+        // two cases are separated by most of the metric's range.
+        assert!(
+            result.worst_tile_similarity < 0.5,
+            "the tile that lost a stripe must stand out: {}",
+            result.worst_tile_similarity
+        );
+        assert_eq!(
+            result.worst_tile_similarity_at.0, 32,
+            "and be located where the stripe was"
+        );
+    }
+
+    /// A uniform brightness shift is a colour error, not a structural one.
+    ///
+    /// The two kinds of metric must disagree here, and the disagreement is diagnostic: it
+    /// is how a gamma or colour-space mistake is told apart from geometry going wrong.
+    /// Asserting on both is what makes the pair informative rather than redundant.
+    #[test]
+    fn a_uniform_shift_is_seen_by_the_mean_and_not_by_the_structure() {
+        // Levels chosen so the shift saturates nothing: saturation would compress the
+        // contrast, which *is* a structural change, and the fixture would test nothing.
+        let base = stripes(128, 16, 60, 200);
+        let mut lifted = base.clone();
+        for pixel in lifted.data.chunks_exact_mut(4) {
+            for channel in &mut pixel[..3] {
+                *channel = channel.saturating_add(40);
+            }
+        }
+
+        let result = compare(&base, &lifted).expect("same size and format");
+        assert!(result.mean_error > 25.0, "{}", result.mean_error);
+        assert!(
+            result.structural_similarity > 0.85,
+            "a shift that preserves every edge is not a structural difference: {}",
+            result.structural_similarity
         );
     }
 }
