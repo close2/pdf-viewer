@@ -11,6 +11,8 @@
 
 #![forbid(unsafe_code)]
 
+use std::sync::Arc;
+
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Size,
@@ -85,7 +87,7 @@ pub fn basic() -> DisplayList {
     let mut list = DisplayList::new(A4);
 
     list.push(Command::Fill {
-        path: rect(100.0, 100.0, 300.0, 300.0),
+        path: Arc::new(rect(100.0, 100.0, 300.0, 300.0)),
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(RED),
@@ -103,7 +105,7 @@ pub fn basic() -> DisplayList {
         .expect("a single clip is always addressable");
 
     list.push(Command::Fill {
-        path: rect(400.0, 400.0, 500.0, 500.0),
+        path: Arc::new(rect(400.0, 400.0, 500.0, 500.0)),
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(GREEN),
@@ -115,7 +117,7 @@ pub fn basic() -> DisplayList {
     line.push(PathCommand::MoveTo(Point::new(50.0, 600.0)));
     line.push(PathCommand::LineTo(Point::new(545.0, 600.0)));
     list.push(Command::Stroke {
-        path: line,
+        path: Arc::new(line),
         transform: Transform::IDENTITY,
         stroke: Stroke {
             width: 10.0,
@@ -143,7 +145,7 @@ pub fn diagonal_stroke() -> DisplayList {
     line.push(PathCommand::MoveTo(Point::new(50.0, 100.0)));
     line.push(PathCommand::LineTo(Point::new(545.0, 742.0)));
     list.push(Command::Stroke {
-        path: line,
+        path: Arc::new(line),
         transform: Transform::IDENTITY,
         stroke: Stroke {
             width: 12.0,
@@ -181,7 +183,7 @@ pub fn curves() -> DisplayList {
     path.push(PathCommand::Close);
 
     list.push(Command::Fill {
-        path,
+        path: Arc::new(path),
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(RED),
@@ -210,7 +212,7 @@ pub fn unaligned_full_bleed() -> DisplayList {
     let mut list = DisplayList::new(size);
 
     list.push(Command::Fill {
-        path: rect(0.0, 0.0, size.width, size.height),
+        path: Arc::new(rect(0.0, 0.0, size.width, size.height)),
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(RED),

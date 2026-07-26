@@ -1,5 +1,7 @@
 //! The resolved drawing command buffer.
 
+use std::sync::Arc;
+
 use crate::geom::{Path, Rect, Size, Transform};
 use crate::paint::{BlendMode, FillRule, Image, Paint, Stroke};
 
@@ -39,13 +41,26 @@ pub struct Clip {
 /// Every variant carries its own absolute `transform` and `clip`, so commands are
 /// independent of one another and of any ordering-dependent state. That
 /// independence is what allows a backend to reorder or parallelise them.
+///
+/// # Geometry is shared, not copied
+///
+/// Paths are held behind an `Arc`. A page of text is mostly the same few dozen glyph
+/// outlines repeated, and `pdf-font` already hands them out shared, so copying one into
+/// every command duplicated the same segments hundreds of times: 3005 fill commands on a
+/// dense specification page carried 101 320 path segments between them. Sharing costs an
+/// atomic refcount and keeps the list `Send + Sync`, so the property below still holds.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Command {
     /// Fills the interior of a path.
     Fill {
         /// Geometry to fill.
-        path: Path,
+        ///
+        /// Shared rather than owned because glyphs dominate a text page and every
+        /// occurrence of a letter is the same outline. Copying it per occurrence meant
+        /// 101 320 path segments duplicated on one dense specification page; see the
+        /// note on [`Command`].
+        path: Arc<Path>,
         /// Transform mapping `path` into page space.
         transform: Transform,
         /// How the interior is determined.
@@ -78,7 +93,7 @@ pub enum Command {
     /// Draws the outline of a path.
     Stroke {
         /// Geometry to stroke.
-        path: Path,
+        path: Arc<Path>,
         /// Transform mapping `path` into page space.
         transform: Transform,
         /// Stroke parameters, in `path`'s coordinate space.

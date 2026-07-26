@@ -18,6 +18,7 @@
 
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pdf_render::display_list::Clip;
 use pdf_render::{
@@ -748,10 +749,13 @@ impl Interpreter<'_> {
         fill: Option<FillRule>,
         stroke: Option<bool>,
     ) {
-        if !path.is_empty() {
+        if !path.is_empty() && (fill.is_some() || stroke.is_some()) {
+            // `B` fills *and* strokes one path, and both commands then describe the same
+            // geometry; sharing it means the copy happens once rather than twice.
+            let shared = Arc::new(path.clone());
             if let Some(rule) = fill {
                 self.list.push(Command::Fill {
-                    path: path.clone(),
+                    path: Arc::clone(&shared),
                     transform: state.transform,
                     fill_rule: rule,
                     paint: state.fill_paint(),
@@ -761,7 +765,7 @@ impl Interpreter<'_> {
             }
             if stroke.is_some() {
                 self.list.push(Command::Stroke {
-                    path: path.clone(),
+                    path: Arc::clone(&shared),
                     transform: state.transform,
                     stroke: state.stroke.clone(),
                     paint: state.stroke_paint(),
@@ -1198,7 +1202,11 @@ impl Interpreter<'_> {
                     let transform = glyph_to_text.then(*text_matrix).then(state.transform);
 
                     self.list.push(Command::Fill {
-                        path: (*outline).clone(),
+                        // The font hands out shared outlines and the display list keeps
+                        // them shared: a page of text is the same few dozen glyphs over
+                        // and over, so this is a refcount rather than a copy of the
+                        // segments.
+                        path: Arc::clone(&outline),
                         transform,
                         // Glyph outlines are non-zero filled; even-odd would hollow out
                         // counters that overlap, such as in a bold 'B'.
