@@ -311,9 +311,12 @@ impl CpuRasterizer {
 
         let width = f32::from(u16::try_from(image.width).unwrap_or(u16::MAX));
         let height = f32::from(u16::try_from(image.height).unwrap_or(u16::MAX));
-        // Image space (pixels, y down) to the unit square (y up).
+        // Image space (pixels, y down) to the unit square (y up) — and no further. The
+        // pattern is a paint, so `tiny-skia` reads its transform in the space of the path
+        // being filled and applies the drawing transform itself; see
+        // [`shading::shader`]. That path *is* the unit square, so this is the whole of it,
+        // and composing the device transform in here as well would apply it twice.
         let to_unit = Transform::new(1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0);
-        let pattern_transform = convert::transform(to_unit.then(transform).then(to_device));
 
         let paint = tiny_skia::Paint {
             shader: tiny_skia::Pattern::new(
@@ -321,14 +324,14 @@ impl CpuRasterizer {
                 tiny_skia::SpreadMode::Pad,
                 tiny_skia::FilterQuality::Bilinear,
                 alpha.clamp(0.0, 1.0),
-                pattern_transform,
+                convert::transform(to_unit),
             ),
             blend_mode: convert::blend_mode(blend),
             anti_alias: self.anti_alias,
             ..tiny_skia::Paint::default()
         };
 
-        // The unit square, transformed into device space by the paint's own matrix above.
+        // The unit square, which the command's transform carries onto the page.
         let mut builder = tiny_skia::PathBuilder::new();
         builder.push_rect(tiny_skia::Rect::from_xywh(0.0, 0.0, 1.0, 1.0).ok_or(
             CpuRasterError::InvalidImage {

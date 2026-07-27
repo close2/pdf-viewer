@@ -298,6 +298,54 @@ fn cpu_and_gpu_agree_on_an_axial_shading() {
     );
 }
 
+/// An image, which no other scene here draws.
+///
+/// The gap that let the CPU backend compose the device transform into an image's pattern
+/// as well as into the path it fills — drawing a whole photograph as one flat colour —
+/// while this suite stayed green. Vello takes a single transform for an image and had it
+/// right, so the two backends could have been compared at any point and would have
+/// disagreed immediately.
+#[test]
+fn cpu_and_gpu_agree_on_an_image() {
+    use pdf_render::{BlendMode, Command, DisplayList, Image, Size, Transform};
+
+    // A 4×4 checkerboard of distinguishable colours: a placement error that survives a
+    // flat image does not survive this one.
+    let mut data = Vec::with_capacity(4 * 4 * 4);
+    for row in 0..4_u8 {
+        for column in 0..4_u8 {
+            data.extend_from_slice(&[row * 60, column * 60, 255 - row * 40, 255]);
+        }
+    }
+
+    let mut list = DisplayList::new(Size::new(200.0, 200.0));
+    list.push(Command::Image {
+        image: Image {
+            width: 4,
+            height: 4,
+            data: data.into(),
+        },
+        // Deliberately not the whole page, and not square, so that an inverted or
+        // transposed mapping moves colours rather than merely permuting a symmetry.
+        transform: Transform::scale(120.0, 80.0).then(Transform::translate(40.0, 60.0)),
+        alpha: 1.0,
+        clip: None,
+        blend: BlendMode::Normal,
+    });
+
+    for scale in [1.0, 2.0] {
+        let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+        let cpu = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let gpu = gpu().rasterize(&list, target).expect("supported");
+        assert_within_tolerance(
+            &format!("image at scale {scale}"),
+            raster_compare::compare(&cpu, &gpu).expect("same size"),
+        );
+    }
+}
+
 /// The same axial shading, running up the page instead of across it, at two scales.
 ///
 /// Every shading scene above runs its gradient along x, and both backends once applied
