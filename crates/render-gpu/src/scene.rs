@@ -128,6 +128,42 @@ fn stroke(s: &Stroke) -> kurbo::Stroke {
     out
 }
 
+/// The three spaces a command's geometry and its paint are stated in.
+///
+/// Grouped because a paint and the shape it fills are positioned differently — that is
+/// the whole point of [`brush_for`] — so both mappings travel together everywhere a
+/// command is encoded, and passing them separately made the call a row of unlabelled
+/// transforms.
+#[derive(Debug, Clone, Copy)]
+struct Spaces {
+    /// Path space to device space: what the shape is drawn under.
+    at: kurbo::Affine,
+    /// Page space to device space, for geometry a paint resolves to directly.
+    to_device: Transform,
+    /// Page space to path space, which is where a brush transform is read.
+    page_to_path: Transform,
+}
+
+impl Spaces {
+    /// Builds the three spaces for a command drawn under `transform`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuRasterError::UnsupportedPaint`] when `transform` is singular. A path
+    /// under a singular transform has collapsed to a line or a point, so there is no
+    /// space left to position a paint in, and reporting beats placing a gradient
+    /// arbitrarily.
+    fn new(transform: Transform, to_device: Transform) -> Result<Self, GpuRasterError> {
+        Ok(Self {
+            at: affine(transform.then(to_device)),
+            to_device,
+            page_to_path: transform.invert().ok_or_else(|| {
+                GpuRasterError::UnsupportedPaint(format!("singular transform {transform:?}"))
+            })?,
+        })
+    }
+}
+
 /// Encodes one fill command.
 ///
 /// Separate from the dispatch loop because a fill has three shapes: an ordinary brush, a
@@ -135,24 +171,25 @@ fn stroke(s: &Stroke) -> kurbo::Stroke {
 fn encode_fill(
     scene: &mut vello::Scene,
     shape: &kurbo::BezPath,
-    at: kurbo::Affine,
+    spaces: Spaces,
     rule: peniko::Fill,
     paint: &Paint,
     blend: BlendMode,
-    to_device: Transform,
 ) -> Result<(), GpuRasterError> {
+    let at = spaces.at;
+
     // A mesh carries a colour per triangle corner, which no brush can express, so it is
     // drawn triangle by triangle inside a layer clipped to the shape.
     if let Paint::Shading(shading) = paint
         && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
     {
         scene.push_layer(rule, blend_mode(blend), 1.0, at, shape);
-        crate::shading::fill_mesh(scene, triangles, shading.transform.then(to_device));
+        crate::shading::fill_mesh(scene, triangles, shading.transform.then(spaces.to_device));
         scene.pop_layer();
         return Ok(());
     }
 
-    let (brush, brush_at) = brush_for(paint, to_device)?;
+    let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
 
     // A non-normal blend mode needs its own layer: Vello composites a layer against its
     // backdrop with the layer's blend mode, and there is no per-draw blend parameter. The
@@ -171,14 +208,16 @@ fn encode_fill(
 /// Turns a paint into a Vello brush and the transform that positions it.
 ///
 /// A shading's transform goes on the *brush*, not on the shape: a pattern is anchored to
-/// the page rather than to the path being filled.
+/// the page rather than to the path being filled. `page_to_path` carries the shading into
+/// the path's space, which is the space Vello reads a brush transform in — see
+/// [`crate::shading::brush`].
 fn brush_for(
     paint: &Paint,
-    to_device: Transform,
+    page_to_path: Transform,
 ) -> Result<(peniko::Brush, Option<kurbo::Affine>), GpuRasterError> {
     match paint {
         Paint::Solid(colour) => Ok((peniko::Brush::Solid(color(*colour)), None)),
-        Paint::Shading(shading) => crate::shading::brush(shading, to_device).ok_or_else(|| {
+        Paint::Shading(shading) => crate::shading::brush(shading, page_to_path).ok_or_else(|| {
             // A mesh is drawn by the caller; anything else reaching here is a kind this
             // backend cannot express. Reporting keeps the two backends honestly different
             // rather than quietly so: the comparison harness excludes a page a backend
@@ -224,11 +263,10 @@ pub(crate) fn build(
                 encode_fill(
                     &mut scene,
                     &bez_path(path),
-                    affine(transform.then(to_device)),
+                    Spaces::new(*transform, to_device)?,
                     fill_rule(*rule),
                     paint,
                     *blend,
-                    to_device,
                 )?;
             }
             Command::Stroke {
@@ -240,8 +278,9 @@ pub(crate) fn build(
                 ..
             } => {
                 let shape = bez_path(path);
-                let at = affine(transform.then(to_device));
-                let (brush, brush_at) = brush_for(paint, to_device)?;
+                let spaces = Spaces::new(*transform, to_device)?;
+                let at = spaces.at;
+                let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
                 let style = stroke(s);
 
                 // The stroke width is in the command's own coordinate space, and the

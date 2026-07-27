@@ -27,7 +27,7 @@ use std::collections::{HashMap, HashSet};
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BackendError, ClipId, Color, Command, DisplayList, Paint, Raster, RasterFormat, Rasterizer,
-    TargetSpec,
+    TargetSpec, Transform,
 };
 
 /// Renders display lists on the CPU.
@@ -75,6 +75,12 @@ impl CpuRasterizer {
 
     /// Builds the `tiny-skia` paint for a resolved paint and blend mode.
     ///
+    /// `page_to_path` maps page space into the space the path is stated in — the
+    /// inverse of the command's own transform. See [`shading::shader`] for why a paint
+    /// is positioned in the path's space rather than the device's; getting this wrong
+    /// draws a gradient in the right shape and the wrong place, which no metric
+    /// short of looking at the page detects.
+    ///
     /// # Errors
     ///
     /// Returns [`CpuRasterError::UnsupportedPaint`] for a paint variant this backend
@@ -86,12 +92,12 @@ impl CpuRasterizer {
         &self,
         paint: &Paint,
         blend: pdf_render::BlendMode,
-        to_device: pdf_render::Transform,
+        page_to_path: Transform,
         scratch: &'a mut Option<tiny_skia::Pixmap>,
     ) -> Result<tiny_skia::Paint<'a>, CpuRasterError> {
         let shader = match paint {
             Paint::Solid(colour) => tiny_skia::Shader::SolidColor(convert::color(*colour)),
-            Paint::Shading(shading) => shading::shader(shading, to_device, scratch)
+            Paint::Shading(shading) => shading::shader(shading, page_to_path, scratch)
                 .ok_or_else(|| CpuRasterError::UnsupportedPaint(format!("{shading:?}")))?,
             other => return Err(CpuRasterError::UnsupportedPaint(format!("{other:?}"))),
         };
@@ -173,7 +179,7 @@ impl Rasterizer for CpuRasterizer {
                     let mut scratch = None;
                     pixmap.fill_path(
                         &path,
-                        &self.paint(paint, *blend, to_device, &mut scratch)?,
+                        &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
                         convert::fill_rule(*fill_rule),
                         convert::transform(transform.then(to_device)),
                         clip,
@@ -191,7 +197,7 @@ impl Rasterizer for CpuRasterizer {
                     let mut scratch = None;
                     pixmap.stroke_path(
                         &path,
-                        &self.paint(paint, *blend, to_device, &mut scratch)?,
+                        &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
                         &convert::stroke(stroke),
                         convert::transform(transform.then(to_device)),
                         clip,
@@ -239,10 +245,10 @@ impl Rasterizer for CpuRasterizer {
 /// the call site a row of unlabelled arguments.
 #[derive(Debug, Clone, Copy)]
 struct ImagePlacement {
-    transform: pdf_render::Transform,
+    transform: Transform,
     alpha: f32,
     blend: pdf_render::BlendMode,
-    to_device: pdf_render::Transform,
+    to_device: Transform,
 }
 
 impl CpuRasterizer {
@@ -306,7 +312,7 @@ impl CpuRasterizer {
         let width = f32::from(u16::try_from(image.width).unwrap_or(u16::MAX));
         let height = f32::from(u16::try_from(image.height).unwrap_or(u16::MAX));
         // Image space (pixels, y down) to the unit square (y up).
-        let to_unit = pdf_render::Transform::new(1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0);
+        let to_unit = Transform::new(1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0);
         let pattern_transform = convert::transform(to_unit.then(transform).then(to_device));
 
         let paint = tiny_skia::Paint {
@@ -342,6 +348,24 @@ impl CpuRasterizer {
         );
         Ok(())
     }
+}
+
+/// Maps page space into the space a path drawn under `transform` is stated in.
+///
+/// This is what a shading paint has to be expressed in — see [`shading::shader`] — and
+/// it is the inverse of the command's own transform.
+///
+/// # Errors
+///
+/// Returns [`CpuRasterError::UnsupportedPaint`] when `transform` is singular. A path
+/// under a singular transform has collapsed to a line or a point, so there is no space
+/// left to position a paint in. Reporting it is deliberate: the alternative is a
+/// gradient placed somewhere arbitrary, which looks like a rendering rather than a
+/// failure.
+fn page_to_path(transform: Transform) -> Result<Transform, CpuRasterError> {
+    transform.invert().ok_or_else(|| {
+        CpuRasterError::UnsupportedPaint(format!("singular transform {transform:?}"))
+    })
 }
 
 /// Multiplies a straight-alpha channel by its alpha.

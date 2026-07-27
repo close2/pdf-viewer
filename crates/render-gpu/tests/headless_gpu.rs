@@ -298,6 +298,39 @@ fn cpu_and_gpu_agree_on_an_axial_shading() {
     );
 }
 
+/// The same axial shading, running up the page instead of across it, at two scales.
+///
+/// Every shading scene above runs its gradient along x, and both backends once applied
+/// the device transform to a paint twice — which at a scale of 1.0 is exactly a mirror
+/// about the page's horizontal centre and therefore invisible to a gradient that does
+/// not vary in y. Both were wrong, so both agreed, and this suite passed throughout.
+///
+/// Agreement is evidence only where the two can fail independently. This scene varies in
+/// the axis the shared defect moved, at a scale where the double application does not
+/// cancel; `render-cpu`'s `shading_placement.rs` pins the same geometry against the
+/// clause, so the pair together says both *agree* and are *right*.
+#[test]
+fn cpu_and_gpu_agree_on_a_vertical_axial_shading() {
+    let list = shaded_page(pdf_render::ShadingKind::Axial {
+        start: pdf_render::Point::new(0.0, 10.0),
+        end: pdf_render::Point::new(0.0, 190.0),
+        ramp: ramp(),
+        extend: (true, true),
+    });
+
+    for scale in [1.0, 2.0] {
+        let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+        let cpu = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let gpu = gpu().rasterize(&list, target).expect("supported");
+        assert_within_tolerance(
+            &format!("vertical axial shading at scale {scale}"),
+            raster_compare::compare(&cpu, &gpu).expect("same size"),
+        );
+    }
+}
+
 /// A two-circle radial, which is PDF's general case and which both rasterisers take
 /// directly rather than as a single-circle approximation.
 #[test]

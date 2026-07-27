@@ -24,12 +24,23 @@ const CUTOFF: f32 = 0.0005;
 
 /// Builds a brush for a shading, or `None` for kinds the caller must draw itself.
 ///
-/// The returned transform positions the brush; Vello applies it to the gradient rather
-/// than to the shape, which is what keeps a pattern anchored to the page rather than to
-/// the path being filled.
+/// `page_to_path` maps page space into the space the path being drawn is stated in.
+///
+/// # Which space a brush is positioned in
+///
+/// Vello encodes a brush transform as `shape transform * brush transform`, so the affine
+/// returned here is read in the *path's* space, not the device's — the same convention
+/// `tiny-skia` uses, and the same trap. Handing it a device-space transform applies the
+/// device transform twice, which mirrors a gradient about the page's horizontal centre at
+/// a scale of 1.0 and displaces it by a scale-dependent amount at every other scale.
+///
+/// Both backends had that defect and therefore agreed with each other, which is worth
+/// remembering: two implementations agreeing is evidence only when they can fail
+/// independently. The scenes that compared them used gradients running along x, where a
+/// y mirror is invisible.
 pub(crate) fn brush(
     shading: &Shading,
-    to_device: Transform,
+    page_to_path: Transform,
 ) -> Option<(peniko::Brush, Option<vello::kurbo::Affine>)> {
     let gradient = match &shading.kind {
         ShadingKind::Axial {
@@ -62,7 +73,7 @@ pub(crate) fn brush(
     };
 
     let gradient = gradient.with_extend(peniko::Extend::Pad);
-    let transform = crate::scene::affine(shading.transform.then(to_device));
+    let transform = crate::scene::affine(shading.transform.then(page_to_path));
     Some((peniko::Brush::Gradient(gradient), Some(transform)))
 }
 

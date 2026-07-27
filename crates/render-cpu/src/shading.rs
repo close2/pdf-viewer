@@ -29,17 +29,34 @@ const CUTOFF: f32 = 0.0005;
 
 /// Builds a shader for a shading, or `None` for kinds the caller must draw itself.
 ///
+/// `page_to_path` maps page space into the space the path being drawn is stated in.
+///
+/// # Which space a paint is positioned in
+///
+/// `tiny-skia` *post-concatenates the drawing transform onto the paint's shader* —
+/// `Pixmap::fill_path` and `Pixmap::stroke_path` both do it — so the transform handed to
+/// a gradient or pattern is read in the path's own space, not the device's. Handing it a
+/// device-space transform therefore applies the device transform twice.
+///
+/// That is not a hypothetical. It shipped: a gradient came out mirrored about the page's
+/// horizontal centre at a scale of 1.0, where the y-flip happens to be its own inverse so
+/// the second application cancels the geometry but not the flip, and displaced by a
+/// scale-dependent amount at every other scale. A test in this crate pins a gradient's
+/// value at two scales, because one scale cannot see it.
+///
+/// So the shading's transform, which maps its own space to *page* space, is carried the
+/// rest of the way into the path's space here, and `tiny-skia` completes the journey to
+/// the device. A pattern stays positioned relative to the page whatever the graphics
+/// state held at fill time, which is what the specification asks for.
+///
 /// A sampled shading becomes a pattern, and `tiny-skia` patterns *borrow* their pixels, so
 /// the caller lends somewhere to keep them. Everything else leaves `scratch` untouched.
 pub(crate) fn shader<'a>(
     shading: &Shading,
-    to_device: Transform,
+    page_to_path: Transform,
     scratch: &'a mut Option<tiny_skia::Pixmap>,
 ) -> Option<tiny_skia::Shader<'a>> {
-    // The shading's own space reaches the device through its own transform, not through
-    // the transform of the path being filled: a pattern is positioned relative to the
-    // page, not to whatever the graphics state happened to hold at fill time.
-    let transform = crate::convert::transform(shading.transform.then(to_device));
+    let transform = crate::convert::transform(shading.transform.then(page_to_path));
 
     match &shading.kind {
         ShadingKind::Axial {
