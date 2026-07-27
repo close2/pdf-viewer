@@ -203,6 +203,15 @@ therefore metric 2's job, not metric 3's.
 
 This is what keeps the suite trustworthy enough to stay enabled.
 
+**Now running over the whole corpus, with the bound taken from the references themselves.**
+`crates/pdf-model/tests/oracle.rs` applies the rule to page one of all 988 documents in 80
+seconds. Consensus is still decided by the fixed tolerance, but *our* deviation is judged
+against twice the disagreement the consensus references show among themselves on that page:
+a fixed number cannot serve both a page of flat fills, where they agree to a worst tile of
+0.4, and a page of small text, where they differ by 26 among themselves. Only pages we claim
+to draw completely are gated, every contradicted page is named in the source, and both a new
+disagreement and a stale entry fail the build. See ADR 0011.
+
 ### Goldens
 
 Snapshots of *our own* output, separate from reference comparison, catching
