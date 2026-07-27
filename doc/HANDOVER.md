@@ -44,8 +44,8 @@ the gap between those two words is measured further down rather than guessed at.
   exactly one `DeviceCMYK` conversion instead of the three that used to disagree. ADR 0009.
 - Both backends draw everything the display list can express, and agree on it: **eight**
   headless GPU scenes hold `tiny-skia` and Vello to the same pixels. Two of those eight are
-  new, and exist because the other six could not have caught the paint-space defect in trap
-  1b — they all ran at one scale, along one axis.
+  new, and exist because the other six could not have caught the paint-space defect in
+  trap 2 — they all ran at one scale, along one axis.
 
 ### Run it
 
@@ -117,7 +117,7 @@ Both were confirmed to fail when the defects they describe are deliberately rein
 They are complementary: an off-by-one charset trips only the first, a reinstated
 fall-through only the second. Neither replaces looking at the page.
 
-### 1b. A paint is positioned in the *path's* space, not the device's
+### 2. A paint is positioned in the *path's* space, not the device's
 
 Both `tiny-skia` and Vello apply the drawing transform to a paint as well as to the shape:
 `Pixmap::fill_path` and `stroke_path` post-concatenate it onto the shader, and Vello
@@ -150,7 +150,7 @@ pin values against ISO 32000-2 §8.7.4.5.3 and §8.9.5.2 **at three scales**, an
 defect; that is why every case runs at more than one. All were confirmed to fail when the
 defects are reintroduced.
 
-### 2. Test against real documents, not hand-written fragments
+### 3. Test against real documents, not hand-written fragments
 
 Cross-reference streams are compressed *and* PNG-predicted. The code said decoding them
 was "the caller's responsibility" and then did not do it, so every modern PDF failed with
@@ -161,14 +161,14 @@ it; the corpus caught it on the first run.
 `crates/pdf-model/tests/render_real_pdf.rs` run over everything in `doc/`. Keep them
 passing.
 
-### 3. Unsupported input must stay loud
+### 4. Unsupported input must stay loud
 
 Every layer reports what it could not handle rather than skipping it: `Unsupported` in the
 interpreter, `FontError`, `ImageError`, `CpuRasterError::UnsupportedCommand`. This is not
 politeness — it is what makes the comparison harness trustworthy and what caught trap 1.
 Do not "helpfully" fall back to a default that renders something plausible.
 
-### 4. Colour: one conversion, and the specification often does not have an answer
+### 5. Colour: one conversion, and the specification often does not have an answer
 
 Three separate `DeviceCMYK` → RGB conversions used to live in this tree and they disagreed.
 `0.5 0 0 0.5 k` gave a red channel of 0.25; the same colour through `scn` gave 0.0; a CMYK
@@ -186,7 +186,7 @@ and an `ICCBased` profile — and all three are implemented and all three outran
 fallback table. When you touch that table, do not reach for what another renderer produces:
 read ADR 0009, and if you change it, change it as a documented choice.
 
-### 5. `#[expect]`, never `#[allow]`
+### 6. `#[expect]`, never `#[allow]`
 
 Every lint exception in the tree is `#[expect(..., reason = "...")]`. It errors when it
 stops being necessary, which has already removed several stale ones. A bare `allow` hides
@@ -225,13 +225,14 @@ documents' first pages it affects.
 | Text: CID encodings, embedded `CMap`s | 73 | Medium | The breakdown from the gate's own output: 27 fonts with no `/ToUnicode` so a substitute cannot be addressed, 25 with a non-identity `/CIDToGIDMap`, 14 with an embedded `CMap` stream, 3 with a predefined `CMap` (`90ms-RKSJ-H`). Only the last needs vendored data, which is a licensing decision rather than a coding one. |
 | Transparency groups, soft masks | 45 | Large | 26 report as `Shading`, 19 as `Operator`. The largest *rendering* gap, and the last thing `doc/` reports. |
 | Encryption | 20 | Medium | RC4/AES, `/Encrypt`. 11 documents cannot reach page one at all and 9 more draw a blank page. |
-| Optional content (`/OC`) | 31 | Medium | 31 documents carry `/OCProperties`. `BDC` is parsed and ignored, so content in a layer the document marks hidden **is drawn anyway**. Unlike everything else in this table it is *not* reported, because nothing knows to look — which makes it the one entry here that can be wrong on screen without saying so. |
+| Optional content (`/OC`) | 5 | Small–medium | 33 documents carry `/OCProperties`, 8 hide something by default, and **5 draw hidden content on page one**. `BDC` is parsed and ignored and `/OC` on an XObject is never read, so a hidden layer **is drawn anyway** and *nothing is reported*. `issue12007_reduced.pdf` draws a whole hidden screenshot over a page the references leave nearly blank. |
 | `LZWDecode` | 3 | Small | The one standard filter absent. A test pins the report and will fail when it lands. |
 | Type1 fonts (`/FontFile`) | 0 | Medium | No corpus page one reaches it, so this is smaller than it looks. `read_fonts::ps::type1` exists — check before writing any. |
 | Type3 fonts | 23 documents carry one | Medium | Needs `d0`/`d1` and `/CharProcs` interpretation. |
 | Sampled shadings on the GPU | 2 | Small | Type 1 only; the CPU backend draws them. |
 | Rendering intents beyond `AbsoluteColorimetric` | — | Small | Read and recorded; `A2B0` is not yet selected for `Perceptual`. |
-| Annotations, forms, actions | — | Large | Clause 12 entirely. |
+| Annotation appearances | 148 | Medium | **148 of 988 first pages carry a visible annotation with an `/AP`, and none is drawn or reported.** An appearance is a form XObject and the interpreter already runs those, so drawing them is §12.5.5 plus a pass over `/Annots` — see "What to do next". 244 first pages carry `/Annots`; the other 96 carry only hidden, `Popup`/`Link`, or appearance-less annotations. Synthesising a missing appearance is a separate and much larger job. |
+| Forms, actions, the rest of clause 12 | — | Large | Interactivity: field values, calculation order, JavaScript, navigation. Not needed to *draw* an annotation. |
 | Tagged PDF, metadata | — | Large | Clause 14 beyond output intents. |
 | Sandbox (Spike D) | — | Medium | seccomp-BPF + Landlock. Blocks JBIG2/JPX. |
 
@@ -257,8 +258,13 @@ the sandbox rather than merely unwritten.
 
 **Read it as "reported nothing", not "drew it right".** This session found two defects that
 misdrew a gradient and an image on pages counted in that 674, in silence — that is what
-trap 1b is about. The number measures the honesty of the reporting, which is worth a great
-deal and is not the same as correctness.
+trap 2 is about. Three things are *known* to be missing from a page without being counted
+here, because nothing looks for them: **annotation appearances** (148 of the 988 first
+pages), **optional content** (5 pages draw a hidden layer), and whatever else the reference
+oracle finds when someone points it at the corpus — on a spread sample, 8 of 95 pages we
+call complete are contradicted by two independent renderers by more than those renderers
+disagree with each other. The 674 measures the honesty of the *reporting*, which is worth a
+great deal and is not the same as correctness.
 
 ### By clause
 
@@ -270,11 +276,11 @@ judgement about state, not an arithmetic result.
 | Clause | Subclauses | State |
 |---|---|---|
 | 7 Syntax | 138 | **Nearly complete.** Objects, all filters but `LZWDecode`, classic and stream xrefs, object streams, incremental updates, recovery by scanning. **Encryption is absent** and is the largest hole here. |
-| 8 Graphics | 128 | **Nearly complete.** Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, ICC colour management. Optional content (`/OC`) is not honoured, so hidden layers draw. |
+| 8 Graphics | 128 | **Nearly complete.** Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, ICC colour management. Optional content (`/OC`) is not honoured, so hidden layers draw on 5 corpus first pages. |
 | 9 Text | 65 | **Partial.** Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`. Missing: bare Type1 (`/FontFile`), Type3 fonts, embedded `CMap` streams, predefined `CMap`s. |
 | 10 Rendering | 36 | **Partial, and much of it is not applicable.** Colour management and rendering intents are done. Halftones, transfer functions, flatness and smoothness describe a marking device rather than a screen. |
 | 11 Transparency | 58 | **Minimal.** All sixteen blend modes are implemented and reach both backends. Transparency groups, soft masks, knockout and isolation are not — this is the largest *rendering* gap. |
-| 12 Interactive features | 166 | **None.** No annotations, forms, actions or navigation. |
+| 12 Interactive features | 166 | **None.** No annotations, forms, actions or navigation — and annotation *appearances* are the largest unreported gap in the tree, on 148 of 988 first pages. |
 | 13 Multimedia | 81 | **None**, and unlikely to be a priority. |
 | 14 Document interchange | 152 | **Output intents only.** No tagged PDF, no metadata, no marked-content semantics — `BDC`/`EMC` are parsed and ignored. |
 
@@ -316,18 +322,114 @@ clip admits — ADR 0010 — and the numbers are:
 about the memory and told us nothing about the time. Profile first, even when the story
 already adds up.
 
-### The single most valuable next task
+## What to do next
 
-**Optional content is the only thing in the tree that can be wrong on screen without saying
-so.** 31 corpus documents carry `/OCProperties`. `BDC` is parsed and discarded, so content
-the document marks as belonging to a hidden layer is drawn anyway — a page with visible
-watermarks, hidden annotations or the wrong language layer showing, reporting
-`unsupported: []`. Everything else in "What is not implemented" announces itself; this does
-not, which makes it worth more than its size suggests. Reading `/OCProperties` for the
-default configuration's OFF set and skipping `BDC /OC` spans whose group is in it is not a
-large change.
+Re-evaluated at the end of this session against measurements rather than against the
+previous list, because this session showed that the thing everyone was sure about was
+wrong. Each item below carries the number that justifies its position, so the next person
+can disagree with the ordering on evidence rather than taste.
 
-### Then, what the profile now says about speed
+The one-line version: **the largest gaps left are the ones nothing reports, and the
+cheapest instrument for finding them is already written and unused.**
+
+### 1. Point the reference oracle at the corpus
+
+`tools/pdfref` implements the triangulation rule, three reference renderers are installed,
+and 974 documents are on disk — and the harness is wired to exactly **one** hand-built
+fixture (`basic.pdf`, in `render_real_pdf.rs`). Nothing compares our rendering of a real
+document against anything. Both of this session's defects would have been caught the first
+time it ran.
+
+Surveyed over a spread sample (every seventh corpus document plus the 14 in `doc/`, 154
+documents, of which 138 comparable):
+
+| of the 95 we report as complete | count |
+|---|---|
+| agree with the reference consensus | 71 |
+| **contradicted by it** | **15** |
+| — of those, by ≥ 2× the references' own disagreement | **8** |
+| — of those, marginal (within 2×, where the tolerance is simply tight) | 7 |
+
+So roughly **one page in twelve that we claim to draw completely is contradicted by two
+independent implementations by more than they disagree with each other**. The worst in the
+sample is `issue12007_reduced.pdf`: mean error 93 where the references agree to 0.10, SSIM
+0.28 — and it reports `unsupported: []`. (Its cause is item 3 below; a hidden layer drawn
+in full.)
+
+The comparison itself needs no new code, and it is **affordable**: `cargo run -p pdfref`
+over a 98-document spread sample takes 20.9 s — 0.21 s per document for three reference
+renders and the comparisons between them — so the whole corpus is minutes, not hours, and
+this can be an ordinary gate rather than a nightly job. Measure any such timing on a
+*spread* sample: an alphabetical slice of this corpus is not representative of it, and the
+first estimate made that way came out forty times too high.
+
+What it does need is a decision about the tolerance, and the table above is the argument:
+comparing our deviation against *the references' own spread* separates real defects from a
+merely tight bound far better than an absolute threshold, and it is exactly the difference
+between the 15 and the 8. Ratchet per document by outcome, the way `corpus.rs` ratchets its
+counts, so a new disagreement fails the build and a fixed one can never come back.
+
+### 2. Draw annotation appearance streams
+
+**148 of 988 first pages carry an annotation with an appearance stream that is not hidden,
+and we draw none of them and report nothing.** Those pages are counted in the 674 that
+"draw with nothing reported". By subtype, across those pages: 467 `Widget`, 63 `FreeText`,
+37 `Ink`, 28 `Highlight`, 25 `Text`, 14 `Stamp`, and a tail of 25 more.
+
+This is the largest visible gap that is not blocked on the sandbox — larger than soft masks
+(45) and encryption (20) — and it is much smaller work than "implement clause 12", because
+*drawing* an annotation needs none of the interactivity:
+
+- An annotation's `/AP /N` is a **form XObject**, and `Interpreter::draw_xobject` already
+  runs those, with `/Matrix`, `/BBox` clipping and `/Resources`.
+- ISO 32000-2 §12.5.5 gives the whole of the placement: transform `/BBox` by `/Matrix`,
+  take the bounding box of the result, and map that onto the annotation's `/Rect`.
+- `/AS` selects a state when `/AP /N` is a sub-dictionary rather than a stream; `/F` bits 2
+  and 6 (Hidden, NoView) mean draw nothing.
+
+So it is a new pass over `/Annots` after the page content, feeding the interpreter that
+already exists. 244 first pages carry `/Annots` at all; the 96 that are not in the 148
+carry only annotations that are hidden, are `Popup` or `Link`, or have no appearance
+stream. An annotation with no appearance should be **reported**, not synthesised —
+generating one from `/IC`, `/C`, `/BS` and the subtype's own rules is a separate and much
+larger job, and principle 3 says say so rather than guess.
+
+### 3. Honour optional content
+
+Measured properly this time, because the previous handover's "31 documents" counted files
+that merely carry the feature:
+
+| | count |
+|---|---|
+| documents carrying `/OCProperties` | 33 |
+| whose default configuration hides something | 8 |
+| **whose page one draws content that should be hidden** | **5** |
+
+Small, but it is the one thing in the tree that can be *dramatically* wrong on screen while
+reporting nothing — `issue12007_reduced.pdf` above draws an entire hidden screenshot layer
+over a page the references leave nearly blank.
+
+One scope correction for whoever takes it: an `/OC` entry usually points at an **OCMD**
+rather than at an optional content group directly, so this is not merely "read `/OFF` and
+skip `BDC /OC`". It needs `/OCGs` (one group or an array), the `/P` policy
+(`AnyOn`/`AllOn`/`AnyOff`/`AllOff`), and both entry points — `BDC /OC` marked-content spans
+*and* `/OC` on form and image XObjects, which is how `issue12007_reduced.pdf` hides its
+layers. `/VE` visibility expressions also occur in the corpus (`visibility_expressions.pdf`
+is named after them) and can be reported rather than implemented at first.
+
+### 4. Then, by what the corpus says real documents need
+
+**Soft masks and transparency groups** (45 documents, and the last thing `doc/` reports),
+**encryption** (20 documents — 11 cannot reach page one, 9 more draw a blank page and now
+say so), and **CID encodings** (73 documents; note that only 3 of those need the predefined
+`CMap` data with its licensing question — the other 70 need code). **Type1 fonts** are
+smaller than they look: no corpus page one reaches one.
+
+All three announce themselves, which is why they sit below the three items above: a gap
+that reports is a gap you can measure and schedule, and a gap that does not is a gap that
+ships.
+
+### Speed, if it comes up again
 
 Re-measured after the change rather than assumed. `callgrind` over the whole of
 `bug1721218_reduced.pdf` at 612×792 — open, interpret and rasterise, 16.1 G instructions:
@@ -351,13 +453,28 @@ something harder — check before designing. Neither item is urgent, since the p
 in two thirds of a second, but both are measured, so the next person starts from a number
 rather than a guess.
 
-### Then, by what the corpus says real documents need
+### Reproducing the numbers in this section
 
-**Soft masks and transparency groups** (45 documents, and the last thing `doc/` reports),
-**encryption** (20 documents — 11 cannot reach page one, 9 more draw a blank page and now
-say so), and **CID encodings** (73 documents; note that only 3 of those need the predefined
-`CMap` data with its licensing question — the other 70 need code). **Annotations** after
-that. **Type1 fonts** are smaller than they look: no corpus page one reaches one.
+Every count in this section came from a throwaway example run against
+`doc/*.pdf` and `doc/pdf.js/test/pdfs/*.pdf`, and none of them survives in the tree —
+deliberately, because scratch-quality diagnostics do not belong in a repository held to
+`clippy::pedantic`. They are cheap to rebuild and each is worth rebuilding *properly* as
+part of the task it belongs to:
+
+- **The oracle survey** is item 1 itself: render page one, run
+  `pdfref::Reference::available()` over the same file, reconcile with
+  `pdfref::normalise::to_common_size`, and classify with `pdfref::triangulate`. Roughly 40
+  lines. Record `Interpretation::is_complete()` alongside the outcome — the split between
+  complete and incomplete is what makes the result readable, since a document we already
+  say we cannot draw is expected to differ.
+- **The annotation count** walks `page.dict["Annots"]`, skipping `Popup` and `Link`
+  subtypes and anything with `/F` bit 2 (Hidden) or bit 6 (NoView), and counts those with
+  an `/AP`.
+- **The optional-content count** reads `/OCProperties /D /OFF` from the catalog, then looks
+  for those groups in page one's `/Properties` resources and on its XObjects' `/OC`. Follow
+  OCMDs: the first version of this check looked only for direct group references, reported
+  "0 reachable from page one" for `issue12007_reduced.pdf`, and was wrong — the page draws
+  a hidden layer through an OCMD. That mistake is why the scope note in item 3 exists.
 
 ### What the corpus gate reports today
 
