@@ -23,18 +23,14 @@
 //! makes the same argument for gradients.
 
 #![expect(
-    clippy::expect_used,
     clippy::arithmetic_side_effects,
-    reason = "test code: a panic with a message is the intended failure mode, and the \
-              arithmetic is on literal page dimensions that cannot overflow"
+    reason = "test code: the arithmetic is on literal page dimensions that cannot overflow"
 )]
 #![expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "the casts are page coordinates under 200, in range by construction"
 )]
-
-use std::sync::Arc;
 
 use pdf_render::{
     BlendMode, Command, DisplayList, Image, Point, Raster, Rasterizer, Size, TargetSpec, Transform,

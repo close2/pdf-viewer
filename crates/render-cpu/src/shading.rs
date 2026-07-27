@@ -212,7 +212,7 @@ const MAX_SUBDIVISION: u32 = 6;
               level; bundling them into a struct would only move the list"
 )]
 pub(crate) fn fill_mesh(
-    pixmap: &mut tiny_skia::Pixmap,
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
     shape: &tiny_skia::Path,
     triangles: &[pdf_render::Triangle],
     to_device: Transform,
@@ -291,7 +291,7 @@ fn grow(triangle: &pdf_render::Triangle) -> [tiny_skia::Point; 3] {
 
 /// Fills one triangle, in device space, splitting it first if its colours vary across it.
 fn draw_triangle(
-    pixmap: &mut tiny_skia::Pixmap,
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
     triangle: pdf_render::Triangle,
     mask: Option<&tiny_skia::Mask>,
     blend: tiny_skia::BlendMode,

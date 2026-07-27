@@ -22,12 +22,11 @@
 mod convert;
 mod shading;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use pdf_render::display_list::Clip;
 use pdf_render::{
-    BackendError, ClipId, Color, Command, DisplayList, Paint, Raster, RasterFormat, Rasterizer,
-    TargetSpec, Transform,
+    BackendError, ClipId, Color, Command, DisplayList, MAX_EXTENT, Paint, Raster, RasterFormat,
+    Rasterizer, TargetSpec, Transform,
 };
 
 /// Renders display lists on the CPU.
@@ -124,6 +123,20 @@ impl Rasterizer for CpuRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
+        // Checked here rather than assumed, because [`Band`] converts a row index to
+        // `f32` and that is lossless only below 2^24. `TargetSpec::for_page` already
+        // enforces this, but the struct's fields are public, so a hand-built spec can
+        // violate it and would misplace every banded command if it did.
+        for extent in [target.width, target.height] {
+            if extent > MAX_EXTENT {
+                return Err(BackendError::ExtentTooLarge {
+                    extent: u64::from(extent),
+                    limit: MAX_EXTENT,
+                }
+                .into());
+            }
+        }
+
         let mut pixmap = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
             CpuRasterError::Allocation {
                 width: target.width,
@@ -132,99 +145,33 @@ impl Rasterizer for CpuRasterizer {
         )?;
         pixmap.fill(convert::color(self.background));
 
-        let to_device = target.transform;
         let mut masks = MaskCache::new(target, self.anti_alias);
 
         for command in list.commands() {
-            // Resolved before the match so that both arms share one code path for
+            // Resolved before the match so that every arm shares one code path for
             // clip handling; a per-arm lookup would be a place for them to diverge.
-            let clip = match command.clip() {
-                Some(id) => Some(masks.get(list, id)?),
-                None => None,
+            let (band, clip) = match command.clip() {
+                Some(id) => match masks.get(list, id)? {
+                    Some((band, mask)) => (band, Some(mask)),
+                    // The clip admits no row of the target, so nothing this command
+                    // draws can survive it.
+                    None => continue,
+                },
+                None => (Band::whole(target), None),
             };
 
-            match command {
-                Command::Fill {
-                    path,
-                    transform,
-                    fill_rule,
-                    paint,
-                    blend,
-                    ..
-                } => {
-                    let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
+            // Everything below draws into the band rather than the page, which is what
+            // keeps a command's cost proportional to the pixels its clip can admit.
+            // The device transform carries the band's offset so that geometry, paints
+            // and images all move together; missing one would tear the page apart in a
+            // way no metric would notice, so there is exactly one of these.
+            let to_device = target.transform.then(band.offset());
+            let mut surface = band.rows(&mut pixmap).ok_or(CpuRasterError::Allocation {
+                width: target.width,
+                height: band.height,
+            })?;
 
-                    // A mesh carries a colour per triangle corner, which no shader can
-                    // express, so it is drawn triangle by triangle inside the shape rather
-                    // than as a paint over it.
-                    if let Paint::Shading(shading) = paint
-                        && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
-                    {
-                        shading::fill_mesh(
-                            &mut pixmap,
-                            &path,
-                            triangles,
-                            shading.transform.then(to_device),
-                            convert::fill_rule(*fill_rule),
-                            convert::transform(transform.then(to_device)),
-                            clip,
-                            convert::blend_mode(*blend),
-                            self.anti_alias,
-                        );
-                        continue;
-                    }
-
-                    // A sampled shading's pixels are borrowed by its shader, so they need
-                    // somewhere to live for exactly as long as this call.
-                    let mut scratch = None;
-                    pixmap.fill_path(
-                        &path,
-                        &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
-                        convert::fill_rule(*fill_rule),
-                        convert::transform(transform.then(to_device)),
-                        clip,
-                    );
-                }
-                Command::Stroke {
-                    path,
-                    transform,
-                    stroke,
-                    paint,
-                    blend,
-                    ..
-                } => {
-                    let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
-                    let mut scratch = None;
-                    pixmap.stroke_path(
-                        &path,
-                        &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
-                        &convert::stroke(stroke),
-                        convert::transform(transform.then(to_device)),
-                        clip,
-                    );
-                }
-                Command::Image {
-                    image,
-                    transform,
-                    alpha,
-                    blend,
-                    ..
-                } => {
-                    let placement = ImagePlacement {
-                        transform: *transform,
-                        alpha: *alpha,
-                        blend: *blend,
-                        to_device,
-                    };
-                    self.draw_image(&mut pixmap, image, placement, clip)?;
-                }
-                // `Command` is `#[non_exhaustive]`, so new commands will appear here before
-                // this backend implements them. Erroring keeps an unimplemented command
-                // visible instead of rendering a page that looks almost right.
-                other => {
-                    return Err(CpuRasterError::UnsupportedCommand(format!("{other:?}")));
-                }
-            }
+            self.draw(&mut surface, command, to_device, clip)?;
         }
 
         Ok(Raster {
@@ -236,6 +183,109 @@ impl Rasterizer for CpuRasterizer {
             // rather than being left to every consumer to remember.
             data: pixmap.take_demultiplied(),
         })
+    }
+}
+
+impl CpuRasterizer {
+    /// Draws one command onto `surface`, which is the band its clip admits.
+    ///
+    /// `to_device` maps page space onto that band, so it already carries the band's row
+    /// offset; every transform below composes with it and none reaches the page directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CpuRasterError`] for a path the rasteriser rejects, for a paint or a
+    /// command variant this backend does not implement, or for an inconsistent image.
+    fn draw(
+        &self,
+        surface: &mut tiny_skia::PixmapMut<'_>,
+        command: &Command,
+        to_device: Transform,
+        clip: Option<&tiny_skia::Mask>,
+    ) -> Result<(), CpuRasterError> {
+        match command {
+            Command::Fill {
+                path,
+                transform,
+                fill_rule,
+                paint,
+                blend,
+                ..
+            } => {
+                let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
+
+                // A mesh carries a colour per triangle corner, which no shader can
+                // express, so it is drawn triangle by triangle inside the shape rather
+                // than as a paint over it.
+                if let Paint::Shading(shading) = paint
+                    && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
+                {
+                    shading::fill_mesh(
+                        surface,
+                        &path,
+                        triangles,
+                        shading.transform.then(to_device),
+                        convert::fill_rule(*fill_rule),
+                        convert::transform(transform.then(to_device)),
+                        clip,
+                        convert::blend_mode(*blend),
+                        self.anti_alias,
+                    );
+                    return Ok(());
+                }
+
+                // A sampled shading's pixels are borrowed by its shader, so they need
+                // somewhere to live for exactly as long as this call.
+                let mut scratch = None;
+                surface.fill_path(
+                    &path,
+                    &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
+                    convert::fill_rule(*fill_rule),
+                    convert::transform(transform.then(to_device)),
+                    clip,
+                );
+            }
+            Command::Stroke {
+                path,
+                transform,
+                stroke,
+                paint,
+                blend,
+                ..
+            } => {
+                let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
+                let mut scratch = None;
+                surface.stroke_path(
+                    &path,
+                    &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
+                    &convert::stroke(stroke),
+                    convert::transform(transform.then(to_device)),
+                    clip,
+                );
+            }
+            Command::Image {
+                image,
+                transform,
+                alpha,
+                blend,
+                ..
+            } => {
+                let placement = ImagePlacement {
+                    transform: *transform,
+                    alpha: *alpha,
+                    blend: *blend,
+                    to_device,
+                };
+                self.draw_image(surface, image, placement, clip)?;
+            }
+            // `Command` is `#[non_exhaustive]`, so new commands will appear here before
+            // this backend implements them. Erroring keeps an unimplemented command
+            // visible instead of rendering a page that looks almost right.
+            other => {
+                return Err(CpuRasterError::UnsupportedCommand(format!("{other:?}")));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -264,7 +314,7 @@ impl CpuRasterizer {
     /// which is the common case, so bilinear filtering is used.
     fn draw_image(
         &self,
-        pixmap: &mut tiny_skia::Pixmap,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
         image: &pdf_render::Image,
         placement: ImagePlacement,
         clip: Option<&tiny_skia::Mask>,
@@ -380,16 +430,144 @@ fn premultiply(value: u8, alpha: u8) -> u8 {
     u8::try_from(scaled / 255).unwrap_or(u8::MAX)
 }
 
-/// Builds and memoises clip masks.
+/// A contiguous run of target rows: the only rows a command is allowed to mark.
+///
+/// A command can only change pixels its clip admits, and a clip usually admits very
+/// little of the page. Restricting the drawing surface to those rows is what keeps a
+/// command's cost proportional to what it can actually change, and it is not a micro
+/// optimisation: on `bug1721218_reduced.pdf` (3576 distinct clips, each covering a
+/// mean 1.2% of the page's height) `callgrind` attributed **80% of the whole render**
+/// to the raster pipeline's gradient stage, evaluating shadings across the full page
+/// only for the clip to discard almost all of it. Bounding the surface removes that
+/// work rather than masking it away afterwards.
+///
+/// Rows and not a rectangle, because a pixmap's rows are contiguous in memory and its
+/// columns are not: `tiny_skia::PixmapMut::from_bytes` can borrow a band of a pixmap,
+/// and `tiny-skia` exposes no sub-rectangle view. The same constraint applies to the
+/// clip mask, which must share the pixmap's row stride, so it is band-tall and
+/// page-wide too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Band {
+    /// First target row this band covers.
+    top: u32,
+    /// Number of rows.
+    height: u32,
+}
+
+impl Band {
+    /// The band covering the whole target — what an unclipped command draws into.
+    fn whole(target: TargetSpec) -> Self {
+        Self {
+            top: 0,
+            height: target.height,
+        }
+    }
+
+    /// The band covering `bounds`, clipped to a target `height` rows tall.
+    ///
+    /// Returns `None` when `bounds` covers no row of the target.
+    ///
+    /// `bounds` is widened by a row before rounding outward. Clip bounds are computed
+    /// from a path's control points and then transformed, while the mask is built by
+    /// transforming the path itself; the two agree to within floating-point rounding
+    /// rather than exactly, and a band one row short would erase a row of a shading
+    /// that the clip admits. A spare row costs a fraction of a percent of the band and
+    /// removes that class of defect entirely.
+    fn covering(bounds: tiny_skia::Rect, height: u32) -> Option<Self> {
+        let rows = bounds.outset(0.0, 1.0)?.round_out()?;
+        let limit = i32::try_from(height).ok()?;
+        let top = rows.top().clamp(0, limit);
+        let bottom = rows.bottom().clamp(0, limit);
+        let rows = u32::try_from(bottom.checked_sub(top)?).ok()?;
+        (rows > 0).then_some(Self {
+            top: u32::try_from(top).ok()?,
+            height: rows,
+        })
+    }
+
+    /// Maps target coordinates into this band's coordinates.
+    fn offset(self) -> Transform {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "rasterize rejects a target taller than MAX_EXTENT = 2^24, and every \
+                      integer below that is exactly representable as f32"
+        )]
+        Transform::translate(0.0, -(self.top as f32))
+    }
+
+    /// Borrows this band's rows of `pixmap` as a pixmap in its own right.
+    ///
+    /// `None` only if the band does not lie within the pixmap, which
+    /// [`Band::covering`] does not produce.
+    fn rows(self, pixmap: &mut tiny_skia::Pixmap) -> Option<tiny_skia::PixmapMut<'_>> {
+        let width = pixmap.width();
+        let stride = (width as usize).checked_mul(4)?;
+        let start = (self.top as usize).checked_mul(stride)?;
+        let end = start.checked_add((self.height as usize).checked_mul(stride)?)?;
+        let rows = pixmap.data_mut().get_mut(start..end)?;
+        tiny_skia::PixmapMut::from_bytes(rows, width, self.height)
+    }
+
+    /// Bytes a mask covering this band of a `width`-wide target occupies.
+    fn mask_bytes(self, width: u32) -> usize {
+        (self.height as usize).saturating_mul(width as usize)
+    }
+}
+
+/// One clip of a chain, ready to be drawn into a mask.
+struct Shape {
+    path: tiny_skia::Path,
+    /// The clip's own transform; the target and band transforms are applied later,
+    /// because the band is not known until every clip in the chain has been measured.
+    transform: Transform,
+    fill_rule: tiny_skia::FillRule,
+}
+
+/// A built clip mask and the band it covers.
+struct Built {
+    mask: tiny_skia::Mask,
+    band: Band,
+}
+
+/// Builds and memoises clip masks, within a memory budget.
 ///
 /// A clip commonly applies to thousands of consecutive commands, so rasterising its
-/// mask once per command would dominate the render. Masks are built on first use and
-/// reused for the remainder of the page.
+/// mask once per command would dominate the render; masks are therefore built on first
+/// use and kept.
+///
+/// The cache is bounded, which the memoisation alone is not. A document names as many
+/// distinct clips as it likes — the corpus's worst holds 3576 on one page — so keeping
+/// every mask is a memory-exhaustion vector: before this bound and before [`Band`],
+/// that page held 1.7 GB of page-sized masks. Dropping an entry costs a rebuild and
+/// nothing else, so eviction can be crude, and it is: entries go in build order,
+/// oldest first, and the most recently built is never dropped. Clips are used in runs,
+/// so build order tracks use order closely enough that an active clip is rebuilt at
+/// most once per run.
 struct MaskCache {
     target: TargetSpec,
     anti_alias: bool,
-    built: HashMap<ClipId, tiny_skia::Mask>,
+    /// Masks by clip. `None` records a clip that admits no row of the target, which is
+    /// worth remembering rather than rediscovering: every command it clips draws
+    /// nothing. These entries hold no pixels, and there is one at most per clip in the
+    /// display list, so they are bounded by the list itself.
+    built: HashMap<ClipId, Option<Built>>,
+    /// Clips holding a mask, in build order, for eviction.
+    order: VecDeque<ClipId>,
+    /// Bytes held by the masks in `built`.
+    bytes: usize,
+    /// Largest total the masks may reach before the oldest are dropped.
+    budget: usize,
 }
+
+/// Largest total size of the masks a [`MaskCache`] holds, in bytes.
+///
+/// Sized against the corpus rather than guessed. `bug1721218_reduced.pdf` is the heaviest
+/// first page in the 974-document pdf.js corpus — 3576 distinct clips on one 612×792
+/// page — and its banded masks come to 25.5 MB, so the heaviest real document known fits
+/// with headroom and never evicts. A document that exceeds this is either far past
+/// anything in the corpus or trying to exhaust memory, and either way is served correctly
+/// at the price of rebuilding a mask it comes back to.
+const MASK_BUDGET: usize = 32 << 20;
 
 impl MaskCache {
     fn new(target: TargetSpec, anti_alias: bool) -> Self {
@@ -397,16 +575,35 @@ impl MaskCache {
             target,
             anti_alias,
             built: HashMap::new(),
+            order: VecDeque::new(),
+            bytes: 0,
+            budget: MASK_BUDGET,
         }
     }
 
-    /// Returns the mask for `id`, building it and any missing ancestors.
-    fn get(&mut self, list: &DisplayList, id: ClipId) -> Result<&tiny_skia::Mask, CpuRasterError> {
+    /// Returns the mask for `id` and the band it covers, building it if needed.
+    ///
+    /// `None` means the clip admits no row of the target: the caller must draw
+    /// nothing at all, which is not the same as drawing unclipped.
+    fn get(
+        &mut self,
+        list: &DisplayList,
+        id: ClipId,
+    ) -> Result<Option<(Band, &tiny_skia::Mask)>, CpuRasterError> {
         if !self.built.contains_key(&id) {
             let chain = Self::resolve_chain(list, id)?;
-            self.build_chain(list, &chain)?;
+            let built = self.build(list, id, &chain)?;
+            self.admit(id, built);
         }
-        self.built.get(&id).ok_or(CpuRasterError::UnknownClip(id))
+
+        // Absence here would mean `admit` dropped the entry it had just stored, which
+        // it does not do; reporting it beats drawing an unclipped page if it ever did.
+        let entry = self
+            .built
+            .get(&id)
+            .ok_or(CpuRasterError::UnknownClip(id))?
+            .as_ref();
+        Ok(entry.map(|built| (built.band, &built.mask)))
     }
 
     /// Walks parent links from `id` to the root, returning the chain root-first.
@@ -432,46 +629,251 @@ impl MaskCache {
         Ok(chain)
     }
 
-    /// Builds every mask in a root-first chain, reusing any already built.
-    fn build_chain(&mut self, list: &DisplayList, chain: &[ClipId]) -> Result<(), CpuRasterError> {
+    /// Builds the effective mask for a root-first chain, in the band it covers.
+    ///
+    /// The whole chain is drawn into one mask rather than each clip being cached and
+    /// intersected with its parent's: a parent covers a different band from its child,
+    /// so a parent's mask cannot be reused as a starting point. Building the chain
+    /// costs its depth in band-sized fills, which is less than one page-sized copy.
+    fn build(
+        &self,
+        list: &DisplayList,
+        id: ClipId,
+        chain: &[ClipId],
+    ) -> Result<Option<Built>, CpuRasterError> {
+        let mut shapes = Vec::with_capacity(chain.len());
+        // The effective clip is the intersection of the chain, so it lies within the
+        // intersection of the chain's bounds. Path bounds are control-point bounds,
+        // which overstate a curve — the safe direction, since too large a band only
+        // costs work while too small a one would erase pixels the clip admits.
+        let mut bounds: Option<tiny_skia::Rect> = None;
+
         for &id in chain {
-            if self.built.contains_key(&id) {
-                continue;
-            }
             let clip = list.clip(id).ok_or(CpuRasterError::UnknownClip(id))?;
-            let mask = self.build_one(clip)?;
-            self.built.insert(id, mask);
+            let path = convert::path(&clip.path).ok_or(CpuRasterError::InvalidPath)?;
+            // A bound that overflows to infinity is left out of the measurement rather
+            // than reported. The band is an optimisation over which rows may be marked,
+            // so leaving a clip out of it only widens the band; what is drawn is decided
+            // by the mask, which is built from the paths themselves either way.
+            if let Some(device) = path.bounds().transform(convert::transform(
+                clip.transform.then(self.target.transform),
+            )) {
+                bounds = match bounds {
+                    None => Some(device),
+                    // An empty intersection is an empty clip, not a failure.
+                    Some(outer) => match outer.intersect(&device) {
+                        Some(both) => Some(both),
+                        None => return Ok(None),
+                    },
+                };
+            }
+            shapes.push(Shape {
+                path,
+                transform: clip.transform,
+                fill_rule: convert::fill_rule(clip.fill_rule),
+            });
         }
-        Ok(())
+
+        // A chain always holds at least the clip it was resolved from, so this is
+        // unreachable; an empty clip chain would mean "clipped by nothing", which the
+        // caller expresses by having no clip at all, and silently drawing unclipped here
+        // would be exactly the plausible-looking wrong page this backend refuses to
+        // produce.
+        let Some((root, nested)) = shapes.split_first() else {
+            return Err(CpuRasterError::UnknownClip(id));
+        };
+        let band = match bounds {
+            Some(bounds) => match Band::covering(bounds, self.target.height) {
+                Some(band) => band,
+                // The clip admits no row of the target at all.
+                None => return Ok(None),
+            },
+            // Nothing in the chain could be measured, so nothing bounds the band.
+            None => Band::whole(self.target),
+        };
+
+        let to_band = self.target.transform.then(band.offset());
+        let mut mask = tiny_skia::Mask::new(self.target.width, band.height).ok_or(
+            CpuRasterError::Allocation {
+                width: self.target.width,
+                height: band.height,
+            },
+        )?;
+        // A fresh mask blocks everything, so filling the root path is what opens it.
+        mask.fill_path(
+            &root.path,
+            root.fill_rule,
+            self.anti_alias,
+            convert::transform(root.transform.then(to_band)),
+        );
+        for shape in nested {
+            mask.intersect_path(
+                &shape.path,
+                shape.fill_rule,
+                self.anti_alias,
+                convert::transform(shape.transform.then(to_band)),
+            );
+        }
+
+        Ok(Some(Built { mask, band }))
     }
 
-    /// Builds a single mask. Requires that any parent has already been built.
-    fn build_one(&self, clip: &Clip) -> Result<tiny_skia::Mask, CpuRasterError> {
-        let path = convert::path(&clip.path).ok_or(CpuRasterError::InvalidPath)?;
-        let transform = convert::transform(clip.transform.then(self.target.transform));
-        let fill_rule = convert::fill_rule(clip.fill_rule);
-
-        if let Some(parent) = clip.parent {
-            // Nested: start from the parent's coverage and intersect, so the effective
-            // clip is the intersection of the whole chain.
-            let mut mask = self
-                .built
-                .get(&parent)
-                .ok_or(CpuRasterError::UnknownClip(parent))?
-                .clone();
-            mask.intersect_path(&path, fill_rule, self.anti_alias, transform);
-            Ok(mask)
-        } else {
-            // Root: a fresh mask is fully opaque-clipped, so filling the path opens it.
-            let mut mask = tiny_skia::Mask::new(self.target.width, self.target.height).ok_or(
-                CpuRasterError::Allocation {
-                    width: self.target.width,
-                    height: self.target.height,
-                },
-            )?;
-            mask.fill_path(&path, fill_rule, self.anti_alias, transform);
-            Ok(mask)
+    /// Stores an entry and evicts oldest-first until the budget is met.
+    fn admit(&mut self, id: ClipId, built: Option<Built>) {
+        if let Some(entry) = &built {
+            self.bytes = self
+                .bytes
+                .saturating_add(entry.band.mask_bytes(self.target.width));
+            self.order.push_back(id);
         }
+        self.built.insert(id, built);
+
+        // The entry just built is the last in `order` and the caller is about to draw
+        // with it, so eviction stops before reaching it even if one mask alone exceeds
+        // the budget. A budget that cannot hold the mask in hand is not a reason to
+        // fail the page.
+        while self.bytes > self.budget && self.order.len() > 1 {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(Some(entry)) = self.built.remove(&oldest) {
+                self.bytes = self
+                    .bytes
+                    .saturating_sub(entry.band.mask_bytes(self.target.width));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_render::{
+        Clip, ClipId, DisplayList, FillRule, Path, PathCommand, Point, Size, TargetSpec, Transform,
+    };
+
+    use super::{Band, MASK_BUDGET, MaskCache};
+
+    /// A page carrying `count` clips, each a thin horizontal bar at its own height.
+    ///
+    /// Thin so that one mask is small and a budget of a few of them is easy to state.
+    fn stacked_clips(count: u16) -> (DisplayList, Vec<ClipId>, TargetSpec) {
+        let mut list = DisplayList::new(Size::new(200.0, 200.0));
+        let mut ids = Vec::with_capacity(usize::from(count));
+        for index in 0..count {
+            let y = f32::from(index) * 2.0;
+            let mut path = Path::new();
+            path.push(PathCommand::MoveTo(Point::new(0.0, y)));
+            path.push(PathCommand::LineTo(Point::new(200.0, y)));
+            path.push(PathCommand::LineTo(Point::new(200.0, y + 1.0)));
+            path.push(PathCommand::LineTo(Point::new(0.0, y + 1.0)));
+            path.push(PathCommand::Close);
+            ids.push(
+                list.add_clip(Clip {
+                    path,
+                    transform: Transform::IDENTITY,
+                    fill_rule: FillRule::NonZero,
+                    parent: None,
+                })
+                .expect("under the clip limit"),
+            );
+        }
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
+        (list, ids, target)
+    }
+
+    /// The bound is the whole point of the cache, so it is checked directly rather than
+    /// inferred from a render: a page whose masks happen to fit says nothing about one
+    /// whose do not, and the documents that do not fit are the hostile ones.
+    #[test]
+    fn the_mask_cache_stays_inside_its_budget() {
+        let (list, ids, target) = stacked_clips(40);
+        let mut cache = MaskCache::new(target, true);
+        // Room for two of these masks and no more.
+        let one = Band { top: 0, height: 4 }.mask_bytes(target.width);
+        cache.budget = one * 2;
+
+        for (drawn, &id) in ids.iter().enumerate() {
+            cache.get(&list, id).expect("a rectangular clip builds");
+            assert!(
+                cache.bytes <= cache.budget.max(one),
+                "after {} clips the cache holds {} bytes, over a budget of {}",
+                drawn + 1,
+                cache.bytes,
+                cache.budget
+            );
+        }
+        assert!(
+            cache.built.len() < ids.len(),
+            "nothing was evicted, so the budget was never exercised"
+        );
+    }
+
+    /// Rebuilding an evicted mask must produce the mask that was dropped.
+    ///
+    /// Eviction is only safe because it costs a rebuild and nothing else. If a rebuilt
+    /// mask differed, how much memory happened to be available would decide what the
+    /// page looks like.
+    #[test]
+    fn a_rebuilt_mask_is_the_mask_that_was_evicted() {
+        let (list, ids, target) = stacked_clips(8);
+        let first = *ids.first().expect("eight clips");
+
+        let mut generous = MaskCache::new(target, true);
+        let before = generous
+            .get(&list, first)
+            .expect("builds")
+            .map(|(band, mask)| (band, mask.data().to_vec()));
+
+        let mut tight = MaskCache::new(target, true);
+        tight.budget = 1;
+        for &id in &ids {
+            tight.get(&list, id).expect("builds");
+        }
+        let after = tight
+            .get(&list, first)
+            .expect("rebuilds")
+            .map(|(band, mask)| (band, mask.data().to_vec()));
+
+        assert!(before.is_some(), "the clip covers rows of the target");
+        assert_eq!(before, after, "a rebuilt mask differs from the original");
+    }
+
+    /// A clip that admits no row is remembered as such, not rebuilt on every command.
+    #[test]
+    fn a_clip_off_the_target_is_cached_as_admitting_nothing() {
+        let mut list = DisplayList::new(Size::new(200.0, 200.0));
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(0.0, 400.0)));
+        path.push(PathCommand::LineTo(Point::new(200.0, 400.0)));
+        path.push(PathCommand::LineTo(Point::new(200.0, 500.0)));
+        path.push(PathCommand::LineTo(Point::new(0.0, 500.0)));
+        path.push(PathCommand::Close);
+        let id = list
+            .add_clip(Clip {
+                path,
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("first clip");
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
+
+        let mut cache = MaskCache::new(target, true);
+        assert!(
+            cache.get(&list, id).expect("resolves").is_none(),
+            "a clip entirely above the page admits no row"
+        );
+        assert_eq!(cache.bytes, 0, "an empty clip holds no pixels");
+        assert!(
+            cache.built.contains_key(&id),
+            "the emptiness is remembered rather than rediscovered per command"
+        );
+    }
+
+    /// The shipped budget is stated in the type, so a careless edit to it fails here.
+    #[test]
+    fn the_shipped_budget_is_thirty_two_mebibytes() {
+        assert_eq!(MASK_BUDGET, 32 * 1024 * 1024);
     }
 }
 

@@ -118,14 +118,13 @@ const PER_DOCUMENT_BUDGET: Duration = Duration::from_secs(30);
 /// total has not risen — and so that fixing the cause deletes an entry rather than
 /// decrementing a number nobody can interpret.
 ///
-/// `bug1721218_reduced.pdf` is a 612×792 page that interprets in 414 ms and *rasterises in
-/// 39.6 s*, holding around 1.7 GB while it does. It references 3576 distinct clips, and the
-/// CPU backend builds one page-sized `tiny_skia::Mask` per distinct clip and caches every
-/// one without bound. Halving the scale takes it to 10.6 s and quartering it to 3.0 s, so
-/// the cost is `clips × page area` — measured, not inferred. Both the time and the memory
-/// are denial-of-service surface on a 825 kB file, and fixing them is the top item in the
-/// handover.
-const KNOWN_SLOW: [&str; 1] = ["bug1721218_reduced.pdf"];
+/// **Empty, and it earned that.** `bug1721218_reduced.pdf` was the only entry: a 612×792
+/// page holding 3576 distinct clips, which rasterised in 39.6 s and held 1.7 GB. The CPU
+/// backend now draws each command into the rows its clip admits rather than into the page
+/// (ADR 0010), which takes it to 0.24 s and 25 MB of masks. Keeping the list empty is the
+/// point: the next document to cross the budget fails the gate rather than joining a
+/// list.
+const KNOWN_SLOW: [&str; 0] = [];
 
 /// What happened to one document.
 #[derive(Debug, Default)]
