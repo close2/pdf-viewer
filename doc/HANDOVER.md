@@ -1,10 +1,23 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-27 at the end of the third working session. Read `/CLAUDE.md`
-first — it holds the five non-negotiable principles and they are not optional. **Principle
-5 is new and it changes how to work**: the specification is the only source of truth, and
-agreement with poppler, mupdf or pdf.js is evidence that we read it right, never the
-definition of right. This file is the state of play, the traps, and what to do next.
+Written 2026-07-26, updated 2026-07-27 at the end of the fourth working session. Read
+`/CLAUDE.md` first — it holds the five non-negotiable principles and they are not optional.
+**Principle 5 is the one that changes how to work**: the specification is the only source of
+truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it right, never
+the definition of right. This file is the state of play, the traps, and what to do next.
+
+## What the fourth session changed, in one paragraph
+
+Chasing the performance defect at the top of the previous handover found two correctness
+defects underneath it. Both rasterisers were positioning a paint in the *device's*
+coordinate space when both underlying libraries read it in the *path's*, so the device
+transform was applied twice: every gradient on every page was mirrored about the page's
+horizontal centre line, and every image was sampled through a doubled transform — one
+photograph came out as a single flat rectangle. Neither showed up in any metric, and the
+CPU-versus-GPU comparison could not see them because both backends were wrong in the same
+way and every scene comparing them used gradients that do not vary in y. They are fixed,
+with tests derived from the clause rather than from a renderer. The performance defect is
+fixed too: the worst page in the corpus went from 48.7 s to 0.24 s.
 
 ## Where we are
 
@@ -13,7 +26,7 @@ shadings, patterns and embedded text, on both a CPU and a GPU backend. It is not
 *viewer* in the full sense — no annotations, forms, encryption or transparency groups — and
 the gap between those two words is measured further down rather than guessed at.
 
-- **172 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **187 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks (verified, not assumed).
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and
   101 318 objects — all parse, all render page one with only a soft mask reported on three
@@ -21,15 +34,18 @@ the gap between those two words is measured further down rather than guessed at.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open, 955 reach page
   one, **674 draw with nothing reported at all**, and everything the other 281 cannot draw
   is named. The counts are ratcheted and can only go down. 1501 of 1501 PDF functions
-  parse; **all 1793 shadings build**, mesh types included.
+  parse; **all 1793 shadings build**, mesh types included. The whole gate runs in **15 s**
+  and has **no named slow document left**.
 - Our render of the `basic` fixture agrees with poppler, mupdf and ghostscript, and is
   byte-identical to mupdf — corroboration that we read the specification right, not a
   target (principle 5).
 - **Colour resolves from the document.** `ICCBased` profiles are evaluated by an A2B
   evaluator written here, `/DefaultCMYK` and output intents are honoured, and there is
   exactly one `DeviceCMYK` conversion instead of the three that used to disagree. ADR 0009.
-- Both backends draw everything the display list can express, and agree on it: three
-  headless GPU scenes hold `tiny-skia` and Vello to the same pixels.
+- Both backends draw everything the display list can express, and agree on it: **eight**
+  headless GPU scenes hold `tiny-skia` and Vello to the same pixels. Two of those eight are
+  new, and exist because the other six could not have caught the paint-space defect in trap
+  1b — they all ran at one scale, along one axis.
 
 ### Run it
 
@@ -46,7 +62,7 @@ quits. The title bar names anything on the page that could not be drawn.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent
 cargo test --workspace
-cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~41 s
+cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~15 s
 cargo bench -p pdf-model                   # interpretation, the time-to-first-page path
 cargo deny check
 cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
@@ -100,6 +116,39 @@ wrong mapping, both in `crates/pdf-font/src/lib.rs`:
 Both were confirmed to fail when the defects they describe are deliberately reintroduced.
 They are complementary: an off-by-one charset trips only the first, a reinstated
 fall-through only the second. Neither replaces looking at the page.
+
+### 1b. A paint is positioned in the *path's* space, not the device's
+
+Both `tiny-skia` and Vello apply the drawing transform to a paint as well as to the shape:
+`Pixmap::fill_path` and `stroke_path` post-concatenate it onto the shader, and Vello
+encodes a brush transform as `shape transform * brush transform`. So the transform you hand
+a gradient, a pattern or an image is read **in the space the path is stated in**, and
+composing the page-to-device transform into it yourself applies that transform twice.
+
+Both backends did exactly that, and it shipped:
+
+- Every gradient was **mirrored about the page's horizontal centre line**. At a scale of
+  1.0 the page-to-device transform is a y-flip about the page centre and so is its own
+  inverse: the second application cancels the geometry and leaves the flip. At any other
+  scale it leaves a scale-dependent displacement instead.
+- Every image was sampled through a doubled transform. `issue19971.pdf` draws a 2500×1364
+  photograph and we drew one flat dark-blue rectangle.
+
+Three things about how this survived are worth carrying forward:
+
+1. **No metric saw it.** `unsupported: []`, the right shape, colours from the right ramp.
+   Trap 1's warning about fonts is the same warning: look at the page.
+2. **The CPU-versus-GPU comparison could not see it**, because both backends had it and
+   therefore agreed. Two implementations agreeing is evidence *only where they can fail
+   independently*.
+3. **Every scene that compared them used a gradient running along x**, where a y mirror is
+   invisible. A test that cannot fail in the axis the defect moves is not a test of it.
+
+The guards now are `render-cpu/tests/shading_placement.rs` and `image_placement.rs`, which
+pin values against ISO 32000-2 §8.7.4.5.3 and §8.9.5.2 **at three scales**, and
+`headless_gpu.rs`'s vertical-gradient and image scenes. One scale cannot see this class of
+defect; that is why every case runs at more than one. All were confirmed to fail when the
+defects are reintroduced.
 
 ### 2. Test against real documents, not hand-written fragments
 
@@ -206,6 +255,11 @@ That 69% is the number to quote. Everything in the 29% is *named* — see the ra
 below — and the largest single cause is JBIG2 and JPX, which are deliberately deferred to
 the sandbox rather than merely unwritten.
 
+**Read it as "reported nothing", not "drew it right".** This session found two defects that
+misdrew a gradient and an image on pages counted in that 674, in silence — that is what
+trap 1b is about. The number measures the honesty of the reporting, which is worth a great
+deal and is not the same as correctness.
+
 ### By clause
 
 ISO 32000-2 has 824 numbered subclauses under its eight technical clauses. Counting them is
@@ -240,34 +294,29 @@ done; the parts that make a document *interactive* are not started.
 | Blend modes | **16 of 16**. |
 | Font programs | TrueType, CFF, CFF-in-OpenType, CID-keyed CFF. Bare Type1 and Type3 are reported. |
 
-## The single most valuable next task
+## Done this session, and what it teaches
 
-**The CPU rasteriser builds one page-sized clip mask per distinct clip, and caches every
-one without bound.** The corpus gate found it on its first run.
+**The clip-mask defect at the top of the last handover is fixed, but not for the reason
+that handover gave.** It said the cost was the page-sized masks, with arithmetic that
+matched the observed 1.7 GB exactly. `callgrind` put the masks at under 4% of the run and
+the raster pipeline's **gradient stage at 78.9%**: the page is thousands of shading fills,
+each covering a large area and each clipped to a sliver, so the paint was evaluated across
+the whole path and the mask then discarded almost all of it. Making the mask cheaper alone
+would have kept nearly all 48 seconds. The fix is to draw each command into the rows its
+clip admits — ADR 0010 — and the numbers are:
 
-`bug1721218_reduced.pdf` is an 825 kB file with a 612×792 page. It interprets in 414 ms and
-then **rasterises in 39.6 seconds**, holding about 1.7 GB while it does. It references
-**3576 distinct clips**; `MaskCache` in `crates/render-cpu/src/lib.rs` builds a
-`tiny_skia::Mask` the size of the whole page for each one and keeps them all in a
-`HashMap` with no eviction.
+| | before | after |
+|---|---|---|
+| `bug1721218_reduced.pdf` rasterise | 48.7 s | 0.24 s |
+| peak resident memory | ~1.7 GB | 53 MB |
+| masks held | 1.73 GB | 25.5 MB, capped at 32 MiB |
+| whole corpus gate | 41 s | 15 s |
 
-The cost is `clips × page area`, and that is measured rather than inferred: halving the
-scale gives 10.6 s and quartering it 3.0 s, which is quadratic in the linear scale.
+**A persuasive arithmetic match is not a measurement.** `3576 × 485 kB = 1.7 GB` was right
+about the memory and told us nothing about the time. Profile first, even when the story
+already adds up.
 
-Both halves matter and they are different problems:
-
-- **Time.** A mask only needs to cover the clip's own bounds. Most of these 3576 are small.
-  `tiny_skia`'s API wants a mask matching the pixmap, so this is not a one-line change —
-  it may mean drawing into a bounded sub-pixmap and compositing, or special-casing
-  axis-aligned rectangular clips, which is what `re W n` produces and is very common.
-- **Memory.** `MaskCache` needs a budget and an eviction policy regardless. 1.7 GB from one
-  small file is denial-of-service surface, and principle 3 asks for exactly this bound.
-
-Measure before choosing: `cargo run --release -p pdf-model --example open_one -- <file>
-[scale]` prints the interpret and rasterise split and the distinct clip count, in a process
-that can be killed. That example exists because of this bug.
-
-### Then, and this one is different in kind
+### The single most valuable next task
 
 **Optional content is the only thing in the tree that can be wrong on screen without saying
 so.** 31 corpus documents carry `/OCProperties`. `BDC` is parsed and discarded, so content
@@ -277,6 +326,30 @@ watermarks, hidden annotations or the wrong language layer showing, reporting
 not, which makes it worth more than its size suggests. Reading `/OCProperties` for the
 default configuration's OFF set and skipping `BDC /OC` spans whose group is in it is not a
 large change.
+
+### Then, what the profile now says about speed
+
+Re-measured after the change rather than assumed. `callgrind` over the whole of
+`bug1721218_reduced.pdf` at 612×792 — open, interpret and rasterise, 16.1 G instructions:
+
+| | share |
+|---|---|
+| `tiny_skia::pipeline::lowp::gradient` | 29.7% |
+| `pdf_model::function::Function::parse` | 23.2% |
+| `pdf_model::function::Function::eval` | 13.8% |
+| `ColourSpace::to_rgb_at` | 2.6% |
+
+Two things to read from that. **The gradient stage is still the largest single item**
+because a `Ramp` carries 256 samples, so a shading becomes a 256-stop gradient and
+`tiny-skia` scans its stops per pixel batch; handing the *rasteriser* fewer stops would fix
+it, while coarsening the `Ramp` in the display list would lose fidelity and is not the same
+thing. **And roughly 40% of the run is now building the shadings**, not drawing them: a PDF
+function is parsed and then sampled 256 times for every shading, and this page has 3576 of
+them. Whether that is 3576 *distinct* functions or one function re-parsed 3576 times has
+not been checked, and it decides whether the fix is memoisation by object reference or
+something harder — check before designing. Neither item is urgent, since the page now opens
+in two thirds of a second, but both are measured, so the next person starts from a number
+rather than a guess.
 
 ### Then, by what the corpus says real documents need
 
@@ -295,7 +368,7 @@ Ratcheted in `crates/pdf-model/tests/corpus.rs`; the numbers only ever go down.
 | unopenable | 0 | and it should stay there |
 | no page one | 19 | 11 encrypted, 8 with unrecoverable page trees |
 | draws incompletely | 281 | 152 JBIG2/JPX, 73 text, 26 soft mask, 19 transparency group, 10 undecodable content stream, 1 bound reached |
-| slower than 30 s | 1 | named, not counted — the clip defect above |
+| slower than 30 s | 0 | `KNOWN_SLOW` is now empty, and the next document to cross the budget fails the gate |
 
 **The time budget reports; it cannot enforce.** A Rust thread cannot be cancelled, so a
 document that never returns hangs the suite rather than failing it. A real budget has to
@@ -316,6 +389,13 @@ in `read_fonts::ps`, which `skrifa` re-exports as `skrifa::raw`. See ADR 0006. T
 module also holds `type1`, `charmap` and `agl` — `agl` is now enabled and carries the
 Adobe Glyph List, so nothing needs transcribing.
 
+**Profile before believing an explanation, even one whose arithmetic matches.** The last
+handover attributed a 48-second page to page-sized clip masks and supported it with
+`3576 clips × 485 kB = 1.7 GB`, which is exactly what the process held. The arithmetic was
+right about the memory and silent about the time: `callgrind` put the masks at under 4% and
+the gradient stage at 78.9%. Fixing what the arithmetic named would have kept nearly all 48
+seconds. A number that reproduces one symptom is not a diagnosis.
+
 **Wall-clock benchmarks lie under load; count instructions instead.** A `Command::Fill`
 change measured as a 24% *regression* on `cargo bench` and as an 8.5% *improvement* twenty
 minutes later, purely from background build load. `valgrind --tool=callgrind` on
@@ -324,10 +404,17 @@ instructions before, 1.951 G after. Always A/B in one sitting, and prefer the in
 count. `iai-callgrind` wraps this into a bench harness and is the right basis for the CI
 perf gates `CLAUDE.md` asks for — not yet wired up.
 
-**Two rasterisers disagreeing is information, not noise.** The CPU-versus-GPU agreement
-test is what found that Vello needed the same mesh seam repair `tiny-skia` did, after a
-comment here had confidently claimed otherwise. Where the backends differ, one of them is
-wrong; sweeping a constant against that test is how its value was chosen.
+**Two rasterisers disagreeing is information, not noise — and two agreeing is not proof.**
+The CPU-versus-GPU agreement test is what found that Vello needed the same mesh seam repair
+`tiny-skia` did, after a comment here had confidently claimed otherwise. Where the backends
+differ, one of them is wrong; sweeping a constant against that test is how its value was
+chosen. The other half of the rule was learned the hard way this session: both backends
+positioned paints in the wrong space, in the same way, for the same reason — the two
+libraries share the convention that was misread — so they agreed with each other perfectly
+while both were wrong. **Agreement is evidence only where the implementations can fail
+independently.** When two things share a dependency, a convention or an author's
+assumption, they are not independent, and only a value derived from the specification will
+say so.
 
 **Survey the corpus before designing.** The shading work started with a survey of what
 `ShadingType`, `FunctionType` and `PatternType` values actually occur across 974 documents.
@@ -376,6 +463,12 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
   which truncated any `TJ` array holding a justified line — three sentences on the
   specification's own title page ended mid-word, with `unsupported: []`. Bounds against
   hostile input are right; reaching one without saying so is not. Every bound now reports.
+- **A command draws into the rows its clip admits, not into the page.** `Band` in
+  `crates/render-cpu/src/lib.rs`, and ADR 0010 for why rows rather than a rectangle. Two
+  consequences to keep in mind when touching that backend: the device transform handed to a
+  command already carries the band's row offset, so anything new that composes a transform
+  must use *that* one; and the clip mask is band-tall and page-wide, because `tiny-skia`
+  needs it to share the pixmap's row stride.
 - **The display list is deliberately flat.** `tiny-skia` wants per-clip masks, Vello wants
   a layer stack; both translate. That neither library's model is native is the evidence the
   neutral form is right, and it is what lets the CPU backend validate the GPU one on
