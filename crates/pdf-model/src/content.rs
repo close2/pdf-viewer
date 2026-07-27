@@ -87,6 +87,15 @@ pub enum Unsupported {
         /// Why, from `pdf-font`.
         detail: String,
     },
+    /// A page's content stream could not be decoded, so its drawing is missing.
+    ///
+    /// The page still renders — just without whatever that stream described. Without this
+    /// report a page compressed with a filter we do not implement is indistinguishable from
+    /// a page the producer meant to leave sparse.
+    Content {
+        /// What went wrong with which part of `/Contents`.
+        issue: crate::page::ContentIssue,
+    },
     /// A bound was reached and interpretation stopped early.
     LimitReached {
         /// Which bound.
@@ -296,7 +305,7 @@ impl GraphicsState {
 /// is a property of the page rather than of the device.
 #[must_use]
 pub fn interpret(document: &Document, page: &Page) -> Interpretation {
-    let content = page.content(document);
+    let (content, issues) = page.content_with_report(document);
     let size = rotated_size(page);
 
     let mut interpreter = Interpreter {
@@ -312,6 +321,10 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         page: size,
         output_intent: output_intent_space(document),
     };
+
+    for issue in issues {
+        interpreter.note(Unsupported::Content { issue });
+    }
 
     let base = base_transform(page);
     interpreter.run(&content, &page.resources, &GraphicsState::initial(base), 0);

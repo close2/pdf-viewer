@@ -75,7 +75,7 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 271, and *not* a defect count — it is the honest-reporting requirement working. The
+/// 281, and *not* a defect count — it is the honest-reporting requirement working. The
 /// breakdown, which is the useful part:
 ///
 /// | reported | count | why |
@@ -84,11 +84,18 @@ const MAX_PAGELESS: usize = 19;
 /// | `Text` | 73 | mostly CID encodings and embedded `CMap`s |
 /// | `Shading` | 26 | soft masks in `/ExtGState`, which is transparency rather than shading |
 /// | `Operator` | 19 | transparency groups |
+/// | `Content` | 10 | a `/Contents` stream that did not decode |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
 ///
-/// Ratcheted downward: this falls as features land, and a rise means something that used
-/// to draw no longer does.
-const MAX_INCOMPLETE: usize = 271;
+/// This number went *up* by ten when content-stream decoding started reporting, and that
+/// rise was the point. Nine of the ten are encrypted documents whose content stream is
+/// unreadable without decryption, and they had been rendering as blank pages returning
+/// `unsupported: []` — a wrong page indistinguishable from a sparse one. The tenth is
+/// `bomb_giant.pdf`, refusing a decompression bomb, which is the design working.
+///
+/// Ratcheted downward otherwise: this falls as features land, and a rise that is not a new
+/// *report* means something that used to draw no longer does.
+const MAX_INCOMPLETE: usize = 281;
 
 /// How long one document may take before it counts as a failure.
 ///

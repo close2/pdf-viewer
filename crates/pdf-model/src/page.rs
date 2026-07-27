@@ -139,8 +139,27 @@ impl Page {
     ///
     /// A newline is inserted between parts, since a producer that relied on the split as a
     /// token boundary would otherwise have two operators run together.
+    ///
+    /// Equivalent to [`Self::content_with_report`], discarding the report. Prefer that one
+    /// anywhere the result reaches a user: a part that does not decode contributes nothing,
+    /// and a page silently short of a content stream is indistinguishable from a page that
+    /// was meant to be empty.
     #[must_use]
     pub fn content(&self, document: &Document) -> Vec<u8> {
+        self.content_with_report(document).0
+    }
+
+    /// The same, also naming the content streams that could not be decoded.
+    ///
+    /// A `/Contents` part fails to decode when its filter chain is one this reader does not
+    /// implement — `LZWDecode` is the one that occurs — or when the stream is damaged. Both
+    /// produce a page missing some or all of its drawing, and neither is visible in the
+    /// result: the page renders, it is simply not the page the document describes.
+    ///
+    /// Returning the failures rather than swallowing them is what lets `interpret` report
+    /// them, which principle 3 of `CLAUDE.md` requires of every layer.
+    #[must_use]
+    pub fn content_with_report(&self, document: &Document) -> (Vec<u8>, Vec<ContentIssue>) {
         let contents = document.get_key(&self.dict, "Contents");
         let parts: Vec<Object> = match contents {
             Object::Array(items) => items.iter().map(|item| document.resolve(item)).collect(),
@@ -148,17 +167,27 @@ impl Page {
         };
 
         let mut out = Vec::new();
-        for part in &parts {
+        let mut issues = Vec::new();
+        for (index, part) in parts.iter().enumerate() {
+            // A `/Contents` that is missing entirely is an empty page, not a defect; one
+            // whose entries are not streams is a malformed page and worth saying so.
             let Some(stream) = part.as_stream() else {
+                if !matches!(part, Object::Null) {
+                    issues.push(ContentIssue::NotAStream { index });
+                }
                 continue;
             };
             let Some(data) = document.decoded_stream_data(stream) else {
+                issues.push(ContentIssue::Undecodable {
+                    index,
+                    filters: filter_names(document, &stream.dict),
+                });
                 continue;
             };
             out.extend_from_slice(&data);
             out.push(b'\n');
         }
-        out
+        (out, issues)
     }
 }
 
@@ -351,4 +380,43 @@ fn build_page(dict: &Dictionary, inherited: &Inherited) -> Page {
         crop_box,
         rotate,
     }
+}
+
+/// The `/Filter` names on a stream, for reporting one that could not be applied.
+fn filter_names(document: &Document, dict: &Dictionary) -> Vec<String> {
+    let filter = document.get_key(dict, "Filter");
+    let named = |object: &Object| {
+        object
+            .as_name()
+            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+    };
+    match &filter {
+        Object::Array(items) => items
+            .iter()
+            .map(|item| document.resolve(item))
+            .filter_map(|item| named(&item))
+            .collect(),
+        other => named(other).into_iter().collect(),
+    }
+}
+
+/// A `/Contents` part that did not become drawable bytes.
+///
+/// Reported rather than skipped: a page short of one of its content streams still renders,
+/// and looks like a page that was meant to be sparser than it is.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum ContentIssue {
+    /// A part's filter chain could not be applied, or the stream is damaged.
+    Undecodable {
+        /// Which part of `/Contents`, counting from zero.
+        index: usize,
+        /// The `/Filter` names it declared, which is normally why.
+        filters: Vec<String>,
+    },
+    /// A `/Contents` entry that is neither a stream nor null.
+    NotAStream {
+        /// Which part of `/Contents`, counting from zero.
+        index: usize,
+    },
 }

@@ -347,3 +347,57 @@ fn a_default_space_outranks_the_output_intent() {
         "the resources' /DefaultCMYK must win over the document's output intent"
     );
 }
+
+/// A content stream that cannot be decoded must be reported, not silently dropped.
+///
+/// This is the failure mode the project's third principle exists to prevent, in its purest
+/// form: the page renders, it is simply not the page the document describes, and nothing
+/// anywhere says so. `LZWDecode` is not implemented, and before this was reported a page
+/// compressed with it drew nothing and returned `unsupported: []` — indistinguishable from
+/// a page the producer meant to leave empty.
+///
+/// The filter name is deliberately real rather than invented: implementing `LZWDecode`
+/// should make this test fail, and that is the right moment to revisit it.
+#[test]
+fn a_content_stream_that_will_not_decode_is_reported() {
+    let bytes = pdf_with_content_filter("/LZWDecode");
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("LZWDecode"),
+        "an undecodable content stream must name its filter: {reported}"
+    );
+}
+
+/// A one-page PDF whose content stream declares a filter it does not honour.
+fn pdf_with_content_filter(filter: &str) -> Vec<u8> {
+    let objects = [
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_owned(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_owned(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Contents 4 0 R >>\nendobj\n"
+            .to_owned(),
+        format!("4 0 obj\n<< /Length 8 /Filter {filter} >>\nstream\nnot data\nendstream\nendobj\n"),
+    ];
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in &objects {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = objects.len() + 1;
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
