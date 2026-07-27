@@ -166,6 +166,35 @@ fn every_renderer_agrees_on_the_page_size() {
     }
 }
 
+/// A renderer that outlives its budget must be killed and reported, not waited on.
+///
+/// The budget here is a millisecond against a render that takes hundreds — a margin of
+/// two orders of magnitude, so this is not a race — because the only way to observe the
+/// bound from outside is to set one the work cannot meet. Without it a corpus run over a
+/// thousand untrusted files has no way to survive the first one built to loop.
+#[test]
+fn a_renderer_that_outlives_its_budget_is_killed() {
+    let work_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pdfref-budget");
+    let pdf = fixture(&work_dir);
+
+    let reference = Reference::Poppler;
+    assert!(
+        reference.is_available(),
+        "{reference} is required for this test ({})",
+        reference.package_hint()
+    );
+
+    // 600 dpi over A4 is 35 megapixels, which no renderer produces in a millisecond.
+    let error = reference
+        .render_within(&pdf, 600, &work_dir, std::time::Duration::from_millis(1))
+        .expect_err("a millisecond is not enough to render 35 megapixels");
+    let message = error.to_string();
+    assert!(
+        message.contains("exceeded"),
+        "the budget must be named as the cause, got: {message}"
+    );
+}
+
 /// The harness must reject a corrupt file rather than silently comparing nothing.
 #[test]
 fn a_corrupt_pdf_is_reported_as_a_renderer_failure() {

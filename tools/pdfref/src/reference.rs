@@ -9,10 +9,18 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use pdf_render::Raster;
 
 use crate::{HarnessError, png_io};
+
+/// How long a reference renderer may take on one page before it is killed.
+///
+/// Thirty seconds, matching the per-document budget the corpus gate holds *us* to: a
+/// reference that needs longer than we are allowed cannot be the oracle for that page
+/// anyway, and a corpus holds files written to make a reader loop.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// An external reference renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -95,12 +103,41 @@ impl Reference {
 
     /// Renders page one of `pdf` at `dpi`, writing intermediates under `work_dir`.
     ///
+    /// Bounded by [`DEFAULT_TIMEOUT`]. There is no unbounded variant on purpose: these
+    /// renderers are pointed at untrusted files, and a corpus contains files built to make
+    /// a reader loop.
+    ///
     /// # Errors
     ///
     /// [`HarnessError::RendererMissing`] if the executable is absent,
-    /// [`HarnessError::RendererFailed`] if it exits non-zero or produces no output, and
-    /// [`HarnessError::Png`] if its output cannot be decoded.
+    /// [`HarnessError::RendererFailed`] if it exits non-zero, exceeds the budget, or
+    /// produces no output, and [`HarnessError::Png`] if its output cannot be decoded.
     pub fn render(self, pdf: &Path, dpi: u32, work_dir: &Path) -> Result<Raster, HarnessError> {
+        self.render_within(pdf, dpi, work_dir, DEFAULT_TIMEOUT)
+    }
+
+    /// Renders page one of `pdf` at `dpi`, giving the renderer at most `budget`.
+    ///
+    /// # How the budget is enforced
+    ///
+    /// By polling [`std::process::Child::try_wait`] and killing the process when it
+    /// expires, because the standard library has no wait-with-deadline. The renderer's
+    /// two output streams go to a log file beside its image rather than to a pipe: a pipe
+    /// nobody drains while polling would deadlock a chatty renderer against its own
+    /// buffer, and a file keeps the diagnostics as evidence in the same place as
+    /// everything else the run produced.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::render`], with [`HarnessError::RendererFailed`] also reporting a
+    /// renderer that exceeded `budget` and was killed.
+    pub fn render_within(
+        self,
+        pdf: &Path,
+        dpi: u32,
+        work_dir: &Path,
+        budget: Duration,
+    ) -> Result<Raster, HarnessError> {
         if !self.is_available() {
             return Err(HarnessError::RendererMissing {
                 reference: self,
@@ -114,12 +151,19 @@ impl Reference {
         })?;
 
         let output_path = work_dir.join(format!("{}.png", self.name()));
+        // A renderer that fails after a previous run succeeded would otherwise be judged
+        // by the stale image still sitting there.
+        let _ = std::fs::remove_file(&output_path);
         let mut command = self.build_command(pdf, dpi, work_dir, &output_path);
 
-        let output = command.output().map_err(|e| HarnessError::RendererFailed {
-            reference: self,
-            detail: format!("could not run {}: {e}", self.program()),
-        })?;
+        let log_path = work_dir.join(format!("{}.log", self.name()));
+        if let Ok(log) = std::fs::File::create(&log_path) {
+            command
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::from(log));
+        }
+
+        let status = self.wait_within(&mut command, budget)?;
 
         // Ghostscript and mutool both report real problems on stderr while still exiting
         // zero, so success is judged by whether an image appeared, not by exit status
@@ -129,14 +173,55 @@ impl Reference {
             return Err(HarnessError::RendererFailed {
                 reference: self,
                 detail: format!(
-                    "produced no output (status {:?})\nstderr: {}",
-                    output.status.code(),
-                    String::from_utf8_lossy(&output.stderr).trim()
+                    "produced no output (status {:?}): {}",
+                    status.code(),
+                    last_line(&log_path)
                 ),
             });
         }
 
         png_io::read(&output_path)
+    }
+
+    /// Runs a command, killing it if it outlives `budget`.
+    fn wait_within(
+        self,
+        command: &mut Command,
+        budget: Duration,
+    ) -> Result<std::process::ExitStatus, HarnessError> {
+        /// How often the child is checked. Short enough that a killed renderer does not
+        /// hold up a corpus run, long enough that polling costs nothing measurable.
+        const POLL: Duration = Duration::from_millis(20);
+
+        let mut child = command.spawn().map_err(|e| HarnessError::RendererFailed {
+            reference: self,
+            detail: format!("could not run {}: {e}", self.program()),
+        })?;
+
+        let started = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return Ok(status),
+                Ok(None) => {}
+                Err(e) => {
+                    return Err(HarnessError::RendererFailed {
+                        reference: self,
+                        detail: format!("could not wait for {}: {e}", self.program()),
+                    });
+                }
+            }
+            if started.elapsed() > budget {
+                // Both failures are reported, and neither is allowed to mask the timeout
+                // itself: a kill that fails means the process is already gone.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(HarnessError::RendererFailed {
+                    reference: self,
+                    detail: format!("exceeded {budget:?} and was killed"),
+                });
+            }
+            std::thread::sleep(POLL);
+        }
     }
 
     /// Builds the command line for this renderer.
@@ -145,6 +230,21 @@ impl Reference {
     /// make comparison exact — sounds attractive but is wrong: it would compare a
     /// configuration nobody actually views documents in, and would hide precisely the
     /// coverage bugs that matter at edges.
+    ///
+    /// # Every renderer is told to use the crop box
+    ///
+    /// ISO 32000-2 §7.7.3.3 defines `/CropBox` as "the region to which the contents of the
+    /// page shall be clipped (cropped) when displayed or printed", and that is what a
+    /// viewer shows. `mutool draw` does this by default; `pdftoppm` and `gs` default to the
+    /// media box and have to be told, which is what `-cropbox` and `-dUseCropBox` are for.
+    ///
+    /// Leaving the default in place was not a neutral choice. Over the pdf.js corpus it
+    /// put 54 documents' first pages permanently beyond comparison — the harness could not
+    /// reconcile a 329x204 crop against a 612x792 sheet and reported a geometry
+    /// disagreement — and on a page whose crop box has the same *size* as its media box but
+    /// a different origin, it would have compared a correct render against a displaced one
+    /// and called us wrong. The clause decides this; agreement with `mutool` is only
+    /// evidence that the clause was read the same way twice.
     fn build_command(self, pdf: &Path, dpi: u32, work_dir: &Path, output: &Path) -> Command {
         match self {
             Self::Poppler => {
@@ -157,6 +257,7 @@ impl Reference {
                     .arg(dpi.to_string())
                     .arg("-png")
                     .arg("-singlefile")
+                    .arg("-cropbox")
                     .arg("-aa")
                     .arg("yes")
                     .arg("-aaVector")
@@ -169,6 +270,10 @@ impl Reference {
                 let mut command = Command::new(self.program());
                 command
                     .arg("draw")
+                    // Its default already, stated so that a change of default cannot
+                    // silently move what this compares against.
+                    .arg("-b")
+                    .arg("CropBox")
                     .arg("-r")
                     .arg(dpi.to_string())
                     .arg("-o")
@@ -185,6 +290,7 @@ impl Reference {
                     .arg("-dBATCH")
                     .arg("-dSAFER")
                     .arg("-sDEVICE=png16m")
+                    .arg("-dUseCropBox")
                     .arg(format!("-r{dpi}"))
                     // Ghostscript's antialiasing is off by default; 4 bits is what its
                     // own documentation recommends for rendering to screen resolution.
@@ -222,6 +328,24 @@ impl Reference {
             .map(str::trim)
             .map(ToOwned::to_owned)
     }
+}
+
+/// The last non-empty line of a renderer's log, for an error message that says why.
+///
+/// The last rather than the first: these renderers narrate their progress and warn about
+/// recoverable damage, so what finally stopped them is at the end.
+fn last_line(log: &Path) -> String {
+    std::fs::read_to_string(log).map_or_else(
+        |_| "no diagnostics".to_owned(),
+        |text| {
+            text.lines()
+                .rev()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .unwrap_or("no diagnostics")
+                .to_owned()
+        },
+    )
 }
 
 impl std::fmt::Display for Reference {
