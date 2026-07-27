@@ -1133,6 +1133,17 @@ impl Interpreter<'_> {
             .unwrap_or_default();
 
         if subtype == b"Image" {
+            // `/Mask` makes part of the image transparent, either through a stencil mask
+            // stream (§8.9.6.4) or through a colour-key range array (§8.9.6.5). Neither is
+            // applied — `/SMask` is the only mask honoured — and the difference is whole
+            // objects that should not be visible. `colorkeymask.pdf` draws three bands and
+            // masks the red one out; all three reference renderers show two bands and we
+            // showed three, reporting nothing. Said out loud until it is implemented.
+            if !matches!(self.document.get_key(&stream.dict, "Mask"), Object::Null) {
+                self.note(Unsupported::Image {
+                    name: format!("{name}: /Mask"),
+                });
+            }
             // A PDF image occupies the unit square in user space, so the command's
             // transform is the current transform and nothing else.
             match crate::image::decode(self.document, &stream, state.fill) {
@@ -1267,6 +1278,14 @@ impl Interpreter<'_> {
         // Mode 3 is invisible text, and mode 7 adds to the clip without painting. Both are
         // used for the OCR layer under a scanned image, where drawing them would be wrong.
         let invisible = matches!(state.text.render_mode, 3 | 7);
+        // Modes 4 to 7 also add the glyphs to the clipping path, which takes effect at `ET`
+        // and lasts until the graphics state is restored — ISO 32000-2 §9.3.6 Table 106 and
+        // §9.4.1. We do not build that clip, so anything painted afterwards in the
+        // expectation of being cut to the glyph shapes covers its whole area instead.
+        // `text_clip_cff_cid.pdf` shows what that costs: a rectangle meant to be seen only
+        // through the word "ABC123" is drawn as a solid blue bar. Reported rather than
+        // silently mis-drawn, per the rule that unsupported input stays loud.
+        let clipping = matches!(state.text.render_mode, 4..=7);
         let size = state.text.size;
         let scale = state.text.horizontal_scale;
 
@@ -1346,7 +1365,7 @@ impl Interpreter<'_> {
             self.text_cursor = Some((text_matrix.e, text_matrix.f));
         }
 
-        if matches!(state.text.render_mode, 1 | 2 | 5 | 6) {
+        if clipping || matches!(state.text.render_mode, 1 | 2) {
             self.note(Unsupported::Operator {
                 operator: format!("text render mode {}", state.text.render_mode),
             });

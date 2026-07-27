@@ -8,6 +8,9 @@
 
 #![expect(
     clippy::print_stdout,
+    // Fires only in helper functions: clippy's test allowance covers `#[test]` bodies, and
+    // a helper that cannot read its fixture must fail loudly rather than skip quietly.
+    clippy::expect_used,
     reason = "test code: the measurements are the point of the exercise"
 )]
 
@@ -200,6 +203,70 @@ fn every_specification_pdf_interprets() {
             interpretation.unsupported
         );
     }
+}
+
+/// Text that adds itself to the clipping path must be reported, because we do not clip.
+///
+/// ISO 32000-2 §9.3.6 Table 106 gives modes 4 to 7 as "fill/stroke/... and add to path for
+/// clipping", and §9.4.1 says that path takes effect at `ET` and lasts until the graphics
+/// state is restored. We build no such clip, so whatever is painted afterwards in the
+/// expectation of being cut to the glyph shapes covers its whole area instead.
+///
+/// The cost is not subtle, which is why this is reported rather than left to look right by
+/// luck: on `text_clip_cff_cid.pdf` the reference renderers show the word "ABC123" and we
+/// drew a solid blue bar over it — with `unsupported: []`. The reference-oracle gate found
+/// it; no metric we own could have.
+///
+/// Implementing the clip should make this test fail, and that is the right moment to
+/// revisit it.
+#[test]
+fn text_that_adds_to_the_clipping_path_is_reported() {
+    let Some(interpretation) = corpus_page_one("text_clip_cff_cid.pdf") else {
+        return;
+    };
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("text render mode 7"),
+        "a text object that clips must say so: {reported}"
+    );
+}
+
+/// An image's `/Mask` must be reported, because we do not apply one.
+///
+/// ISO 32000-2 §8.9.6.4 gives `/Mask` as a stencil mask stream and §8.9.6.5 as a colour-key
+/// range array; either makes part of the image transparent. We honour only `/SMask`, so the
+/// masked-out part is drawn. On `colorkeymask.pdf` that is a whole red band that all three
+/// reference renderers hide — drawn by us, with `unsupported: []`, until this landed.
+///
+/// Implementing either form should make this test fail, which is the right moment to
+/// revisit it.
+#[test]
+fn an_image_mask_we_do_not_apply_is_reported() {
+    let Some(interpretation) = corpus_page_one("colorkeymask.pdf") else {
+        return;
+    };
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("/Mask"),
+        "an image we draw through no mask must say so: {reported}"
+    );
+}
+
+/// Interprets page one of a corpus document, or `None` when the submodule is absent.
+///
+/// The corpus is optional, so a checkout without submodules reports being skipped rather
+/// than failing — the same rule `corpus.rs` follows.
+fn corpus_page_one(name: &str) -> Option<pdf_model::Interpretation> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs")
+        .join(name);
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return None;
+    };
+    let document = Document::open(bytes).expect("valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    Some(pdf_model::interpret(&document, &page))
 }
 
 /// Renders real pages to PNGs for visual inspection.

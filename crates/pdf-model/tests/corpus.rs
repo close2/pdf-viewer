@@ -75,27 +75,39 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 281, and *not* a defect count — it is the honest-reporting requirement working. The
-/// breakdown, which is the useful part:
+/// 291, and *not* a defect count — it is the honest-reporting requirement working. The
+/// breakdown, by each document's first report, which is the useful part:
 ///
 /// | reported | count | why |
 /// |---|---|---|
-/// | `Image` | 152 | JBIG2 and JPX, deliberately blocked on the sandbox |
+/// | `Image` | 157 | JBIG2 and JPX, deliberately blocked on the sandbox; five `/Mask` |
 /// | `Text` | 73 | mostly CID encodings and embedded `CMap`s |
 /// | `Shading` | 26 | soft masks in `/ExtGState`, which is transparency rather than shading |
-/// | `Operator` | 19 | transparency groups |
+/// | `Operator` | 24 | transparency groups, and text render modes |
 /// | `Content` | 10 | a `/Contents` stream that did not decode |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
 ///
-/// This number went *up* by ten when content-stream decoding started reporting, and that
-/// rise was the point. Nine of the ten are encrypted documents whose content stream is
-/// unreadable without decryption, and they had been rendering as blank pages returning
-/// `unsupported: []` — a wrong page indistinguishable from a sparse one. The tenth is
-/// `bomb_giant.pdf`, refusing a decompression bomb, which is the design working.
+/// This number has gone *up* three times, and every rise was the point.
+///
+/// Ten, when content-stream decoding started reporting. Nine of those are encrypted
+/// documents whose content stream is unreadable without decryption, and they had been
+/// rendering as blank pages returning `unsupported: []` — a wrong page indistinguishable
+/// from a sparse one. The tenth is `bomb_giant.pdf`, refusing a decompression bomb.
+///
+/// Five, when text render modes 4 to 7 started reporting. Those modes add the glyphs to
+/// the clipping path (ISO 32000-2 §9.3.6), which we do not build, so a rectangle painted
+/// afterwards to be seen only through the letters covers its whole area instead. The
+/// reference-oracle gate found two of these drawing a solid bar over the text while
+/// claiming to be complete; see `oracle.rs`.
+///
+/// Five more, when an image's `/Mask` started reporting. A stencil mask or a colour-key
+/// range makes part of an image transparent (§8.9.6.4 and §8.9.6.5) and neither is applied,
+/// so `colorkeymask.pdf` drew a band all three references correctly hide. Found the same
+/// way.
 ///
 /// Ratcheted downward otherwise: this falls as features land, and a rise that is not a new
 /// *report* means something that used to draw no longer does.
-const MAX_INCOMPLETE: usize = 281;
+const MAX_INCOMPLETE: usize = 291;
 
 /// How long one document may take before it counts as a failure.
 ///
