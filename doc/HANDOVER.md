@@ -1,63 +1,62 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-27 at the end of the fifth working session. Read
+Written 2026-07-26, updated 2026-07-27 at the end of the sixth working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles and they are not optional.
 **Principle 5 is the one that changes how to work**: the specification is the only source of
 truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it right, never
 the definition of right. This file is the state of play, the traps, and what to do next.
 
-## What the fifth session changed, in one paragraph
+## What the sixth session changed, in one paragraph
 
-The reference oracle now runs over the corpus, which the previous handover named as the
-single most valuable unused thing in the tree. `crates/pdf-model/tests/oracle.rs` renders
-**every page of all 974 corpus documents**, plus page one of the 14 specification PDFs —
-1794 pages — with our renderer and with poppler, mupdf and ghostscript, and applies the
-triangulation rule to all four, in **125 seconds**. An ordinary gate, not a nightly job.
-Our deviation is bounded by *twice the references' own disagreement on that page* rather
-than by a fixed number, because no fixed number can serve both a page of flat
-fills and a page of small text; ADR 0011 has the argument. It found four things immediately,
-three of them silent: the harness had been comparing against the wrong page box, which put
-54 documents beyond comparison; text render modes 4 to 7 do not build the clip they promise,
-so `text_clip_cff_cid.pdf` drew a solid bar where the references draw a word; an image's
-`/Mask` was ignored outright, so `colorkeymask.pdf` drew a band the references correctly
-hide; and `/UserUnit` is neither applied nor reported. The page box is fixed. The other
-three are now *reported* rather than silently wrong, and each has a test that will fail when
-it is implemented. **174 pages we claim to draw completely are contradicted by two
-independent renderers**, every one of them named in the gate, and that list is the work.
+The previous session built the oracle and it named 174 pages we claimed to draw that two
+independent renderers contradicted. This session worked that list, and **it is down to 120**.
+Two things did it. **`CalGray` and `CalRGB` are now converted through CIE XYZ** as §8.6.5.2
+and §8.6.5.3 define them, instead of being passed through as their device equivalents: with
+`/Gamma 1.0`, `A = 0.35` was rendering as 89 of 255 where all three references give 160 — a
+mid grey drawn as a near-black, on every page anywhere using either space. And **annotation
+appearance streams are drawn**, which was the largest single group in the contradicted list
+and had been entirely absent: 148 of 988 first pages carry a visible annotation with an
+`/AP`, and none of them was drawn *or reported*. That group loses 45 of its 47 entries. The
+two that stayed turned out never to have been about annotations — they are a one-pixel raster
+rounding difference on a small fractional page — which is exactly what the previous handover
+said their staying would mean. Along the way the XYZ-to-sRGB matrix, which lived in two
+places, became one; and the corpus's incomplete count rose from 291 to 368, every bit of it
+new reporting, for the first time *because a feature landed*.
 
 ## Where we are
 
 A PDF **renderer** that opens real files and draws pages: geometry, colour, images,
-shadings, patterns and embedded text, on both a CPU and a GPU backend. It is not yet a PDF
-*viewer* in the full sense — no annotations, forms, encryption or transparency groups — and
-the gap between those two words is measured further down rather than guessed at.
+shadings, patterns, embedded text and annotation appearances, on both a CPU and a GPU
+backend. It is not yet a PDF *viewer* in the full sense — no forms, encryption or
+transparency groups — and the gap between those two words is measured further down rather
+than guessed at.
 
-- **195 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **214 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks (verified, not assumed).
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and
   101 318 objects — all parse, all render page one with only a soft mask reported on three
   of them, and all extract **100% of the words `pdftotext` finds**.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open, 955 reach page
-  one, **664 draw with nothing reported at all**, and everything the other 291 cannot draw
-  is named. The counts are ratcheted and can only go down. 1501 of 1501 PDF functions
-  parse; **all 1793 shadings build**, mesh types included. The whole gate runs in **19 s**
-  and has **no named slow document left**.
+  one, **587 draw with nothing reported at all**, and everything the other 368 cannot draw
+  is named. The counts are ratcheted. 1501 of 1501 PDF functions parse; **all 1793 shadings
+  build**, mesh types included. The whole gate runs in **15 s** and has **no named slow
+  document left**.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against
   poppler, mupdf and ghostscript over **1794 pages** — every page of the corpus, plus page
-  one of each specification PDF — in 125 s. Of the 1424 pages we claim to draw completely,
-  **548 agree with the reference consensus, 174 are contradicted by it and 691 are pages the
-  references cannot agree on among themselves**. The 174 are named, grouped and ratcheted in
+  one of each specification PDF — in 75 s. Of the 1340 pages we claim to draw completely,
+  **555 agree with the reference consensus, 120 are contradicted by it and 654 are pages the
+  references cannot agree on among themselves**. The 120 are named, grouped and ratcheted in
   both directions. ADR 0011.
-- Our render of the `basic` fixture agrees with poppler, mupdf and ghostscript, and is
-  byte-identical to mupdf — corroboration that we read the specification right, not a
-  target (principle 5).
 - **Colour resolves from the document.** `ICCBased` profiles are evaluated by an A2B
-  evaluator written here, `/DefaultCMYK` and output intents are honoured, and there is
-  exactly one `DeviceCMYK` conversion instead of the three that used to disagree. ADR 0009.
+  evaluator written here, `CalGray`/`CalRGB`/`Lab` are converted through XYZ, `/DefaultCMYK`
+  and output intents are honoured, and there is exactly one route from XYZ to a pixel and
+  exactly one `DeviceCMYK` conversion. ADRs 0009 and 0012.
+- **Annotations draw.** `/AP /N` is placed by §12.5.5's algorithm and run by the same
+  machinery as any other form XObject; nothing is synthesised, and an annotation with no
+  appearance is reported. ADR 0013.
 - Both backends draw everything the display list can express, and agree on it: **eight**
-  headless GPU scenes hold `tiny-skia` and Vello to the same pixels. Two of those eight are
-  new, and exist because the other six could not have caught the paint-space defect in
-  trap 2 — they all ran at one scale, along one axis.
+  headless GPU scenes hold `tiny-skia` and Vello to the same pixels, at more than one scale
+  and along both axes — see trap 2 for why that matters.
 
 ### Run it
 
@@ -74,8 +73,8 @@ quits. The title bar names anything on the page that could not be drawn.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent
 cargo test --workspace
-cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~19 s
-cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 1794 pages vs 3 renderers, ~125 s
+cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~15 s
+cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 1794 pages vs 3 renderers, ~75 s
 cargo bench -p pdf-model                   # interpretation, the time-to-first-page path
 cargo deny check
 cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
@@ -87,7 +86,7 @@ cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document` | Touches untrusted bytes first |
-| `pdf-model` | Page tree, content interpreter, image decode | Where PDF semantics live |
+| `pdf-model` | Page tree, content interpreter, annotations, image decode | Where PDF semantics live |
 | `pdf-font` | Glyph outlines via `skrifa` | `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path |
@@ -116,8 +115,14 @@ render the corpus pages and **look at them**. There is a test that writes the PN
 `cargo test -p pdf-model --test render_real_pdf -- --nocapture writes_inspectable`.
 It covers both CFF routes, because no metric distinguishes them.
 
-Since that warning was written, two automated checks have been added that *do* catch a
-wrong mapping, both in `crates/pdf-font/src/lib.rs`:
+**This is still live, and there is a named example.** `issue20504.pdf` sets six scripts in
+six embedded subset fonts, and we draw `!"#$` — the raw character codes through a
+substitute — for all of them while reporting nothing. One of its fonts writes
+`/Differences [33 /gid2436 /gid1620 …]`, a subsetter's convention for naming a glyph by
+index that §9.6.5 does not define, and an unrecognised name is falling back to the standard
+encoding rather than to no glyph. The oracle found it; no metric we own can.
+
+Two automated checks *do* catch a wrong mapping, both in `crates/pdf-font/src/lib.rs`:
 
 - `the_pdf_widths_agree_with_the_font_programs_own_advances` — the document's `/Widths`
   and the CFF charstring's own advance are independent statements of the same fact, so
@@ -128,13 +133,13 @@ wrong mapping, both in `crates/pdf-font/src/lib.rs`:
 
 Both were confirmed to fail when the defects they describe are deliberately reintroduced.
 They are complementary: an off-by-one charset trips only the first, a reinstated
-fall-through only the second. Neither replaces looking at the page.
+fall-through only the second. Neither replaces looking at the page, and neither caught
+`issue20504.pdf`.
 
-There is now a third check, and it is the first one that looks at *pixels*: the corpus
-oracle compares our page against three renderers that share no code with us. It cannot be
-fooled by a font that loads and draws the wrong glyphs — that is a large structural
-difference and it fails the structural-similarity bound. What it cannot do is tell you
-*which* of a page's differences matters, so it still does not replace looking.
+The third check is the first that looks at *pixels*: the corpus oracle compares our page
+against three renderers that share no code with us. It cannot be fooled by a font that loads
+and draws the wrong glyphs. What it cannot do is tell you *which* of a page's differences
+matters, so it still does not replace looking.
 
 ### 2. A paint is positioned in the *path's* space, not the device's
 
@@ -169,6 +174,11 @@ pin values against ISO 32000-2 §8.7.4.5.3 and §8.9.5.2 **at three scales**, an
 defect; that is why every case runs at more than one. All were confirmed to fail when the
 defects are reintroduced.
 
+The same reasoning shaped this session's annotation tests: §12.5.5's placement algorithm is
+correct for any axis-aligned `/Matrix` even if you measure the *untransformed* `/BBox`, so
+the fixtures use a rotation and a non-square `/Rect`. A square rectangle cannot tell the two
+axes' scales apart.
+
 ### 3. An oracle is only as good as how it invokes the other renderers
 
 The corpus oracle's first run reported 54 documents whose page *size* we disagreed about,
@@ -200,6 +210,8 @@ it; the corpus caught it on the first run.
 `crates/pdf-model/tests/render_real_pdf.rs` run over everything in `doc/`. Keep them
 passing.
 
+The converse is trap 8: a corpus cannot find what no document in it happens to contain.
+
 ### 5. Unsupported input must stay loud
 
 Every layer reports what it could not handle rather than skipping it: `Unsupported` in the
@@ -207,18 +219,24 @@ interpreter, `FontError`, `ImageError`, `CpuRasterError::UnsupportedCommand`. Th
 politeness — it is what makes the comparison harness trustworthy and what caught trap 1.
 Do not "helpfully" fall back to a default that renders something plausible.
 
-The oracle found two places where this rule had been broken by omission rather than by
-intent, and both were drawing something visibly wrong in silence: text render modes 4 to 7
-add the glyphs to the clipping path and we built no clip, so a rectangle meant to be seen
-only through the letters covered its whole area; and an image's `/Mask` was ignored, so a
-band the document masks out was painted. Both now report, which moved ten documents from
-"complete" to "incomplete" in the corpus gate. **A rise in that count is not a regression
-when it is a new report** — it is this rule being applied to somewhere it had not been.
+The oracle found three places where this rule had been broken by omission rather than by
+intent, and all three were drawing something visibly wrong in silence: text render modes 4
+to 7 add the glyphs to the clipping path and we built no clip; an image's `/Mask` was
+ignored, so a band the document masks out was painted; and a page's annotations were absent
+entirely. **A rise in the incomplete count is not a regression when it is a new report** —
+it is this rule being applied to somewhere it had not been.
 
 The lesson generalises: a feature that is *partly* implemented is the easiest place to lose
 this rule, because the operator is handled and the code path exists. `Tr` was parsed, the
 mode was stored, three of its eight values were reported, and the four that change the clip
 were not.
+
+There is now one place where a report accompanies drawing rather than replacing it, and it
+is deliberate. An `/AcroForm` setting `/NeedAppearances` is the document saying its stored
+appearance streams are not the ones to draw (§12.7.4.3); we draw them anyway, because they
+are all the file offers, and report that they may be stale. Two different true statements,
+and suppressing either loses information. Do not generalise it further without the same
+argument.
 
 ### 6. Colour: one conversion, and the specification often does not have an answer
 
@@ -228,7 +246,11 @@ image gave a third answer. Nothing about a rendered page reveals that — each l
 plausible colour. `crates/pdf-model/tests/colour_paths.rs` now drives one value through all
 three routes and demands they agree; it was verified to fail when the old code is restored.
 
-Add no fourth path. `ColourSpace::to_rgb` is the only place a colour becomes RGB.
+Add no fourth path. `ColourSpace::to_rgb` is the only place a colour becomes RGB, and — since
+this session — `colour::xyz_d50_to_srgb` is the only place an XYZ becomes a pixel. That
+second rule was added because the *same* defect had quietly recurred one level down: `lab()`
+and `icc::xyz_to_rgb` each held their own copy of the nine-constant D50-to-sRGB matrix.
+Nothing had gone wrong yet. It is one edit away from going wrong invisibly.
 
 The other half is harder to hold onto: **ISO 32000-2 defines no `DeviceCMYK` conversion at
 all**. §8.6.4.4 says "concentrations of process colourants" and stops; §8.6.5.7 NOTE 3 says
@@ -238,11 +260,33 @@ and an `ICCBased` profile — and all three are implemented and all three outran
 fallback table. When you touch that table, do not reach for what another renderer produces:
 read ADR 0009, and if you change it, change it as a documented choice.
 
+The same shape recurs for a Cal space's `/BlackPoint`: §8.6.5.9 leaves black point
+compensation to the processor whenever `/UseBlackPtComp` is `Default`, which is every real
+document. It is read and deliberately not applied, and ADR 0012 has the argument — including
+the part that decided it, which is that a stretch built from the entry is *undefined* on
+input Table 63 permits.
+
 ### 7. `#[expect]`, never `#[allow]`
 
 Every lint exception in the tree is `#[expect(..., reason = "...")]`. It errors when it
 stops being necessary, which has already removed several stale ones. A bare `allow` hides
 that forever.
+
+### 8. A corpus finds what documents contain, not what the specification says
+
+Added this session, because it is the mirror of trap 4 and the two are easy to confuse.
+
+The ICC evaluator agreed with two other readers on every real profile in the corpus. A test
+that assembled a profile *by hand*, to check one clause of the ICC encoding, produced a
+profile whose darkest colour equalled its white point — and black point compensation divided
+by a span of floating-point noise and turned white into pure green. No real profile is shaped
+that way.
+
+The same thing happened again this session, from the other direction: `calrgb.pdf` page 14
+states `BlackPoint [0.2 1.0 1.7]` against `WhitePoint [1 1 1]`, which Table 63 permits and
+which no sane producer writes. It is what proved that the black point stretch has no
+well-defined answer at all. **The corpus is not a specification, and a clause nothing in it
+exercises is still a clause.** Synthetic fixtures and real corpora catch different things.
 
 ## Environment
 
@@ -271,27 +315,25 @@ makes the corpus numbers below trustworthy, and it is principle 3's requirement,
 nicety. Sized by the corpus rather than by intuition: the count is how many of the 974
 documents' first pages it affects.
 
-Three rows are new, and all three were found by the oracle rather than by reading the
-specification for gaps: they were features we had *partly* implemented, so nothing reported
-them and nothing looked wrong until another renderer disagreed.
-
 | Missing | Corpus | Size | Notes |
 |---|---|---|---|
 | JBIG2, JPX | 152 | — | **Blocked on the sandbox, deliberately.** Both are historically severe attack surface; see principle 3. |
-| Text: CID encodings, embedded `CMap`s | 73 | Medium | The breakdown from the gate's own output: 27 fonts with no `/ToUnicode` so a substitute cannot be addressed, 25 with a non-identity `/CIDToGIDMap`, 14 with an embedded `CMap` stream, 3 with a predefined `CMap` (`90ms-RKSJ-H`). Only the last needs vendored data, which is a licensing decision rather than a coding one. |
+| Text: CID encodings, embedded `CMap`s | 76 | Medium | The breakdown from the gate's own output: 27 fonts with no `/ToUnicode` so a substitute cannot be addressed, 25 with a non-identity `/CIDToGIDMap`, 14 with an embedded `CMap` stream, 3 with a predefined `CMap` (`90ms-RKSJ-H`). Only the last needs vendored data, which is a licensing decision rather than a coding one. |
+| Synthesised annotation appearances | 63 | Medium–large | An annotation with **no** `/AP` must be drawn from `/IC`, `/C`, `/BS`, `/Border` and its subtype's own rules — a different routine per subtype. 26 `Widget`, 18 `Link`, and the rest markup annotations. Reported, never guessed. ADR 0013. |
 | Transparency groups, soft masks | 45 | Large | 26 report as `Shading`, 19 as `Operator`. The largest *rendering* gap, and the last thing `doc/` reports. **Knockout groups (§11.4.5.6) are a silent subset**: `knockout_*.pdf` render as if the group were not a knockout, and nothing reports it. |
 | Encryption | 20 | Medium | RC4/AES, `/Encrypt`. 11 documents cannot reach page one at all and 9 more draw a blank page. |
-| Optional content (`/OC`) | 5 | Small–medium | 33 documents carry `/OCProperties`, 8 hide something by default, and **5 draw hidden content on page one**; the oracle contradicts 4 of them. `BDC` is parsed and ignored and `/OC` on an XObject is never read, so a hidden layer **is drawn anyway** and *nothing is reported*. `issue12007_reduced.pdf` draws a whole hidden screenshot over a page the references leave nearly blank. |
+| Form field appearance construction | 7 | Medium | `/NeedAppearances` (§12.7.4.3). The field's value is known only at viewing time, so its appearance has to be built from `/V`, `/DA` and `/Q`. The stored appearance is drawn and the staleness reported. |
+| Optional content (`/OC`) | 5 | Small–medium | 33 documents carry `/OCProperties`, 8 hide something by default, and **5 draw hidden content on page one**; the oracle contradicts 3 of them. `BDC` is parsed and ignored and `/OC` on an XObject is never read, so a hidden layer **is drawn anyway** and *nothing is reported*. `issue12007_reduced.pdf` draws a whole hidden screenshot over a page the references leave nearly blank. |
 | `LZWDecode` | 3 | Small | The one standard filter absent. A test pins the report and will fail when it lands. |
 | Text clipping modes (`Tr` 4–7) | 5 | Medium | Modes 4 to 7 add the glyphs to the clipping path, which takes effect at `ET` and lasts until the state is restored (§9.3.6 Table 106, §9.4.1). We build no clip, so a rectangle painted afterwards to show through the letters covers its whole area — `text_clip_cff_cid.pdf` drew a solid bar over the word. Now reported; a test pins that and will fail when the clip lands. Implementing it means accumulating the glyph outlines of a text object into one clip path. |
 | Image `/Mask` | 5 | Medium | Stencil mask stream (§8.9.6.4) and colour-key range array (§8.9.6.5). Only `/SMask` is honoured, so the masked-out part is drawn — `colorkeymask.pdf` painted a band all three references hide. Now reported, with a test. The colour-key form must be applied to the *source* samples, before colour conversion, which is why it is not a two-line change. |
 | `/UserUnit` | 2 | Small | §7.7.3.3: the size of a default user-space unit in multiples of 1/72 inch. `mutool` and `gs` scale the page by it, we and `poppler` do not — `bug1947248_*.pdf` come out at 612x792 where they produce 1836x2376. Neither applied nor reported; the oracle lists them under `GEOMETRY`. |
+| Annotation `NoZoom`, `NoRotate` | — | Small | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. Rare. |
 | Type1 fonts (`/FontFile`) | 0 | Medium | No corpus page one reaches it, so this is smaller than it looks. `read_fonts::ps::type1` exists — check before writing any. |
 | Type3 fonts | 23 documents carry one | Medium | Needs `d0`/`d1` and `/CharProcs` interpretation. |
 | Sampled shadings on the GPU | 2 | Small | Type 1 only; the CPU backend draws them. |
 | Rendering intents beyond `AbsoluteColorimetric` | — | Small | Read and recorded; `A2B0` is not yet selected for `Perceptual`. |
-| Annotation appearances | 148 | Medium | **148 of 988 first pages carry a visible annotation with an `/AP`, and none is drawn or reported. The oracle contradicts 47 pages carrying one**, which is the measured visual cost rather than the count of pages at risk. An appearance is a form XObject and the interpreter already runs those, so drawing them is §12.5.5 plus a pass over `/Annots` — see "What to do next". 244 first pages carry `/Annots`; the other 96 carry only hidden, `Popup`/`Link`, or appearance-less annotations. Synthesising a missing appearance is a separate and much larger job. |
-| Forms, actions, the rest of clause 12 | — | Large | Interactivity: field values, calculation order, JavaScript, navigation. Not needed to *draw* an annotation. |
+| Forms, actions, the rest of clause 12 | — | Large | Interactivity: field values, calculation order, JavaScript, navigation. Not needed to *draw* an annotation, which is why drawing landed without any of it. |
 | Tagged PDF, metadata | — | Large | Clause 14 beyond output intents. |
 | Sandbox (Spike D) | — | Medium | seccomp-BPF + Landlock. Blocks JBIG2/JPX. |
 
@@ -310,45 +352,42 @@ Over the 974-document pdf.js corpus, page one:
 |---|---|---|
 | opens | 974 | 100% |
 | reaches page one | 955 | 98% |
-| **draws with nothing reported** | **664** | **68%** |
-| draws, with something reported | 291 | 30% |
+| **draws with nothing reported** | **587** | **60%** |
+| draws, with something reported | 368 | 38% |
 
-That 68% is the number to quote for *reporting*. Everything in the 30% is named — see the
-ratchet table below — and the largest single cause is JBIG2 and JPX, which are deliberately
-deferred to the sandbox rather than merely unwritten. It was 674 until this session, and
-fell because ten documents started reporting something they had been drawing wrongly in
-silence: a rise in the incomplete count that is a *new report* is the tree becoming more
-honest, not less capable.
+That 60% is the number to quote for *reporting*, and it went **down** this session, from
+68%. Read that carefully, because it is the opposite of what it looks like: 148 first pages
+gained an annotation that had been missing entirely, and 63 documents started saying that an
+annotation has no appearance for us to draw. Nothing stopped drawing. What changed is that a
+class of absence which used to be invisible is now counted. **This number measures honesty,
+and honesty can fall as capability rises.**
 
 ### By what an independent renderer sees
 
-This is the number that was missing until this session, and it is the one to worry about.
-Over all 1794 pages compared, of the 1424 we claim to draw completely:
+This is the number to worry about. Over all 1794 pages compared, of the 1340 we claim to
+draw completely:
 
-| | count | share of the 1424 |
+| | count | share of the 1340 |
 |---|---|---|
-| agree with the reference consensus | 548 | 38% |
-| **contradicted by it** | **174** | **12%** |
-| the references cannot agree among themselves | 691 | 49% |
+| agree with the reference consensus | 555 | 41% |
+| **contradicted by it** | **120** | **9%** |
+| the references cannot agree among themselves | 654 | 49% |
 | not comparable (geometry, or fewer than two renderers) | 11 | 1% |
 
-**One page in eight that we say we drew completely, two independent implementations say we
-did not.** The 174 are named in `oracle.rs` and grouped by what the page carries: 47 have an
-annotation appearance we do not draw, 4 hide optional content we ignore, 40 use a font
-nobody embeds so every renderer substitutes differently — and **83 have nothing on them to
-explain it**. That last group is the most valuable list in the repository. 31 of the 174 are
-pages beyond the first, which a page-one comparison would never have seen.
+**One page in eleven that we say we drew completely, two independent implementations say we
+did not** — down from one in eight. The 120 are named in `oracle.rs` and grouped by what the
+page carries: 32 use a font nobody embeds so every renderer substitutes differently, 4 are a
+one-pixel page-rounding difference, 3 hide optional content we ignore, and **81 have nothing
+on them to explain it**. That last group is the most valuable list in the repository. 21 of
+the 120 are pages beyond the first, which a page-one comparison would never have seen.
 
 **Read the 49% ambiguous with care.** It is not "half the corpus is unsettled": 370 of those
-691 pages are two long books, `freeculture.pdf` (352 pages) and `pdkids.pdf`, whose text uses
+654 pages are two long books, `freeculture.pdf` (352 pages) and `pdkids.pdf`, whose text uses
 fonts nobody embedded, so each renderer substitutes a different one and the structural bound
-separates them. Over first pages alone the ambiguous share is 21%. Ambiguity concentrated in
-a handful of documents says more about those documents than about the gate.
+separates them. Ambiguity concentrated in a handful of documents says more about those
+documents than about the gate.
 
-**So read the 664 as "reported nothing", not "drew it right".** The previous session found
-two defects that misdrew a gradient and an image on pages inside that count, in silence —
-trap 2 — and this session's gate is what makes the difference between the two numbers
-visible instead of theoretical.
+**So read the 587 as "reported nothing", not "drew it right".**
 
 ### By clause
 
@@ -360,11 +399,11 @@ judgement about state, not an arithmetic result.
 | Clause | Subclauses | State |
 |---|---|---|
 | 7 Syntax | 138 | **Nearly complete.** Objects, all filters but `LZWDecode`, classic and stream xrefs, object streams, incremental updates, recovery by scanning. **Encryption is absent** and is the largest hole here. |
-| 8 Graphics | 128 | **Nearly complete.** Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, ICC colour management. Optional content (`/OC`) is not honoured, so hidden layers draw on 5 corpus first pages; an image's `/Mask` is not applied; and `CalGray`/`CalRGB` come out too dark against all three references. |
+| 8 Graphics | 128 | **Nearly complete.** Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, ICC colour management. Optional content (`/OC`) is not honoured, so hidden layers draw on 5 corpus first pages; an image's `/Mask` is not applied. |
 | 9 Text | 65 | **Partial.** Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`. Missing: bare Type1 (`/FontFile`), Type3 fonts, embedded `CMap` streams, predefined `CMap`s, and the clipping text render modes (§9.3.6 modes 4–7). |
 | 10 Rendering | 36 | **Partial, and much of it is not applicable.** Colour management and rendering intents are done. Halftones, transfer functions, flatness and smoothness describe a marking device rather than a screen. |
 | 11 Transparency | 58 | **Minimal.** All sixteen blend modes are implemented and reach both backends. Transparency groups, soft masks, knockout and isolation are not — this is the largest *rendering* gap. |
-| 12 Interactive features | 166 | **None.** No annotations, forms, actions or navigation — and annotation *appearances* are the largest unreported gap in the tree, on 148 of 988 first pages. |
+| 12 Interactive features | 166 | **Appearances only.** Annotations are placed and drawn from `/AP` (§12.5.5), with the visibility flags of §12.5.3 honoured. Nothing is synthesised, and no forms, actions or navigation exist. |
 | 13 Multimedia | 81 | **None**, and unlikely to be a priority. |
 | 14 Document interchange | 152 | **Output intents only.** No tagged PDF, no metadata, no marked-content semantics — `BDC`/`EMC` are parsed and ignored. |
 
@@ -377,161 +416,91 @@ done; the parts that make a document *interactive* are not started.
 |---|---|
 | Content-stream operators | **71 of 73** in Table 50 (`ID`/`EI` are consumed inside the `BI` handler rather than as arms). The two genuinely missing are `d0` and `d1`, which exist only inside Type 3 fonts. `BMC`/`BDC`/`EMC`/`MP`/`DP`/`BX`/`EX`/`i` are matched and deliberately ignored — correct for all but `BDC` with `/OC`. |
 | Filters | **7 of 8** standard filters decode: `ASCIIHex`, `ASCII85`, `Flate`, `RunLength`, `Crypt` (pass-through), plus `DCTDecode` for images. `LZWDecode` is **absent** (3 corpus documents). `CCITTFax`, `JBIG2` and `JPX` are reported, not decoded. |
-| Colour spaces | **11 of 11** families. |
+| Colour spaces | **11 of 11** families, and the three CIE-based ones are converted rather than approximated. |
 | Function types | **4 of 4** (sampled, exponential, stitching, `PostScript` calculator). |
 | Shading types | **7 of 7**, on both backends. |
 | Pattern types | **2 of 2** (tiling and shading). |
 | Blend modes | **16 of 16**. |
 | Font programs | TrueType, CFF, CFF-in-OpenType, CID-keyed CFF. Bare Type1 and Type3 are reported. |
+| Annotation appearances | Placed and drawn; not synthesised where absent. |
 
 ## Done this session, and what it teaches
 
-**The oracle is wired to the corpus, and the corpus answered.** `oracle.rs`, ADR 0011, 125
-seconds for 1794 pages against three independent renderers. What it teaches is less about
-the harness than about how the previous four sessions' numbers should have been read:
+Two changes, and between them the contradicted count fell from 174 to 120.
 
-| | |
-|---|---|
-| pages we call complete | 1424 |
-| agreeing with the reference consensus | 548 |
-| **contradicted by it** | **174** |
-| ambiguous — the references disagree with each other | 691 |
+**`CalGray` and `CalRGB` through XYZ** (ADR 0012). Eight pages left the ratchet, and the
+XYZ-to-sRGB matrix went from two copies to one. What it teaches is about the *shape* of the
+old shortcut rather than the fix: treating a Cal space as its device equivalent is nearly
+correct when the document's `/Gamma` is about 2.2, because decoding by it and re-encoding for
+sRGB almost cancel — and §8.6.5.2's own EXAMPLE 2 is exactly that space, so most real
+documents are the case the shortcut gets right. **A shortcut that is correct on the common
+case is the hardest kind to notice**, because the pages that would reveal it are the rare
+ones and they report nothing either.
 
-**Self-reporting measures honesty, not correctness.** 68% of corpus first pages report
-nothing wrong; of the pages we call complete, 38% actually agree with two independent
-implementations, 12% are contradicted and the rest are pages the references cannot settle
-between themselves. Neither number is wrong and neither replaces the other — but only one of
-them was being quoted, and it was the flattering one.
+**Annotation appearance streams** (ADR 0013). 45 of the 47 contradicted pages in that group
+fixed, and the two that stayed were never about annotations — the previous handover predicted
+that reading. Three things it teaches:
 
-**Every page of the corpus, not every page of everything.** The pdf.js files are there
-because each broke a reader once, and a file reduced from a bug report does not reliably put
-the interesting page first — so all 1761 corpus pages are compared. The specification PDFs
-are the opposite: 1382 pages from 14 files, where page 500 exercises what page 499 did, so
-they stay at page one. Going from 988 pages to 1794 added 31 contradicted pages that a
-page-one comparison could never have seen, for 1.5× the wall clock. Checked before
-committing to it: all three references seek through the cross-reference table, so page 300
-of a 352-page book costs what page 1 does — the run is linear in pages, not quadratic.
+- **Drawing is separable from interactivity.** Clause 12 is 166 subclauses and reads like one
+  large thing. §12.5.5 alone — an appearance is a form XObject, place its `/BBox` on the
+  annotation's `/Rect` — bought the largest single reduction in the contradicted list, and
+  needed no field value, no action and no calculation order.
+- **A feature landing can *raise* the incomplete count**, and this is the first time it has.
+  Before this, an annotation with no appearance was indistinguishable from no annotation at
+  all: neither was drawn and neither was reported. Implementing the first made the second
+  visible. The rule that a rise which is a new report is honesty rather than regression still
+  holds; it just now also applies to features arriving, not only to gaps being confessed.
+- **The test that fails is the one you learn from.** An early version conflated "no `/AP` at
+  all" with "`/AS` names a state the dictionary omits". The first is a gap in this crate; the
+  second is how *every* unchecked check box is written, and §12.5.5 names displaying nothing
+  as the correct answer. A fixture written from the clause caught it; the corpus would have
+  buried it in 60-odd other reports.
 
-**Nine tenths of that wall clock is the external renderers** — 1596 s of processor time
-against our 149 s — which the gate now prints, because "where does this gate's time go" is
-otherwise answered by intuition. It is also the answer to whether caching reference renders
-would help: it would remove most of the run, and it is not done, because 125 s is affordable
-and a cache key that omits one variable — the crop-box flag, a renderer upgrade — compares
-against stale renders in silence. That is the same defect class this session just fixed, and
-it would be harder to see the second time.
-
-**Three of the four things the gate found on its first runs were in features we had already
-implemented.** Not missing subsystems — `Tr` was parsed and three of its eight modes
-reported, `/SMask` was honoured while `/Mask` beside it was not, `/CropBox` was read by us
-and asked of only one of the three references. A gap in something unimplemented announces
-itself; a gap inside something implemented does not, and no amount of reading the
-specification for "what have we not built" finds it. Comparing output does.
-
-**A tolerance measured on the thing being tolerated beats a tolerance chosen.** The bound
-here is twice the references' own disagreement *on that page*, which makes the same rule
-strict on a page of flat fills, where they agree to a worst tile of 0.4, and forgiving on a
-page of small text, where they differ by 26 among themselves. The evidence for preferring it
-is the previous session's spread sample rather than anything measured here: on those 95
-pages a fixed bound called 15 contradicted and the relative bound called 8, and the 7 it
-dropped were pages where the references simply disagreed with each other more than usual.
-The fixed-bound variant has not been run over the whole corpus, so the ratio at this scale
-is unmeasured.
-
-**A ratchet has two directions and both were confirmed.** Removing one name from the list
-fails the build with "newly contradicted"; adding one that no longer applies fails it with
-"no longer contradicted, delete the entry". Checked by doing both, not by reading the code.
+**Looking at four contradicted pages explained all four.** `bug1922766.pdf`,
+`bug1934157.pdf`, `bug1669097.pdf` and `issue19505.pdf` all have a fractional page box, and
+our raster is one pixel smaller than poppler's and mupdf's and exactly the same size as
+ghostscript's. On a 72-row page a one-row shift moves everything on it. Nothing in
+ISO 32000-2 says how a fractional page becomes an integer number of pixels. Five minutes of
+looking at side-by-sides has now explained every page it has been spent on — six last session,
+five this one — which is the strongest recommendation this file can make about how to spend
+the next hour.
 
 ## What to do next
 
-The oracle changed the ordering, which is what it was for. The previous list ranked work by
-what the corpus *reported*; this one ranks it by what an independent renderer *sees*, and
-the two disagree.
-
-The one-line version: **174 pages we claim to draw are contradicted, 83 of them for no
-reason visible on the page — start there, not with a feature list.**
+The one-line version: **120 pages we claim to draw are contradicted, 81 of them for no
+reason visible on the page — that list is still the work.**
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 83 pages carrying no undrawn annotation, no
-hidden optional content and no substituted font, so the difference is in something we
-believe we implement.
-
-Six pages were examined by opening their artefacts, and three of the six causes are still
-live in the lists (the other three became the reported gaps in item 3):
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 81 pages carrying no undrawn annotation, no hidden
+optional content and no substituted font, so the difference is in something we believe we
+implement. Three causes are identified and live:
 
 - **`knockout_*.pdf` are knockout transparency groups** (§11.4.5.6), where an object
   composites against the group's initial backdrop rather than against what is already there.
   `mutool` and `gs` show no blend where two rectangles overlap; we and `poppler` show it.
-  Unimplemented and, unlike soft masks, unreported. In this list.
+  Unimplemented and, unlike soft masks, unreported.
 - **`mesh_shading_empty.pdf` draws the same mesh displaced horizontally** — a placement
-  question, and the class of defect trap 2 is about. In this list.
-- **`calgray.pdf` and `calrgb.pdf` come out markedly darker than all three references** —
-  `A = 0.35` reads as near-black rather than mid grey. §8.6.5.2 and §8.6.5.3 define both
-  spaces in CIE terms, so the conversion ends in XYZ and the destination's encoding transfer
-  function still has to be applied; ours looks like linear luminance written straight into an
-  sRGB raster. This is a colour defect on *every* page using either space, and trap 6 governs
-  how to fix it: one conversion, and read ADR 0009 first. Filed under
-  `CONTRADICTED_SUBSTITUTED_FONT`, because the page happens to label its swatches with a
-  non-embedded font — which is the caution below, in one example.
+  question, and the class of defect trap 2 is about.
+- **`issue20504.pdf` draws six scripts as `!"#$`**, silently. See trap 1: an unrecognised
+  `/Differences` name (`/gid2436`, a subsetter convention §9.6.5 does not define) is falling
+  back to the standard encoding instead of to no glyph. This one is small, self-contained,
+  and pure trap 1 — a good first task.
 
-The other 81 are unexamined. Each one is a page where two implementations sharing no
-code agree and we differ by more than twice their own disagreement, with the artefacts
-already written: `<target>/tmp/oracle/<stem>/p<n>/` holds our render, each reference's, a
-side-by-side and a difference heatmap. **Look at the side-by-side first** — five minutes of
-looking has so far explained every page it was spent on.
+The other 78 are unexamined. Each is a page where two implementations sharing no code agree
+and we differ by more than twice their own disagreement, with the artefacts already written:
+`<target>/tmp/oracle/<stem>/p<n>/` holds our render, each reference's, a side-by-side and a
+difference heatmap. **Look at the side-by-side first.**
 
 Two cautions. A page may be contradicted for a reason other than the one its group names —
-`calgray.pdf` sits under substituted fonts and differs in its colour. And principle 5 is not
-suspended by a list: each entry is a question to take to the specification, and "make it
-match mupdf" is exactly the failure this project forbids.
+`calgray.pdf` sat under substituted fonts and differed in its colour, which is how the whole
+of ADR 0012 started. And principle 5 is not suspended by a list: each entry is a question to
+take to the specification, and "make it match mupdf" is exactly the failure this project
+forbids.
 
-### 2. Draw annotation appearance streams
+### 2. Honour optional content
 
-Still the largest single group, and now measured twice: **148 of 988 first pages carry a
-visible annotation with an `/AP`, and the oracle contradicts 47 pages that carry one.** The
-second number is the visual cost; the first is the exposure. Across those 47 pages: 131
-`Widget`, 24 `Ink`, 17 `FreeText`, 4 `Stamp`, one `Square`, one `Highlight`.
-
-It remains much smaller work than "implement clause 12", because *drawing* an annotation
-needs none of the interactivity:
-
-- An annotation's `/AP /N` is a **form XObject**, and `Interpreter::draw_xobject` already
-  runs those, with `/Matrix`, `/BBox` clipping and `/Resources`.
-- ISO 32000-2 §12.5.5 gives the whole of the placement: transform `/BBox` by `/Matrix`,
-  take the bounding box of the result, and map that onto the annotation's `/Rect`.
-- `/AS` selects a state when `/AP /N` is a sub-dictionary rather than a stream; `/F` bits 2
-  and 6 (Hidden, NoView) mean draw nothing.
-
-So it is a new pass over `/Annots` after the page content, feeding the interpreter that
-already exists. An annotation with no appearance should be **reported**, not synthesised —
-generating one from `/IC`, `/C`, `/BS` and the subtype's own rules is a separate and much
-larger job, and principle 3 says say so rather than guess.
-
-Landing it should delete `CONTRADICTED_ANNOTATIONS` from `oracle.rs`. If it does not, the
-remaining entries were never about annotations, and that is worth knowing too.
-
-### 3. The three silent gaps this session reported but did not fix
-
-Each is now loud, each has a test that will fail when it lands, and each is a page drawn
-visibly wrong today:
-
-- **Text clipping modes** (`Tr` 4–7, §9.3.6 Table 106 and §9.4.1). The glyphs of a text
-  object join the clipping path at `ET` and stay until the state is restored. Implementing it
-  means accumulating each shown glyph's outline, transformed into page space, and pushing one
-  `Clip` at `ET` — the display list's `Clip` already carries a path, a transform and a
-  parent, so nothing new is needed in `pdf-render`. 5 corpus first pages report it.
-- **Image `/Mask`**, stencil (§8.9.6.4) and colour-key (§8.9.6.5). The colour-key form must
-  be applied to the *source* samples before colour conversion, which is why it is not a
-  two-line change in `image.rs`. 8 corpus first pages report it; 5 of those had reported
-  nothing at all before, and the other 3 were already incomplete for another reason.
-- **`/UserUnit`** (§7.7.3.3), which scales the page. 2 corpus documents, and the only reason
-  it matters more than that count suggests is that getting a page's *size* wrong invalidates
-  every comparison on it.
-
-### 4. Honour optional content
-
-Unchanged in substance and now confirmed by the oracle, which contradicts 4 of the 5 pages
-that draw a hidden layer:
+The oracle contradicts 3 of the 5 pages that draw a hidden layer:
 
 | | count |
 |---|---|
@@ -547,12 +516,43 @@ skip `BDC /OC`". It needs `/OCGs` (one group or an array), the `/P` policy
 layers. `/VE` visibility expressions also occur in the corpus (`visibility_expressions.pdf`
 is named after them) and can be reported rather than implemented at first.
 
+It is now also cheap in a way it was not: the annotation pass established the pattern of a
+second walk over the page's own dictionary, and `/OC` on an annotation is one more place the
+same visibility question gets asked.
+
+### 3. The three silent gaps still open
+
+Each is loud, each has a test that will fail when it lands, and each is a page drawn visibly
+wrong today:
+
+- **Text clipping modes** (`Tr` 4–7, §9.3.6 Table 106 and §9.4.1). The glyphs of a text
+  object join the clipping path at `ET` and stay until the state is restored. Implementing it
+  means accumulating each shown glyph's outline, transformed into page space, and pushing one
+  `Clip` at `ET` — the display list's `Clip` already carries a path, a transform and a
+  parent, so nothing new is needed in `pdf-render`. 5 corpus first pages report it.
+- **Image `/Mask`**, stencil (§8.9.6.4) and colour-key (§8.9.6.5). The colour-key form must
+  be applied to the *source* samples before colour conversion, which is why it is not a
+  two-line change in `image.rs`. 5 corpus first pages report it.
+- **`/UserUnit`** (§7.7.3.3), which scales the page. 2 corpus documents, and the only reason
+  it matters more than that count suggests is that getting a page's *size* wrong invalidates
+  every comparison on it.
+
+### 4. Synthesised annotation appearances, if the corpus count is the argument
+
+63 documents carry an annotation with no `/AP`, which is now the third-largest reported gap.
+It is genuinely a different drawing routine per subtype and should not be started as one
+task. If it is taken, take it one subtype at a time in corpus order: `Widget` (26), `Link`
+(18, and its whole appearance is a border — §12.5.6.5 with §12.5.4), then the markup
+annotations. Each one that lands should be measured on the oracle rather than assumed to
+help, because a synthesised appearance is a *guess at what the producer meant* and the
+references guess differently.
+
 ### 5. Then, by what the corpus says real documents need
 
 **Soft masks and transparency groups** (45 documents, and the last thing `doc/` reports),
 **encryption** (20 documents — 11 cannot reach page one, 9 more draw a blank page and now
-say so), and **CID encodings** (73 documents; note that only 3 of those need the predefined
-`CMap` data with its licensing question — the other 70 need code). **Type1 fonts** are
+say so), and **CID encodings** (76 documents; note that only 3 of those need the predefined
+`CMap` data with its licensing question — the other 73 need code). **Type1 fonts** are
 smaller than they look: no corpus page one reaches one.
 
 All three announce themselves, which is why they sit below the items above: a gap that
@@ -560,7 +560,7 @@ reports is a gap you can measure and schedule, and a gap that does not is a gap 
 
 ### Speed, if it comes up again
 
-Re-measured after the change rather than assumed. `callgrind` over the whole of
+Re-measured two sessions ago and not since. `callgrind` over the whole of
 `bug1721218_reduced.pdf` at 612×792 — open, interpret and rasterise, 16.1 G instructions:
 
 | | share |
@@ -579,66 +579,67 @@ function is parsed and then sampled 256 times for every shading, and this page h
 them. Whether that is 3576 *distinct* functions or one function re-parsed 3576 times has
 not been checked, and it decides whether the fix is memoisation by object reference or
 something harder — check before designing. Neither item is urgent, since the page now opens
-in two thirds of a second, but both are measured, so the next person starts from a number
-rather than a guess.
+in two thirds of a second, but both are measured.
+
+One caution now that Cal spaces convert properly: `to_rgb_at` was 2.6% when `CalGray` was a
+pass-through. It now runs a Bradford adaptation and a matrix per colour, and per *sample*
+for a Cal-space image. Nothing in the corpus made the gate slower — it went from 19 s to
+15 s over the same documents — but the profile above predates the change and should not be
+quoted as if it did not.
 
 ### Reproducing the numbers in this section
 
-The oracle survey is no longer a throwaway: it is `oracle.rs`, it runs on demand, and its
-per-page lines are the evidence for every comparison count above.
+The oracle survey is `oracle.rs`, it runs on demand, and its per-page lines are the evidence
+for every comparison count above. The corpus counts come from `corpus.rs`.
 
-The *classification* counts still are throwaway, and deliberately so — scratch-quality
-diagnostics do not belong in a repository held to `clippy::pedantic`. All were a sixty-line
-`examples/classify.rs` run over the contradicted list and deleted afterwards, and each is
-worth rebuilding properly as part of the task it belongs to:
+The *classification* counts are throwaway, and deliberately so — scratch-quality diagnostics
+do not belong in a repository held to `clippy::pedantic`. Each is worth rebuilding properly
+as part of the task it belongs to:
 
-- **The annotation count** walks `page.dict["Annots"]`, skipping `Popup` and `Link`
-  subtypes and anything with `/F` bit 2 (Hidden) or bit 6 (NoView), and counts those with
-  an `/AP`.
 - **The optional-content count** reads `/OCProperties /D /OFF` from the catalog, then looks
   for those groups in page one's `/Properties` resources and on its XObjects' `/OC`. Follow
   OCMDs: the first version of this check looked only for direct group references, reported
   "0 reachable from page one" for `issue12007_reduced.pdf`, and was wrong — the page draws
-  a hidden layer through an OCMD. That mistake is why the scope note in item 4 exists.
-
-Two more were added and thrown away this session. **Whether a page's fonts are embedded**
-walks each `/Font` resource and its `/DescendantFonts` looking for `/FontFile`, `/FontFile2`
-or `/FontFile3` in the descriptor; it is what separates a page whose text we draw with a
-substitute — where a disagreement may be nobody's defect — from one where the document
-supplied the font and we should match. And **the page census** — 3143 pages across the 988
-documents, 869 of them single-page files, 1382 pages in the 14 specification PDFs — is
-`Pages::new(&document).len()` over the same file list, which is what settled the scope
-decision in ADR 0011.
+  a hidden layer through an OCMD.
+- **Whether a page's fonts are embedded** walks each `/Font` resource and its
+  `/DescendantFonts` looking for `/FontFile`, `/FontFile2` or `/FontFile3` in the descriptor.
+- **The annotation subtype breakdown** now comes free: the corpus gate prints the reported
+  detail per document, so `grep -o '"[A-Za-z]*: no appearance stream"' | sort | uniq -c`
+  over its output is the whole of it.
+- **The page census** — 3143 pages across the 988 documents, 869 of them single-page files,
+  1382 pages in the 14 specification PDFs — is `Pages::new(&document).len()` over the same
+  file list, which is what settled the scope decision in ADR 0011.
 
 ### What the corpus gate reports today
 
-Ratcheted in `crates/pdf-model/tests/corpus.rs`; the numbers only ever go down.
+Ratcheted in `crates/pdf-model/tests/corpus.rs`; the numbers only ever go down, except where
+a rise is a new report and is written down as one.
 
 | | count | |
 |---|---|---|
 | unopenable | 0 | and it should stay there |
 | no page one | 19 | 11 encrypted, 8 with unrecoverable page trees |
-| draws incompletely | 291 | 157 image (152 JBIG2/JPX, 5 `/Mask`), 73 text, 26 soft mask, 24 operator, 10 undecodable content stream, 1 bound reached |
-| slower than 30 s | 0 | `KNOWN_SLOW` is now empty, and the next document to cross the budget fails the gate |
+| draws incompletely | 368 | 161 image, 76 text, 68 annotation, 26 shading, 26 operator, 10 undecodable content stream, 1 bound reached |
+| slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 ### What the oracle gate reports today
 
 Ratcheted in `crates/pdf-model/tests/oracle.rs`, by name and in both directions.
 
-| of the 1424 pages we call complete | count | |
+| of the 1340 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 548 | |
-| **contradicted** | **174** | 47 annotation appearances, 4 optional content, 40 substituted fonts, **83 unexplained** |
-| ambiguous | 691 | the references disagree with each other; 370 of them are two long books set in fonts nobody embedded |
+| agree with the reference consensus | 555 | |
+| **contradicted** | **120** | 4 page rounding, 3 optional content, 32 substituted fonts, **81 unexplained** |
+| ambiguous | 654 | the references disagree with each other; 370 of them are two long books set in fonts nobody embedded |
 | our page geometry differs | 3 | 2 are `/UserUnit`, 1 unexamined |
-| not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
+| not comparable | 6 | fewer than two references produced an image, or they disagree on the page size |
 
-The 370 incomplete pages are compared and printed too, but cannot fail the gate: a page we
+The 454 incomplete pages are compared and printed too, but cannot fail the gate: a page we
 already say we cannot draw is expected to differ, and listing hundreds of them would drown
 the signal.
 
-**Where its time goes, measured and printed by the gate itself:** 1596 s of processor time
-in the three external renderers against 149 s in ours, for 125 s of wall clock on 24 cores.
+**Where its time goes, measured and printed by the gate itself:** 1033 s of processor time
+in the three external renderers against 125 s in ours, for 75 s of wall clock on 24 cores.
 Nine tenths of this gate is `pdftoppm`, `mutool` and `gs`, which is what to remember if it
 ever needs to be faster — and why a content-addressed cache of reference renders is the
 obvious lever, with the equally obvious risk that a cache key omitting one variable (the
@@ -661,9 +662,16 @@ must have it.
 subsystem in this tree reports — `LZWDecode`, JBIG2, encryption — because somebody wrote the
 report while deciding not to write the feature. The gaps that ship are the ones *inside*
 something implemented: `Tr` was parsed and three of its eight modes reported, `/SMask` was
-honoured while `/Mask` beside it was not. Reading the specification asking "what have we not
-built" cannot find those, because the answer is "nothing". Comparing output against another
-implementation can, and did, three times in one afternoon.
+honoured while `/Mask` beside it was not, `CalGray` was resolved and then converted as
+`DeviceGray`. Reading the specification asking "what have we not built" cannot find those,
+because the answer is "nothing". Comparing output against another implementation can, and
+has, five times now.
+
+**A shortcut that is right on the common case is worse than one that is wrong on all of
+them.** The Cal-space pass-through was nearly correct for `/Gamma 2.2`, which is what most
+documents write, and badly wrong otherwise. Nothing distinguishes the two populations at
+runtime, so nothing reported. Prefer the derivation even where the approximation looks close:
+"close on the files I tried" is not a property you can test for.
 
 **Ask the reference the same question you asked yourself.** Two of the three renderers were
 being asked for the media box while we rendered the crop box, which put 54 documents beyond
@@ -671,13 +679,13 @@ comparison and would have produced false failures on any page whose two boxes di
 origin. A comparison harness has its own defects, they look exactly like ours, and the way to
 tell them apart is to check the invocation against the clause before believing the verdict.
 
-**Look in `read-fonts` before writing font-format code.** The previous handover specified
+**Look in `read-fonts` before writing font-format code.** An earlier handover specified
 ~80 lines of CFF charset parsing plus two 256-entry tables, and all of it already existed
 in `read_fonts::ps`, which `skrifa` re-exports as `skrifa::raw`. See ADR 0006. The same
 module also holds `type1`, `charmap` and `agl` — `agl` is now enabled and carries the
 Adobe Glyph List, so nothing needs transcribing.
 
-**Profile before believing an explanation, even one whose arithmetic matches.** The last
+**Profile before believing an explanation, even one whose arithmetic matches.** An earlier
 handover attributed a 48-second page to page-sized clip masks and supported it with
 `3576 clips × 485 kB = 1.7 GB`, which is exactly what the process held. The arithmetic was
 right about the memory and silent about the time: `callgrind` put the masks at under 4% and
@@ -695,29 +703,25 @@ perf gates `CLAUDE.md` asks for — not yet wired up.
 **Two rasterisers disagreeing is information, not noise — and two agreeing is not proof.**
 The CPU-versus-GPU agreement test is what found that Vello needed the same mesh seam repair
 `tiny-skia` did, after a comment here had confidently claimed otherwise. Where the backends
-differ, one of them is wrong; sweeping a constant against that test is how its value was
-chosen. The other half of the rule was learned the hard way this session: both backends
-positioned paints in the wrong space, in the same way, for the same reason — the two
+differ, one of them is wrong. The other half of the rule was learned the hard way: both
+backends positioned paints in the wrong space, in the same way, for the same reason — the two
 libraries share the convention that was misread — so they agreed with each other perfectly
 while both were wrong. **Agreement is evidence only where the implementations can fail
-independently.** When two things share a dependency, a convention or an author's
-assumption, they are not independent, and only a value derived from the specification will
-say so.
+independently.**
 
-**Survey the corpus before designing.** The shading work started with a survey of what
-`ShadingType`, `FunctionType` and `PatternType` values actually occur across 974 documents.
-It showed axial shadings outnumbering every mesh type sixty to one, and tiling patterns
-outnumbering all meshes combined — which set the order of work and would not have been
-guessed. `cargo run --release -p pdf-model --example survey` is gone, but it was twenty
-lines over `document.xref().object_numbers()`.
+**Two copies of a constant is one defect waiting.** Three `DeviceCMYK` conversions disagreed
+and nothing looked wrong. When that was fixed, the same shape survived one level down: the
+nine-constant D50-to-sRGB matrix sat in `colour.rs` and in `icc.rs`. Nothing had gone wrong
+yet, which is exactly the condition under which it is cheap to fix. It is now one function
+with a test that recomputes all nine numbers from the two published matrices they were folded
+from — so a folded constant, which is otherwise unreadable and unfalsifiable, has a
+derivation attached.
 
 **A test written to isolate one rule finds what a corpus cannot.** The ICC evaluator agreed
 with two other readers on every real profile in the corpus. Writing a test that assembles a
-profile *by hand* — to check that the `u1Fixed15` PCS encoding is decoded as the ICC format
-specifies — produced a profile whose darkest colour equals its white point, and black point
+profile *by hand* produced one whose darkest colour equals its white point, and black point
 compensation divided by a span of floating-point noise and turned white into pure green. No
-real profile is shaped that way, so no amount of corpus agreement would have surfaced it.
-Synthetic fixtures and real corpora catch different things; neither replaces the other.
+real profile is shaped that way. See trap 8, which is now the general form of this.
 
 **Measure before optimising, and delete what does not measure.** `glyph_for` builds a
 `FontRef` per character, which looks like an obvious cache. Caching it changed a dense page
@@ -733,12 +737,17 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
   side-by-side strip and a difference heatmap per reference. Open the side-by-side first: it
   is one image, four panels, ours leftmost, and it has explained every page it was pointed at
   so far — a solid bar where a word should be, a band that should have been masked out, grey
-  swatches at the wrong lightness. Pages that agree have theirs deleted, so what is on disk
-  is exactly the set worth looking at — 570 MB of it.
+  swatches at the wrong lightness, a page one pixel short. Pages that agree have theirs
+  deleted, so what is on disk is exactly the set worth looking at.
+- **A page's tolerance class depends on what *we* drew.** The oracle picks a text tolerance
+  or a vector one from our own render's content, so a change that adds text to a page also
+  loosens its bound — and can move it from "ambiguous" to "judged". Four pages crossed that
+  line this session when annotations started drawing, and all four had *improved*. When a
+  page appears in the newly-contradicted list, check whether its bound changed before
+  concluding the render got worse.
 - **Reference renderers are given 30 seconds and then killed.** A corpus holds files written
   to make a reader loop, and `Command::output` waits forever. `Reference::render_within` polls
   and kills; there is deliberately no unbounded variant.
-
 - **`doc/md/` holds Markdown conversions of every corpus PDF**, with real tables. When you
   need spec data — encoding tables, operator lists, value constraints — extract it from
   there rather than writing it from memory. The `WinAnsiEncoding` and `MacRomanEncoding`
@@ -746,6 +755,7 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
   way, and the extraction caught three things memory would have got wrong: PDF's
   `MacRomanEncoding` is not Mac OS Roman, and Table D.2's *notes* assign `space` at 160
   and 202, `hyphen` at 173, and every unused WinAnsi code above 32 to `bullet`.
+  The files carry base64 images inline, so `grep -v '^!\[Image\]'` before reading a range.
 - **The Arlington model is the object model, not the semantics.** It says `/BaseEncoding`
   must be one of three names; it does not say what those encodings contain. Do not expect
   glyph data, operator semantics or rendering rules from it.
@@ -757,7 +767,8 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
   run, and it is known to bite: reverting that fix scores 93.2%, and shifting every
   `/ToUnicode` entry by one code scores 58.7%. Extending it to the pdf.js corpus is a real
   opportunity — 974 documents against 14 — and would need only a tolerance rather than
-  expectations, since `pdftotext` supplies the reference for each.
+  expectations, since `pdftotext` supplies the reference for each. `issue20504.pdf` is the
+  argument for doing it: nothing we own noticed six scripts rendering as ASCII.
 - **Silent caps are defects, not safety.** The interpreter dropped operands past the 64th,
   which truncated any `TJ` array holding a justified line — three sentences on the
   specification's own title page ended mid-word, with `unsupported: []`. Bounds against
@@ -795,9 +806,9 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
   other renderers do. Check what is already in `doc/md/` before concluding the
   specification is silent.
 - **Debug builds are ~15× slower here, and it changes what a test can assert.** The corpus
-  gate is 19 s in release and minutes in debug. Any test with a timing assertion is
+  gate is 15 s in release and minutes in debug. Any test with a timing assertion is
   meaningless at debug speed; run those in release and say so in the test. The oracle gate
-  is the exception that proves it: 1596 of its 1745 seconds of processor time is three
+  is the exception that proves it: 1033 of its 1158 seconds of processor time is three
   external renderers, whose speed does not depend on how we were built.
 - `cargo-deny` is installed in the agent's `~/.cargo/bin`; run it before pushing rather
   than finding out from a red pipeline.

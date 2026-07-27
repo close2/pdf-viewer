@@ -111,16 +111,19 @@ const MAX_PAGELESS: usize = 19;
 /// Before it, 148 of 988 first pages carried a visible annotation with an `/AP` and none was
 /// drawn or reported; the page simply came out missing its form fields and its highlights,
 /// saying nothing. Those now draw. What newly reports is the other side of the same walk:
-/// 64 documents carry an annotation with **no** appearance stream at all, which would have
+/// 63 documents carry an annotation with **no** appearance stream at all, which would have
 /// to be synthesised from `/IC`, `/C`, `/BS` and the subtype's own rules — 26 `Widget`,
-/// 18 `Link`, and the rest markup annotations. Two more report a malformed appearance, and
-/// one an undecodable one. Four are documents whose appearance streams draw content we
-/// already reported elsewhere: a CID font, a JPX image, a transparency group, now met inside
-/// an annotation instead of inside the page. Seven more set `/NeedAppearances` on their
-/// interactive form, which §12.7.4.3 makes a statement that the stored appearance is not
-/// the one to draw — the field's value is computed at viewing time, so its appearance has to
-/// be constructed then. The stored one is still drawn, because it is all the file offers,
-/// and the report is what keeps that from passing as correct.
+/// 18 `Link`, and the rest markup annotations. 7 set `/NeedAppearances` on their interactive
+/// form, which §12.7.4.3 makes a statement that the stored appearance is *not* the one to
+/// draw: the field's value is computed at viewing time, so its appearance has to be
+/// constructed then. The stored one is still drawn, because it is all the file offers, and
+/// the report is what keeps that from passing as correct. 3 carry a malformed appearance —
+/// no `/BBox`, no usable `/Rect`, or a stream that did not decode.
+///
+/// 68 of those 73 documents had reported nothing at all before. The other 9 of the 77 are
+/// documents whose *appearance streams* draw content this crate already reports elsewhere:
+/// a CID font, a JPX image, a transparency group, now met inside an annotation rather than
+/// inside the page — which is why the `Image`, `Text` and `Operator` rows above also grew.
 ///
 /// Ratcheted downward otherwise: this falls as features land, and a rise that is not a new
 /// *report* means something that used to draw no longer does.
