@@ -290,7 +290,7 @@ them and nothing looked wrong until another renderer disagreed.
 | Type3 fonts | 23 documents carry one | Medium | Needs `d0`/`d1` and `/CharProcs` interpretation. |
 | Sampled shadings on the GPU | 2 | Small | Type 1 only; the CPU backend draws them. |
 | Rendering intents beyond `AbsoluteColorimetric` | — | Small | Read and recorded; `A2B0` is not yet selected for `Perceptual`. |
-| Annotation appearances | 148 | Medium | **148 of 988 first pages carry a visible annotation with an `/AP`, and none is drawn or reported. The oracle contradicts 44 of them**, which is the measured visual cost rather than the count of pages at risk. An appearance is a form XObject and the interpreter already runs those, so drawing them is §12.5.5 plus a pass over `/Annots` — see "What to do next". 244 first pages carry `/Annots`; the other 96 carry only hidden, `Popup`/`Link`, or appearance-less annotations. Synthesising a missing appearance is a separate and much larger job. |
+| Annotation appearances | 148 | Medium | **148 of 988 first pages carry a visible annotation with an `/AP`, and none is drawn or reported. The oracle contradicts 47 pages carrying one**, which is the measured visual cost rather than the count of pages at risk. An appearance is a form XObject and the interpreter already runs those, so drawing them is §12.5.5 plus a pass over `/Annots` — see "What to do next". 244 first pages carry `/Annots`; the other 96 carry only hidden, `Popup`/`Link`, or appearance-less annotations. Synthesising a missing appearance is a separate and much larger job. |
 | Forms, actions, the rest of clause 12 | — | Large | Interactivity: field values, calculation order, JavaScript, navigation. Not needed to *draw* an annotation. |
 | Tagged PDF, metadata | — | Large | Clause 14 beyond output intents. |
 | Sandbox (Spike D) | — | Medium | seccomp-BPF + Landlock. Blocks JBIG2/JPX. |
@@ -430,10 +430,12 @@ specification for "what have we not built" finds it. Comparing output does.
 **A tolerance measured on the thing being tolerated beats a tolerance chosen.** The bound
 here is twice the references' own disagreement *on that page*, which makes the same rule
 strict on a page of flat fills, where they agree to a worst tile of 0.4, and forgiving on a
-page of small text, where they differ by 26 among themselves. A single fixed number was
-tried first and could not do both: it produced 15 contradictions where the relative bound
-produces 8 on the same sample, and the 7 it added were pages where the references simply
-disagreed more than usual.
+page of small text, where they differ by 26 among themselves. The evidence for preferring it
+is the previous session's spread sample rather than anything measured here: on those 95
+pages a fixed bound called 15 contradicted and the relative bound called 8, and the 7 it
+dropped were pages where the references simply disagreed with each other more than usual.
+The fixed-bound variant has not been run over the whole corpus, so the ratio at this scale
+is unmeasured.
 
 **A ratchet has two directions and both were confirmed.** Removing one name from the list
 fails the build with "newly contradicted"; adding one that no longer applies fails it with
@@ -452,22 +454,27 @@ reason visible on the page — start there, not with a feature list.**
 
 `CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 83 pages carrying no undrawn annotation, no
 hidden optional content and no substituted font, so the difference is in something we
-believe we implement. Five have been looked at and three causes named:
+believe we implement.
 
+Six pages were examined by opening their artefacts, and three of the six causes are still
+live in the lists (the other three became the reported gaps in item 3):
+
+- **`knockout_*.pdf` are knockout transparency groups** (§11.4.5.6), where an object
+  composites against the group's initial backdrop rather than against what is already there.
+  `mutool` and `gs` show no blend where two rectangles overlap; we and `poppler` show it.
+  Unimplemented and, unlike soft masks, unreported. In this list.
+- **`mesh_shading_empty.pdf` draws the same mesh displaced horizontally** — a placement
+  question, and the class of defect trap 2 is about. In this list.
 - **`calgray.pdf` and `calrgb.pdf` come out markedly darker than all three references** —
   `A = 0.35` reads as near-black rather than mid grey. §8.6.5.2 and §8.6.5.3 define both
   spaces in CIE terms, so the conversion ends in XYZ and the destination's encoding transfer
   function still has to be applied; ours looks like linear luminance written straight into an
   sRGB raster. This is a colour defect on *every* page using either space, and trap 6 governs
-  how to fix it: one conversion, and read ADR 0009 first.
-- **`knockout_*.pdf` are knockout transparency groups** (§11.4.5.6), where an object
-  composites against the group's initial backdrop rather than against what is already there.
-  `mutool` and `gs` show no blend where two rectangles overlap; we and `poppler` show it.
-  Unimplemented and, unlike soft masks, unreported.
-- **`mesh_shading_empty.pdf` draws the same mesh displaced horizontally** — a placement
-  question, and the class of defect trap 2 is about.
+  how to fix it: one conversion, and read ADR 0009 first. Filed under
+  `CONTRADICTED_SUBSTITUTED_FONT`, because the page happens to label its swatches with a
+  non-embedded font — which is the caution below, in one example.
 
-The remaining 78 are unexamined. Each one is a page where two implementations sharing no
+The other 81 are unexamined. Each one is a page where two implementations sharing no
 code agree and we differ by more than twice their own disagreement, with the artefacts
 already written: `<target>/tmp/oracle/<stem>/p<n>/` holds our render, each reference's, a
 side-by-side and a difference heatmap. **Look at the side-by-side first** — five minutes of
@@ -512,10 +519,11 @@ visibly wrong today:
   object join the clipping path at `ET` and stay until the state is restored. Implementing it
   means accumulating each shown glyph's outline, transformed into page space, and pushing one
   `Clip` at `ET` — the display list's `Clip` already carries a path, a transform and a
-  parent, so nothing new is needed in `pdf-render`. 5 corpus documents.
+  parent, so nothing new is needed in `pdf-render`. 5 corpus first pages report it.
 - **Image `/Mask`**, stencil (§8.9.6.4) and colour-key (§8.9.6.5). The colour-key form must
   be applied to the *source* samples before colour conversion, which is why it is not a
-  two-line change in `image.rs`. 5 corpus documents.
+  two-line change in `image.rs`. 8 corpus first pages report it; 5 of those had reported
+  nothing at all before, and the other 3 were already incomplete for another reason.
 - **`/UserUnit`** (§7.7.3.3), which scales the page. 2 corpus documents, and the only reason
   it matters more than that count suggests is that getting a page's *size* wrong invalidates
   every comparison on it.
@@ -577,12 +585,12 @@ rather than a guess.
 ### Reproducing the numbers in this section
 
 The oracle survey is no longer a throwaway: it is `oracle.rs`, it runs on demand, and its
-per-document lines are the evidence for every comparison count above.
+per-page lines are the evidence for every comparison count above.
 
-The two *classification* counts still are throwaway, and deliberately so — scratch-quality
-diagnostics do not belong in a repository held to `clippy::pedantic`. Both were a
-sixty-line `examples/classify.rs` run over the contradicted list and deleted afterwards, and
-both are worth rebuilding properly as part of the task they belong to:
+The *classification* counts still are throwaway, and deliberately so — scratch-quality
+diagnostics do not belong in a repository held to `clippy::pedantic`. All were a sixty-line
+`examples/classify.rs` run over the contradicted list and deleted afterwards, and each is
+worth rebuilding properly as part of the task it belongs to:
 
 - **The annotation count** walks `page.dict["Annots"]`, skipping `Popup` and `Link`
   subtypes and anything with `/F` bit 2 (Hidden) or bit 6 (NoView), and counts those with
@@ -593,11 +601,14 @@ both are worth rebuilding properly as part of the task they belong to:
   "0 reachable from page one" for `issue12007_reduced.pdf`, and was wrong — the page draws
   a hidden layer through an OCMD. That mistake is why the scope note in item 4 exists.
 
-A third was added and thrown away this session: **whether page one's fonts are embedded**,
-which walks each `/Font` resource and its `/DescendantFonts` looking for `/FontFile`,
-`/FontFile2` or `/FontFile3` in the descriptor. It is what separates a page whose text we
-draw with a substitute — where a disagreement may be nobody's defect — from one where the
-document supplied the font and we should match.
+Two more were added and thrown away this session. **Whether a page's fonts are embedded**
+walks each `/Font` resource and its `/DescendantFonts` looking for `/FontFile`, `/FontFile2`
+or `/FontFile3` in the descriptor; it is what separates a page whose text we draw with a
+substitute — where a disagreement may be nobody's defect — from one where the document
+supplied the font and we should match. And **the page census** — 3143 pages across the 988
+documents, 869 of them single-page files, 1382 pages in the 14 specification PDFs — is
+`Pages::new(&document).len()` over the same file list, which is what settled the scope
+decision in ADR 0011.
 
 ### What the corpus gate reports today
 
@@ -786,7 +797,7 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
 - **Debug builds are ~15× slower here, and it changes what a test can assert.** The corpus
   gate is 19 s in release and minutes in debug. Any test with a timing assertion is
   meaningless at debug speed; run those in release and say so in the test. The oracle gate
-  is the exception that proves it: nearly all of its 80 s is three external renderers, whose
-  speed does not depend on how we were built.
+  is the exception that proves it: 1596 of its 1745 seconds of processor time is three
+  external renderers, whose speed does not depend on how we were built.
 - `cargo-deny` is installed in the agent's `~/.cargo/bin`; run it before pushing rather
   than finding out from a red pipeline.
