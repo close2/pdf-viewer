@@ -96,6 +96,14 @@ pub enum Unsupported {
         /// What went wrong with which part of `/Contents`.
         issue: crate::page::ContentIssue,
     },
+    /// An annotation carried something that could not be drawn.
+    ///
+    /// Almost always an annotation with no appearance stream, which would have to be
+    /// synthesised from its type-specific entries — see `crate::annotation`.
+    Annotation {
+        /// The subtype and what was wrong with it.
+        detail: String,
+    },
     /// A bound was reached and interpretation stopped early.
     LimitReached {
         /// Which bound.
@@ -328,6 +336,9 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
 
     let base = base_transform(page);
     interpreter.run(&content, &page.resources, &GraphicsState::initial(base), 0);
+    // §12.5: an annotation is drawn *over* the page content, and in `/Annots` order, so
+    // this pass follows the content stream rather than being folded into it.
+    interpreter.draw_annotations(page, base);
 
     let mut unsupported: Vec<Unsupported> = interpreter.unsupported.into_values().collect();
     if interpreter.text_operations > 0 {
@@ -1223,6 +1234,103 @@ impl Interpreter<'_> {
         self.run(&data, &form_resources, &inner, form_depth.saturating_add(1));
     }
 
+    /// Draws the page's annotations over its content, in `/Annots` order.
+    ///
+    /// ISO 32000-2 §12.5.5: each appearance is a form `XObject`, so this resolves *where* it
+    /// goes — `crate::annotation` does that — and then hands it to the same machinery that
+    /// runs any other form. The only reason it is a separate pass rather than a `Do` is
+    /// that nothing in the content stream refers to it.
+    fn draw_annotations(&mut self, page: &Page, base: Transform) {
+        let annotations = self.document.get_key(&page.dict, "Annots");
+        let Some(entries) = annotations.as_array().map(<[Object]>::to_vec) else {
+            return;
+        };
+        let regenerate = needs_appearances(self.document);
+
+        for entry in &entries {
+            let resolved = self.document.resolve(entry);
+            let Some(dict) = resolved.as_dict() else {
+                continue;
+            };
+            match crate::annotation::decide(self.document, dict) {
+                crate::annotation::Decision::Nothing => {}
+                crate::annotation::Decision::Unsupported(detail) => {
+                    self.note(Unsupported::Annotation { detail });
+                }
+                crate::annotation::Decision::Draw(appearance) => {
+                    // §12.7.4.3: a field whose value is not known until viewing time — one
+                    // filled in by the user, or calculated by an action — "cannot provide a
+                    // statically defined appearance stream", and "the PDF processor shall
+                    // construct an appearance stream dynamically at rendering time". The
+                    // `/NeedAppearances` flag is the writer saying that applies here.
+                    // Constructing one is form work this crate does not do, so the stored
+                    // appearance is drawn — it is the only thing the file offers — and the
+                    // fact that it may be stale is said out loud rather than assumed away.
+                    if regenerate && appearance.is_widget {
+                        self.note(Unsupported::Annotation {
+                            detail: "Widget: /NeedAppearances asks for a constructed appearance"
+                                .to_owned(),
+                        });
+                    }
+                    self.draw_appearance(&appearance, base);
+                }
+            }
+        }
+    }
+
+    /// Runs one appearance stream, clipped to its `/BBox`.
+    fn draw_appearance(&mut self, appearance: &crate::annotation::Appearance, base: Transform) {
+        let Some(data) = self.document.decoded_stream_data(&appearance.stream) else {
+            self.note(Unsupported::Annotation {
+                detail: "undecodable appearance stream".to_owned(),
+            });
+            return;
+        };
+
+        let transform = appearance.transform.then(base);
+        let mut state = GraphicsState::initial(transform);
+        // §12.5.5: the appearance "shall be composited with a backdrop consisting of the
+        // page content along with any previously painted annotations, using the values of
+        // the BM, ca and CA entries in the annotation dictionary".
+        state.fill_alpha = appearance.alpha;
+        state.stroke_alpha = appearance.alpha;
+        if let Some(name) = &appearance.blend {
+            state.blend = blend_mode(name.as_bytes());
+        }
+
+        // §8.10.2: a form `XObject`'s `/BBox` "shall be" the clip for its content. §12.5.5
+        // relies on that — the whole algorithm is about making the box cover `/Rect`, and
+        // an appearance drawing outside its own box would spill across the page.
+        let bbox = &appearance.bbox;
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(bbox[0], bbox[1])));
+        path.push(PathCommand::LineTo(Point::new(bbox[2], bbox[1])));
+        path.push(PathCommand::LineTo(Point::new(bbox[2], bbox[3])));
+        path.push(PathCommand::LineTo(Point::new(bbox[0], bbox[3])));
+        path.push(PathCommand::Close);
+        let Ok(clip) = self.list.add_clip(Clip {
+            path,
+            transform,
+            fill_rule: FillRule::NonZero,
+            parent: None,
+        }) else {
+            self.note(Unsupported::LimitReached { limit: "max_clips" });
+            return;
+        };
+        state.clip = Some(clip);
+
+        let resources = self
+            .document
+            .get_key(&appearance.stream.dict, "Resources")
+            .as_dict()
+            .cloned()
+            .unwrap_or_default();
+
+        // Depth 1 rather than 0: an appearance is itself a form, so a chain of forms
+        // inside it is bounded the same way one inside the page content is.
+        self.run(&data, &resources, &state, 1);
+    }
+
     /// Loads a font by resource name, caching the result including failures.
     ///
     /// A failure is cached too: a page that names an unloadable font on every `Tf` should
@@ -1915,6 +2023,25 @@ fn convert(space: &ColourSpace, values: &[f32], black_point: BlackPoint) -> Colo
 ///
 /// Only a profile whose own space is one a PDF can name is useful here; an output intent
 /// for a device with some other colourant model says nothing about `DeviceCMYK`.
+/// Whether the document's interactive form asks for appearances to be constructed.
+///
+/// ISO 32000-2 Table 226: `/NeedAppearances` is set by "a PDF writer ... if it has not
+/// provided appearance streams for all visible widget annotations present in the document".
+/// Deprecated in PDF 2.0, and still common in files that predate it.
+fn needs_appearances(document: &Document) -> bool {
+    let Ok(catalog) = document.catalog() else {
+        return false;
+    };
+    let form = document.get_key(&catalog, "AcroForm");
+    let Some(form) = form.as_dict() else {
+        return false;
+    };
+    matches!(
+        document.get_key(form, "NeedAppearances"),
+        Object::Boolean(true)
+    )
+}
+
 fn output_intent_space(document: &Document) -> Option<ColourSpace> {
     let catalog = document.catalog().ok()?;
     let intents = document.get_key(&catalog, "OutputIntents");

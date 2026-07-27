@@ -23,6 +23,7 @@
 
 #![forbid(unsafe_code)]
 
+mod annotation;
 pub mod colour;
 pub mod content;
 pub mod function;

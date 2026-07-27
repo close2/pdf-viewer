@@ -75,19 +75,20 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 291, and *not* a defect count — it is the honest-reporting requirement working. The
+/// 368, and *not* a defect count — it is the honest-reporting requirement working. The
 /// breakdown, by each document's first report, which is the useful part:
 ///
 /// | reported | count | why |
 /// |---|---|---|
-/// | `Image` | 157 | JBIG2 and JPX, deliberately blocked on the sandbox; five `/Mask` |
-/// | `Text` | 73 | mostly CID encodings and embedded `CMap`s |
+/// | `Image` | 161 | JBIG2 and JPX, deliberately blocked on the sandbox; five `/Mask` |
+/// | `Text` | 76 | mostly CID encodings and embedded `CMap`s |
+/// | `Annotation` | 68 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
 /// | `Shading` | 26 | soft masks in `/ExtGState`, which is transparency rather than shading |
-/// | `Operator` | 24 | transparency groups, and text render modes |
+/// | `Operator` | 26 | transparency groups, and text render modes |
 /// | `Content` | 10 | a `/Contents` stream that did not decode |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
 ///
-/// This number has gone *up* three times, and every rise was the point.
+/// This number has gone *up* four times, and every rise was the point.
 ///
 /// Ten, when content-stream decoding started reporting. Nine of those are encrypted
 /// documents whose content stream is unreadable without decryption, and they had been
@@ -105,9 +106,25 @@ const MAX_PAGELESS: usize = 19;
 /// so `colorkeymask.pdf` drew a band all three references correctly hide. Found the same
 /// way.
 ///
+/// Seventy-seven, when annotation appearance streams started being drawn — the largest rise
+/// yet, and the one that most needs explaining, because it accompanied a *feature landing*.
+/// Before it, 148 of 988 first pages carried a visible annotation with an `/AP` and none was
+/// drawn or reported; the page simply came out missing its form fields and its highlights,
+/// saying nothing. Those now draw. What newly reports is the other side of the same walk:
+/// 64 documents carry an annotation with **no** appearance stream at all, which would have
+/// to be synthesised from `/IC`, `/C`, `/BS` and the subtype's own rules — 26 `Widget`,
+/// 18 `Link`, and the rest markup annotations. Two more report a malformed appearance, and
+/// one an undecodable one. Four are documents whose appearance streams draw content we
+/// already reported elsewhere: a CID font, a JPX image, a transparency group, now met inside
+/// an annotation instead of inside the page. Seven more set `/NeedAppearances` on their
+/// interactive form, which §12.7.4.3 makes a statement that the stored appearance is not
+/// the one to draw — the field's value is computed at viewing time, so its appearance has to
+/// be constructed then. The stored one is still drawn, because it is all the file offers,
+/// and the report is what keeps that from passing as correct.
+///
 /// Ratcheted downward otherwise: this falls as features land, and a rise that is not a new
 /// *report* means something that used to draw no longer does.
-const MAX_INCOMPLETE: usize = 291;
+const MAX_INCOMPLETE: usize = 368;
 
 /// How long one document may take before it counts as a failure.
 ///

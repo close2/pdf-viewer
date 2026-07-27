@@ -79,11 +79,18 @@ const SCALE: f32 = 1.0;
 const PIXEL_BUDGET: u64 = 64 << 20;
 
 /// Pages we claim to draw completely, and which two independent reference renderers
-/// contradict: pages carrying an annotation appearance we do not draw.
+/// contradict: pages whose raster is one pixel smaller than the references'.
 ///
-/// 47 pages, and the largest single group. The annotations on them are 131 `Widget`, 24
-/// `Ink`, 17 `FreeText`, 4 `Stamp`, and one each of `Square` and `Highlight` — all visible,
-/// all carrying an `/AP`, none drawn and none reported.
+/// 4 pages, and the whole group is one arithmetic difference. Each has a page box whose
+/// size is fractional, and at 72 dpi we and `ghostscript` produce a raster of one size while
+/// `poppler` and `mupdf` produce one a pixel wider, taller, or both. `bug1922766.pdf` is
+/// 383x72 for us and for `ghostscript`, 384x73 for `poppler`. Nothing in ISO 32000-2 says
+/// how a fractional page becomes an integer number of pixels; it is a rasterisation choice
+/// and all four are defensible.
+///
+/// It only reaches this list because the pages are small — 72 rows, 62 rows — so a one-row
+/// shift moves everything on them and the structural-similarity bound sees a page-wide
+/// change. On a 792-row page the same difference disappears into the noise.
 ///
 /// # How these four lists work
 ///
@@ -93,73 +100,32 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// "a fixed one can never come back" requires.
 ///
 /// A page, not a document — the same file can be right on one page and wrong on the next,
-/// and 31 of the entries below are pages a page-one-only comparison never looked at.
+/// and a page-one-only comparison would never have looked at several of the entries below.
 ///
 /// The grouping is by what the page *carries*, which is a hypothesis about the cause and
 /// not a diagnosis. A page here may differ for some quite other reason, and only the
 /// artefacts settle it. What every entry does establish is that two implementations sharing
-/// no code agree about this page and we do not. The groups are also how the list is meant
-/// to shrink: drawing annotation appearances should empty this one, honouring optional
-/// content the next.
-const CONTRADICTED_ANNOTATIONS: [&str; 47] = [
-    "annotation-stamp.pdf page 1",
-    "annotation-tx2.pdf page 1",
-    "annotation-tx3.pdf page 1",
-    "annotation_hidden_noview.pdf page 1",
+/// no code agree about this page and we do not.
+///
+/// This first group used to be the largest, at 47 pages carrying an annotation appearance
+/// we did not draw. Drawing them removed 45, and the two that stayed turned out never to
+/// have been about annotations at all — they are the rounding difference described above,
+/// which is exactly what the previous handover said their staying would mean.
+const CONTRADICTED_PAGE_ROUNDING: [&str; 4] = [
     "bug1669097.pdf page 1",
-    "bug1770750.pdf page 1",
-    "bug1782564.pdf page 1",
-    "bug1796741.pdf page 1",
-    "bug1802888.pdf page 1",
-    "bug1811510.pdf page 1",
-    "bug1811694.pdf page 1",
-    "bug1851498.pdf page 1",
-    "bug1883609.pdf page 1",
-    "bug1963407.pdf page 1",
-    "dates.pdf page 1",
-    "evaljs.pdf page 1",
-    "fields_order.pdf page 1",
-    "firefox_logo.pdf page 1",
-    "firefox_stamp.pdf page 1",
-    "inks.pdf page 1",
-    "inks_basic.pdf page 1",
-    "issue12706.pdf page 1",
-    "issue13003.pdf page 1",
-    "issue14023.pdf page 1",
-    "issue14023.pdf page 2",
-    "issue14023.pdf page 5",
-    "issue14502.pdf page 1",
-    "issue14705.pdf page 1",
-    "issue15053.pdf page 1",
-    "issue15096.pdf page 1",
-    "issue15597.pdf page 1",
-    "issue15815.pdf page 1",
-    "issue16500.pdf page 1",
-    "issue16553.pdf page 1",
-    "issue16633.pdf page 1",
-    "issue17492.pdf page 1",
-    "issue17998.pdf page 1",
-    "issue18305.pdf page 2",
-    "issue18536.pdf page 1",
-    "issue19424.pdf page 1",
+    "bug1922766.pdf page 1",
+    "bug1934157.pdf page 1",
     "issue19505.pdf page 1",
-    "issue3885.pdf page 1",
-    "js-authors.pdf page 1",
-    "js-colors.pdf page 1",
-    "pr12828.pdf page 1",
-    "pr6531_2.pdf page 1",
-    "red_stamp.pdf page 1",
 ];
 
 /// Contradicted, with optional content configured off in the document.
 ///
-/// 4 pages. We ignore `/OCProperties`, so a hidden layer is drawn anyway.
+/// 3 pages. We ignore `/OCProperties`, so a hidden layer is drawn anyway.
 /// `issue12007_reduced.pdf` is the extreme case: a whole hidden screenshot over a page the
 /// references leave nearly blank.
-const CONTRADICTED_OPTIONAL_CONTENT: [&str; 4] = [
+const CONTRADICTED_OPTIONAL_CONTENT: [&str; 3] = [
     "issue11144_reduced.pdf page 1",
     "issue12007_reduced.pdf page 1",
-    "issue18823.pdf page 1",
     "visibility_expressions.pdf page 1",
 ];
 
@@ -220,7 +186,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 32] = [
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 83 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// 81 pages carrying no undrawn annotation, no hidden optional content and no substituted
 /// font — so the difference is in something we believe we implement. Three causes have been
 /// identified by looking at the artefacts; the rest are unexamined, and working through them
 /// is the highest-value use of this gate:
@@ -231,12 +197,16 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 32] = [
 ///   show the blend. Unimplemented, and — unlike soft masks — unreported.
 /// - `mesh_shading_empty.pdf` draws the same mesh as the references, displaced
 ///   horizontally. A placement question rather than a missing feature.
+/// - `issue20504.pdf` sets six scripts in six embedded subset fonts and we draw `!"#$` —
+///   the raw character codes through a substitute — for all of them, reporting nothing. One
+///   of its fonts encodes `/Differences [33 /gid2436 /gid1620 …]`, a subsetter's convention
+///   for naming a glyph by index that §9.6.5 does not define, and an unrecognised name is
+///   falling back to the standard encoding rather than to no glyph. This is trap 1 exactly:
+///   the font loaded, nothing reported, the wrong glyphs drawn.
 ///
-/// A third cause — `CalGray` and `CalRGB` converted as their device equivalents — was found
+/// A fourth cause — `CalGray` and `CalRGB` converted as their device equivalents — was found
 /// through this list and fixed, which is what the list is for.
-const CONTRADICTED_UNEXPLAINED: [&str; 83] = [
-    "annotation-square-circle-without-appearance.pdf page 1",
-    "annotation-tx.pdf page 1",
+const CONTRADICTED_UNEXPLAINED: [&str; 81] = [
     "bug1108301.pdf page 1",
     "bug1132849.pdf page 1",
     "bug1151216.pdf page 1",
@@ -273,7 +243,7 @@ const CONTRADICTED_UNEXPLAINED: [&str; 83] = [
     "issue18548_reduced.pdf page 1",
     "issue18816.pdf page 1",
     "issue19633.pdf page 1",
-    "issue20062.pdf page 1",
+    "issue20504.pdf page 1",
     "issue215.pdf page 1",
     "issue2948.pdf page 1",
     "issue3207r.pdf page 1",
@@ -867,7 +837,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
     // The four groups are one ratchet: which group a page belongs to is a hypothesis about
     // it, and holding each group separately would fail the build every time a hypothesis
     // turned out to be wrong rather than every time the rendering changed.
-    let contradicted: Vec<&str> = CONTRADICTED_ANNOTATIONS
+    let contradicted: Vec<&str> = CONTRADICTED_PAGE_ROUNDING
         .iter()
         .chain(&CONTRADICTED_OPTIONAL_CONTENT)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)
