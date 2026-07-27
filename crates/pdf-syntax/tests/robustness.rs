@@ -8,6 +8,8 @@
 //! the one thing a robustness test must never be: the value of catching a crash is the
 //! ability to fix it.
 
+use std::fmt::Write as _;
+
 use pdf_syntax::{Document, Limits, Parser};
 
 /// A small xorshift generator.
@@ -190,11 +192,12 @@ fn a_subsection_counting_more_entries_than_it_has_still_finds_the_trailer() {
     // fifth entry runs into is the `trailer` keyword.
     out.push_str("xref\n0 5\n0000000000 65535 f \n");
     for offset in &offsets {
-        out.push_str(&format!("{offset:010} 00000 n \n"));
+        let _ = writeln!(out, "{offset:010} 00000 n ");
     }
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
-    ));
+    );
 
     let document = Document::open(out.into_bytes()).expect("the objects are all intact");
     let catalog = document
