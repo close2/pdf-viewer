@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated at the end of the third working session. Read `/CLAUDE.md`
+Written 2026-07-26, updated 2026-07-27 at the end of the third working session. Read `/CLAUDE.md`
 first — it holds the five non-negotiable principles and they are not optional. **Principle
 5 is new and it changes how to work**: the specification is the only source of truth, and
 agreement with poppler, mupdf or pdf.js is evidence that we read it right, never the
@@ -8,24 +8,28 @@ definition of right. This file is the state of play, the traps, and what to do n
 
 ## Where we are
 
-A PDF **renderer** that opens real files and draws pages, with embedded text rendering
-correctly on every document in the corpus.
+A PDF **renderer** that opens real files and draws pages: geometry, colour, images,
+shadings, patterns and embedded text, on both a CPU and a GPU backend. It is not yet a PDF
+*viewer* in the full sense — no annotations, forms, encryption or transparency groups — and
+the gap between those two words is measured further down rather than guessed at.
 
-- **171 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
-  `cargo fmt --check` clean, `cargo deny` clean on all four checks.
-- The parser reads all fourteen specification PDFs in `doc/`, including ISO 32000-2 itself:
-  1023 pages, 101 318 objects.
-- Our render of the fixture agrees with poppler, mupdf and ghostscript, and is
-  byte-identical to mupdf.
-- **Every** corpus document renders page one with nothing unsupported except a soft mask on
-  three of them. All fourteen extract **100% of the words `pdftotext` finds**.
-- `doc/pdf.js` is a submodule with **974 real test documents**, and they are now a **gate**
-  rather than a survey: all 974 open, 955 reach page one, and everything the remaining 271
-  cannot draw is *reported*. 1501 of 1501 PDF functions parse; **all 1793 shadings build**,
-  mesh types included.
-- Colour resolves from the document — `ICCBased` profiles are evaluated by an A2B evaluator
-  written here, `/DefaultCMYK` and output intents are honoured, and there is exactly one
-  `DeviceCMYK` conversion instead of the three that used to disagree. See ADR 0009.
+- **172 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+  `cargo fmt --check` clean, `cargo deny` clean on all four checks (verified, not assumed).
+- **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and
+  101 318 objects — all parse, all render page one with only a soft mask reported on three
+  of them, and all extract **100% of the words `pdftotext` finds**.
+- **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open, 955 reach page
+  one, **674 draw with nothing reported at all**, and everything the other 281 cannot draw
+  is named. The counts are ratcheted and can only go down. 1501 of 1501 PDF functions
+  parse; **all 1793 shadings build**, mesh types included.
+- Our render of the `basic` fixture agrees with poppler, mupdf and ghostscript, and is
+  byte-identical to mupdf — corroboration that we read the specification right, not a
+  target (principle 5).
+- **Colour resolves from the document.** `ICCBased` profiles are evaluated by an A2B
+  evaluator written here, `/DefaultCMYK` and output intents are honoured, and there is
+  exactly one `DeviceCMYK` conversion instead of the three that used to disagree. ADR 0009.
+- Both backends draw everything the display list can express, and agree on it: three
+  headless GPU scenes hold `tiny-skia` and Vello to the same pixels.
 
 ### Run it
 
@@ -161,20 +165,80 @@ through the `coders` group. This causes recurring friction:
 
 ## What is not implemented
 
-Each of these is reported at runtime rather than silently skipped.
+Every one of these is *reported* at runtime rather than silently skipped — that is what
+makes the corpus numbers below trustworthy, and it is principle 3's requirement, not a
+nicety. Sized by the corpus rather than by intuition: the count is how many of the 974
+documents' first pages it affects.
 
-| Missing | Size | Notes |
+| Missing | Corpus | Size | Notes |
+|---|---|---|---|
+| JBIG2, JPX | 152 | — | **Blocked on the sandbox, deliberately.** Both are historically severe attack surface; see principle 3. |
+| Text: CID encodings, embedded `CMap`s | 73 | Medium | The breakdown from the gate's own output: 27 fonts with no `/ToUnicode` so a substitute cannot be addressed, 25 with a non-identity `/CIDToGIDMap`, 14 with an embedded `CMap` stream, 3 with a predefined `CMap` (`90ms-RKSJ-H`). Only the last needs vendored data, which is a licensing decision rather than a coding one. |
+| Transparency groups, soft masks | 45 | Large | 26 report as `Shading`, 19 as `Operator`. The largest *rendering* gap, and the last thing `doc/` reports. |
+| Encryption | 20 | Medium | RC4/AES, `/Encrypt`. 11 documents cannot reach page one at all and 9 more draw a blank page. |
+| Optional content (`/OC`) | 31 | Medium | 31 documents carry `/OCProperties`. `BDC` is parsed and ignored, so content in a layer the document marks hidden **is drawn anyway**. Unlike everything else in this table it is *not* reported, because nothing knows to look — which makes it the one entry here that can be wrong on screen without saying so. |
+| `LZWDecode` | 3 | Small | The one standard filter absent. A test pins the report and will fail when it lands. |
+| Type1 fonts (`/FontFile`) | 0 | Medium | No corpus page one reaches it, so this is smaller than it looks. `read_fonts::ps::type1` exists — check before writing any. |
+| Type3 fonts | 23 documents carry one | Medium | Needs `d0`/`d1` and `/CharProcs` interpretation. |
+| Sampled shadings on the GPU | 2 | Small | Type 1 only; the CPU backend draws them. |
+| Rendering intents beyond `AbsoluteColorimetric` | — | Small | Read and recorded; `A2B0` is not yet selected for `Perceptual`. |
+| Annotations, forms, actions | — | Large | Clause 12 entirely. |
+| Tagged PDF, metadata | — | Large | Clause 14 beyond output intents. |
+| Sandbox (Spike D) | — | Medium | seccomp-BPF + Landlock. Blocks JBIG2/JPX. |
+
+## How much of the specification is implemented
+
+Measured, not estimated. Two answers, because the honest one depends on what you are
+counting — and the second matters more than the first.
+
+### By what real documents need
+
+Over the 974-document pdf.js corpus, page one:
+
+| | count | share |
 |---|---|---|
-| Embedded CMap streams | Medium | Parse `begincidrange`/`begincidchar` |
-| Predefined CMaps | Medium | Needs vendored data — licensing decision |
-| Type1 fonts | Medium | `read_fonts::ps::type1` exists — check before writing any |
-| Sampled shadings on the GPU | Small | Type 1 only; reported, 2 documents of 974 |
-| Rendering intents beyond `AbsoluteColorimetric` | Small | Read and recorded; `A2B0` is not yet selected for `Perceptual` |
-| Transparency groups, soft masks | Large | `/SMask` in `/ExtGState`; the last thing `doc/` reports |
-| JBIG2, JPX | — | **Blocked on the sandbox, deliberately** |
-| Encryption | Medium | RC4/AES, `/Encrypt` |
-| Annotations, forms | Large | |
-| Sandbox (Spike D) | Medium | seccomp-BPF + Landlock |
+| opens | 974 | 100% |
+| reaches page one | 955 | 98% |
+| **draws with nothing reported** | **674** | **69%** |
+| draws, with something reported | 281 | 29% |
+
+That 69% is the number to quote. Everything in the 29% is *named* — see the ratchet table
+below — and the largest single cause is JBIG2 and JPX, which are deliberately deferred to
+the sandbox rather than merely unwritten.
+
+### By clause
+
+ISO 32000-2 has 824 numbered subclauses under its eight technical clauses. Counting them is
+a poor proxy — clause 12 is 166 subclauses of annotation subtypes a viewer adds one at a
+time, while clause 8's 128 decide whether any page looks right at all — so this is a
+judgement about state, not an arithmetic result.
+
+| Clause | Subclauses | State |
+|---|---|---|
+| 7 Syntax | 138 | **Nearly complete.** Objects, all filters but `LZWDecode`, classic and stream xrefs, object streams, incremental updates, recovery by scanning. **Encryption is absent** and is the largest hole here. |
+| 8 Graphics | 128 | **Nearly complete.** Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, ICC colour management. Optional content (`/OC`) is not honoured, so hidden layers draw. |
+| 9 Text | 65 | **Partial.** Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`. Missing: bare Type1 (`/FontFile`), Type3 fonts, embedded `CMap` streams, predefined `CMap`s. |
+| 10 Rendering | 36 | **Partial, and much of it is not applicable.** Colour management and rendering intents are done. Halftones, transfer functions, flatness and smoothness describe a marking device rather than a screen. |
+| 11 Transparency | 58 | **Minimal.** All sixteen blend modes are implemented and reach both backends. Transparency groups, soft masks, knockout and isolation are not — this is the largest *rendering* gap. |
+| 12 Interactive features | 166 | **None.** No annotations, forms, actions or navigation. |
+| 13 Multimedia | 81 | **None**, and unlikely to be a priority. |
+| 14 Document interchange | 152 | **Output intents only.** No tagged PDF, no metadata, no marked-content semantics — `BDC`/`EMC` are parsed and ignored. |
+
+So: the parts of the standard that decide whether a page is drawn correctly are largely
+done; the parts that make a document *interactive* are not started.
+
+### Feature-by-feature, from the source
+
+| | |
+|---|---|
+| Content-stream operators | **71 of 73** in Table 50 (`ID`/`EI` are consumed inside the `BI` handler rather than as arms). The two genuinely missing are `d0` and `d1`, which exist only inside Type 3 fonts. `BMC`/`BDC`/`EMC`/`MP`/`DP`/`BX`/`EX`/`i` are matched and deliberately ignored — correct for all but `BDC` with `/OC`. |
+| Filters | **7 of 8** standard filters decode: `ASCIIHex`, `ASCII85`, `Flate`, `RunLength`, `Crypt` (pass-through), plus `DCTDecode` for images. `LZWDecode` is **absent** (3 corpus documents). `CCITTFax`, `JBIG2` and `JPX` are reported, not decoded. |
+| Colour spaces | **11 of 11** families. |
+| Function types | **4 of 4** (sampled, exponential, stitching, `PostScript` calculator). |
+| Shading types | **7 of 7**, on both backends. |
+| Pattern types | **2 of 2** (tiling and shading). |
+| Blend modes | **16 of 16**. |
+| Font programs | TrueType, CFF, CFF-in-OpenType, CID-keyed CFF. Bare Type1 and Type3 are reported. |
 
 ## The single most valuable next task
 
@@ -203,10 +267,24 @@ Measure before choosing: `cargo run --release -p pdf-model --example open_one --
 [scale]` prints the interpret and rasterise split and the distinct clip count, in a process
 that can be killed. That example exists because of this bug.
 
-After that, by what the corpus says real documents need rather than by what `doc/` contains:
-**soft masks** (26 documents, and the last thing `doc/` reports), **encryption** (11 of the
-19 documents that cannot reach page one), and **annotations**. **Type1 fonts** remain worth
-checking `read_fonts::ps::type1` for before estimating.
+### Then, and this one is different in kind
+
+**Optional content is the only thing in the tree that can be wrong on screen without saying
+so.** 31 corpus documents carry `/OCProperties`. `BDC` is parsed and discarded, so content
+the document marks as belonging to a hidden layer is drawn anyway — a page with visible
+watermarks, hidden annotations or the wrong language layer showing, reporting
+`unsupported: []`. Everything else in "What is not implemented" announces itself; this does
+not, which makes it worth more than its size suggests. Reading `/OCProperties` for the
+default configuration's OFF set and skipping `BDC /OC` spans whose group is in it is not a
+large change.
+
+### Then, by what the corpus says real documents need
+
+**Soft masks and transparency groups** (45 documents, and the last thing `doc/` reports),
+**encryption** (20 documents — 11 cannot reach page one, 9 more draw a blank page and now
+say so), and **CID encodings** (73 documents; note that only 3 of those need the predefined
+`CMap` data with its licensing question — the other 70 need code). **Annotations** after
+that. **Type1 fonts** are smaller than they look: no corpus page one reaches one.
 
 ### What the corpus gate reports today
 
@@ -216,7 +294,7 @@ Ratcheted in `crates/pdf-model/tests/corpus.rs`; the numbers only ever go down.
 |---|---|---|
 | unopenable | 0 | and it should stay there |
 | no page one | 19 | 11 encrypted, 8 with unrecoverable page trees |
-| draws incompletely | 271 | 152 JBIG2/JPX, 73 text, 26 soft mask, 19 transparency group, 1 bound reached |
+| draws incompletely | 281 | 152 JBIG2/JPX, 73 text, 26 soft mask, 19 transparency group, 10 undecodable content stream, 1 bound reached |
 | slower than 30 s | 1 | named, not counted — the clip defect above |
 
 **The time budget reports; it cannot enforce.** A Rust thread cannot be cancelled, so a
@@ -225,14 +303,12 @@ live inside the interpreter and the rasteriser. `PDFVIEWER_CORPUS_TRACE=1` names
 document on stderr as it starts and finishes, which is how a hang gets identified from a
 killed run.
 
-**`doc/pdf.js` is a submodule** (Apache-2.0, pinned at v6.1.200) and is worth more than the
-metrics it already supplied. `test/pdfs/` holds 974 real PDFs and 459 more behind link
-files — a corpus two orders of magnitude larger and far nastier than `doc/`, including the
-malformed files this parser will eventually meet. Running the interpreter over it is
-probably the single highest-value test expansion available. It is optional to clone: the
-generated metrics are checked in, so the build never needs it.
+**`doc/pdf.js` is a submodule** (Apache-2.0, pinned at v6.1.200), holding those 974 PDFs and
+459 more behind link files. It is optional to clone — every test that uses it reports being
+skipped rather than failing — but the ratchets only mean anything where it is present, so CI
+must have it.
 
-### Habits these sessions earned
+## Habits these sessions earned
 
 **Look in `read-fonts` before writing font-format code.** The previous handover specified
 ~80 lines of CFF charset parsing plus two 256-entry tables, and all of it already existed
@@ -289,10 +365,13 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
   glyph data, operator semantics or rendering rules from it.
 - **`Interpretation::text` is a readback of what was drawn**, accumulated by the same loop
   that places the glyphs, and `crates/pdf-model/tests/text_extraction.rs` compares it
-  against `pdftotext` over the whole corpus. It is the only check that catches a code
+  against `pdftotext` over the 14 specification PDFs in `doc/` — not the pdf.js corpus,
+  which would need a per-document expectation. It is the only check that catches a code
   reaching a *plausible* wrong glyph. It found the operand-cap defect below on its first
   run, and it is known to bite: reverting that fix scores 93.2%, and shifting every
-  `/ToUnicode` entry by one code scores 58.7%.
+  `/ToUnicode` entry by one code scores 58.7%. Extending it to the pdf.js corpus is a real
+  opportunity — 974 documents against 14 — and would need only a tolerance rather than
+  expectations, since `pdftotext` supplies the reference for each.
 - **Silent caps are defects, not safety.** The interpreter dropped operands past the 64th,
   which truncated any `TJ` array holding a justified line — three sentences on the
   specification's own title page ended mid-word, with `unsupported: []`. Bounds against
