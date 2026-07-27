@@ -197,6 +197,18 @@ pub fn summarise(case: &str, triangulation: &Triangulation) -> String {
     };
     let _ = writeln!(out, "{case}: {verdict}");
 
+    // The bounds are part of the verdict, not context for it: under a judgement relative
+    // to the references they are derived from this page and differ from every other page's.
+    let bounds = &triangulation.judged_by;
+    let _ = writeln!(
+        out,
+        "  judged against: mean {:.4}, worst tile {:.4}, differing {:.4}%, ssim {:.4}",
+        bounds.max_mean,
+        bounds.max_worst_tile,
+        bounds.max_differing_fraction * 100.0,
+        bounds.min_structural_similarity
+    );
+
     let _ = writeln!(out, "  ours vs references:");
     for (reference, comparison) in &triangulation.ours {
         let _ = writeln!(

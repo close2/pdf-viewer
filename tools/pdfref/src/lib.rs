@@ -142,6 +142,79 @@ impl Tolerance {
             && comparison.differing_fraction <= self.max_differing_fraction
             && comparison.structural_similarity >= self.min_structural_similarity
     }
+
+    /// Widens every bound to `factor` times the disagreement `observed` between two
+    /// references, keeping whichever of the two is looser.
+    ///
+    /// # Why a bound derived from the references beats a fixed one
+    ///
+    /// A fixed number has to serve two populations at once. A page of flat vector fills
+    /// leaves the references agreeing to a worst tile of 0.4, so a worst tile of 5 from us
+    /// is ten times their entire spread and unmistakably a defect. A page of small text
+    /// leaves them disagreeing at a worst tile of 26 among themselves, so the same 5 says
+    /// nothing at all. One threshold cannot separate signal from noise on both, and the
+    /// one that passes the second silently forgives the first.
+    ///
+    /// The references' own spread *is* the noise floor on that page — measured on that
+    /// page, by implementations that share no code with ours or with each other. Judging
+    /// our deviation as a multiple of it asks the question that matters: are we further
+    /// from the consensus than the consensus is from itself? Surveyed over a spread sample
+    /// of the pdf.js corpus, that distinction is the difference between 15 pages outside
+    /// [`Self::TEXT_HEAVY`] and the 8 among them that two independent renderers genuinely
+    /// contradict.
+    ///
+    /// The fixed bounds stay as a floor rather than being replaced, because a spread of
+    /// zero — two references producing identical pixels, which happens on simple pages —
+    /// would otherwise demand exactness of us that no third implementation can deliver.
+    #[must_use]
+    pub fn widened_to(&self, observed: &Comparison, factor: f64) -> Self {
+        Self {
+            max_mean: self.max_mean.max(observed.mean_error * factor),
+            max_worst_tile: self.max_worst_tile.max(observed.worst_tile_error * factor),
+            max_differing_fraction: self
+                .max_differing_fraction
+                .max(observed.differing_fraction * factor)
+                .min(1.0),
+            // Structural similarity runs the other way: 1.0 is identity, so the *distance*
+            // from 1.0 is what scales.
+            min_structural_similarity: self
+                .min_structural_similarity
+                .min(1.0 - (1.0 - observed.structural_similarity) * factor),
+        }
+    }
+}
+
+/// How our own render is judged, once the references have formed a consensus.
+///
+/// The consensus itself is always decided by the fixed [`Tolerance`]: deciding whether the
+/// references agree from a bound derived from how much they disagree would be circular.
+/// This chooses only what happens afterwards.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum Judgement {
+    /// Judged against the fixed bounds, exactly as the references were.
+    ///
+    /// Right for a fixture whose content is known and whose bounds were measured on it.
+    Absolute,
+    /// Judged against bounds widened to `factor` times the disagreement the consensus
+    /// references show among themselves — see [`Tolerance::widened_to`].
+    ///
+    /// Right for a corpus, where one fixed bound has to serve pages of every kind.
+    RelativeToReferences {
+        /// Multiple of the references' own spread that still counts as agreement.
+        factor: f64,
+    },
+}
+
+impl Judgement {
+    /// Twice the references' own spread, the bound the corpus gate uses.
+    ///
+    /// Two rather than one because the references' spread is the *observed* disagreement
+    /// between two implementations, and a third correct implementation is not required to
+    /// sit between them: it may differ from both in the same direction, at the same
+    /// magnitude. One would fail such a renderer for being correct. Beyond two the bound
+    /// starts to forgive real defects on text pages, where the floor is already high.
+    pub const CORPUS: Self = Self::RelativeToReferences { factor: 2.0 };
 }
 
 impl Default for Tolerance {
@@ -193,6 +266,13 @@ impl Outcome {
 pub struct Triangulation {
     /// The conclusion.
     pub outcome: Outcome,
+    /// The bounds our own render was actually held to.
+    ///
+    /// Equal to the tolerance passed in under [`Judgement::Absolute`], and widened by the
+    /// consensus references' own disagreement under
+    /// [`Judgement::RelativeToReferences`] — in which case a verdict cannot be read
+    /// without it.
+    pub judged_by: Tolerance,
     /// How our output compared against each reference.
     pub ours: Vec<(Reference, Comparison)>,
     /// How the references compared against each other.
@@ -203,7 +283,24 @@ pub struct Triangulation {
     pub between_references: Vec<(Reference, Reference, Comparison)>,
 }
 
-/// Applies the triangulation rule to one page.
+/// Applies the triangulation rule to one page, judging us against the fixed bounds.
+///
+/// Every raster must already share a size. Callers reconcile renderer rounding first
+/// with [`normalise::to_common_size`]; that is kept separate so the reconciliation is
+/// reported rather than buried inside the comparison.
+///
+/// # Errors
+///
+/// As [`triangulate_with`].
+pub fn triangulate(
+    ours: &Raster,
+    references: &[(Reference, Raster)],
+    tolerance: &Tolerance,
+) -> Result<Triangulation, HarnessError> {
+    triangulate_with(ours, references, tolerance, Judgement::Absolute)
+}
+
+/// Applies the triangulation rule to one page, choosing how we ourselves are judged.
 ///
 /// Every raster must already share a size. Callers reconcile renderer rounding first
 /// with [`normalise::to_common_size`]; that is kept separate so the reconciliation is
@@ -220,10 +317,11 @@ pub struct Triangulation {
     reason = "loop indices are bounded by the reference slice, which holds at most the \
               three known renderers"
 )]
-pub fn triangulate(
+pub fn triangulate_with(
     ours: &Raster,
     references: &[(Reference, Raster)],
     tolerance: &Tolerance,
+    judgement: Judgement,
 ) -> Result<Triangulation, HarnessError> {
     let mut between_references = Vec::new();
     for (index, (left_ref, left)) in references.iter().enumerate() {
@@ -245,16 +343,27 @@ pub fn triangulate(
         ours_vs.push((*reference, comparison));
     }
 
-    let outcome = decide(references, &between_references, &ours_vs, tolerance);
+    let (outcome, judged_by) = decide(
+        references,
+        &between_references,
+        &ours_vs,
+        tolerance,
+        judgement,
+    );
 
     Ok(Triangulation {
         outcome,
+        judged_by,
         ours: ours_vs,
         between_references,
     })
 }
 
 /// Finds the largest mutually-agreeing group of references and judges us against it.
+///
+/// Returns the bounds we were actually held to alongside the conclusion, since under
+/// [`Judgement::RelativeToReferences`] they are derived from the page and a reader cannot
+/// otherwise tell what a verdict meant.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "the subset bitmask is bounded by the reference count, at most three"
@@ -264,11 +373,15 @@ fn decide(
     between: &[(Reference, Reference, Comparison)],
     ours: &[(Reference, Comparison)],
     tolerance: &Tolerance,
-) -> Outcome {
+    judgement: Judgement,
+) -> (Outcome, Tolerance) {
     if references.len() < 2 {
-        return Outcome::NotEnoughReferences {
-            available: references.len(),
-        };
+        return (
+            Outcome::NotEnoughReferences {
+                available: references.len(),
+            },
+            *tolerance,
+        );
     }
 
     // The largest set of references that all agree with one another. With three
@@ -306,19 +419,33 @@ fn decide(
     }
 
     if best.is_empty() {
-        return Outcome::Ambiguous;
+        return (Outcome::Ambiguous, *tolerance);
     }
+
+    // The bounds we are held to. Under `RelativeToReferences` they are widened by how far
+    // the *consensus* references sit from one another — pairs involving an outlier are
+    // excluded deliberately, since an outlier's distance measures its own error and would
+    // otherwise buy us licence to be wrong by the same amount.
+    let applied = match judgement {
+        Judgement::Absolute => *tolerance,
+        Judgement::RelativeToReferences { factor } => between
+            .iter()
+            .filter(|(l, r, _)| best.contains(l) && best.contains(r))
+            .fold(*tolerance, |widened, (_, _, comparison)| {
+                widened.widened_to(comparison, factor)
+            }),
+    };
 
     let we_match_all = best.iter().all(|reference| {
         ours.iter()
             .find(|(r, _)| r == reference)
-            .is_some_and(|(_, c)| tolerance.accepts(c))
+            .is_some_and(|(_, c)| applied.accepts(c))
     });
 
     if we_match_all {
-        Outcome::Agrees { with: best }
+        (Outcome::Agrees { with: best }, applied)
     } else {
-        Outcome::Regression { agreeing: best }
+        (Outcome::Regression { agreeing: best }, applied)
     }
 }
 
@@ -367,9 +494,14 @@ pub enum HarnessError {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "test fixtures are built from small literals whose bounds are visible here"
+)]
 mod tests {
-    use super::{Outcome, Reference, Tolerance, triangulate};
+    use super::{Judgement, Outcome, Reference, Tolerance, triangulate, triangulate_with};
     use pdf_render::{Raster, RasterFormat};
+    use raster_compare::Comparison;
 
     fn solid(rgba: [u8; 4]) -> Raster {
         Raster {
@@ -378,6 +510,21 @@ mod tests {
             format: RasterFormat::Rgba8,
             data: rgba.iter().copied().cycle().take(64 * 64 * 4).collect(),
         }
+    }
+
+    /// A raster whose left `columns` columns are `fill` and whose remainder is white.
+    ///
+    /// Two of these differ by a controllable amount, which is what a bound derived from
+    /// one difference and applied to another needs.
+    fn banded(columns: usize, fill: [u8; 4]) -> Raster {
+        let mut raster = solid(WHITE);
+        for y in 0..64usize {
+            for x in 0..columns.min(64) {
+                let start = (y * 64 + x) * 4;
+                raster.data[start..start + 4].copy_from_slice(&fill);
+            }
+        }
+        raster
     }
 
     const WHITE: [u8; 4] = [255, 255, 255, 255];
@@ -461,6 +608,139 @@ mod tests {
             Outcome::NotEnoughReferences { available: 1 }
         );
         assert!(result.outcome.is_failure());
+    }
+
+    /// The arithmetic of [`Tolerance::widened_to`], stated independently of any raster.
+    ///
+    /// Each error bound becomes the looser of the fixed one and `factor` times what was
+    /// observed; the structural bound, which runs the other way, scales its distance from
+    /// identity instead.
+    #[test]
+    fn widening_takes_the_looser_of_the_fixed_bound_and_the_observed_spread() {
+        let observed = Comparison {
+            mean_error: 4.0,
+            max_error: 255,
+            worst_tile_error: 30.0,
+            worst_tile_at: (0, 0),
+            differing_fraction: 0.02,
+            structural_similarity: 0.95,
+            worst_tile_similarity: 0.5,
+            worst_tile_similarity_at: (0, 0),
+        };
+        let widened = Tolerance::VECTOR.widened_to(&observed, 2.0);
+
+        // Each bound is written as the arithmetic that produces it rather than as its
+        // value, so the rule is visible in the assertion.
+        let close = |actual: f64, expected: f64| (actual - expected).abs() < 1e-12;
+        assert!(
+            close(widened.max_mean, 2.0 * 4.0),
+            "twice the observed mean"
+        );
+        assert!(
+            close(widened.max_worst_tile, 2.0 * 30.0),
+            "twice the observed worst tile"
+        );
+        assert!(close(widened.max_differing_fraction, 2.0 * 0.02));
+        assert!(close(
+            widened.min_structural_similarity,
+            1.0 - 2.0 * (1.0 - 0.95)
+        ));
+    }
+
+    /// A spread of zero must not demand exactness of us: the fixed bounds are a floor.
+    #[test]
+    fn widening_by_an_identical_pair_leaves_the_fixed_bounds_alone() {
+        let identical = Comparison {
+            mean_error: 0.0,
+            max_error: 0,
+            worst_tile_error: 0.0,
+            worst_tile_at: (0, 0),
+            differing_fraction: 0.0,
+            structural_similarity: 1.0,
+            worst_tile_similarity: 1.0,
+            worst_tile_similarity_at: (0, 0),
+        };
+        assert_eq!(
+            Tolerance::VECTOR.widened_to(&identical, 2.0),
+            Tolerance::VECTOR
+        );
+    }
+
+    /// The corpus rule: a deviation no larger than twice what the references allow
+    /// *themselves* is not evidence of a defect, though a fixed bound calls it one.
+    ///
+    /// The structural bound is neutralised here so the test is about the pixel bounds
+    /// alone; the arithmetic that widens it is pinned by the two tests above.
+    #[test]
+    fn a_deviation_within_twice_the_references_own_spread_is_not_a_regression() {
+        let poppler = solid(WHITE);
+        let mupdf = banded(1, GREY);
+        let ours = banded(2, GREY);
+
+        // Bounds a fifth wider than the references' measured disagreement: they agree
+        // with each other, and we sit at roughly twice their spread, so we do not.
+        let spread = raster_compare::compare(&poppler, &mupdf).expect("same size");
+        let tolerance = Tolerance {
+            max_mean: spread.mean_error * 1.2,
+            max_worst_tile: spread.worst_tile_error * 1.2,
+            max_differing_fraction: spread.differing_fraction * 1.2,
+            min_structural_similarity: -1.0,
+        };
+        let refs = vec![(Reference::Poppler, poppler), (Reference::MuPdf, mupdf)];
+
+        let absolute = triangulate(&ours, &refs, &tolerance).expect("comparable");
+        assert!(
+            matches!(absolute.outcome, Outcome::Regression { .. }),
+            "a fixed bound calls this a defect: {absolute:?}"
+        );
+
+        let relative =
+            triangulate_with(&ours, &refs, &tolerance, Judgement::CORPUS).expect("comparable");
+        assert!(
+            matches!(relative.outcome, Outcome::Agrees { .. }),
+            "twice the references' own spread must forgive it: {relative:?}"
+        );
+        assert!(
+            relative.judged_by.max_mean > tolerance.max_mean,
+            "the bounds actually applied must be reported, and must be the widened ones"
+        );
+    }
+
+    /// Widening must not become a licence to be wrong: where the references agree
+    /// exactly, twice nothing is still nothing.
+    #[test]
+    fn a_relative_judgement_still_fails_where_the_references_agree_exactly() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(WHITE)),
+        ];
+        let result = triangulate_with(&solid(BLACK), &refs, &Tolerance::VECTOR, Judgement::CORPUS)
+            .expect("comparable");
+        assert!(matches!(result.outcome, Outcome::Regression { .. }));
+        assert_eq!(
+            result.judged_by,
+            Tolerance::VECTOR,
+            "with no spread to widen by, the fixed bounds are what applied"
+        );
+    }
+
+    /// An outlier's distance from the consensus measures the outlier's error, not the
+    /// page's difficulty, so it must not widen anything.
+    #[test]
+    fn an_outlier_reference_does_not_widen_the_bounds() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(WHITE)),
+            (Reference::Ghostscript, solid(BLACK)),
+        ];
+        let result = triangulate_with(&solid(GREY), &refs, &Tolerance::VECTOR, Judgement::CORPUS)
+            .expect("comparable");
+        assert_eq!(
+            result.judged_by,
+            Tolerance::VECTOR,
+            "only pairs within the consensus may widen the bounds"
+        );
+        assert!(matches!(result.outcome, Outcome::Regression { .. }));
     }
 
     #[test]
