@@ -444,7 +444,7 @@ impl Profile {
                 }
             }
         }
-        xyz_to_rgb(xyz)
+        crate::colour::xyz_d50_to_srgb(xyz)
     }
 }
 
@@ -551,26 +551,7 @@ impl Lut {
 }
 
 /// The D50 white point, which is the connection space's own.
-const WHITE: [f32; 3] = [0.964_2, 1.0, 0.824_9];
-
-/// Converts D50 XYZ to sRGB, adapting the white point.
-#[expect(
-    clippy::many_single_char_names,
-    reason = "X, Y, Z and R, G, B are the colour spaces' own axis names"
-)]
-fn xyz_to_rgb(xyz: [f32; 3]) -> Color {
-    let (x, y, z) = (xyz[0], xyz[1], xyz[2]);
-    // XYZ (D50) to linear sRGB, Bradford-adapted — the same matrix `colour.rs` uses for
-    // Lab, because both arrive from the same connection space.
-    let r = 3.134_136 * x - 1.617_036 * y - 0.490_662 * z;
-    let g = -0.978_755 * x + 1.916_142 * y + 0.033_454 * z;
-    let b = 0.071_95 * x - 0.228_988 * y + 1.405_386 * z;
-    Color::rgb(
-        crate::colour::srgb_gamma(r),
-        crate::colour::srgb_gamma(g),
-        crate::colour::srgb_gamma(b),
-    )
-}
+const WHITE: [f32; 3] = crate::colour::D50;
 
 /// Parses a `curv` or `para` tag.
 fn parse_curve(tag: &[u8]) -> Option<Curve> {

@@ -64,7 +64,7 @@ pub enum ImageError {
 }
 
 /// How an image's samples are interpreted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 enum ColourSpace {
     /// One component per sample.
     Gray,
@@ -74,14 +74,23 @@ enum ColourSpace {
     Cmyk,
     /// A stencil mask: one bit per sample, painted in the current fill colour.
     Mask,
+    /// A CIE-based space, converted sample by sample through the colour module.
+    ///
+    /// `CalGray` and `CalRGB` are *not* their device equivalents. ISO 32000-2 §8.6.5.2 and
+    /// §8.6.5.3 define both in CIE terms, so a `Gamma 1` grey is a linear luminance and
+    /// writing it into an sRGB raster unchanged renders the image far too dark. Converting
+    /// per sample costs what the `DeviceCMYK` arm already costs and buys the same thing: one
+    /// answer for a colour, whether it reached the page as a fill or as an image.
+    Calibrated(crate::colour::ColourSpace),
 }
 
 impl ColourSpace {
-    fn components(self) -> usize {
+    fn components(&self) -> usize {
         match self {
             Self::Gray | Self::Mask => 1,
             Self::Rgb => 3,
             Self::Cmyk => 4,
+            Self::Calibrated(space) => space.components(),
         }
     }
 }
@@ -152,7 +161,7 @@ pub fn decode(
                 width,
                 height,
                 bits,
-                space,
+                &space,
                 decode_inverts(document, dict),
                 fill,
             )?
@@ -226,8 +235,18 @@ fn colour_space(document: &Document, dict: &Dictionary) -> Result<ColourSpace, I
                 .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
                 .unwrap_or_default();
             match family.as_slice() {
-                b"CalRGB" => Ok(ColourSpace::Rgb),
-                b"CalGray" => Ok(ColourSpace::Gray),
+                b"CalRGB" | b"CalGray" => crate::colour::ColourSpace::parse(
+                    document,
+                    &space,
+                    // A CIE-based space names nothing outside itself, so it needs no
+                    // resource dictionary to resolve — which is what makes it reachable
+                    // from here, where an image stream has none to offer.
+                    &Dictionary::new(),
+                )
+                .map(ColourSpace::Calibrated)
+                .ok_or_else(|| ImageError::UnsupportedColourSpace {
+                    space: String::from_utf8_lossy(&family).into_owned(),
+                }),
                 // An ICC profile's component count tells us how to unpack even though the
                 // profile itself is not applied — which is an approximation, and the
                 // honest one: the alternative is refusing most real images.
@@ -279,7 +298,7 @@ fn unpack(
     width: u32,
     height: u32,
     bits: u32,
-    space: ColourSpace,
+    space: &ColourSpace,
     invert: bool,
     fill: pdf_render::Color,
 ) -> Result<Vec<u8>, ImageError> {
@@ -358,17 +377,38 @@ fn unpack(
                         read(2),
                         read(3),
                     ]);
-                    let byte = |value: f32| {
-                        #[expect(
-                            clippy::cast_possible_truncation,
-                            clippy::cast_sign_loss,
-                            reason = "a colour component is clamped to 0.0..=1.0 upstream"
-                        )]
-                        {
-                            (value.clamp(0.0, 1.0) * 255.0).round() as u8
-                        }
-                    };
-                    out.extend_from_slice(&[byte(colour.r), byte(colour.g), byte(colour.b), 255]);
+                    out.extend_from_slice(&[
+                        channel(colour.r),
+                        channel(colour.g),
+                        channel(colour.b),
+                        255,
+                    ]);
+                }
+                (ColourSpace::Calibrated(calibrated), _) => {
+                    let count = calibrated.components();
+                    let at = x.saturating_mul(count);
+                    let values: Vec<f32> = (0..count)
+                        .map(|offset| {
+                            let index = at.saturating_add(offset);
+                            if bits == 1 {
+                                // One bit per *component*, so the components of a pixel are
+                                // adjacent bits rather than adjacent bytes.
+                                f32::from(sample_bit(row, index) ^ invert)
+                            } else {
+                                f32::from(maybe_invert(
+                                    row.get(index).copied().unwrap_or(0),
+                                    invert,
+                                )) / 255.0
+                            }
+                        })
+                        .collect();
+                    let colour = calibrated.to_rgb(&values);
+                    out.extend_from_slice(&[
+                        channel(colour.r),
+                        channel(colour.g),
+                        channel(colour.b),
+                        255,
+                    ]);
                 }
             }
         }

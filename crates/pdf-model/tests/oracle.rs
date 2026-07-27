@@ -165,39 +165,34 @@ const CONTRADICTED_OPTIONAL_CONTENT: [&str; 4] = [
 
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 40 pages. The weakest entries here, because the difference need not be anyone's defect:
+/// 32 pages. The weakest entries here, because the difference need not be anyone's defect:
 /// every renderer substitutes, and where two references happen to choose the same system
 /// font and we choose another, the consensus is about their font rather than about the page.
 /// `pdf-font`'s `substitute` module is the only machine-dependent code in the tree, so this
 /// is also the group that could legitimately differ on another machine.
 ///
 /// Listed rather than excluded, because a page in this group can *also* be wrong for a real
-/// reason and dropping it would hide that — and two of them are. `calgray.pdf` and
-/// `calrgb.pdf` land here because they label their swatches with a non-embedded font, while
-/// what actually differs is the swatches: ours come out markedly darker than all three
-/// references, `A = 0.35` reading as a near-black rather than a mid grey. §8.6.5.2 and
-/// §8.6.5.3 define both spaces in CIE terms, so the conversion ends in XYZ and the
-/// destination's encoding transfer function still has to be applied; ours looks like linear
-/// luminance written straight into an sRGB raster. That is what "hypothesis, not diagnosis"
-/// means in practice.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 40] = [
+/// reason, and dropping it would hide that. This is not hypothetical: `calgray.pdf` and
+/// `calrgb.pdf` were filed here because they label their swatches with a non-embedded font,
+/// while what actually differed was the swatches — every value markedly too dark, because
+/// `CalGray` and `CalRGB` were being treated as their device equivalents rather than
+/// converted through XYZ as §8.6.5.2 and §8.6.5.3 define them. Eight of their twelve pages
+/// left this list when that was fixed.
+///
+/// The four that remain differ by about ten levels in one channel against `mupdf` and
+/// `ghostscript`, while agreeing with `poppler` exactly. That is a residue of colour
+/// management rather than of fonts, and small enough that closing it would mean choosing
+/// whose arithmetic to copy — which principle 5 forbids.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 32] = [
     "Type3WordSpacing.pdf page 1",
     "alphatrans.pdf page 1",
     "bad-PageLabels.pdf page 1",
     "bug1011159.pdf page 1",
     "bug1671312_reduced.pdf page 1",
-    "calgray.pdf page 1",
-    "calgray.pdf page 2",
-    "calgray.pdf page 3",
     "calrgb.pdf page 1",
     "calrgb.pdf page 11",
     "calrgb.pdf page 12",
-    "calrgb.pdf page 13",
-    "calrgb.pdf page 14",
-    "calrgb.pdf page 2",
-    "calrgb.pdf page 4",
     "calrgb.pdf page 5",
-    "calrgb.pdf page 7",
     "franz_2.pdf page 1",
     "hello_world_rotated.pdf page 1",
     "hello_world_rotated.pdf page 2",
@@ -236,7 +231,9 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 40] = [
 ///   show the blend. Unimplemented, and — unlike soft masks — unreported.
 /// - `mesh_shading_empty.pdf` draws the same mesh as the references, displaced
 ///   horizontally. A placement question rather than a missing feature.
-/// - The `calgray`/`calrgb` colour defect described above reaches pages in this group too.
+///
+/// A third cause — `CalGray` and `CalRGB` converted as their device equivalents — was found
+/// through this list and fixed, which is what the list is for.
 const CONTRADICTED_UNEXPLAINED: [&str; 83] = [
     "annotation-square-circle-without-appearance.pdf page 1",
     "annotation-tx.pdf page 1",

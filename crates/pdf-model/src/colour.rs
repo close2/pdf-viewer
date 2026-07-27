@@ -12,13 +12,21 @@
 //! which this crate evaluates.
 //!
 //! `DeviceCMYK` uses the naive conversion, which is what the specification describes for a
-//! device with no calibration. `CalRGB` and `CalGray` are treated as their device
-//! equivalents, and `ICCBased` as the device space with the same component count — the
-//! specification explicitly permits the latter as a fallback, and the alternative is an
-//! ICC engine.
+//! device with no calibration. `ICCBased` falls back to the device space with the same
+//! component count when the profile cannot be parsed — the specification explicitly permits
+//! that, and the alternative is refusing the document.
 //!
-//! `Lab` is converted properly, because it is not close to anything else and a wrong
-//! answer there is a visibly wrong colour rather than a slightly-off one.
+//! `Lab`, `CalGray` and `CalRGB` are converted properly, through CIE XYZ. They are the
+//! three spaces the specification defines *in CIE terms*, so there is an answer to derive
+//! and no excuse for approximating it.
+//!
+//! # One route from XYZ to the screen
+//!
+//! Everything CIE-based — `Lab`, `CalGray`, `CalRGB` and every ICC profile — arrives at
+//! [`xyz_d50_to_srgb`], and nothing else turns an XYZ into a pixel. The same rule as
+//! `to_rgb`, one level down: three separate `DeviceCMYK` conversions once disagreed in this
+//! tree without anything looking wrong, and an XYZ matrix copied into a second place would
+//! fail the same way and be just as invisible.
 
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Object};
@@ -44,6 +52,29 @@ pub enum ColourSpace {
     Lab {
         /// The `a` and `b` axis bounds, as `[a_min, a_max, b_min, b_max]`.
         range: [f32; 4],
+    },
+    /// One component in a calibrated grey space: ISO 32000-2 §8.6.5.2, Table 62.
+    CalGray {
+        /// The diffuse white point, as CIE 1931 XYZ.
+        white: [f32; 3],
+        /// The diffuse black point, as CIE 1931 XYZ. Read, and deliberately not applied —
+        /// [`cie_to_srgb`] has the argument.
+        black: [f32; 3],
+        /// The exponent decoding `A` into luminance.
+        gamma: f32,
+    },
+    /// Three components in a calibrated RGB space: ISO 32000-2 §8.6.5.3, Table 63.
+    CalRgb {
+        /// The diffuse white point, as CIE 1931 XYZ.
+        white: [f32; 3],
+        /// The diffuse black point, as CIE 1931 XYZ. Read, and deliberately not applied —
+        /// [`cie_to_srgb`] has the argument.
+        black: [f32; 3],
+        /// The exponents decoding `A`, `B` and `C`.
+        gamma: [f32; 3],
+        /// `[XA YA ZA XB YB ZB XC YC ZC]` — the decoded components' XYZ contributions,
+        /// stored in the specification's own order, which is one *column* per triple.
+        matrix: [f32; 9],
     },
     /// One component, an index into a table of colours in a base space.
     Indexed {
@@ -112,9 +143,11 @@ impl ColourSpace {
             .and_then(|item| item.as_name().map(|n| n.as_bytes().to_vec()))?;
 
         match family.as_slice() {
-            b"DeviceGray" | b"G" | b"CalGray" => Some(Self::Gray),
-            b"DeviceRGB" | b"RGB" | b"CalRGB" => Some(Self::Rgb),
+            b"DeviceGray" | b"G" => Some(Self::Gray),
+            b"DeviceRGB" | b"RGB" => Some(Self::Rgb),
             b"DeviceCMYK" | b"CMYK" => Some(Self::Cmyk),
+            b"CalGray" => Some(Self::parse_cal_gray(document, items.get(1))),
+            b"CalRGB" => Some(Self::parse_cal_rgb(document, items.get(1))),
             b"Pattern" => Some(Self::Pattern {
                 base: items
                     .get(1)
@@ -196,6 +229,38 @@ impl ColourSpace {
                 })
             }
             _ => None,
+        }
+    }
+
+    /// Reads a `CalGray` dictionary: ISO 32000-2 §8.6.5.2, Table 62.
+    fn parse_cal_gray(document: &Document, dictionary: Option<&Object>) -> Self {
+        let dict = dictionary.map(|item| document.resolve(item));
+        let dict = dict.as_ref().and_then(Object::as_dict);
+        Self::CalGray {
+            white: white_point(document, dict),
+            black: numbers(document, dict, "BlackPoint").unwrap_or([0.0, 0.0, 0.0]),
+            // Table 62: "G shall be positive". A non-positive exponent is not a gamma, and
+            // `powf` would answer with an infinity rather than a colour.
+            gamma: dict
+                .map(|dict| document.get_key(dict, "Gamma"))
+                .and_then(|value| value.as_number())
+                .map(narrow)
+                .filter(|gamma| *gamma > 0.0)
+                .unwrap_or(1.0),
+        }
+    }
+
+    /// Reads a `CalRGB` dictionary: ISO 32000-2 §8.6.5.3, Table 63.
+    fn parse_cal_rgb(document: &Document, dictionary: Option<&Object>) -> Self {
+        let dict = dictionary.map(|item| document.resolve(item));
+        let dict = dict.as_ref().and_then(Object::as_dict);
+        let gamma = numbers(document, dict, "Gamma").unwrap_or([1.0, 1.0, 1.0]);
+        Self::CalRgb {
+            white: white_point(document, dict),
+            black: numbers(document, dict, "BlackPoint").unwrap_or([0.0, 0.0, 0.0]),
+            gamma: gamma.map(|value| if value > 0.0 { value } else { 1.0 }),
+            matrix: numbers(document, dict, "Matrix")
+                .unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
         }
     }
 
@@ -289,12 +354,12 @@ impl ColourSpace {
     #[must_use]
     pub fn components(&self) -> usize {
         match self {
-            Self::Gray | Self::Indexed { .. } => 1,
+            Self::Gray | Self::Indexed { .. } | Self::CalGray { .. } => 1,
             Self::Icc { profile } => profile.channels(),
             // A pattern is named, not given as components; where an uncoloured one takes
             // a colour, that colour belongs to the underlying space.
             Self::Pattern { base } => base.as_ref().map_or(1, |base| base.components()),
-            Self::Rgb | Self::Lab { .. } => 3,
+            Self::Rgb | Self::Lab { .. } | Self::CalRgb { .. } => 3,
             Self::Cmyk => 4,
             Self::Separation { inputs, .. } => *inputs,
         }
@@ -338,6 +403,46 @@ impl ColourSpace {
             Self::Cmyk => cmyk(at(0), at(1), at(2), at(3)),
             Self::Icc { profile } => profile.to_rgb_with(values, black_point),
             Self::Lab { range } => lab(at(0), at(1), at(2), *range),
+            // `black` is read but not applied — `cie_to_srgb` carries the argument.
+            Self::CalGray {
+                white,
+                black: _,
+                gamma,
+            } => {
+                // §8.6.5.2: "the A component shall be first decoded by the gamma function,
+                // and the result shall be multiplied by the components of the white point
+                // to obtain the L, M and N components", which are also X, Y and Z because
+                // a CalGray has no second transformation stage.
+                let decoded = channel(at(0)).powf(*gamma);
+                let xyz = [white[0] * decoded, white[1] * decoded, white[2] * decoded];
+                cie_to_srgb(xyz, *white)
+            }
+            Self::CalRgb {
+                white,
+                black: _,
+                gamma,
+                matrix,
+            } => {
+                // §8.6.5.3: decode each component by its own gamma, then multiply the
+                // three-element vector by `Matrix` to obtain XYZ. `Matrix` is given as
+                // three XYZ triples, one per input component, so each triple is a column.
+                let decoded = [
+                    channel(at(0)).powf(gamma[0]),
+                    channel(at(1)).powf(gamma[1]),
+                    channel(at(2)).powf(gamma[2]),
+                ];
+                let mut xyz = [0.0f32; 3];
+                for (column, input) in decoded.iter().enumerate() {
+                    for (axis, output) in xyz.iter_mut().enumerate() {
+                        let entry = matrix
+                            .get(column.saturating_mul(3).saturating_add(axis))
+                            .copied()
+                            .unwrap_or(0.0);
+                        *output += entry * input;
+                    }
+                }
+                cie_to_srgb(xyz, *white)
+            }
             Self::Indexed { base, lookup, high } => {
                 let components = base.components();
                 let raw = at(0);
@@ -506,6 +611,132 @@ pub(crate) fn lab_to_xyz(lightness: f32, a: f32, b: f32) -> [f32; 3] {
     [0.964_2 * expand(l), expand(m), 0.824_9 * expand(n)]
 }
 
+/// The CIE D50 white point, which is the ICC profile connection space's own.
+///
+/// Every CIE-based colour in this module is adapted to it before the one matrix that turns
+/// an XYZ into a pixel, so it is the single hinge the whole colour path turns on.
+pub(crate) const D50: [f32; 3] = [0.964_2, 1.0, 0.824_9];
+
+/// The Bradford cone response matrix, and its inverse.
+///
+/// ISO 32000-2 §10.3.1 says conversion from a CIE-based source to the destination "shall be
+/// performed based on ISO 15076-1:2010 (ICC.1:2010)", and that standard's media-relative
+/// colorimetric intent adapts the source's white point onto the connection space's D50.
+/// Bradford is the transform ICC's own `chad` tag carries, so this is the adaptation the
+/// referenced standard describes rather than a choice made here.
+///
+/// Both matrices are the published constants, row-major.
+#[rustfmt::skip]
+const BRADFORD: [f32; 9] = [
+     0.895_1,  0.266_4, -0.161_4,
+    -0.750_2,  1.713_5,  0.036_7,
+     0.038_9, -0.068_5,  1.029_6,
+];
+
+/// The inverse of [`BRADFORD`], row-major.
+#[rustfmt::skip]
+const BRADFORD_INVERSE: [f32; 9] = [
+     0.986_992_9, -0.147_054_3,  0.159_962_7,
+     0.432_305_3,  0.518_360_3,  0.049_291_2,
+    -0.008_528_7,  0.040_042_8,  0.968_486_7,
+];
+
+/// Multiplies a row-major 3×3 matrix by a column vector.
+fn transform(matrix: &[f32; 9], vector: [f32; 3]) -> [f32; 3] {
+    let mut out = [0.0f32; 3];
+    for (row, output) in out.iter_mut().enumerate() {
+        for (column, input) in vector.iter().enumerate() {
+            let entry = matrix
+                .get(row.saturating_mul(3).saturating_add(column))
+                .copied()
+                .unwrap_or(0.0);
+            *output += entry * input;
+        }
+    }
+    out
+}
+
+/// Takes a CIE-based colour from its own XYZ to sRGB: adapt the white point, then convert.
+///
+/// `white` is the source space's own diffuse white, which the adaptation maps onto the
+/// connection space's D50. Both `CalGray` and `CalRGB` end here, which is why the two share
+/// every step after their own decoding stage.
+///
+/// # `BlackPoint` is read and deliberately not applied
+///
+/// A Cal space's `BlackPoint` is its *source's* diffuse shadow — §8.6.5.3 says outright that
+/// it "is limited by the dynamic range of the input device" and "varies with exposure,
+/// system response, and artistic intent". Stretching the range so that shadow lands on the
+/// display's black is black point compensation, and ISO 32000-2 §8.6.5.9 makes that a
+/// processor decision: `ON` means "according to the provisions in ISO 18619", `OFF` means
+/// none, and `Default` — which is what every document in the corpus leaves it at — is
+/// "left to the PDF processor to determine".
+///
+/// So this is a choice, not a derivation, and the choice is to reproduce the colorimetry the
+/// space states. Two things decided it:
+///
+/// - The stretch is **undefined on input the specification permits**. Table 63 requires only
+///   that the three numbers be non-negative — nothing puts the black below the white.
+///   `calrgb.pdf` page 14 states `BlackPoint [0.2 1.0 1.7]` against `WhitePoint [1 1 1]`, so
+///   the Y axis has zero span and the Z axis a negative one. A construction that has to be
+///   guarded into doing nothing on two of three axes is not the construction the clause
+///   means, and what it does on the third is arbitrary.
+/// - The quantity is **not the one `icc.rs` compensates**, which is why that path keeps its
+///   compensation and this one has none. There the black point is *measured* from the
+///   profile — the darkest colour the device can actually reach — and aligning it is what
+///   `PDF20_AN001-BPC` argues for. A source's stated shadow is a different quantity that
+///   happens to share a name.
+///
+/// The cost, stated plainly: a document raising its `BlackPoint` gets shadows at the
+/// lightness it states rather than stretched down to the display's black. `calgray.pdf`
+/// page 3 and `calrgb.pdf` page 14 are the corpus's only examples, and both are files
+/// written to probe this entry rather than to display anything.
+///
+/// All three reference renderers do the same, which is evidence that this is how §8.6.5.2
+/// and §8.6.5.3 are commonly read — not the reason for the choice, which is above.
+fn cie_to_srgb(xyz: [f32; 3], white: [f32; 3]) -> Color {
+    xyz_d50_to_srgb(adapt(xyz, white, D50))
+}
+
+/// Chromatically adapts an XYZ from one white point onto another.
+///
+/// Scaling the three cone responses is the von Kries construction; Bradford is which cone
+/// responses. `from` maps exactly onto `to`, which is the property everything here relies
+/// on: a `CalGray` states its colours as multiples of its own white, so adapting turns them
+/// into the same multiples of D50 and the grey stays grey.
+fn adapt(xyz: [f32; 3], from: [f32; 3], to: [f32; 3]) -> [f32; 3] {
+    let source = transform(&BRADFORD, from);
+    let destination = transform(&BRADFORD, to);
+    let mut cone = transform(&BRADFORD, xyz);
+    for (axis, value) in cone.iter_mut().enumerate() {
+        // A white point with a zero or negative cone response is not a white point; leaving
+        // the axis alone is the only answer that cannot produce an infinity.
+        if source[axis].abs() > 1e-9 {
+            *value *= destination[axis] / source[axis];
+        }
+    }
+    transform(&BRADFORD_INVERSE, cone)
+}
+
+/// Converts a D50 XYZ to sRGB.
+///
+/// The only place in this crate where an XYZ becomes a pixel. `Lab`, `CalGray`, `CalRGB`
+/// and every ICC profile arrive here, and the module documentation says why that matters.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "X, Y, Z and R, G, B are the colour spaces' own axis names"
+)]
+pub(crate) fn xyz_d50_to_srgb(xyz: [f32; 3]) -> Color {
+    let (x, y, z) = (xyz[0], xyz[1], xyz[2]);
+    // XYZ (D50) to linear sRGB: the sRGB primaries' matrix with a Bradford adaptation from
+    // D50 to sRGB's own D65 white already folded in, which is why it is not the matrix
+    // IEC 61966-2-1 prints. `a_folded_matrix_equals_adapting_then_converting` derives it.
+    let r = 3.134_136 * x - 1.617_036 * y - 0.490_662 * z;
+    let g = -0.978_755 * x + 1.916_142 * y + 0.033_454 * z;
+    let b = 0.071_95 * x - 0.228_988 * y + 1.405_386 * z;
+    Color::rgb(gamma(r), gamma(g), gamma(b))
+}
+
 /// Converts CIE L*a*b* to sRGB through XYZ, using the D50 white point PDF specifies.
 #[expect(
     clippy::many_single_char_names,
@@ -528,21 +759,38 @@ fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> Color {
     let l = m + a / 500.0;
     let n = m - b / 200.0;
 
-    // PDF's default white point for Lab is D50.
-    let (xw, yw, zw) = (0.964_2, 1.0, 0.824_9);
-    let (x, y, z) = (xw * expand(l), yw * expand(m), zw * expand(n));
-
-    // XYZ (D50) to linear sRGB, Bradford-adapted.
-    let r = 3.134_136 * x - 1.617_036 * y - 0.490_662 * z;
-    let g = -0.978_755 * x + 1.916_142 * y + 0.033_454 * z;
-    let bl = 0.071_95 * x - 0.228_988 * y + 1.405_386 * z;
-
-    Color::rgb(gamma(r), gamma(g), gamma(bl))
+    // PDF's default white point for Lab is D50, which is already the connection space's,
+    // so no adaptation stands between this and the matrix.
+    xyz_d50_to_srgb([D50[0] * expand(l), D50[1] * expand(m), D50[2] * expand(n)])
 }
 
-/// The sRGB transfer function, for callers outside this module.
-pub(crate) fn srgb_gamma(value: f32) -> f32 {
-    gamma(value)
+/// Reads a fixed-length array of numbers from a colour space dictionary.
+fn numbers<const N: usize>(
+    document: &Document,
+    dict: Option<&Dictionary>,
+    key: &'static str,
+) -> Option<[f32; N]> {
+    let array = document.get_key(dict?, key);
+    let values: Vec<f32> = array
+        .as_array()?
+        .iter()
+        .filter_map(|item| document.resolve(item).as_number().map(narrow))
+        .collect();
+    <[f32; N]>::try_from(values.as_slice()).ok()
+}
+
+/// Reads a `WhitePoint` entry, which Tables 62 and 63 both make required.
+///
+/// A dictionary without one is not a CIE-based space at all, and there is nothing in the
+/// file to recover the intent from. D50 is the substitute because it is the connection
+/// space's own white, which makes the adaptation stage vanish and leaves the space's
+/// `Gamma` and `Matrix` — the parts the document *did* state — doing exactly what they say.
+fn white_point(document: &Document, dict: Option<&Dictionary>) -> [f32; 3] {
+    numbers(document, dict, "WhitePoint")
+        // "The numbers X_W and Z_W shall be positive, and Y_W shall be equal to 1.0."
+        // A white point violating that would divide the adaptation by zero or invert it.
+        .filter(|white| white[0] > 0.0 && white[1] > 0.0 && white[2] > 0.0)
+        .unwrap_or(D50)
 }
 
 /// The sRGB transfer function.
@@ -664,6 +912,205 @@ mod tests {
         // A strongly positive a* axis is red.
         let red = super::lab(54.0, 81.0, 70.0, range);
         assert!(red.r > red.g && red.r > red.b, "{red:?}");
+    }
+
+    /// The folded D50→sRGB matrix must equal adapting to D65 and then converting.
+    ///
+    /// [`super::xyz_d50_to_srgb`] carries one matrix where the derivation has two: a
+    /// Bradford adaptation from the connection space's D50 onto sRGB's D65, then the
+    /// XYZ-to-linear-sRGB matrix IEC 61966-2-1 defines. A folded constant is unreadable and
+    /// unfalsifiable on its own — this recomputes it from the two published matrices, so a
+    /// typo in any of the nine numbers, or in either Bradford constant, fails here.
+    ///
+    /// The bound is 1e-3 because the published D50-adapted matrix was computed with
+    /// D50 = [0.96422, 1.0, 0.82521], four digits finer than the value PDF states for `Lab`
+    /// and this module therefore uses.
+    #[test]
+    fn a_folded_matrix_equals_adapting_then_converting() {
+        // IEC 61966-2-1: XYZ (D65) to linear sRGB.
+        #[rustfmt::skip]
+        const SRGB_FROM_XYZ_D65: [f32; 9] = [
+             3.240_454_2, -1.537_138_5, -0.498_531_4,
+            -0.969_266,    1.876_010_8,  0.041_556,
+             0.055_643_4, -0.204_025_9,  1.057_225_2,
+        ];
+        #[rustfmt::skip]
+        const FOLDED: [f32; 9] = [
+             3.134_136, -1.617_036, -0.490_662,
+            -0.978_755,  1.916_142,  0.033_454,
+             0.071_95,  -0.228_988,  1.405_386,
+        ];
+        // sRGB's own white point, from the same standard.
+        const D65: [f32; 3] = [0.950_47, 1.0, 1.088_83];
+
+        // Recover each column of the composed matrix by pushing a basis vector through the
+        // two stages, which needs no matrix multiplication of its own to get wrong.
+        for column in 0..3 {
+            let mut basis = [0.0f32; 3];
+            if let Some(entry) = basis.get_mut(column) {
+                *entry = 1.0;
+            }
+            let adapted = super::adapt(basis, super::D50, D65);
+            let converted = super::transform(&SRGB_FROM_XYZ_D65, adapted);
+            for (row, value) in converted.iter().enumerate() {
+                let folded = FOLDED
+                    .get(row.saturating_mul(3).saturating_add(column))
+                    .copied()
+                    .unwrap_or_default();
+                assert!(
+                    (value - folded).abs() < 1e-3,
+                    "row {row} column {column}: derived {value}, folded {folded}"
+                );
+            }
+        }
+    }
+
+    /// `CalGray` decodes to a luminance, and a luminance is not an sRGB value.
+    ///
+    /// ISO 32000-2 §8.6.5.2 makes `A` a CIE quantity: `A^Gamma` scaled by the white point
+    /// *is* the XYZ, with no second stage. So with `Gamma 1` the component is linear
+    /// luminance, and writing it into an sRGB raster unchanged — which this space's device
+    /// equivalent would do — renders every value far too dark.
+    ///
+    /// The expected bytes are the sRGB encoding of the luminance and nothing else:
+    /// `1.055 × 0.35^(1/2.4) − 0.055 = 0.626`, which is 160 of 255.
+    #[test]
+    fn calgray_is_a_luminance_and_must_be_encoded_for_the_display() {
+        let space = ColourSpace::CalGray {
+            white: [1.0, 1.0, 1.0],
+            black: [0.0, 0.0, 0.0],
+            gamma: 1.0,
+        };
+        assert_eq!(bytes(space.to_rgb(&[0.35])), (160, 160, 160));
+        assert_eq!(bytes(space.to_rgb(&[0.75])), (225, 225, 225));
+        assert_eq!(bytes(space.to_rgb(&[0.10])), (89, 89, 89));
+        // The ends are fixed points whatever the encoding does between them.
+        assert_eq!(bytes(space.to_rgb(&[1.0])), (255, 255, 255));
+        assert_eq!(bytes(space.to_rgb(&[0.0])), (0, 0, 0));
+    }
+
+    /// `Gamma` is applied to the component before the white point scales it.
+    ///
+    /// §8.6.5.2's EXAMPLE 2 is exactly this space, and it exists because a display's
+    /// transfer function is roughly `2.2`: decoding by it and re-encoding for sRGB very
+    /// nearly cancels, which is the case a device-equivalent shortcut happens to get right
+    /// and the reason the shortcut survived.
+    #[test]
+    fn calgray_applies_its_gamma_before_the_white_point() {
+        let space = ColourSpace::CalGray {
+            white: [0.950_5, 1.0, 1.089_0],
+            black: [0.0, 0.0, 0.0],
+            gamma: 2.222,
+        };
+        // 0.5^2.222 = 0.2143 luminance, encoded back to 0.5031 — within a level of the
+        // component itself, and nowhere near the 89 the Gamma-1 space above gives at 0.35.
+        assert_eq!(bytes(space.to_rgb(&[0.5])), (128, 128, 128));
+        assert_eq!(bytes(space.to_rgb(&[1.0])), (255, 255, 255));
+    }
+
+    /// A `CalRGB` stating sRGB's own parameters must return the component it was given.
+    ///
+    /// This is the strongest check available for the chain as a whole, because it closes a
+    /// loop through every stage — the three gammas, `Matrix`, the Bradford adaptation onto
+    /// D50, the folded matrix back out, and the sRGB encoding — using only constants
+    /// published in IEC 61966-2-1. Any stage that is wrong, transposed or applied in the
+    /// wrong order breaks the identity, and none of them can break it in a compensating way
+    /// because the input is not symmetric in its three components.
+    ///
+    /// `Matrix` is sRGB's primaries as XYZ (D65), in the specification's column order.
+    #[test]
+    fn calrgb_stating_srgbs_own_parameters_is_the_identity() {
+        #[rustfmt::skip]
+        let space = ColourSpace::CalRgb {
+            white: [0.950_47, 1.0, 1.088_83],
+            black: [0.0, 0.0, 0.0],
+            gamma: [2.2, 2.2, 2.2],
+            matrix: [
+                0.412_456, 0.212_673, 0.019_334,
+                0.357_576, 0.715_152, 0.119_192,
+                0.180_437, 0.072_175, 0.950_304,
+            ],
+        };
+        for input in [[0.2, 0.1, 0.05], [0.5, 0.25, 0.125], [0.9, 0.45, 0.225]] {
+            let expected = bytes(ColourSpace::Rgb.to_rgb(&input.map(|value: f32| {
+                // The component sRGB *encodes* the same linear light this CalRGB decodes
+                // with its 2.2 gamma, which is what makes the two comparable at all.
+                super::gamma(value.powf(2.2))
+            })));
+            assert_eq!(bytes(space.to_rgb(&input)), expected, "{input:?}");
+        }
+    }
+
+    /// `Matrix` holds one XYZ column per input component, not one row.
+    ///
+    /// §8.6.5.3 writes it as `[X_A Y_A Z_A X_B Y_B Z_B X_C Y_C Z_C]` — the *first*
+    /// component's contribution to all three axes comes first. Reading the nine numbers
+    /// row-major transposes the space, and on a near-symmetric matrix such as sRGB's the
+    /// error is a small colour shift rather than an obvious one. This matrix is deliberately
+    /// far from symmetric: it sends `A` to pure Z and `C` to pure X, so a transposed read
+    /// swaps blue and red outright.
+    #[test]
+    fn calrgb_reads_its_matrix_one_column_per_component() {
+        #[rustfmt::skip]
+        let space = ColourSpace::CalRgb {
+            white: super::D50,
+            black: [0.0, 0.0, 0.0],
+            gamma: [1.0, 1.0, 1.0],
+            matrix: [
+                0.0, 0.0, 1.0,   // A contributes only Z
+                0.0, 1.0, 0.0,   // B contributes only Y
+                1.0, 0.0, 0.0,   // C contributes only X
+            ],
+        };
+        let from_a = space.to_rgb(&[1.0, 0.0, 0.0]);
+        assert!(
+            from_a.b > from_a.r,
+            "A drives Z, which is blue, but got {from_a:?}"
+        );
+        let from_c = space.to_rgb(&[0.0, 0.0, 1.0]);
+        assert!(
+            from_c.r > from_c.b,
+            "C drives X, which is red, but got {from_c:?}"
+        );
+    }
+
+    /// A Cal space's `BlackPoint` does not move its colours, whatever it states.
+    ///
+    /// This pins a *choice* rather than a derivation — `cie_to_srgb` carries the whole
+    /// argument for it, and ISO 32000-2 §8.6.5.9 is what makes it a choice at all. What the
+    /// test defends is that the choice stays made: a stretch reintroduced here would move
+    /// every colour in every document that raises its black point, and nothing about the
+    /// resulting page would look wrong.
+    ///
+    /// The second black point is `calrgb.pdf` page 14's, which Table 63 permits and no
+    /// stretch is defined on: its Y span is zero and its Z span negative.
+    #[test]
+    fn a_cal_spaces_black_point_does_not_move_its_colours() {
+        let grey = |black| {
+            bytes(
+                ColourSpace::CalGray {
+                    white: [1.0, 1.0, 1.0],
+                    black,
+                    gamma: 1.0,
+                }
+                .to_rgb(&[0.35]),
+            )
+        };
+        assert_eq!(grey([0.0, 0.0, 0.0]), (160, 160, 160));
+        assert_eq!(grey([0.7, 0.7, 0.7]), (160, 160, 160));
+        assert_eq!(grey([0.2, 1.0, 1.7]), (160, 160, 160));
+
+        // And refusing compensation cannot change what was never compensated, which is what
+        // makes `/UseBlackPtComp OFF` a no-op here rather than a second behaviour.
+        let space = ColourSpace::CalGray {
+            white: [1.0, 1.0, 1.0],
+            black: [0.7, 0.7, 0.7],
+            gamma: 1.0,
+        };
+        assert_eq!(
+            bytes(space.to_rgb_without_black_point(&[0.35])),
+            bytes(space.to_rgb(&[0.35]))
+        );
     }
 
     #[test]
