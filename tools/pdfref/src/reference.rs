@@ -101,7 +101,13 @@ impl Reference {
         Self::ALL.into_iter().filter(|r| r.is_available()).collect()
     }
 
-    /// Renders page one of `pdf` at `dpi`, writing intermediates under `work_dir`.
+    /// Renders `page` of `pdf` at `dpi`, writing intermediates under `work_dir`.
+    ///
+    /// `page` is one-based, as it is in all three renderers' own command lines and in the
+    /// specification. It is a parameter rather than a default because a harness whose
+    /// choice of page is implicit is a harness that can silently compare two different
+    /// pages; all three renderers seek to a page through the cross-reference table, so a
+    /// late page costs no more than the first.
     ///
     /// Bounded by [`DEFAULT_TIMEOUT`]. There is no unbounded variant on purpose: these
     /// renderers are pointed at untrusted files, and a corpus contains files built to make
@@ -112,11 +118,17 @@ impl Reference {
     /// [`HarnessError::RendererMissing`] if the executable is absent,
     /// [`HarnessError::RendererFailed`] if it exits non-zero, exceeds the budget, or
     /// produces no output, and [`HarnessError::Png`] if its output cannot be decoded.
-    pub fn render(self, pdf: &Path, dpi: u32, work_dir: &Path) -> Result<Raster, HarnessError> {
-        self.render_within(pdf, dpi, work_dir, DEFAULT_TIMEOUT)
+    pub fn render(
+        self,
+        pdf: &Path,
+        page: u32,
+        dpi: u32,
+        work_dir: &Path,
+    ) -> Result<Raster, HarnessError> {
+        self.render_within(pdf, page, dpi, work_dir, DEFAULT_TIMEOUT)
     }
 
-    /// Renders page one of `pdf` at `dpi`, giving the renderer at most `budget`.
+    /// Renders `page` of `pdf` at `dpi`, giving the renderer at most `budget`.
     ///
     /// # How the budget is enforced
     ///
@@ -134,6 +146,7 @@ impl Reference {
     pub fn render_within(
         self,
         pdf: &Path,
+        page: u32,
         dpi: u32,
         work_dir: &Path,
         budget: Duration,
@@ -154,7 +167,7 @@ impl Reference {
         // A renderer that fails after a previous run succeeded would otherwise be judged
         // by the stale image still sitting there.
         let _ = std::fs::remove_file(&output_path);
-        let mut command = self.build_command(pdf, dpi, work_dir, &output_path);
+        let mut command = self.build_command(pdf, page, dpi, work_dir, &output_path);
 
         let log_path = work_dir.join(format!("{}.log", self.name()));
         if let Ok(log) = std::fs::File::create(&log_path) {
@@ -245,17 +258,28 @@ impl Reference {
     /// a different origin, it would have compared a correct render against a displaced one
     /// and called us wrong. The clause decides this; agreement with `mutool` is only
     /// evidence that the clause was read the same way twice.
-    fn build_command(self, pdf: &Path, dpi: u32, work_dir: &Path, output: &Path) -> Command {
+    fn build_command(
+        self,
+        pdf: &Path,
+        page: u32,
+        dpi: u32,
+        work_dir: &Path,
+        output: &Path,
+    ) -> Command {
         match self {
             Self::Poppler => {
-                // `-singlefile` suppresses the page-number suffix, giving a predictable
-                // output path instead of `prefix-1.png`.
                 let prefix = work_dir.join(self.name());
                 let mut command = Command::new(self.program());
                 command
                     .arg("-r")
                     .arg(dpi.to_string())
                     .arg("-png")
+                    // `-f` and `-l` select the page; `-singlefile` then suppresses the
+                    // page-number suffix, so one page comes out at a predictable path.
+                    .arg("-f")
+                    .arg(page.to_string())
+                    .arg("-l")
+                    .arg(page.to_string())
                     .arg("-singlefile")
                     .arg("-cropbox")
                     .arg("-aa")
@@ -279,7 +303,7 @@ impl Reference {
                     .arg("-o")
                     .arg(output)
                     .arg(pdf)
-                    .arg("1");
+                    .arg(page.to_string());
                 command
             }
             Self::Ghostscript => {
@@ -296,8 +320,8 @@ impl Reference {
                     // own documentation recommends for rendering to screen resolution.
                     .arg("-dGraphicsAlphaBits=4")
                     .arg("-dTextAlphaBits=4")
-                    .arg("-dFirstPage=1")
-                    .arg("-dLastPage=1")
+                    .arg(format!("-dFirstPage={page}"))
+                    .arg(format!("-dLastPage={page}"))
                     .arg(format!("-sOutputFile={}", output.display()))
                     .arg(pdf);
                 command

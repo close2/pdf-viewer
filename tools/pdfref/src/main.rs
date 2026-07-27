@@ -33,6 +33,10 @@ use std::process::ExitCode;
 use pdf_render::Raster;
 use pdfref::{Reference, Tolerance, normalise, reference};
 
+/// The page this survey compares. One, because its purpose is to map where the references
+/// disagree rather than to cover a document, and page one is the page every file has.
+const PAGE_ONE: u32 = 1;
+
 /// What one invocation was asked to do.
 #[derive(Debug)]
 struct Options {
@@ -182,7 +186,7 @@ fn survey_file(file: &Path, options: &Options, available: &[Reference]) -> FileO
 
     let mut rasters = Vec::new();
     for reference in available {
-        match reference.render(file, options.dpi, &work_dir) {
+        match reference.render(file, PAGE_ONE, options.dpi, &work_dir) {
             Ok(raster) => rasters.push((*reference, raster)),
             Err(e) => {
                 println!("{stem}: ERROR — {e}");

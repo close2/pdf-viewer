@@ -1,4 +1,4 @@
-//! Every corpus document's first page, drawn by us and by three independent renderers.
+//! Every page of the corpus, drawn by us and by three independent renderers.
 //!
 //! # What this gate is for, and how it differs from `corpus.rs`
 //!
@@ -26,6 +26,14 @@
 //! itself. On a spread sample of this corpus that distinction was the difference between
 //! 15 pages outside the fixed bounds and the 8 among them that are genuinely contradicted.
 //!
+//! # What is compared
+//!
+//! Every page of all 974 pdf.js corpus documents, and page one of the 14 specification PDFs
+//! in `doc/` — 1794 pages. The corpus files are there because each one broke a reader once
+//! and the interesting page is not always the first; the specification PDFs are 1382 pages
+//! of consistent typesetting from 14 files, where page 500 exercises what page 499 did. See
+//! [`work_items`].
+//!
 //! # What is gated, and what is only recorded
 //!
 //! Only pages we claim to draw *completely*. A page whose interpretation reports an
@@ -41,8 +49,8 @@
 //! ```
 //!
 //! Artefacts for every page that is not agreement — our render, each reference's, and a
-//! difference heatmap — are kept under the test's temporary directory and named in the
-//! output. Pages that agree have theirs deleted: three thousand PNGs of pages nobody will
+//! difference heatmap — are kept under `<target>/tmp/oracle/<stem>/p<n>/` and named in the
+//! output. Pages that agree have theirs deleted: five thousand PNGs of pages nobody will
 //! look at is a gigabyte of evidence for nothing.
 
 #![expect(
@@ -70,12 +78,12 @@ const SCALE: f32 = 1.0;
 /// Pixel budget per page, the same one `corpus.rs` uses.
 const PIXEL_BUDGET: u64 = 64 << 20;
 
-/// Documents whose first page we claim to draw completely, and which two independent
-/// reference renderers contradict: pages carrying an annotation appearance we do not draw.
+/// Pages we claim to draw completely, and which two independent reference renderers
+/// contradict: pages carrying an annotation appearance we do not draw.
 ///
-/// 44 documents, and the largest single group. The annotations on them are 122 `Widget`,
-/// 24 `Ink`, 17 `FreeText`, 4 `Stamp`, and one each of `Square` and `Highlight` — all
-/// visible, all carrying an `/AP`, none drawn and none reported.
+/// 47 pages, and the largest single group. The annotations on them are 131 `Widget`, 24
+/// `Ink`, 17 `FreeText`, 4 `Stamp`, and one each of `Square` and `Highlight` — all visible,
+/// all carrying an `/AP`, none drawn and none reported.
 ///
 /// # How these four lists work
 ///
@@ -84,78 +92,84 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// a page that is fixed must be deleted from its list rather than left to rot. That is what
 /// "a fixed one can never come back" requires.
 ///
-/// The grouping is by what page one *carries*, which is a hypothesis about the cause and
+/// A page, not a document — the same file can be right on one page and wrong on the next,
+/// and 31 of the entries below are pages a page-one-only comparison never looked at.
+///
+/// The grouping is by what the page *carries*, which is a hypothesis about the cause and
 /// not a diagnosis. A page here may differ for some quite other reason, and only the
 /// artefacts settle it. What every entry does establish is that two implementations sharing
 /// no code agree about this page and we do not. The groups are also how the list is meant
 /// to shrink: drawing annotation appearances should empty this one, honouring optional
 /// content the next.
-const CONTRADICTED_ANNOTATIONS: [&str; 44] = [
-    "annotation-stamp.pdf",
-    "annotation-tx2.pdf",
-    "annotation-tx3.pdf",
-    "annotation_hidden_noview.pdf",
-    "bug1669097.pdf",
-    "bug1770750.pdf",
-    "bug1782564.pdf",
-    "bug1796741.pdf",
-    "bug1802888.pdf",
-    "bug1811510.pdf",
-    "bug1811694.pdf",
-    "bug1851498.pdf",
-    "bug1883609.pdf",
-    "bug1963407.pdf",
-    "dates.pdf",
-    "evaljs.pdf",
-    "fields_order.pdf",
-    "firefox_logo.pdf",
-    "firefox_stamp.pdf",
-    "inks.pdf",
-    "inks_basic.pdf",
-    "issue12706.pdf",
-    "issue13003.pdf",
-    "issue14023.pdf",
-    "issue14502.pdf",
-    "issue14705.pdf",
-    "issue15053.pdf",
-    "issue15096.pdf",
-    "issue15597.pdf",
-    "issue15815.pdf",
-    "issue16500.pdf",
-    "issue16553.pdf",
-    "issue16633.pdf",
-    "issue17492.pdf",
-    "issue17998.pdf",
-    "issue18536.pdf",
-    "issue19424.pdf",
-    "issue19505.pdf",
-    "issue3885.pdf",
-    "js-authors.pdf",
-    "js-colors.pdf",
-    "pr12828.pdf",
-    "pr6531_2.pdf",
-    "red_stamp.pdf",
+const CONTRADICTED_ANNOTATIONS: [&str; 47] = [
+    "annotation-stamp.pdf page 1",
+    "annotation-tx2.pdf page 1",
+    "annotation-tx3.pdf page 1",
+    "annotation_hidden_noview.pdf page 1",
+    "bug1669097.pdf page 1",
+    "bug1770750.pdf page 1",
+    "bug1782564.pdf page 1",
+    "bug1796741.pdf page 1",
+    "bug1802888.pdf page 1",
+    "bug1811510.pdf page 1",
+    "bug1811694.pdf page 1",
+    "bug1851498.pdf page 1",
+    "bug1883609.pdf page 1",
+    "bug1963407.pdf page 1",
+    "dates.pdf page 1",
+    "evaljs.pdf page 1",
+    "fields_order.pdf page 1",
+    "firefox_logo.pdf page 1",
+    "firefox_stamp.pdf page 1",
+    "inks.pdf page 1",
+    "inks_basic.pdf page 1",
+    "issue12706.pdf page 1",
+    "issue13003.pdf page 1",
+    "issue14023.pdf page 1",
+    "issue14023.pdf page 2",
+    "issue14023.pdf page 5",
+    "issue14502.pdf page 1",
+    "issue14705.pdf page 1",
+    "issue15053.pdf page 1",
+    "issue15096.pdf page 1",
+    "issue15597.pdf page 1",
+    "issue15815.pdf page 1",
+    "issue16500.pdf page 1",
+    "issue16553.pdf page 1",
+    "issue16633.pdf page 1",
+    "issue17492.pdf page 1",
+    "issue17998.pdf page 1",
+    "issue18305.pdf page 2",
+    "issue18536.pdf page 1",
+    "issue19424.pdf page 1",
+    "issue19505.pdf page 1",
+    "issue3885.pdf page 1",
+    "js-authors.pdf page 1",
+    "js-colors.pdf page 1",
+    "pr12828.pdf page 1",
+    "pr6531_2.pdf page 1",
+    "red_stamp.pdf page 1",
 ];
 
-/// Contradicted, with optional content configured off on page one.
+/// Contradicted, with optional content configured off in the document.
 ///
-/// 4 documents. We ignore `/OCProperties`, so a hidden layer is drawn anyway.
+/// 4 pages. We ignore `/OCProperties`, so a hidden layer is drawn anyway.
 /// `issue12007_reduced.pdf` is the extreme case: a whole hidden screenshot over a page the
 /// references leave nearly blank.
 const CONTRADICTED_OPTIONAL_CONTENT: [&str; 4] = [
-    "issue11144_reduced.pdf",
-    "issue12007_reduced.pdf",
-    "issue18823.pdf",
-    "visibility_expressions.pdf",
+    "issue11144_reduced.pdf page 1",
+    "issue12007_reduced.pdf page 1",
+    "issue18823.pdf page 1",
+    "visibility_expressions.pdf page 1",
 ];
 
-/// Contradicted, with a font on page one that carries no embedded program.
+/// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 21 documents. The weakest entries here, because the difference need not be anyone's
-/// defect: every renderer substitutes, and where two references happen to choose the same
-/// system font and we choose another, the consensus is about their font rather than about
-/// the page. `pdf-font`'s `substitute` module is the only machine-dependent code in the
-/// tree, so this is also the group that could legitimately differ on another machine.
+/// 40 pages. The weakest entries here, because the difference need not be anyone's defect:
+/// every renderer substitutes, and where two references happen to choose the same system
+/// font and we choose another, the consensus is about their font rather than about the page.
+/// `pdf-font`'s `substitute` module is the only machine-dependent code in the tree, so this
+/// is also the group that could legitimately differ on another machine.
 ///
 /// Listed rather than excluded, because a page in this group can *also* be wrong for a real
 /// reason and dropping it would hide that — and two of them are. `calgray.pdf` and
@@ -166,36 +180,55 @@ const CONTRADICTED_OPTIONAL_CONTENT: [&str; 4] = [
 /// destination's encoding transfer function still has to be applied; ours looks like linear
 /// luminance written straight into an sRGB raster. That is what "hypothesis, not diagnosis"
 /// means in practice.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 21] = [
-    "Type3WordSpacing.pdf",
-    "alphatrans.pdf",
-    "bad-PageLabels.pdf",
-    "bug1011159.pdf",
-    "bug1671312_reduced.pdf",
-    "calgray.pdf",
-    "calrgb.pdf",
-    "franz_2.pdf",
-    "hello_world_rotated.pdf",
-    "issue4304.pdf",
-    "issue5039.pdf",
-    "issue5238.pdf",
-    "issue6019.pdf",
-    "issue6108.pdf",
-    "issue6605.pdf",
-    "issue7580.pdf",
-    "issue8088.pdf",
-    "issue8092.pdf",
-    "issue8125.pdf",
-    "issue918.pdf",
-    "pr4922.pdf",
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 40] = [
+    "Type3WordSpacing.pdf page 1",
+    "alphatrans.pdf page 1",
+    "bad-PageLabels.pdf page 1",
+    "bug1011159.pdf page 1",
+    "bug1671312_reduced.pdf page 1",
+    "calgray.pdf page 1",
+    "calgray.pdf page 2",
+    "calgray.pdf page 3",
+    "calrgb.pdf page 1",
+    "calrgb.pdf page 11",
+    "calrgb.pdf page 12",
+    "calrgb.pdf page 13",
+    "calrgb.pdf page 14",
+    "calrgb.pdf page 2",
+    "calrgb.pdf page 4",
+    "calrgb.pdf page 5",
+    "calrgb.pdf page 7",
+    "franz_2.pdf page 1",
+    "hello_world_rotated.pdf page 1",
+    "hello_world_rotated.pdf page 2",
+    "hello_world_rotated.pdf page 3",
+    "hello_world_rotated.pdf page 4",
+    "hello_world_rotated.pdf page 5",
+    "issue4304.pdf page 1",
+    "issue5039.pdf page 1",
+    "issue5238.pdf page 1",
+    "issue6019.pdf page 1",
+    "issue6108.pdf page 1",
+    "issue6605.pdf page 1",
+    "issue7580.pdf page 1",
+    "issue8088.pdf page 1",
+    "issue8088.pdf page 2",
+    "issue8088.pdf page 3",
+    "issue8092.pdf page 1",
+    "issue8125.pdf page 1",
+    "issue918.pdf page 1",
+    "knockout_groups_test.pdf page 2",
+    "knockout_groups_test.pdf page 3",
+    "pr4922.pdf page 1",
+    "pr4922.pdf page 2",
 ];
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 74 documents whose page one carries no undrawn annotation, no hidden optional content and
-/// no substituted font — so the difference is in something we believe we implement. Five
-/// were examined by looking at the artefacts; the rest are unexamined, and working through
-/// them is the highest-value use of this gate:
+/// 83 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// font — so the difference is in something we believe we implement. Three causes have been
+/// identified by looking at the artefacts; the rest are unexamined, and working through them
+/// is the highest-value use of this gate:
 ///
 /// - `knockout_*.pdf` are knockout transparency groups (§11.4.5.6), where an object
 ///   composites against the group's initial backdrop rather than against what is already
@@ -203,81 +236,91 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 21] = [
 ///   show the blend. Unimplemented, and — unlike soft masks — unreported.
 /// - `mesh_shading_empty.pdf` draws the same mesh as the references, displaced
 ///   horizontally. A placement question rather than a missing feature.
-const CONTRADICTED_UNEXPLAINED: [&str; 74] = [
-    "annotation-square-circle-without-appearance.pdf",
-    "annotation-tx.pdf",
-    "bug1108301.pdf",
-    "bug1132849.pdf",
-    "bug1151216.pdf",
-    "bug1175962.pdf",
-    "bug1200096.pdf",
-    "bug1252420.pdf",
-    "bug1539074.1.pdf",
-    "bug868745.pdf",
-    "close-path-bug.pdf",
-    "colors.pdf",
-    "function_based_shading_cmyk.pdf",
-    "issue1002.pdf",
-    "issue10572.pdf",
-    "issue10900.pdf",
-    "issue11279.pdf",
-    "issue11477_reduced.pdf",
-    "issue11549_reduced.pdf",
-    "issue1171.pdf",
-    "issue11740_reduced.pdf",
-    "issue13107_reduced.pdf",
-    "issue14117.pdf",
-    "issue14462_reduced.pdf",
-    "issue1453.pdf",
-    "issue15516_reduced.pdf",
-    "issue1655r.pdf",
-    "issue17333.pdf",
-    "issue18548_reduced.pdf",
-    "issue18816.pdf",
-    "issue19633.pdf",
-    "issue20062.pdf",
-    "issue215.pdf",
-    "issue2948.pdf",
-    "issue3207r.pdf",
-    "issue3405r.pdf",
-    "issue3566.pdf",
-    "issue3694_reduced.pdf",
-    "issue3928.pdf",
-    "issue4061.pdf",
-    "issue4550.pdf",
-    "issue4650.pdf",
-    "issue5686.pdf",
-    "issue5751.pdf",
-    "issue5994.pdf",
-    "issue6068.pdf",
-    "issue6231_1.pdf",
-    "issue6336.pdf",
-    "issue6387.pdf",
-    "issue6721_reduced.pdf",
-    "issue6889.pdf",
-    "issue6894.pdf",
-    "issue6901.pdf",
-    "issue6961.pdf",
-    "issue7180.pdf",
-    "issue7439.pdf",
-    "issue7492.pdf",
-    "issue7696.pdf",
-    "issue8097_reduced.pdf",
-    "issue8234.pdf",
-    "issue845r.pdf",
-    "issue8570.pdf",
-    "issue8960_reduced.pdf",
-    "knockout_inner_backdrop.pdf",
-    "knockout_isolated_overlap.pdf",
-    "knockout_nested.pdf",
-    "knockout_nested_group_alpha.pdf",
-    "mesh_shading_empty.pdf",
-    "openoffice.pdf",
-    "pattern_text_embedded_font.pdf",
-    "postscript_type4_many_outputs.pdf",
-    "tiling-pattern-large-steps.pdf",
-    "transparent.pdf",
-    "type4psfunc.pdf",
+/// - The `calgray`/`calrgb` colour defect described above reaches pages in this group too.
+const CONTRADICTED_UNEXPLAINED: [&str; 83] = [
+    "annotation-square-circle-without-appearance.pdf page 1",
+    "annotation-tx.pdf page 1",
+    "bug1108301.pdf page 1",
+    "bug1132849.pdf page 1",
+    "bug1151216.pdf page 1",
+    "bug1175962.pdf page 1",
+    "bug1200096.pdf page 1",
+    "bug1252420.pdf page 1",
+    "bug1539074.1.pdf page 1",
+    "bug1997343.pdf page 2",
+    "bug868745.pdf page 1",
+    "close-path-bug.pdf page 1",
+    "colors.pdf page 1",
+    "colors.pdf page 2",
+    "freeculture.pdf page 313",
+    "freeculture.pdf page 339",
+    "freeculture.pdf page 67",
+    "freeculture.pdf page 76",
+    "function_based_shading_cmyk.pdf page 1",
+    "function_based_shading_cmyk.pdf page 2",
+    "issue1002.pdf page 1",
+    "issue10572.pdf page 1",
+    "issue10900.pdf page 1",
+    "issue11279.pdf page 1",
+    "issue11477_reduced.pdf page 1",
+    "issue11549_reduced.pdf page 1",
+    "issue1171.pdf page 1",
+    "issue11740_reduced.pdf page 1",
+    "issue13107_reduced.pdf page 1",
+    "issue14117.pdf page 1",
+    "issue14462_reduced.pdf page 1",
+    "issue1453.pdf page 1",
+    "issue15516_reduced.pdf page 1",
+    "issue1655r.pdf page 1",
+    "issue17333.pdf page 1",
+    "issue18548_reduced.pdf page 1",
+    "issue18816.pdf page 1",
+    "issue19633.pdf page 1",
+    "issue20062.pdf page 1",
+    "issue215.pdf page 1",
+    "issue2948.pdf page 1",
+    "issue3207r.pdf page 1",
+    "issue3405r.pdf page 1",
+    "issue3566.pdf page 1",
+    "issue3694_reduced.pdf page 1",
+    "issue3928.pdf page 1",
+    "issue3928.pdf page 2",
+    "issue4061.pdf page 1",
+    "issue4550.pdf page 1",
+    "issue4650.pdf page 1",
+    "issue5686.pdf page 1",
+    "issue5751.pdf page 1",
+    "issue5994.pdf page 1",
+    "issue6068.pdf page 1",
+    "issue6231_1.pdf page 1",
+    "issue6336.pdf page 1",
+    "issue6387.pdf page 1",
+    "issue6721_reduced.pdf page 1",
+    "issue6889.pdf page 1",
+    "issue6894.pdf page 1",
+    "issue6901.pdf page 1",
+    "issue6961.pdf page 1",
+    "issue6961.pdf page 2",
+    "issue7180.pdf page 1",
+    "issue7439.pdf page 1",
+    "issue7492.pdf page 1",
+    "issue7696.pdf page 1",
+    "issue8097_reduced.pdf page 1",
+    "issue8234.pdf page 1",
+    "issue845r.pdf page 1",
+    "issue8570.pdf page 1",
+    "issue8960_reduced.pdf page 1",
+    "knockout_inner_backdrop.pdf page 1",
+    "knockout_isolated_overlap.pdf page 1",
+    "knockout_nested.pdf page 1",
+    "knockout_nested_group_alpha.pdf page 1",
+    "mesh_shading_empty.pdf page 1",
+    "openoffice.pdf page 1",
+    "pattern_text_embedded_font.pdf page 1",
+    "postscript_type4_many_outputs.pdf page 1",
+    "tiling-pattern-large-steps.pdf page 1",
+    "transparent.pdf page 1",
+    "type4psfunc.pdf page 1",
 ];
 
 /// Documents where our page geometry differs from the references' by more than the one
@@ -295,9 +338,9 @@ const CONTRADICTED_UNEXPLAINED: [&str; 74] = [
 /// `issue19176.pdf` is the reverse case — we and `poppler` take a 9x11 page where `mutool`
 /// and `gs` fall back to 612x792 — and has not been looked into.
 const GEOMETRY: [&str; 3] = [
-    "bug1947248_forms.pdf",
-    "bug1947248_text.pdf",
-    "issue19176.pdf",
+    "bug1947248_forms.pdf page 1",
+    "bug1947248_text.pdf page 1",
+    "issue19176.pdf page 1",
 ];
 
 /// What the oracle concluded about one document.
@@ -347,35 +390,117 @@ impl Verdict {
     }
 }
 
-/// One document's result.
+/// One page's result.
 #[derive(Debug)]
 struct Examined {
     name: String,
     verdict: Verdict,
     /// Whether we reported the page as fully drawn. Only complete pages are gated.
     complete: bool,
+    /// Processor time spent in our own pipeline, and in the three external renderers.
+    ///
+    /// Summed across the run and reported, because "where does this gate's time go" is
+    /// otherwise answered by intuition — and the intuitive answer, that three subprocesses
+    /// must dominate a Rust render, is wrong here by a factor this measures.
+    spent: Spent,
 }
 
-/// Every document to compare: the corpus, plus the specification PDFs in `doc/`.
+/// Wall-clock spent on one page, split by who spent it.
+#[derive(Debug, Default, Clone, Copy)]
+struct Spent {
+    ours: std::time::Duration,
+    references: std::time::Duration,
+}
+
+/// One page of one document: the unit this gate compares and ratchets.
+#[derive(Debug, Clone)]
+struct Work {
+    path: PathBuf,
+    /// One-based, as the specification and all three reference renderers number pages.
+    page: u32,
+}
+
+impl Work {
+    /// How this page is named in the report and in the ratchet lists.
+    fn name(&self) -> String {
+        let file = self.path.file_name().map_or_else(
+            || self.path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        format!("{file} page {}", self.page)
+    }
+}
+
+/// Every page to compare.
 ///
-/// `doc/` is included because those are the documents whose rendering is looked at by hand
-/// most often, and because they are the largest and most typographically demanding files
-/// in the tree. Returns `None` when the corpus submodule is absent, in which case the gate
-/// reports being skipped rather than failing — but `doc/` alone is not a substitute, and
-/// the ratchet only means anything where the corpus is present.
-fn documents() -> Option<Vec<PathBuf>> {
+/// **All pages of every corpus document, and page one of the specification PDFs in
+/// `doc/`.** The pdf.js corpus holds these files because each one broke a reader once, and
+/// a file reduced from a bug report does not always put the interesting page first —
+/// comparing only page one asks 869 single-page documents everything they have and the
+/// other 100 almost nothing. The specification PDFs are the opposite case: 1382 pages of
+/// consistent typesetting from 14 files, 1023 of them from ISO 32000-2 alone, where page
+/// 500 exercises what page 499 did. They stay at page one, where they still cover the
+/// heaviest fonts and the largest page trees in the tree.
+///
+/// That is 1775 pages against 988, and it costs about twice the wall clock.
+///
+/// A document whose page count cannot be established still yields page one, so that "we
+/// cannot open it" is reported by the gate rather than silently absent from it.
+///
+/// Returns `None` when the corpus submodule is absent, in which case the gate reports being
+/// skipped rather than failing — the ratchet only means anything where the corpus is
+/// present.
+fn work_items() -> Option<Vec<Work>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(root.join("doc/pdf.js/test/pdfs"))
-        .ok()?
-        .chain(std::fs::read_dir(root.join("doc")).ok()?)
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().is_some_and(|extension| extension == "pdf"))
-        .collect();
-    if files.is_empty() {
+    let pdfs_in = |dir: PathBuf| -> Option<Vec<PathBuf>> {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension().is_some_and(|extension| extension == "pdf"))
+            .collect();
+        files.sort();
+        Some(files)
+    };
+
+    let corpus = pdfs_in(root.join("doc/pdf.js/test/pdfs"))?;
+    if corpus.is_empty() {
         return None;
     }
-    files.sort();
-    Some(files)
+    let specifications = pdfs_in(root.join("doc")).unwrap_or_default();
+
+    // Counting pages means opening every document, which is a second of work in parallel
+    // against the eighty this gate spends in three external renderers.
+    let mut items: Vec<Work> = corpus
+        .par_iter()
+        .flat_map(|path| {
+            (1..=page_count(path))
+                .map(|page| Work {
+                    path: path.clone(),
+                    page,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    items.extend(
+        specifications
+            .into_iter()
+            .map(|path| Work { path, page: 1 }),
+    );
+    items.sort_by(|a, b| a.path.cmp(&b.path).then(a.page.cmp(&b.page)));
+    Some(items)
+}
+
+/// How many pages a document has, or one when that cannot be established.
+fn page_count(path: &Path) -> u32 {
+    let Ok(bytes) = std::fs::read(path) else {
+        return 1;
+    };
+    let Ok(document) = Document::open(bytes) else {
+        return 1;
+    };
+    u32::try_from(pdf_model::Pages::new(&document).len())
+        .unwrap_or(u32::MAX)
+        .max(1)
 }
 
 /// Our own render of a page, with the two facts about it the comparison needs.
@@ -389,12 +514,19 @@ struct OurRender {
 }
 
 /// Renders one page with our own pipeline, from the file's bytes.
-fn render_ours(path: &Path) -> Result<OurRender, String> {
+///
+/// The document is opened per page rather than once per file. That repeats the
+/// cross-reference parse — a few milliseconds — and buys parallelism over pages rather than
+/// only over documents, which matters because one corpus file has 352 of them and would
+/// otherwise be the long pole of the whole run.
+fn render_ours(work: &Work) -> Result<OurRender, String> {
+    let path = work.path.as_path();
+    let index = usize::try_from(work.page.saturating_sub(1)).unwrap_or(usize::MAX);
     let bytes = std::fs::read(path).map_err(|e| format!("unreadable: {e}"))?;
     let document = Document::open(bytes).map_err(|e| format!("will not open: {e}"))?;
     let page = pdf_model::Pages::new(&document)
-        .get(0)
-        .ok_or_else(|| "no first page".to_owned())?;
+        .get(index)
+        .ok_or_else(|| format!("no page {}", work.page))?;
     let interpretation = pdf_model::interpret(&document, &page);
     let complete = interpretation.is_complete();
     // The readback of the glyphs actually drawn, not a guess from the resources: a page
@@ -414,39 +546,54 @@ fn render_ours(path: &Path) -> Result<OurRender, String> {
     })
 }
 
-/// Compares one document against the references.
-fn examine(path: &Path, work_root: &Path, available: &[Reference]) -> Examined {
-    let name = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
-    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-    let work_dir = work_root.join(stem.as_ref());
+/// Compares one page against the references.
+fn examine(work: &Work, work_root: &Path, available: &[Reference]) -> Examined {
+    let name = work.name();
+    let stem = work.path.file_stem().unwrap_or_default().to_string_lossy();
+    // One directory per page, so a document's pages cannot overwrite one another's
+    // evidence — every renderer writes to a fixed file name inside it.
+    let case = format!("{stem}-p{}", work.page);
+    let work_dir = work_root
+        .join(stem.as_ref())
+        .join(format!("p{}", work.page));
+    let mut spent = Spent::default();
 
     let OurRender {
         raster: mut ours,
         complete,
         has_text,
-    } = match render_ours(path) {
-        Ok(rendered) => rendered,
-        Err(detail) => {
-            return Examined {
-                name,
-                verdict: Verdict::NoRender(detail),
-                complete: false,
-            };
+    } = {
+        let started = Instant::now();
+        let rendered = render_ours(work);
+        spent.ours = started.elapsed();
+        match rendered {
+            Ok(rendered) => rendered,
+            Err(detail) => {
+                return Examined {
+                    name,
+                    verdict: Verdict::NoRender(detail),
+                    complete: false,
+                    spent,
+                };
+            }
         }
     };
 
-    let mut references = match render_references(path, &work_dir, available) {
-        Ok(references) => references,
-        Err(detail) => {
-            let _ = std::fs::remove_dir_all(&work_dir);
-            return Examined {
-                name,
-                verdict: Verdict::NotComparable(detail),
-                complete,
-            };
+    let mut references = {
+        let started = Instant::now();
+        let rendered = render_references(work, &work_dir, available);
+        spent.references = started.elapsed();
+        match rendered {
+            Ok(references) => references,
+            Err(detail) => {
+                let _ = std::fs::remove_dir_all(&work_dir);
+                return Examined {
+                    name,
+                    verdict: Verdict::NotComparable(detail),
+                    complete,
+                    spent,
+                };
+            }
         }
     };
 
@@ -457,6 +604,7 @@ fn examine(path: &Path, work_root: &Path, available: &[Reference]) -> Examined {
                 name,
                 verdict,
                 complete,
+                spent,
             };
         }
     };
@@ -478,6 +626,7 @@ fn examine(path: &Path, work_root: &Path, available: &[Reference]) -> Examined {
                     name,
                     verdict: Verdict::NotComparable(format!("{e}")),
                     complete,
+                    spent,
                 };
             }
         };
@@ -487,13 +636,14 @@ fn examine(path: &Path, work_root: &Path, available: &[Reference]) -> Examined {
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
         let _ = std::fs::remove_dir_all(&work_dir);
     } else {
-        let _ = report::write_artefacts(&work_dir, &stem, &ours, &references, &triangulation);
+        let _ = report::write_artefacts(&work_dir, &case, &ours, &references, &triangulation);
     }
 
     Examined {
         name,
         verdict,
         complete,
+        spent,
     }
 }
 
@@ -504,14 +654,14 @@ fn examine(path: &Path, work_root: &Path, available: &[Reference]) -> Examined {
 /// absence is tolerated as long as two remain. Fewer than two is reported with every
 /// failure's own message, because "not comparable" without a reason is not actionable.
 fn render_references(
-    path: &Path,
+    work: &Work,
     work_dir: &Path,
     available: &[Reference],
 ) -> Result<Vec<(Reference, Raster)>, String> {
     let mut rendered = Vec::new();
     let mut failures = Vec::new();
     for reference in available {
-        match reference.render(path, DPI, work_dir) {
+        match reference.render(&work.path, work.page, DPI, work_dir) {
             Ok(raster) => rendered.push((*reference, raster)),
             Err(e) => failures.push(format!("{e}")),
         }
@@ -670,7 +820,7 @@ fn measurements(triangulation: &pdfref::Triangulation) -> String {
 #[test]
 #[ignore = "renders every corpus document four times; run explicitly, in release"]
 fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
-    let Some(files) = documents() else {
+    let Some(items) = work_items() else {
         println!("skipped: the doc/pdf.js submodule is not checked out");
         return;
     };
@@ -699,9 +849,9 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
 
     let work_root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("oracle");
     let started = Instant::now();
-    let mut results: Vec<Examined> = files
+    let mut results: Vec<Examined> = items
         .par_iter()
-        .map(|path| examine(path, &work_root, &available))
+        .map(|work| examine(work, &work_root, &available))
         .collect();
     results.sort_by(|a, b| a.name.cmp(&b.name));
     let elapsed = started.elapsed();
@@ -765,11 +915,21 @@ fn report(results: &[Examined], elapsed: std::time::Duration) {
     let count =
         |predicate: &dyn Fn(&Examined) -> bool| results.iter().filter(|e| predicate(e)).count();
     println!(
-        "\n{} documents in {:.1}s ({} we call complete, {} incomplete)",
+        "\n{} pages in {:.1}s ({} we call complete, {} incomplete)",
         results.len(),
         elapsed.as_secs_f64(),
         count(&|e| e.complete),
         count(&|e| !e.complete)
+    );
+
+    // Where the time went. Summed over threads, so these add up to more than the wall
+    // clock; what matters is their ratio.
+    let ours: std::time::Duration = results.iter().map(|e| e.spent.ours).sum();
+    let references: std::time::Duration = results.iter().map(|e| e.spent.references).sum();
+    println!(
+        "  processor time: {:.0}s ours, {:.0}s in the three reference renderers",
+        ours.as_secs_f64(),
+        references.as_secs_f64()
     );
 
     let summary = |name: &str, predicate: &dyn Fn(&Examined) -> bool| {
@@ -796,7 +956,7 @@ fn report(results: &[Examined], elapsed: std::time::Duration) {
     summary("no render", &|e| matches!(e.verdict, Verdict::NoRender(_)));
 }
 
-/// Holds an outcome to an exact set of documents.
+/// Holds an outcome to an exact set of pages.
 ///
 /// Both directions fail. A new name is a regression; a missing one means the list is stale
 /// and the entry must be deleted, which is what keeps a fixed page from silently coming
@@ -815,7 +975,7 @@ fn assert_ratchet(what: &str, actual: &[&str], expected: &[&str]) {
 
     assert!(
         new.is_empty(),
-        "{} document(s) newly {what}: {new:?}\n\
+        "{} page(s) newly {what}: {new:?}\n\
          Each is a page two independent implementations agree about and we do not. Read \
          the artefacts named above, then take the disagreement to the specification — \
          never to what the references produce.",
@@ -823,7 +983,7 @@ fn assert_ratchet(what: &str, actual: &[&str], expected: &[&str]) {
     );
     assert!(
         gone.is_empty(),
-        "{} document(s) no longer {what}: {gone:?}\n\
+        "{} page(s) no longer {what}: {gone:?}\n\
          Delete them from the list: a fixed page must not be able to come back.",
         gone.len()
     );

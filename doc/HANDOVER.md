@@ -10,10 +10,11 @@ the definition of right. This file is the state of play, the traps, and what to 
 
 The reference oracle now runs over the corpus, which the previous handover named as the
 single most valuable unused thing in the tree. `crates/pdf-model/tests/oracle.rs` renders
-page one of all 988 documents with our renderer and with poppler, mupdf and ghostscript, and
-applies the triangulation rule to all four, in **80 seconds** — an ordinary gate, not a
-nightly job. Our deviation is bounded by *twice the references' own disagreement on that
-page* rather than by a fixed number, because no fixed number can serve both a page of flat
+**every page of all 974 corpus documents**, plus page one of the 14 specification PDFs —
+1794 pages — with our renderer and with poppler, mupdf and ghostscript, and applies the
+triangulation rule to all four, in **125 seconds**. An ordinary gate, not a nightly job.
+Our deviation is bounded by *twice the references' own disagreement on that page* rather
+than by a fixed number, because no fixed number can serve both a page of flat
 fills and a page of small text; ADR 0011 has the argument. It found four things immediately,
 three of them silent: the harness had been comparing against the wrong page box, which put
 54 documents beyond comparison; text render modes 4 to 7 do not build the clip they promise,
@@ -21,7 +22,7 @@ so `text_clip_cff_cid.pdf` drew a solid bar where the references draw a word; an
 `/Mask` was ignored outright, so `colorkeymask.pdf` drew a band the references correctly
 hide; and `/UserUnit` is neither applied nor reported. The page box is fixed. The other
 three are now *reported* rather than silently wrong, and each has a test that will fail when
-it is implemented. **143 documents we claim to draw completely are contradicted by two
+it is implemented. **174 pages we claim to draw completely are contradicted by two
 independent renderers**, every one of them named in the gate, and that list is the work.
 
 ## Where we are
@@ -41,11 +42,12 @@ the gap between those two words is measured further down rather than guessed at.
   is named. The counts are ratcheted and can only go down. 1501 of 1501 PDF functions
   parse; **all 1793 shadings build**, mesh types included. The whole gate runs in **19 s**
   and has **no named slow document left**.
-- **A second gate asks whether what we drew is *right*.** `oracle.rs` compares our page one
-  against poppler, mupdf and ghostscript over the same corpus plus `doc/`, in 80 s. Of the
-  672 pages we claim to draw completely, **377 agree with the reference consensus, 143 are
-  contradicted by it and 142 are pages the references cannot agree on among themselves**.
-  The 143 are named, grouped and ratcheted in both directions. ADR 0011.
+- **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against
+  poppler, mupdf and ghostscript over **1794 pages** — every page of the corpus, plus page
+  one of each specification PDF — in 125 s. Of the 1424 pages we claim to draw completely,
+  **548 agree with the reference consensus, 174 are contradicted by it and 691 are pages the
+  references cannot agree on among themselves**. The 174 are named, grouped and ratcheted in
+  both directions. ADR 0011.
 - Our render of the `basic` fixture agrees with poppler, mupdf and ghostscript, and is
   byte-identical to mupdf — corroboration that we read the specification right, not a
   target (principle 5).
@@ -73,7 +75,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent
 cargo test --workspace
 cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~19 s
-cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 988 docs vs 3 renderers, ~80 s
+cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 1794 pages vs 3 renderers, ~125 s
 cargo bench -p pdf-model                   # interpretation, the time-to-first-page path
 cargo deny check
 cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
@@ -321,24 +323,27 @@ honest, not less capable.
 ### By what an independent renderer sees
 
 This is the number that was missing until this session, and it is the one to worry about.
-Of the 672 first pages we claim to draw completely, across the corpus and `doc/`:
+Over all 1794 pages compared, of the 1424 we claim to draw completely:
 
-| | count | share of the 672 |
+| | count | share of the 1424 |
 |---|---|---|
-| agree with the reference consensus | 377 | 56% |
-| **contradicted by it** | **143** | **21%** |
-| the references cannot agree among themselves | 142 | 21% |
-| not comparable (geometry, or fewer than two renderers) | 10 | 1% |
+| agree with the reference consensus | 548 | 38% |
+| **contradicted by it** | **174** | **12%** |
+| the references cannot agree among themselves | 691 | 49% |
+| not comparable (geometry, or fewer than two renderers) | 11 | 1% |
 
-**One page in five that we say we drew completely, two independent implementations say we
-did not.** The 143 are named in `oracle.rs` and grouped by what the page carries: 44 have an
-annotation appearance we do not draw, 4 hide optional content we ignore, 21 use a font
-nobody embeds so every renderer substitutes differently — and **74 have nothing on them to
-explain it**. That last group is the most valuable list in the repository.
+**One page in eight that we say we drew completely, two independent implementations say we
+did not.** The 174 are named in `oracle.rs` and grouped by what the page carries: 47 have an
+annotation appearance we do not draw, 4 hide optional content we ignore, 40 use a font
+nobody embeds so every renderer substitutes differently — and **83 have nothing on them to
+explain it**. That last group is the most valuable list in the repository. 31 of the 174 are
+pages beyond the first, which a page-one comparison would never have seen.
 
-The 21% that are *ambiguous* are not a free pass either: they are pages where poppler, mupdf
-and ghostscript disagree with each other, so there is no answer to hold us to, and the only
-way to settle one is the specification.
+**Read the 49% ambiguous with care.** It is not "half the corpus is unsettled": 370 of those
+691 pages are two long books, `freeculture.pdf` (352 pages) and `pdkids.pdf`, whose text uses
+fonts nobody embedded, so each renderer substitutes a different one and the structural bound
+separates them. Over first pages alone the ambiguous share is 21%. Ambiguity concentrated in
+a handful of documents says more about those documents than about the gate.
 
 **So read the 664 as "reported nothing", not "drew it right".** The previous session found
 two defects that misdrew a gradient and an image on pages inside that count, in silence —
@@ -381,21 +386,39 @@ done; the parts that make a document *interactive* are not started.
 
 ## Done this session, and what it teaches
 
-**The oracle is wired to the corpus, and the corpus answered.** `oracle.rs`, ADR 0011, 80
-seconds for 988 documents against three independent renderers. What it teaches is less about
+**The oracle is wired to the corpus, and the corpus answered.** `oracle.rs`, ADR 0011, 125
+seconds for 1794 pages against three independent renderers. What it teaches is less about
 the harness than about how the previous four sessions' numbers should have been read:
 
 | | |
 |---|---|
-| pages we call complete | 672 |
-| agreeing with the reference consensus | 377 |
-| **contradicted by it** | **143** |
-| ambiguous — the references disagree with each other | 142 |
+| pages we call complete | 1424 |
+| agreeing with the reference consensus | 548 |
+| **contradicted by it** | **174** |
+| ambiguous — the references disagree with each other | 691 |
 
-**Self-reporting measures honesty, not correctness, and the gap between them is a factor of
-five.** 68% of corpus first pages report nothing wrong; 56% of the pages we call complete
-actually agree with two independent implementations. Neither number is wrong and neither
-replaces the other — but only one of them was being quoted, and it was the flattering one.
+**Self-reporting measures honesty, not correctness.** 68% of corpus first pages report
+nothing wrong; of the pages we call complete, 38% actually agree with two independent
+implementations, 12% are contradicted and the rest are pages the references cannot settle
+between themselves. Neither number is wrong and neither replaces the other — but only one of
+them was being quoted, and it was the flattering one.
+
+**Every page of the corpus, not every page of everything.** The pdf.js files are there
+because each broke a reader once, and a file reduced from a bug report does not reliably put
+the interesting page first — so all 1761 corpus pages are compared. The specification PDFs
+are the opposite: 1382 pages from 14 files, where page 500 exercises what page 499 did, so
+they stay at page one. Going from 988 pages to 1794 added 31 contradicted pages that a
+page-one comparison could never have seen, for 1.5× the wall clock. Checked before
+committing to it: all three references seek through the cross-reference table, so page 300
+of a 352-page book costs what page 1 does — the run is linear in pages, not quadratic.
+
+**Nine tenths of that wall clock is the external renderers** — 1596 s of processor time
+against our 149 s — which the gate now prints, because "where does this gate's time go" is
+otherwise answered by intuition. It is also the answer to whether caching reference renders
+would help: it would remove most of the run, and it is not done, because 125 s is affordable
+and a cache key that omits one variable — the crop-box flag, a renderer upgrade — compares
+against stale renders in silence. That is the same defect class this session just fixed, and
+it would be harder to see the second time.
 
 **Three of the four things the gate found on its first runs were in features we had already
 implemented.** Not missing subsystems — `Tr` was parsed and three of its eight modes
@@ -422,14 +445,14 @@ The oracle changed the ordering, which is what it was for. The previous list ran
 what the corpus *reported*; this one ranks it by what an independent renderer *sees*, and
 the two disagree.
 
-The one-line version: **143 pages we claim to draw are contradicted, 74 of them for no
+The one-line version: **174 pages we claim to draw are contradicted, 83 of them for no
 reason visible on the page — start there, not with a feature list.**
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 74 documents whose page one carries no undrawn
-annotation, no hidden optional content and no substituted font, so the difference is in
-something we believe we implement. Five have been looked at and three causes named:
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 83 pages carrying no undrawn annotation, no
+hidden optional content and no substituted font, so the difference is in something we
+believe we implement. Five have been looked at and three causes named:
 
 - **`calgray.pdf` and `calrgb.pdf` come out markedly darker than all three references** —
   `A = 0.35` reads as near-black rather than mid grey. §8.6.5.2 and §8.6.5.3 define both
@@ -444,9 +467,9 @@ something we believe we implement. Five have been looked at and three causes nam
 - **`mesh_shading_empty.pdf` draws the same mesh displaced horizontally** — a placement
   question, and the class of defect trap 2 is about.
 
-The remaining 69 are unexamined. Each one is a page where two implementations sharing no
+The remaining 78 are unexamined. Each one is a page where two implementations sharing no
 code agree and we differ by more than twice their own disagreement, with the artefacts
-already written: `<target>/tmp/oracle/<stem>/` holds our render, each reference's, a
+already written: `<target>/tmp/oracle/<stem>/p<n>/` holds our render, each reference's, a
 side-by-side and a difference heatmap. **Look at the side-by-side first** — five minutes of
 looking has so far explained every page it was spent on.
 
@@ -458,9 +481,9 @@ match mupdf" is exactly the failure this project forbids.
 ### 2. Draw annotation appearance streams
 
 Still the largest single group, and now measured twice: **148 of 988 first pages carry a
-visible annotation with an `/AP`, and the oracle contradicts 44 of them.** The second number
-is the visual cost; the first is the exposure. Across the contradicted 44: 122 `Widget`, 24
-`Ink`, 17 `FreeText`, 4 `Stamp`, one `Square`, one `Highlight`.
+visible annotation with an `/AP`, and the oracle contradicts 47 pages that carry one.** The
+second number is the visual cost; the first is the exposure. Across those 47 pages: 131
+`Widget`, 24 `Ink`, 17 `FreeText`, 4 `Stamp`, one `Square`, one `Highlight`.
 
 It remains much smaller work than "implement clause 12", because *drawing* an annotation
 needs none of the interactivity:
@@ -591,17 +614,24 @@ Ratcheted in `crates/pdf-model/tests/corpus.rs`; the numbers only ever go down.
 
 Ratcheted in `crates/pdf-model/tests/oracle.rs`, by name and in both directions.
 
-| of the 672 first pages we call complete | count | |
+| of the 1424 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 377 | |
-| **contradicted** | **143** | 44 annotation appearances, 4 optional content, 21 substituted fonts, **74 unexplained** |
-| ambiguous | 142 | the references disagree with each other; no answer to hold us to |
+| agree with the reference consensus | 548 | |
+| **contradicted** | **174** | 47 annotation appearances, 4 optional content, 40 substituted fonts, **83 unexplained** |
+| ambiguous | 691 | the references disagree with each other; 370 of them are two long books set in fonts nobody embedded |
 | our page geometry differs | 3 | 2 are `/UserUnit`, 1 unexamined |
-| not comparable | 6 | fewer than two references produced an image |
+| not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
-The 316 incomplete pages are compared and printed too, but cannot fail the gate: a page we
-already say we cannot draw is expected to differ, and listing three hundred of them would
-drown the signal.
+The 370 incomplete pages are compared and printed too, but cannot fail the gate: a page we
+already say we cannot draw is expected to differ, and listing hundreds of them would drown
+the signal.
+
+**Where its time goes, measured and printed by the gate itself:** 1596 s of processor time
+in the three external renderers against 149 s in ours, for 125 s of wall clock on 24 cores.
+Nine tenths of this gate is `pdftoppm`, `mutool` and `gs`, which is what to remember if it
+ever needs to be faster — and why a content-addressed cache of reference renders is the
+obvious lever, with the equally obvious risk that a cache key omitting one variable (the
+crop-box flag, the renderer version) would compare against stale renders in silence.
 
 **The time budget reports; it cannot enforce.** A Rust thread cannot be cancelled, so a
 document that never returns hangs the suite rather than failing it. A real budget has to
@@ -688,12 +718,12 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
 ## Things worth knowing
 
 - **The oracle's artefacts are the fastest diagnostic in the tree.** Every page that is not
-  agreement leaves `<target>/tmp/oracle/<stem>/` holding our render, each reference's, a
+  agreement leaves `<target>/tmp/oracle/<stem>/p<n>/` holding our render, each reference's, a
   side-by-side strip and a difference heatmap per reference. Open the side-by-side first: it
   is one image, four panels, ours leftmost, and it has explained every page it was pointed at
   so far — a solid bar where a word should be, a band that should have been masked out, grey
   swatches at the wrong lightness. Pages that agree have theirs deleted, so what is on disk
-  is exactly the set worth looking at.
+  is exactly the set worth looking at — 570 MB of it.
 - **Reference renderers are given 30 seconds and then killed.** A corpus holds files written
   to make a reader loop, and `Command::output` waits forever. `Reference::render_within` polls
   and kills; there is deliberately no unbounded variant.

@@ -12,19 +12,19 @@ transform — shipped on pages that reported nothing wrong. No metric we own cou
 because a page that reports `unsupported: []` is a statement about *what we know we
 skipped*, not about what we drew.
 
-Three reference renderers were installed, 988 documents were on disk, and the harness that
-compares them was already written and tested. The only thing missing was pointing it at
-them.
+Three reference renderers were installed, 988 documents holding 3143 pages were on disk, and
+the harness that compares them was already written and tested. The only thing missing was
+pointing it at them.
 
 ## The decision
 
-`crates/pdf-model/tests/oracle.rs` renders page one of every document in the pdf.js corpus
-and in `doc/`, renders the same page with poppler, mupdf and ghostscript, and applies the
-triangulation rule to all four. It is a ratcheted gate, not a survey: every page the
-references contradict us on is **named** in the source, and both a new disagreement and a
-stale entry fail the build.
+`crates/pdf-model/tests/oracle.rs` renders **every page of every pdf.js corpus document**,
+and page one of the specification PDFs in `doc/`, with our pipeline and with poppler, mupdf
+and ghostscript, and applies the triangulation rule to all four. It is a ratcheted gate, not
+a survey: every page the references contradict us on is **named** in the source, and both a
+new disagreement and a stale entry fail the build.
 
-Three sub-decisions carry the design.
+Four sub-decisions carry the design.
 
 ### 1. Our own deviation is judged against the references' spread, not a fixed number
 
@@ -61,11 +61,31 @@ documents whose disagreement we already predicted, and the signal would drown. T
 still compared and still printed — the count is a rough measure of what the missing
 features cost visually — but they cannot fail this gate. `corpus.rs` owns them.
 
-### 3. The ratchet is per document, and grouped by what the page carries
+### 3. All pages of the corpus, page one of the specifications
 
-143 documents are listed, in four groups: pages carrying an annotation appearance we do not
-draw (44), pages with optional content configured off (4), pages using a font nobody
-embeds (21), and pages with nothing on them to explain the difference (74).
+The pdf.js corpus holds its files because each one broke a reader once, and a file reduced
+from a bug report does not reliably put the interesting page first. Comparing only page one
+asks 869 single-page documents everything they have and the other 100 almost nothing.
+
+The specification PDFs are the opposite case: 1382 pages from 14 files, 1023 of them from
+ISO 32000-2 alone, consistently typeset, where page 500 exercises what page 499 did. They
+stay at page one, where they still contribute the heaviest fonts and the largest page trees
+in the tree.
+
+1794 pages rather than 988, for about 1.5× the wall clock. Rendering a late page was checked
+before committing to this: all three references seek through the cross-reference table, so
+page 300 of a 352-page document costs what page 1 does, and the run is linear rather than
+quadratic in page count.
+
+Pages are compared in parallel rather than documents, which matters because one corpus file
+has 352 of them and would otherwise be the long pole of the entire run.
+
+### 4. The ratchet is per page, and grouped by what the page carries
+
+174 pages are listed, in four groups: pages carrying an annotation appearance we do not draw
+(47), pages with optional content configured off (4), pages using a font nobody embeds (40),
+and pages with nothing on them to explain the difference (83). 31 of them are pages beyond
+the first, which a page-one comparison would never have seen.
 
 The grouping is a hypothesis about the cause, not a diagnosis, and the source says so.
 `calgray.pdf` proves the point: it sits in the substituted-font group because it labels its
@@ -76,9 +96,17 @@ their union, so a page moving between groups is not a build failure.
 
 ## What it cost, and what it found immediately
 
-The whole run is **80 seconds** over 988 documents on 24 cores: 424 pages agree, 257 are
-contradicted, 262 are ambiguous, and the rest cannot be compared. That is an ordinary gate,
-not a nightly job.
+The whole run is **125 seconds** over 1794 pages on 24 cores. That is an ordinary gate, not
+a nightly job.
+
+Where that time goes was measured rather than assumed, and the gate now prints it:
+**1596 seconds of processor time in the three reference renderers against 149 in ours** — a
+ratio of about eleven to one, which decides what would be worth optimising if this ever
+needs to be faster. Caching the reference renders, keyed on renderer version, full command
+line and a hash of the file bytes, would remove most of it; it is not done, because 125
+seconds is affordable for a gate run a few times a session and a cache key that silently
+omits a variable would compare against stale renders — the exact defect class the crop-box
+fix above was. The trigger to revisit is this gate moving into a per-commit CI job.
 
 It found four things on its first runs, three of which were silent:
 
@@ -117,10 +145,20 @@ started now, and each already has a test that will fail when it lands.
   tree. They are listed rather than excluded, because such a page can *also* be wrong for a
   real reason and dropping it would hide that.
 - Artefacts are written for every page that is not agreement and deleted for every page that
-  is. Three thousand PNGs of agreeing pages is a gigabyte of evidence nobody will look at.
+  is — 570 MB as it stands, against about a gigabyte if agreeing pages were kept too.
 - Reference renderers are now given a 30-second budget and killed if they exceed it, matching
   the budget `corpus.rs` holds us to. A corpus contains files written to make a reader loop,
   and an unbounded `wait` on one hangs the suite.
+
+## The one number to read with care
+
+Of the 1424 pages we call complete, 548 agree, 174 are contradicted and **691 are
+ambiguous** — the references cannot agree with each other. That last share is far larger
+over all pages than over first pages (49% against 21%), and it is not a statement about the
+corpus: 370 of the 691 are two long books, `freeculture.pdf` and `pdkids.pdf`, whose text
+uses fonts nobody embedded, so each renderer substitutes a different one and the structural
+bound separates them. Ambiguity concentrated in a handful of documents is worth knowing
+before anyone reads it as "half the corpus is unsettled".
 
 ## The rule this leaves behind
 

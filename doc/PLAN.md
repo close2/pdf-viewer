@@ -204,8 +204,10 @@ therefore metric 2's job, not metric 3's.
 This is what keeps the suite trustworthy enough to stay enabled.
 
 **Now running over the whole corpus, with the bound taken from the references themselves.**
-`crates/pdf-model/tests/oracle.rs` applies the rule to page one of all 988 documents in 80
-seconds. Consensus is still decided by the fixed tolerance, but *our* deviation is judged
+`crates/pdf-model/tests/oracle.rs` applies the rule to every page of the 974 pdf.js corpus
+documents and page one of the 14 specification PDFs — 1794 pages — in 125 seconds, of which
+1596 seconds of processor time is the three external renderers and 149 is ours. Consensus is
+still decided by the fixed tolerance, but *our* deviation is judged
 against twice the disagreement the consensus references show among themselves on that page:
 a fixed number cannot serve both a page of flat fills, where they agree to a worst tile of
 0.4, and a page of small text, where they differ by 26 among themselves. Only pages we claim

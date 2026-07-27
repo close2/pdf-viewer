@@ -40,6 +40,9 @@ const DPI: u32 = 72;
 /// together by `dpi_and_scale_agree`.
 const SCALE: f32 = 1.0;
 
+/// The fixture has one page, and it is page one.
+const PAGE_ONE: u32 = 1;
+
 /// Pixel budget; far above an A4 page at this resolution.
 const GENEROUS: u64 = 1 << 30;
 
@@ -106,7 +109,7 @@ fn our_render_agrees_with_the_reference_consensus() {
     let mut references = Vec::new();
     for reference in available {
         let raster = reference
-            .render(&pdf, DPI, &work_dir)
+            .render(&pdf, PAGE_ONE, DPI, &work_dir)
             .unwrap_or_else(|e| panic!("{reference} failed to render the fixture: {e}"));
         references.push((reference, raster));
     }
@@ -156,7 +159,7 @@ fn every_renderer_agrees_on_the_page_size() {
 
     for reference in Reference::available() {
         let raster = reference
-            .render(&pdf, DPI, &work_dir)
+            .render(&pdf, PAGE_ONE, DPI, &work_dir)
             .unwrap_or_else(|e| panic!("{reference} failed: {e}"));
         assert_eq!(
             (raster.width, raster.height),
@@ -186,7 +189,13 @@ fn a_renderer_that_outlives_its_budget_is_killed() {
 
     // 600 dpi over A4 is 35 megapixels, which no renderer produces in a millisecond.
     let error = reference
-        .render_within(&pdf, 600, &work_dir, std::time::Duration::from_millis(1))
+        .render_within(
+            &pdf,
+            PAGE_ONE,
+            600,
+            &work_dir,
+            std::time::Duration::from_millis(1),
+        )
         .expect_err("a millisecond is not enough to render 35 megapixels");
     let message = error.to_string();
     assert!(
@@ -211,7 +220,7 @@ fn a_corrupt_pdf_is_reported_as_a_renderer_failure() {
         reference.package_hint()
     );
 
-    let result = reference.render(&path, DPI, &work_dir);
+    let result = reference.render(&path, PAGE_ONE, DPI, &work_dir);
     assert!(
         result.is_err(),
         "a file that is not a PDF must be an error, not an empty comparison"

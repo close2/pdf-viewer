@@ -139,7 +139,7 @@ fn our_rendering_of_a_parsed_pdf_agrees_with_the_reference_consensus() {
     let mut references = Vec::new();
     for reference in available {
         let raster = reference
-            .render(&pdf_path, 72, &work_dir)
+            .render(&pdf_path, 1, 72, &work_dir)
             .unwrap_or_else(|e| panic!("{reference} failed: {e}"));
         references.push((reference, raster));
     }
