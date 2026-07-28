@@ -186,6 +186,24 @@ fn tiff_predictor(data: &[u8], colors: usize, bits: usize, row_len: usize) -> Ar
     Arc::from(out.as_slice())
 }
 
+/// Whether a filter produces image samples rather than bytes.
+///
+/// These are the filters [`decode`] returns `None` for, and the distinction is not that
+/// they are unimplemented — `DCTDecode` has worked since the first images drew. It is that
+/// their output is a raster with a width, a component count and a depth, which a function
+/// returning a byte slice cannot describe. They belong to the image pipeline, and this is
+/// how it recognises the stage it must run itself.
+///
+/// `DCT` and `CCF` are the inline-image abbreviations of Table 92. `JBIG2Decode` and
+/// `JPXDecode` have none, because ISO 32000-2 §8.9.7 forbids both in an inline image.
+#[must_use]
+pub fn is_image_codec(filter: &[u8]) -> bool {
+    matches!(
+        filter,
+        b"DCTDecode" | b"DCT" | b"JPXDecode" | b"JBIG2Decode" | b"CCITTFaxDecode" | b"CCF"
+    )
+}
+
 /// Decodes one filter stage.
 ///
 /// Returns `None` for an unsupported filter or corrupt data.

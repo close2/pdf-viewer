@@ -267,6 +267,44 @@ impl Document {
         Some(data)
     }
 
+    /// Returns a stream's data with every filter applied up to a trailing image codec.
+    ///
+    /// An image stream's chain may mix ordinary filters with a codec:
+    /// `[/ASCIIHexDecode /JBIG2Decode]` is the arrangement ISO 32000-2 §7.4.7's own worked
+    /// example uses, and `[/FlateDecode /DCTDecode]` occurs in the corpus. Only the last
+    /// entry can be a codec — everything before it is a byte-to-byte transformation that
+    /// has to run first, and a codec handed still-compressed bytes fails in a way that
+    /// reads as a broken image rather than as a missing step.
+    ///
+    /// # Errors
+    ///
+    /// Returns `None` when a filter before the codec is unsupported, for the same reason
+    /// [`Self::decoded_stream_data`] does.
+    #[must_use]
+    pub fn image_stream(&self, stream: &Stream) -> Option<ImageStream> {
+        let filters = self.filter_chain(&stream.dict);
+        let codec_at = filters.len().checked_sub(1).filter(|last| {
+            filters
+                .get(*last)
+                .is_some_and(|name| crate::filter::is_image_codec(name))
+        });
+
+        let mut data: Arc<[u8]> = Arc::clone(&stream.data);
+        for (index, filter) in filters.iter().enumerate() {
+            if Some(index) == codec_at {
+                break;
+            }
+            let parms = self.decode_parms(&stream.dict, index);
+            data = crate::filter::decode_with_parms(filter, &data, parms.as_ref(), self.limits)?;
+        }
+
+        Some(ImageStream {
+            codec: codec_at.and_then(|index| filters.get(index).cloned()),
+            parms: codec_at.and_then(|index| self.decode_parms(&stream.dict, index)),
+            data,
+        })
+    }
+
     /// Returns the `/DecodeParms` entry for the filter at `index`.
     ///
     /// The key may hold a single dictionary or an array with one entry per filter, and
@@ -307,4 +345,19 @@ impl Document {
     pub fn limits(&self) -> Limits {
         self.limits
     }
+}
+
+/// A stream's data with its image codec, if any, still to be applied.
+///
+/// Returned by [`Document::image_stream`]. The split exists because a codec's output is a
+/// raster rather than bytes, so it cannot be the return value of a filter chain.
+#[derive(Debug, Clone)]
+pub struct ImageStream {
+    /// The image codec left on the data, by name, or `None` if the chain was all ordinary
+    /// filters and the data is already samples.
+    pub codec: Option<Vec<u8>>,
+    /// The codec's own `/DecodeParms`, which is where `/JBIG2Globals` lives (Table 12).
+    pub parms: Option<Dictionary>,
+    /// The data with every filter before the codec applied.
+    pub data: Arc<[u8]>,
 }

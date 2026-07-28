@@ -32,7 +32,7 @@ pub mod object;
 pub mod parser;
 pub mod xref;
 
-pub use document::Document;
+pub use document::{Document, ImageStream};
 pub use error::{SyntaxError, SyntaxResult};
 pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
