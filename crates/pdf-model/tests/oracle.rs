@@ -54,9 +54,10 @@
 //! look at is a gigabyte of evidence for nothing.
 
 #![expect(
+    clippy::panic,
     clippy::print_stdout,
-    reason = "test code: the survey output is the point of the run, and on a failure it \
-              is the evidence"
+    reason = "test code: the survey output is the point of the run, on a failure it is the \
+              evidence, and an explanatory panic is the intended failure"
 )]
 
 use std::path::{Path, PathBuf};
@@ -81,7 +82,7 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// Pages we claim to draw completely, and which two independent reference renderers
 /// contradict: pages whose raster is one pixel smaller than the references'.
 ///
-/// 4 pages, and the whole group is one arithmetic difference. Each has a page box whose
+/// 5 pages, and the whole group is one arithmetic difference. Each has a page box whose
 /// size is fractional, and at 72 dpi we and `ghostscript` produce a raster of one size while
 /// `poppler` and `mupdf` produce one a pixel wider, taller, or both. `bug1922766.pdf` is
 /// 383x72 for us and for `ghostscript`, 384x73 for `poppler`. Nothing in ISO 32000-2 says
@@ -92,7 +93,7 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// shift moves everything on them and the structural-similarity bound sees a page-wide
 /// change. On a 792-row page the same difference disappears into the noise.
 ///
-/// # How these four lists work
+/// # How these lists work
 ///
 /// Named rather than counted, and checked for *equality* rather than as an upper bound: a
 /// page that starts disagreeing fails the gate even if another was fixed the same day, and
@@ -111,12 +112,71 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// we did not draw. Drawing them removed 45, and the two that stayed turned out never to
 /// have been about annotations at all — they are the rounding difference described above,
 /// which is exactly what the previous handover said their staying would mean.
-const CONTRADICTED_PAGE_ROUNDING: [&str; 4] = [
+/// `issue12963.pdf page 6` joined the group when JBIG2 started decoding: it is a scanned
+/// Russian tax form, ours and `ghostscript`'s rasters are 595x841 and `poppler`'s and
+/// `mupdf`'s are 596x842, and a one-pixel shift under two percent ink is a page-wide
+/// structural change. The JBIG2 decode itself is not in question — see
+/// `CONTRADICTED_SHARED_JBIG2_DECODER` and `tests/jbig2.rs` for why.
+const CONTRADICTED_PAGE_ROUNDING: [&str; 5] = [
     "bug1669097.pdf page 1",
     "bug1922766.pdf page 1",
     "bug1934157.pdf page 1",
+    "issue12963.pdf page 6",
     "issue19505.pdf page 1",
 ];
+
+/// Contradicted, where the two references that agree are the same decoder.
+///
+/// 7 pages, and the most interesting entry in this file, because the *gate* is what is
+/// wrong about them rather than the rendering.
+///
+/// `mupdf` and `ghostscript` both link `jbig2dec`, Artifex's JBIG2 library. On a page whose
+/// image is JBIG2 they are not two implementations, they are one, and the triangulation rule
+/// this gate is built on — two independent renderers agreeing is evidence — does not hold.
+/// The rule's premise is independence, and nothing in the harness could have known these two
+/// lack it.
+///
+/// What `jbig2dec` does on these seven: on four of them it decodes nothing and renders a
+/// blank page, on two it produces the drawing strewn with noise blocks, and on
+/// `bitmap-symbol-context-reuse.pdf` it prints `segment marks bitmap coding context as
+/// retained (NYI)` and gives up. `poppler`, which has its own decoder, agrees with us on six
+/// of the seven; on the seventh it fails differently, reporting "Too many symbols in JBIG2
+/// symbol dictionary".
+///
+/// The evidence that *we* are right is not poppler's agreement, which would only be evidence
+/// that we read ISO/IEC 14492 the same way. It is `tests/jbig2.rs`: the corpus encodes one
+/// image ninety-six ways, through every coding mode the standard defines, and all ninety-six
+/// decode to byte-identical pixels here. A decoder wrong about refinement, or about Huffman
+/// symbol dictionaries, or about retained coding contexts could not produce that.
+///
+/// These stay listed rather than being excused, because the gate should keep watching them:
+/// if `jbig2dec` is fixed they will leave this list, and if our decode changes they will
+/// change too.
+const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
+    "bitmap-halftone-composite.pdf page 1",
+    "bitmap-refine-page-subrect.pdf page 1",
+    "bitmap-symbol-context-reuse.pdf page 1",
+    "bitmap-symbol-symhuffrefineone.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustom.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustomposdims.pdf page 1",
+    "issue20439.pdf page 1",
+];
+
+/// Contradicted, where a large image is drawn small.
+///
+/// 1 page, and it is a hair over the bound: worst tile 9.97 against a bound of 9.95, mean
+/// 0.09, structural similarity 0.9974. `firefox_logo.pdf` draws a 512x543 image into about
+/// a hundred pixels square, and the three references all soften the eight-fold reduction
+/// more than `tiny-skia`'s bilinear filter does — bilinear samples four neighbours whatever
+/// the reduction, so shrinking by eight discards most of the source and leaves a stair-step
+/// on a curved edge. The fix is a filter that averages over the area a destination pixel
+/// covers, which is a rasteriser change and wants a benchmark before it is made.
+///
+/// It is here at all because of a defect fixed this session: the image's filter chain is
+/// `[/FlateDecode /DCTDecode]`, and the JPEG decoder used to be handed the *compressed*
+/// bytes, so the image failed to decode and the page was never compared. See
+/// `Document::image_stream`.
+const CONTRADICTED_IMAGE_RESAMPLING: [&str; 1] = ["firefox_logo.pdf page 1"];
 
 /// Contradicted, with optional content configured off in the document.
 ///
@@ -129,9 +189,31 @@ const CONTRADICTED_OPTIONAL_CONTENT: [&str; 3] = [
     "visibility_expressions.pdf page 1",
 ];
 
+/// Contradicted, drawing glyphs this gate is measuring with the *vector* tolerance.
+///
+/// 1 page, and it is a measurement artefact rather than a rendering one — but a real one,
+/// so it is listed rather than excused.
+///
+/// The tolerance class comes from `has_text`, which asks whether we read any text back from
+/// the page. `issue5070.pdf` draws three CJK glyphs from an embedded subset with no
+/// `/ToUnicode` and no glyph names the Adobe Glyph List knows, so the readback is empty and
+/// a page that is nothing *but* text is judged by the bound measured on flat fills. It
+/// passes every absolute bound in that bound — mean 0.30 against 1.00, worst tile 1.61
+/// against 5.00, SSIM 0.9994 against 0.9900 — and is contradicted only by the relative
+/// test, because the two references that agree agree very closely indeed.
+///
+/// Which is worth a second look, in the light of trap 9. `poppler` and `mupdf` both take
+/// their glyph outlines and hinting from **`FreeType`**; we take ours from `skrifa`. On a page
+/// whose entire content is glyph outlines, their agreement is partly `FreeType` agreeing with
+/// itself, so the relative bound is measuring a shared component rather than two independent
+/// readings. That is an argument about this page's *evidence*, not an excuse: the entry
+/// stays, and the way to settle it is to make `has_text` mean "we drew glyphs" rather than
+/// "we could name what we drew".
+const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 1] = ["issue5070.pdf page 1"];
+
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 32 pages. The weakest entries here, because the difference need not be anyone's defect:
+/// 25 pages. The weakest entries here, because the difference need not be anyone's defect:
 /// every renderer substitutes, and where two references happen to choose the same system
 /// font and we choose another, the consensus is about their font rather than about the page.
 /// `pdf-font`'s `substitute` module is the only machine-dependent code in the tree, so this
@@ -149,11 +231,15 @@ const CONTRADICTED_OPTIONAL_CONTENT: [&str; 3] = [
 /// `ghostscript`, while agreeing with `poppler` exactly. That is a residue of colour
 /// management rather than of fonts, and small enough that closing it would mean choosing
 /// whose arithmetic to copy — which principle 5 forbids.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 32] = [
-    "Type3WordSpacing.pdf page 1",
+///
+/// Seven entries left this list without being fixed, and the distinction matters: they are
+/// **Type 3** fonts, which have no embedded program because §9.6.4 gives them no program at
+/// all — each glyph is a content stream. They were reaching the substitution path, which is
+/// how they came to be filed here, and they now report instead. They left this list by
+/// leaving the comparison, not by getting better.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 25] = [
     "alphatrans.pdf page 1",
     "bad-PageLabels.pdf page 1",
-    "bug1011159.pdf page 1",
     "bug1671312_reduced.pdf page 1",
     "calrgb.pdf page 1",
     "calrgb.pdf page 11",
@@ -166,28 +252,23 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 32] = [
     "hello_world_rotated.pdf page 4",
     "hello_world_rotated.pdf page 5",
     "issue4304.pdf page 1",
-    "issue5039.pdf page 1",
     "issue5238.pdf page 1",
     "issue6019.pdf page 1",
     "issue6108.pdf page 1",
-    "issue6605.pdf page 1",
     "issue7580.pdf page 1",
     "issue8088.pdf page 1",
     "issue8088.pdf page 2",
     "issue8088.pdf page 3",
     "issue8092.pdf page 1",
     "issue8125.pdf page 1",
-    "issue918.pdf page 1",
     "knockout_groups_test.pdf page 2",
     "knockout_groups_test.pdf page 3",
-    "pr4922.pdf page 1",
-    "pr4922.pdf page 2",
 ];
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 81 pages carrying no undrawn annotation, no hidden optional content and no substituted
-/// font — so the difference is in something we believe we implement. Three causes have been
+/// 66 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// font — so the difference is in something we believe we implement. Two causes have been
 /// identified by looking at the artefacts; the rest are unexamined, and working through them
 /// is the highest-value use of this gate:
 ///
@@ -197,25 +278,27 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 32] = [
 ///   show the blend. Unimplemented, and — unlike soft masks — unreported.
 /// - `mesh_shading_empty.pdf` draws the same mesh as the references, displaced
 ///   horizontally. A placement question rather than a missing feature.
-/// - `issue20504.pdf` sets six scripts in six embedded subset fonts and we draw `!"#$` —
-///   the raw character codes through a substitute — for all of them, reporting nothing. One
-///   of its fonts encodes `/Differences [33 /gid2436 /gid1620 …]`, a subsetter's convention
-///   for naming a glyph by index that §9.6.5 does not define, and an unrecognised name is
-///   falling back to the standard encoding rather than to no glyph. This is trap 1 exactly:
-///   the font loaded, nothing reported, the wrong glyphs drawn.
 ///
-/// A fourth cause — `CalGray` and `CalRGB` converted as their device equivalents — was found
-/// through this list and fixed, which is what the list is for.
-const CONTRADICTED_UNEXPLAINED: [&str; 81] = [
+/// **15 pages left this list at once**, which is the largest single fall it has had, and
+/// they were all one cause: ISO 32000-2 §9.6.5.4, the algorithm that turns a character code
+/// into an index into a `TrueType` font's `cmap`, was not implemented. The code was handed
+/// straight to `skrifa`'s `Charmap`, which selects the best *Unicode* subtable — right for
+/// laying out text, and wrong here, because the subclause's whole subject is that a code is
+/// not a character. A font whose only subtable is a (1, 0) Macintosh one, which is exactly
+/// what §9.6.5.4's own guidelines tell a producer to emit, mapped nothing at all and fell
+/// through to a guess that the code was the glyph index. `issue20504.pdf` was the entry that
+/// named the cause: six scripts in six embedded subsets, five of them drawing nothing and
+/// one drawing `!"#$`, all of it reported as complete.
+///
+/// Two further causes have been found through this list and fixed: `CalGray` and `CalRGB`
+/// converted as their device equivalents, and now this. That is what the list is for.
+const CONTRADICTED_UNEXPLAINED: [&str; 66] = [
     "bug1108301.pdf page 1",
-    "bug1132849.pdf page 1",
-    "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
     "bug1252420.pdf page 1",
     "bug1539074.1.pdf page 1",
     "bug1997343.pdf page 2",
-    "bug868745.pdf page 1",
     "close-path-bug.pdf page 1",
     "colors.pdf page 1",
     "colors.pdf page 2",
@@ -227,23 +310,16 @@ const CONTRADICTED_UNEXPLAINED: [&str; 81] = [
     "function_based_shading_cmyk.pdf page 2",
     "issue1002.pdf page 1",
     "issue10572.pdf page 1",
-    "issue10900.pdf page 1",
     "issue11279.pdf page 1",
     "issue11477_reduced.pdf page 1",
     "issue11549_reduced.pdf page 1",
-    "issue1171.pdf page 1",
     "issue11740_reduced.pdf page 1",
-    "issue13107_reduced.pdf page 1",
-    "issue14117.pdf page 1",
     "issue14462_reduced.pdf page 1",
     "issue1453.pdf page 1",
-    "issue15516_reduced.pdf page 1",
     "issue1655r.pdf page 1",
-    "issue17333.pdf page 1",
     "issue18548_reduced.pdf page 1",
     "issue18816.pdf page 1",
     "issue19633.pdf page 1",
-    "issue20504.pdf page 1",
     "issue215.pdf page 1",
     "issue2948.pdf page 1",
     "issue3207r.pdf page 1",
@@ -253,18 +329,14 @@ const CONTRADICTED_UNEXPLAINED: [&str; 81] = [
     "issue3928.pdf page 1",
     "issue3928.pdf page 2",
     "issue4061.pdf page 1",
-    "issue4550.pdf page 1",
     "issue4650.pdf page 1",
     "issue5686.pdf page 1",
     "issue5751.pdf page 1",
     "issue5994.pdf page 1",
-    "issue6068.pdf page 1",
     "issue6231_1.pdf page 1",
-    "issue6336.pdf page 1",
     "issue6387.pdf page 1",
     "issue6721_reduced.pdf page 1",
     "issue6889.pdf page 1",
-    "issue6894.pdf page 1",
     "issue6901.pdf page 1",
     "issue6961.pdf page 1",
     "issue6961.pdf page 2",
@@ -273,7 +345,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 81] = [
     "issue7492.pdf page 1",
     "issue7696.pdf page 1",
     "issue8097_reduced.pdf page 1",
-    "issue8234.pdf page 1",
     "issue845r.pdf page 1",
     "issue8570.pdf page 1",
     "issue8960_reduced.pdf page 1",
@@ -603,6 +674,22 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference]) -> Examined {
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
         let _ = std::fs::remove_dir_all(&work_dir);
     } else {
+        // A fourth render, for the eye rather than for the vote. `hayro` shares its font
+        // rasteriser, its deflate, its JPEG decoder and both new image codecs with us, so
+        // its agreement is not evidence — `Reference::independence` says so and
+        // `Reference::voting` keeps it out of the consensus. But a page the three
+        // references cannot settle is exactly where a fourth reading helps, and this is the
+        // only one of the four written in the same language, so a difference between it and
+        // us cannot be blamed on C.
+        //
+        // Rendered only for pages worth looking at, which is what keeps it off the gate's
+        // critical path: an agreeing page has its whole directory deleted a few lines up.
+        if let Ok(raster) = Reference::Hayro.render(&work.path, work.page, DPI, &work_dir)
+            && raster.width == ours.width
+            && raster.height == ours.height
+        {
+            references.push((Reference::Hayro, raster));
+        }
         let _ = report::write_artefacts(&work_dir, &case, &ours, &references, &triangulation);
     }
 
@@ -749,6 +836,21 @@ fn verdict_of(triangulation: &pdfref::Triangulation, outvoted: Option<&str>) -> 
     }
 }
 
+/// Fails the gate if the sandboxed decoder is not available.
+///
+/// JBIG2 and JPEG 2000 are decoded by a separate program, and Cargo does not build another
+/// package's binaries when it tests this one. Without that check a missing worker would not
+/// fail anything — it would quietly turn 152 documents' images into reports and move the
+/// ratchets, which is the kind of silent number change this whole file exists to prevent.
+fn require_the_sandbox() {
+    if let Err(error) = pdf_sandbox::Sandbox::shared().confinement() {
+        panic!(
+            "the sandboxed image decoder is not available, so the counts below would be \
+             wrong: {error}"
+        );
+    }
+}
+
 /// How far we sit from the references, next to the bounds that were applied.
 ///
 /// Both, always: our number means nothing on its own. A worst tile of 30 is a defect on a
@@ -787,17 +889,24 @@ fn measurements(triangulation: &pdfref::Triangulation) -> String {
 #[test]
 #[ignore = "renders every corpus document four times; run explicitly, in release"]
 fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
+    require_the_sandbox();
     let Some(items) = work_items() else {
         println!("skipped: the doc/pdf.js submodule is not checked out");
         return;
     };
 
-    let available = Reference::available();
+    // Voting, not merely available: `hayro` is driven for the artefacts of pages worth
+    // looking at, and never counted, because what we share with it is most of a page. See
+    // `Reference::independence`.
+    let available: Vec<Reference> = Reference::voting()
+        .into_iter()
+        .filter(|reference| reference.is_available())
+        .collect();
     assert!(
         available.len() >= 2,
         "at least two reference renderers are needed to triangulate; found {}. Install: {}",
         available.len(),
-        Reference::ALL
+        Reference::voting()
             .iter()
             .filter(|r| !r.is_available())
             .map(|r| r.package_hint())
@@ -834,12 +943,15 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
             .map(|e| e.name.as_str())
             .collect()
     };
-    // The four groups are one ratchet: which group a page belongs to is a hypothesis about
-    // it, and holding each group separately would fail the build every time a hypothesis
-    // turned out to be wrong rather than every time the rendering changed.
+    // The groups are one ratchet: which group a page belongs to is a hypothesis about it,
+    // and holding each group separately would fail the build every time a hypothesis turned
+    // out to be wrong rather than every time the rendering changed.
     let contradicted: Vec<&str> = CONTRADICTED_PAGE_ROUNDING
         .iter()
+        .chain(&CONTRADICTED_SHARED_JBIG2_DECODER)
+        .chain(&CONTRADICTED_IMAGE_RESAMPLING)
         .chain(&CONTRADICTED_OPTIONAL_CONTENT)
+        .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)
         .chain(&CONTRADICTED_UNEXPLAINED)
         .copied()

@@ -36,6 +36,7 @@
 //! ratchet only means anything where it runs.
 
 #![expect(
+    clippy::panic,
     clippy::print_stdout,
     clippy::print_stderr,
     reason = "test code: an explanatory panic is the intended failure, and the survey \
@@ -75,18 +76,26 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 368, and *not* a defect count — it is the honest-reporting requirement working. The
+/// 290, and *not* a defect count — it is the honest-reporting requirement working. The
 /// breakdown, by each document's first report, which is the useful part:
 ///
 /// | reported | count | why |
 /// |---|---|---|
-/// | `Image` | 161 | JBIG2 and JPX, deliberately blocked on the sandbox; five `/Mask` |
-/// | `Text` | 76 | mostly CID encodings and embedded `CMap`s |
-/// | `Annotation` | 68 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
+/// | `Text` | 121 | CID encodings and embedded `CMap`s, and now Type 3 fonts |
+/// | `Annotation` | 65 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
+/// | `Image` | 42 | see below; JBIG2 and JPX have left this row |
+/// | `Operator` | 28 | transparency groups, and text render modes |
 /// | `Shading` | 26 | soft masks in `/ExtGState`, which is transparency rather than shading |
-/// | `Operator` | 26 | transparency groups, and text render modes |
-/// | `Content` | 10 | a `/Contents` stream that did not decode |
+/// | `Content` | 7 | a `/Contents` stream that did not decode |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
+///
+/// The `Image` row was 161 and is 42, which is this session's whole story: JBIG2 and JPEG
+/// 2000 decode now, in a sandboxed worker. What is left of it is a different set of
+/// problems — 12 inline images, 10 `Indexed` and 3 `DeviceN` colour spaces the image
+/// unpacker does not convert, 6 `/Mask` entries, 5 `CCITTFaxDecode`, 4 malformed streams,
+/// and exactly two files the new decoders refuse: one JBIG2 with a segment type ISO/IEC
+/// 14492 does not define, and one 212-megapixel JPEG 2000 scan larger than the sandbox is
+/// given room to decode.
 ///
 /// This number has gone *up* four times, and every rise was the point.
 ///
@@ -125,9 +134,41 @@ const MAX_PAGELESS: usize = 19;
 /// a CID font, a JPX image, a transparency group, now met inside an annotation rather than
 /// inside the page — which is why the `Image`, `Text` and `Operator` rows above also grew.
 ///
+/// And down by 118 this session, when JBIG2 and JPEG 2000 started decoding — the largest
+/// single fall so far, and the first that came from a *dependency* rather than from code
+/// written here. See doc/adr/0014 for why that was the right call and what it costs.
+///
+/// Down by one and up by 41 this session, and every part of it is one piece of work:
+/// implementing ISO 32000-2 §9.6.5.4, the algorithm that turns a character code into an
+/// index into a `TrueType` font's `cmap`. `issue5501.pdf` left this list, because its font's
+/// only `cmap` subtable is one that algorithm reaches and the previous code did not. The
+/// two rises are both gaps that algorithm's absence had been hiding.
+///
+/// **Type 3 fonts, 24 documents.** A Type 3 font has no font program at all: §9.6.4 makes
+/// each glyph a content stream in `/CharProcs`, which is the interpreter's work and not this
+/// crate's. Every one of these documents was therefore reaching the *substitution* path,
+/// where the names in a Type 3 `/Differences` array — `/a192`, `/g3`, names of procedures —
+/// were resolved against a Latin system font. `issue918.pdf` drew 388 text operations of
+/// letter fragments at the wrong places and reported `unsupported: []`; poppler draws a page
+/// of readable text. This is trap 1 exactly, and the rise is that page saying so.
+///
+/// **A substitute that draws none of the codes the document declares, 19 documents.** The
+/// old test asked whether the substitute reached *any* of the 256 codes, which a Latin face
+/// always does — so a font whose `/FirstChar`..`/LastChar` range mapped to nothing at all
+/// still passed. `issue20504.pdf` set a line of Chinese in a Type 1 program this crate
+/// cannot read, and all four of its codes name glyphs only the original font had; the line
+/// drew nothing and said nothing. `tracemonkey.pdf` and its five relatives are the smaller
+/// case, and the more instructive one: a Type 1 `CMSY7` subset whose single declared code is
+/// `/circlecopyrt`, so the © in the copyright line is missing from a page that otherwise
+/// draws perfectly.
+///
+/// That rule is deliberately about the font rather than about each code. A font that maps
+/// *some* of its declared codes and not others is still silent about the rest, which needs
+/// a report at the point a glyph is shown rather than at the point a font is loaded.
+///
 /// Ratcheted downward otherwise: this falls as features land, and a rise that is not a new
 /// *report* means something that used to draw no longer does.
-const MAX_INCOMPLETE: usize = 368;
+const MAX_INCOMPLETE: usize = 290;
 
 /// How long one document may take before it counts as a failure.
 ///
@@ -253,6 +294,21 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
     }
 }
 
+/// Fails the gate if the sandboxed decoder is not available.
+///
+/// JBIG2 and JPEG 2000 are decoded by a separate program, and Cargo does not build another
+/// package's binaries when it tests this one. Without that check a missing worker would not
+/// fail anything — it would quietly turn 152 documents' images into reports and move the
+/// ratchets, which is the kind of silent number change this whole file exists to prevent.
+fn require_the_sandbox() {
+    if let Err(error) = pdf_sandbox::Sandbox::shared().confinement() {
+        panic!(
+            "the sandboxed image decoder is not available, so the counts below would be \
+             wrong: {error}"
+        );
+    }
+}
+
 /// The gate.
 ///
 /// Ignored by default because it is a minute of work in release and fifteen in debug —
@@ -268,6 +324,7 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
 #[test]
 #[ignore = "one minute over 974 documents; run explicitly, in release"]
 fn the_corpus_opens_interprets_and_rasterises() {
+    require_the_sandbox();
     let Some(files) = corpus() else {
         println!("skipped: the doc/pdf.js submodule is not checked out");
         return;

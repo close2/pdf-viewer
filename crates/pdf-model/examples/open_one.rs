@@ -1,6 +1,6 @@
 //! Opens, interprets and rasterises one document, for isolating a pathological file.
 //!
-//! `cargo run -p pdf-model --example open_one -- <file.pdf>`
+//! `cargo run -p pdf-model --example open_one -- <file.pdf> [scale] [out.png]`
 //!
 //! The corpus gate cannot bound a document that never returns — a thread cannot be
 //! cancelled — so isolating one means running it in a process that can be killed.
@@ -63,7 +63,23 @@ fn main() {
             target.height,
             started.elapsed()
         );
-        drop(CpuRasterizer::new().rasterize(&interpretation.display_list, target));
+        let raster = CpuRasterizer::new().rasterize(&interpretation.display_list, target);
+        // Trap 1 in the handover: no metric tells you a page is *right*, so the third
+        // argument writes the page out to be looked at. It is the cheapest diagnostic here
+        // and the one most often skipped.
+        if let (Some(out), Ok(raster)) = (std::env::args().nth(3), raster) {
+            let handle = std::fs::File::create(&out).expect("writable");
+            let mut encoder =
+                png::Encoder::new(std::io::BufWriter::new(handle), raster.width, raster.height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()
+                .expect("valid header")
+                .write_image_data(&raster.data)
+                .expect("pixel data matches the dimensions");
+            println!("  wrote {out}");
+        }
     }
     println!("{path}: done in {:?}", started.elapsed());
 }
