@@ -28,6 +28,7 @@ pub mod standard_metrics;
 pub mod substitute;
 pub mod tounicode;
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -36,6 +37,8 @@ use pdf_render::{Path, PathCommand, Point};
 use pdf_syntax::{Dictionary, Document, Object};
 use skrifa::outline::{DrawSettings, OutlinePen};
 use skrifa::prelude::{LocationRef, Size};
+use skrifa::raw::TableProvider;
+use skrifa::raw::tables::cmap::{Cmap, CmapSubtable, PlatformId};
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 
 use crate::cff::CodeToGlyph;
@@ -43,6 +46,20 @@ use crate::encoding::BaseEncoding;
 
 /// A character code's glyph, for each of the 256 codes a simple font can use.
 type CodeTable = [Option<u16>; 256];
+
+/// The glyph name each of a simple font's 256 character codes selects.
+///
+/// Borrowed for a name one of the specifications lists, which is nearly every name a real
+/// document writes, and owned for one only the document's own font program carries — a
+/// subsetter's `/gid2436`, say. Both have to be kept: an unrecognised name is *not* an
+/// unencoded code, and the font's own `post` table or CFF charset may hold the glyph under
+/// exactly that spelling. Dropping them was a defect; see [`apply_differences`].
+type GlyphNames = Box<[Cow<'static, str>; 256]>;
+
+/// A table of 256 unencoded codes, which every encoding starts from.
+fn no_names() -> GlyphNames {
+    Box::new(std::array::from_fn(|_| Cow::Borrowed("")))
+}
 
 /// Width assumed when a font gives none, in thousandths of an em.
 ///
@@ -53,15 +70,13 @@ const DEFAULT_WIDTH: f32 = 500.0;
 /// How a font maps character codes to glyphs.
 #[derive(Debug)]
 enum CodeMapping {
-    /// One byte per code, mapped through the font program's `cmap` table.
-    ///
-    /// `TrueType` and `OpenType` programs, where the character map is part of the file.
-    Charmap,
     /// One byte per code, mapped through a table resolved when the font was loaded.
     ///
-    /// A bare CFF has no `cmap`; a code reaches a glyph by name instead, and that
-    /// resolution needs the PDF `/Encoding` as well as the font, so it happens once at
-    /// load time rather than per glyph.
+    /// Both routes a simple font can take end here. A bare CFF has no `cmap` and reaches a
+    /// glyph by name through its charset (§9.6.5.2); a `TrueType` or `OpenType` program has
+    /// one and reaches a glyph through the algorithm of §9.6.5.4. Neither resolution can be
+    /// done by the font program alone — both need the PDF `/Encoding` — so both happen once
+    /// at load time rather than per glyph drawn.
     Named(Box<CodeTable>),
     /// Two bytes per code, and the code *is* the glyph index.
     ///
@@ -131,17 +146,33 @@ pub enum FontError {
         /// The encoding named in the font dictionary.
         encoding: String,
     },
-    /// The font is not embedded and this machine offers nothing to stand in for it.
+    /// The font is a Type 3 font, whose glyphs are content streams rather than outlines.
+    ///
+    /// Not a program this crate could read and does not: §9.6.4 defines a Type 3 glyph as a
+    /// content stream in `/CharProcs`, so drawing one means running the interpreter, which
+    /// lives a layer above this crate. Substituting is not available either — the glyph
+    /// names in such a font's `/Differences` name procedures, and mean nothing anywhere
+    /// else.
+    #[error("font /{name} is a Type 3 font, whose glyphs are /CharProcs content streams")]
+    Type3 {
+        /// The resource name.
+        name: String,
+    },
+    /// The font's own program is unusable and nothing can stand in for it.
     ///
     /// Distinct from [`FontError::NotEmbedded`], which no longer reaches a caller: a
     /// missing program is now substituted. This is the case where substitution itself
-    /// failed, which is a property of the machine rather than of the document.
-    #[error("font /{name} is not embedded and no {family} substitute is installed")]
+    /// failed — either because the machine has no such face, or because the face it has
+    /// draws none of the codes the document uses.
+    ///
+    /// The reason is spelled out by the caller rather than by a second variant, because the
+    /// two failures are the same fact to everyone above: the text will not be drawn.
+    #[error("font /{name} cannot be substituted: {reason}")]
     NoSubstitute {
         /// The resource name.
         name: String,
-        /// The generic family that was looked for.
-        family: String,
+        /// Why substitution failed, in the caller's own words.
+        reason: String,
     },
 }
 
@@ -165,7 +196,7 @@ pub struct LoadedFont {
     /// The fallback for extraction when there is no `/ToUnicode`: a glyph name identifies
     /// a character through the Adobe Glyph List, and it is what actually selected the
     /// glyph, so it describes what was drawn rather than what the producer claimed.
-    glyph_names: Option<Box<[&'static str; 256]>>,
+    glyph_names: Option<GlyphNames>,
     /// Cached outlines: a page reuses the same few dozen glyphs constantly, and
     /// re-extracting each one would dominate the render.
     outlines: RefCell<BTreeMap<u16, Option<Arc<Path>>>>,
@@ -196,6 +227,19 @@ impl LoadedFont {
             .as_name()
             .map(|value| value.as_bytes().to_vec())
             .unwrap_or_default();
+
+        // A Type 3 font has no font program at all: each glyph is a content stream in
+        // `/CharProcs`, run by the interpreter (§9.6.4), so nothing in this crate can draw
+        // one. It is refused here rather than falling into the substitution path below,
+        // where it used to arrive silently — a Type 3 `/Differences` array names
+        // *procedures*, and `french_diacritics.pdf` names them `/a192`, `/a199`, `/a224`,
+        // which are also ZapfDingbats glyph names, so a substitute drew whatever those
+        // reached and reported nothing.
+        if subtype == b"Type3" {
+            return Err(FontError::Type3 {
+                name: name.to_owned(),
+            });
+        }
 
         // A Type0 font delegates almost everything to a descendant; the outer dictionary
         // carries only the encoding.
@@ -229,7 +273,7 @@ impl LoadedFont {
                 let request = substitute::Request::derive(document, dict, descriptor);
                 let data = substitute::find(request).ok_or_else(|| FontError::NoSubstitute {
                     name: name.to_owned(),
-                    family: format!("{:?}", request.family),
+                    reason: format!("no {:?} face is installed", request.family),
                 })?;
                 (data, Program::Sfnt, Some(request))
             }
@@ -250,19 +294,10 @@ impl LoadedFont {
                 CodeMapping::Named(Box::new(table))
             }
             (Program::Sfnt, None) => {
-                // The glyphs come from the program's own character map, but the encoding
-                // still says what each code *means*, and an embedded `TrueType` font
-                // frequently carries no `/ToUnicode`. Resolving the names here is what
-                // lets such a font's text be read back at all.
-                names = encoding_names(
-                    document,
-                    dict,
-                    name,
-                    None,
-                    !descriptor.is_some_and(|d| is_symbolic(document, d)),
-                )
-                .ok();
-                CodeMapping::Charmap
+                let (table, resolved) =
+                    truetype_code_table(document, dict, descriptor, &data, name)?;
+                names = Some(resolved);
+                CodeMapping::Named(Box::new(table))
             }
             (Program::BareCff, None) => {
                 let cff = CodeToGlyph::read(&data).map_err(|e| FontError::Malformed {
@@ -284,7 +319,7 @@ impl LoadedFont {
             dict,
             SimpleMetrics {
                 substituted,
-                names: names.as_deref(),
+                names: names.as_ref(),
                 data: &data,
                 mapping: &mapping,
                 units_per_em,
@@ -358,7 +393,7 @@ impl LoadedFont {
                 let request = substitute::Request::derive(document, &descendant, descriptor);
                 let data = substitute::find(request).ok_or_else(|| FontError::NoSubstitute {
                     name: name.to_owned(),
-                    family: format!("{:?}", request.family),
+                    reason: format!("no {:?} face is installed", request.family),
                 })?;
                 (data, Program::Sfnt, true)
             }
@@ -461,7 +496,7 @@ impl LoadedFont {
         let Some(name) = usize::try_from(code)
             .ok()
             .and_then(|code| names.get(code))
-            .copied()
+            .map(Cow::as_ref)
             .filter(|name| !name.is_empty())
         else {
             return false;
@@ -482,9 +517,7 @@ impl LoadedFont {
     #[must_use]
     pub fn decode(&self, bytes: &[u8]) -> Vec<u32> {
         match self.mapping {
-            CodeMapping::Charmap | CodeMapping::Named(_) => {
-                bytes.iter().map(|&byte| u32::from(byte)).collect()
-            }
+            CodeMapping::Named(_) => bytes.iter().map(|&byte| u32::from(byte)).collect(),
             CodeMapping::IdentityTwoByte
             | CodeMapping::CidKeyed(_)
             | CodeMapping::Substituted(_) => bytes
@@ -552,26 +585,8 @@ impl LoadedFont {
             }
             // Resolved when the font was loaded. A code with no entry has no glyph, and
             // that is final: falling back to the code as a glyph index here is exactly
-            // how a CFF font draws plausible, wrong text.
+            // how a font draws plausible, wrong text.
             CodeMapping::Named(table) => *table.get(usize::try_from(code).ok()?)?,
-            CodeMapping::Charmap => {
-                let font = FontRef::new(&self.data).ok()?;
-                let charmap = font.charmap();
-                charmap
-                    // The code as written, which is right for symbolic fonts whose
-                    // character map is keyed by byte.
-                    .map(code)
-                    // The same code in the private-use area, where symbolic TrueType fonts
-                    // conventionally place their glyphs.
-                    .or_else(|| charmap.map(0xF000_u32.saturating_add(code)))
-                    .and_then(|id| u16::try_from(id.to_u32()).ok())
-                    // A font with no usable character map is often a subset whose glyph
-                    // order matches the codes. This is a guess, and it is confined to
-                    // sfnt programs because for those it is usually right — a subset
-                    // `TrueType` font really is ordered that way. A CFF font never
-                    // reaches here.
-                    .or_else(|| u16::try_from(code).ok())
-            }
         }
     }
 
@@ -692,14 +707,14 @@ fn encoding_names(
     name: &str,
     symbolic_font: Option<encoding::SymbolicEncoding>,
     fall_back_to_standard: bool,
-) -> Result<Box<[&'static str; 256]>, FontError> {
-    let mut names = Box::new([""; 256]);
+) -> Result<GlyphNames, FontError> {
+    let mut names = no_names();
 
     if let Some(symbolic) = symbolic_font {
         // The two symbolic standard-14 fonts have their own encoding and no Latin base.
         for (code, slot) in names.iter_mut().enumerate() {
             if let Ok(code) = u8::try_from(code) {
-                *slot = symbolic.glyph_name(code);
+                *slot = Cow::Borrowed(symbolic.glyph_name(code));
             }
         }
     } else {
@@ -708,7 +723,7 @@ fn encoding_names(
         if let Some(base) = base {
             for (code, slot) in names.iter_mut().enumerate() {
                 if let Ok(code) = u8::try_from(code) {
-                    *slot = base.glyph_name(code);
+                    *slot = Cow::Borrowed(base.glyph_name(code));
                 }
             }
         }
@@ -747,7 +762,7 @@ fn substitute_code_table(
     request: substitute::Request,
     data: &[u8],
     name: &str,
-) -> Result<(CodeTable, Box<[&'static str; 256]>), FontError> {
+) -> Result<(CodeTable, GlyphNames), FontError> {
     let _ = descriptor;
     let font = FontRef::new(data).map_err(|e| FontError::Malformed {
         name: name.to_owned(),
@@ -765,9 +780,8 @@ fn substitute_code_table(
     let names = encoding_names(document, dict, name, symbolic, true)?;
 
     let mut table: CodeTable = [None; 256];
-    let mut mapped = 0usize;
     for (code, slot) in table.iter_mut().enumerate() {
-        let Some(glyph_name) = names.get(code).copied().filter(|n| !n.is_empty()) else {
+        let Some(glyph_name) = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty()) else {
             continue;
         };
         let Some(character) = read_fonts::ps::agl::name_to_char(glyph_name) else {
@@ -776,22 +790,48 @@ fn substitute_code_table(
         *slot = charmap
             .map(character)
             .and_then(|id| u16::try_from(id.to_u32()).ok());
-        if slot.is_some() {
-            mapped = mapped.saturating_add(1);
-        }
     }
 
-    if mapped == 0 {
+    if !declared_codes(document, dict).any(|code| table.get(code).is_some_and(Option::is_some)) {
         return Err(FontError::NoSubstitute {
             name: name.to_owned(),
-            family: format!(
-                "{:?} (the substitute draws none of its characters)",
+            reason: format!(
+                "the {:?} face draws none of the codes the document declares",
                 request.family
             ),
         });
     }
 
     Ok((table, names))
+}
+
+/// The character codes the font dictionary says the document uses.
+///
+/// `/FirstChar` and `/LastChar` bound `/Widths`, so between them they are the producer's own
+/// statement of which codes appear in the content stream. That is what makes them the right
+/// range to judge a mapping by: a substitute that reaches a glyph for two hundred codes the
+/// document never shows, and for none of the four it does, is not a usable substitute — and
+/// counting *all* the codes it happens to cover says it is.
+///
+/// `issue20504.pdf` is the case that showed it. Its Chinese line uses a Type 1 program this
+/// crate cannot read, so the font is substituted, and `/Differences [33 /gid2436 …]` names
+/// four glyphs only the original font had. Every one of the 252 codes the document does not
+/// use resolved through `StandardEncoding` and mapped, so the substitute looked usable, and
+/// the four codes actually shown drew nothing at all — in silence.
+///
+/// A dictionary stating neither yields every code, which keeps the judgement no weaker than
+/// it was for a font that says nothing about its range.
+fn declared_codes(document: &Document, dict: &Dictionary) -> std::ops::RangeInclusive<usize> {
+    let bound = |key: &str| {
+        document
+            .get_key(dict, key)
+            .as_integer()
+            .and_then(|value| usize::try_from(value).ok())
+    };
+    match (bound("FirstChar"), bound("LastChar")) {
+        (Some(first), Some(last)) if first <= last => first..=last.min(255),
+        _ => 0..=255,
+    }
 }
 
 /// Reads the base encoding a font dictionary names, if it names one.
@@ -825,7 +865,24 @@ fn base_encoding(
 }
 
 /// Layers an `/Encoding` dictionary's `/Differences` array over a table of glyph names.
-fn apply_differences(document: &Document, dict: &Dictionary, names: &mut [&'static str; 256]) {
+///
+/// # A name this crate does not recognise still names the code
+///
+/// An earlier version kept only names with a `'static` spelling and left the base
+/// encoding's name in place for the rest, which meant a code the document had explicitly
+/// reassigned silently kept its old meaning. `issue20504.pdf` writes
+/// `/Differences [33 /gid2436 …]` — a subsetter's convention for naming a glyph by its
+/// index, which §9.6.5 does not define but does not forbid either — and every one of its
+/// four codes fell back to `StandardEncoding`, so a page of Chinese was drawn as `!"#$`
+/// with nothing reported. §9.6.5.4's "any *undefined* entries in the table shall be filled
+/// using `StandardEncoding`" is about codes the encoding never assigned, not about codes it
+/// assigned to a name we happen not to know.
+///
+/// So every name is kept. A recognised one keeps its static spelling and costs no
+/// allocation, which is the case for nearly every name a real document writes; a novel one
+/// is owned, and reaches the font's own `post` table or CFF charset where it may well be
+/// found.
+fn apply_differences(document: &Document, dict: &Dictionary, names: &mut GlyphNames) {
     let encoding = document.get_key(dict, "Encoding");
     let Some(encoding) = encoding.as_dict() else {
         return;
@@ -841,14 +898,8 @@ fn apply_differences(document: &Document, dict: &Dictionary, names: &mut [&'stat
             Object::Integer(value) => code = usize::try_from(value).ok(),
             Object::Name(glyph_name) => {
                 let Some(at) = code else { continue };
-                // The name has to outlive this function, and a `/Differences` name is
-                // almost always a standard one, so the static table is consulted first and
-                // only a genuinely novel name is dropped. A novel name cannot be drawn by a
-                // substitute anyway: it names a glyph only the original font had.
-                if let Some(slot) = names.get_mut(at)
-                    && let Some(known) = interned(glyph_name.as_bytes())
-                {
-                    *slot = known;
+                if let Some(slot) = names.get_mut(at) {
+                    *slot = glyph_name_of(glyph_name.as_bytes());
                 }
                 code = at.checked_add(1);
             }
@@ -857,10 +908,21 @@ fn apply_differences(document: &Document, dict: &Dictionary, names: &mut [&'stat
     }
 }
 
+/// Returns a `/Differences` name, borrowing the specifications' spelling where there is one.
+///
+/// Glyph names are ASCII by specification; a font that breaks that is malformed, not a
+/// reason to lose the name, so the owned case is lossy rather than fallible.
+fn glyph_name_of(name: &[u8]) -> Cow<'static, str> {
+    match interned(name) {
+        Some(known) => Cow::Borrowed(known),
+        None => Cow::Owned(String::from_utf8_lossy(name).into_owned()),
+    }
+}
+
 /// Returns the `'static` spelling of a glyph name, if it is one the specifications list.
 ///
-/// Only names with a static spelling can enter the table, which is what lets it hold
-/// `&'static str` and avoid an allocation per code.
+/// Matching one avoids an allocation for the overwhelmingly common case of a name PDF or
+/// CFF already defines.
 fn interned(name: &[u8]) -> Option<&'static str> {
     let name = std::str::from_utf8(name).ok()?;
     skrifa::raw::ps::string::STANDARD_STRINGS
@@ -887,7 +949,7 @@ struct SimpleMetrics<'a> {
     /// The substitution request, when the font is a stand-in.
     substituted: Option<substitute::Request>,
     /// The glyph name each code selects, when the font has names.
-    names: Option<&'a [&'static str; 256]>,
+    names: Option<&'a GlyphNames>,
     /// The font program.
     data: &'a [u8],
     mapping: &'a CodeMapping,
@@ -941,7 +1003,7 @@ fn simple_widths(
             let Ok(code) = u32::try_from(code) else {
                 continue;
             };
-            if let Some(width) = standard.width(glyph_name) {
+            if let Some(width) = standard.width(glyph_name.as_ref()) {
                 widths.insert(code, width);
             }
         }
@@ -998,7 +1060,7 @@ fn simple_code_table(
     descriptor: &Dictionary,
     cff: &CodeToGlyph,
     name: &str,
-) -> Result<(CodeTable, Box<[&'static str; 256]>), FontError> {
+) -> Result<(CodeTable, GlyphNames), FontError> {
     let CodeToGlyph::Named { by_name, builtin } = cff else {
         // A CID-keyed program has no glyph names for `/Encoding` to address.
         return Err(FontError::UnsupportedEncoding {
@@ -1020,7 +1082,7 @@ fn simple_code_table(
 
     let mut table: CodeTable = [None; 256];
     for (code, slot) in table.iter_mut().enumerate() {
-        match names.get(code).copied().filter(|n| !n.is_empty()) {
+        match names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty()) {
             // The encoding named a glyph. If the font does not have it, the code has no
             // glyph, and that is final — see the note above this function.
             Some(glyph_name) => *slot = by_name.get(glyph_name).copied(),
@@ -1039,6 +1101,260 @@ fn simple_code_table(
     }
 
     Ok((table, names))
+}
+
+/// The three `cmap` subtables ISO 32000-2 §9.6.5.4 distinguishes.
+///
+/// It names them by their platform and encoding IDs, and the whole of its algorithm turns
+/// on which of them a font carries — so they are found once, by ID, rather than through a
+/// "best subtable" heuristic. `skrifa`'s own `Charmap` picks the most comprehensive
+/// *Unicode* subtable, which is the right choice for laying out text and the wrong one
+/// here: a (1, 0) Macintosh subtable is not a Unicode mapping, so `Charmap` does not
+/// consider it at all, and a font whose only subtable is that one maps nothing.
+///
+/// That is not a corner case. `issue20504.pdf` embeds four `TrueType` subsets and every one
+/// of them carries a single (1, 0) format 6 subtable — which is exactly what §9.6.5.4's
+/// third guideline tells a producer to emit.
+struct Subtables<'a> {
+    /// (3, 0), Microsoft Symbol: codes are looked up as they are written.
+    symbol: Option<CmapSubtable<'a>>,
+    /// (3, 1), Microsoft Unicode: codes reach it as characters, through glyph names.
+    unicode: Option<CmapSubtable<'a>>,
+    /// (1, 0), Macintosh Roman: codes reach it as Mac OS Roman codes.
+    macintosh: Option<CmapSubtable<'a>>,
+    /// The whole table, for the last-resort mapping that asks every subtable in turn.
+    ///
+    /// A font may carry a subtable §9.6.5.4 names none of — `issue5501.pdf`'s only one is
+    /// (0, 0), Unicode 1.0 — and there is nowhere else left to ask by the time that
+    /// matters.
+    all: Option<Cmap<'a>>,
+}
+
+impl<'a> Subtables<'a> {
+    fn read(font: &FontRef<'a>) -> Self {
+        let mut found = Self {
+            symbol: None,
+            unicode: None,
+            macintosh: None,
+            all: None,
+        };
+        let Ok(cmap) = font.cmap() else {
+            return found;
+        };
+        found.all = Some(cmap.clone());
+        for record in cmap.encoding_records() {
+            let Ok(subtable) = record.subtable(cmap.offset_data()) else {
+                continue;
+            };
+            // The first subtable of each kind wins; a font listing two is malformed, and
+            // taking the earlier one at least makes the choice reproducible.
+            let slot = match (record.platform_id(), record.encoding_id()) {
+                (PlatformId::Windows, 0) => &mut found.symbol,
+                (PlatformId::Windows, 1) => &mut found.unicode,
+                (PlatformId::Macintosh, 0) => &mut found.macintosh,
+                _ => continue,
+            };
+            if slot.is_none() {
+                *slot = Some(subtable);
+            }
+        }
+        found
+    }
+}
+
+/// Resolves a simple font's character codes to glyphs in a `TrueType` or `OpenType` program.
+///
+/// This is ISO 32000-2 §9.6.5.4, whose shape is easy to lose: a `cmap` is *not* indexed by
+/// character code. Each of its subtables is indexed by something else — a Unicode
+/// character, a Mac OS Roman code, a two-byte symbol code — and the subclause is a set of
+/// rules for turning a PDF character code into whichever of those the font happens to
+/// carry. Handing the code straight to the font's Unicode subtable is right only by
+/// coincidence, for ASCII, in a font that has one.
+///
+/// The rules, in the order the subclause gives them:
+///
+/// - **The font's own codes.** When the font descriptor sets the symbolic flag, or the
+///   dictionary has no `/Encoding` at all, the PDF encoding says nothing: a (3, 0) subtable
+///   is addressed by the code with the high byte of its range prepended, and failing that a
+///   (1, 0) subtable is addressed by the single byte.
+/// - **Through a glyph name.** Otherwise the code selects a glyph *name* — from the base
+///   encoding, updated by `/Differences`, with anything still undefined filled from
+///   `StandardEncoding` — and the name is carried to a (3, 1) subtable through the Adobe
+///   Glyph List, or to a (1, 0) subtable through Mac OS Roman.
+/// - **The `post` table.** "In any of these cases, if the glyph name cannot be mapped as
+///   specified, the glyph name shall be looked up in the font program's `post` table."
+///   This is what reaches a subsetter's `/gid2436`, which no encoding and no character set
+///   knows but the font itself may name.
+///
+/// # The two tiers below the specification's own, and why they are last
+///
+/// §9.6.5.4 closes with "if a character cannot be mapped in any of the ways described
+/// previously, a PDF processor may supply a mapping of its choosing". Two are supplied, and
+/// each is narrower than the code it replaced.
+///
+/// The first offers the code to every subtable the font has, in the font's own order,
+/// which is what this crate did for every font before the algorithm above existed. It still
+/// earns its place twice over: a symbolic font carrying only a (3, 1) subtable — common,
+/// and contrary to the guidelines — reaches no rule above and its codes really are ASCII;
+/// and `issue5501.pdf`'s subset carries its byte-to-glyph map in a (0, 0) subtable, which
+/// §9.6.5.4 does not mention at all and which is nonetheless the only correct answer for
+/// that font.
+///
+/// The second treats the code as a glyph index, and applies **only to a font with no
+/// readable `cmap` at all**. That restriction is the point: the old code fell through to it
+/// per *code*, so a font with a perfectly good `cmap` that simply did not cover a code drew
+/// glyph number `code` instead — a wrong glyph, confidently, in place of nothing. A
+/// document using a simple font is required to embed a `cmap` (§9.9.1), so a program
+/// without one is malformed, and a subset really is often ordered by code.
+fn truetype_code_table(
+    document: &Document,
+    dict: &Dictionary,
+    descriptor: Option<&Dictionary>,
+    data: &[u8],
+    name: &str,
+) -> Result<(CodeTable, GlyphNames), FontError> {
+    let font = FontRef::new(data).map_err(|e| FontError::Malformed {
+        name: name.to_owned(),
+        detail: e.to_string(),
+    })?;
+    let subtables = Subtables::read(&font);
+    let symbolic = descriptor.is_some_and(|d| is_symbolic(document, d));
+    // §9.6.5.4 fills undefined entries from StandardEncoding, which `encoding_names` does
+    // by starting there — but only for a font whose names are Latin at all. A symbolic
+    // font's are not, and it takes the first route below rather than this one.
+    let names = match encoding_names(document, dict, name, None, !symbolic) {
+        Ok(names) => names,
+        // §9.6.5.4 again: when the symbolic flag is set the `/Encoding` entry "is ignored".
+        // So an entry naming an encoding this crate has no table for — `issue5701.pdf`
+        // writes `/Encoding /Identity-H` on a simple `TrueType` font, which is not a base
+        // encoding at all — is not a font this crate cannot read. It is an entry the
+        // specification tells us not to read.
+        Err(FontError::UnsupportedEncoding { .. }) if symbolic => no_names(),
+        Err(other) => return Err(other),
+    };
+
+    let mut table: CodeTable = [None; 256];
+
+    // "When the font has no Encoding entry, or the font descriptor's Symbolic flag is set
+    // (in which case the Encoding entry is ignored)".
+    let unencoded = matches!(document.get_key(dict, "Encoding"), Object::Null);
+    if symbolic || unencoded {
+        for (code, slot) in table.iter_mut().enumerate() {
+            let Ok(code) = u32::try_from(code) else {
+                continue;
+            };
+            *slot = symbol_glyph(&subtables, code);
+        }
+    }
+
+    for (code, slot) in table.iter_mut().enumerate() {
+        if slot.is_some() {
+            continue;
+        }
+        let glyph_name = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty());
+        *slot = glyph_name.and_then(|glyph_name| named_glyph(&font, &subtables, glyph_name));
+    }
+
+    // The two tiers the specification leaves to the processor; see the note above.
+    for (code, slot) in table.iter_mut().enumerate() {
+        if slot.is_some() {
+            continue;
+        }
+        let Ok(code) = u32::try_from(code) else {
+            continue;
+        };
+        *slot = as_character(&subtables, code).or_else(|| {
+            subtables
+                .all
+                .is_none()
+                .then(|| u16::try_from(code).ok())
+                .flatten()
+        });
+    }
+
+    if table.iter().all(Option::is_none) {
+        // The font loaded and the encoding resolved, and between them they addressed not
+        // one glyph. Reporting beats rendering an entirely blank page in silence.
+        return Err(FontError::Malformed {
+            name: name.to_owned(),
+            detail: "no character code maps to a glyph".to_owned(),
+        });
+    }
+
+    Ok((table, names))
+}
+
+/// A code's glyph through the font's own codes: the (3, 0) subtable, then the (1, 0) one.
+///
+/// §9.6.5.4 says a (3, 0) subtable's codes lie in one of four ranges — `0x0000`, `0xF000`,
+/// `0xF100` or `0xF200` — and that each byte from the string is prepended with the high
+/// byte of *the* range the font uses. Which range that is is not recorded anywhere in the
+/// font, so the four are tried in the order the subclause lists them. A subtable holding
+/// two of them at once would be malformed; one holding none maps nothing, which is the
+/// answer either way.
+fn symbol_glyph(subtables: &Subtables<'_>, code: u32) -> Option<u16> {
+    if let Some(symbol) = subtables.symbol.as_ref() {
+        return [0x0000, 0xF000, 0xF100, 0xF200]
+            .into_iter()
+            .find_map(|high: u32| symbol.map_codepoint(high.saturating_add(code)))
+            .and_then(narrow_glyph);
+    }
+    subtables
+        .macintosh
+        .as_ref()?
+        .map_codepoint(code)
+        .and_then(narrow_glyph)
+}
+
+/// A glyph name's glyph: through the (3, 1) subtable, the (1, 0) subtable, or `post`.
+fn named_glyph(font: &FontRef<'_>, subtables: &Subtables<'_>, glyph_name: &str) -> Option<u16> {
+    let by_subtable = if let Some(unicode) = subtables.unicode.as_ref() {
+        read_fonts::ps::agl::name_to_char(glyph_name)
+            .and_then(|character| unicode.map_codepoint(character))
+    } else if let Some(macintosh) = subtables.macintosh.as_ref() {
+        encoding::mac_os_roman_code(glyph_name)
+            .and_then(|code| macintosh.map_codepoint(u32::from(code)))
+    } else {
+        None
+    };
+    by_subtable
+        .and_then(narrow_glyph)
+        .or_else(|| post_glyph(font, glyph_name))
+}
+
+/// A glyph name's glyph, from the font program's own `post` table.
+///
+/// Searched rather than indexed: `post` maps a glyph to its name, and this needs the
+/// inverse. A simple font has at most 256 codes and this runs once per font at load time,
+/// so the linear scan costs less than the map it would otherwise build — and the names it
+/// is asked for are usually the ones no other route knew, so the scan usually runs to the
+/// end and finds nothing.
+fn post_glyph(font: &FontRef<'_>, glyph_name: &str) -> Option<u16> {
+    let post = font.post().ok()?;
+    (0..u16::try_from(post.num_names()).unwrap_or(u16::MAX)).find(|glyph| {
+        post.glyph_name(skrifa::raw::types::GlyphId16::new(*glyph)) == Some(glyph_name)
+    })
+}
+
+/// A code's glyph by treating the code itself as a character, in any subtable the font has.
+///
+/// The mapping of this processor's choosing, for a font that reaches none of §9.6.5.4's
+/// rules. `Cmap::map_codepoint` asks every subtable in the order the font lists them, which
+/// is what reaches the ones the subclause does not name. The private-use variant is where
+/// symbolic `TrueType` fonts conventionally put their glyphs.
+fn as_character(subtables: &Subtables<'_>, code: u32) -> Option<u16> {
+    let cmap = subtables.all.as_ref()?;
+    cmap.map_codepoint(code)
+        .or_else(|| cmap.map_codepoint(0xF000_u32.saturating_add(code)))
+        .and_then(narrow_glyph)
+}
+
+/// Narrows a glyph identifier to the `u16` a simple font's tables hold.
+///
+/// A glyph index beyond `u16` cannot appear in a `TrueType` font — `maxp` states the count
+/// as a `u16` — so this discards nothing a well-formed font can produce.
+fn narrow_glyph(glyph: GlyphId) -> Option<u16> {
+    u16::try_from(glyph.to_u32()).ok()
 }
 
 /// Returns whether a font descriptor sets the symbolic flag.
@@ -1426,5 +1742,239 @@ mod tests {
         fn quad_to(&mut self, _a: f32, _b: f32, _c: f32, _d: f32) {}
         fn curve_to(&mut self, _a: f32, _b: f32, _c: f32, _d: f32, _e: f32, _f: f32) {}
         fn close(&mut self) {}
+    }
+}
+
+/// ISO 32000-2 §9.6.5.4, one rule at a time, on fonts built to isolate it.
+///
+/// The corpus cannot do this. It can show that a real document draws, and it did — but
+/// every real font carries several `cmap` subtables, so a page drawing correctly proves
+/// only that *some* route worked, and a page drawing wrongly does not say which route was
+/// missing. Each font here carries exactly one subtable, so exactly one rule of the
+/// subclause can possibly apply to it, and a rule that stops working fails one test by
+/// name. This is trap 8's argument in the handover, from the other direction.
+#[cfg(test)]
+mod truetype_encoding_tests {
+    use super::{Subtables, as_character, named_glyph, post_glyph, symbol_glyph};
+    use skrifa::{FontRef, MetadataProvider};
+
+    /// The glyph index every fixture below maps its one covered code to.
+    ///
+    /// Deliberately not equal to any code used here: a route that quietly fell back to
+    /// treating the code as a glyph index would otherwise pass.
+    const GLYPH: u16 = 7;
+
+    /// Assembles an sfnt file from tables, which is all `FontRef` needs to read one.
+    fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        let count = u16::try_from(tables.len()).expect("a handful of tables");
+        out.extend_from_slice(&count.to_be_bytes());
+        // Binary-search hints, which nothing here reads and a well-formed file still has.
+        out.extend_from_slice(&0_u16.to_be_bytes());
+        out.extend_from_slice(&0_u16.to_be_bytes());
+        out.extend_from_slice(&0_u16.to_be_bytes());
+
+        let directory = 12_usize.saturating_add(16_usize.saturating_mul(tables.len()));
+        let mut offset = directory;
+        let mut body = Vec::new();
+        for (tag, data) in tables {
+            out.extend_from_slice(tag);
+            out.extend_from_slice(&0_u32.to_be_bytes());
+            out.extend_from_slice(&u32::try_from(offset).expect("small file").to_be_bytes());
+            out.extend_from_slice(
+                &u32::try_from(data.len())
+                    .expect("small table")
+                    .to_be_bytes(),
+            );
+            body.extend_from_slice(data);
+            // Every table starts on a four-byte boundary.
+            while body.len() % 4 != 0 {
+                body.push(0);
+            }
+            offset = directory.saturating_add(body.len());
+        }
+        out.extend_from_slice(&body);
+        out
+    }
+
+    /// A `cmap` with one subtable, in format 6, under the platform and encoding IDs given.
+    ///
+    /// Format 6 throughout, for every platform, so that what differs between the fixtures
+    /// is only the identity §9.6.5.4 selects on. A subtable format is a storage detail and
+    /// `read-fonts` reads all the common ones; the platform and encoding IDs are the
+    /// subclause's whole subject.
+    fn cmap(platform: u16, encoding: u16, first_code: u16, glyphs: &[u16]) -> Vec<u8> {
+        let mut subtable = Vec::new();
+        subtable.extend_from_slice(&6_u16.to_be_bytes());
+        let length = 10_usize.saturating_add(2_usize.saturating_mul(glyphs.len()));
+        subtable.extend_from_slice(&u16::try_from(length).expect("short").to_be_bytes());
+        subtable.extend_from_slice(&0_u16.to_be_bytes());
+        subtable.extend_from_slice(&first_code.to_be_bytes());
+        subtable.extend_from_slice(&u16::try_from(glyphs.len()).expect("few").to_be_bytes());
+        for glyph in glyphs {
+            subtable.extend_from_slice(&glyph.to_be_bytes());
+        }
+
+        let mut table = Vec::new();
+        table.extend_from_slice(&0_u16.to_be_bytes());
+        table.extend_from_slice(&1_u16.to_be_bytes());
+        table.extend_from_slice(&platform.to_be_bytes());
+        table.extend_from_slice(&encoding.to_be_bytes());
+        table.extend_from_slice(&12_u32.to_be_bytes());
+        table.extend_from_slice(&subtable);
+        table
+    }
+
+    /// A version 2.0 `post` table naming one glyph, and leaving every other `.notdef`.
+    fn post(glyph: u16, name: &str) -> Vec<u8> {
+        /// How many names the format reserves before a font's own begin.
+        const MACINTOSH_NAMES: u16 = 258;
+
+        let count = glyph.saturating_add(1);
+        let mut table = vec![0_u8; 32];
+        table.splice(0..4, 0x0002_0000_u32.to_be_bytes());
+        table.extend_from_slice(&count.to_be_bytes());
+        for index in 0..count {
+            let entry = if index == glyph { MACINTOSH_NAMES } else { 0 };
+            table.extend_from_slice(&entry.to_be_bytes());
+        }
+        table.push(u8::try_from(name.len()).expect("a short name"));
+        table.extend_from_slice(name.as_bytes());
+        table
+    }
+
+    /// The premise of the whole algorithm, asserted rather than assumed.
+    ///
+    /// `skrifa`'s `Charmap` selects the best *Unicode* subtable, and a (1, 0) Macintosh one
+    /// is not a Unicode mapping, so it selects nothing. Handing it a character code —
+    /// which is what this crate used to do for every `TrueType` font — therefore reaches no
+    /// glyph at all in a font shaped the way §9.6.5.4's own guidelines ask for. If this
+    /// test ever fails, `skrifa` has changed and the reasoning in `Subtables` needs
+    /// re-reading, not the code.
+    #[test]
+    fn a_unicode_charmap_cannot_see_a_macintosh_subtable() {
+        let data = sfnt(&[(*b"cmap", cmap(1, 0, 33, &[GLYPH]))]);
+        let font = FontRef::new(&data).expect("the fixture is a readable sfnt");
+
+        assert_eq!(font.charmap().map(33_u32), None);
+        assert_eq!(symbol_glyph(&Subtables::read(&font), 33), Some(GLYPH));
+    }
+
+    /// "Otherwise, if the font contains a (1, 0) subtable, single bytes from the string
+    /// shall be used to look up the associated glyph descriptions from the subtable."
+    #[test]
+    fn a_macintosh_subtable_is_addressed_by_the_byte_itself() {
+        let data = sfnt(&[(*b"cmap", cmap(1, 0, 33, &[GLYPH]))]);
+        let font = FontRef::new(&data).expect("readable");
+        let subtables = Subtables::read(&font);
+
+        assert_eq!(symbol_glyph(&subtables, 33), Some(GLYPH));
+        assert_eq!(symbol_glyph(&subtables, 34), None);
+    }
+
+    /// "If the font contains a (3, 0) subtable, the range of character codes shall be one
+    /// of these: 0x0000 - 0x00FF, 0xF000 - 0xF0FF, 0xF100 - 0xF1FF, or 0xF200 - 0xF2FF.
+    /// Depending on the range of codes, each byte from the string shall be prepended with
+    /// the high byte of the range."
+    #[test]
+    fn a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range() {
+        for high in [0x0000_u16, 0xF000, 0xF100, 0xF200] {
+            let data = sfnt(&[(*b"cmap", cmap(3, 0, high | 0x41, &[GLYPH]))]);
+            let font = FontRef::new(&data).expect("readable");
+
+            assert_eq!(
+                symbol_glyph(&Subtables::read(&font), 0x41),
+                Some(GLYPH),
+                "a (3, 0) subtable in the {high:#06x} range was not found"
+            );
+        }
+    }
+
+    /// "A character code shall be first mapped to a glyph name … the glyph name shall then
+    /// be mapped to a Unicode value by consulting the Adobe Glyph List … finally, the
+    /// Unicode value shall be mapped to a glyph description according to the (3, 1)
+    /// subtable."
+    #[test]
+    fn a_unicode_subtable_is_reached_through_the_adobe_glyph_list() {
+        // U+00E9, which the Adobe Glyph List spells `eacute`.
+        let data = sfnt(&[(*b"cmap", cmap(3, 1, 0x00E9, &[GLYPH]))]);
+        let font = FontRef::new(&data).expect("readable");
+        let subtables = Subtables::read(&font);
+
+        assert_eq!(named_glyph(&font, &subtables, "eacute"), Some(GLYPH));
+        assert_eq!(named_glyph(&font, &subtables, "egrave"), None);
+    }
+
+    /// "The glyph name shall then be mapped back to a character code according to the
+    /// standard Roman encoding used on Mac OS."
+    ///
+    /// The name and the code are chosen where Mac OS Roman and every other encoding
+    /// disagree: `eacute` is code 142 there and 233 in `WinAnsiEncoding`. A route reaching
+    /// this subtable with the wrong encoding's code finds nothing, rather than finding a
+    /// plausible wrong glyph — which is why the fixture covers only the one code.
+    #[test]
+    fn a_macintosh_subtable_is_reached_through_mac_os_roman() {
+        let data = sfnt(&[(*b"cmap", cmap(1, 0, 142, &[GLYPH]))]);
+        let font = FontRef::new(&data).expect("readable");
+        let subtables = Subtables::read(&font);
+
+        assert_eq!(named_glyph(&font, &subtables, "eacute"), Some(GLYPH));
+        assert_eq!(named_glyph(&font, &subtables, "adieresis"), None);
+    }
+
+    /// "In any of these cases, if the glyph name cannot be mapped as specified, the glyph
+    /// name shall be looked up in the font program's `post` table."
+    ///
+    /// `gid2436` is the shape that motivated keeping unrecognised `/Differences` names at
+    /// all: a subsetter's convention for naming a glyph by index, which no encoding and no
+    /// character set knows, and which the font itself may nonetheless carry.
+    #[test]
+    fn a_name_no_encoding_knows_is_found_in_the_post_table() {
+        let data = sfnt(&[
+            (*b"cmap", cmap(3, 1, 0x00E9, &[1])),
+            (*b"post", post(GLYPH, "gid2436")),
+        ]);
+        let font = FontRef::new(&data).expect("readable");
+        let subtables = Subtables::read(&font);
+
+        assert_eq!(post_glyph(&font, "gid2436"), Some(GLYPH));
+        assert_eq!(named_glyph(&font, &subtables, "gid2436"), Some(GLYPH));
+        assert_eq!(named_glyph(&font, &subtables, "gid9999"), None);
+    }
+
+    /// The mapping of this processor's choosing reaches a subtable §9.6.5.4 never names.
+    ///
+    /// `issue5501.pdf` carries its whole byte-to-glyph mapping in a (0, 0) subtable, which
+    /// the subclause does not mention and which is the only correct answer for that font.
+    #[test]
+    fn the_last_resort_asks_every_subtable_including_unnamed_ones() {
+        let data = sfnt(&[(*b"cmap", cmap(0, 0, 4, &[GLYPH]))]);
+        let font = FontRef::new(&data).expect("readable");
+        let subtables = Subtables::read(&font);
+
+        assert_eq!(symbol_glyph(&subtables, 4), None, "not a (3, 0) or (1, 0)");
+        assert_eq!(as_character(&subtables, 4), Some(GLYPH));
+    }
+
+    /// A symbolic font's private-use convention, which predates this algorithm here.
+    #[test]
+    fn the_last_resort_also_tries_the_private_use_area() {
+        let data = sfnt(&[(*b"cmap", cmap(3, 1, 0xF041, &[GLYPH]))]);
+        let font = FontRef::new(&data).expect("readable");
+
+        assert_eq!(as_character(&Subtables::read(&font), 0x41), Some(GLYPH));
+    }
+
+    /// A font with no `cmap` at all is the only one whose codes may be glyph indices.
+    #[test]
+    fn only_a_font_without_a_cmap_has_no_subtables_to_ask() {
+        let with = sfnt(&[(*b"cmap", cmap(1, 0, 33, &[GLYPH]))]);
+        let without = sfnt(&[(*b"post", post(GLYPH, "gid2436"))]);
+
+        let font = FontRef::new(&with).expect("readable");
+        assert!(Subtables::read(&font).all.is_some());
+        let font = FontRef::new(&without).expect("readable");
+        assert!(Subtables::read(&font).all.is_none());
     }
 }

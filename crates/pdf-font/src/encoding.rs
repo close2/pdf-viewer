@@ -221,6 +221,60 @@ static MAC_ROMAN: [&str; 256] = [
     "cedilla",        "hungarumlaut",   "ogonek",         "caron", // 252
 ];
 
+/// Returns the Mac OS Roman code a glyph name occupies, if it occupies one.
+///
+/// This is the reverse of the encoding §9.6.5.4 calls "the standard Roman encoding that is
+/// used on Mac OS", which it needs in exactly one place: a `TrueType` font with a (1, 0)
+/// `cmap` subtable is addressed by *code*, so a glyph name has to be turned back into one.
+///
+/// It is not [`BaseEncoding::MacRoman`]. Table 113 lists the 16 codes where the two differ
+/// — 15 mathematical and symbol glyphs PDF leaves unencoded, and code 219, which is
+/// `currency` in PDF's table and `Euro` here. Using PDF's table instead would reach no
+/// glyph for those 16 names, which is a smaller error than reaching the wrong one but is
+/// still an error.
+///
+/// The lowest code wins where a name appears twice, which is what makes `space` resolve to
+/// 32 rather than to the non-breaking space at 202.
+#[must_use]
+pub fn mac_os_roman_code(name: &str) -> Option<u8> {
+    if let Some((code, _)) = MAC_OS_ROMAN_ADDITIONS
+        .iter()
+        .find(|(_, added)| *added == name)
+    {
+        return Some(*code);
+    }
+    // Code 219 is `currency` in PDF's MacRomanEncoding and `Euro` in Mac OS Roman, so the
+    // name it holds in the table below no longer names this code.
+    if name == "currency" {
+        return None;
+    }
+    (0..=u8::MAX).find(|code| MAC_ROMAN[usize::from(*code)] == name)
+}
+
+/// The entries Table 113 adds to `MacRomanEncoding` to make Mac OS Roman.
+///
+/// Transcribed from Table 113 of ISO 32000-2. `Euro` at 219 is the one *replacement* —
+/// every other entry fills a code PDF's table leaves unencoded — which is why
+/// [`mac_os_roman_code`] has to refuse `currency` separately.
+static MAC_OS_ROMAN_ADDITIONS: [(u8, &str); 16] = [
+    (173, "notequal"),
+    (176, "infinity"),
+    (178, "lessequal"),
+    (179, "greaterequal"),
+    (182, "partialdiff"),
+    (183, "summation"),
+    (184, "product"),
+    (185, "pi"),
+    (186, "integral"),
+    (189, "Omega"),
+    (195, "radical"),
+    (197, "approxequal"),
+    (198, "Delta"),
+    (215, "lozenge"),
+    (219, "Euro"),
+    (240, "apple"),
+];
+
 /// The built-in encoding of a standard-14 font that has no Latin character set.
 ///
 /// `Symbol` and `ZapfDingbats` are the two symbolic fonts among the standard 14. Neither
@@ -474,6 +528,39 @@ mod tests {
         // `read-fonts` must agree with this module about what "unencoded" means.
         assert_eq!(BaseEncoding::Standard.glyph_name(0), "");
         assert_eq!(BaseEncoding::Standard.glyph_name(128), "");
+    }
+
+    /// Table 113's own description of itself, checked against the table it modifies.
+    ///
+    /// The text says Mac OS Roman is `MacRomanEncoding` "with the addition of 15 entries
+    /// and the replacement of the currency glyph with the Euro glyph". Table 113 lists 16
+    /// rows, so exactly one of them must land on a code `MacRomanEncoding` already uses,
+    /// and that code must be the one holding `currency`. Two independent statements in the
+    /// same subclause, and a transcription slip breaks their agreement.
+    #[test]
+    fn table_113_adds_fifteen_codes_and_replaces_one() {
+        let occupied: Vec<_> = super::MAC_OS_ROMAN_ADDITIONS
+            .iter()
+            .filter(|(code, _)| !MAC_ROMAN[usize::from(*code)].is_empty())
+            .collect();
+        assert_eq!(occupied.len(), 1, "expected exactly one replacement");
+        assert_eq!(*occupied[0], (219, "Euro"));
+        assert_eq!(MAC_ROMAN[219], "currency");
+    }
+
+    /// The reverse mapping §9.6.5.4 needs for a (1, 0) `cmap` subtable.
+    #[test]
+    fn a_glyph_name_resolves_to_its_mac_os_roman_code() {
+        // The Latin range is ASCII, which is the case that matters for real documents.
+        assert_eq!(super::mac_os_roman_code("H"), Some(72));
+        assert_eq!(super::mac_os_roman_code("space"), Some(32));
+        // Table 113's additions are reachable and PDF's `currency` is not, because the
+        // code it named belongs to `Euro` in this encoding.
+        assert_eq!(super::mac_os_roman_code("Euro"), Some(219));
+        assert_eq!(super::mac_os_roman_code("notequal"), Some(173));
+        assert_eq!(super::mac_os_roman_code("currency"), None);
+        // A name no encoding lists has no code, rather than a plausible one.
+        assert_eq!(super::mac_os_roman_code("gid2436"), None);
     }
 
     #[test]
