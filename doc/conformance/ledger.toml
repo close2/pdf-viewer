@@ -1,0 +1,4292 @@
+# The conformance ledger: one row per subclause of ISO 32000-2's technical clauses.
+
+# GENERATED — the set of rows is. Their statuses are not: a status is a claim a person makes
+# after reading the clause against this code, and `cargo run -p conformance --bin ledger`
+# preserves every one of them. It only ever adds rows the standard has and this file lacks.
+
+# Statuses, and what each is for. The vocabulary exists to keep five situations from wearing
+# one word: the project choosing, the project not knowing, the project owing out loud, the
+# project owing in silence, and the requirement having no meaning for a screen.
+
+#   implemented   every normative requirement in the clause is executed; names code and test
+#   partial       some are; the note says which, which are not, and what is reported
+#   reported      not implemented yet, but detected and reported at runtime. Still owed
+#   silent        not implemented, and nothing says so. A page is drawn wrong without a word
+#   inapplicable  describes a marking device rather than a screen. Nothing is owed
+#   writer-side   addresses a PDF writer; we do not create files
+#   out-of-scope  covered by CLAUDE.md principle 5's closed exclusion list, which the row names
+#   unreviewed    nobody has read this clause against this code
+
+# `unreviewed` is debt, not absence: it says only that the question has not been asked.
+# `silent` is the status worth hunting. Every missing subsystem here reports, because whoever
+# decided not to build it wrote the report; what ships is the gap inside a feature that is
+# already there, and only reading the clause finds one.
+
+# See doc/PLAN.md §5a for the design, and tools/conformance for the checker that reads this.
+
+[[clause]]
+clause = "7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.2"
+title = "Lexical conventions"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.2.2"
+title = "Representation"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.2.3"
+title = "Character set"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.2.4"
+title = "Comments"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3"
+title = "Objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.2"
+title = "Boolean objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.3"
+title = "Numeric objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.4"
+title = "String objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.4.2"
+title = "Literal strings"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.4.3"
+title = "Hexadecimal strings"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.5"
+title = "Name objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.6"
+title = "Array objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.7"
+title = "Dictionary objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.8"
+title = "Stream objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.8.2"
+title = "Stream extent"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.9"
+title = "Null object"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.3.10"
+title = "Indirect objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4"
+title = "Filters"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.2"
+title = "ASCIIHexDecode filter"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.3"
+title = "ASCII85Decode filter"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.4"
+title = "LZWDecode and FlateDecode filters"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.4.2"
+title = "Details of LZW encoding"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.4.3"
+title = "LZWDecode and FlateDecode parameters"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.4.4"
+title = "LZW and Flate predictor functions"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.5"
+title = "RunLengthDecode filter"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.6"
+title = "CCITTFaxDecode filter"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.7"
+title = "JBIG2Decode filter"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.8"
+title = "DCTDecode filter"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.9"
+title = "JPXDecode filter"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.4.10"
+title = "Crypt filter"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5"
+title = "File structure"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.2"
+title = "File header"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.3"
+title = "File body"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.4"
+title = "Cross-reference table"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.5"
+title = "File trailer"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.6"
+title = "Incremental updates"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.7"
+title = "Object streams"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.8"
+title = "Cross-reference streams"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.8.2"
+title = "Cross-reference stream dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.8.3"
+title = "Cross-reference stream data"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.5.8.4"
+title = "Compatibility with applications that do not support compressed reference streams"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6"
+title = "Encryption"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.2"
+title = "Application of encryption"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.3"
+title = "General encryption algorithm"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.3.2"
+title = "Algorithm 1: Encryption of data using the RC4 or AES algorithms"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.3.3"
+title = "Algorithm 1.A: Encryption of data using the AES algorithms"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4"
+title = "Standard security handler"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.2"
+title = "Standard encryption dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.3"
+title = "File encryption key algorithm"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.3.2"
+title = "Algorithm 2: Computing a file encryption key in order to encrypt a document (revision 4 and earlier)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.3.3"
+title = "Algorithm 2.A: Retrieving the file encryption key from an encrypted document in order to decrypt it (revision 6 and later)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.3.4"
+title = "Algorithm 2.B: Computing a hash (revision 6 and later)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4"
+title = "Password algorithms"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.2"
+title = "Algorithm 3: Computing the encryption dictionary's O -entry value (revision 4 and earlier)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.3"
+title = "Algorithm 4: Computing the encryption dictionary's U -entry value (Security handlers of revision 2)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.4"
+title = "Algorithm 5: Computing the encryption dictionary's U (user password) value (Security handlers of revision 3 or 4)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.5"
+title = "Algorithm 6: Authenticating the user password (Security handlers of revision 4 and earlier)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.6"
+title = "Algorithm 7: Authenticating the owner password (Security handlers of revision 4 and earlier)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.7"
+title = "Algorithm 8: Computing the encryption d ictionary's U (user password) and UE (user encryption) values (Security handlers of revision 6)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.8"
+title = "Algorithm 9: Computing the encryption dictionary's O (owner password) and OE (owner encryption) values (Security handlers of revision 6)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.9"
+title = "Algorithm 10: Computing the encryption dictionary's Perms (p ermissions) value (Security handlers of revision 6)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.10"
+title = "Algorithm 11: Authenticating the user password (Security handlers of revision 6)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.11"
+title = "Algorithm 12: Authenticating the owner password (Security handlers of revision 6)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.4.4.12"
+title = "Algorithm 13: Validating the permissions (Security handlers of revision 6)"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.5"
+title = "Public-key security handlers"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.5.2"
+title = "Public-key encryption dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.5.3"
+title = "Public-key encryption algorithms"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.6"
+title = "Crypt filters"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.6.7"
+title = "Unencrypted wrapper document"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7"
+title = "Document structure"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7.2"
+title = "Document catalog dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7.3"
+title = "Page tree"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7.3.2"
+title = "Page tree nodes"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7.3.3"
+title = "Page objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7.3.4"
+title = "Inheritance of page attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.7.4"
+title = "Name dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.8"
+title = "Content streams and resources"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.8.2"
+title = "Content streams"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.8.3"
+title = "Resource dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9"
+title = "Common data structures"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.2"
+title = "String object types"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.2.2"
+title = "Text string type"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.2.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.2.2.2"
+title = "Text string language escape sequences"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.2.3"
+title = "PDFDocEncoded string type"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.2.4"
+title = "Byte string type"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.3"
+title = "Text streams"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.4"
+title = "Dates"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.5"
+title = "Rectangles"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.6"
+title = "Name trees"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.9.7"
+title = "Number trees"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10"
+title = "Functions"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10.2"
+title = "Type 0 (sampled) functions"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10.3"
+title = "Type 2 (exponential interpolation) functions"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10.4"
+title = "Type 3 (stitching) functions"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10.5"
+title = "Type 4 (PostScript calculator) functions"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10.5.2"
+title = "Operators and operands"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.10.5.3"
+title = "Type 4 function dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11"
+title = "File specifications"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.2"
+title = "File specification strings"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.2.2"
+title = "Absolute and relative file specifications"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.3"
+title = "File specification dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.4"
+title = "Embedded file streams"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.4.2"
+title = "Related files arrays"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.5"
+title = "URL specifications"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.11.6"
+title = "Collection items"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.12"
+title = "Extensions dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.12.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.12.2"
+title = "Extensions dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.12.3"
+title = "Developer extensions dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.12.4"
+title = "BaseVersion"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.12.5"
+title = "ExtensionLevel"
+status = "unreviewed"
+
+[[clause]]
+clause = "7.12.6"
+title = "URL"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.2"
+title = "Graphics objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3"
+title = "Coordinate systems"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.2"
+title = "Coordinate spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.2.2"
+title = "Device space"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.2.3"
+title = "User space"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.2.4"
+title = "Other coordinate spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.2.5"
+title = "Relationships among coordinate spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.3"
+title = "Common transformations"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.3.4"
+title = "Transformation matrices"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4"
+title = "Graphics state"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.2"
+title = "Graphics state stack"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.3"
+title = "Details of graphics state parameters"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.3.2"
+title = "Line width"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.3.3"
+title = "Line cap style"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.3.4"
+title = "Line join style"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.3.5"
+title = "Miter limit"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.3.6"
+title = "Line dash pattern"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.4"
+title = "Graphics state operators"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.4.5"
+title = "Graphics state parameter dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5"
+title = "Path construction and painting"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.2"
+title = "Path construction operators"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.2.2"
+title = "Cubic Bézier curves"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.3"
+title = "Path-painting operators"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.3.2"
+title = "Stroking"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.3.3"
+title = "Filling"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.3.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.3.3.2"
+title = "Non-zero winding number rule"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.3.3.3"
+title = "Even-odd rule"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.5.4"
+title = "Clipping path operators"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6"
+title = "Colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.2"
+title = "Colour values"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.3"
+title = "Colour space families"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.4"
+title = "Device colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.4.2"
+title = "DeviceGray colour space"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.4.3"
+title = "DeviceRGB colour space"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.4.4"
+title = "DeviceCMYK colour space"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5"
+title = "CIE-Based colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.2"
+title = "CalGray colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.3"
+title = "CalRGB colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.4"
+title = "Lab colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.5"
+title = "ICCBased colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.6"
+title = "Default colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.7"
+title = "Implicit conversion of CIE-Based colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.8"
+title = "Rendering intents"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.5.9"
+title = "Use of black point compensation"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.6"
+title = "Special colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.6.2"
+title = "Pattern colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.6.3"
+title = "Indexed colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.6.4"
+title = "Separation colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.6.5"
+title = "DeviceN colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.6.6"
+title = "Multitone examples"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.7"
+title = "Overprint control"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.6.8"
+title = "Colour operators"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7"
+title = "Patterns"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.2"
+title = "General properties of patterns"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.3"
+title = "Tiling patterns"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.3.2"
+title = "Coloured tiling patterns"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.3.3"
+title = "Uncoloured tiling patterns"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4"
+title = "Shading patterns"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.2"
+title = "Shading operator"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.3"
+title = "Shading dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.4"
+title = "Colour space: special considerations"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5"
+title = "Shading types"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5.2"
+title = "Type 1 (function-based) shadings"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5.3"
+title = "Type 2 (axial) shadings"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5.4"
+title = "Type 3 (radial) shadings"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5.5"
+title = "Type 4 (free-form Gouraud-shaded triangle mesh) shadings"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5.6"
+title = "Type 5 (lattice-form Gouraud-shaded triangle mesh) shadings"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5.7"
+title = "Type 6 (Coons patch mesh) shadings"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.7.4.5.8"
+title = "Type 7 (tensor-product patch mesh) shadings"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.8"
+title = "External objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9"
+title = "Images"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.2"
+title = "Image parameters"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.3"
+title = "Sample representation"
+status = "partial"
+code = ["crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone"]
+note = "The layout is implemented as stated: a continuous bit stream, high-order bit first, each row starting on a byte boundary with the padding ignored. What is missing is width: only 1- and 8-bit components are unpacked, and 2, 4 and 16 — all legal — are refused with an ImageError rather than guessed at, so an image using one is reported and not drawn."
+
+[[clause]]
+clause = "8.9.4"
+title = "Image coordinate system"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.5"
+title = "Image dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.5.2"
+title = "Decode arrays"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.5.3"
+title = "Image interpolation"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.5.4"
+title = "Alternate images"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.9.6"
+title = "Masked images"
+status = "partial"
+code = ["crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs"]
+note = "Aggregate of the four below. The image's own /ImageMask (stencil masking) and /SMask are implemented; /Mask in either of its forms is not, and is reported."
+
+[[clause]]
+clause = "8.9.6.1"
+title = "General"
+status = "partial"
+code = ["crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs"]
+note = "Names four masking mechanisms. Two are implemented — /ImageMask (§8.9.6.2) and, from the transparent imaging model, /SMask and /SMaskInData — and two are not: /Mask as an explicit mask (§8.9.6.3) and as a colour-key range (§8.9.6.4)."
+
+[[clause]]
+clause = "8.9.6.2"
+title = "Stencil masking"
+status = "partial"
+code = ["crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone", "crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"]
+note = "The three differences the clause states are implemented: no /ColorSpace is consulted, /BitsPerComponent is forced to 1, and /Decode [0 1] against [1 0] decides which sample value marks the page. What is not implemented is the last sentence: interpolation (§8.9.5.3) should smooth a low-resolution stencil's edges, and /Interpolate is read nowhere in this tree."
+
+[[clause]]
+clause = "8.9.6.3"
+title = "Explicit masking"
+status = "reported"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/render_real_pdf.rs::an_image_mask_we_do_not_apply_is_reported"]
+note = "Not implemented. An image carrying /Mask is reported as `Image { name: \"<name>: /Mask\" }` and its base image is drawn unmasked, so the page is visibly wrong but says so. 5 corpus first pages."
+
+[[clause]]
+clause = "8.9.6.4"
+title = "Colour key masking"
+status = "reported"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/render_real_pdf.rs::an_image_mask_we_do_not_apply_is_reported"]
+note = "Not implemented, reported by the same check as §8.9.6.3 — the interpreter reports /Mask without distinguishing the stream form from the array form. The range test is against the samples *before* decoding, so implementing it means reaching into the unpacker rather than post-processing the RGBA it produces."
+
+[[clause]]
+clause = "8.9.7"
+title = "Inline images"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.10"
+title = "Form XObjects"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.10.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.10.2"
+title = "Form dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.10.3"
+title = "Group XObjects"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.10.4"
+title = "Reference XObjects"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.10.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.10.4.2"
+title = "Printing reference XObjects"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.10.4.3"
+title = "Special considerations"
+status = "unreviewed"
+
+[[clause]]
+clause = "8.11"
+title = "Optional content"
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "Aggregate. The default configuration is honoured wherever it decides what is drawn; what is missing is everything that belongs to an interactive layer panel, and §8.11.4.4 is the row to read for the part that is missing in silence."
+
+[[clause]]
+clause = "8.11.1"
+title = "General"
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "Descriptive: it names the three subclauses below. Carries their aggregate."
+
+[[clause]]
+clause = "8.11.2"
+title = "Optional content groups"
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "Aggregate of §8.11.2.1 to §8.11.2.3."
+
+[[clause]]
+clause = "8.11.2.1"
+title = "General"
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn"]
+note = "A group's state comes from the default configuration and its /Intent is honoured. Two Table 96 entries are read by nothing: /Name, which exists to be shown in a user interface, and /Usage, which feeds the automatic state setting of §8.11.4.4. The nesting rule — an outer level that hides content hides every inner level — falls out of the interpreter's hidden-section counter."
+
+[[clause]]
+clause = "8.11.2.2"
+title = "Optional content membership dictionaries"
+status = "implemented"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_membership_dictionary_can_show_content_when_its_group_is_off", "crates/pdf-model/tests/optional_content.rs::a_visibility_expression_outranks_the_policy_beside_it", "crates/pdf-model/tests/optional_content.rs::a_single_group_reference_is_read_without_losing_which_object_it_is"]
+note = "/OCGs in both its shapes, all four /P policies, and /VE including nesting. /VE is used in preference to /OCGs and /P as the clause requires; a tree deeper than 32 is refused and reported rather than recursed."
+
+[[clause]]
+clause = "8.11.2.3"
+title = "Intent"
+status = "implemented"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_group_whose_intent_the_configuration_ignores_does_not_hide_anything"]
+note = "Both directions: a group whose intents miss the configuration's has no effect on visibility, and a configuration whose /Intent is an empty array makes all content visible. /All is expanded as the set of all intents."
+
+[[clause]]
+clause = "8.11.3"
+title = "Making graphical content optional"
+status = "implemented"
+code = ["crates/pdf-model/src/optional_content.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "Aggregate of §8.11.3.1 to §8.11.3.3."
+
+[[clause]]
+clause = "8.11.3.1"
+title = "General"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_hidden_section_still_changes_the_graphics_state_it_leaves_behind"]
+note = "Hiding suppresses marking and nothing else: the colour, transform and clip a hidden section sets outlive it, and the text position advances through hidden text. Form XObjects and annotations are skipped whole, which the clause permits because their state changes do not escape them."
+
+[[clause]]
+clause = "8.11.3.2"
+title = "Optional content in content streams"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "crates/pdf-model/tests/optional_content.rs::a_group_missing_from_the_properties_dictionary_hides_nothing"]
+note = "BDC /OC is honoured, including the rule that the operand must name a group listed in /OCProperties /OCGs or a membership dictionary. What is not implemented is the DP form: a DP marked-content point may force a reference to a group on a page that draws nothing in it, which affects a layer panel's ListMode /VisiblePages and nothing that is drawn."
+
+[[clause]]
+clause = "8.11.3.3"
+title = "Optional content in XObjects and annotations"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_form_xobject_carrying_oc_is_skipped_when_its_group_is_off", "crates/pdf-model/tests/optional_content.rs::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off"]
+note = "/OC on a form or image XObject and on an annotation, each combined with the visibility of the context it is invoked from. This is the entry point issue12007_reduced.pdf uses; implementing only §8.11.3.2 would have left it drawing a whole hidden screenshot."
+
+[[clause]]
+clause = "8.11.4"
+title = "Configuring optional content"
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "Aggregate of §8.11.4.1 to §8.11.4.5."
+
+[[clause]]
+clause = "8.11.4.1"
+title = "General"
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "Descriptive. Carries the aggregate of the four below."
+
+[[clause]]
+clause = "8.11.4.2"
+title = "Optional content properties dictionary"
+status = "implemented"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_document_with_no_properties_dictionary_draws_everything"]
+note = "/OCProperties is read from the catalog, /OCGs gives the document's groups and /D the default configuration. A file with no /OCProperties has its optional content structures ignored entirely, which the clause makes decisive rather than a fallback."
+
+[[clause]]
+clause = "8.11.4.3"
+title = "Optional content configuration dictionaries"
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_base_state_of_off_hides_the_groups_the_on_array_does_not_name"]
+note = "/BaseState, /ON, /OFF and /Intent are honoured. Six entries are not read: /Name and /Creator name the configuration for a user interface, /Order and /ListMode describe how to present the groups in one, /RBGroups and /Locked constrain how a user may change them, and /AS is §8.11.4.4's. None affects the initial state. /Configs is not read either: the alternate configurations exist to be chosen between, which needs someone to choose."
+
+[[clause]]
+clause = "8.11.4.4"
+title = "Usage and usage application dictionaries"
+status = "silent"
+note = "Not implemented and not reported. A usage dictionary describes when a group should be on — by zoom level, by language, by whether the page is being printed — and §8.11.4.5 has an interactive processor apply the /AS array's View entries over the initial state. This viewer has a window, so those requirements do apply to it, and a layer that should switch itself off is drawn with nothing said. It is `silent` rather than `reported` because nothing in the tree looks at /Usage or /AS to have something to report."
+
+[[clause]]
+clause = "8.11.4.5"
+title = "Determining the state of optional content groups"
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_base_state_of_off_hides_the_groups_the_on_array_does_not_name"]
+note = "Steps a) and b) — the base state over every group, then the array opposite to it — are implemented, and the clause calls their result the initial state used by all PDF processors. Everything after that sentence is about an interactive processor and is not: usage application dictionaries for View, Print and Export events, and manual overrides surviving reapplication. See §8.11.4.4."
+
+[[clause]]
+clause = "9.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.2"
+title = "Organisation and use of fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.2.2"
+title = "Basics of showing text"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.2.3"
+title = "Achieving special graphical effects"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.2.4"
+title = "Glyph positioning and metrics"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3"
+title = "Text state parameters and operators"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3.2"
+title = "Character spacing"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3.3"
+title = "Word spacing"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3.4"
+title = "Horizontal scaling"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3.5"
+title = "Leading"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3.6"
+title = "Text rendering mode"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3.7"
+title = "Text rise"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.3.8"
+title = "Text knockout"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.4"
+title = "Text objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.4.2"
+title = "Text-positioning operators"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.4.3"
+title = "Text-showing operators"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.4.4"
+title = "Text space details"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.5"
+title = "Introduction to font data structures"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6"
+title = "Simple fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.2"
+title = "Type 1 fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.2.2"
+title = "Standard Type 1 fonts (standard 14 fonts) (PDF 1.0-1.7)"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.2.3"
+title = "Multiple master fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.3"
+title = "TrueType fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.4"
+title = "Type 3 fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.5"
+title = "Character encoding"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.5.2"
+title = "Encodings for Type 1 fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.5.3"
+title = "Encodings for Type 3 fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.6.5.4"
+title = "Encodings for TrueType fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7"
+title = "Composite fonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.2"
+title = "CID-Keyed fonts overview"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.3"
+title = "CIDSystemInfo dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.4"
+title = "CIDFonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.4.2"
+title = "Glyph selection in CIDFonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.4.3"
+title = "Glyph metrics in CIDFonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.5"
+title = "CMaps"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.5.2"
+title = "Predefined CMaps"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.5.3"
+title = "Embedded CMap files"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.5.4"
+title = "CMap example and operator summary"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.6"
+title = "Type 0 font dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.6.2"
+title = "CMap mapping"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.7.6.3"
+title = "Handling undefined characters"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.8"
+title = "Font descriptors"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.8.2"
+title = "Font descriptor flags"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.8.3"
+title = "Font descriptors for CIDFonts"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.8.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.8.3.2"
+title = "Style"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.8.3.3"
+title = "FD"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.9"
+title = "Embedded font programs"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.9.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.9.2"
+title = "Font subsets"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.10"
+title = "Extraction of text content"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.10.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.10.2"
+title = "Mapping character codes to Unicode values"
+status = "unreviewed"
+
+[[clause]]
+clause = "9.10.3"
+title = "ToUnicode CMaps"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.2"
+title = "Raster output device native colour"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.3"
+title = "CIE-Based colour to device colour"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.3.2"
+title = "Establishing CIE-based colour space definitions"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.4"
+title = "Conversions among device colour spaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.4.2"
+title = "Classic colour conversion methods"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.4.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.4.2.2"
+title = "Conversion between DeviceGray and DeviceRGB"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.4.2.3"
+title = "Conversion between DeviceGray and DeviceCMYK"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.4.2.4"
+title = "Conversion from DeviceRGB to DeviceCMYK"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.4.2.5"
+title = "Conversion from DeviceCMYK to DeviceRGB"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.5"
+title = "Transfer functions"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6"
+title = "Halftones"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.2"
+title = "Halftone screens"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.3"
+title = "Spot functions"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.4"
+title = "Threshold arrays"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.5"
+title = "Halftone dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.5.2"
+title = "Type 1 halftones"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.5.3"
+title = "Type 6 halftones"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.5.4"
+title = "Type 10 halftones"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.5.5"
+title = "Type 16 halftones"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.6.5.6"
+title = "Type 5 halftones"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.7"
+title = "Scan conversion details"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.7.2"
+title = "Flatness tolerance"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.7.3"
+title = "Smoothness tolerance"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.7.4"
+title = "Scan conversion rules"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.7.5"
+title = "Automatic stroke adjustment"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.8"
+title = "Rendering for separations"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.8.2"
+title = "Separations"
+status = "unreviewed"
+
+[[clause]]
+clause = "10.8.3"
+title = "Separation simulation"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.2"
+title = "Overview of transparency"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3"
+title = "Basic compositing computations"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.2"
+title = "Basic notation for compositing computations"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.3"
+title = "Basic compositing formula"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.4"
+title = "Blending colour space"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.5"
+title = "Blend mode"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.5.2"
+title = "Separable blend modes"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.5.3"
+title = "Non-separable blend modes"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.6"
+title = "Interpretation of alpha"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.7"
+title = "Shape and opacity computations"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.7.2"
+title = "Source shape and opacity"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.7.3"
+title = "Result shape and opacity"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.3.8"
+title = "Summary of basic compositing computations"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.4"
+title = "Transparency groups"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.4.2"
+title = "Notation for group compositing computations"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.4.3"
+title = "Group structure and nomenclature"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.4.4"
+title = "Group compositing computations"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.4.5"
+title = "Isolated groups"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.4.6"
+title = "Knockout groups"
+status = "silent"
+note = "Not implemented and not reported. Transparency groups are absent altogether, so a knockout group composites as if it were an ordinary group: knockout_*.pdf show a blend where two rectangles overlap and mupdf and ghostscript show none. Listed in oracle.rs under CONTRADICTED_UNEXPLAINED. Nothing in the interpreter looks at /Group /K, which is why this is `silent` rather than `reported`."
+
+[[clause]]
+clause = "11.4.7"
+title = "Page group"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.4.8"
+title = "Summary of group compositing computations"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.5"
+title = "Soft masks"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.5.2"
+title = "Deriving a soft mask from group alpha"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.5.3"
+title = "Deriving a soft mask from group luminosity"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6"
+title = "Specifying transparency in PDF"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.2"
+title = "Specifying source and backdrop colours"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.3"
+title = "Specifying blending colour space and blend mode"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.4"
+title = "Specifying shape and opacity"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.4.2"
+title = "Object shape and opacity"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.4.3"
+title = "Mask shape and opacity"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.4.4"
+title = "Constant shape and opacity"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.5"
+title = "Specifying soft masks"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.5.1"
+title = "Soft-mask dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.5.2"
+title = "Soft-mask images"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.6"
+title = "Transparency group XObjects"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.6.7"
+title = "Patterns and transparency"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7"
+title = "Colour space and rendering issues"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.2"
+title = "Colour spaces for transparency groups"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.3"
+title = "Spot colours and transparency"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.4"
+title = "Overprinting and transparency"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.4.2"
+title = "Blend modes and overprinting"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.4.3"
+title = "Compatibility with opaque overprinting"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.4.4"
+title = "Special path-painting considerations"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.4.5"
+title = "Summary of overprinting behavior"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.5"
+title = "Rendering parameters and transparency"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.5.2"
+title = "Halftone and transfer function"
+status = "unreviewed"
+
+[[clause]]
+clause = "11.7.5.3"
+title = "Rendering intent, black point compensation and colour conversions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.2"
+title = "Viewer preferences"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3"
+title = "Document-level navigation"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.2"
+title = "Destinations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.2.2"
+title = "Explicit destinations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.2.3"
+title = "Structure destinations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.2.4"
+title = "Named destinations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.3"
+title = "Document outline"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.4"
+title = "Thumbnail images"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.5"
+title = "Collections"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.5.2"
+title = "Collection hierarchical folders"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.3.6"
+title = "Navigators"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.4"
+title = "Page-level navigation"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.4.2"
+title = "Page labels"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.4.3"
+title = "Articles"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.4.4"
+title = "Presentations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.4.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.4.4.2"
+title = "Sub-page navigation"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5"
+title = "Annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.2"
+title = "Annotation dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.3"
+title = "Annotation flags"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing"]
+note = "Table 167's three flags that decide whether a screen shows the annotation are honoured: Hidden and NoView suppress it, and Invisible suppresses it only for a subtype outside Table 171, which is the condition the flag's own wording places on it. Print is a printing decision this viewer does not yet make. NoZoom and NoRotate make an appearance's size or orientation depend on the view, which a resolution-independent display list cannot express — neither is applied nor reported. ReadOnly, Locked, ToggleNoView and LockedContents constrain user interaction, which does not exist yet."
+
+[[clause]]
+clause = "12.5.4"
+title = "Border styles"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.5"
+title = "Appearance streams"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6"
+title = "Annotation types"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.2"
+title = "Markup annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.3"
+title = "Annotation states"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.4"
+title = "Text annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.5"
+title = "Link annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.6"
+title = "Free text annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.7"
+title = "Line annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.8"
+title = "Square and circle annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.9"
+title = "Polygon and polyline annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.10"
+title = "Text markup annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.11"
+title = "Caret annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.12"
+title = "Rubber stamp annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.13"
+title = "Ink annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.14"
+title = "Popup annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.15"
+title = "File attachment annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.16"
+title = "Sound annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.17"
+title = "Movie annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.18"
+title = "Screen annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.19"
+title = "Widget annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.20"
+title = "Printer's mark annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.21"
+title = "Trap network annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.22"
+title = "Watermark annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.23"
+title = "Redaction annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.24"
+title = "Projection annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.5.6.25"
+title = "3D and RichMedia annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6"
+title = "Actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.2"
+title = "Action dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.3"
+title = "Trigger events"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4"
+title = "Action types"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.2"
+title = "Go-To actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.3"
+title = "Remote Go-To actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.4"
+title = "Embedded Go-To actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.5"
+title = "GoToDp action"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.6"
+title = "Launch actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.7"
+title = "Thread actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.8"
+title = "URI actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.9"
+title = "Sound actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.10"
+title = "Movie actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.11"
+title = "Hide actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.12"
+title = "Named actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.13"
+title = "Set-OCG-state actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.14"
+title = "Rendition actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.15"
+title = "Transition actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.16"
+title = "Go-To-3D-View actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.17"
+title = "ECMAScript actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.6.4.18"
+title = "Rich-Media-Execute actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7"
+title = "Forms"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.2"
+title = "Interactive Forms"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.3"
+title = "Interactive form dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.4"
+title = "Field dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.4.2"
+title = "Field names"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.4.3"
+title = "Variable text"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5"
+title = "Field types"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.2"
+title = "Button fields"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.2.2"
+title = "Push-buttons"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.2.3"
+title = "Check boxes"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.2.4"
+title = "Radio buttons"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.3"
+title = "Text fields"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.4"
+title = "Choice fields"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.5.5"
+title = "Signature fields"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.6"
+title = "Form actions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.6.2"
+title = "Submit-form action"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.6.3"
+title = "Reset-form action"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.6.4"
+title = "Import-data action"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.7"
+title = "Named pages"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8"
+title = "Forms data format"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.2"
+title = "FDF file structure"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.2.2"
+title = "FDF header"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.2.3"
+title = "FDF body"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.2.4"
+title = "FDF trailer"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.3"
+title = "FDF catalog"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.3.2"
+title = "FDF fields"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.3.3"
+title = "FDF pages"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.8.3.4"
+title = "FDF annotation dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.7.9"
+title = "Non-interactive forms"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8"
+title = "Digital signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.2"
+title = "Transform methods"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.2.2"
+title = "DocMDP"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.2.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.2.2.2"
+title = "Validating signatures that use the DocMDP transform method"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.2.3"
+title = "UR"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.2.4"
+title = "FieldMDP"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3"
+title = "Signature interoperability"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.2"
+title = "PKCS #1 signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.3"
+title = "CMS (PKCS #7) signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.3.2"
+title = "Revocation of CMS-based signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4"
+title = "CAdES signatures as used in PDF"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4.2"
+title = "Signature dictionary for PAdES signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4.3"
+title = "Attributes for PAdES signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4.4"
+title = "Profiles of ETSI.CAdES.detached"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4.5"
+title = "Requirements for validation of PAdES signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4.6"
+title = "Signature revocation checking model for PAdES signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4.7"
+title = "Revocation checking PAdES signatures at the current time"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.3.4.8"
+title = "Revocation checking PAdES signatures at a time in the past"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.4"
+title = "Long term validation of signatures"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.4.2"
+title = "Introduction to the document security store (DSS)"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.4.3"
+title = "Document Security Store (DSS)"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.4.4"
+title = "Validation-related information (VRI)"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.4.5"
+title = "Usage of the DSS VRI"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.5"
+title = "Document timestamp (DTS) dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.5.2"
+title = "Initial document timestamp dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.5.3"
+title = "Subsequent document timestamp dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.6"
+title = "Permissions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.8.7"
+title = "Legal content attestations"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.9"
+title = "Measurement properties"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.9.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.9.2"
+title = "Algorithm: Use of a number format array to create a formatted text string"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.10"
+title = "Geospatial features"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.10.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.10.2"
+title = "Geospatial measure dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.10.3"
+title = "Geographic coordinate system dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.10.4"
+title = "Projected coordinate system dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.10.5"
+title = "Point data dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.11"
+title = "Document requirements"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.11.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.11.2"
+title = "Requirement types"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.11.3"
+title = "Requirement penalty values"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.11.4"
+title = "Requirement versions"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.11.5"
+title = "Requirement handlers"
+status = "unreviewed"
+
+[[clause]]
+clause = "12.11.6"
+title = "Requirements processing"
+status = "unreviewed"
+
+[[clause]]
+clause = "13.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2"
+title = "Multimedia"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.2"
+title = "Viability"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.3"
+title = "Renditions"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.3.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.3.2"
+title = "Media renditions"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.3.3"
+title = "Selector renditions"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.4"
+title = "Media clip objects"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.4.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.4.2"
+title = "Media clip data"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.4.3"
+title = "Media clip section"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.5"
+title = "Media play parameters"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.6"
+title = "Media screen parameters"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.6.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.6.2"
+title = "Media offset dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.6.3"
+title = "Timespan dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7"
+title = "Other multimedia objects"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.2"
+title = "Media players dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.2.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.2.2"
+title = "Algorithm: Media Player"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.3"
+title = "Media player info dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.4"
+title = "Software identifier dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.4.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.4.2"
+title = "Algorithm: software identifier"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.4.3"
+title = "Software URIs"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.4.4"
+title = "Version arrays"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.2.7.5"
+title = "Monitor specifier"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.3"
+title = "Sounds"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.4"
+title = "Movies"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.5"
+title = "Alternate presentations"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6"
+title = "3D Artwork"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.2"
+title = "3D annotations"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.3"
+title = "3D streams"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.3.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.3.2"
+title = "3D animation style dictionaries"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.3.3"
+title = "3D reference dictionaries"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.4"
+title = "3D views"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.4.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.4.2"
+title = "Projection dictionaries"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.4.3"
+title = "3D background dictionaries"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.4.4"
+title = "3D render mode dictionaries"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.4.5"
+title = "3D lighting scheme dictionaries"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.4.6"
+title = "3D cross section dictionaries"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.4.7"
+title = "3D node dictionaries"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.5"
+title = "Coordinate systems for 3D"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.6"
+title = "3D markup"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7"
+title = "Persistence of 3D measurements and markups"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.2"
+title = "The 3D units dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.3"
+title = "3D measurement/markup dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.3.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.3.2"
+title = "3D linear dimension measurement"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.3.3"
+title = "3D perpendicular dimension measurement"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.3.4"
+title = "3D angular dimension measurement"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.3.5"
+title = "3D radial dimension"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.3.6"
+title = "3D comment note"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.6.7.4"
+title = "3D measurements and projection annotations"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7"
+title = "Rich media"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2"
+title = "RichMedia annotations"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.2"
+title = "RichMediaSettings dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.2.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.2.2"
+title = "RichMediaActivation dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.2.3"
+title = "RichMediaDeactivation dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.2.4"
+title = "RichMediaAnimation dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.2.5"
+title = "RichMediaPresentation dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.2.6"
+title = "RichMediaWindow dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3"
+title = "RichMediaContent dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.2"
+title = "The assets name tree"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.3"
+title = "RichMediaConfiguration dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.4"
+title = "RichMediaInstance dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.5"
+title = "View dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.6"
+title = "View params dictionary"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.6.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.6.2"
+title = "Saving state data"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "13.7.2.3.6.3"
+title = "Loading state data"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+
+[[clause]]
+clause = "14.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.2"
+title = "Procedure sets"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.3"
+title = "Metadata"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.3.2"
+title = "Metadata streams"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.3.3"
+title = "Document information dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.3.4"
+title = "Reconciling two sources of document metadata"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.4"
+title = "File identifiers"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.5"
+title = "Page-piece dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.6"
+title = "Marked content"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.6.2"
+title = "Property lists"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7"
+title = "Logical structure"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.2"
+title = "Structure hierarchy"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.3"
+title = "Structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.4"
+title = "Namespaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.4.2"
+title = "Namespace dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.5"
+title = "Structure content"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.5.1.1"
+title = "Content items"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.5.2"
+title = "Marked-content sequences as content items"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.5.3"
+title = "PDF objects as content items"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.5.4"
+title = "Finding structure elements from content items"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.6"
+title = "Structure attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.6.2"
+title = "Attribute classes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.6.3"
+title = "Attribute revision numbers"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.6.4"
+title = "User properties"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.7.7"
+title = "Example of logical structure"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8"
+title = "Tagged PDF"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2"
+title = "Tagged PDF and page content"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.2"
+title = "Real content and Artifacts"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.2.2"
+title = "Specification of Artifacts"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.3"
+title = "Soft hyphens"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.4"
+title = "Hidden or invisible page content"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.5"
+title = "Page content order and logical content order"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.5.2"
+title = "Sequencing of annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.5.3"
+title = "Reverse-order show strings"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.6"
+title = "Unicode mapping in tagged PDF"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.2.6.2"
+title = "Identifying word breaks"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.3"
+title = "Basic layout model"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.3.2"
+title = "Reference area"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.3.3"
+title = "Progression direction"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4"
+title = "Standard structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.2"
+title = "Nesting of standard structure elements"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.3"
+title = "Document level structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.4"
+title = "Grouping level structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.5"
+title = "Block level structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.6"
+title = "Sub-block level structure type"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.7"
+title = "Inline level structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.7.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.7.2"
+title = "General inline level structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.7.3"
+title = "Ruby and warichu elements"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.7.4"
+title = "Ruby and warichu elements"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.8"
+title = "Other structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.8.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.8.2"
+title = "Standard structure types for lists"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.8.3"
+title = "Table structure types"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.8.4"
+title = "Caption structure type"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.8.5"
+title = "Figure structure type"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.8.6"
+title = "Formula structure type"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.4.8.7"
+title = "Artifact structure type"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5"
+title = "Standard structure attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.2"
+title = "Standard attribute owners"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.3"
+title = "Attribute values and inheritance"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.4"
+title = "Layout attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.4.2"
+title = "General layout attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.4.3"
+title = "Layout Attributes for BLSEs"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.4.4"
+title = "Layout Attributes for ILSEs"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.4.5"
+title = "Content and allocation rectangles"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.4.6"
+title = "Figure, Form and Formula attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.4.7"
+title = "Column attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.5"
+title = "List attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.6"
+title = "PrintField attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.7"
+title = "Table attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.5.8"
+title = "Artifact attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.6"
+title = "Standard structure namespaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.6.1"
+title = "Namespaces for standard structure types and attributes"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.6.2"
+title = "Role maps and namespaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.8.6.3"
+title = "Other namespaces"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9"
+title = "Repurposing and accessibility support"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.2"
+title = "Natural language specification"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.2.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.2.2"
+title = "Language identifiers"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.2.3"
+title = "Language specification hierarchy"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.2.4"
+title = "Multi-language text arrays"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.3"
+title = "Alternate descriptions"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.4"
+title = "Replacement text"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.5"
+title = "Expansion of abbreviations and acronyms"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.9.6"
+title = "Pronunciation hints"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10"
+title = "Web capture"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.2"
+title = "Web capture information dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.3"
+title = "Content database"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.3.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.3.2"
+title = "URL strings"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.3.3"
+title = "Digital identifiers"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.3.4"
+title = "Unique name generation"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.4"
+title = "Content sets"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.4.2"
+title = "Page sets"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.4.3"
+title = "Image sets"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.5"
+title = "Source information"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.5.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.5.2"
+title = "URL alias dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.5.3"
+title = "Command dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.5.4"
+title = "Command settings"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.10.6"
+title = "Object attributes related to web capture"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11"
+title = "Prepress support"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.2"
+title = "Page boundaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.2.1"
+title = "General"
+status = "partial"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/render_real_pdf.rs::the_fixture_page_is_modelled_correctly"]
+note = "The crop box is honoured: it is inherited down the page tree, defaults to the media box, is refused and replaced when degenerate, and gives the rendered page both its size and its origin — which is also what every reference renderer is asked for, see tools/pdfref. The media box is read as the crop box's default. The bleed, trim and art boxes are read by nothing: they bound a production process rather than a display, and a viewer's use for them would be to draw guides. /UserUnit, defined beside them in §7.7.3.3, is neither applied nor reported and costs 2 corpus documents their page size."
+
+[[clause]]
+clause = "14.11.2.2"
+title = "Display of page boundaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.3"
+title = "Printer's marks"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.4"
+title = "Separation dictionaries"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.5"
+title = "Output intents"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.6"
+title = "Trapping support"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.6.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.6.2"
+title = "Trap network annotations"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.6.3"
+title = "Trap network appearances"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.11.7"
+title = "Open prepress interface (OPI)"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.12"
+title = "Document parts"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.12.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.12.2"
+title = "DPart tree structure"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.12.3"
+title = "Connecting the DPart tree structure to pages"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.12.4"
+title = "Data structures"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.12.4.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.12.4.2"
+title = "Document part metadata"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13"
+title = "Associated files"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.1"
+title = "General"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.2"
+title = "Embedded associated files"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.3"
+title = "Associated files linked to the PDF document's catalog"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.4"
+title = "Associated files linked to a page dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.5"
+title = "Associated files linked to graphics objects"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.6"
+title = "Associated files linked to structure elements"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.7"
+title = "Associated files linked to XObjects"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.8"
+title = "Associated files linked to DParts"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.9"
+title = "Associated files linked to an annotation dictionary"
+status = "unreviewed"
+
+[[clause]]
+clause = "14.13.10"
+title = "Associated file examples"
+status = "unreviewed"

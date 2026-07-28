@@ -133,6 +133,9 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
   and page one renders on the CPU backend while the device is created.
 - Miri on the pure-Rust core; ASan/UBSan on any FFI
 - `cargo-deny`, `cargo-audit`
+- **conformance gate** (§5a) — citations checked against the standard's own clause index,
+  quotations verified verbatim, ledger coverage ratcheted. The third gate, and the only one
+  whose denominator is the specification rather than a corpus. Not built.
 
 ### The viewer
 
@@ -371,6 +374,141 @@ modelled exactly; `Required` is uniformly `fn:IsRequired(...)`. `SpecialCase` an
 predicate-bearing `PossibleValues` are carried verbatim and unevaluated, because an
 evaluator needs a document to evaluate against and so belongs after `pdf-syntax`. See
 ADR 0003 for the measured breakdown.
+
+## 5a. Conformance ledger and citation checking
+
+The sibling of §5, and the half Arlington cannot supply. **The Arlington model is the object
+model, not the semantics**: it says `/BaseEncoding` must be one of three names and nothing
+about what those encodings contain. Nothing in the tree tracks which of the standard's
+*requirements* are implemented, so the only answers to "how much of PDF do we support" are a
+corpus count and a prose self-assessment — one measures demand, the other has been wrong
+twice. `CLAUDE.md` principle 5 states what conformance means; this section is the machinery
+that makes the claim checkable.
+
+**The ledger.** `doc/conformance/ledger.toml`, one row per numbered subclause of clauses
+7–14 — 823 of them, 663 leaves — generated once with every row `unreviewed`, and changed
+only by someone who has read that clause against this code.
+
+| Status | Means |
+|---|---|
+| `implemented` | Every normative requirement in the clause is executed. Names the code site and the test. |
+| `partial` | Names which requirements are implemented, which are not, and what is *reported* for the remainder. |
+| `reported` | Deliberately not implemented *yet*; detected and reported at runtime rather than skipped silently. Still owed. |
+| `silent` | Not implemented, and **nothing says so**: a document exercising the clause is drawn wrong without a word. |
+| `inapplicable` | The requirement describes a marking device rather than a screen — halftones, transfer functions, flatness, smoothness. Names why it cannot apply. **Not** the same as excluded. |
+| `writer-side` | The requirement addresses a PDF writer; we do not create files. Principle 5 also lists this as an exclusion, but it gets its own status because it is a property of the clause rather than a choice about scope. |
+| `out-of-scope` | **Only** for a clause covered by principle 5's closed exclusion list, and the row must name which entry covers it. |
+| `unreviewed` | Nobody has read this clause against this code. The initial state of all 823. |
+
+**`silent` was added while filling the first rows, and it is the status worth hunting.** Every
+missing *subsystem* in this tree reports — `LZWDecode`, encryption, Type 3 fonts — because
+whoever decided not to build it wrote the report the same afternoon. The gaps that ship are the
+ones *inside* something implemented, where the operator is handled and the code path exists:
+`Tr` parsed with four of its eight modes changing a clip nobody built, `/SMask` honoured while
+`/Mask` beside it was not, knockout groups compositing as though they were not knockouts.
+Reading the clause is the only thing that finds those; this is where the finding goes. The
+ninth session's first pass produced two, §11.4.6 and §8.11.4.4, and both were invisible to
+every other instrument here.
+
+**`out-of-scope` is the status that would rot first, so it is the one the checker
+constrains.** `CLAUDE.md` principle 5 fixes a closed list of exclusions — clause 13, XFA,
+script-driven form behaviour, writer-side requirements — and a row may carry `out-of-scope`
+only with an `exclusion` field naming one of them. The valid values are a closed enum in the
+checker, so widening the list means editing principle 5 and the checker together, in a commit
+that says so. Without that constraint the status becomes the graveyard every clause goes to
+once it turns out to be difficult, which is precisely the escape hatch principle 5 refuses.
+A clause that is merely unimplemented is `unreviewed`, `partial` or `reported` — never
+`out-of-scope`.
+
+The rest of the vocabulary exists to keep five different situations from wearing one word:
+the project *choosing* (`out-of-scope`), the project *not knowing* (`unreviewed`), the
+project *owing out loud* (`reported`, and `partial` for part of a clause), the project *owing
+in silence* (`silent`), and the requirement having no meaning for a screen (`inapplicable`).
+`out-of-scope`, `writer-side` and `inapplicable` are permanent; the rest are four different
+kinds of debt, and the ledger's headline number is how much of each is left. The distinction
+between the last two kinds is the one this project cares about most: a gap that reports is a
+gap you can schedule, and a gap that does not is a gap that ships.
+
+Clause 13's subclauses are generated into the ledger like every other, and marked
+`out-of-scope` with their exclusion named, rather than omitted. An exclusion that is invisible
+is indistinguishable from an oversight.
+
+TOML rather than a Markdown table because the checker parses it and a prose table drifts the
+moment someone reflows it; any human-readable summary is generated *from* it, the same
+relationship `pdf-spec` has with the Arlington TSVs.
+
+**The checker.** `tools/conformance`: a library, a `ledger` binary that generates and
+regenerates the rows, and `tests/conformance.rs`, the gate. Its only dependency is
+`thiserror`, which every crate here uses; the ledger's format is read by `toml_subset.rs`
+rather than by a TOML crate, because the conformance gate is the last thing that should stop
+running because a dependency did not. That module accepts a documented subset and **rejects**
+the rest by line — valid TOML outside the subset fails to read rather than being misread,
+which is the property that makes a restricted reader safe to build. It reads
+`doc/md/ISO_32000-2_sponsored_EC3.md`, committed, so unlike the pdf.js submodule it needs no
+skip path. It:
+
+- builds the clause index from the file's 860 `##` headings, each giving a clause number, a
+  title and a line range;
+- fails on a `§` citation in Rust source naming a clause the standard does not have;
+- fails on a rustdoc blockquote whose text does not occur within its cited clause's range,
+  compared with whitespace collapsed and `![Image]` lines skipped;
+- fails on a ledger row whose clause does not exist, or which claims `implemented` without
+  naming a code site and a test that exist;
+- fails on an `out-of-scope` row whose `exclusion` is not one of principle 5's closed
+  entries — the constraint that keeps the status from becoming a graveyard;
+- prints the coverage summary and **ratchets it**: `unreviewed` may only fall, and a clause
+  cited by code may never be `unreviewed`.
+
+Three caveats. `doc/md/` is a *conversion*: a quotation it cannot find may be a conversion
+artefact rather than a bad quote, so check `doc/`'s PDF before editing the comment — and one
+heading number (`14.8.4.7.3`) occurs twice, in the body and in the corrigendum that renumbers
+it, so both spans are searched. Second, the checker verifies that a citation is *well-formed
+and honest*, never that the code implements the clause; only a person reading the clause can
+set a ledger status, which is the point of having statuses rather than a computed percentage.
+Third, **it does not scan its own crate**, and `conformance::NOT_SCANNED` says why at length:
+its comments name `§8.9.6.5` and `§11.4.5.6` deliberately, because those are the two wrong
+numbers it was built to catch.
+
+Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
+`REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed` — 33 of them,
+found by the rule's first run — and a clause not on the list fails immediately, while a clause
+on it that *has* been reviewed must be deleted from it. It is a list rather than a count
+because filling 36 rows in one sitting to make a gate pass is exactly the rubber stamp the
+ledger exists to prevent.
+
+On quoting the standard: `doc/md/` is already committed, so a short attributed quotation in a
+source file is no new exposure inside this repository — but quotes in source travel with any
+code that is later published or excerpted, which the markdown does not. Keep them to the
+load-bearing sentence, which is also the right length for readability.
+
+**How it gets filled.** By clause family, from ordinary work — all four subclauses of §8.9.6
+while implementing image `/Mask`, all of §8.11 while implementing optional content. A family
+is the right unit because that is how the standard distributes its requirements, and because
+§9.6.5.4 was missed for the opposite reason: nobody had read §9.6.5 as a unit. A one-pass
+review of all 823 is the kind of task that is abandoned partway and afterwards remembered as
+complete.
+
+**Status: built in the ninth session.** ADR 0016 has the whole argument, including what was
+decided against. Where it stands on its first green run:
+
+| | |
+|---|---|
+| citations checked, all naming clauses the standard has | 214 |
+| rustdoc blockquotes verified verbatim | 5 |
+| ledger rows | 823 |
+| reviewed | 106, of which 81 are clause 13's exclusion |
+| `unreviewed`, and the number that may only fall | 717 |
+| cited clauses still owing a review (`REVIEW_OWED`) | 33 |
+
+The measurements that justified it were 146 citations over 36 distinct clause numbers, two of
+which named clauses that do not exist, and three of five sampled quotations that were
+paraphrases inside quotation marks. All five are now fixed, and each of the four checks was
+confirmed to fail when its defect is put back.
+
+The first clause-family reviews paid for themselves before the ledger had a hundred rows: the
+`/Mask` citations were *still* wrong after being corrected once (§8.9.6.2 is stencil masking;
+`/Mask` naming another image is §8.9.6.3), stencil masking turned out to be implemented with
+nothing pinning it, and §8.9.6.2's interpolation sentence is not implemented at all.
 
 ## 6. Security architecture
 

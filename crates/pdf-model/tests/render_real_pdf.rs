@@ -233,10 +233,15 @@ fn text_that_adds_to_the_clipping_path_is_reported() {
 
 /// An image's `/Mask` must be reported, because we do not apply one.
 ///
-/// ISO 32000-2 §8.9.6.4 gives `/Mask` as a stencil mask stream and §8.9.6.5 as a colour-key
-/// range array; either makes part of the image transparent. We honour only `/SMask`, so the
+/// ISO 32000-2 §8.9.6.3 gives `/Mask` as an explicit mask — an image mask (§8.9.6.2) naming
+/// the areas of the base image to leave unpainted — and §8.9.6.4 as a colour-key range
+/// array; either makes part of the image transparent. We honour only `/SMask`, so the
 /// masked-out part is drawn. On `colorkeymask.pdf` that is a whole red band that all three
 /// reference renderers hide — drawn by us, with `unsupported: []`, until this landed.
+///
+/// Stencil masking itself — the image's *own* `/ImageMask` — is implemented, and the two are
+/// easy to conflate: §8.9.6.2 is the image painting the current colour through its set bits,
+/// §8.9.6.3 is that same kind of image used to mask a *different* one.
 ///
 /// Implementing either form should make this test fail, which is the right moment to
 /// revisit it.

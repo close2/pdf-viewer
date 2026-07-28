@@ -350,9 +350,17 @@ impl Reference {
     ///
     /// # Every renderer is told to use the crop box
     ///
-    /// ISO 32000-2 §7.7.3.3 defines `/CropBox` as "the region to which the contents of the
-    /// page shall be clipped (cropped) when displayed or printed", and that is what a
-    /// viewer shows. `mutool draw` does this by default; `pdftoppm` and `gs` default to the
+    /// ISO 32000-2 §7.7.3.3 Table 31 gives a page its `/CropBox`, and §14.11.2.1 says what
+    /// the box is for:
+    ///
+    /// > The crop box defines the region to which the contents of the page shall be clipped
+    /// > (cropped) when displayed or printed.
+    ///
+    /// That is what a viewer shows. (This sentence used to be attributed to §7.7.3.3 here,
+    /// which is where the entry is defined and not where it is explained — the kind of drift
+    /// the conformance checker in `tools/conformance` now catches.)
+    ///
+    /// `mutool draw` does this by default; `pdftoppm` and `gs` default to the
     /// media box and have to be told, which is what `-cropbox` and `-dUseCropBox` are for.
     ///
     /// Leaving the default in place was not a neutral choice. Over the pdf.js corpus it

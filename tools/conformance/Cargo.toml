@@ -1,0 +1,19 @@
+[package]
+name = "conformance"
+description = "Checks this project's citations of ISO 32000-2, and keeps the conformance ledger."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Nothing beyond the error type every crate here uses. The gate reads two committed text
+# files — the standard's Markdown conversion and the ledger — and walks the tree's own
+# sources; a checker that needs a dependency to run is a checker that can stop running, and
+# the ledger's format is a subset small enough to read in `toml_subset` with the grammar
+# stated in one place. See doc/PLAN.md §5a.
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -110,8 +110,8 @@ const MAX_PAGELESS: usize = 19;
 /// reference-oracle gate found two of these drawing a solid bar over the text while
 /// claiming to be complete; see `oracle.rs`.
 ///
-/// Five more, when an image's `/Mask` started reporting. A stencil mask or a colour-key
-/// range makes part of an image transparent (§8.9.6.4 and §8.9.6.5) and neither is applied,
+/// Five more, when an image's `/Mask` started reporting. An explicit mask or a colour-key
+/// range makes part of an image transparent (§8.9.6.3 and §8.9.6.4) and neither is applied,
 /// so `colorkeymask.pdf` drew a band all three references correctly hide. Found the same
 /// way.
 ///

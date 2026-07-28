@@ -309,9 +309,19 @@ fn matrix(document: &Document, dict: &Dictionary) -> Transform {
 
 /// Reads a rectangle entry, normalised so the first corner is the lower left.
 ///
-/// §7.9.5: "the rectangle is typically specified in the order lower-left then upper-right,
-/// but a PDF processor shall normalise it". A `/Rect` written the other way round is common
-/// enough that not normalising means annotations placed off the page.
+/// §7.9.5 describes a rectangle as four numbers giving "a pair of diagonally opposite
+/// corners", and says the lower-left-then-upper-right order is only *typical*. It states no
+/// requirement to normalise, and an earlier version of this comment attributed one to it.
+///
+/// The requirement is §12.5.5's, inside the algorithm that places an appearance, and it is
+/// stated as a property of the corners rather than as an operation on the array:
+///
+/// > A maps the lower-left corner (the corner with the smallest x and y coordinates) and the
+/// > upper-right corner (the corner with the greatest x and y coordinates) of the transformed
+/// > appearance box to the corresponding corners of the annotation's rectangle.
+///
+/// A `/Rect` written the other way round is common enough that not normalising means
+/// annotations placed off the page.
 fn rectangle(document: &Document, dict: &Dictionary, key: &'static str) -> Option<[f32; 4]> {
     let values = numbers(document, dict, key)?;
     let at = |index: usize| values.get(index).copied().unwrap_or_default();

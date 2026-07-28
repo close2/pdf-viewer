@@ -505,8 +505,13 @@ fn channel(value: f32) -> f32 {
 ///
 /// # This is a choice, because the specification does not make one
 ///
-/// ISO 32000-2 §8.6.4.4 defines `DeviceCMYK` components as "concentrations of process
-/// colourants" and gives **no** conversion to any other space. §8.6.5.7 NOTE 3 says
+/// ISO 32000-2 §8.6.4.4 gives **no** conversion from `DeviceCMYK` to any other space. What
+/// it says of the components is only what they mean:
+///
+/// > The four components in a DeviceCMYK colour value shall represent the concentrations of
+/// > these process colourants.
+///
+/// §8.6.5.7 NOTE 3 says
 /// outright that nothing in PDF describes the output device's calibration. The spec is not
 /// silent by omission here — it is telling us the question has no answer in the abstract:
 /// what a `DeviceCMYK` colour looks like is a property of a press, and a press is not

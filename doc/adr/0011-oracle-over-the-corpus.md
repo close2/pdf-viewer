@@ -121,9 +121,11 @@ It found four things on its first runs, three of which were silent:
   build no such clip, so a rectangle painted afterwards to be seen only through the letters
   covers its whole area. `text_clip_cff_cid.pdf` showed a solid blue bar where all three
   references show the word "ABC123" — with `unsupported: []`.
-- **An image's `/Mask`** — stencil (§8.9.6.4) or colour-key (§8.9.6.5) — was ignored
+- **An image's `/Mask`** — explicit (§8.9.6.3) or colour-key (§8.9.6.4) — was ignored
   entirely; only `/SMask` was honoured. `colorkeymask.pdf` drew a red band all three
-  references correctly hide.
+  references correctly hide. (This entry said §8.9.6.2, which is *stencil* masking — the
+  image's own `/ImageMask`, which is implemented. Corrected in the ninth session by reading
+  the family rather than by checking the number, which had already been checked.)
 - **`/UserUnit`** (§7.7.3.3) is neither applied nor reported: `mutool` and `gs` scale a page
   by it, we and `poppler` do not.
 
