@@ -283,9 +283,8 @@ scriptable on Linux — keep a small manually-captured Acrobat golden set.
 depends on three of its crates for JBIG2, JPEG 2000 and CCITT (ADR 0014), so the relationship
 needs stating rather than leaving implicit. `doc/hayro vs this project.md` has the long
 version; what belongs in a plan is what it changes. (Two of its figures have since moved:
-the oracle contradicts us on **108 of 1426** pages rather than 120 of 1340, and **665 of
-974** first pages report nothing rather than 587 — the second having fallen from 705 as Type
-3 fonts and unusable substitutes started reporting. Its analysis is unaffected.)
+the oracle contradicts us on **104 of 1436** pages rather than 120 of 1340, and **672 of
+974** first pages report nothing rather than 587. Its analysis is unaffected.)
 
 **It is a library and this is an application.** That explains most of the differences and it
 sets where the differentiators have to be: startup latency, the sandbox, the GPU path, the
@@ -294,8 +293,9 @@ consensus with other implementations. That is roughly what `CLAUDE.md` already s
 
 **It is ahead on feature completeness, and not narrowly.** Its regression suite is 1000+
 PDFs and it has closed things we have written down as gaps: transparency groups, encryption,
-predefined `CMap`s (a whole crate, `hayro-cmap`), Type1 and Type3 fonts, optional content.
-Our own oracle contradicts us on 108 of 1426 pages we claim to draw.
+predefined `CMap`s (a whole crate, `hayro-cmap`), Type1 fonts, transparency. Type 3 fonts and
+optional content have since landed here. Our own oracle contradicts us on 104 of 1436 pages we
+claim to draw.
 
 **Where the direction of inference must not reverse.** `hayro-jbig2` and `hayro-jpeg2000`
 are dependencies implementing ITU-T T.88 and T.800, with exactly the status `zune-jpeg` has
@@ -493,12 +493,12 @@ decided against. Where it stands on its first green run:
 
 | | |
 |---|---|
-| citations checked, all naming clauses the standard has | 214 |
+| citations checked, all naming clauses the standard has | 268 |
 | rustdoc blockquotes verified verbatim | 5 |
 | ledger rows | 823 |
-| reviewed | 106, of which 81 are clause 13's exclusion |
-| `unreviewed`, and the number that may only fall | 717 |
-| cited clauses still owing a review (`REVIEW_OWED`) | 33 |
+| reviewed | 119, of which 81 are clause 13's exclusion |
+| `unreviewed`, and the number that may only fall | 704 |
+| cited clauses still owing a review (`REVIEW_OWED`) | 29 |
 
 The measurements that justified it were 146 citations over 36 distinct clause numbers, two of
 which named clauses that do not exist, and three of five sampled quotations that were
@@ -509,6 +509,14 @@ The first clause-family reviews paid for themselves before the ledger had a hund
 `/Mask` citations were *still* wrong after being corrected once (§8.9.6.2 is stencil masking;
 `/Mask` naming another image is §8.9.6.3), stencil masking turned out to be implemented with
 nothing pinning it, and §8.9.6.2's interpolation sentence is not implemented at all.
+
+The tenth session's reviews kept the rate up, and the clause that produced most was the one
+that looked like a formality. §8.6.8 is a table of twelve operators everybody knows are
+implemented; reading it gave three findings — that its restriction on colour operators governs
+uncoloured *tiling patterns* as well as `d1` glyph descriptions, that its list is not what
+Table 111's parenthesis implies, and that `cs`/`CS` must set an initial colour which is black
+in only three of its six cases. None of the three was what the session was looking for, and
+none of them reported anything at runtime.
 
 ## 6. Security architecture
 
