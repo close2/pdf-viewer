@@ -297,7 +297,10 @@ fn draw_triangle(
     blend: tiny_skia::BlendMode,
     depth: u32,
 ) {
-    if depth < MAX_SUBDIVISION && !triangle.is_flat(FLAT_ENOUGH) {
+    // The size test is not an optimisation of the colour test but a separate stopping
+    // condition: see `Triangle::is_subpixel`. Both backends apply both, from the same
+    // function, because they are meant to agree pixel for pixel.
+    if depth < MAX_SUBDIVISION && !triangle.is_flat(FLAT_ENOUGH) && !triangle.is_subpixel() {
         for piece in triangle.subdivide() {
             draw_triangle(pixmap, piece, mask, blend, depth.saturating_add(1));
         }

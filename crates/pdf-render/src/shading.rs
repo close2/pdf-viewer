@@ -197,6 +197,42 @@ impl Triangle {
             && spread(|colour| colour.a) <= tolerance
     }
 
+    /// Whether the triangle is too small on the device for subdivision to change a pixel.
+    ///
+    /// The points must already be in device space, which is where both backends subdivide.
+    ///
+    /// # Why this is a correctness statement and not an approximation
+    ///
+    /// [`Self::is_flat`] asks whether the *colours* are close enough to fill flat, and a
+    /// triangle whose corners differ keeps splitting until they are — up to `4^6` pieces,
+    /// however small it is on screen. But a triangle that covers less than a pixel cannot
+    /// display a gradient: the output raster has one sample there, and every sub-triangle's
+    /// average would land in the same one. Splitting it produces four fills that composite
+    /// to the colour the single fill already had.
+    ///
+    /// So this is not a quality-for-speed trade. It is the observation that beyond a certain
+    /// size the extra work has no representable effect, and both backends stop at the same
+    /// point because the criterion lives here rather than in either of them.
+    ///
+    /// # What it is worth
+    ///
+    /// `tensor-allflags-withfunction.pdf` filled 22.0 G instructions' worth of tiny paths
+    /// through `tiny-skia`, half of it inside the fill machinery and its per-path pipeline
+    /// compilation. `personwithdog.pdf` took 17.3 seconds to rasterise a page whose display
+    /// list has eighteen commands.
+    #[must_use]
+    pub fn is_subpixel(&self) -> bool {
+        let [first, second, third] = self.points;
+        let extent = |get: fn(&Point) -> f32| {
+            let (x, y, z) = (get(&first), get(&second), get(&third));
+            x.max(y).max(z) - x.min(y).min(z)
+        };
+        // One pixel in *both* axes: a long thin sliver spans several samples along its
+        // length and its colour still varies across them, so a bounding box test has to
+        // require smallness in each direction rather than in area.
+        extent(|point| point.x) <= 1.0 && extent(|point| point.y) <= 1.0
+    }
+
     /// Returns the average of the three corner colours.
     #[must_use]
     pub fn average_colour(&self) -> Color {
@@ -247,5 +283,69 @@ impl Triangle {
                 colours: [b01, b12, b20],
             },
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Triangle;
+    use crate::{Color, Point};
+
+    /// A triangle with the given device-space extents and three distinct corner colours, so
+    /// that [`Triangle::is_flat`] never short-circuits the size question.
+    fn spanning(width: f32, height: f32) -> Triangle {
+        Triangle {
+            points: [
+                Point::new(0.0, 0.0),
+                Point::new(width, 0.0),
+                Point::new(0.0, height),
+            ],
+            colours: [
+                Color::rgb(0.0, 0.0, 0.0),
+                Color::rgb(1.0, 0.0, 0.0),
+                Color::rgb(0.0, 1.0, 0.0),
+            ],
+        }
+    }
+
+    #[test]
+    fn a_triangle_spanning_pixels_is_not_subpixel() {
+        assert!(!spanning(10.0, 10.0).is_subpixel());
+    }
+
+    #[test]
+    fn a_triangle_inside_one_pixel_is_subpixel() {
+        assert!(spanning(0.5, 0.5).is_subpixel());
+        // Exactly one pixel across counts: a triangle that spans from one sample's position
+        // to the next still has only one sample inside it.
+        assert!(spanning(1.0, 1.0).is_subpixel());
+    }
+
+    /// The rule is smallness in *each* axis, not small area, and this is the case that
+    /// distinguishes them.
+    ///
+    /// A sliver twenty pixels long and a tenth of a pixel tall covers two square pixels of
+    /// area but crosses twenty samples along its length, and its colour varies across them.
+    /// Stopping subdivision there would draw a twenty-pixel streak in one flat colour.
+    #[test]
+    fn a_long_thin_sliver_is_not_subpixel() {
+        assert!(!spanning(20.0, 0.1).is_subpixel());
+        assert!(!spanning(0.1, 20.0).is_subpixel());
+    }
+
+    /// Subdivision stops on either condition, so a triangle can be worth subdividing for its
+    /// size and not for its colour. Pinning both directions keeps the two independent.
+    #[test]
+    fn size_and_colour_are_separate_questions() {
+        let large_and_flat = Triangle {
+            points: spanning(10.0, 10.0).points,
+            colours: [Color::rgb(0.5, 0.5, 0.5); 3],
+        };
+        assert!(large_and_flat.is_flat(1.0 / 512.0));
+        assert!(!large_and_flat.is_subpixel());
+
+        let tiny_and_varied = spanning(0.25, 0.25);
+        assert!(!tiny_and_varied.is_flat(1.0 / 512.0));
+        assert!(tiny_and_varied.is_subpixel());
     }
 }

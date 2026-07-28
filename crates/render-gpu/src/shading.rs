@@ -161,7 +161,8 @@ pub(crate) fn fill_mesh(
 }
 
 fn draw_triangle(scene: &mut vello::Scene, triangle: pdf_render::Triangle, depth: u32) {
-    if depth < MAX_SUBDIVISION && !triangle.is_flat(FLAT_ENOUGH) {
+    // As `render-cpu`, deliberately: see `Triangle::is_subpixel`.
+    if depth < MAX_SUBDIVISION && !triangle.is_flat(FLAT_ENOUGH) && !triangle.is_subpixel() {
         for piece in triangle.subdivide() {
             draw_triangle(scene, piece, depth.saturating_add(1));
         }
