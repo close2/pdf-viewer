@@ -109,6 +109,17 @@ pub enum Unsupported {
         /// Which bound.
         limit: &'static str,
     },
+    /// Optional content whose visibility could not be decided, so it was drawn.
+    ///
+    /// ISO 32000-2 §8.11. Only a visibility expression nested past the interpreter's bound
+    /// reaches this: everything else the clause defines has an answer. Drawing is the
+    /// deliberate choice of the two ways to be wrong — content that should be hidden is
+    /// visible on the page, where content that should be visible would be missing without a
+    /// trace — and saying so is what keeps it from being the second kind of failure.
+    OptionalContent {
+        /// What could not be decided.
+        detail: String,
+    },
 }
 
 /// The result of interpreting a page.
@@ -328,6 +339,8 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         base: base_transform(page),
         page: size,
         output_intent: output_intent_space(document),
+        optional_content: crate::optional_content::OptionalContent::read(document),
+        hidden: 0,
     };
 
     for issue in issues {
@@ -420,11 +433,59 @@ struct Interpreter<'a> {
     text: String,
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
+    /// The document's optional content configuration, if it has one (§8.11).
+    optional_content: Option<crate::optional_content::OptionalContent>,
+    /// How many enclosing `BDC /OC` sections are hidden.
+    ///
+    /// A counter rather than a flag because marked content nests, and the outermost hidden
+    /// section wins: §8.11.2.1 says that if an outer level indicates content is to be
+    /// hidden, "all inner levels shall be hidden regardless of their individual visibility
+    /// states".
+    hidden: usize,
 }
 
 impl Interpreter<'_> {
     fn note(&mut self, item: Unsupported) {
         self.unsupported.insert(item.clone(), item);
+    }
+
+    /// Whether the content being interpreted right now belongs to a hidden layer.
+    ///
+    /// What this suppresses is *marking the page*, and nothing else. §8.11.3.1 is explicit
+    /// that hiding changes what is drawn and not what the graphics state becomes: colour,
+    /// transformation and clipping "shall still be applied", the text position is updated
+    /// "even for text wrapped in optional content", and the state after the section is the
+    /// same whether it was drawn or not. Suppressing at the point a command enters the
+    /// display list is what makes that true by construction rather than by care.
+    fn is_hidden(&self) -> bool {
+        self.hidden > 0
+    }
+
+    /// Whether content governed by `oc` is drawn, reporting what cannot be decided.
+    ///
+    /// `oc` is what a `BDC /OC`'s name finds in the page's `/Properties`, or the `/OC` entry
+    /// of an `XObject` or an annotation — **as written**, reference and all. An optional
+    /// content group is identified by which object it is (§8.11.2.2), so resolving it before
+    /// this point loses the only identity it has.
+    fn shows_optional_content(&mut self, oc: &Object) -> bool {
+        use crate::optional_content::Visibility;
+
+        let Some(optional_content) = &self.optional_content else {
+            // §8.11.4.2: with no `/OCProperties`, "a PDF processor shall ignore any optional
+            // content structures in the document".
+            return true;
+        };
+        match optional_content.visibility(self.document, oc) {
+            Visibility::Visible => true,
+            Visibility::Hidden => false,
+            Visibility::TooDeep => {
+                self.note(Unsupported::OptionalContent {
+                    detail: "a /VE visibility expression nested past the interpreter's bound"
+                        .to_owned(),
+                });
+                true
+            }
+        }
     }
 
     /// Executes a content stream with the given initial state.
@@ -461,6 +522,14 @@ impl Interpreter<'_> {
         // The text object's own matrices, which `BT` resets and `q`/`Q` do not touch.
         let mut text_matrix = Transform::IDENTITY;
         let mut line_matrix = Transform::IDENTITY;
+        // One entry per open marked-content section, saying whether it hid what follows.
+        // Every `BMC` and `BDC` pushes, so an `EMC` closes the section it actually belongs
+        // to rather than the last optional one — which is why this is not just a counter.
+        //
+        // It carries no bound of its own because it already has one: a section costs an
+        // operator, and `MAX_OPERATIONS` bounds those at four million. A stream that nests
+        // that deep has spent its whole budget doing so.
+        let mut marked: Vec<bool> = Vec::new();
 
         while let Some(token) = lexer.next_token() {
             self.operations = self.operations.saturating_add(1);
@@ -828,9 +897,13 @@ impl Interpreter<'_> {
                 b"BI" => {
                     // An inline image runs to `EI` and its data is not PDF syntax, so the
                     // lexer must be skipped past it or it will tokenise binary as operators.
-                    self.note(Unsupported::Image {
-                        name: "<inline>".to_owned(),
-                    });
+                    // The skip happens either way; the report does not, because an image
+                    // inside a hidden layer is not one we failed to draw.
+                    if !self.is_hidden() {
+                        self.note(Unsupported::Image {
+                            name: "<inline>".to_owned(),
+                        });
+                    }
                     skip_inline_image(&mut lexer);
                 }
 
@@ -850,7 +923,29 @@ impl Interpreter<'_> {
                         };
                     }
                 }
-                b"BMC" | b"BDC" | b"EMC" | b"MP" | b"DP" | b"BX" | b"EX" | b"i" => {}
+                // §8.11.3.2: a marked-content section is optional content when its tag is
+                // `OC` and its property list names a group or a membership dictionary.
+                // Because a group is an indirect object, the operand is a *name* into the
+                // resource dictionary's `/Properties`; an inline dictionary cannot carry
+                // one, so it governs nothing.
+                b"BDC" => {
+                    let hides = name_at(&operands, 0).is_some_and(|tag| tag == "OC")
+                        && name_at(&operands, 1).is_some_and(|name| {
+                            self.unresolved_resource(resources, "Properties", &name)
+                                .is_some_and(|oc| !self.shows_optional_content(&oc))
+                        });
+                    marked.push(hides);
+                    if hides {
+                        self.hidden = self.hidden.saturating_add(1);
+                    }
+                }
+                b"BMC" => marked.push(false),
+                b"EMC" => {
+                    if marked.pop() == Some(true) {
+                        self.hidden = self.hidden.saturating_sub(1);
+                    }
+                }
+                b"MP" | b"DP" | b"BX" | b"EX" | b"i" => {}
 
                 other => {
                     self.note(Unsupported::Operator {
@@ -868,6 +963,17 @@ impl Interpreter<'_> {
                 operator: "BT without ET".to_owned(),
             });
         }
+
+        // A marked-content section left open by a malformed stream must not leave this
+        // stream's hidden layers hiding the next one. The annotation pass runs after the
+        // page's content, and a leaked counter would silently blank every annotation.
+        let unclosed = marked.iter().filter(|hides| **hides).count();
+        if unclosed > 0 {
+            self.hidden = self.hidden.saturating_sub(unclosed);
+            self.note(Unsupported::Operator {
+                operator: "BDC without EMC".to_owned(),
+            });
+        }
     }
 
     /// Emits the drawing for a completed path and resets it.
@@ -883,7 +989,10 @@ impl Interpreter<'_> {
         fill: Option<FillRule>,
         stroke: Option<bool>,
     ) {
-        if !path.is_empty() && (fill.is_some() || stroke.is_some()) {
+        // Hidden optional content still builds its clip below — §8.11.3.1 puts clipping
+        // among the graphics state operations that "shall still be applied" — but marks
+        // nothing.
+        if !path.is_empty() && (fill.is_some() || stroke.is_some()) && !self.is_hidden() {
             // `B` fills *and* strokes one path, and both commands then describe the same
             // geometry; sharing it means the copy happens once rather than twice.
             let shared = Arc::new(path.clone());
@@ -1137,6 +1246,22 @@ impl Interpreter<'_> {
             return;
         };
 
+        // §8.11.3.3: a form or image XObject may carry an `/OC` entry naming a group or a
+        // membership dictionary, and its visibility is that of the group "along with the
+        // current visibility state in the context in which the XObject is invoked" — which
+        // is what `is_hidden` already carries. §8.11.3.1 permits skipping such an object
+        // entirely, because a form's state changes do not outlive it, and skipping is what
+        // keeps an undrawable image inside a hidden layer from being reported as a gap.
+        // Read unresolved: a group is identified by *which object* it is (§8.11.2.2).
+        if let Some(oc) = stream.dict.get("OC").cloned()
+            && !self.shows_optional_content(&oc)
+        {
+            return;
+        }
+        if self.is_hidden() {
+            return;
+        }
+
         let subtype = self.document.get_key(&stream.dict, "Subtype");
         let subtype = subtype
             .as_name()
@@ -1144,12 +1269,16 @@ impl Interpreter<'_> {
             .unwrap_or_default();
 
         if subtype == b"Image" {
-            // `/Mask` makes part of the image transparent, either through a stencil mask
-            // stream (§8.9.6.4) or through a colour-key range array (§8.9.6.5). Neither is
-            // applied — `/SMask` is the only mask honoured — and the difference is whole
-            // objects that should not be visible. `colorkeymask.pdf` draws three bands and
-            // masks the red one out; all three reference renderers show two bands and we
-            // showed three, reporting nothing. Said out loud until it is implemented.
+            // `/Mask` makes part of the image transparent, either through an explicit mask
+            // — a second image naming the areas to leave unpainted (§8.9.6.3) — or through
+            // a colour-key range array (§8.9.6.4). Neither is applied; `/SMask` is the only
+            // mask honoured, and the difference is whole objects that should not be visible.
+            // `colorkeymask.pdf` draws three bands and masks the red one out; all three
+            // reference renderers show two bands and we showed three, reporting nothing.
+            // Said out loud until it is implemented.
+            //
+            // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
+            // `/ImageMask` and is implemented — see `tests/image_masks.rs`.
             if !matches!(self.document.get_key(&stream.dict, "Mask"), Object::Null) {
                 self.note(Unsupported::Image {
                     name: format!("{name}: /Mask"),
@@ -1252,6 +1381,17 @@ impl Interpreter<'_> {
             let Some(dict) = resolved.as_dict() else {
                 continue;
             };
+            // §8.11.3.3: "If an annotation contains an OC entry, it shall be visible for
+            // screen or print only if the flags have the appropriate settings and the group
+            // or membership dictionary indicates it shall be visible." The flags are
+            // `decide`'s business (§12.5.3); this is the other half of the condition, and it
+            // is silent because an annotation the document hides is not one we failed to
+            // draw.
+            if let Some(oc) = dict.get("OC").cloned()
+                && !self.shows_optional_content(&oc)
+            {
+                continue;
+            }
             match crate::annotation::decide(self.document, dict) {
                 crate::annotation::Decision::Nothing => {}
                 crate::annotation::Decision::Unsupported(detail) => {
@@ -1379,13 +1519,21 @@ impl Interpreter<'_> {
     /// like a font bug and is really an arithmetic one.
     fn show_text(&mut self, bytes: &[u8], state: &GraphicsState, text_matrix: &mut Transform) {
         let Some(font) = state.text.font.clone() else {
-            self.text_operations = self.text_operations.saturating_add(1);
+            // Text we cannot draw is counted so the page says it is incomplete — unless the
+            // layer it belongs to is off, in which case not drawing it is correct.
+            if !self.is_hidden() {
+                self.text_operations = self.text_operations.saturating_add(1);
+            }
             return;
         };
 
         // Mode 3 is invisible text, and mode 7 adds to the clip without painting. Both are
         // used for the OCR layer under a scanned image, where drawing them would be wrong.
-        let invisible = matches!(state.text.render_mode, 3 | 7);
+        // Mode 3 and mode 7 paint nothing, and so does text inside a hidden layer — but only
+        // the painting stops. Everything below still runs: the text matrix advances, the
+        // extracted text accumulates, and the state at `ET` is the same as if the layer were
+        // on. §8.11.3.1 requires exactly that, naming the text position specifically.
+        let invisible = matches!(state.text.render_mode, 3 | 7) || self.is_hidden();
         // Modes 4 to 7 also add the glyphs to the clipping path, which takes effect at `ET`
         // and lasts until the graphics state is restored — ISO 32000-2 §9.3.6 Table 106 and
         // §9.4.1. We do not build that clip, so anything painted afterwards in the
@@ -1473,7 +1621,7 @@ impl Interpreter<'_> {
             self.text_cursor = Some((text_matrix.e, text_matrix.f));
         }
 
-        if clipping || matches!(state.text.render_mode, 1 | 2) {
+        if (clipping || matches!(state.text.render_mode, 1 | 2)) && !self.is_hidden() {
             self.note(Unsupported::Operator {
                 operator: format!("text render mode {}", state.text.render_mode),
             });
@@ -1567,6 +1715,12 @@ impl Interpreter<'_> {
     /// the page itself and the clip does the shaping. Where the shading does not extend,
     /// it paints nothing, so the covered area is only ever as large as the shading says.
     fn paint_shading(&mut self, name: &str, resources: &Dictionary, state: &GraphicsState) {
+        // `sh` marks the page and changes nothing else, so a hidden layer skips it whole —
+        // including the report a shading we cannot build would otherwise make about a
+        // shading that was never going to be drawn.
+        if self.is_hidden() {
+            return;
+        }
         let Some(object) = self.resource(resources, "Shading", name) else {
             self.note(Unsupported::Shading {
                 name: format!("/{name} is not in /Shading"),
@@ -1783,6 +1937,23 @@ impl Interpreter<'_> {
         let table = table.as_dict()?;
         let value = table.get(name)?;
         Some(self.document.resolve(value))
+    }
+
+    /// A resource entry exactly as the file writes it, reference and all.
+    ///
+    /// Optional content is the one place where a resource's *identity* matters rather than
+    /// its value. §8.11.2.2 requires an optional content group to be an indirect object, and
+    /// `/OCProperties /OCGs` lists the document's groups by reference, so a group is
+    /// recognised by which object it is. Resolving it first throws that away and leaves two
+    /// identical-looking dictionaries indistinguishable.
+    fn unresolved_resource(
+        &self,
+        resources: &Dictionary,
+        category: &str,
+        name: &str,
+    ) -> Option<Object> {
+        let table = self.document.get_key(resources, category);
+        Some(table.as_dict()?.get(name)?.clone())
     }
 }
 

@@ -178,16 +178,47 @@ const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
 /// `Document::image_stream`.
 const CONTRADICTED_IMAGE_RESAMPLING: [&str; 1] = ["firefox_logo.pdf page 1"];
 
-/// Contradicted, with optional content configured off in the document.
+/// Contradicted, and **we are the ones who are right**: a visibility expression.
 ///
-/// 3 pages. We ignore `/OCProperties`, so a hidden layer is drawn anyway.
-/// `issue12007_reduced.pdf` is the extreme case: a whole hidden screenshot over a page the
-/// references leave nearly blank.
-const CONTRADICTED_OPTIONAL_CONTENT: [&str; 3] = [
-    "issue11144_reduced.pdf page 1",
-    "issue12007_reduced.pdf page 1",
-    "visibility_expressions.pdf page 1",
-];
+/// 1 page. This entry used to hold three, and the other two left when optional content
+/// landed (§8.11) — `issue12007_reduced.pdf` was drawing a whole hidden screenshot over a
+/// page the references leave nearly blank. What is left is a page where the reference
+/// consensus is wrong, which is rare enough to be worth the paragraph.
+///
+/// `visibility_expressions.pdf` draws five lines twice: once pale, and once dark inside five
+/// `BDC /OC` sections whose membership dictionaries each carry a `/VE` visibility expression
+/// and *no* `/OCGs` or `/P`. With group C off and A and B on, `[/Not 9 0 R]` and
+/// `[/Not [/Or 9 0 R 10 0 R]]` are false, so two of the five dark lines are hidden. We draw
+/// them hidden; `poppler` draws them hidden; `mupdf` and `ghostscript` draw all five dark.
+///
+/// # Why the two that agree are not evidence here
+///
+/// **Neither of them implements `/VE`**, and this was checked in their source rather than
+/// inferred from the picture:
+///
+/// - `mupdf`, `source/pdf/pdf-layer.c`, in the `OCMD` branch of `pdf_is_ocg_hidden_imp`:
+///   `if (pdf_is_array(ctx, obj)) { /* FIXME: Calculate visibility from array */ return 0; }`
+///   — a `/VE` array means visible, always.
+/// - `ghostscript`, `pdf/pdf_optcontent.c`, in `pdfi_oc_check_OCMD`: `WARNING: OCMD contains
+///   VE, which is not supported (ignoring)`.
+/// - `poppler` does implement it: the installed library exports
+///   `OCGs::evalOCVisibilityExpr(Object const*, int) const` and carries the string
+///   `Loop detected in optional content visibility expression`.
+/// - `pdf.js` implements it too, and prefers it, in `src/core/evaluator_utils.js` — which is
+///   in this repository, under `doc/pdf.js`. Its issue #12097 is closed by PR #13243, and
+///   this very file is the test that came with it.
+///
+/// So the count is three implementations that read the clause the way we do against two that
+/// have not implemented it. **Trap 9 in `doc/HANDOVER.md` generalises**: two renderers can
+/// agree because they share a decoder, and they can also agree because they share a *gap* —
+/// an unimplemented feature almost always falls through to "draw it", so the same silence
+/// produces the same picture in both. Agreement is evidence only where the implementations
+/// can fail independently, and a missing feature is not an independent failure.
+///
+/// §8.11.2.2 is not ambiguous — "If the VE key is present it shall be used in preference to
+/// the OCGs and P keys" — so the clause settles it, and the other renderers are evidence
+/// about that reading rather than a target to move toward.
+const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.pdf page 1"];
 
 /// Contradicted, drawing glyphs this gate is measuring with the *vector* tolerance.
 ///
@@ -272,7 +303,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 25] = [
 /// identified by looking at the artefacts; the rest are unexamined, and working through them
 /// is the highest-value use of this gate:
 ///
-/// - `knockout_*.pdf` are knockout transparency groups (§11.4.5.6), where an object
+/// - `knockout_*.pdf` are knockout transparency groups (§11.4.6), where an object
 ///   composites against the group's initial backdrop rather than against what is already
 ///   there. `mutool` and `gs` show no blend where two rectangles overlap; we and `poppler`
 ///   show the blend. Unimplemented, and — unlike soft masks — unreported.
@@ -950,7 +981,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .iter()
         .chain(&CONTRADICTED_SHARED_JBIG2_DECODER)
         .chain(&CONTRADICTED_IMAGE_RESAMPLING)
-        .chain(&CONTRADICTED_OPTIONAL_CONTENT)
+        .chain(&CONTRADICTED_VISIBILITY_EXPRESSION)
         .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)
         .chain(&CONTRADICTED_UNEXPLAINED)

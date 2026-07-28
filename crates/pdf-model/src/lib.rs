@@ -30,6 +30,7 @@ pub mod function;
 pub mod icc;
 pub mod image;
 pub mod mesh;
+pub mod optional_content;
 pub mod page;
 pub mod shading;
 
