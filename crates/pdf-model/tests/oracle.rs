@@ -323,14 +323,26 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 25] = [
 ///
 /// Two further causes have been found through this list and fixed: `CalGray` and `CalRGB`
 /// converted as their device equivalents, and now this. That is what the list is for.
-const CONTRADICTED_UNEXPLAINED: [&str; 66] = [
+///
+/// `issue6387.pdf` left the list in the same session and **is not a fix**: its text is set
+/// vertically in an `Identity-V` font, which this tree accepted while drawing it
+/// horizontally, and which now reports. The page stopped being compared rather than starting
+/// to agree, and saying so is the difference between a count that means something and one
+/// that can be improved by reporting more.
+///
+/// `close-path-bug.pdf` left in the tenth session and is worth more than one page: **no
+/// dashed line in any document was ever dashed**. The `d` operator was parsed, its arguments
+/// were dropped — the content lexer hands an array to an operator flattened, and the code
+/// read only the empty case — and both backends had implemented dashing all along. It is
+/// this file's own warning about a gap *inside* an implemented feature, found by a page that
+/// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
+const CONTRADICTED_UNEXPLAINED: [&str; 64] = [
     "bug1108301.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
     "bug1252420.pdf page 1",
     "bug1539074.1.pdf page 1",
     "bug1997343.pdf page 2",
-    "close-path-bug.pdf page 1",
     "colors.pdf page 1",
     "colors.pdf page 2",
     "freeculture.pdf page 313",
@@ -365,7 +377,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 66] = [
     "issue5751.pdf page 1",
     "issue5994.pdf page 1",
     "issue6231_1.pdf page 1",
-    "issue6387.pdf page 1",
     "issue6721_reduced.pdf page 1",
     "issue6889.pdf page 1",
     "issue6901.pdf page 1",

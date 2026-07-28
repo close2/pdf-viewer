@@ -191,6 +191,31 @@ fn an_uncoloured_pattern_takes_its_colour_from_the_operator() {
     );
 }
 
+/// An uncoloured cell that *does* set a colour is ignored, not obeyed.
+///
+/// ISO 32000-2 §8.6.8 names two circumstances in which the colour operators "shall be
+/// ignored", and this is the second of them: "in the content stream of an uncoloured tiling
+/// pattern (see 8.7.3.3, "Uncoloured tiling patterns") and to all other content streams
+/// invoked from within the uncoloured tiling pattern stream". A cell setting green while
+/// `scn` supplies blue therefore paints blue.
+///
+/// The rule is one sentence away from the `d1` glyph description rule in the same clause, and
+/// this tree implements both through one flag; `tests/type3.rs` holds the other half.
+#[test]
+fn an_uncoloured_cell_that_sets_a_colour_is_ignored() {
+    let raster = render(pdf_with(
+        &dotted_cell(2, "0 1 0 rg"),
+        "/Pattern cs 0 0 1 /P0 scn 0 0 100 100 re f",
+    ));
+
+    let (r, g, b, a) = pixel(&raster, 4, 95);
+    assert_eq!(a, 255, "the stencil should paint");
+    assert!(
+        b > 240 && r < 15 && g < 15,
+        "the cell's own `rg` is ignored, so this stays the scn blue: got {r},{g},{b}"
+    );
+}
+
 /// The pattern matrix sets the tiling's phase.
 #[test]
 fn the_pattern_matrix_moves_the_tiling() {

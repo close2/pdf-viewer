@@ -231,6 +231,48 @@ struct GraphicsState {
     text: TextState,
 }
 
+/// The current font, which is one of the two kinds PDF has.
+///
+/// They differ in what a glyph *is*. Every font with a program hands out an outline, and the
+/// interpreter fills it. A Type 3 font hands out a content stream, and the interpreter runs
+/// it — see `crate::type3` for why that puts the two kinds in different crates.
+#[derive(Debug, Clone)]
+enum Font {
+    /// A font with a glyph program, read by `pdf-font`.
+    Program(Rc<pdf_font::LoadedFont>),
+    /// A Type 3 font, whose glyphs are content streams (§9.6.4).
+    Type3(Rc<crate::type3::Type3Font>),
+}
+
+impl Font {
+    /// Splits a PDF string into character codes.
+    ///
+    /// A Type 3 font is a simple font — Table 110 gives it `/FirstChar` and `/LastChar`,
+    /// which are byte codes — so one byte is one code, always.
+    fn decode(&self, bytes: &[u8]) -> Vec<u32> {
+        match self {
+            Self::Program(font) => font.decode(bytes),
+            Self::Type3(_) => bytes.iter().map(|&byte| u32::from(byte)).collect(),
+        }
+    }
+
+    /// A code's advance in text-space units, where one em is 1.0.
+    fn advance(&self, code: u32) -> f32 {
+        match self {
+            Self::Program(font) => font.advance(code),
+            Self::Type3(font) => font.advance(code),
+        }
+    }
+
+    /// Appends what a code means to the page's extracted text.
+    fn text(&self, code: u32, out: &mut String) -> bool {
+        match self {
+            Self::Program(font) => font.text(code, out),
+            Self::Type3(font) => font.text(code, out),
+        }
+    }
+}
+
 /// The text-related part of the graphics state.
 ///
 /// Separate from the text *object* state (`Tm` and `Tlm`), which the specification resets
@@ -238,7 +280,7 @@ struct GraphicsState {
 #[derive(Debug, Clone)]
 struct TextState {
     /// The resource name of the current font, and the font itself once loaded.
-    font: Option<Rc<pdf_font::LoadedFont>>,
+    font: Option<Font>,
     /// Font size, in unscaled text-space units.
     size: f32,
     /// Character spacing, added to every glyph's advance.
@@ -341,6 +383,8 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         output_intent: output_intent_space(document),
         optional_content: crate::optional_content::OptionalContent::read(document),
         hidden: 0,
+        glyph_depth: 0,
+        uncoloured: false,
     };
 
     for issue in issues {
@@ -412,7 +456,7 @@ struct Interpreter<'a> {
     ///
     /// A page names the same font on every `Tf`, and parsing a font program is expensive,
     /// so this is what keeps text rendering from being dominated by font loading.
-    fonts: BTreeMap<String, Option<Rc<pdf_font::LoadedFont>>>,
+    fonts: BTreeMap<String, Option<Font>>,
     /// Maps PDF user space to page space.
     ///
     /// Pattern space is defined relative to the page's default coordinates rather than to
@@ -442,6 +486,26 @@ struct Interpreter<'a> {
     /// hidden, "all inner levels shall be hidden regardless of their individual visibility
     /// states".
     hidden: usize,
+    /// How many Type 3 glyph descriptions are being run, one per level of nesting.
+    ///
+    /// `d0` and `d1` are meaningful only inside one — §9.6.4 Table 111 says each "shall be
+    /// used only in a content stream appearing in a Type 3 font's `CharProcs` dictionary"
+    /// and this is what tells a stray one in a page's own content stream from a real one.
+    glyph_depth: usize,
+    /// Whether the content being run is a figure whose colour is supplied from outside it.
+    ///
+    /// ISO 32000-2 §8.6.8 names two such circumstances and gives them one rule: "in any glyph
+    /// description that uses the d1 operator (see 9.6.4, "Type 3 fonts") and to all other
+    /// content streams invoked from within the same glyph description", and "in the content
+    /// stream of an uncoloured tiling pattern (see 8.7.3.3, "Uncoloured tiling patterns") and
+    /// to all other content streams invoked from within the uncoloured tiling pattern
+    /// stream". In both, a listed set of operators "shall be ignored" — which is what makes
+    /// the colour the figure is *used* with survive to the marks inside it.
+    ///
+    /// A flag rather than a counter, and saved and restored by whoever set it, because the
+    /// clause extends the restriction to everything such a stream invokes: an inner figure
+    /// finishing must not re-enable colour for the rest of an outer one.
+    uncoloured: bool,
 }
 
 impl Interpreter<'_> {
@@ -560,6 +624,17 @@ impl Interpreter<'_> {
                     continue;
                 }
             };
+
+            // §8.6.8: inside a `d1` glyph description or an uncoloured tiling pattern —
+            // and inside everything either of them invokes — "all of the following operators
+            // shall be ignored", the list being `is_colour_operator`. Dropping them here
+            // rather than in each arm keeps the rule where the clause puts it, in one place
+            // for both circumstances, and it is what lets the colour the figure is *used*
+            // with reach the marks inside it.
+            if self.uncoloured && is_colour_operator(operator.as_slice()) {
+                operands.clear();
+                continue;
+            }
 
             match operator.as_slice() {
                 // --- graphics state ---
@@ -837,7 +912,7 @@ impl Interpreter<'_> {
                 }
                 b"Tj" => {
                     if let Some(bytes) = string_at(&operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_matrix);
+                        self.show_text(&bytes, &state, &mut text_matrix, resources, form_depth);
                     }
                 }
                 b"TJ" => {
@@ -847,7 +922,13 @@ impl Interpreter<'_> {
                     for operand in &operands {
                         match operand {
                             Object::String(bytes) => {
-                                self.show_text(bytes, &state, &mut text_matrix);
+                                self.show_text(
+                                    bytes,
+                                    &state,
+                                    &mut text_matrix,
+                                    resources,
+                                    form_depth,
+                                );
                             }
                             other => {
                                 if let Some(adjust) = other.as_number() {
@@ -868,7 +949,7 @@ impl Interpreter<'_> {
                     line_matrix = Transform::translate(0.0, -state.text.leading).then(line_matrix);
                     text_matrix = line_matrix;
                     if let Some(bytes) = string_at(&operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_matrix);
+                        self.show_text(&bytes, &state, &mut text_matrix, resources, form_depth);
                     }
                 }
                 b"\"" => {
@@ -882,7 +963,7 @@ impl Interpreter<'_> {
                     line_matrix = Transform::translate(0.0, -state.text.leading).then(line_matrix);
                     text_matrix = line_matrix;
                     if let Some(bytes) = string_at(&operands, 2) {
-                        self.show_text(&bytes, &state, &mut text_matrix);
+                        self.show_text(&bytes, &state, &mut text_matrix, resources, form_depth);
                     }
                 }
 
@@ -946,6 +1027,42 @@ impl Interpreter<'_> {
                     }
                 }
                 b"MP" | b"DP" | b"BX" | b"EX" | b"i" => {}
+
+                // --- Type 3 glyph metrics (§9.6.4 Table 111) ---
+                //
+                // Both operators state the glyph's horizontal displacement, and the width
+                // used is the font dictionary's `/Widths` entry instead: Table 111 requires
+                // the two to agree ("it shall be consistent with the corresponding width in
+                // the font's Widths array"), and Table 110 makes `/Widths` required, so the
+                // font dictionary is the one statement present for every glyph — including
+                // the ones whose `/CharProcs` entry is missing and which are never run.
+                //
+                // `d1` additionally declares the glyph uncoloured, which is the half that
+                // changes what is drawn; see the intercept above. Its bounding box is
+                // deliberately not used as a clip: Table 111 requires it to enclose the
+                // glyph ("the declared bounding box shall be correct"), so clipping to it
+                // can only ever remove marks a correct file does not have, and on an
+                // incorrect one it hides the defect rather than reporting it.
+                b"d0" | b"d1" => {
+                    if operator.as_slice() == b"d1" && self.glyph_depth > 0 {
+                        self.uncoloured = true;
+                        // One shape, one colour. Table 111 says the description "is executed
+                        // solely to determine the glyph's shape. Its colour shall be
+                        // determined by the graphics state in effect each time this glyph is
+                        // painted" — singular, and the clause's own reason for admitting an
+                        // image mask is that a mask "merely defines a region of the page to
+                        // be painted with the current colour". A description that strokes is
+                        // therefore describing part of the same region, not asking for the
+                        // stroking colour, so the two colour parameters become one here.
+                        // Which one is the text rendering mode's business (§9.3.6): mode 0
+                        // fills, and a mode that strokes is reported as approximated in
+                        // `show_text`, which is where this becomes a choice rather than the
+                        // only answer.
+                        state.stroke_colour = state.fill;
+                        state.stroke_pattern = state.fill_pattern.clone();
+                        state.stroke_alpha = state.fill_alpha;
+                    }
+                }
 
                 other => {
                     self.note(Unsupported::Operator {
@@ -1071,6 +1188,26 @@ impl Interpreter<'_> {
         if let Some(alpha) = self.document.get_key(dict, "CA").as_number() {
             state.stroke_alpha = clamp_unit(alpha);
         }
+        // Table 57 `/D`: the line dash pattern, "expressed as an array of the form
+        // [ dashArray dashPhase ]". The same pattern the `d` operator sets, written as a
+        // real array rather than as flattened operands.
+        if let Some(entry) = self.document.get_key(dict, "D").as_array()
+            && let Some(items) = entry.first().map(|item| self.document.resolve(item))
+            && let Some(items) = items.as_array()
+        {
+            let array = items
+                .iter()
+                .map(|item| self.document.resolve(item))
+                .filter_map(|item| item.as_number())
+                .map(narrow)
+                .collect();
+            let phase = entry
+                .get(1)
+                .map(|item| self.document.resolve(item))
+                .and_then(|item| item.as_number())
+                .map_or(0.0, narrow);
+            apply_dash(array, phase, &mut state.stroke);
+        }
         if let Some(width) = self.document.get_key(dict, "LW").as_number() {
             #[expect(
                 clippy::cast_possible_truncation,
@@ -1082,17 +1219,27 @@ impl Interpreter<'_> {
         }
         // ISO 32000-2 §8.6.5.9 and its table entry: `/UseBlackPtComp` takes ON, OFF or
         // Default, and a rendering intent of AbsColorimetric forces it off regardless.
-        if let Object::Name(value) = self.document.get_key(dict, "UseBlackPtComp") {
-            state.black_point = match value.as_bytes() {
-                b"ON" => BlackPoint::On,
-                b"OFF" => BlackPoint::Off,
-                _ => BlackPoint::Default,
-            };
-        }
-        if let Object::Name(intent) = self.document.get_key(dict, "RI")
-            && intent.as_bytes() == b"AbsoluteColorimetric"
-        {
-            state.black_point = BlackPoint::Off;
+        //
+        // Both are skipped inside an uncoloured figure. §8.6.8 lists the `/ExtGState` entries
+        // such a stream may not set, and these two are the only ones on that list this tree
+        // reads at all: `/UseBlackPtComp` by name, and `/RI` because the `ri` operator that
+        // sets the same parameter is on the operator half of the same list. `/TR`, `/TR2`,
+        // `/BG`, `/BG2`, `/UCR`, `/UCR2` and `/HT` describe a marking device and are read
+        // nowhere here. The rest of this dictionary is not colour and still applies — the
+        // line width §9.6.4 asks a glyph description to set explicitly among it.
+        if !self.uncoloured {
+            if let Object::Name(value) = self.document.get_key(dict, "UseBlackPtComp") {
+                state.black_point = match value.as_bytes() {
+                    b"ON" => BlackPoint::On,
+                    b"OFF" => BlackPoint::Off,
+                    _ => BlackPoint::Default,
+                };
+            }
+            if let Object::Name(intent) = self.document.get_key(dict, "RI")
+                && intent.as_bytes() == b"AbsoluteColorimetric"
+            {
+                state.black_point = BlackPoint::Off;
+            }
         }
         match self.document.get_key(dict, "BM") {
             Object::Name(name) => state.blend = blend_mode(name.as_bytes()),
@@ -1147,15 +1294,30 @@ impl Interpreter<'_> {
             ColourSpace::Gray
         });
 
-        // Setting a colour space resets the colour to its initial value: black for the
-        // device spaces. Omitting this leaves the previous space's colour in place, which
-        // shows up as content painted in the wrong colour.
+        // §8.6.8: `cs` and `CS` "shall also set the current colour to its initial value,
+        // which depends on the colour space". Omitting this leaves the previous space's
+        // colour in place, which shows up as content painted in the wrong colour — and the
+        // initial value is *not* simply black: `ColourSpace::initial_colour` carries the
+        // clause's five cases, of which a `Separation`'s full ink and an `Indexed` space's
+        // entry 0 are the two that are usually some other colour entirely.
+        //
+        // A `Pattern` space is the sixth case and has no components: its initial colour "shall
+        // be a pattern object that causes nothing to be painted", which is a fully transparent
+        // paint here, and the pattern the previous `scn` set has to go with it.
+        let initial = space.initial_colour();
+        let colour = if initial.is_empty() {
+            Color::TRANSPARENT
+        } else {
+            convert(&space, &initial, state.black_point)
+        };
         if fill {
             state.fill_space = space;
-            state.fill = Color::BLACK;
+            state.fill = colour;
+            state.fill_pattern = None;
         } else {
             state.stroke_space = space;
-            state.stroke_colour = Color::BLACK;
+            state.stroke_colour = colour;
+            state.stroke_pattern = None;
         }
     }
 
@@ -1269,35 +1431,7 @@ impl Interpreter<'_> {
             .unwrap_or_default();
 
         if subtype == b"Image" {
-            // `/Mask` makes part of the image transparent, either through an explicit mask
-            // — a second image naming the areas to leave unpainted (§8.9.6.3) — or through
-            // a colour-key range array (§8.9.6.4). Neither is applied; `/SMask` is the only
-            // mask honoured, and the difference is whole objects that should not be visible.
-            // `colorkeymask.pdf` draws three bands and masks the red one out; all three
-            // reference renderers show two bands and we showed three, reporting nothing.
-            // Said out loud until it is implemented.
-            //
-            // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
-            // `/ImageMask` and is implemented — see `tests/image_masks.rs`.
-            if !matches!(self.document.get_key(&stream.dict, "Mask"), Object::Null) {
-                self.note(Unsupported::Image {
-                    name: format!("{name}: /Mask"),
-                });
-            }
-            // A PDF image occupies the unit square in user space, so the command's
-            // transform is the current transform and nothing else.
-            match crate::image::decode(self.document, &stream, state.fill) {
-                Ok(image) => self.list.push(Command::Image {
-                    image,
-                    transform: state.transform,
-                    alpha: state.fill_alpha,
-                    clip: state.clip,
-                    blend: state.blend,
-                }),
-                Err(error) => self.note(Unsupported::Image {
-                    name: format!("{name}: {error}"),
-                }),
-            }
+            self.draw_image(&stream, &name, state);
             return;
         }
         if subtype != b"Form" {
@@ -1361,6 +1495,53 @@ impl Interpreter<'_> {
             .unwrap_or_else(|| resources.clone());
 
         self.run(&data, &form_resources, &inner, form_depth.saturating_add(1));
+    }
+
+    /// Draws one image `XObject`.
+    fn draw_image(&mut self, stream: &Arc<pdf_syntax::Stream>, name: &str, state: &GraphicsState) {
+        // §8.6.8, of a `d1` glyph description or an uncoloured tiling pattern's stream:
+        // "unless painting an image mask, all image painting operators shall be ignored".
+        // Its NOTE 1 gives the reason, and it is the whole of what those two circumstances
+        // are about — a stencil "does not specify colours; instead, it designates places
+        // where the current colour is painted".
+        if self.uncoloured
+            && !matches!(
+                self.document.get_key(&stream.dict, "ImageMask"),
+                Object::Boolean(true)
+            )
+        {
+            return;
+        }
+
+        // `/Mask` makes part of the image transparent, either through an explicit mask — a
+        // second image naming the areas to leave unpainted (§8.9.6.3) — or through a
+        // colour-key range array (§8.9.6.4). Neither is applied; `/SMask` is the only mask
+        // honoured, and the difference is whole objects that should not be visible.
+        // `colorkeymask.pdf` draws three bands and masks the red one out; all three reference
+        // renderers show two bands and we showed three, reporting nothing. Said out loud
+        // until it is implemented.
+        //
+        // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
+        // `/ImageMask` and is implemented — see `tests/image_masks.rs`.
+        if !matches!(self.document.get_key(&stream.dict, "Mask"), Object::Null) {
+            self.note(Unsupported::Image {
+                name: format!("{name}: /Mask"),
+            });
+        }
+        // A PDF image occupies the unit square in user space, so the command's transform is
+        // the current transform and nothing else.
+        match crate::image::decode(self.document, stream, state.fill) {
+            Ok(image) => self.list.push(Command::Image {
+                image,
+                transform: state.transform,
+                alpha: state.fill_alpha,
+                clip: state.clip,
+                blend: state.blend,
+            }),
+            Err(error) => self.note(Unsupported::Image {
+                name: format!("{name}: {error}"),
+            }),
+        }
     }
 
     /// Draws the page's annotations over its content, in `/Annots` order.
@@ -1475,18 +1656,38 @@ impl Interpreter<'_> {
     ///
     /// A failure is cached too: a page that names an unloadable font on every `Tf` should
     /// pay for the attempt once, and should report it once.
-    fn font(&mut self, resources: &Dictionary, name: &str) -> Option<Rc<pdf_font::LoadedFont>> {
+    fn font(&mut self, resources: &Dictionary, name: &str) -> Option<Font> {
         if let Some(cached) = self.fonts.get(name) {
             return cached.clone();
         }
 
-        let loaded = self
+        let dict = self
             .resource(resources, "Font", name)
-            .and_then(|object| object.as_dict().cloned())
-            .map(|dict| pdf_font::LoadedFont::load(self.document, &dict, name));
+            .and_then(|object| object.as_dict().cloned());
+        let loaded = dict
+            .as_ref()
+            .map(|dict| pdf_font::LoadedFont::load(self.document, dict, name));
 
         let result = match loaded {
-            Some(Ok(font)) => Some(Rc::new(font)),
+            Some(Ok(font)) => Some(Font::Program(Rc::new(font))),
+            // A Type 3 font has no program for `pdf-font` to read: its glyphs are content
+            // streams, so it is this crate that draws them (§9.6.4). The refusal there is
+            // the hand-off rather than a failure, which is why this is not a report.
+            Some(Err(pdf_font::FontError::Type3 { .. })) => {
+                match dict
+                    .as_ref()
+                    .map(|dict| crate::type3::Type3Font::read(self.document, dict, name))
+                {
+                    Some(Ok(font)) => Some(Font::Type3(Rc::new(font))),
+                    Some(Err(error)) => {
+                        self.note(Unsupported::Font {
+                            detail: error.to_string(),
+                        });
+                        None
+                    }
+                    None => None,
+                }
+            }
             Some(Err(error)) => {
                 self.note(Unsupported::Font {
                     detail: error.to_string(),
@@ -1517,7 +1718,14 @@ impl Interpreter<'_> {
     ///
     /// Getting the order wrong produces text that is present but misplaced, which looks
     /// like a font bug and is really an arithmetic one.
-    fn show_text(&mut self, bytes: &[u8], state: &GraphicsState, text_matrix: &mut Transform) {
+    fn show_text(
+        &mut self,
+        bytes: &[u8],
+        state: &GraphicsState,
+        text_matrix: &mut Transform,
+        resources: &Dictionary,
+        form_depth: usize,
+    ) {
         let Some(font) = state.text.font.clone() else {
             // Text we cannot draw is counted so the page says it is incomplete — unless the
             // layer it belongs to is off, in which case not drawing it is correct.
@@ -1580,33 +1788,40 @@ impl Interpreter<'_> {
             }
             font.text(code, &mut self.text);
 
-            if !invisible
-                && size != 0.0
-                && let Some(outline) = font.outline(code)
-            {
-                {
-                    // Glyph space to text space: scale by the font size, apply horizontal
-                    // scaling and rise, then the text matrix and the current transform.
-                    let glyph_to_text =
-                        Transform::new(size * scale, 0.0, 0.0, size, 0.0, state.text.rise);
-                    let transform = glyph_to_text.then(*text_matrix).then(state.transform);
+            if !invisible && size != 0.0 {
+                // Glyph space to text space: scale by the font size, apply horizontal
+                // scaling and rise, then the text matrix and the current transform. §9.4.4
+                // calls this the text rendering matrix, and both kinds of glyph are placed
+                // by it — the difference is only what is placed.
+                let glyph_to_text =
+                    Transform::new(size * scale, 0.0, 0.0, size, 0.0, state.text.rise);
+                let transform = glyph_to_text.then(*text_matrix).then(state.transform);
 
-                    self.list.push(Command::Fill {
-                        // The font hands out shared outlines and the display list keeps
-                        // them shared: a page of text is the same few dozen glyphs over
-                        // and over, so this is a refcount rather than a copy of the
-                        // segments.
-                        path: Arc::clone(&outline),
-                        transform,
-                        // Glyph outlines are non-zero filled; even-odd would hollow out
-                        // counters that overlap, such as in a bold 'B'.
-                        fill_rule: FillRule::NonZero,
-                        // Mode 1 strokes rather than fills; approximated as a fill, which
-                        // is closer than drawing nothing, and noted so it is not silent.
-                        paint: state.fill_paint(),
-                        clip: state.clip,
-                        blend: state.blend,
-                    });
+                match &font {
+                    Font::Program(program) => {
+                        if let Some(outline) = program.outline(code) {
+                            self.list.push(Command::Fill {
+                                // The font hands out shared outlines and the display list
+                                // keeps them shared: a page of text is the same few dozen
+                                // glyphs over and over, so this is a refcount rather than a
+                                // copy of the segments.
+                                path: Arc::clone(&outline),
+                                transform,
+                                // Glyph outlines are non-zero filled; even-odd would hollow
+                                // out counters that overlap, such as in a bold 'B'.
+                                fill_rule: FillRule::NonZero,
+                                // Mode 1 strokes rather than fills; approximated as a fill,
+                                // which is closer than drawing nothing, and noted so it is
+                                // not silent.
+                                paint: state.fill_paint(),
+                                clip: state.clip,
+                                blend: state.blend,
+                            });
+                        }
+                    }
+                    Font::Type3(type3) => {
+                        self.draw_type3_glyph(type3, code, state, transform, resources, form_depth);
+                    }
                 }
             }
 
@@ -1626,6 +1841,76 @@ impl Interpreter<'_> {
                 operator: format!("text render mode {}", state.text.render_mode),
             });
         }
+    }
+
+    /// Runs one Type 3 glyph description, ISO 32000-2 §9.6.4.
+    ///
+    /// `text_rendering` is §9.4.4's text rendering matrix — everything the glyph is placed by
+    /// except the font's own matrix, which is applied here because it is the font's business
+    /// rather than the text object's.
+    ///
+    /// The steps §9.6.4 lays out for each character code are all here or in
+    /// [`crate::type3::Type3Font`]: the encoding and `/CharProcs` lookups are the font's, and
+    /// this does the rest — save the state, set the CTM, run the description, restore.
+    fn draw_type3_glyph(
+        &mut self,
+        font: &crate::type3::Type3Font,
+        code: u32,
+        state: &GraphicsState,
+        text_rendering: Transform,
+        resources: &Dictionary,
+        form_depth: usize,
+    ) {
+        // §9.6.4 b): "If the name is not present as a key in CharProcs, no glyph shall be
+        // painted." Neither that nor a code the encoding does not name is a failure — both
+        // are defined outcomes — so neither is reported, and both still advance the text
+        // position, which the caller does whatever happens here.
+        let Some(glyph) = font.glyph(self.document, code) else {
+            return;
+        };
+
+        // A glyph description may show text in another Type 3 font, which is a recursion a
+        // file can build a cycle out of — `ContentStreamCycleType3insideType3.pdf` in the
+        // corpus is exactly that. It shares the bound with form XObjects because it is the
+        // same danger and the same cost: a nested content stream.
+        if form_depth >= MAX_FORM_DEPTH {
+            self.note(Unsupported::LimitReached {
+                limit: "MAX_FORM_DEPTH",
+            });
+            return;
+        }
+
+        let Some(data) = self.document.decoded_stream_data(&glyph) else {
+            self.note(Unsupported::Font {
+                detail: format!("Type 3 glyph for code {code} could not be decoded"),
+            });
+            return;
+        };
+
+        // §9.6.4: "When the glyph description begins execution, the current transformation
+        // matrix (CTM) shall be the concatenation of the font matrix (FontMatrix in the
+        // current font dictionary) and the text space that was in effect at the time the
+        // text-showing operator was invoked". Everything else is inherited: "Aside from the
+        // CTM, the graphics state shall be inherited from the graphics state at the point of
+        // invocation of the text-showing operator" — which is what cloning it does, and the
+        // clone is also step c)'s save and restore, since nothing the description changes can
+        // reach the caller's copy.
+        let mut inner = state.clone();
+        inner.transform = font.font_matrix().then(text_rendering);
+
+        let saved_uncoloured = self.uncoloured;
+        self.glyph_depth = self.glyph_depth.saturating_add(1);
+        self.run(
+            &data,
+            font.resources(resources),
+            &inner,
+            form_depth.saturating_add(1),
+        );
+        self.glyph_depth = self.glyph_depth.saturating_sub(1);
+        // `d1` inside the description raised this; the description is over. Restoring rather
+        // than clearing is what lets an uncoloured glyph invoke another one without the
+        // inner one's end re-enabling colour for the rest of the outer.
+        self.uncoloured = saved_uncoloured;
     }
 
     /// Paints a tiling pattern over the area a path covers.
@@ -1693,11 +1978,16 @@ impl Interpreter<'_> {
                 cell.blend = state.blend;
                 cell.fill_alpha = state.fill_alpha;
                 cell.stroke_alpha = state.stroke_alpha;
-                // An uncoloured pattern is a stencil: its content sets no colour, and the
-                // colour given alongside the pattern name is what pours through it.
+                // An uncoloured pattern is a stencil: the colour given alongside the
+                // pattern name is what pours through it. §8.6.8 is what makes that true of a
+                // cell whose content stream *does* try to set a colour — it is the second of
+                // the clause's two circumstances, and the colour operators inside it "shall
+                // be ignored" exactly as they are inside a `d1` glyph description.
+                let saved_uncoloured = self.uncoloured;
                 if let Some(tint) = tiling.tint {
                     cell.fill = tint;
                     cell.stroke_colour = tint;
+                    self.uncoloured = true;
                 }
                 self.run(
                     &tiling.content,
@@ -1705,6 +1995,7 @@ impl Interpreter<'_> {
                     &cell,
                     MAX_FORM_DEPTH - 1,
                 );
+                self.uncoloured = saved_uncoloured;
             }
         }
     }
@@ -1991,6 +2282,36 @@ fn skip_inline_image(lexer: &mut pdf_syntax::Lexer<'_>) {
     lexer.seek(input.len());
 }
 
+/// The operators ISO 32000-2 §8.6.8 says an uncoloured figure's content stream may not use.
+///
+/// The clause's own list, in full: the twelve colour operators of Table 73, plus `ri` and
+/// `sh`. The last two are worth noticing rather than copying — `ri` sets a rendering intent,
+/// which is colour-related without being a colour, and `sh` paints a *shading*, which carries
+/// its own colours and so cannot belong to a figure whose colour comes from outside it.
+///
+/// `gs` is not here, because an `/ExtGState` sets much more than colour — including the line
+/// width and dash pattern §9.6.4 tells a glyph description to set explicitly. The clause
+/// lists the entries *within* it that are ignored, and `apply_ext_gstate` drops those.
+fn is_colour_operator(operator: &[u8]) -> bool {
+    matches!(
+        operator,
+        b"CS"
+            | b"cs"
+            | b"SC"
+            | b"SCN"
+            | b"sc"
+            | b"scn"
+            | b"G"
+            | b"g"
+            | b"RG"
+            | b"rg"
+            | b"K"
+            | b"k"
+            | b"ri"
+            | b"sh"
+    )
+}
+
 /// Converts a content-stream token into an operand.
 fn token_to_object(token: pdf_syntax::Token) -> Object {
     match token {
@@ -2094,10 +2415,61 @@ fn name_at(operands: &[Object], index: usize) -> Option<String> {
 /// existing pattern. Getting this wrong draws a solid line where dashes belong, which is
 /// visible but not structurally wrong.
 fn set_dash(operands: &[Object], stroke: &mut Stroke) {
-    if operands.iter().all(Object::is_null) {
+    // `[ 2 1 ] 0 d` arrives as five operands, the two brackets among them as nulls, because
+    // the content lexer does not rebuild arrays. Splitting on them gives what is before the
+    // opening bracket, the array itself, and what follows the closing one — the phase.
+    let mut parts = operands.split(Object::is_null);
+    let (Some(_), Some(inside), Some(after)) = (parts.next(), parts.next(), parts.next()) else {
+        return;
+    };
+
+    let array: Vec<f32> = inside
+        .iter()
+        .filter_map(Object::as_number)
+        .map(narrow)
+        .collect();
+    let phase = after
+        .first()
+        .and_then(Object::as_number)
+        .map_or(0.0, narrow);
+    apply_dash(array, phase, stroke);
+}
+
+/// Puts a dash array and phase into the graphics state, ISO 32000-2 §8.4.3.6.
+///
+/// Shared by the `d` operator and an `/ExtGState`'s `/D` entry, which Table 57 defines as
+/// the same pattern written as a real array. The two arrive in different shapes and mean the
+/// same thing, and this is the one place that decides what a pattern means.
+fn apply_dash(array: Vec<f32>, phase: f32, stroke: &mut Stroke) {
+    // §8.4.3.6: "If the dash array is empty, the dash phase shall be zero and the path shall
+    // be stroked with a solid, unbroken line."
+    let total: f32 = array.iter().sum();
+    // The same clause requires the elements to be "nonnegative and not all zero". A file
+    // breaking that describes no pattern at all, so it is drawn solid — the one rendering
+    // both remaining readings agree on — rather than left as whatever the previous `d` set.
+    if array.is_empty() || total <= 0.0 || array.iter().any(|length| *length < 0.0) {
         stroke.dash_array.clear();
         stroke.dash_phase = 0.0;
+        return;
     }
+
+    // An odd-length array alternates on and off across its own end: `[3]` is three on, three
+    // off. Repeating it once states the same pattern with an even length, which is what a
+    // rasteriser's dash primitive takes, and does it here so that both backends receive one
+    // meaning rather than each deriving it.
+    stroke.dash_array = if array.len().is_multiple_of(2) {
+        array
+    } else {
+        array.repeat(2)
+    };
+    // §8.4.3.6: "If the dash phase is negative, it shall be incremented by twice the sum of
+    // all lengths in the dash array until it is positive." The pattern repeats with that
+    // period, so one remainder is every increment the sentence asks for.
+    stroke.dash_phase = if phase < 0.0 {
+        phase.rem_euclid(total * 2.0)
+    } else {
+        phase
+    };
 }
 
 /// Assigns a colour to the fill or stroke slot, along with the space that set it.

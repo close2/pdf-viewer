@@ -365,6 +365,47 @@ impl ColourSpace {
         }
     }
 
+    /// The colour a space starts in, when `cs` or `CS` selects it.
+    ///
+    /// ISO 32000-2 §8.6.8, of the `CS` operator: it "shall also set the current stroking
+    /// colour to its initial value, which depends on the colour space", and then gives one
+    /// per family. They are not all black, which is what makes this worth a function rather
+    /// than a constant: a `Separation` starts at *full* ink, and an `Indexed` space starts at
+    /// whatever its table's entry 0 happens to be.
+    ///
+    /// Returned as components in this space rather than as a colour, so that the caller
+    /// converts them by the same route as any other colour — there is exactly one of those.
+    #[must_use]
+    pub fn initial_colour(&self) -> Vec<f32> {
+        match self {
+            // "In a DeviceGray, DeviceRGB, CalGray, or CalRGB colour space, the initial
+            // colour shall have all components equal to 0.0."
+            Self::Gray | Self::Rgb | Self::CalGray { .. } | Self::CalRgb { .. } => {
+                vec![0.0; self.components()]
+            }
+            // "In a DeviceCMYK colour space, the initial colour shall be [0.0 0.0 0.0 1.0]."
+            Self::Cmyk => vec![0.0, 0.0, 0.0, 1.0],
+            // "In a Lab or ICCBased colour space, the initial colour shall have all
+            // components equal to 0.0 unless that falls outside the intervals specified by
+            // the space's Range entry, in which case the nearest valid value shall be
+            // substituted." Lab's `a` and `b` carry that range here; an ICCBased space's
+            // `/Range` is not read, and zero is inside it for every profile the corpus has.
+            Self::Lab { range } => vec![
+                0.0,
+                0.0_f32.clamp(range[0], range[1]),
+                0.0_f32.clamp(range[2], range[3]),
+            ],
+            Self::Icc { .. } => vec![0.0; self.components()],
+            // "In an Indexed colour space, the initial colour value shall be 0."
+            Self::Indexed { .. } => vec![0.0],
+            // "In a Separation or DeviceN colour space, the initial tint value shall be 1.0
+            // for all colourants."
+            Self::Separation { inputs, .. } => vec![1.0; *inputs],
+            // A pattern has no colour of its own until `scn` names one.
+            Self::Pattern { .. } => Vec::new(),
+        }
+    }
+
     /// Converts a colour in this space to RGB.
     ///
     /// Black point compensation is applied where the space is an ICC profile, which is
@@ -826,6 +867,38 @@ fn narrow(value: f64) -> f32 {
 )]
 mod tests {
     use super::ColourSpace;
+
+    /// A space's initial colour is the one ISO 32000-2 §8.6.8 gives it, which is often not
+    /// black.
+    ///
+    /// The cases below are the ones a reader would otherwise assume are black: `DeviceCMYK`
+    /// starts at `[0 0 0 1]`, which is black through the K channel rather than through
+    /// zeroes, an `Indexed` space starts at whatever its table's entry 0 holds, and a
+    /// `Pattern` space paints nothing at all until `scn` names a pattern. A `Separation`
+    /// starts at *full* ink rather than none, which is the fifth case and needs a tint
+    /// transform to build; `initial_colour` carries the clause's sentence for it.
+    #[test]
+    fn a_space_starts_at_the_colour_the_clause_gives_it() {
+        assert_eq!(ColourSpace::Gray.initial_colour(), vec![0.0]);
+        assert_eq!(ColourSpace::Rgb.initial_colour(), vec![0.0, 0.0, 0.0]);
+        assert_eq!(ColourSpace::Cmyk.initial_colour(), vec![0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(
+            ColourSpace::Indexed {
+                base: Box::new(ColourSpace::Rgb),
+                lookup: vec![1.0, 0.0, 0.0],
+                high: 0,
+            }
+            .initial_colour(),
+            vec![0.0],
+            "an Indexed space starts at entry 0, whatever colour that is"
+        );
+        // A pattern paints nothing until `scn` names one, so it has no components at all.
+        assert!(
+            ColourSpace::Pattern { base: None }
+                .initial_colour()
+                .is_empty()
+        );
+    }
 
     /// `DeviceGray` and `DeviceRGB` pass straight through, with no gamma applied.
     ///

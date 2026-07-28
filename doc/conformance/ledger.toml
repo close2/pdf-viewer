@@ -822,7 +822,10 @@ status = "unreviewed"
 [[clause]]
 clause = "8.4.3.6"
 title = "Line dash pattern"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/line_dash.rs::a_dash_array_reaches_the_stroke", "crates/pdf-model/tests/line_dash.rs::a_negative_phase_is_incremented_by_twice_the_arrays_sum", "crates/pdf-model/tests/line_dash.rs::an_odd_length_array_is_stated_as_pairs"]
+note = "Implemented in the tenth session; before it, no dashed line in any document was dashed. The `d` operator was parsed and its array dropped, because the content lexer flattens an operator's array and the code read only the empty case. Both backends had implemented dashing all along. Now: the array, the phase, the negative-phase normalisation the clause states, and a degenerate array drawn solid. The per-subpath restart and the cap and join treatment are the rasteriser's, and both backends do it."
 
 [[clause]]
 clause = "8.4.4"
@@ -1037,7 +1040,10 @@ status = "unreviewed"
 [[clause]]
 clause = "8.6.8"
 title = "Colour operators"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/type3.rs::a_d1_description_takes_its_colour_from_the_page_and_a_d0_one_does_not", "crates/pdf-model/tests/tiling.rs::an_uncoloured_cell_that_sets_a_colour_is_ignored", "crates/pdf-model/src/colour.rs::a_space_starts_at_the_colour_the_clause_gives_it"]
+note = "All twelve operators of Table 73, and the clause's two further requirements, both of which were gaps found by reading it in the tenth session. The initial colour a `cs`/`CS` sets was black for every space; the clause gives six cases, of which a Separation's full ink, an Indexed space's entry 0 and a Pattern's paint-nothing were wrong. And the restriction on an uncoloured figure — a `d1` glyph description or an uncoloured tiling pattern, and everything either of them invokes — now ignores the listed operators, the two /ExtGState entries of the list this tree reads, and every image that is not an image mask."
 
 [[clause]]
 clause = "8.7"
@@ -1072,7 +1078,10 @@ status = "unreviewed"
 [[clause]]
 clause = "8.7.3.3"
 title = "Uncoloured tiling patterns"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/tiling.rs::an_uncoloured_pattern_takes_its_colour_from_the_operator", "crates/pdf-model/tests/tiling.rs::an_uncoloured_cell_that_sets_a_colour_is_ignored"]
+note = "PaintType 2 cells take their colour from the operands beside the pattern name in the underlying space, and — since the tenth session — the clause's other half holds: a cell whose stream does specify a colour has it ignored per §8.6.8, rather than obeyed."
 
 [[clause]]
 clause = "8.7.4"
@@ -1446,7 +1455,10 @@ status = "unreviewed"
 [[clause]]
 clause = "9.2.4"
 title = "Glyph positioning and metrics"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-font/src/lib.rs", "crates/pdf-model/src/type3.rs"]
+test = ["crates/pdf-model/tests/type3.rs::a_width_advances_through_the_font_matrix"]
+note = "Horizontal writing is implemented, including the clause's one exception: glyph space is a thousandth of text space for every font except a Type 3, whose /FontMatrix states its own. Writing mode 1 is not. The second set of metrics the clause describes — a displacement vector w1 and a position vector v — is nowhere in this tree, and an Identity-V font is now refused and reported rather than drawn horizontally."
 
 [[clause]]
 clause = "9.3"
@@ -1516,7 +1528,10 @@ status = "unreviewed"
 [[clause]]
 clause = "9.4.4"
 title = "Text space details"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/type3.rs::a_width_advances_through_the_font_matrix"]
+note = "The text rendering matrix and the horizontal displacement are implemented for both kinds of font, size and horizontal scaling and rise included, with word spacing applied to a single-byte code 32. The vertical branch is not: ty is always 0, because nothing here reads a vertical writing mode (see §9.2.4)."
 
 [[clause]]
 clause = "9.5"
@@ -1561,32 +1576,50 @@ status = "unreviewed"
 [[clause]]
 clause = "9.6.4"
 title = "Type 3 fonts"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/type3.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/type3.rs::each_shown_code_runs_its_glyph_description", "crates/pdf-model/tests/type3.rs::a_width_advances_through_the_font_matrix", "crates/pdf-model/tests/type3.rs::a_code_with_no_glyph_description_paints_nothing_and_still_advances", "crates/pdf-model/tests/type3.rs::a_glyph_that_shows_itself_reaches_a_bound_and_stops"]
+note = "Implemented in the tenth session; before it a Type 3 font was refused. All four of the clause's steps, the CTM it defines for a glyph description, the inherited graphics state, the font's /Resources with the page's as fallback, /Widths read through /FontMatrix, and both of Table 111's operators including d1's colour restriction. /FontBBox is read by nobody, which the clause permits — it says a processor may make no assumptions from it. A glyph description whose marks are an inline image draws nothing yet and reports, which is §8.9.7's gap rather than this one's: 10 corpus documents are in that position."
 
 [[clause]]
 clause = "9.6.5"
 title = "Character encoding"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/encoding.rs", "crates/pdf-font/src/lib.rs", "crates/pdf-model/src/type3.rs"]
+test = ["crates/pdf-font/src/lib.rs::the_pdf_widths_agree_with_the_font_programs_own_advances", "crates/pdf-font/src/lib.rs::a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range"]
+note = "The base encodings, /Differences over them, and the symbolic/nonsymbolic distinction the clause turns on. MacExpertEncoding is the one named encoding absent: a font naming it is refused and reported rather than substituted. Every code the /Differences array names is kept even where the name is one no encoding defines, which is what §9.6.5.4's undefined-entry sentence does and does not say."
 
 [[clause]]
 clause = "9.6.5.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/encoding.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/encoding.rs::the_assignments_made_only_in_the_notes_are_present"]
+note = "Table 112's encoding dictionary in full — /BaseEncoding, /Differences, and the defaults the clause gives when /BaseEncoding is absent — and Annex D's tables for StandardEncoding, WinAnsiEncoding and MacRomanEncoding, extracted from the standard's own Table D.2 rather than written from memory. MacExpertEncoding is absent and reported."
 
 [[clause]]
 clause = "9.6.5.2"
 title = "Encodings for Type 1 fonts"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/cff.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::the_pdf_widths_agree_with_the_font_programs_own_advances", "crates/pdf-font/src/lib.rs::an_uncovered_code_has_no_glyph_rather_than_a_guessed_one"]
+note = "Implemented for the Type 1 programs this tree reads, which are the CFF ones: names from the encoding are resolved through the program's charset, and the font dictionary's /Encoding overrides the program's built-in one as the clause requires. A bare Type 1 /FontFile is not read at all and is reported, so the clause's .notdef substitution sentence has no code to apply to yet — no corpus page one reaches one."
 
 [[clause]]
 clause = "9.6.5.3"
 title = "Encodings for Type 3 fonts"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/type3.rs"]
+test = ["crates/pdf-model/tests/type3.rs::each_shown_code_runs_its_glyph_description", "crates/pdf-model/tests/type3.rs::a_code_with_no_glyph_description_paints_nothing_and_still_advances"]
+note = "The mapping is taken entirely from the font's /Encoding, and there is no default glyph name — a code the encoding does not name reaches nothing, as the clause's NOTE requires. /BaseEncoding is read underneath /Differences because Table 112 defines it for any encoding dictionary; there is no built-in encoding to fall back on, since §9.6.5.1 excepts Type 3 fonts from having one."
 
 [[clause]]
 clause = "9.6.5.4"
 title = "Encodings for TrueType fonts"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range", "crates/pdf-font/src/lib.rs::a_unicode_subtable_is_reached_through_the_adobe_glyph_list"]
+note = "All five routes from a code to a glyph, implemented in the eighth session — see ADR 0015. The predecessor was one line that covered about one and a half of them and was worth 15 contradicted corpus pages."
 
 [[clause]]
 clause = "9.7"
@@ -1626,7 +1659,10 @@ status = "unreviewed"
 [[clause]]
 clause = "9.7.4.3"
 title = "Glyph metrics in CIDFonts"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::the_pdf_widths_agree_with_the_font_programs_own_advances"]
+note = "/W in both of its formats and /DW are implemented, including the clause's rule that the first specification of a repeated CID wins. /W2 and /DW2 are not read at all: they are the vertical metrics, and a font asking for vertical writing is refused where its CMap is chosen (§9.2.4)."
 
 [[clause]]
 clause = "9.7.5"
@@ -1641,7 +1677,9 @@ status = "unreviewed"
 [[clause]]
 clause = "9.7.5.2"
 title = "Predefined CMaps"
-status = "unreviewed"
+status = "reported"
+code = ["crates/pdf-font/src/lib.rs"]
+note = "Only the two Identity CMaps are recognised by name, and Identity-V is refused for its writing mode rather than its mapping. A font naming any other predefined CMap is reported: 8 corpus fonts, needing the registered CMap data, which is a licensing decision rather than a coding one."
 
 [[clause]]
 clause = "9.7.5.3"

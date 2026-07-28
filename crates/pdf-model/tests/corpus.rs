@@ -168,7 +168,25 @@ const MAX_PAGELESS: usize = 19;
 ///
 /// Ratcheted downward otherwise: this falls as features land, and a rise that is not a new
 /// *report* means something that used to draw no longer does.
-const MAX_INCOMPLETE: usize = 290;
+///
+/// **290 to 280 in the tenth session, and the arithmetic is worth reading rather than the
+/// total.** Type 3 fonts landed (§9.6.4), which removed the report from all 24 documents
+/// carrying one — and only 10 of them became complete. The other 14 immediately began
+/// reporting something the Type 3 refusal had been standing in front of: 10 draw their
+/// glyphs as *inline images*, which this interpreter does not decode, one carries a soft
+/// mask, two use a stroking text render mode and one has a malformed number in a glyph
+/// description. That is this file's own habit in miniature — fixing the mask shows what the
+/// mask was hiding — and it is why a feature landing moves this number by less than the
+/// count of documents it was blamed for.
+///
+/// **And 280 back up to 283**, which is the other half of the same session and a rise of the
+/// only kind this ratchet allows: three documents began saying that their text is set
+/// *vertically*. `Identity-V` was accepted beside `Identity-H` because the two map codes
+/// identically — and they differ in the writing mode, which §9.2.4 gives a second set of
+/// metrics no part of this tree reads. `vertical.pdf` should set two columns down the right
+/// edge of the page; it came out as one overlapping line across the top, reporting
+/// `unsupported: []`. Nothing stopped drawing correctly.
+const MAX_INCOMPLETE: usize = 283;
 
 /// How long one document may take before it counts as a failure.
 ///

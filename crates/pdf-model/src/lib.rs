@@ -33,6 +33,7 @@ pub mod mesh;
 pub mod optional_content;
 pub mod page;
 pub mod shading;
+pub mod type3;
 
 pub use content::{Interpretation, Unsupported, interpret};
 pub use page::{Page, Pages};

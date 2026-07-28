@@ -351,15 +351,32 @@ impl LoadedFont {
         dict: &Dictionary,
         name: &str,
     ) -> Result<Self, FontError> {
-        // Only the Identity encodings are handled. A named CMap needs the CMap machinery,
-        // and guessing would map codes to the wrong glyphs — plausible but wrong text,
-        // which is the worst kind of rendering error.
+        // Only `Identity-H` is handled. A named CMap needs the CMap machinery, and guessing
+        // would map codes to the wrong glyphs — plausible but wrong text, which is the worst
+        // kind of rendering error.
+        //
+        // `Identity-V` maps codes the same way and differs in the writing mode, which is a
+        // property of the *CMap* rather than of the mapping (§9.7.5.2): mode 1 is vertical,
+        // and §9.2.4 gives a glyph in vertical writing a second set of metrics — a
+        // displacement vector `w1` with a zero horizontal component, and a position vector
+        // `v` from the horizontal origin to the vertical one, both from the CIDFont's `/W2`
+        // and `/DW2` (§9.7.4.3). None of that is implemented, so a vertical run drawn as a
+        // horizontal one is not a near miss: `vertical.pdf` should set two columns down the
+        // right edge of the page and came out as one overlapping line across the top,
+        // reporting nothing. Refused here until the metrics exist, per the rule that
+        // unsupported input stays loud.
         let encoding = document.get_key(dict, "Encoding");
         let encoding_name = encoding.as_name().map_or_else(
             || "<stream CMap>".to_owned(),
             |value| String::from_utf8_lossy(value.as_bytes()).into_owned(),
         );
-        if !matches!(encoding_name.as_str(), "Identity-H" | "Identity-V") {
+        if encoding_name == "Identity-V" {
+            return Err(FontError::UnsupportedEncoding {
+                name: name.to_owned(),
+                encoding: "Identity-V, whose vertical writing mode needs /W2 metrics".to_owned(),
+            });
+        }
+        if encoding_name != "Identity-H" {
             return Err(FontError::UnsupportedEncoding {
                 name: name.to_owned(),
                 encoding: encoding_name,
@@ -634,6 +651,10 @@ fn narrow(value: f64) -> f32 {
 ///
 /// The array mixes two forms: `c [w1 w2 ...]` gives consecutive codes, and `c1 c2 w` gives
 /// one width for a whole range.
+///
+/// ISO 32000-2 §9.7.4.3 on a CID that appears twice: "specifying a given CID value more than
+/// once should not be done. In the case where it is done, the first specification is the one
+/// that shall be used." So an entry that already exists is kept, rather than overwritten.
 fn composite_widths(document: &Document, descendant: &Dictionary) -> BTreeMap<u32, f32> {
     /// Ranges are bounded so a hostile `/W` cannot ask for four billion entries.
     const MAX_RANGE: u32 = 1 << 16;
@@ -664,7 +685,9 @@ fn composite_widths(document: &Document, descendant: &Dictionary) -> BTreeMap<u3
                     let Ok(offset) = u32::try_from(offset) else {
                         continue;
                     };
-                    widths.insert(first.saturating_add(offset), narrow(width));
+                    widths
+                        .entry(first.saturating_add(offset))
+                        .or_insert(narrow(width));
                 }
                 index = index.saturating_add(2);
             }
@@ -683,7 +706,9 @@ fn composite_widths(document: &Document, descendant: &Dictionary) -> BTreeMap<u3
                 };
                 let span = last.saturating_sub(first).min(MAX_RANGE);
                 for offset in 0..=span {
-                    widths.insert(first.saturating_add(offset), narrow(width));
+                    widths
+                        .entry(first.saturating_add(offset))
+                        .or_insert(narrow(width));
                 }
                 index = index.saturating_add(3);
             }
