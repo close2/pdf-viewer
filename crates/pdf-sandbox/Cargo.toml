@@ -1,6 +1,6 @@
 [package]
 name = "pdf-sandbox"
-description = "Process isolation for untrusted document parsing and rendering."
+description = "Process isolation for untrusted image decoding."
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,18 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hayro-jbig2.workspace = true
+hayro-jpeg2000.workspace = true
+landlock.workspace = true
+libc.workspace = true
+rustix.workspace = true
+seccompiler.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# The confinement tests need signal numbers to tell "killed by the seccomp filter" apart
+# from every other way a process can end.
+libc.workspace = true
 
 [lints]
 workspace = true

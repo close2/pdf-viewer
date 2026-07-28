@@ -19,6 +19,7 @@ pdf-syntax = { path = "crates/pdf-syntax", version = "0.1.0" }
 pdf-model = { path = "crates/pdf-model", version = "0.1.0" }
 pdf-font = { path = "crates/pdf-font", version = "0.1.0" }
 pdf-render = { path = "crates/pdf-render", version = "0.1.0" }
+pdf-sandbox = { path = "crates/pdf-sandbox", version = "0.1.0" }
 render-cpu = { path = "crates/render-cpu", version = "0.1.0" }
 render-gpu = { path = "crates/render-gpu", version = "0.1.0" }
 raster-compare = { path = "crates/raster-compare", version = "0.1.0" }
@@ -88,9 +89,38 @@ read-fonts = { version = "0.42.1", features = ["agl"] }
 zune-jpeg = "0.5.15"
 zune-png = "0.5.2"
 
-# Sandboxing
+# JBIG2 and JPEG 2000, the two codecs this project spent a year assuming it would have to
+# wrap from C. Both are `#![forbid(unsafe_code)]`, and `default-features = false` is
+# load-bearing rather than tidiness: it drops the `simd` feature, whose `fearless_simd`
+# backend is the only `unsafe` either would otherwise reach, and with it the `image` and
+# `moxcms` dependencies. What is left has no transitive dependencies at all beyond
+# `hayro-ccitt`, which JBIG2 needs for MMR-coded regions.
+#
+# The cost of the choice is written down in doc/adr/0014: these are two decoders this
+# project does not own, so a disagreement with ITU-T T.88 or T.800 is an issue to report
+# rather than a defect to fix. Against that, they are 19 400 lines of the most error-prone
+# code in the format, already validated against corpora far larger than this one.
+hayro-jbig2 = { version = "0.3.0", default-features = false, features = ["std"] }
+hayro-jpeg2000 = { version = "0.4.0", default-features = false, features = ["std"] }
+
+# The whole `hayro` renderer, used by `tools/hayro-compare` and by nothing else. It is the
+# only other feature-complete pure-Rust PDF rasteriser, which makes it two things this
+# project has not had: a fourth opinion for the oracle, and a speed baseline measured in the
+# same language under the same safety rules. It is *not* an independent reference — see
+# `Reference::Hayro` for the list of crates we share with it — and it never enters a shipped
+# binary.
+hayro = "0.7.1"
+
+# Sandboxing. `rustix` is used for the resource limits and for polling the worker's pipe
+# with a deadline; `libc` only for its system-call *numbers*, which are constants.
 landlock = "0.4.6"
 seccompiler = "0.5.0"
+rustix = { version = "1.1.4", default-features = false, features = [
+    "std",
+    "process",
+    "event",
+] }
+libc = "0.2.180"
 
 # Development-only. Cargo has no `workspace.dev-dependencies`; these are declared
 # here and referenced from a member's `[dev-dependencies]` with `workspace = true`.
