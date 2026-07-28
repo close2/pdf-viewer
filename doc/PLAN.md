@@ -8,16 +8,17 @@ Project principles live in `/CLAUDE.md` and take precedence over anything here.
 | Area | Decision | Notes |
 |---|---|---|
 | Language | Rust | Eliminates the dominant CVE class in PDF viewers |
-| Images | `zune-jpeg` + in-tree sample unpacking | JBIG2/JPX deferred to the sandbox |
+| Images | `zune-jpeg`, `hayro-jbig2`, `hayro-jpeg2000` | All pure Rust; JBIG2/JPX decode in the sandbox (ADR 0014) |
 | Rasterizer | **CPU first, GPU behind a trait** | `tiny-skia` → `vello`/wgpu (ADR 0002) |
-| Fonts | `skrifa` | Memory-safe FreeType replacement; Type1/Type3 in-tree |
+| Fonts | `skrifa` | Memory-safe FreeType replacement; Type1 in-tree, Type 3 in `pdf-model` (its glyphs are content streams) |
 | Windowing | `winit` | Qt dropped — see below |
 | Dialogs | `ashpd` (XDG portal) | Native KDE dialogs without a Qt dependency |
 | Accessibility | `AccessKit` | AT-SPI on Linux |
 | Parallelism | `rayon` | Tiles, image decode, thumbnails — not the parser |
 | Deflate | `flate2` + `zlib-rs` | Pure Rust at ~C speed |
 | Spec model | Arlington PDF Model | Generated validation layer, see §5 |
-| Sandbox | seccomp-BPF + Landlock | Renderer holds no fd, no network |
+| Sandbox | seccomp-BPF + Landlock | **Built.** Image codecs run in it; `--no-sandbox` opts out |
+| Speed baseline | `hayro` (`tools/hayro-compare`) | The only other pure-Rust renderer, so a fair comparison — see §4a |
 
 ### Rationale, condensed
 
@@ -55,10 +56,19 @@ glyphs — the producer shaped them at authoring time. Re-shaping would move gly
 from where the document specifies, breaking fidelity precisely on complex-script
 documents. Reconsider only for text we generate ourselves.
 
-**Image codecs.** `zune-jpeg` / `zune-png` cover the common cases in pure Rust. **JBIG2 and
-JPEG2000 have no mature pure-Rust implementation** and are historically severe attack
-surfaces (FORCEDENTRY was a JBIG2 integer overflow). If C libraries are wrapped there,
-they must live in the sandboxed process — these two decoders alone justify the sandbox.
+**Image codecs.** `zune-jpeg` / `zune-png` cover the common cases in pure Rust.
+
+This paragraph used to say that **JBIG2 and JPEG 2000 have no mature pure-Rust
+implementation**, that they are historically severe attack surfaces (FORCEDENTRY was a JBIG2
+integer overflow), and that *these two decoders alone justify the sandbox*. The first clause
+stopped being true: `hayro-jbig2` and `hayro-jpeg2000` are pure-Rust decoders, both
+`#![forbid(unsafe_code)]`, and both are now used, with `default-features = false` so that
+their optional SIMD backend — the only `unsafe` either would reach — stays out of the tree.
+
+The sandbox was built anyway, and both codecs run inside it, but the justification changed
+and is worth restating honestly: it is panic containment, an enforceable memory ceiling, and
+the architecture principle 3 already required — not the containment of C. See ADR 0014,
+which records what the dependency costs as well as what it buys.
 
 ## 2. Workspace layout
 
@@ -68,7 +78,7 @@ pdf-viewer/
 │  ├─ pdf-spec/       # Arlington codegen output + validation  [forbid(unsafe_code)]
 │  ├─ pdf-syntax/     # lexer, objects, xref, streams          [forbid(unsafe_code)]
 │  ├─ pdf-model/      # document model, page tree              [forbid(unsafe_code)]
-│  ├─ pdf-font/       # skrifa integration, Type1/Type3        [forbid(unsafe_code)]
+│  ├─ pdf-font/       # skrifa integration, §9.6.5.2/§9.6.5.4  [forbid(unsafe_code)]
 │  ├─ pdf-render/     # display list, backend trait            [forbid(unsafe_code)]
 │  ├─ render-cpu/     # tiny-skia backend — oracle + startup path
 │  ├─ render-gpu/     # vello/wgpu backend              [unsafe allowed]
@@ -147,7 +157,15 @@ that admits the gap.
 - **C.** ~~Arlington TSV → generated validation tables.~~ **Done.** 611 objects, 3973 key
   rows, `static` tables generated in ~0.5 s with zero startup cost. Verified against ISO
   32000-2 tables 29 and 31. 12 tests. See ADR 0003.
-- **D.** Sandboxed child process returning a tile over shared memory.
+- **D.** ~~Sandboxed child process.~~ **Done.** `pdf-sandbox` starts a confined worker on
+  first use: resource limits, a Landlock domain permitting nothing, and a seccomp-BPF
+  allow-list of 23 system calls with `KillProcess` for everything else. JBIG2 and JPEG 2000
+  decode inside it. Confinement is tested by re-executing the test binary as a probe that
+  tries to open a file and to bind a socket — both die by `SIGSYS` — and both probes were
+  confirmed to *pass* when lockdown is removed. Requests cross pipes rather than shared
+  memory: a copy is under a millisecond and shared memory would need `unsafe`, which the
+  crate that exists to contain dangerous code should not be the first to spend. 9 tests.
+  See ADR 0014.
 - **E.** ~~Harness end-to-end.~~ **Done.** `tools/pdfref` with the triangulation rule,
   size normalisation, failure artefacts and a divergence-survey CLI. Our CPU render is
   byte-identical to mupdf on the fixture. 15 tests. See ADR 0005.
@@ -157,12 +175,29 @@ that admits the gap.
 Three independent reference implementations are installed; their *agreement* is the
 evidence we rely on.
 
-| Renderer | Command | Version |
-|---|---|---|
-| poppler | `pdftoppm -r 150 -png -aa yes` | 26.07.0 |
-| mupdf | `mutool draw -r 150 -o out.png` | 1.28.0 |
-| ghostscript | `gs -sDEVICE=png16m -r150` | 10.07.1 |
-| pdfium | *to add (AUR)* | de-facto standard — Chrome's renderer |
+| Renderer | Command | Version | Votes? |
+|---|---|---|---|
+| poppler | `pdftoppm -r 150 -png -aa yes` | 26.07.0 | yes |
+| mupdf | `mutool draw -r 150 -o out.png` | 1.28.0 | yes |
+| ghostscript | `gs -sDEVICE=png16m -r150` | 10.07.1 | yes |
+| hayro | `pdfref-hayro` (ours, wrapping the crate) | 0.7.1 | **no — see below** |
+| pdfium | *to add (AUR)* | de-facto standard — Chrome's renderer | would |
+
+### Independence is a property of a renderer, and it is now in the type
+
+The word "independent" above was an assumption for six sessions and then cost something.
+`mupdf` and `ghostscript` **both link `jbig2dec`**: on a page whose image is JBIG2 they are
+one implementation, and the gate duly reported seven pages as contradicting us where in fact
+`jbig2dec` renders a blank page or one strewn with noise. `Reference::independence` now
+records this, and `Reference::voting` is what the gate iterates, so a renderer that cannot
+supply evidence cannot silently be counted as supplying it.
+
+`hayro` is added on the same principle and never votes. It shares `skrifa`, `flate2`,
+`zune-jpeg`, `hayro-jbig2` and `hayro-jpeg2000` with us — not one format's decoder but the
+substrate of nearly every page — so there is no useful subset on which its agreement would
+be evidence. It is rendered for the artefacts of pages that are *not* agreement, which is
+where a fourth reading actually helps, and it is the only renderer this project can compare
+its **speed** against without confounding the language.
 
 ### Expect inexact agreement
 
@@ -205,8 +240,8 @@ This is what keeps the suite trustworthy enough to stay enabled.
 
 **Now running over the whole corpus, with the bound taken from the references themselves.**
 `crates/pdf-model/tests/oracle.rs` applies the rule to every page of the 974 pdf.js corpus
-documents and page one of the 14 specification PDFs — 1794 pages — in 125 seconds, of which
-1596 seconds of processor time is the three external renderers and 149 is ours. Consensus is
+documents and page one of the 14 specification PDFs — 1794 pages — in 79 seconds, of which
+some 1020 seconds of processor time is the three external renderers and about 48 is ours. Consensus is
 still decided by the fixed tolerance, but *our* deviation is judged
 against twice the disagreement the consensus references show among themselves on that page:
 a fixed number cannot serve both a page of flat fills, where they agree to a worst tile of
@@ -239,6 +274,84 @@ demand, not committed.
 Where all open-source renderers are jointly wrong, Acrobat is the gold standard and is not
 scriptable on Linux — keep a small manually-captured Acrobat golden set.
 
+## 4a. hayro, and what it changes
+
+`hayro` is a nine-crate pure-Rust PDF renderer published to crates.io. This project already
+depends on three of its crates for JBIG2, JPEG 2000 and CCITT (ADR 0014), so the relationship
+needs stating rather than leaving implicit. `doc/hayro vs this project.md` has the long
+version; what belongs in a plan is what it changes. (Two of its figures have since moved:
+the oracle contradicts us on **108 of 1426** pages rather than 120 of 1340, and **665 of
+974** first pages report nothing rather than 587 — the second having fallen from 705 as Type
+3 fonts and unusable substitutes started reporting. Its analysis is unaffected.)
+
+**It is a library and this is an application.** That explains most of the differences and it
+sets where the differentiators have to be: startup latency, the sandbox, the GPU path, the
+viewer itself, and a correctness standard anchored to the specification rather than to
+consensus with other implementations. That is roughly what `CLAUDE.md` already says.
+
+**It is ahead on feature completeness, and not narrowly.** Its regression suite is 1000+
+PDFs and it has closed things we have written down as gaps: transparency groups, encryption,
+predefined `CMap`s (a whole crate, `hayro-cmap`), Type1 and Type3 fonts, optional content.
+Our own oracle contradicts us on 108 of 1426 pages we claim to draw.
+
+**Where the direction of inference must not reverse.** `hayro-jbig2` and `hayro-jpeg2000`
+are dependencies implementing ITU-T T.88 and T.800, with exactly the status `zune-jpeg` has
+for `DCTDecode` and `skrifa` has for fonts. Principle 5 is unchanged by adopting them: if one
+disagrees with its standard, the answer is an upstream issue, never a local workaround and
+never a revised expectation. Treating "what hayro does" as the definition of done is the
+inference direction `CLAUDE.md` forbids, and adopting three of its crates makes that
+temptation stronger rather than weaker.
+
+### Items taken from the comparison
+
+1. **`CCITTFaxDecode` through `hayro-ccitt`.** Already in the dependency tree as
+   `hayro-jbig2`'s MMR decoder, so the last absent image codec is nearly free: an arm in
+   `image.rs` and the `Bilevel` round trip JBIG2 already uses. 5 corpus first pages.
+2. **Their crate boundaries are worth copying where ours are missing.** `hayro-cmap` as its
+   own crate is a better shape than our "embedded `CMap`s are 14 documents in the text gap":
+   a `CMap` parser is self-contained, independently testable and independently fuzzable,
+   which is the argument that made `pdf-syntax` separate from `pdf-model` in the first place.
+3. **The `simd` feature pattern.** `hayro-jpeg2000` defaults vectorisation on and documents
+   that turning it off "eliminates any usage of unsafe in this crate as well as its
+   dependencies". The consumer picks the point on the curve and the cost is stated at both
+   ends. If anything here is ever vectorised, that is the shape — and it fits the rule that
+   an optimisation carries the benchmark that justifies it. `--no-sandbox` is the same idea
+   on a different axis.
+4. **A published-crate discipline.** `missing_docs` is already enforced; actually publishing
+   `pdf-syntax` would force the API to be defensible to someone who is not us.
+5. **Corpus scale.** 20 000 images scraped from real PDFs for one codec is an order of
+   magnitude past our 974 documents. Trap 8 says a corpus finds what documents contain rather
+   than what the specification says; the converse is also true, and 974 is a small sample of
+   what producers emit.
+
+### Speed, measured rather than assumed
+
+`tools/hayro-compare` exists for this. Both renderers are Rust, both forbid unsafe, both
+rasterise on the CPU single-threaded, so what a timing difference measures is the code rather
+than the language — which is not true of any of the other three references.
+
+Over 698 corpus pages we claim to draw completely, best of three passes, alternating:
+
+| | before | after two fixes |
+|---|---|---|
+| total, ours | 22.8 s | **7.1 s** |
+| total, hayro | 38.6 s | 41.8 s |
+| **median page** | 1.61× slower | **1.62× slower** |
+| worst page | 225× slower | 34× slower |
+| pages we are faster on | 117 of 698 | 116 of 698 |
+
+Two statements, both true, and they answer different questions. **In aggregate we are now
+5.9× faster**, because `hayro`'s distribution has a long tail and ours no longer does. **On
+the median page we are still 1.62× slower**, and that number did not move, because the two
+fixes were to outliers. The typical corpus page is small and text-heavy, and nothing has yet
+been profiled there — that is the next measurement, not the next optimisation.
+
+The two fixes were found with `callgrind` and are written up in "Where the time went" in
+`doc/HANDOVER.md`: a per-pixel unpacking loop that cost more than the JPEG codec it was
+unpacking, and a mesh-subdivision criterion missing a size term. Both follow the standing
+rule — an optimisation must be justified by a benchmark and explained by a comment — and the
+second improved fidelity as well as speed, which the oracle measured.
+
 ## 5. Arlington PDF Model
 
 Cloned at `doc/arlington-pdf-model` — 3468 TSVs, with `tsv/2.0/` defining the PDF 2.0
@@ -263,15 +376,21 @@ ADR 0003 for the measured breakdown.
 
 Memory safety is necessary, not sufficient.
 
-- Renderer process: unprivileged, seccomp-BPF + Landlock, no filesystem, no network.
-  Receives bytes over an fd, returns tiles via shared memory. UI process holds the only fd.
+- **Built, for the image codecs.** `pdf-sandbox` confines a worker process with resource
+  limits, Landlock and seccomp-BPF, and JBIG2 and JPEG 2000 decode in it. The worker receives
+  one image's bytes over a pipe and returns samples over another; it never learns which
+  document they came from. `--no-sandbox` decodes in process instead, which is a supported
+  choice for trusted documents and prints what it gives up. The *rest* of the renderer still
+  runs in the main process — that is the remaining half of this item.
 - GPU-touching code ideally its own process — drivers are unsafe C and exploitable.
 - Explicit memory/time budgets against decompression bombs and pathological content.
-- Any C image codec (JBIG2, JPX) confined to the sandboxed process.
+- Any C image codec confined to the sandboxed process. There is currently no C in the tree
+  at all; JBIG2 and JPX are pure Rust (ADR 0014).
 - AcroForm JavaScript, if ever supported, is a separate sandboxing problem. Defer, but
   don't design it out.
 
-Crates: `landlock`, `seccompiler`, `rustix`.
+Crates: `landlock`, `seccompiler`, `rustix`, and `libc` for system-call numbers.
+`pdf-sandbox` is `#![forbid(unsafe_code)]` — all four expose safe interfaces.
 
 ## 7. Environment
 
