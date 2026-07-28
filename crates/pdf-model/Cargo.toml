@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 pdf-font.workspace = true
 pdf-render.workspace = true
+pdf-sandbox.workspace = true
 pdf-spec.workspace = true
 pdf-syntax.workspace = true
 thiserror.workspace = true

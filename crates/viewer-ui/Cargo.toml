@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 pdf-model.workspace = true
 pdf-render.workspace = true
+pdf-sandbox.workspace = true
 pdf-syntax.workspace = true
 pollster.workspace = true
 render-gpu.workspace = true

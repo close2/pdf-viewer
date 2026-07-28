@@ -4,13 +4,26 @@
 //! to know about PDF colour spaces or bit depths — the same reason colours are resolved
 //! before they reach a backend.
 //!
-//! # What is refused, and why that matters here more than elsewhere
+//! # Where the samples come from
 //!
-//! `JBIG2Decode` and `JPXDecode` are not implemented and will not be until the sandbox
-//! exists. Neither has a memory-safe implementation, and JBIG2 in particular is the
-//! codec behind the FORCEDENTRY zero-click exploit. Wrapping a C library for them
-//! *unsandboxed* would undo the main security argument for writing this project in Rust
-//! at all.
+//! Three routes, and which one a stream takes is decided by the codec left on the end of
+//! its filter chain:
+//!
+//! - No codec: the bytes *are* samples, and [`unpack`] reads them at the declared depth.
+//! - `DCTDecode`: `zune-jpeg`, in this process.
+//! - `JBIG2Decode` and `JPXDecode`: [`pdf_sandbox`], which by default decodes them in a
+//!   confined worker process. The samples come back in the form the filter is defined to
+//!   deliver — packed bits for JBIG2, eight-bit components for JPEG 2000 — and everything
+//!   after that is the same code every other image goes through.
+//!
+//! # Two things about the JPEG 2000 route that are easy to get backwards
+//!
+//! ISO 32000-2 §7.4.9 inverts the usual relationship between an image dictionary and its
+//! data. `/ColorSpace` is *optional*, and where it is absent the codestream's own colour
+//! space governs; where it is present the codestream's is ignored. `/BitsPerComponent` is
+//! ignored either way. And `/Decode` is ignored unless the image is a mask. A reader that
+//! treats the dictionary as authoritative for all three, as it is for every other filter,
+//! renders JPEG 2000 images in the wrong colours and cannot tell.
 //!
 //! An image this module cannot decode returns an error naming why, and the interpreter
 //! reports it. Drawing a grey box in its place would be worse: the page would look
@@ -19,7 +32,8 @@
 use std::sync::Arc;
 
 use pdf_render::Image;
-use pdf_syntax::{Dictionary, Document, Object, Stream};
+use pdf_sandbox::{Decoded, Request};
+use pdf_syntax::{Dictionary, Document, ImageStream, Object, Stream};
 
 /// Largest image this will decode, in samples.
 ///
@@ -59,6 +73,16 @@ pub enum ImageError {
     #[error("malformed image: {detail}")]
     Malformed {
         /// What was wrong.
+        detail: String,
+    },
+    /// A codec that runs outside this process could not decode the image.
+    ///
+    /// Carries the sandbox's own words, which distinguish the two cases that matter: the
+    /// decoder refused the data, or the worker itself could not be reached or died. The
+    /// second is a deployment problem and reads like one.
+    #[error("{detail}")]
+    Sandboxed {
+        /// What the sandbox reported.
         detail: String,
     },
 }
@@ -122,24 +146,26 @@ pub fn decode(
     // colour space of its own.
     let is_mask = matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true));
 
-    // The last filter decides how the samples arrive. `decoded_stream_data` already ran
-    // the non-image filters, so a remaining image codec means it stopped there.
-    let final_filter = image_filter(document, dict);
+    // Every filter before the codec has run; the codec, if there is one, has not.
+    let source = document
+        .image_stream(stream)
+        .ok_or_else(|| ImageError::Malformed {
+            detail: "stream did not decode".to_owned(),
+        })?;
 
-    let rgba = match final_filter.as_deref() {
-        Some(b"DCTDecode" | b"DCT") => decode_jpeg(stream, width, height)?,
+    let (rgba, opacity_came_with_the_samples) = match source.codec.as_deref() {
+        Some(b"DCTDecode" | b"DCT") => (decode_jpeg(&source.data, width, height)?, false),
+        Some(b"JBIG2Decode") => (
+            decode_jbig2(document, dict, &source, width, height, is_mask, fill)?,
+            false,
+        ),
+        Some(b"JPXDecode") => decode_jpx(document, dict, &source, width, height, is_mask, fill)?,
         Some(other) => {
             return Err(ImageError::UnsupportedFilter {
                 filter: String::from_utf8_lossy(other).into_owned(),
             });
         }
         None => {
-            let data =
-                document
-                    .decoded_stream_data(stream)
-                    .ok_or_else(|| ImageError::Malformed {
-                        detail: "stream did not decode".to_owned(),
-                    })?;
             let bits = if is_mask {
                 1
             } else {
@@ -156,15 +182,18 @@ pub fn decode(
             } else {
                 colour_space(document, dict)?
             };
-            unpack(
-                &data,
-                width,
-                height,
-                bits,
-                &space,
-                decode_inverts(document, dict),
-                fill,
-            )?
+            (
+                unpack(
+                    &source.data,
+                    width,
+                    height,
+                    bits,
+                    &space,
+                    decode_inverts(document, dict),
+                    fill,
+                )?,
+                false,
+            )
         }
     };
 
@@ -173,31 +202,14 @@ pub fn decode(
         height,
         data: Arc::from(rgba.as_slice()),
     };
+    if opacity_came_with_the_samples {
+        // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
+        // the image samples, `/SMask` "shall not be present", and the embedded mask
+        // overrides any that is. Applying one on top would multiply two alphas together.
+        return Ok(image);
+    }
     // Applied last so a soft mask cannot resurrect an inconsistent buffer.
-    let image = apply_soft_mask(document, dict, image);
-    Ok(image)
-}
-
-/// Returns the image codec left on the stream, if any.
-///
-/// A chain such as `[/FlateDecode /DCTDecode]` is unusual but legal; only the last entry
-/// can be an image codec.
-fn image_filter(document: &Document, dict: &Dictionary) -> Option<Vec<u8>> {
-    let filter = document.get_key(dict, "Filter");
-    let last = match filter {
-        Object::Name(name) => name.as_bytes().to_vec(),
-        Object::Array(items) => items
-            .last()
-            .map(|item| document.resolve(item))
-            .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec()))?,
-        _ => return None,
-    };
-
-    matches!(
-        last.as_slice(),
-        b"DCTDecode" | b"DCT" | b"JPXDecode" | b"JBIG2Decode" | b"CCITTFaxDecode" | b"CCF"
-    )
-    .then_some(last)
+    Ok(apply_soft_mask(document, dict, image))
 }
 
 /// Reads a required positive integer.
@@ -443,15 +455,318 @@ fn channel(value: f32) -> u8 {
     }
 }
 
+/// Decodes a JBIG2 image through the sandbox.
+///
+/// ISO 32000-2 §7.4.7. The stream carries the segments for one page; `/JBIG2Globals` in the
+/// filter's own `/DecodeParms` (Table 12) carries the page-0 segments, which several images
+/// may share — a scanned book's symbol dictionary is written once and referenced by every
+/// page, which is most of why JBIG2 compresses text so well.
+///
+/// What comes back is packed one bit per pixel in `DeviceGray`'s sense, so it feeds
+/// [`unpack`] exactly as any other 1-bit image does.
+fn decode_jbig2(
+    document: &Document,
+    dict: &Dictionary,
+    source: &ImageStream,
+    width: u32,
+    height: u32,
+    is_mask: bool,
+    fill: pdf_render::Color,
+) -> Result<Vec<u8>, ImageError> {
+    // A globals stream that will not decode is reported rather than skipped: without its
+    // symbol dictionary the page would decode to blank or to nothing, and "the image is
+    // empty" is a far worse answer than "the image needs a stream I could not read".
+    let globals = match source
+        .parms
+        .as_ref()
+        .map(|parms| document.get_key(parms, "JBIG2Globals"))
+    {
+        Some(Object::Stream(stream)) => Some(document.decoded_stream_data(&stream).ok_or_else(
+            || ImageError::Malformed {
+                detail: "/JBIG2Globals did not decode".to_owned(),
+            },
+        )?),
+        _ => None,
+    };
+
+    let decoded = pdf_sandbox::decode(&Request::Jbig2 {
+        data: &source.data,
+        globals: globals.as_deref().unwrap_or_default(),
+    })
+    .map_err(|error| ImageError::Sandboxed {
+        detail: error.to_string(),
+    })?;
+    let Decoded::Bilevel(bilevel) = decoded else {
+        return Err(ImageError::Malformed {
+            detail: "JBIG2 did not decode to bilevel samples".to_owned(),
+        });
+    };
+
+    // The page information segment and the image dictionary both state the size. They must
+    // agree, because the display list carries the dictionary's and the samples carry the
+    // segment's.
+    if (bilevel.width, bilevel.height) != (width, height) {
+        return Err(ImageError::Malformed {
+            detail: format!(
+                "JBIG2 page is {}x{} but the dictionary says {width}x{height}",
+                bilevel.width, bilevel.height
+            ),
+        });
+    }
+
+    let space = if is_mask {
+        ColourSpace::Mask
+    } else {
+        colour_space(document, dict)?
+    };
+    unpack(
+        &bilevel.rows,
+        width,
+        height,
+        1,
+        &space,
+        decode_inverts(document, dict),
+        fill,
+    )
+}
+
+/// Decodes a JPEG 2000 image through the sandbox.
+///
+/// ISO 32000-2 §7.4.9. Returns the samples and whether an opacity channel came with them,
+/// which decides whether an `/SMask` may still be applied.
+fn decode_jpx(
+    document: &Document,
+    dict: &Dictionary,
+    source: &ImageStream,
+    width: u32,
+    height: u32,
+    is_mask: bool,
+    fill: pdf_render::Color,
+) -> Result<(Vec<u8>, bool), ImageError> {
+    // Resolved before the request, because whether the codestream's own palette should be
+    // applied depends on it: §7.4.9 gives `/ColorSpace` precedence over every colour
+    // specification in the JPEG 2000 data, a palette included.
+    let declared = document.get_key(dict, "ColorSpace");
+    let declared_space = if matches!(declared, Object::Null) {
+        None
+    } else {
+        Some(
+            crate::colour::ColourSpace::parse(document, &declared, &Dictionary::new()).ok_or_else(
+                || ImageError::UnsupportedColourSpace {
+                    space: space_name(&declared),
+                },
+            )?,
+        )
+    };
+    let indices = matches!(
+        declared_space,
+        Some(crate::colour::ColourSpace::Indexed { .. })
+    );
+
+    let decoded = pdf_sandbox::decode(&Request::Jpx {
+        data: &source.data,
+        indices,
+    })
+    .map_err(|error| ImageError::Sandboxed {
+        detail: error.to_string(),
+    })?;
+    let Decoded::Raster(raster) = decoded else {
+        return Err(ImageError::Malformed {
+            detail: "JPEG 2000 did not decode to component samples".to_owned(),
+        });
+    };
+
+    // §7.4.9: "Width and Height shall match the corresponding width and height values in
+    // the JPEG 2000 data."
+    if (raster.width, raster.height) != (width, height) {
+        return Err(ImageError::Malformed {
+            detail: format!(
+                "JPEG 2000 image is {}x{} but the dictionary says {width}x{height}",
+                raster.width, raster.height
+            ),
+        });
+    }
+
+    // §8.9.5.4 code 1 and 2 both mean the samples carry opacity; 2 additionally means the
+    // colour components were multiplied by it. Absent or 0 means ignore any that is there.
+    let smask_in_data = document
+        .get_key(dict, "SMaskInData")
+        .as_integer()
+        .unwrap_or(0);
+    let use_opacity = smask_in_data != 0 && raster.has_opacity;
+    let premultiplied = smask_in_data == 2;
+
+    if is_mask {
+        // §7.4.9: "If ImageMask is true, the JPEG 2000 data shall provide a single colour
+        // channel with 1-bit samples." Those samples arrive scaled to eight bits, so the
+        // two values are 0 and 255 and the threshold between them is anywhere in between.
+        let samples: Vec<u8> = raster
+            .data
+            .chunks(raster.channels())
+            .map(|pixel| u8::from(pixel.first().is_some_and(|value| *value >= 128)))
+            .collect();
+        let packed = pack_bits(&samples, width, height);
+        return Ok((
+            unpack(
+                &packed,
+                width,
+                height,
+                1,
+                &ColourSpace::Mask,
+                decode_inverts(document, dict),
+                fill,
+            )?,
+            use_opacity,
+        ));
+    }
+
+    let space = match declared_space {
+        Some(space) => space,
+        None => codestream_colour_space(&raster)?,
+    };
+    if space.components() != usize::from(raster.components) {
+        return Err(ImageError::Malformed {
+            detail: format!(
+                "the colour space takes {} components but the codestream has {}",
+                space.components(),
+                raster.components
+            ),
+        });
+    }
+
+    Ok((
+        jpx_samples_to_rgba(&raster, &space, use_opacity, premultiplied),
+        use_opacity,
+    ))
+}
+
+/// Converts decoded JPEG 2000 samples into straight-alpha RGBA8.
+fn jpx_samples_to_rgba(
+    raster: &pdf_sandbox::Raster,
+    space: &crate::colour::ColourSpace,
+    use_opacity: bool,
+    premultiplied: bool,
+) -> Vec<u8> {
+    // An `Indexed` space takes an *index*, not a fraction: `to_rgb` rounds its input and
+    // looks it up. Every other space takes components in 0..1.
+    let scale = if matches!(space, crate::colour::ColourSpace::Indexed { .. }) {
+        1.0
+    } else {
+        1.0 / 255.0
+    };
+
+    let channels = raster.channels();
+    let components = usize::from(raster.components);
+    let pixels = (raster.width as usize).saturating_mul(raster.height as usize);
+    let mut out = Vec::with_capacity(pixels.saturating_mul(4));
+    let mut values = vec![0f32; components];
+    for pixel in raster.data.chunks(channels) {
+        let alpha = if use_opacity {
+            pixel.get(components).copied().unwrap_or(255)
+        } else {
+            255
+        };
+        for (slot, sample) in values.iter_mut().zip(pixel.iter()) {
+            *slot = f32::from(*sample) * scale;
+        }
+        if premultiplied && alpha != 0 {
+            // Straight alpha is what `Image` documents and what both backends expect, so the
+            // multiplication the producer did has to be undone here rather than compensated
+            // for later. A zero alpha leaves the components alone: the colour under a fully
+            // transparent pixel is not recoverable and not visible.
+            let opacity = f32::from(alpha) / 255.0;
+            for slot in &mut values {
+                *slot /= opacity;
+            }
+        }
+        let colour = space.to_rgb(&values);
+        out.extend_from_slice(&[
+            channel(colour.r),
+            channel(colour.g),
+            channel(colour.b),
+            alpha,
+        ]);
+    }
+    out
+}
+
+/// Chooses the colour space a JPEG 2000 codestream says its samples are in.
+///
+/// Reached only when the image dictionary has no `/ColorSpace`; where it has one, §7.4.9
+/// gives it the last word — "any colour space specifications in the JPEG 2000 data shall be
+/// ignored". Where the codestream's own answer cannot be used — an ICC profile this crate
+/// cannot evaluate, or a space it does not recognise — the same clause names the fallback:
+/// `DeviceGray`, `DeviceRGB` or `DeviceCMYK` according to whether there are 1, 3 or 4
+/// ordinary channels.
+fn codestream_colour_space(
+    raster: &pdf_sandbox::Raster,
+) -> Result<crate::colour::ColourSpace, ImageError> {
+    let by_channel_count = || match raster.components {
+        1 => Ok(crate::colour::ColourSpace::Gray),
+        3 => Ok(crate::colour::ColourSpace::Rgb),
+        4 => Ok(crate::colour::ColourSpace::Cmyk),
+        other => Err(ImageError::UnsupportedColourSpace {
+            space: format!("{other} JPEG 2000 channels"),
+        }),
+    };
+
+    match &raster.colour {
+        pdf_sandbox::Colour::Gray => Ok(crate::colour::ColourSpace::Gray),
+        pdf_sandbox::Colour::Rgb => Ok(crate::colour::ColourSpace::Rgb),
+        pdf_sandbox::Colour::Cmyk => Ok(crate::colour::ColourSpace::Cmyk),
+        pdf_sandbox::Colour::Icc(profile) => {
+            crate::icc::Profile::parse(profile).map_or_else(by_channel_count, |profile| {
+                Ok(crate::colour::ColourSpace::Icc {
+                    profile: Box::new(profile),
+                })
+            })
+        }
+        pdf_sandbox::Colour::Unknown => by_channel_count(),
+    }
+}
+
+/// Names a colour space object for a report.
+///
+/// Its family, not its contents: a report saying `Indexed` is what a reader needs, and one
+/// that printed the whole lookup table would bury it.
+fn space_name(space: &Object) -> String {
+    match space {
+        Object::Name(name) => String::from_utf8_lossy(name.as_bytes()).into_owned(),
+        Object::Array(items) => items.first().and_then(Object::as_name).map_or_else(
+            || "an empty array".to_owned(),
+            |name| String::from_utf8_lossy(name.as_bytes()).into_owned(),
+        ),
+        other => format!("{other:?}"),
+    }
+}
+
+/// Packs one-bit samples into rows, most significant bit first.
+///
+/// The inverse of what [`unpack`] reads, so that a codec delivering a byte per pixel can
+/// still take the ordinary 1-bit path rather than growing a parallel one.
+fn pack_bits(samples: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let row_bytes = (width as usize).saturating_add(7) / 8;
+    let mut packed = vec![0u8; row_bytes.saturating_mul(height as usize)];
+    for y in 0..(height as usize) {
+        for x in 0..(width as usize) {
+            let index = y.saturating_mul(width as usize).saturating_add(x);
+            if samples.get(index).copied().unwrap_or(0) != 0 {
+                let at = y.saturating_mul(row_bytes).saturating_add(x / 8);
+                if let Some(byte) = packed.get_mut(at) {
+                    *byte |= 0x80u8 >> (x % 8);
+                }
+            }
+        }
+    }
+    packed
+}
+
 /// Decodes a baseline JPEG.
-fn decode_jpeg(stream: &Stream, width: u32, height: u32) -> Result<Vec<u8>, ImageError> {
-    // The raw stream bytes: `DCTDecode` is the last filter, so nothing else has consumed
-    // them. A chain with an earlier filter would need that filter run first, which is why
-    // only the single-filter case reaches here.
+fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageError> {
     // `ZCursor` is the reader `zune-jpeg` wants; a bare slice does not implement its
     // trait because the decoder needs to seek.
     let mut decoder =
-        zune_jpeg::JpegDecoder::new(zune_jpeg::zune_core::bytestream::ZCursor::new(&stream.data));
+        zune_jpeg::JpegDecoder::new(zune_jpeg::zune_core::bytestream::ZCursor::new(data));
     decoder
         .decode_headers()
         .map_err(|e| ImageError::Malformed {
@@ -480,25 +795,37 @@ fn decode_jpeg(stream: &Stream, width: u32, height: u32) -> Result<Vec<u8>, Imag
         });
     }
 
-    let mut out = Vec::with_capacity(count.saturating_mul(4));
-    for index in 0..count {
-        let at = index.saturating_mul(components);
-        match components {
-            1 => {
-                let value = pixels.get(at).copied().unwrap_or(0);
-                out.extend_from_slice(&[value, value, value, 255]);
+    // Filled with 255 so that alpha is already set and the loops below touch three bytes per
+    // pixel instead of four.
+    //
+    // This loop is written for speed, and the benchmark that says it had to be is worth
+    // recording: on `22060_A1_01_Plans.pdf`, `callgrind` put the *previous* version of it at
+    // 6.89 G instructions, 38% of the whole run and nearly twice what `zune-jpeg` spent
+    // actually decoding the JPEG. The cost was per pixel and structural — a `match` on the
+    // component count inside the loop, three bounds-checked `get`s with `unwrap_or`,
+    // saturating index arithmetic, and an `extend_from_slice` that re-checks capacity every
+    // time. Pairing two `chunks_exact` iterators removes all four: the component count is
+    // decided once, the chunk lengths are known to the compiler, and nothing is indexed.
+    let mut out = vec![255u8; count.saturating_mul(4)];
+    match components {
+        1 => {
+            for (destination, source) in out.chunks_exact_mut(4).zip(pixels.iter()) {
+                if let Some(rgb) = destination.get_mut(..3) {
+                    rgb.fill(*source);
+                }
             }
-            3 => out.extend_from_slice(&[
-                pixels.get(at).copied().unwrap_or(0),
-                pixels.get(at.saturating_add(1)).copied().unwrap_or(0),
-                pixels.get(at.saturating_add(2)).copied().unwrap_or(0),
-                255,
-            ]),
-            _ => {
-                return Err(ImageError::UnsupportedColourSpace {
-                    space: format!("{components}-component JPEG"),
-                });
+        }
+        3 => {
+            for (destination, source) in out.chunks_exact_mut(4).zip(pixels.chunks_exact(3)) {
+                if let Some(rgb) = destination.get_mut(..3) {
+                    rgb.copy_from_slice(source);
+                }
             }
+        }
+        _ => {
+            return Err(ImageError::UnsupportedColourSpace {
+                space: format!("{components}-component JPEG"),
+            });
         }
     }
 

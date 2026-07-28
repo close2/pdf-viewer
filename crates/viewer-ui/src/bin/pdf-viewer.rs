@@ -45,12 +45,41 @@ use winit::window::{Window, WindowId};
 const MAX_PIXELS: u64 = 1 << 28;
 
 fn main() {
-    let Some(path) = std::env::args_os().nth(1) else {
-        eprintln!("usage: pdf-viewer <document.pdf>");
+    // Parsed before anything opens a document, because it decides where that document's
+    // images are decoded and a policy applied halfway through is not a policy.
+    let mut path = None;
+    let mut sandbox = true;
+    for argument in std::env::args_os().skip(1) {
+        if argument == "--no-sandbox" {
+            sandbox = false;
+        } else if path.is_none() {
+            path = Some(argument);
+        } else {
+            eprintln!("unexpected argument: {}", argument.to_string_lossy());
+            std::process::exit(2);
+        }
+    }
+    let Some(path) = path else {
+        eprintln!("usage: pdf-viewer [--no-sandbox] <document.pdf>");
         eprintln!();
         eprintln!("Arrow keys or Page Up/Down change page; Escape quits.");
+        eprintln!();
+        eprintln!("  --no-sandbox  decode JBIG2 and JPEG 2000 images in this process rather than");
+        eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
+        eprintln!("                round trip; appropriate only for documents you trust.");
         std::process::exit(2);
     };
+
+    if !sandbox {
+        pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+        // Said out loud, once, on the way past. Turning the sandbox off is a reasonable
+        // choice for documents you produced yourself and a bad one for documents that
+        // arrived by email, and the difference is not visible from inside the program.
+        println!(
+            "note: --no-sandbox — JBIG2 and JPEG 2000 will be decoded in this process, with \
+             no memory ceiling, and a decoder failure will take the viewer down with it"
+        );
+    }
 
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
