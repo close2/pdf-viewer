@@ -6,6 +6,20 @@
 //!
 //! `pdfium` is a worthwhile fourth, being what Chrome ships and therefore the de facto
 //! standard, but it is not packaged in the main Arch repositories.
+//!
+//! # Independence is a property of the renderer, and it is now recorded
+//!
+//! The word "independent" above was an assumption until it cost something. `mupdf` and
+//! `ghostscript` both link `jbig2dec`, so on a page whose image is JBIG2 they are one
+//! implementation and their agreement is not evidence — seven corpus pages were reported
+//! as contradicting us on that basis, and we were right about all seven. [`Independence`]
+//! now says so in the type, so a reference that cannot vote cannot silently be counted.
+//!
+//! `hayro` is here for the same reason in a stronger form: it is the only other
+//! feature-complete pure-Rust PDF renderer, which makes it a genuinely useful fourth
+//! *opinion* and the only renderer this project can fairly compare its speed against — and
+//! it shares `skrifa`, `flate2`, `zune-jpeg`, `hayro-jbig2` and `hayro-jpeg2000` with us,
+//! which is most of what a page is made of. It never votes.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -32,11 +46,64 @@ pub enum Reference {
     MuPdf,
     /// `gs`, from Ghostscript.
     Ghostscript,
+    /// `hayro`, a pure-Rust renderer, driven through our own `pdfref-hayro`.
+    ///
+    /// Reported, never counted: see [`Independence::Shared`].
+    Hayro,
+}
+
+/// Whether a reference's agreement with us is evidence.
+///
+/// The triangulation rule in [`crate::triangulate`] rests on two implementations being able
+/// to fail *independently*. Where they cannot, agreement means only that the shared code
+/// behaved the same way twice, which is true of any code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Independence {
+    /// Shares no code with this project. Its verdict counts.
+    Independent,
+    /// Shares implementation with this project, so its agreement proves nothing.
+    ///
+    /// Carries the reason, which is printed wherever the reference is, because a reader
+    /// looking at four renders and three votes deserves to know which one abstained and why.
+    Shared(&'static str),
 }
 
 impl Reference {
     /// Every reference the harness knows how to drive.
-    pub const ALL: [Self; 3] = [Self::Poppler, Self::MuPdf, Self::Ghostscript];
+    pub const ALL: [Self; 4] = [Self::Poppler, Self::MuPdf, Self::Ghostscript, Self::Hayro];
+
+    /// Whether this reference's agreement with us is evidence about our reading.
+    ///
+    /// # Why `mupdf` and `ghostscript` are still independent here
+    ///
+    /// They share `jbig2dec`, and only that. On the overwhelming majority of pages — every
+    /// page without a JBIG2 image — they are two implementations of everything that matters.
+    /// Marking them `Shared` wholesale would throw away the evidence of a thousand pages to
+    /// describe seven, so the sharing is recorded where it applies, in `oracle.rs`'s
+    /// `CONTRADICTED_SHARED_JBIG2_DECODER`, rather than here.
+    ///
+    /// `hayro` is the opposite case. What we share with it — the font rasteriser, the
+    /// deflate implementation, the JPEG decoder, and both new image codecs — is not one
+    /// format's decoder but the substrate of nearly every page, so there is no useful subset
+    /// on which it votes.
+    #[must_use]
+    pub fn independence(self) -> Independence {
+        match self {
+            Self::Poppler | Self::MuPdf | Self::Ghostscript => Independence::Independent,
+            Self::Hayro => Independence::Shared(
+                "shares skrifa, flate2, zune-jpeg, hayro-jbig2 and hayro-jpeg2000 with us",
+            ),
+        }
+    }
+
+    /// The references whose agreement counts as evidence.
+    #[must_use]
+    pub fn voting() -> Vec<Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|reference| reference.independence() == Independence::Independent)
+            .collect()
+    }
 
     /// Short name used in reports and artefact filenames.
     #[must_use]
@@ -45,6 +112,7 @@ impl Reference {
             Self::Poppler => "poppler",
             Self::MuPdf => "mupdf",
             Self::Ghostscript => "ghostscript",
+            Self::Hayro => "hayro",
         }
     }
 
@@ -55,6 +123,7 @@ impl Reference {
             Self::Poppler => "pdftoppm",
             Self::MuPdf => "mutool",
             Self::Ghostscript => "gs",
+            Self::Hayro => "pdfref-hayro",
         }
     }
 
@@ -65,6 +134,7 @@ impl Reference {
             Self::Poppler => "poppler (Arch) / poppler-utils (Debian)",
             Self::MuPdf => "mupdf-tools",
             Self::Ghostscript => "ghostscript",
+            Self::Hayro => "cargo build --release -p hayro-compare --bins",
         }
     }
 
@@ -78,16 +148,50 @@ impl Reference {
         match self {
             Self::Poppler | Self::MuPdf => "-v",
             Self::Ghostscript => "--version",
+            // It has no version flag; run with no arguments it prints its usage and exits
+            // non-zero, which `is_available` treats as present, as it does for `mutool`.
+            Self::Hayro => "",
         }
     }
 
-    /// Returns `true` if the executable is on `PATH`.
+    /// Where the executable is, which for our own renderer is not `PATH`.
+    ///
+    /// `pdfref-hayro` is built by this workspace, so it sits beside whatever is running:
+    /// next to the executable, or one directory up, because Cargo puts test binaries in
+    /// `target/<profile>/deps/` and programs in `target/<profile>/`. `PDFREF_HAYRO`
+    /// overrides both. This is the same search `pdf-sandbox` does for its worker and it
+    /// carries the same caveat — see trap 10 in the handover — that Cargo will not rebuild
+    /// another package's binaries for you.
+    #[must_use]
+    pub fn program_path(self) -> PathBuf {
+        if self != Self::Hayro {
+            return PathBuf::from(self.program());
+        }
+        if let Some(named) = std::env::var_os("PDFREF_HAYRO") {
+            return PathBuf::from(named);
+        }
+        let executable = std::env::current_exe().unwrap_or_default();
+        let directory = executable.parent().unwrap_or(Path::new("."));
+        for candidate in [
+            directory.join(self.program()),
+            directory.parent().unwrap_or(directory).join(self.program()),
+        ] {
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+        // Falls back to the bare name so that an installed copy on `PATH` still works, and
+        // so that `is_available` reports absence rather than this function failing.
+        PathBuf::from(self.program())
+    }
+
+    /// Returns `true` if the executable can be run.
     #[must_use]
     pub fn is_available(self) -> bool {
         // Spawning is the test, not the exit status: `Command::status` fails only when
         // the program cannot be run at all. `mutool` with no subcommand exits non-zero
         // while being perfectly present, so judging by status would report it missing.
-        Command::new(self.program())
+        Command::new(self.program_path())
             .arg(self.version_flag())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -267,9 +371,18 @@ impl Reference {
         output: &Path,
     ) -> Command {
         match self {
+            Self::Hayro => {
+                let mut command = Command::new(self.program_path());
+                command
+                    .arg(pdf)
+                    .arg(page.to_string())
+                    .arg(dpi.to_string())
+                    .arg(output);
+                command
+            }
             Self::Poppler => {
                 let prefix = work_dir.join(self.name());
-                let mut command = Command::new(self.program());
+                let mut command = Command::new(self.program_path());
                 command
                     .arg("-r")
                     .arg(dpi.to_string())
@@ -291,7 +404,7 @@ impl Reference {
                 command
             }
             Self::MuPdf => {
-                let mut command = Command::new(self.program());
+                let mut command = Command::new(self.program_path());
                 command
                     .arg("draw")
                     // Its default already, stated so that a change of default cannot
@@ -307,7 +420,7 @@ impl Reference {
                 command
             }
             Self::Ghostscript => {
-                let mut command = Command::new(self.program());
+                let mut command = Command::new(self.program_path());
                 command
                     .arg("-q")
                     .arg("-dNOPAUSE")
