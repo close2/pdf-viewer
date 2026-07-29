@@ -1,4 +1,5 @@
-//! Finding the citations and quotations a Rust source file makes of the standard.
+//! Finding the citations, quotations and table references a Rust source file makes of the
+//! standard.
 //!
 //! `CLAUDE.md` principle 5 asks that every item implementing a normative requirement cite
 //! its clause, and that a load-bearing sentence appear as a rustdoc blockquote under that
@@ -64,6 +65,23 @@ pub struct Quotation {
     pub clause: Option<ClauseNumber>,
 }
 
+/// A reference to one of the standard's numbered tables.
+///
+/// Table numbers are the half of a citation nothing checked until the thirteenth session,
+/// and one was already wrong: `§9.3.6 Table 106` had been copied into four comments, two
+/// tests and a written report, and Table 106 is the text-*positioning* operators. A clause
+/// number that names nothing is caught by the parser; a table number that names the wrong
+/// table looks exactly like a right one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableReference {
+    /// The table number named.
+    pub table: u16,
+    /// The 1-based line it appears on.
+    pub line: usize,
+    /// The clause it is attributed to, or `None` if none is in scope to attribute it to.
+    pub clause: Option<ClauseNumber>,
+}
+
 /// Everything one source file says about the standard.
 #[derive(Debug, Clone, Default)]
 pub struct Scan {
@@ -73,6 +91,8 @@ pub struct Scan {
     pub malformed: Vec<MalformedCitation>,
     /// Every rustdoc blockquote, in file order.
     pub quotations: Vec<Quotation>,
+    /// Every `Table N` reference, in file order.
+    pub tables: Vec<TableReference>,
 }
 
 /// Reads one source file's citations and quotations.
@@ -90,6 +110,7 @@ pub fn scan(source: &str) -> Scan {
     for (index, line) in source.lines().enumerate() {
         let line_number = index.saturating_add(1);
         read_citations(line, line_number, &mut scan);
+        read_tables(line, line_number, cited.as_ref(), &mut scan);
 
         let doc = doc_comment_body(line);
         if let Some(body) = doc {
@@ -177,6 +198,56 @@ fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
                 line: line_number,
             }),
         }
+    }
+}
+
+/// Reads every `Table N` in one line's comment into `scan`.
+///
+/// Only comments are read. `Table` occurs in this tree's own identifiers — `CodeTable` is
+/// one — and a checker that reported those would be a checker people learn to ignore.
+///
+/// A table is attributed to a clause cited on the same line, which is how this tree usually
+/// writes one (`§9.6.4 Table 111`), and otherwise to the clause the enclosing doc comment
+/// last cited. A reference with neither is left unattributed: there is nothing to check it
+/// against, and inventing an attribution would produce a verdict about a clause nobody named.
+fn read_tables(line: &str, line_number: usize, cited: Option<&ClauseNumber>, scan: &mut Scan) {
+    let Some(comment) = line.find("//").and_then(|at| line.get(at..)) else {
+        return;
+    };
+
+    // A clause named on this line is the one the reference belongs to; the running
+    // attribution only applies where this line names none.
+    let here = scan
+        .citations
+        .iter()
+        .rfind(|citation| citation.line == line_number)
+        .map(|citation| citation.number.clone())
+        .or_else(|| cited.cloned());
+
+    for (position, _) in comment.match_indices("Table ") {
+        // `CodeTable 3` is an identifier followed by a number, not a citation.
+        if comment
+            .get(..position)
+            .unwrap_or_default()
+            .ends_with(|character: char| character.is_alphanumeric())
+        {
+            continue;
+        }
+        let digits: String = comment
+            .get(position.saturating_add("Table ".len())..)
+            .unwrap_or_default()
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        let Ok(table) = digits.parse::<u16>() else {
+            continue;
+        };
+
+        scan.tables.push(TableReference {
+            table,
+            line: line_number,
+            clause: here.clone(),
+        });
     }
 }
 
@@ -292,6 +363,34 @@ mod tests {
         let scan = scan(&source);
         assert_eq!(scan.quotations.len(), 1);
         assert_eq!(scan.quotations.first().unwrap().clause, None);
+    }
+
+    #[test]
+    fn a_table_reference_is_read_from_a_comment_and_not_from_code() {
+        let source = format!(
+            "{DOC} {SECTION}9.3.6 Table 104 gives the eight modes.\n\
+             struct CodeTable 3;\n\
+             let x = \"Table 999\";\n"
+        );
+        let scan = scan(&source);
+        assert_eq!(
+            scan.tables,
+            vec![TableReference {
+                table: 104,
+                line: 1,
+                clause: Some(number("9.3.6")),
+            }],
+            "only the comment's reference is a citation: `CodeTable 3` is an identifier and \
+             a string literal is data"
+        );
+    }
+
+    /// A reference nothing attributes is kept, because the alternative is dropping it.
+    #[test]
+    fn a_table_reference_outside_any_citation_is_unattributed_rather_than_skipped() {
+        let scan = scan("// Table 87's default is false.\n");
+        assert_eq!(scan.tables.len(), 1);
+        assert_eq!(scan.tables.first().unwrap().clause, None);
     }
 
     #[test]

@@ -297,6 +297,23 @@ impl ClauseIndex {
         seen
     }
 
+    /// The title of one of the standard's numbered tables, if it has one.
+    ///
+    /// Every table is captioned on a line of its own as `Table 104 -Text rendering modes`,
+    /// which is what makes the number checkable at all — and what makes the *title*
+    /// available to print beside a reference, which is the point. A table number that names
+    /// nothing is a defect this can catch; a table number that names the wrong table reads
+    /// exactly like a right one, and only its title gives it away.
+    #[must_use]
+    pub fn table_title(&self, table: u16) -> Option<&str> {
+        let caption = format!("Table {table} -");
+        self.text.lines().find_map(|line| {
+            line.strip_prefix(&caption)
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+        })
+    }
+
     /// Whether `quotation` occurs verbatim in the text of `number`, subclauses included.
     ///
     /// Compared through [`quote::normalise`], and satisfied if *any* occurrence of the

@@ -15,6 +15,7 @@
               running it"
 )]
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use conformance::clause::ClauseIndex;
@@ -33,7 +34,7 @@ use conformance::quote;
 /// requirement nobody has thought about. Neither gate that renders a page can: a corpus
 /// ranks what documents ask for, and a demand curve cannot rank a requirement no file
 /// exercises.
-const UNREVIEWED_CEILING: usize = 686;
+const UNREVIEWED_CEILING: usize = 673;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///
@@ -64,8 +65,6 @@ const REVIEW_OWED: &[&str] = &[
     "8.7.3.1",
     "8.7.4.5.3",
     "8.10.2",
-    "9.3.6",
-    "9.4.1",
     "9.9.1",
     "10.3.1",
     "12.5",
@@ -168,6 +167,67 @@ fn every_quotation_is_the_standards_own_words() {
 
     assert!(wrong.is_empty(), "\n{wrong}");
     println!("{quotations} quotations, all verbatim within the clause they cite");
+}
+
+/// Every `Table N` a comment names is a table the standard has, and its title is printed.
+///
+/// The clause half of a citation has been checked since the ninth session; the table half
+/// was not, and one was already wrong. Four comments, two tests and a written report said
+/// "§9.3.6 Table 106" for the text rendering modes, which are Table 104 — Table 106 is the
+/// text-*positioning* operators, two subclauses away. The clause existed, the table existed,
+/// and the pair was wrong.
+///
+/// # The stronger rule was tried and does not hold
+///
+/// The obvious check is that the clause cited beside a table reference must be one the
+/// standard discusses that table in. It fails 14 of this tree's references and **all
+/// fourteen are correct writing**: a comment about §9.3.5 that says "Table 103 names exactly
+/// four operators" is naming Table 103 truthfully, and Table 103 belongs to §9.3.1. A
+/// comment routinely cites a clause and names a table from another, because a sentence about
+/// one thing often needs the other. A gate with fourteen exceptions out of twenty-five is
+/// not a gate.
+///
+/// So the assertion is the weaker true one — the number names a table that exists — and the
+/// *title* is printed for every distinct table the tree cites. That listing is what would
+/// have caught the original error in one glance: "Table 106 — Text-positioning operators"
+/// beside a file that is entirely about rendering modes. A checker cannot read a comment's
+/// intent; a person reading eleven lines can.
+#[test]
+fn every_table_reference_names_a_table_the_standard_has() {
+    let root = conformance::workspace_root();
+    let index = ClauseIndex::read(&root.join(conformance::STANDARD)).expect("the standard");
+    let scanned = conformance::scan_tree(&root).expect("the tree's sources");
+
+    let mut wrong = String::new();
+    let mut cited: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
+    for (path, scan) in &scanned {
+        for reference in &scan.tables {
+            let site = format!("{}:{}", path.display(), reference.line);
+            match index.table_title(reference.table) {
+                Some(title) => {
+                    cited
+                        .entry(reference.table)
+                        .or_default()
+                        .insert(title.to_owned());
+                }
+                None => {
+                    let _ = writeln!(
+                        wrong,
+                        "{site}: ISO 32000-2 has no Table {}",
+                        reference.table
+                    );
+                }
+            }
+        }
+    }
+
+    assert!(wrong.is_empty(), "\n{wrong}");
+    println!("{} distinct tables cited by this tree:", cited.len());
+    for (number, titles) in &cited {
+        for title in titles {
+            println!("  Table {number} — {title}");
+        }
+    }
 }
 
 /// The ledger's rows are the standard's subclauses, and every claim in it is well formed.
