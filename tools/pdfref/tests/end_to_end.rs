@@ -202,6 +202,13 @@ fn a_renderer_that_outlives_its_budget_is_killed() {
         message.contains("exceeded"),
         "the budget must be named as the cause, got: {message}"
     );
+    // The variant, not only the wording. `pdfref::cache` decides whether to remember a
+    // failure by matching on it, and a timeout that arrived as `RendererFailed` would be
+    // stored — pinning a page as unrenderable because the machine was busy once.
+    assert!(
+        matches!(error, pdfref::HarnessError::RendererTimedOut { .. }),
+        "a timeout must be its own outcome, got: {error:?}"
+    );
 }
 
 /// The harness must reject a corrupt file rather than silently comparing nothing.
@@ -225,4 +232,115 @@ fn a_corrupt_pdf_is_reported_as_a_renderer_failure() {
         result.is_err(),
         "a file that is not a PDF must be an error, not an empty comparison"
     );
+}
+
+/// A cached reference render must be the render, not a rendering of it.
+///
+/// This is the claim `pdfref::cache` has to earn, and it is checked the only way that
+/// settles it: the same page is rendered without a cache, then with one twice, and all three
+/// rasters must be byte-identical. The middle run is the miss that stores the entry and the
+/// last is the hit that reads it, so a hit that differed in a single pixel — a re-encoding, a
+/// colour type normalised twice, a truncated file trusted — would fail here rather than
+/// quietly moving a verdict in the oracle.
+#[test]
+fn a_hit_reproduces_what_the_renderer_produced() {
+    let work_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pdfref-cache-test");
+    let pdf = fixture(&work_dir);
+
+    let reference = Reference::Poppler;
+    assert!(
+        reference.is_available(),
+        "{reference} is required for this test ({})",
+        reference.package_hint()
+    );
+
+    let uncached = reference
+        .render(&pdf, PAGE_ONE, DPI, &work_dir)
+        .expect("the fixture renders");
+
+    let cache = pdfref::Cache::at(work_dir.join("entries"));
+    cache
+        .clear()
+        .expect("an empty cache directory is removable");
+
+    let missed = cache
+        .render(reference, &pdf, PAGE_ONE, DPI, &work_dir)
+        .expect("the fixture renders");
+    assert_eq!(
+        cache.statistics(),
+        pdfref::cache::Statistics {
+            hits: 0,
+            misses: 1,
+            remembered_timeouts: 0
+        },
+        "the first request for an entry cannot be a hit"
+    );
+
+    let hit = cache
+        .render(reference, &pdf, PAGE_ONE, DPI, &work_dir)
+        .expect("the stored entry is readable");
+    assert_eq!(
+        cache.statistics(),
+        pdfref::cache::Statistics {
+            hits: 1,
+            misses: 1,
+            remembered_timeouts: 0
+        },
+        "the second request for the same entry must be answered from disk"
+    );
+
+    assert_eq!(
+        (uncached.width, uncached.height),
+        (hit.width, hit.height),
+        "a cached render must have the size the renderer produced"
+    );
+    assert_eq!(
+        uncached.data, missed.data,
+        "storing an entry must not change what the caller is given"
+    );
+    assert_eq!(
+        uncached.data, hit.data,
+        "a cached render must be the render, pixel for pixel"
+    );
+
+    // The evidence directory must look the same whether a page was cached or not: the
+    // side-by-side artefacts are what anybody diagnosing a disagreement opens.
+    assert!(
+        work_dir.join(format!("{}.png", reference.name())).is_file(),
+        "a hit must leave the renderer's own output where an uncached run left it"
+    );
+}
+
+/// The page box must be part of what a cache entry is keyed on.
+///
+/// Not a test of hashing — a test that the *signature* the key is built from carries the one
+/// variable this project has already been bitten by. Trap 3 in `doc/HANDOVER.md`: two of the
+/// three renderers default to the media box, which put 54 documents beyond comparison until
+/// they were told otherwise. A cache keyed on a signature that omitted those flags would
+/// answer a corrected invocation with a render made under the old one, and nothing would say
+/// so.
+#[test]
+fn the_cache_key_carries_the_page_box_flags() {
+    let work_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pdfref-signature");
+    let pdf = fixture(&work_dir);
+
+    for (reference, flag) in [
+        (Reference::Poppler, "-cropbox"),
+        (Reference::Ghostscript, "-dUseCropBox"),
+        (Reference::MuPdf, "CropBox"),
+    ] {
+        let signature = reference.command_signature(&pdf, PAGE_ONE, DPI, &work_dir);
+        assert!(
+            signature.iter().any(|word| word == flag),
+            "{reference}'s cache key must carry {flag}, got {signature:?}"
+        );
+        // The two paths that vary by page must not be in it, or every page of every
+        // document would be its own entry and nothing would ever hit.
+        assert!(
+            !signature
+                .iter()
+                .any(|word| word.contains(&*work_dir.to_string_lossy())),
+            "{reference}'s signature must not carry the work directory: {signature:?}"
+        );
+    }
 }

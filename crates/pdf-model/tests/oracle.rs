@@ -70,7 +70,7 @@ use std::time::Instant;
 
 use pdf_render::{Raster, Rasterizer, TargetSpec};
 use pdf_syntax::Document;
-use pdfref::{Judgement, Outcome, Reference, Tolerance, normalise, report};
+use pdfref::{Cache, Judgement, Outcome, Reference, Tolerance, normalise, report};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use render_cpu::CpuRasterizer;
 
@@ -216,19 +216,38 @@ const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
 
 /// Contradicted, where a large image is drawn small.
 ///
-/// 1 page, and it is a hair over the bound: worst tile 9.97 against a bound of 9.95, mean
-/// 0.09, structural similarity 0.9974. `firefox_logo.pdf` draws a 512x543 image into about
-/// a hundred pixels square, and the three references all soften the eight-fold reduction
-/// more than `tiny-skia`'s bilinear filter does — bilinear samples four neighbours whatever
-/// the reduction, so shrinking by eight discards most of the source and leaves a stair-step
-/// on a curved edge. The fix is a filter that averages over the area a destination pixel
-/// covers, which is a rasteriser change and wants a benchmark before it is made.
+/// 2 pages, and the second one changes what this group is worth.
 ///
-/// It is here at all because of a defect fixed this session: the image's filter chain is
-/// `[/FlateDecode /DCTDecode]`, and the JPEG decoder used to be handed the *compressed*
-/// bytes, so the image failed to decode and the page was never compared. See
-/// `Document::image_stream`.
-const CONTRADICTED_IMAGE_RESAMPLING: [&str; 1] = ["firefox_logo.pdf page 1"];
+/// `firefox_logo.pdf` is a hair over the bound: worst tile 9.97 against a bound of 9.95, mean
+/// 0.09, structural similarity 0.9974. It draws a 512x543 image into about a hundred pixels
+/// square, and the three references all soften the eight-fold reduction more than
+/// `tiny-skia`'s bilinear filter does — bilinear samples four neighbours whatever the
+/// reduction, so shrinking by eight discards most of the source and leaves a stair-step on a
+/// curved edge. On that page it is a cosmetic difference, and the item sat in the handover as
+/// "Small, 1 document" for four sessions on that evidence.
+///
+/// **`bug1001080.pdf` is the same defect, and on it the cost is legibility.** Four renderers
+/// draw `pint test` and `Untitled` where we draw `pinL LesL` and `UnLiLLec` — the crossbar of
+/// every `t` is gone. Worst tile 6.28 against a bound of 6.18, structural similarity 0.9986,
+/// and a page a person cannot read: which is the measure's own limitation as much as the
+/// renderer's.
+///
+/// The page has no image on it, and finding that out is the useful part. Its text is set in a
+/// **Type 3 font whose every glyph description is an inline image mask** (§9.6.4 with §8.9.7),
+/// each one `/F /CCF` — Group 4 fax, `/K -1` — so `t` is a 39x53 bitmap drawn through
+/// `0.01 0 0 0.01 0 0 cm` inside a `/FontMatrix` of 1/83 at 9.94 pt, which puts 53 source rows
+/// into about five device ones. The crossbar is one of those rows. `tiny-skia`'s bilinear
+/// filter samples four neighbours whatever the reduction, and at eleven-to-one it never looks
+/// at that row.
+///
+/// The page therefore became comparable in the twelfth session because `CCITTFaxDecode`
+/// landed (§7.4.6), and the thing it exposed is not in §7.4.6 at all. The fix is the one
+/// `firefox_logo.pdf` already asked for — a filter that averages over the area a destination
+/// pixel covers, a rasteriser change in both backends, wanting a benchmark first — but the
+/// argument for it is no longer "0.02 outside the bound on a logo". A glyph reduced eleven
+/// times is text nobody can read.
+const CONTRADICTED_IMAGE_RESAMPLING: [&str; 2] =
+    ["bug1001080.pdf page 1", "firefox_logo.pdf page 1"];
 
 /// Contradicted, and **we are the ones who are right**: a visibility expression.
 ///
@@ -320,7 +339,18 @@ const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 1] = ["issue5070.pdf page 1"]
 /// all — each glyph is a content stream. They were reaching the substitution path, which is
 /// how they came to be filed here, and they now report instead. They left this list by
 /// leaving the comparison, not by getting better.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 25] = [
+///
+/// # Six more left in the twelfth session, and none of them was ever about a font
+///
+/// `hello_world_rotated.pdf` pages 1 to 5 and `issue6019.pdf` page 1 all carry `/Rotate 90`,
+/// and every one of them was drawn **turned by 180°** from what four other renderers produce:
+/// §7.7.3.3's clockwise rotation was built anticlockwise, so 90 and 270 were exchanged. They
+/// were filed here because they also happen to name a font nobody embedded, which is the
+/// caution at the top of this comment arriving in the largest quantity it has yet — a
+/// hypothesis about a group is not a diagnosis of its members, and six of these twenty-five
+/// were one line in `content.rs`. The picture said so in ten seconds; six sessions of counting
+/// had not.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
     "alphatrans.pdf page 1",
     "bad-PageLabels.pdf page 1",
     "bug1671312_reduced.pdf page 1",
@@ -329,14 +359,8 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 25] = [
     "calrgb.pdf page 12",
     "calrgb.pdf page 5",
     "franz_2.pdf page 1",
-    "hello_world_rotated.pdf page 1",
-    "hello_world_rotated.pdf page 2",
-    "hello_world_rotated.pdf page 3",
-    "hello_world_rotated.pdf page 4",
-    "hello_world_rotated.pdf page 5",
     "issue4304.pdf page 1",
     "issue5238.pdf page 1",
-    "issue6019.pdf page 1",
     "issue6108.pdf page 1",
     "issue7580.pdf page 1",
     "issue8088.pdf page 1",
@@ -544,6 +568,13 @@ struct Spent {
     references: std::time::Duration,
 }
 
+impl Spent {
+    /// Both halves, which is what decides whether this page is the run's longest pole.
+    fn total(self) -> std::time::Duration {
+        self.ours.saturating_add(self.references)
+    }
+}
+
 /// One page of one document: the unit this gate compares and ratchets.
 #[derive(Debug, Clone)]
 struct Work {
@@ -560,6 +591,75 @@ impl Work {
             |n| n.to_string_lossy().into_owned(),
         );
         format!("{file} page {}", self.page)
+    }
+}
+
+/// Where the references' answers are remembered between runs.
+///
+/// The references' answers do not change between runs, and asking them again is 95% of this
+/// gate's cost — 1020 seconds of processor time against 46 of ours. See `pdfref::cache` for
+/// the key, which is derived from the invocation itself so that a changed flag cannot be
+/// answered from a render made under the old one, and for why a timeout is the one outcome it
+/// refuses to remember.
+///
+/// `PDFREF_CACHE` names a directory, or `off` to ask the renderers again — which is how the
+/// claim that the cache changes no verdict is checked over the whole corpus rather than only
+/// on the fixture `pdfref`'s own tests use.
+fn reference_cache() -> Cache {
+    let default = Path::new(env!("CARGO_TARGET_TMPDIR")).join("pdfref-cache");
+    match std::env::var("PDFREF_CACHE") {
+        Ok(value) if value.eq_ignore_ascii_case("off") => Cache::disabled(),
+        Ok(value) if !value.trim().is_empty() => Cache::at(value),
+        _ => Cache::at(default),
+    }
+}
+
+/// Which pages this run looks at.
+///
+/// # Why a filter exists on a gate whose whole point is the whole corpus
+///
+/// Because the loop between writing a feature and seeing which pages it moved is what
+/// decides how much gets built, and the two halves of that loop want different things. The
+/// gate wants every page, every time, and gets it — `PDFVIEWER_ORACLE_ONLY` is unset in CI
+/// and a filtered run refuses to check the ratchets at all, because a list held to *equality*
+/// over a subset would report every page the filter excluded as newly fixed.
+///
+/// What a filtered run is for is the other half: having implemented something that affects a
+/// dozen documents, looking at those dozen without waiting for the other nine hundred. With
+/// `pdfref::cache` in place the whole run is cheap enough that this is a convenience rather
+/// than a necessity, which is the right order — the fast path is the complete one.
+#[derive(Debug)]
+struct Selection {
+    /// A substring of the file name, or `None` for everything.
+    pattern: Option<String>,
+}
+
+impl Selection {
+    /// Reads `PDFVIEWER_ORACLE_ONLY`, whose value is a comma-separated list of substrings.
+    fn from_environment() -> Self {
+        Self {
+            pattern: std::env::var("PDFVIEWER_ORACLE_ONLY")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+        }
+    }
+
+    /// The pattern, when the run is filtered at all.
+    fn pattern(&self) -> Option<&str> {
+        self.pattern.as_deref()
+    }
+
+    /// Whether this page is in the run.
+    fn admits(&self, work: &Work) -> bool {
+        let Some(pattern) = &self.pattern else {
+            return true;
+        };
+        let name = work.name();
+        pattern
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .any(|part| name.contains(part))
     }
 }
 
@@ -679,7 +779,7 @@ fn render_ours(work: &Work) -> Result<OurRender, String> {
 }
 
 /// Compares one page against the references.
-fn examine(work: &Work, work_root: &Path, available: &[Reference]) -> Examined {
+fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache) -> Examined {
     let name = work.name();
     let stem = work.path.file_stem().unwrap_or_default().to_string_lossy();
     // One directory per page, so a document's pages cannot overwrite one another's
@@ -713,7 +813,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference]) -> Examined {
 
     let mut references = {
         let started = Instant::now();
-        let rendered = render_references(work, &work_dir, available);
+        let rendered = render_references(work, &work_dir, available, cache);
         spent.references = started.elapsed();
         match rendered {
             Ok(references) => references,
@@ -778,7 +878,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference]) -> Examined {
         //
         // Rendered only for pages worth looking at, which is what keeps it off the gate's
         // critical path: an agreeing page has its whole directory deleted a few lines up.
-        if let Ok(raster) = Reference::Hayro.render(&work.path, work.page, DPI, &work_dir)
+        if let Ok(raster) = cache.render(Reference::Hayro, &work.path, work.page, DPI, &work_dir)
             && raster.width == ours.width
             && raster.height == ours.height
         {
@@ -801,17 +901,41 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference]) -> Examined {
 /// are deliberately damaged, and a renderer refusing one is the correct behaviour — so its
 /// absence is tolerated as long as two remain. Fewer than two is reported with every
 /// failure's own message, because "not comparable" without a reason is not actionable.
+///
+/// # Why the three run in parallel
+///
+/// Because a page's cost is now its slowest reference rather than the sum of three, and one
+/// page in this corpus decides the whole run's wall clock. `bomb_giant.pdf` is a
+/// decompression bomb: `poppler` and `ghostscript` are each given 30 seconds on it and
+/// neither returns, so running them one after another put a minute of pure waiting on the
+/// critical path of a run that is otherwise 27 seconds of processor time spread over 24
+/// cores. Nested inside the outer `par_iter` this is free — rayon's work-stealing has no
+/// notion of a nesting level — and it costs nothing on a page whose references are cached,
+/// which is now nearly all of them.
 fn render_references(
     work: &Work,
     work_dir: &Path,
     available: &[Reference],
+    cache: &Cache,
 ) -> Result<Vec<(Reference, Raster)>, String> {
+    // Order is preserved by `collect` over an indexed parallel iterator, which matters:
+    // `reconcile` reports who disagreed about a page's size by name.
+    let attempts: Vec<(Reference, Result<Raster, String>)> = available
+        .par_iter()
+        .map(|reference| {
+            let rendered = cache
+                .render(*reference, &work.path, work.page, DPI, work_dir)
+                .map_err(|e| format!("{e}"));
+            (*reference, rendered)
+        })
+        .collect();
+
     let mut rendered = Vec::new();
     let mut failures = Vec::new();
-    for reference in available {
-        match reference.render(&work.path, work.page, DPI, work_dir) {
-            Ok(raster) => rendered.push((*reference, raster)),
-            Err(e) => failures.push(format!("{e}")),
+    for (reference, attempt) in attempts {
+        match attempt {
+            Ok(raster) => rendered.push((reference, raster)),
+            Err(detail) => failures.push(detail),
         }
     }
     if rendered.len() < 2 {
@@ -1018,16 +1142,40 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
     }
 
     let work_root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("oracle");
+    let cache = reference_cache();
+
+    let selection = Selection::from_environment();
+    let total = items.len();
+    let items: Vec<Work> = items
+        .into_iter()
+        .filter(|work| selection.admits(work))
+        .collect();
+    assert!(
+        !items.is_empty(),
+        "PDFVIEWER_ORACLE_ONLY={} matched none of the {total} pages",
+        selection.pattern().unwrap_or_default()
+    );
+
     let started = Instant::now();
     let mut results: Vec<Examined> = items
         .par_iter()
-        .map(|work| examine(work, &work_root, &available))
+        .map(|work| examine(work, &work_root, &available, &cache))
         .collect();
     results.sort_by(|a, b| a.name.cmp(&b.name));
     let elapsed = started.elapsed();
 
-    report(&results, elapsed);
+    report(&results, elapsed, &cache);
     println!("artefacts under {}", work_root.display());
+
+    if let Some(pattern) = selection.pattern() {
+        println!(
+            "\nPDFVIEWER_ORACLE_ONLY={pattern} selected {} of {total} pages. The ratchets below \
+             are NOT checked: a list held to equality over a subset would report every page the \
+             filter excluded as fixed.",
+            items.len()
+        );
+        return;
+    }
 
     // Only pages we claim to draw completely are gated: see the module documentation.
     let named = |predicate: &dyn Fn(&Examined) -> bool| -> Vec<&str> {
@@ -1070,7 +1218,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
 /// and a summary that hides which page moved is a summary nobody can act on. Each count is
 /// given twice — over everything, and over the pages we claim to draw completely — because
 /// only the second is gated and conflating them flatters the result.
-fn report(results: &[Examined], elapsed: std::time::Duration) {
+fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
     for examined in results {
         if !matches!(examined.verdict, Verdict::Agrees) {
             println!(
@@ -1106,6 +1254,43 @@ fn report(results: &[Examined], elapsed: std::time::Duration) {
         ours.as_secs_f64(),
         references.as_secs_f64()
     );
+    // Which of those seconds were avoided, and how many were paid. A hit rate below one on
+    // an unchanged tree means something in the key moved — a renderer was updated, or the
+    // corpus was — and that is worth seeing rather than inferring from the clock.
+    let statistics = cache.statistics();
+    println!(
+        "  reference renders: {} from the cache, {} produced ({:.1}% hit rate){}",
+        statistics.hits,
+        statistics.misses,
+        statistics.hit_rate() * 100.0,
+        match cache.root() {
+            Some(root) if cache.is_enabled() => format!(", cached under {}", root.display()),
+            _ => ", caching disabled".to_owned(),
+        }
+    );
+    if statistics.remembered_timeouts > 0 {
+        // Named on its own line because it is the one kind of entry that can be wrong: each
+        // one is a page a reference is not being asked about at all. A count that grows is a
+        // comparison quietly shrinking, which `PDFREF_CACHE=off` re-checks.
+        println!(
+            "  {} of those were remembered timeouts, so that many reference renders did not \
+             happen at all",
+            statistics.remembered_timeouts
+        );
+    }
+
+    // The slowest pages, because a parallel run's wall clock is its longest pole and nothing
+    // else in this report says which page that is. With the references cached the whole run
+    // is a few dozen seconds of processor time spread over every core, and a single document
+    // given 30 seconds by a reference that never returns is then most of what is left.
+    let mut slowest: Vec<&Examined> = results.iter().collect();
+    slowest.sort_by_key(|examined| std::cmp::Reverse(examined.spent.total()));
+    let slowest: Vec<String> = slowest
+        .iter()
+        .take(5)
+        .map(|e| format!("{} {:.1}s", e.name, e.spent.total().as_secs_f64()))
+        .collect();
+    println!("  slowest pages: {}", slowest.join(", "));
 
     let summary = |name: &str, predicate: &dyn Fn(&Examined) -> bool| {
         println!(

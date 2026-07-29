@@ -332,13 +332,55 @@ impl Reference {
                 // itself: a kill that fails means the process is already gone.
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(HarnessError::RendererFailed {
+                // Its own variant rather than a `RendererFailed` whose message says so,
+                // because this is the one outcome here that is not a function of the
+                // document: it depends on what else the machine was doing. `crate::cache`
+                // has to be able to tell it apart from a refusal, which is deterministic.
+                return Err(HarnessError::RendererTimedOut {
                     reference: self,
-                    detail: format!("exceeded {budget:?} and was killed"),
+                    budget,
                 });
             }
             std::thread::sleep(POLL);
         }
+    }
+
+    /// The invocation this reference would run, as text, with the paths that vary removed.
+    ///
+    /// This exists so that [`crate::cache`]'s key can be derived from the command line
+    /// itself rather than from a hand-maintained list of the things that affect it. The
+    /// difference matters: a list has to be updated when `-cropbox` is added, and the
+    /// consequence of forgetting is not a failure but a comparison against a render made
+    /// under the old flag. Deriving the key from [`Self::build_command`] makes that
+    /// impossible by construction — a flag that is not in the signature is a flag that is
+    /// not passed to the renderer either.
+    ///
+    /// Two substitutions keep the signature stable across runs and machines: the document's
+    /// own path becomes `<pdf>`, since the document is in the key by content, and anything
+    /// under `work_dir` becomes `<out>`, since where a page's evidence is written says
+    /// nothing about what was drawn.
+    #[must_use]
+    pub fn command_signature(
+        self,
+        pdf: &Path,
+        page: u32,
+        dpi: u32,
+        work_dir: &Path,
+    ) -> Vec<String> {
+        let output = work_dir.join(format!("{}.png", self.name()));
+        let command = self.build_command(pdf, page, dpi, work_dir, &output);
+        let pdf = pdf.to_string_lossy().into_owned();
+        let work_dir = work_dir.to_string_lossy().into_owned();
+
+        let mut signature = vec![self.program().to_owned()];
+        signature.extend(command.get_args().map(|argument| {
+            let argument = argument.to_string_lossy();
+            if argument == pdf {
+                return "<pdf>".to_owned();
+            }
+            argument.replace(&work_dir, "<out>")
+        }));
+        signature
     }
 
     /// Builds the command line for this renderer.

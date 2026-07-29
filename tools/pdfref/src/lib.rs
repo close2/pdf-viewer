@@ -37,6 +37,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cache;
+pub mod digest;
 pub mod normalise;
 pub mod png_io;
 pub mod reference;
@@ -47,6 +49,7 @@ use std::path::PathBuf;
 use pdf_render::Raster;
 use raster_compare::Comparison;
 
+pub use cache::Cache;
 pub use normalise::Normalisation;
 pub use reference::Reference;
 
@@ -468,6 +471,19 @@ pub enum HarnessError {
         reference: Reference,
         /// What went wrong, including the renderer's own stderr where available.
         detail: String,
+    },
+    /// A reference renderer outlived its budget and was killed.
+    ///
+    /// Separate from [`Self::RendererFailed`] because it is the only failure here that is
+    /// not a property of the document: the same file may render in time on an idle machine
+    /// and not on a loaded one. [`crate::cache`] refuses to remember this outcome for that
+    /// reason.
+    #[error("{reference} exceeded {budget:?} and was killed")]
+    RendererTimedOut {
+        /// Which reference.
+        reference: Reference,
+        /// The budget it outlived.
+        budget: std::time::Duration,
     },
     /// A PNG could not be read or written.
     #[error("PNG error at {}: {message}", path.display())]
