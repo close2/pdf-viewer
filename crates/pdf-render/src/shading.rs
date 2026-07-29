@@ -39,6 +39,82 @@ pub struct Shading {
     pub transform: Transform,
 }
 
+impl Shading {
+    /// Returns this shading with every colour's alpha scaled by `alpha`.
+    ///
+    /// A shading is the one paint whose colours are not a single [`Color`] the caller can
+    /// modify, so a constant alpha has to reach *every* colour it carries or reach none of
+    /// them. ISO 32000-2 §11.6.4.4 makes it every: the alpha constants are a property of the
+    /// graphics state applied to "all other painting operations" — a path filled with a
+    /// shading pattern and an `sh` alike — rather than of the colour being painted.
+    ///
+    /// The clone is deliberate and paid for only where `alpha` is below 1: shadings are
+    /// shared behind an `Arc` because one pattern commonly paints many paths, and a
+    /// half-transparent fill of that pattern is a different paint from an opaque one.
+    #[must_use]
+    pub fn with_alpha(&self, alpha: f32) -> Self {
+        let scale = |colour: &Color| Color {
+            a: colour.a * alpha,
+            ..*colour
+        };
+        let ramp = |ramp: &Ramp| Ramp {
+            colours: ramp.colours.iter().map(scale).collect(),
+        };
+        let kind = match &self.kind {
+            ShadingKind::Axial {
+                start,
+                end,
+                ramp: colours,
+                extend,
+            } => ShadingKind::Axial {
+                start: *start,
+                end: *end,
+                ramp: ramp(colours),
+                extend: *extend,
+            },
+            ShadingKind::Radial {
+                start,
+                start_radius,
+                end,
+                end_radius,
+                ramp: colours,
+                extend,
+            } => ShadingKind::Radial {
+                start: *start,
+                start_radius: *start_radius,
+                end: *end,
+                end_radius: *end_radius,
+                ramp: ramp(colours),
+                extend: *extend,
+            },
+            ShadingKind::Sampled {
+                domain,
+                width,
+                height,
+                pixels,
+            } => ShadingKind::Sampled {
+                domain: *domain,
+                width: *width,
+                height: *height,
+                pixels: pixels.iter().map(scale).collect(),
+            },
+            ShadingKind::Mesh { triangles } => ShadingKind::Mesh {
+                triangles: triangles
+                    .iter()
+                    .map(|triangle| Triangle {
+                        points: triangle.points,
+                        colours: triangle.colours.map(|colour| scale(&colour)),
+                    })
+                    .collect(),
+            },
+        };
+        Self {
+            kind,
+            transform: self.transform,
+        }
+    }
+}
+
 /// The geometry of a colour transition.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]

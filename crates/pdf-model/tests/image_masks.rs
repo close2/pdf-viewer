@@ -395,6 +395,110 @@ fn a_soft_mask_overrides_an_explicit_mask() {
     assert!(about(&raster, 35, 5, GREEN), "bottom row, fourth cell");
 }
 
+/// §11.6.5.2: a soft mask finer than its image keeps its own detail.
+///
+/// Table 143 makes a mask's `/Width` and `/Height` "independent of" the parent's, with "[b]oth
+/// images … mapped to the unit square in user space … regardless of whether the samples
+/// coincide individually" — the same sentence §8.9.6.3 writes for an explicit mask, so the
+/// same answer: combine on the finer grid. Until the fifteenth session a mask of any other
+/// size was refused and reported instead, which drew `smaskdim.pdf`'s two bullets as squares
+/// and `issue16263.pdf`'s overlines as black bars.
+///
+/// The mask's cells are 0 and 255 rather than intermediate values, because what this fixture
+/// tests is *which* mask sample reaches which part of the page; the opacity between them is
+/// [`a_matte_colour_is_undone_before_the_image_is_drawn`]'s subject.
+#[test]
+fn a_soft_mask_finer_than_its_image_keeps_its_own_resolution() {
+    let raster = render(page_with_image(
+        "/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R",
+        &BLUE,
+        &[stream_object(
+            6,
+            "/Type /XObject /Subtype /Image /Width 4 /Height 2 \
+             /ColorSpace /DeviceGray /BitsPerComponent 8",
+            // The same asymmetric shape as `PATTERN`, one byte a sample and opaque where the
+            // stencil marks: `255 0 0 0` over `255 255 255 0`.
+            &[255, 0, 0, 0, 255, 255, 255, 0],
+        )],
+    ));
+
+    assert!(about(&raster, 5, 30, BLUE), "top row, first cell, opaque");
+    assert!(cut_out(&raster, 25, 30), "top row, third cell, transparent");
+    assert!(about(&raster, 5, 5, BLUE), "bottom row, first cell, opaque");
+    assert!(
+        cut_out(&raster, 35, 5),
+        "bottom row, fourth cell, transparent"
+    );
+}
+
+/// §11.6.5.2: pre-blended image data is unblended before it is drawn.
+///
+/// > 𝑐 ′ = 𝑚 + 𝛼 × (𝑐 - 𝑚)
+///
+/// The fixture states that equation and asks for `c` back: a matte of black, a mask sample of
+/// 128, and an image sample of 128 in the red channel — which is what a producer would write
+/// for a half-transparent *full* red. Draw it without inverting and the red comes out half
+/// strength, which is the dark fringe `issue13931.pdf`'s red seal had against three renderers
+/// that undo it.
+///
+/// The assertion is on the raster's own colour channel rather than through [`about`], because
+/// a half-transparent pixel is exactly what this is about and `about` asks for an opaque one.
+#[test]
+fn a_matte_colour_is_undone_before_the_image_is_drawn() {
+    let raster = render(page_with_image(
+        "/Width 4 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R",
+        &rgb_image([[128, 0, 0]; 8]),
+        &[stream_object(
+            6,
+            "/Type /XObject /Subtype /Image /Width 4 /Height 2 \
+             /ColorSpace /DeviceGray /BitsPerComponent 8 /Matte [0 0 0]",
+            &[128; 8],
+        )],
+    ));
+
+    let [red, green, blue, alpha] = pixel(&raster, 20, 20);
+    assert!(
+        (100..=160).contains(&alpha),
+        "the mask's own sample is the opacity: {alpha}"
+    );
+    assert!(
+        red > 240 && green < 16 && blue < 16,
+        "128 pre-blended with black at α = 128/255 is full red, not {red},{green},{blue}"
+    );
+}
+
+/// An `/SMask` that is an image mask is reported rather than read as an opacity.
+///
+/// Table 143 says `/ImageMask` "[s]hall be false or absent" in a soft-mask image, and the
+/// reason to check rather than trust it is what a stencil decodes to: the current colour where
+/// its bits mark and nothing where they do not, with no grey level anywhere. Reading its first
+/// component as the opacity would make every such image *fully transparent* — a page silently
+/// missing its picture, which is the worst of the outcomes available.
+///
+/// The fixture's stencil carries a one-component colour space as well, which Table 87 says an
+/// image mask has no use for. That is deliberate: without it the mask is caught by Table 143's
+/// `DeviceGray` requirement instead — an absent colour space is not one — and the test would
+/// pass with the `/ImageMask` rule deleted.
+#[test]
+fn a_soft_mask_that_is_a_stencil_is_reported() {
+    let interpretation = interpret(page_with_image(
+        "/Width 4 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R",
+        &rgb_image([GREEN; 8]),
+        &[stream_object(
+            6,
+            "/Type /XObject /Subtype /Image /Width 4 /Height 2 /ImageMask true \
+             /ColorSpace /DeviceGray /BitsPerComponent 1",
+            PATTERN,
+        )],
+    ));
+
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("carries no opacity"),
+        "an /SMask that is a stencil must say so: {reported}"
+    );
+}
+
 /// A `/Mask` stream that is not an image mask is reported, not guessed at.
 ///
 /// Table 87 and §8.9.6.3 both say the entry holds an image mask, and §8.9.6.2 defines that as

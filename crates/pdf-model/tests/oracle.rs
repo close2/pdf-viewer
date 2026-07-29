@@ -358,8 +358,17 @@ const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 1] = ["issue5070.pdf page 1"]
 /// hypothesis about a group is not a diagnosis of its members, and six of these twenty-five
 /// were one line in `content.rs`. The picture said so in ten seconds; six sessions of counting
 /// had not.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
-    "alphatrans.pdf page 1",
+///
+/// # And one more in the fifteenth, for the third distinct non-font reason
+///
+/// `alphatrans.pdf` was contradicted by all three references and filed here because its
+/// labels are set in a font nobody embedded. What differed was the *gradient* it announces on
+/// itself as `Gradient: .5`: a shading replaces the current colour rather than tinting it, so
+/// §11.6.4.4's constant alpha was dropped along with the colour it did not use, and we painted
+/// an opaque gradient over three objects the references show through it. `Shading::with_alpha`
+/// is the fix. The page agrees now — and it is no longer in this comparison either, because
+/// the same session began reporting §11.6.2's fill-and-stroke and that page has one.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 18] = [
     "bad-PageLabels.pdf page 1",
     "bug1671312_reduced.pdf page 1",
     "calrgb.pdf page 1",

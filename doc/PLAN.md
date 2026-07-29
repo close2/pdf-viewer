@@ -507,8 +507,8 @@ decided against. Where it stands on its first green run:
 | `unreviewed`, and the number that may only fall | 688 |
 | cited clauses still owing a review (`REVIEW_OWED`) | 25 |
 
-Four sessions later, at the end of the thirteenth: 382 citations, 13 quotations, 31 distinct
-tables, 150 rows reviewed, **673** `unreviewed`, and 23 clauses still owing a review.
+Six sessions later, at the end of the fifteenth: 479 citations, 25 quotations, 33 distinct
+tables, 171 rows reviewed, **652** `unreviewed`, and 23 clauses still owing a review.
 
 The measurements that justified it were 146 citations over 36 distinct clause numbers, two of
 which named clauses that do not exist, and three of five sampled quotations that were
@@ -535,6 +535,17 @@ entry. A wrong number the standard happens to have passes every automated check 
 only reading the clause catches it. Reading §8.9.5.4 properly then produced the one case where
 `/Alternates` decides what is on the page — a base image hidden by `/OC` should be replaced by
 its first visible alternate — which was silent and now reports.
+
+The fifteenth session read §11.3.7, §11.5 and the whole of §11.6 — seventeen rows, §11.6.4
+having been the fourteenth's — and produced three defects and two `silent` rows. The defects:
+a shading dropped §11.6.4.4's alpha constant, because a shading replaces the colour rather
+than tinting it and the constant went with the colour; a `/BM` array took the first *name*
+rather than the first mode this reader recognises (§11.6.3); and §11.6.2's rule that the
+portions of one object are not composited with one another was neither implemented nor
+reported for a filled-and-stroked path. The first of those had made `alphatrans.pdf`
+contradicted by all three references for four sessions, filed under a group that named its
+fonts. The `silent` rows are §11.6.6 and §11.3.7.3, which are the transparency-group gap
+§11.4.6 already owns, recorded where a reader of those clauses would look for it.
 
 The thirteenth session read §9.3 and §9.4 as two families — thirteen rows — and produced a
 defect, a `silent` row and a limit of the checker itself. The defect is §9.3.3: word spacing

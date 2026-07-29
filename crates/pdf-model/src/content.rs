@@ -121,6 +121,23 @@ pub enum Unsupported {
         /// How many glyphs the object marked the page with under such a paint.
         glyphs: usize,
     },
+    /// One object painted in more than one part, which §11.6.2 says is one element.
+    ///
+    /// > Portions of an object shall not be composited with one another, even if they are
+    /// > described in a way that would seem to cause overlaps (such as a self-intersecting
+    /// > path, combined fill and stroke of a path, or a shading pattern containing an overlap
+    /// > or fold-over).
+    ///
+    /// `B` and its three relatives fill *and* stroke one path, and a centred stroke always
+    /// covers the edge of what the fill painted. This renderer emits two commands, so under a
+    /// paint that composites the overlap is painted twice where the clause asks for once.
+    /// Reported for exactly those paths; see [`Interpreter::end_path`]. §9.3.8's text knockout
+    /// is the same sentence's exception for a text object, reported separately because its
+    /// condition is different.
+    CompositedInParts {
+        /// What painted the object in parts.
+        detail: &'static str,
+    },
     /// Optional content whose visibility could not be decided, so it was drawn.
     ///
     /// ISO 32000-2 §8.11. Only a visibility expression nested past the interpreter's bound
@@ -466,8 +483,14 @@ impl GraphicsState {
         // A shading pattern replaces the colour entirely; PDF has no notion of tinting
         // one. A tiling pattern is not a paint at all — it is drawn by replaying its
         // content stream — so it leaves the colour alone here.
+        //
+        // The constant alpha still applies, and reaching every colour the shading carries is
+        // the only way to apply it (§11.6.4.4, `Shading::with_alpha`). Until the fifteenth
+        // session this line dropped it: `alphatrans.pdf` states `Gradient: .5` on the page
+        // and draws its gradient over three other objects, and we painted it opaque while
+        // three references showed what was behind it.
         if let Some(PatternPaint::Shading(shading)) = &self.fill_pattern {
-            return Paint::Shading(Arc::clone(shading));
+            return Paint::Shading(shading_with_alpha(shading, self.fill_alpha));
         }
         Paint::Solid(Color {
             a: self.fill.a * self.fill_alpha,
@@ -475,10 +498,22 @@ impl GraphicsState {
         })
     }
 
+    /// Whether painting under this state composites with what is already on the page.
+    ///
+    /// Opaque paint under the Normal blend mode overwrites what it covers, so every model of
+    /// how overlapping parts combine gives the same pixels and a report about them would name
+    /// pages that cannot differ. Both §9.3.8's text knockout and §11.6.2's one-object rule
+    /// hang off this question — see [`Unsupported::TextKnockout`] and
+    /// [`Unsupported::CompositedInParts`] — and asking it in one place keeps the two reports
+    /// from drifting into different definitions of the same word.
+    fn paint_composites(&self) -> bool {
+        self.fill_alpha < 1.0 || self.stroke_alpha < 1.0 || self.blend != BlendMode::Normal
+    }
+
     /// Returns the stroke colour with the constant alpha applied.
     fn stroke_paint(&self) -> Paint {
         if let Some(PatternPaint::Shading(shading)) = &self.stroke_pattern {
-            return Paint::Shading(Arc::clone(shading));
+            return Paint::Shading(shading_with_alpha(shading, self.stroke_alpha));
         }
         Paint::Solid(Color {
             a: self.stroke_colour.a * self.stroke_alpha,
@@ -1333,6 +1368,32 @@ impl Interpreter<'_> {
                     blend: state.blend,
                 });
             }
+            // §11.6.2: the fill and the stroke are two parts of one object, and "[p]ortions
+            // of an object shall not be composited with one another". They are two commands
+            // here, so the band the stroke shares with the fill — half its width, for any
+            // path with an interior — composites twice.
+            //
+            // Two conditions narrow that to the pages where it can be seen, and the second
+            // one is not obvious: the paint has to composite at all, since opaque Normal
+            // painting puts the stroke over the fill either way, and *both* parts have to
+            // mark the page. A `B` whose fill or stroke alpha is zero is one object painted
+            // once, and three of the six corpus documents that reach this line are exactly
+            // that — `issue11045.pdf` fills at alpha 0 and strokes opaque, `issue3458.pdf`
+            // strokes at alpha 0 and fills. Reporting them would name pages whose pixels are
+            // the same under either model, which costs them their place in the oracle's
+            // comparison and buys nothing.
+            let fill_marks = fill.is_some()
+                && (matches!(state.fill_pattern, Some(PatternPaint::Tiling(_)))
+                    || marks(&state.fill_paint()));
+            if fill_marks
+                && stroke.is_some()
+                && marks(&state.stroke_paint())
+                && state.paint_composites()
+            {
+                self.note(Unsupported::CompositedInParts {
+                    detail: "a path filled and stroked by one operator",
+                });
+            }
         }
 
         // A pending `W` takes effect now: the specification says the clip changes *after*
@@ -1437,14 +1498,17 @@ impl Interpreter<'_> {
         match self.document.get_key(dict, "BM") {
             Object::Name(name) => state.blend = blend_mode(name.as_bytes()),
             Object::Array(items) => {
-                // An array offers alternatives in preference order; take the first known.
-                if let Some(name) = items
+                // §11.6.3, of the deprecated array form: a processor "shall use the first
+                // blend mode in the array that it recognizes (or Normal if it recognizes none
+                // of them)". The first *name* is not the first recognised one — `[/FooBar
+                // /Multiply]` names a mode this reader knows in second place — so the
+                // recognition test has to be inside the search rather than after it.
+                state.blend = items
                     .iter()
                     .map(|item| self.document.resolve(item))
-                    .find_map(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
-                {
-                    state.blend = blend_mode(&name);
-                }
+                    .filter_map(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
+                    .find_map(|name| known_blend_mode(&name))
+                    .unwrap_or(BlendMode::Normal);
             }
             _ => {}
         }
@@ -2042,11 +2106,8 @@ impl Interpreter<'_> {
             // assumed: the paint has to composite at all — an opaque glyph under the Normal
             // blend mode overwrites what it covers either way — and two glyphs of the object
             // have to overlap, which most text never does.
-            let knockout_can_show = (fills || strokes)
-                && state.text.knockout
-                && (state.fill_alpha < 1.0
-                    || state.stroke_alpha < 1.0
-                    || state.blend != BlendMode::Normal);
+            let knockout_can_show =
+                (fills || strokes) && state.text.knockout && state.paint_composites();
 
             if (fills || strokes || clipping) && size != 0.0 {
                 // Glyph space to text space: scale by the font size, apply horizontal
@@ -2419,7 +2480,9 @@ impl Interpreter<'_> {
                     // transform; the shading carries its own.
                     transform: Transform::IDENTITY,
                     fill_rule: FillRule::NonZero,
-                    paint: Paint::Shading(Arc::new(shading)),
+                    // §11.6.4.4's non-stroking constant applies to `sh` as to any other
+                    // non-stroking painting operation.
+                    paint: Paint::Shading(shading_with_alpha(&Arc::new(shading), state.fill_alpha)),
                     clip: state.clip,
                     blend: state.blend,
                 });
@@ -2985,9 +3048,47 @@ fn clamp_unit(value: f64) -> f32 {
     }
 }
 
-/// Maps a PDF blend mode name.
+/// A shading with a constant alpha applied, sharing the original where it is opaque.
+///
+/// The share is the common case and the one worth keeping cheap: a pattern set once paints
+/// every path filled until the colour changes again, and copying its 256-sample ramp — or a
+/// mesh's triangles — per fill would be a copy per path for nothing.
+fn shading_with_alpha(shading: &Arc<Shading>, alpha: f32) -> Arc<Shading> {
+    if alpha < 1.0 {
+        Arc::new(shading.with_alpha(alpha))
+    } else {
+        Arc::clone(shading)
+    }
+}
+
+/// Whether a paint puts anything on the page.
+///
+/// A shading always does — its own colours decide where, and a shading with no coverage is a
+/// question for the rasteriser rather than for a report. A solid colour with zero alpha does
+/// not, which is what `1 0 0 rg /GS gs` with a `ca` of 0 amounts to: a part of an object that
+/// paints nothing cannot composite with the part that does.
+fn marks(paint: &Paint) -> bool {
+    match paint {
+        Paint::Solid(colour) => colour.a > 0.0,
+        // `Paint` is `#[non_exhaustive]`, and a paint this function has not been taught about
+        // is one that may well mark the page — which is the safe direction for a report.
+        _ => true,
+    }
+}
+
+/// Maps a PDF blend mode name, taking `Normal` for anything this reader does not know.
+///
+/// `Normal` and `Compatible` are the two names that mean it deliberately; §11.6.3 asks for the
+/// same answer for an unrecognised one, which is why the two cases can share an arm here and
+/// have to be told apart by [`known_blend_mode`] when an array is choosing between names.
 fn blend_mode(name: &[u8]) -> BlendMode {
-    match name {
+    known_blend_mode(name).unwrap_or(BlendMode::Normal)
+}
+
+/// Maps a PDF blend mode name, or `None` where the name is not one Table 134 or 135 lists.
+fn known_blend_mode(name: &[u8]) -> Option<BlendMode> {
+    Some(match name {
+        b"Normal" | b"Compatible" => BlendMode::Normal,
         b"Multiply" => BlendMode::Multiply,
         b"Screen" => BlendMode::Screen,
         b"Overlay" => BlendMode::Overlay,
@@ -3003,10 +3104,8 @@ fn blend_mode(name: &[u8]) -> BlendMode {
         b"Saturation" => BlendMode::Saturation,
         b"Color" => BlendMode::Color,
         b"Luminosity" => BlendMode::Luminosity,
-        // `Normal`, `Compatible`, and any name this reader does not know: the specification
-        // requires an unrecognised blend mode to behave as Normal.
-        _ => BlendMode::Normal,
-    }
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

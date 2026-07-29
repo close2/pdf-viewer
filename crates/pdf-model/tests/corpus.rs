@@ -76,7 +76,7 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 232, and *not* a defect count — it is the honest-reporting requirement working. The
+/// 231, and *not* a defect count — it is the honest-reporting requirement working. The
 /// breakdown, by each document's first report, which is the useful part, and recomputed
 /// every session because a number nothing recomputes is a number that drifts — this table
 /// had said 263 while the ratchet below said 251:
@@ -85,12 +85,13 @@ const MAX_PAGELESS: usize = 19;
 /// |---|---|---|
 /// | `Text` | 100 | CID encodings and embedded `CMap`s |
 /// | `Annotation` | 66 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
-/// | `Operator` | 15 | malformed streams, mostly; the text rendering modes have left this row |
-/// | `Image` | 13 | see below; `/Mask` has left this row |
 /// | `Shading` | 28 | soft masks in `/ExtGState`, which is transparency rather than shading |
+/// | `Operator` | 15 | malformed streams, mostly; the text rendering modes have left this row |
+/// | `Image` | 11 | see below; a soft mask of another size has left this row |
 /// | `Content` | 7 | a `/Contents` stream that did not decode |
 /// | `TextKnockout` | 2 | §9.3.8, new in the fourteenth session and described below |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
+/// | `CompositedInParts` | 1 | §11.6.2, new in the fifteenth session and described below |
 ///
 /// The `Operator` row was 33 before §9.3.6's rendering modes were implemented. What remains
 /// is `BT` without `ET`, `BDC` without `EMC`, and the byte soup a fuzzed content stream
@@ -98,16 +99,29 @@ const MAX_PAGELESS: usize = 19;
 ///
 /// The `Image` row was 161 before JBIG2 and JPEG 2000 landed, 42 after, 30 once inline images
 /// (§8.9.7) drew and `Indexed`, `Separation` and `DeviceN` images unpacked, 18 once
-/// `CCITTFaxDecode` decoded (§7.4.6), and is 13 now that `/Mask` is applied in both its forms
-/// (§8.9.6.3 and §8.9.6.4). What is left of it, counted per image rather than per document:
-/// 14 soft masks whose grid is not the image's (§11.6.5.2 Table 143 — see
-/// `image::unapplied_soft_mask` for why that is left undone rather than guessed), 3 images at
-/// a bit depth the unpacker refuses, 4 malformed streams, one `/Mask` that is not an image
-/// mask and so is outside what Table 87 defines the entry to hold, and two files the decoders
-/// refuse: one JBIG2 with a segment type ISO/IEC 14492 does not define, and one 212-megapixel
-/// JPEG 2000 scan larger than the sandbox is given room to decode.
+/// `CCITTFaxDecode` decoded (§7.4.6), 13 once `/Mask` was applied in both its forms (§8.9.6.3
+/// and §8.9.6.4), and is 11 now that an `/SMask` of another size is combined with its image on
+/// the finer of the two grids (§11.6.5.2 Table 143). What is left of it is one image apiece,
+/// and **nothing on it is a feature**: 4 malformed streams, 3 bit depths the unpacker refuses,
+/// one `/Mask` that is not an image mask and so is outside what Table 87 defines the entry to
+/// hold, one JBIG2 with a segment type ISO/IEC 14492 does not define, one 212-megapixel JPEG
+/// 2000 scan larger than the sandbox is given room to decode, and one `/SMask` — 34862×4332
+/// against a 2×2 image — whose combined grid `image::MAX_MASK_GRID` refuses.
 ///
-/// This number has gone *up* four times, and every rise was the point.
+/// The `CompositedInParts` row is §11.6.2, which says the portions of one object are not
+/// composited with one another: `B` fills and strokes one path, and this renderer emits two
+/// commands, so the band a centred stroke shares with the fill composites twice under a paint
+/// that composites at all. 4 documents reach the report and one has nothing else to say, which
+/// is the row here. Its condition is narrow on purpose — the paint has to composite *and* both
+/// parts have to mark the page — and three of the six documents that fill and stroke under a
+/// `gs` are silent because one of their two parts has an alpha of zero.
+///
+/// This number has gone *up* five times, and every rise was the point.
+///
+/// One, when §11.6.2's fill-and-stroke started reporting, described above. It is the smallest
+/// rise on this list and it cost the oracle one page it had judged as *agreeing* —
+/// `alphatrans.pdf`, whose gradient the same session fixed — which is the whole of the trade a
+/// report makes: honesty about a difference nobody can see yet, paid for in comparison.
 ///
 /// Ten, when content-stream decoding started reporting. Nine of those are encrypted
 /// documents whose content stream is unreadable without decryption, and they had been
@@ -247,7 +261,7 @@ const MAX_PAGELESS: usize = 19;
 /// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
 /// and it is the visible face of a gap this project already knows about: a font reports as a
 /// whole, so a glyph that fails to load draws nothing and says nothing.
-const MAX_INCOMPLETE: usize = 232;
+const MAX_INCOMPLETE: usize = 231;
 
 /// How long one document may take before it counts as a failure.
 ///

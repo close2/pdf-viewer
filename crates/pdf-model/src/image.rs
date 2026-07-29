@@ -234,10 +234,11 @@ pub fn decode(
         apply_soft_mask(document, dict, image)
     };
 
-    // The explicit mask comes after the soft mask, and the order is not arbitrary: it may
-    // change the raster's dimensions, and `apply_soft_mask` compares its own mask against
-    // them. The two are separate mechanisms — §8.9.6.3 is the opaque imaging model's cut-out
-    // and §11.6.5.2's is a per-sample alpha — so an image carrying both gets both.
+    // §11.6.4.3 makes the two mutually exclusive — an `/SMask` "shall override any explicit
+    // or colour key mask" — so `mask_entry` has already returned [`MaskEntry::Overridden`]
+    // for anything reached here after a soft mask was applied, and this arm runs only where
+    // there was none. The sequence is therefore an ordering of two things that never both
+    // happen, kept in the order the clauses rank them.
     match &mask {
         MaskEntry::Explicit(stencil) => apply_explicit_mask(document, &image, stencil),
         _ => Ok(image),
@@ -1129,15 +1130,38 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageErr
     Ok(out)
 }
 
-/// Largest grid a `/Mask` and its image are combined on, in samples.
+/// Largest grid a mask and its image are combined on, in samples, where that is larger than
+/// the image itself.
 ///
-/// §8.9.6.3's two rasters "need not have the same resolution", so combining them means
-/// choosing a grid — [`apply_explicit_mask`] takes the finer of the two, which discards
-/// nothing either of them carries and costs the product of the two larger dimensions. That
-/// product is what a document controls, and 2^24 samples is 64 MB of RGBA: room for any real
-/// pair, and short of the gigabyte a 2×2 image with a 34862×4332 mask would ask for.
-/// `issue16263.pdf` writes exactly that pair as an `/SMask`.
+/// §8.9.6.3's two rasters "need not have the same resolution" and §11.6.5.2 Table 143 says
+/// the same of a soft mask's, so combining either with its image means choosing a grid —
+/// [`combine_on_the_finer_grid`] takes the finer of the two, which discards nothing either of
+/// them carries and costs the product of the two larger dimensions. That product is what a
+/// document controls, and 2^24 samples is 64 MB of RGBA: room for any real pair, and short of
+/// the gigabyte a 2×2 image with a 34862×4332 mask would ask for. `issue16263.pdf` writes
+/// exactly that pair as an `/SMask`.
+///
+/// See [`combined_grid`] for why the bound is on the *growth* rather than on the total.
 const MAX_MASK_GRID: u64 = 1 << 24;
+
+/// The grid a mask and its image would be combined on, if it is one this will allocate.
+///
+/// The bound is on how much the combination costs *beyond the image*, and it has to be: a
+/// mask on the image's own grid costs exactly what the image costs, which [`MAX_SAMPLES`] has
+/// already admitted, so a flat limit would refuse a pair no larger than the picture being
+/// drawn. `issue19517.pdf` is that case — a 12608×16806 scan with a mask of the same
+/// dimensions — and it was reported for its mask's size for as long as this rule was the flat
+/// one, which said nothing true about the mask. What a document *can* do with two dimensions
+/// it controls is make the product of the two larger ones enormous while both rasters stay
+/// small, and that is what [`MAX_MASK_GRID`] refuses.
+fn combined_grid(width: u32, height: u32, mask_width: u32, mask_height: u32) -> Result<u64, u64> {
+    let grid = u64::from(width.max(mask_width)).saturating_mul(u64::from(height.max(mask_height)));
+    let image = u64::from(width).saturating_mul(u64::from(height));
+    if grid > MAX_MASK_GRID.max(image) {
+        return Err(grid);
+    }
+    Ok(grid)
+}
 
 /// What an image's `/Mask` entry holds, once read.
 ///
@@ -1314,8 +1338,7 @@ fn explicit_entry(document: &Document, dict: &Dictionary, stream: &Arc<Stream>) 
         ));
     }
 
-    let grid = u64::from(width.max(mask_width)).saturating_mul(u64::from(height.max(mask_height)));
-    if grid > MAX_MASK_GRID {
+    if let Err(grid) = combined_grid(width, height, mask_width, mask_height) {
         return MaskEntry::Unusable(format!(
             "/Mask is {mask_width}x{mask_height} against a {width}x{height} image, needing a \
              grid of {grid} samples"
@@ -1363,43 +1386,52 @@ pub fn unapplied_mask(document: &Document, dict: &Dictionary) -> Option<String> 
     }
 }
 
-/// Applies §8.9.6.3's explicit mask: where the stencil does not mark, the image is not drawn.
+/// Combines an image with a mask that need not share its resolution, on the finer grid.
+///
+/// `sample` is asked of each base colour and the four bytes of the mask sample above it, for
+/// the colour to write and the opacity to scale the base pixel's own alpha by. Both of the
+/// standard's per-image masks reduce to an opacity: a stencil (§8.9.6.3) answers all or
+/// nothing, a soft-mask image (§11.6.5.2) answers its grey level. Multiplying rather than
+/// replacing is §11.3.7's `α = shape × opacity` read through §11.6.4.1, which names the two as
+/// separate sources; it also means the answer does not depend on which mask is applied first.
+/// The colour passes through unchanged except where §11.6.5.2's `/Matte` has to be undone,
+/// which is the one thing a mask says about a base *colour* rather than about its alpha.
 ///
 /// # Which grid the two are combined on
+///
+/// §8.9.6.3, of an explicit mask:
 ///
 /// > The base image and the image mask need not have the same resolution ( Width and Height
 /// > values), but since all images shall be defined on the unit square in user space, their
 /// > boundaries on the page will coincide; that is, they will overlay each other.
 ///
-/// So the clause states the geometry and leaves the sampling to the device: correctly, the
-/// two are combined at *output* resolution, which this crate does not know — it holds one
-/// raster per image and hands it to a rasteriser that may draw it at any scale. The choice
-/// made here is the finer of the two grids in each axis, sampled nearest-neighbour, and its
-/// merit is that it discards nothing either raster carries: `issue4246.pdf` masks a 50×40
-/// image with a 1000×800 stencil, and combining on the image's grid would throw away 399 of
-/// every 400 mask samples. What it costs is memory, which [`MAX_MASK_GRID`] bounds, and the
-/// difference from a device-resolution composite where the page is drawn larger than both.
+/// §11.6.5.2 Table 143 says it of a soft mask's `/Width` in different words — "independent of
+/// it. Both images shall be mapped to the unit square in user space (as are all images),
+/// regardless of whether the samples coincide individually" — and both leave the sampling to
+/// the device. Correctly, the two are combined at *output* resolution, which this crate does
+/// not know: it holds one raster per image and hands it to a rasteriser that may draw it at
+/// any scale. The choice made here is the finer of the two grids in each axis, sampled
+/// nearest-neighbour, and its merit is that it discards nothing either raster carries:
+/// `issue4246.pdf` masks a 50×40 image with a 1000×800 stencil, and combining on the image's
+/// grid would throw away 399 of every 400 mask samples; `smaskdim.pdf` gives a 2×2 image a
+/// 76×102 soft mask, where the image's grid would leave four samples of a rounded rectangle.
+/// What it costs is memory, which [`MAX_MASK_GRID`] bounds, and the difference from a
+/// device-resolution composite where the page is drawn larger than both.
 ///
-/// Nearest-neighbour is not an approximation of a filter here — a stencil's samples are two
-/// values with no meaningful average, and §8.9.5.3 leaves a magnified image unsmoothed
-/// unless `/Interpolate` asks otherwise, which is the same answer for the base image.
-fn apply_explicit_mask(
-    document: &Document,
+/// Nearest-neighbour is a choice for the stencil and a compromise for the soft mask. A
+/// stencil's samples are two values with no meaningful average, and §8.9.5.3 leaves a
+/// magnified image unsmoothed unless `/Interpolate` asks otherwise, which is the same answer
+/// the base image gets. A soft mask carries continuous values, so its magnified edges are
+/// stepped where a device-resolution composite would have interpolated them — visible only
+/// where the mask is *coarser* than the grid, which is the case this function is not asked
+/// about: it is the image that gets magnified in every corpus pair.
+fn combine_on_the_finer_grid(
     image: &Image,
-    stream: &Stream,
-) -> Result<Image, ImageError> {
-    let stencil = decode(document, stream, pdf_render::Color::BLACK).map_err(|error| {
-        ImageError::Malformed {
-            detail: format!("/Mask did not decode: {error}"),
-        }
-    })?;
-    // The stencil came back from `decode` as the fill colour where its samples mark the page
-    // and as nothing where they do not, so alpha is where the answer already is —
-    // §8.9.6.2's rule about which bit marks, and any `/Decode [1 0]` reversing it, were both
-    // applied there. This is the whole reason the mask goes through the ordinary image route
-    // rather than a private one: `issue4379.pdf`'s stencil is `CCITTFaxDecode`d.
-    let width = image.width.max(stencil.width);
-    let height = image.height.max(stencil.height);
+    mask: &Image,
+    sample: impl Fn([u8; 3], &[u8]) -> ([u8; 3], u8),
+) -> Image {
+    let width = image.width.max(mask.width);
+    let height = image.height.max(mask.height);
     let (width_usize, height_usize) = (width as usize, height as usize);
     let mut data = Vec::with_capacity(width_usize.saturating_mul(height_usize).saturating_mul(4));
 
@@ -1415,123 +1447,337 @@ fn apply_explicit_mask(
 
     for y in 0..height_usize {
         let image_row = scale(y, image.height, height_usize).saturating_mul(image.width as usize);
-        let stencil_row =
-            scale(y, stencil.height, height_usize).saturating_mul(stencil.width as usize);
+        let mask_row = scale(y, mask.height, height_usize).saturating_mul(mask.width as usize);
         for x in 0..width_usize {
             let at = image_row
                 .saturating_add(scale(x, image.width, width_usize))
                 .saturating_mul(4);
-            let stencil_at = stencil_row
-                .saturating_add(scale(x, stencil.width, width_usize))
+            let mask_at = mask_row
+                .saturating_add(scale(x, mask.width, width_usize))
                 .saturating_mul(4);
             let pixel = image
                 .data
                 .get(at..at.saturating_add(4))
                 .unwrap_or(&[0, 0, 0, 0]);
-            let marks = stencil
+            let above = mask
                 .data
-                .get(stencil_at..stencil_at.saturating_add(4))
-                .is_some_and(|sample| sample.get(3).is_some_and(|alpha| *alpha != 0));
-            data.extend_from_slice(&[
+                .get(mask_at..mask_at.saturating_add(4))
+                .unwrap_or(&[0, 0, 0, 0]);
+            let colour = [
                 pixel.first().copied().unwrap_or(0),
                 pixel.get(1).copied().unwrap_or(0),
                 pixel.get(2).copied().unwrap_or(0),
-                if marks {
-                    pixel.get(3).copied().unwrap_or(0)
-                } else {
-                    0
-                },
+            ];
+            let (colour, opacity) = sample(colour, above);
+            let own = u16::from(pixel.get(3).copied().unwrap_or(0));
+            // Rounded rather than truncated, so an opaque pixel under a fully opaque mask
+            // stays opaque: 255 × 255 / 255 is exact either way, but 255 × 254 / 255 is not.
+            let combined = own
+                .saturating_mul(u16::from(opacity))
+                .saturating_add(127)
+                .checked_div(255)
+                .unwrap_or(0);
+            data.extend_from_slice(&[
+                colour[0],
+                colour[1],
+                colour[2],
+                u8::try_from(combined).unwrap_or(u8::MAX),
             ]);
         }
     }
 
-    Ok(Image {
+    Image {
         width,
         height,
         data: Arc::from(data.as_slice()),
         interpolate: image.interpolate,
-    })
+    }
 }
 
-/// Names an `/SMask` this crate cannot apply, for the caller to report.
-///
-/// A soft mask is not required to have the image's dimensions. ISO 32000-2 §11.6.5.2
-/// Table 143, of a mask's `/Width`:
-///
-/// > If a Matte entry (see "Table 144 - Additional entry in a soft-mask image dictionary")
-/// > is present, shall be the same as the Width value of the parent image; otherwise
-/// > independent of it. Both images shall be mapped to the unit square in user space (as
-/// > are all images), regardless of whether the samples coincide individually.
-///
-/// So the two grids are mapped onto the same square and combined at whatever resolution the
-/// output has. This crate has one raster per image and no idea what resolution the page will
-/// be drawn at, so combining them means choosing a grid: the image's loses the mask's detail
-/// wherever the mask is finer, and the mask's costs its whole area — `issue16263.pdf` gives a
-/// 2×2 image a 34862×4332 mask, which is 604 MB of RGBA for two distinct colours. Neither is
-/// a decision to take from inside an image decoder, so the mask is left unapplied and named.
-///
-/// What that costs is on the page: `issue16263.pdf` draws black bars where the mask should
-/// have cut them to overline strokes. Doing it properly means compositing an image and its
-/// mask at *device* resolution, which is a display-list question rather than this one.
-pub fn unapplied_soft_mask(document: &Document, dict: &Dictionary) -> Option<String> {
-    let smask = document.get_key(dict, "SMask");
-    let mask = smask.as_stream()?;
+/// Applies §8.9.6.3's explicit mask: where the stencil does not mark, the image is not drawn.
+fn apply_explicit_mask(
+    document: &Document,
+    image: &Image,
+    stream: &Stream,
+) -> Result<Image, ImageError> {
+    let stencil = decode(document, stream, pdf_render::Color::BLACK).map_err(|error| {
+        ImageError::Malformed {
+            detail: format!("/Mask did not decode: {error}"),
+        }
+    })?;
+    // The stencil came back from `decode` as the fill colour where its samples mark the page
+    // and as nothing where they do not, so alpha is where the answer already is —
+    // §8.9.6.2's rule about which bit marks, and any `/Decode [1 0]` reversing it, were both
+    // applied there. This is the whole reason the mask goes through the ordinary image route
+    // rather than a private one: `issue4379.pdf`'s stencil is `CCITTFaxDecode`d.
+    //
+    // The sense is the clause's — the mask indicates which places on the page are painted and
+    // which are masked out — so a sample that marks paints and one that does not is left
+    // unchanged.
+    Ok(combine_on_the_finer_grid(
+        image,
+        &stencil,
+        |colour, sample| {
+            let marks = sample.get(3).is_some_and(|alpha| *alpha != 0);
+            (colour, if marks { u8::MAX } else { 0 })
+        },
+    ))
+}
 
-    let dimension = |key| {
+/// What an image's `/SMask` entry holds, once read.
+///
+/// The same shape as [`MaskEntry`] and for the same reason: what the entry means has to be
+/// decided once, so that what the interpreter reports and what [`decode`] does cannot drift
+/// apart. Unlike `/Mask` there is only one mechanism here — §11.6.5.2's soft-mask image —
+/// and the variants are whether it can be used.
+enum SoftMaskEntry {
+    /// No `/SMask`, or one that is not a stream.
+    Absent,
+    /// §11.6.5.2: a `DeviceGray` image whose samples are this image's opacity.
+    ///
+    /// `matte` is Table 144's colour, in the raster's own components, when the image's samples
+    /// are pre-blended with one and this crate can undo it. `owed` names a requirement of the
+    /// clause that applying the mask does not satisfy, and there is exactly one: a `/Matte`
+    /// this crate cannot undo, because inverting it "shall precede the colour conversion" and
+    /// the conversion has happened by the time an image reaches here. It is reported *beside*
+    /// the mask rather than instead of it, which is the second place in this tree where a
+    /// report accompanies drawing (the first is `/NeedAppearances`), and it needs the same
+    /// argument. Here it is: the mask itself is fully specified and applying it is right,
+    /// while the pre-blending is a defect in the colours. Refusing the mask because of the
+    /// matte would draw an opaque rectangle whose edges are *entirely* the matte colour —
+    /// where α is 0, `c′ = m` — which is worse on the page and no more honest.
+    Image {
+        stream: Arc<Stream>,
+        matte: Option<[u8; 3]>,
+        owed: Option<String>,
+    },
+    /// Present, and not applied. Carries the words the interpreter reports.
+    Unusable(String),
+}
+
+/// Reads `/SMask` against the image it masks, deciding whether §11.6.5.2's mask applies.
+///
+/// Table 143 restricts a soft-mask image dictionary, and three of its restrictions decide
+/// whether this crate can use one at all:
+///
+/// - **`/Width` and `/Height` are "independent of" the parent image's** unless `/Matte` is
+///   present, and "[b]oth images shall be mapped to the unit square in user space (as are all
+///   images), regardless of whether the samples coincide individually". So a mask of another
+///   size still applies; [`combine_on_the_finer_grid`] is where the choice that costs is
+///   made, and [`MAX_MASK_GRID`] is the one pair it refuses — `issue16263.pdf` gives a 2×2
+///   image a 34862×4332 mask, 151 million samples for two distinct colours.
+/// - **`/ColorSpace` is "Required; shall be `DeviceGray`"**, and this is not pedantry: the
+///   mask is decoded by the ordinary image route, so a mask in some other space arrives as a
+///   colour, and there is no clause saying which of its components is the opacity. §11.5.3's
+///   luminosity is a rule about a *transparency group*'s colour, not about this key.
+/// - **`/ImageMask` "[s]hall be false or absent"**, which matters more than it looks: a
+///   stencil decodes to the fill colour and an alpha, carrying no grey level at all, so
+///   reading its first component as opacity would make every such image fully transparent.
+///   Refusing draws the image opaque, which is wrong in a way a reader can see.
+///
+/// A `/Matte` is the fourth thing read here and the only one that does not decide whether the
+/// mask applies — see [`matte_colour`], which decides whether the pre-blending it announces
+/// can be undone in the raster this crate holds.
+fn soft_mask_entry(document: &Document, dict: &Dictionary) -> SoftMaskEntry {
+    let smask = document.get_key(dict, "SMask");
+    let Some(mask) = smask.as_stream() else {
+        return SoftMaskEntry::Absent;
+    };
+    let dimension = |dict: &Dictionary, key| {
         document
-            .get_key(&mask.dict, key)
+            .get_key(dict, key)
             .as_integer()
             .and_then(|value| u32::try_from(value).ok())
             .unwrap_or(0)
     };
-    let (mask_width, mask_height) = (dimension("Width"), dimension("Height"));
-    let width = document.get_key(dict, "Width").as_integer().unwrap_or(0);
-    let height = document.get_key(dict, "Height").as_integer().unwrap_or(0);
+    let (mask_width, mask_height) = (
+        dimension(&mask.dict, "Width"),
+        dimension(&mask.dict, "Height"),
+    );
+    let (width, height) = (dimension(dict, "Width"), dimension(dict, "Height"));
 
-    (i64::from(mask_width) != width || i64::from(mask_height) != height)
-        .then(|| format!("/SMask is {mask_width}x{mask_height} against a {width}x{height} image"))
+    if matches!(
+        document.get_key(&mask.dict, "ImageMask"),
+        Object::Boolean(true)
+    ) {
+        return SoftMaskEntry::Unusable(format!(
+            "/SMask is a {mask_width}x{mask_height} image mask, which carries no opacity"
+        ));
+    }
+    if document.get_key(&mask.dict, "SMask").as_stream().is_some() {
+        // Table 143 again: an `/SMask` inside an `/SMask` "[s]hall be absent". Applied to the
+        // mask it would change what the mask says, which is not a thing the clause defines.
+        return SoftMaskEntry::Unusable("/SMask carries a soft mask of its own".to_owned());
+    }
+    match colour_space(document, &mask.dict) {
+        Ok(space) if space.components() == 1 => {}
+        Ok(space) => {
+            return SoftMaskEntry::Unusable(format!(
+                "/SMask has a {}-component colour space where Table 143 requires DeviceGray",
+                space.components()
+            ));
+        }
+        Err(error) => {
+            return SoftMaskEntry::Unusable(format!("/SMask colour space: {error}"));
+        }
+    }
+
+    if let Err(grid) = combined_grid(width, height, mask_width, mask_height) {
+        return SoftMaskEntry::Unusable(format!(
+            "/SMask is {mask_width}x{mask_height} against a {width}x{height} image, needing a \
+             grid of {grid} samples"
+        ));
+    }
+    let (matte, owed) = match matte_colour(document, dict, &mask.dict) {
+        Matte::Absent => (None, None),
+        Matte::Colour(colour) => (Some(colour), None),
+        Matte::Unreadable(reason) => (None, Some(reason)),
+    };
+    SoftMaskEntry::Image {
+        stream: Arc::clone(mask),
+        matte,
+        owed,
+    }
 }
 
-/// Applies an `/SMask` alpha channel, if the image has one and it decodes.
+/// Table 144's `/Matte`, once read against the image whose samples it was blended into.
+enum Matte {
+    /// No `/Matte`: the image's samples are its colours.
+    Absent,
+    /// The matte colour, in the components the parent image's raster carries.
+    Colour([u8; 3]),
+    /// Present, and not undone. Carries the words the interpreter reports.
+    Unreadable(String),
+}
+
+/// Reads `/Matte` from a soft-mask image dictionary, in the parent image's own components.
+///
+/// Table 144 gives the entry `n` numbers in the *parent* image's colour space, and §11.6.5.2
+/// says what they mean: its samples are `c′ = m + α × (c - m)`, a weighted average of the
+/// colour and the matte, so a processor "may sometimes need to invert the formula" to get `c`
+/// back. Two of the clause's sentences decide how much of that can be done here — the
+/// computation belongs to the parent image's own colour space, and:
+///
+/// > If a colour conversion is required, inversion of the pre-blending shall precede the
+/// > colour conversion.
+///
+/// This crate holds one RGBA raster per image, so the conversion has already happened by the
+/// time a mask is applied — and the inversion is exact afterwards only where the conversion
+/// was the identity on components, which is the two device spaces `DeviceGray` and
+/// `DeviceRGB`. In any other space the raster's bytes are a *function* of the pre-blended
+/// components rather than the components, and dividing them by α computes something the
+/// clause does not describe. Those are reported instead, which is a gap this has never been
+/// asked for: `issue13931.pdf` is the corpus's only `/Matte` and its parent image is
+/// `DeviceRGB`.
+fn matte_colour(document: &Document, dict: &Dictionary, mask_dict: &Dictionary) -> Matte {
+    let matte = document.get_key(mask_dict, "Matte");
+    let Object::Array(items) = &matte else {
+        return Matte::Absent;
+    };
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a colour component, which `channel` clamps to 0.0..=1.0 in any case"
+    )]
+    let components: Vec<f32> = items
+        .iter()
+        .map(|item| document.resolve(item))
+        .filter_map(|item| item.as_number().map(|value| value as f32))
+        .collect();
+    // A component is a colour value in the parent's space, so 0..1 for both device spaces
+    // this can invert; anything outside that is clamped by `channel` rather than refused,
+    // which is what §8.9.5.2 does with an out-of-range sample.
+    match (colour_space(document, dict), components.as_slice()) {
+        (Ok(ColourSpace::Gray), [grey]) => {
+            let grey = channel(*grey);
+            Matte::Colour([grey, grey, grey])
+        }
+        (Ok(ColourSpace::Rgb), [red, green, blue]) => {
+            Matte::Colour([channel(*red), channel(*green), channel(*blue)])
+        }
+        (Ok(space), _) => Matte::Unreadable(format!(
+            "/SMask has a /Matte of {} components against a {}-component image, or one whose \
+             pre-blending cannot be undone after conversion",
+            components.len(),
+            space.components()
+        )),
+        (Err(error), _) => Matte::Unreadable(format!("/SMask has a /Matte and {error}")),
+    }
+}
+
+/// Undoes §11.6.5.2's pre-blending for one component: `c = m + (c′ - m) / α`.
+///
+/// Integer arithmetic: the numerator is at most 255 × 255, the divisor is the mask sample, and
+/// the quotient truncates toward zero — under one part in 255 of the restored component, and
+/// exact at both ends of the range, which is where a mistake would show. Where α is 0 the clause's NOTE says the inverse divides by zero and "an arbitrary value for
+/// c can be chosen", because a fully transparent sample cannot affect the output — the matte
+/// colour is the value that costs nothing to justify. The clamp is the clause's too: "[t]he
+/// resulting c value shall lie within the range of colour component values for the image
+/// colour space".
+fn unblend(value: u8, matte: u8, alpha: u8) -> u8 {
+    if alpha == 0 {
+        return matte;
+    }
+    let scaled = i32::from(value)
+        .saturating_sub(i32::from(matte))
+        .saturating_mul(255)
+        .checked_div(i32::from(alpha))
+        .unwrap_or(0);
+    u8::try_from(scaled.saturating_add(i32::from(matte)).clamp(0, 255)).unwrap_or(u8::MAX)
+}
+
+/// Names what §11.6.5.2 asks of an `/SMask` and this crate does not do, for the caller to
+/// report.
+///
+/// Asked of the dictionary alone, so that the report and the behaviour cannot drift apart —
+/// the same contract as [`unapplied_mask`], and the same one case it does not cover: a mask
+/// whose data will not decode leaves the image opaque, because an image visibly present and
+/// slightly wrong beats one dropped entirely. Unlike that function it also reports where the
+/// mask *is* applied, for the one requirement that is not about the mask — see
+/// [`SoftMaskEntry::Image`].
+///
+/// Reading it costs no decode, which is what makes it safe to ask of every image: the
+/// 34862×4332 mask above cost 19 seconds and 600 MB when this question was answered by
+/// decoding first and comparing afterwards.
+#[must_use]
+pub fn unapplied_soft_mask(document: &Document, dict: &Dictionary) -> Option<String> {
+    match soft_mask_entry(document, dict) {
+        SoftMaskEntry::Unusable(reason)
+        | SoftMaskEntry::Image {
+            owed: Some(reason), ..
+        } => Some(reason),
+        SoftMaskEntry::Absent | SoftMaskEntry::Image { owed: None, .. } => None,
+    }
+}
+
+/// Applies §11.6.5.2's soft mask: each of its samples is the image's opacity there.
 ///
 /// A soft mask that cannot be read leaves the image opaque rather than failing it: an
 /// opaque image is visibly present and slightly wrong, whereas dropping it loses content
 /// entirely.
 fn apply_soft_mask(document: &Document, dict: &Dictionary, image: Image) -> Image {
-    let smask = document.get_key(dict, "SMask");
-    let Some(mask_stream) = smask.as_stream() else {
+    let SoftMaskEntry::Image {
+        stream: mask_stream,
+        matte,
+        ..
+    } = soft_mask_entry(document, dict)
+    else {
         return image;
     };
-
-    // Only a mask sample-for-sample with the image is applied — see [`unapplied_soft_mask`]
-    // for why that is a gap rather than a rule, and for what is reported instead.
-    //
-    // Asked of the *dictionary*, before decoding: `issue16263.pdf` gives a 2×2 image a
-    // 34862×4332 mask, and decoding first to compare afterwards spent 19 seconds and 600 MB
-    // producing a raster that was discarded on the next line.
-    if unapplied_soft_mask(document, dict).is_some() {
-        return image;
-    }
-
-    let Ok(mask) = decode(document, mask_stream, pdf_render::Color::BLACK) else {
+    let Ok(mask) = decode(document, &mask_stream, pdf_render::Color::BLACK) else {
         return image;
     };
-    if mask.width != image.width || mask.height != image.height {
-        return image;
-    }
-
-    let mut data = image.data.to_vec();
-    for (pixel, mask_pixel) in data.chunks_exact_mut(4).zip(mask.data.chunks_exact(4)) {
-        // The mask is greyscale, so any colour channel carries its value.
-        if let (Some(alpha), Some(value)) = (pixel.get_mut(3), mask_pixel.first()) {
-            *alpha = *value;
-        }
-    }
-
-    Image {
-        width: image.width,
-        height: image.height,
-        data: Arc::from(data.as_slice()),
-        interpolate: image.interpolate,
-    }
+    combine_on_the_finer_grid(&image, &mask, |colour, sample| {
+        // Table 143 required `DeviceGray` and `soft_mask_entry` checked it, so the three
+        // colour channels of a mask sample hold one value and the first of them is it.
+        let opacity = sample.first().copied().unwrap_or(0);
+        let colour = match matte {
+            None => colour,
+            Some(matte) => [
+                unblend(colour[0], matte[0], opacity),
+                unblend(colour[1], matte[1], opacity),
+                unblend(colour[2], matte[2], opacity),
+            ],
+        };
+        (colour, opacity)
+    })
 }

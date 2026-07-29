@@ -29,11 +29,16 @@ use pdf_syntax::Document;
 
 /// A one-page fixture with one `/ExtGState`, drawing whatever `content` says.
 fn fixture(gs: &str, content: &str) -> Vec<u8> {
+    fixture_with(gs, "", content)
+}
+
+/// The same, with `extra` added to the page's resource dictionary.
+fn fixture_with(gs: &str, extra: &str, content: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /ExtGState << /GS << {gs} >> >> >> /Contents 4 0 R >>\nendobj\n\
+         /Resources << /ExtGState << /GS << {gs} >> >> {extra} >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
         content.len() + 1
     );
@@ -101,6 +106,123 @@ fn the_two_alpha_constants_reach_stroking_and_non_stroking_paint_separately() {
 
     assert_eq!(fill, Some(0.25), "ca is the non-stroking constant");
     assert_eq!(stroke, Some(0.75), "CA is the stroking constant");
+}
+
+/// §11.6.4.4's constant reaches a shading too, which is the one paint it can be dropped from.
+///
+/// A shading replaces the current colour rather than tinting it, so the natural implementation
+/// returns the shading and loses the alpha with the colour it did not use. That is what this
+/// tree did until the fifteenth session, and `alphatrans.pdf` — a page that states
+/// `Gradient: .5` on itself — was contradicted by all three references for it, its gradient
+/// painted opaque over the three objects it should have shown through.
+///
+/// `sh` is the shorter of the two ways to get a shading onto the page and the same paint
+/// reaches a shading *pattern*; §11.6.7 puts them under one sentence, since a shading pattern
+/// "composites with its backdrop as if the shading dictionary were applied with the sh
+/// operator".
+#[test]
+fn a_shading_carries_the_non_stroking_constant() {
+    let shading = "/Shading << /Sh << /ShadingType 2 /ColorSpace /DeviceRGB \
+                   /Coords [0 0 100 0] /Function << /FunctionType 2 /Domain [0 1] \
+                   /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >> >>";
+    let document = Document::open(fixture_with("/ca 0.25", shading, "/GS gs /Sh sh"))
+        .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    let mut alphas = Vec::new();
+    for command in interpretation.display_list.commands() {
+        if let Command::Fill {
+            paint: Paint::Shading(shading),
+            ..
+        } = command
+            && let pdf_render::ShadingKind::Axial { ramp, .. } = &shading.kind
+        {
+            alphas.extend(ramp.colours.iter().map(|colour| colour.a));
+        }
+    }
+
+    assert!(!alphas.is_empty(), "the `sh` should have painted a shading");
+    assert!(
+        alphas.iter().all(|alpha| (alpha - 0.25).abs() < 1e-6),
+        "every colour of the ramp carries the constant, not just some: {alphas:?}"
+    );
+}
+
+/// §11.6.3: an array of blend mode names is read for the first one this reader *knows*.
+///
+/// > If encountered, a PDF processor shall use the first blend mode in the array that it
+/// > recognizes (or Normal if it recognizes none of them).
+///
+/// The natural implementation takes the first name and maps it, which maps an unrecognised
+/// leading name to Normal and never looks at the rest — indistinguishable from a correct
+/// reader on every array whose first entry is a real mode, which is every array anyone
+/// writes. Found by reading the clause rather than by a page.
+#[test]
+fn a_blend_mode_array_takes_the_first_name_this_reader_knows() {
+    let blends = |gs: &str| {
+        let document = Document::open(fixture(gs, "/GS gs 0 0 1 rg 10 10 50 50 re f"))
+            .expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        pdf_model::interpret(&document, &page)
+            .display_list
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Fill { blend, .. } => Some(*blend),
+                _ => None,
+            })
+    };
+
+    assert_eq!(
+        blends("/BM [/Fictional /Multiply]"),
+        Some(pdf_render::BlendMode::Multiply),
+        "the first recognised name wins, not the first name"
+    );
+    assert_eq!(
+        blends("/BM [/Fictional /AlsoFictional]"),
+        Some(pdf_render::BlendMode::Normal),
+        "an array of names none of which is a mode is Normal"
+    );
+}
+
+/// §11.6.2: a path filled *and* stroked composites in two parts, and that is reported.
+///
+/// > Portions of an object shall not be composited with one another, even if they are
+/// > described in a way that would seem to cause overlaps (such as a self-intersecting path,
+/// > combined fill and stroke of a path, or a shading pattern containing an overlap or
+/// > fold-over).
+///
+/// `B` is one object; a display list holding a `Fill` and a `Stroke` composites the band they
+/// share twice. Both halves of the condition are pinned here, because the report's whole
+/// value is that it names pages where the difference can be seen: an opaque `B` is silent,
+/// and so is one whose fill or stroke paints nothing at all.
+#[test]
+fn a_filled_and_stroked_path_reports_only_where_it_can_show() {
+    let reported = |gs: &str, content: &str| {
+        let document = Document::open(fixture(gs, content)).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        format!("{:?}", pdf_model::interpret(&document, &page).unsupported)
+    };
+
+    assert!(
+        reported(
+            "/ca 0.5 /CA 0.5",
+            "/GS gs 0 0 1 rg 1 0 0 RG 10 10 50 50 re B"
+        )
+        .contains("filled and stroked"),
+        "a compositing B paints its stroke over its own fill"
+    );
+    assert!(
+        !reported("/ca 1 /CA 1", "/GS gs 0 0 1 rg 1 0 0 RG 10 10 50 50 re B")
+            .contains("filled and stroked"),
+        "an opaque B under the Normal blend mode draws the same either way"
+    );
+    assert!(
+        !reported("/ca 0 /CA 0.5", "/GS gs 0 0 1 rg 1 0 0 RG 10 10 50 50 re B")
+            .contains("filled and stroked"),
+        "a fill that paints nothing leaves one part, which cannot overlap itself"
+    );
 }
 
 /// §11.6.4.2: an elementary object's intrinsic opacity is 1.0, so opacity comes from `ca`.
