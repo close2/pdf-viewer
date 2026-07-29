@@ -76,22 +76,33 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 220, and *not* a defect count — it is the honest-reporting requirement working. The
+/// 189, and *not* a defect count — it is the honest-reporting requirement working. The
 /// breakdown, by each document's first report, which is the useful part, and recomputed
 /// every session because a number nothing recomputes is a number that drifts — this table
 /// had said 263 while the ratchet below said 251:
 ///
 /// | reported | count | why |
 /// |---|---|---|
-/// | `Text` | 100 | CID encodings and embedded `CMap`s |
-/// | `Annotation` | 66 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
-/// | `TransparencyGroup` | 17 | §11.4 and §11.5.3, described below |
+/// | `Text` | 67 | see below; embedded `CMap`s and `/CIDToGIDMap` have left this row |
+/// | `Annotation` | 67 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
+/// | `TransparencyGroup` | 18 | §11.4 and §11.5.3, described below |
 /// | `Operator` | 15 | malformed streams, mostly; the text rendering modes have left this row |
 /// | `Image` | 11 | see below; a soft mask of another size has left this row |
 /// | `Content` | 7 | a `/Contents` stream that did not decode |
 /// | `CompositedInParts` | 2 | §11.6.2, new in the fifteenth session and described below |
 /// | `TextKnockout` | 1 | §9.3.8, new in the fourteenth session and described below |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
+///
+/// **The `Text` row fell by 33 documents in the twentieth session** and two other rows rose by
+/// one each, which is the same 31 documents rather than a regression: a document whose font
+/// report was its *first* now reports its annotation or its transparency group first. §9.7's
+/// composite fonts are implemented (ADR 0029), so an embedded `CMap` stream and a
+/// `/CIDToGIDMap` in any of its forms both draw. Counting *fonts* rather than documents, the
+/// row is 67: 27 with no `/ToUnicode` so a substitute cannot be addressed, 21 whose substitute
+/// draws none of the codes the document declares, 15 naming one of Table 116's predefined
+/// `CMap`s — which are registered data files rather than an algorithm, so this is a licensing
+/// decision — 4 asking for vertical writing, and the rest malformed programs. **Nothing left on
+/// it is a `CMap` question.**
 ///
 /// **The `Shading` row is gone.** It held 28 documents, every one of them a soft mask in an
 /// `/ExtGState` — which is transparency rather than shading, and was filed there because
@@ -278,7 +289,7 @@ const MAX_PAGELESS: usize = 19;
 /// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
 /// and it is the visible face of a gap this project already knows about: a font reports as a
 /// whole, so a glyph that fails to load draws nothing and says nothing.
-const MAX_INCOMPLETE: usize = 220;
+const MAX_INCOMPLETE: usize = 189;
 
 /// How long one document may take before it counts as a failure.
 ///

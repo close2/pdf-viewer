@@ -361,7 +361,42 @@ const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.p
 /// readings. That is an argument about this page's *evidence*, not an excuse: the entry
 /// stays, and the way to settle it is to make `has_text` mean "we drew glyphs" rather than
 /// "we could name what we drew".
-const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 1] = ["issue5070.pdf page 1"];
+/// # A second page joined in the twentieth session, and it arrived by becoming comparable
+///
+/// `issue7901.pdf` is 200 by 40 pixels and holds nothing but the words "The Free Software
+/// Definition" at about eight pixels. It reported an unreadable `CMap` until §9.7.5.3 landed
+/// (ADR 0029), and it now draws the sentence — the side-by-side is four panels of the same
+/// words. Every *absolute* bound is met with room to spare: mean 3.95 against 5.00, worst tile
+/// 9.95 against 40.00, SSIM 0.9683 against 0.9900's floor. What fails is the differing-fraction
+/// bound, at 9.89%, and on a page that is entirely glyph edges that fraction is the
+/// anti-aliasing of every letter. The heatmap shows the outline of each word and nothing else.
+/// Trap 12's shape from the other direction: the bound is derived from how close the two
+/// consensus references sit, and on a page of small text taken from the same `FreeType` they
+/// sit closer than two independent rasterisers can.
+const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 2] =
+    ["issue5070.pdf page 1", "issue7901.pdf page 1"];
+
+/// Contradicted, missing one glyph of a symbolic simple font whose `/Differences` misname it.
+///
+/// 1 page, arrived in the twentieth session by becoming comparable, and the cause is not that
+/// session's work.
+///
+/// `issue20232.pdf` is an engineering drawing that four renderers draw identically down to the
+/// frame and the title block — except that its dimension label reads `⌀56` in three of them and
+/// `56` in ours. The glyph comes from `/F1`, a simple `TrueType` font named `HPDFAA+Symbol_A`
+/// whose `/Encoding` names code 71 `/Ccedilla` in a `/Differences` array, whose `/Widths` gives
+/// that code 448 units, and whose embedded subset holds the *diameter* sign there — 448 is also
+/// what the document's own `CIDFont` gives CID 8709, which is U+2205. So the name in
+/// `/Differences` describes nothing in the program, and the code reaches no glyph at all.
+///
+/// The clause that decides it is §9.6.5.4, not §9.7: the descriptor's `/Flags` is 36, which sets
+/// the Symbolic bit (4) *and* the Nonsymbolic bit (32) at once. §9.6.5.4 says that when the
+/// Symbolic flag is set the `/Encoding` entry "is ignored" and the code is looked up in a (3, 0)
+/// or (1, 0) `cmap` subtable directly, which is what would find this glyph; a font that claims
+/// both flags leaves that route unreachable here. Listed rather than fixed, because changing
+/// which route a contradictory descriptor takes is a §9.6.5.4 question and ADR 0015's fifteen
+/// pages are what is at stake.
+const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 1] = ["issue20232.pdf page 1"];
 
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
@@ -1262,6 +1297,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_MASK_QUANTISATION)
         .chain(&CONTRADICTED_VISIBILITY_EXPRESSION)
         .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
+        .chain(&CONTRADICTED_SYMBOLIC_FONT_FLAGS)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)
         .chain(&CONTRADICTED_UNEXPLAINED)
         .copied()

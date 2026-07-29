@@ -126,9 +126,9 @@ pub struct Stroke {
     /// Whether ISO 32000-2 §10.7.5's automatic stroke adjustment is enabled (`/SA`).
     ///
     /// A graphics state parameter rather than a stroke parameter in the standard's own
-    /// arrangement (Table 58), and carried here because a stroke is the only thing it
+    /// arrangement (Table 57), and carried here because a stroke is the only thing it
     /// affects and because that makes `q`/`Q` save and restore it for free. Initial value
-    /// `false`, per Table 58.
+    /// `false`, per Table 57.
     pub adjust: bool,
     /// Treatment of open subpath ends.
     pub cap: LineCap,
@@ -201,7 +201,7 @@ impl Stroke {
 
 impl Default for Stroke {
     /// The PDF initial graphics state: 1.0 width, butt caps, miter joins, limit 10, and
-    /// stroke adjustment off (Table 58).
+    /// stroke adjustment off (Table 57).
     fn default() -> Self {
         Self {
             width: 1.0,

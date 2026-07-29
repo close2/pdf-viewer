@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use pdf_font::Code;
 use pdf_render::Shading;
 use pdf_render::display_list::Clip;
 use pdf_render::{
@@ -333,44 +334,27 @@ impl Font {
     ///
     /// A Type 3 font is a simple font — Table 110 gives it `/FirstChar` and `/LastChar`,
     /// which are byte codes — so one byte is one code, always.
-    fn decode(&self, bytes: &[u8]) -> Vec<u32> {
+    fn decode(&self, bytes: &[u8]) -> Vec<Code> {
         match self {
             Self::Program(font) => font.decode(bytes),
-            Self::Type3(_) => bytes.iter().map(|&byte| u32::from(byte)).collect(),
+            Self::Type3(_) => bytes.iter().copied().map(Code::single_byte).collect(),
         }
     }
 
     /// A code's advance in text-space units, where one em is 1.0.
-    fn advance(&self, code: u32) -> f32 {
+    fn advance(&self, code: Code) -> f32 {
         match self {
             Self::Program(font) => font.advance(code),
-            Self::Type3(font) => font.advance(code),
+            Self::Type3(font) => font.advance(code.value()),
         }
     }
 
     /// Appends what a code means to the page's extracted text.
-    fn text(&self, code: u32, out: &mut String) -> bool {
+    fn text(&self, code: Code, out: &mut String) -> bool {
         match self {
             Self::Program(font) => font.text(code, out),
-            Self::Type3(font) => font.text(code, out),
+            Self::Type3(font) => font.text(code.value(), out),
         }
-    }
-
-    /// Whether ISO 32000-2 §9.3.3's word spacing applies to this code.
-    ///
-    /// The clause makes it a rule about the code's *encoded length*, not its value: word
-    /// spacing applies to "every occurrence of the single-byte character code 32 … when
-    /// using a simple font (including Type 3) or a composite font that defines code 32 as a
-    /// single-byte code", and "shall not apply to occurrences of the byte value 32 in
-    /// multiple-byte codes". A Type 3 font is always single-byte (Table 110 gives it
-    /// `/FirstChar` and `/LastChar`), so the question only reaches the font for the other
-    /// kind.
-    fn takes_word_spacing(&self, code: u32) -> bool {
-        code == 32
-            && match self {
-                Self::Program(font) => font.has_single_byte_codes(),
-                Self::Type3(_) => true,
-            }
     }
 }
 
@@ -1680,7 +1664,7 @@ impl Interpreter<'_> {
                 state.stroke.width = (width as f32).max(0.0);
             }
         }
-        // Table 58's `/SA`: §10.7.5's automatic stroke adjustment. What it changes here is
+        // Table 57's `/SA`: §10.7.5's automatic stroke adjustment. What it changes here is
         // the one rule of that clause a display can state exactly — a line under half a
         // device pixel wide "shall be rendered as a single-pixel line" — which
         // `Stroke::device_width` applies once for both backends, since only a backend knows
@@ -1690,7 +1674,7 @@ impl Interpreter<'_> {
         if let Object::Boolean(adjust) = self.document.get_key(dict, "SA") {
             state.stroke.adjust = adjust;
         }
-        // Table 58's `/OP`, `/op` and `/OPM`: overprint and overprint mode, deliberately not
+        // Table 57's `/OP`, `/op` and `/OPM`: overprint and overprint mode, deliberately not
         // read, which §8.6.7 is explicit about rather than silent on. Overprinting decides
         // what happens to the device colourants a painting operation does *not* name, and
         // this device has three additive process colourants and no separations: "Not all
@@ -2653,7 +2637,7 @@ impl Interpreter<'_> {
         // Taken from the magnitude of the size because §9.3.1's NOTE says "Negative text
         // font size is permitted", and a negative threshold is below every gap there is —
         // which would have put a space between every pair of glyphs in the extracted text.
-        let space_em = font.advance(32);
+        let space_em = font.advance(Code::single_byte(32));
         let word_gap = if space_em > 0.0 {
             space_em * size.abs() * 0.6
         } else {
@@ -2749,7 +2733,12 @@ impl Interpreter<'_> {
                         // added to the clipping path."
                         if fills || strokes {
                             self.draw_type3_glyph(
-                                type3, code, state, transform, resources, form_depth,
+                                type3,
+                                code.value(),
+                                state,
+                                transform,
+                                resources,
+                                form_depth,
                             );
                             if knockout_can_show {
                                 // A Type 3 glyph's ink is whatever its description painted,
@@ -2761,8 +2750,12 @@ impl Interpreter<'_> {
                 }
             }
 
-            // Word spacing applies only to the single-byte code 32 (§9.3.3).
-            let word = if font.takes_word_spacing(code) {
+            // Word spacing applies only to the single-byte code 32 (§9.3.3), which is a rule
+            // about the code's encoded length rather than its value — see
+            // `pdf_font::Code::takes_word_spacing`. A Type 3 font's codes are all one byte,
+            // Table 110 giving it `/FirstChar` and `/LastChar`, so the same test serves both
+            // kinds of font.
+            let word = if code.takes_word_spacing() {
                 state.text.word_spacing
             } else {
                 0.0

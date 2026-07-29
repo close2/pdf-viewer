@@ -1749,92 +1749,136 @@ note = "All five routes from a code to a glyph, implemented in the eighth sessio
 [[clause]]
 clause = "9.7"
 title = "Composite fonts"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/cmap.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances"]
+note = "Aggregate of the seventeen rows below, reviewed as a family in the twentieth session (ADR 0029). A Type 0 font is two independent mappings and both are now read: §9.7.6.2's CMap from codes to CIDs, embedded (§9.7.5.3) or Identity, and §9.7.4.2's CID to glyph index, through a CID-keyed CFF's charset or a /CIDToGIDMap stream. What is left is data rather than code — Table 116's seventy-odd predefined CMaps, refused by name on 15 corpus fonts — and vertical writing, which is §9.2.4's missing /W2 metrics rather than this clause's."
 
 [[clause]]
 clause = "9.7.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/cmap.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_utf8_shaped_codespace_yields_codes_of_several_lengths"]
+note = "The clause's one requirement of a processor is the sentence that separates a composite font from a simple one: \"for composite fonts, a sequence of one or more bytes are decoded to select a glyph from the descendant CIDFont\". `LoadedFont::decode` returns a `Code` carrying its own byte length for exactly that reason, and the one-descendant limitation the clause states is why only `/DescendantFonts`' first element is read."
 
 [[clause]]
 clause = "9.7.2"
 title = "CID-Keyed fonts overview"
-status = "unreviewed"
+status = "inapplicable"
+code = []
+note = "Architecture rather than requirement: it introduces CIDs, character collections and the CMap/CIDFont split, and every normative sentence it contains is restated with effect in §9.7.3 to §9.7.6. Its one processor-facing statement — that a CMap's mapping \"yields a font number (which in PDF shall be 0)\" — is §9.7.6.2's, and is honoured there by reading only the first descendant."
 
 [[clause]]
 clause = "9.7.3"
 title = "CIDSystemInfo dictionaries"
-status = "unreviewed"
+status = "inapplicable"
+code = []
+note = "`/CIDSystemInfo` identifies the character collection a CMap and a CIDFont share, and the clause's requirements are on the *file*: \"In order for a CIDFont and a CMap to be compatible, their Registry and Ordering values shall be the same.\" A renderer that takes both from the same file has nothing to decide — the CIDs it resolves come from that file's own CMap and are looked up in that file's own CIDFont, so a mismatch cannot change which glyph is drawn. It would matter for a *predefined* CMap, where the collection is external; that is §9.7.5.2's gap, and this row will need revisiting with it."
 
 [[clause]]
 clause = "9.7.4"
 title = "CIDFonts"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances"]
+note = "Aggregate of the three below. Table 115's entries are read except `/DW2` and `/W2`, which are vertical metrics and belong to §9.2.4's gap; both CIDFont subtypes work, with glyph selection decided by what the embedded program is rather than by `/Subtype`."
 
 [[clause]]
 clause = "9.7.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances"]
+note = "Table 115. `/Subtype`, `/CIDSystemInfo`, `/FontDescriptor`, `/DW`, `/W` and `/CIDToGIDMap` are read; `/DW2` and `/W2` are not, and a font whose CMap asks for vertical writing is refused before they would be needed. The clause's prohibitions are on the file rather than on a reader — a CIDFont \"may not be used as the operand of the Tf operator\" — and are satisfied by construction, because nothing reaches a descendant except through its Type 0 parent."
 
 [[clause]]
 clause = "9.7.4.2"
 title = "Glyph selection in CIDFonts"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances"]
+note = "All four routes, in the twentieth session (ADR 0029). A CID-keyed CFF goes through its charset; a CFF whose Top DICT has no CIDFont operators, and a TrueType with `/CIDToGIDMap /Identity` or none, take the CID as the glyph index; a `/CIDToGIDMap` stream is read as Table 115's two big-endian bytes at 2c. Two findings. The route is chosen by what the *program* is, not by `/Subtype`, because a CIDFontType0 may arrive as a CFF inside an OpenType wrapper. And an explicit `/CIDToGIDMap` stream outranks \"the CIDs shall be used directly as GID values\": Table 115 conditions the entry's presence on Type 2 and defines its meaning unconditionally, and `issue7901.pdf` — a CIDFontType0 wrapping a name-keyed CFF and carrying such a stream — drew garbage under the other reading where four renderers draw its sentence. The clause's own rule for a non-embedded program is honoured too: the entry \"shall be ignored\", and a substituted font reaches glyphs through `/ToUnicode` instead."
 
 [[clause]]
 clause = "9.7.4.3"
 title = "Glyph metrics in CIDFonts"
 status = "partial"
 code = ["crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-font/src/lib.rs::the_pdf_widths_agree_with_the_font_programs_own_advances"]
-note = "/W in both of its formats and /DW are implemented, including the clause's rule that the first specification of a repeated CID wins. /W2 and /DW2 are not read at all: they are the vertical metrics, and a font asking for vertical writing is refused where its CMap is chosen (§9.2.4)."
+test = ["crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances"]
+note = "/W in both of its formats and /DW are implemented, including the clause's rule that the first specification of a repeated CID wins, and — since the twentieth session — they are indexed by CID rather than by character code, which is the same thing only under Identity-H. /W2 and /DW2 are not read at all: they are the vertical metrics, and a font asking for vertical writing is refused where its CMap is chosen (§9.2.4)."
 
 [[clause]]
 clause = "9.7.5"
 title = "CMaps"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/cmap.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_one_byte_codespace_range_makes_one_byte_one_code"]
+note = "Aggregate of the four below. An embedded CMap file is read in full; the two Identity CMaps are built; the other predefined names are refused because their data is not in the tree."
 
 [[clause]]
 clause = "9.7.5.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/cmap.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::vertical_writing_is_refused_rather_than_drawn_horizontally"]
+note = "Both of the two forms the clause names are recognised — a predefined name and a stream — and a CMap yields \"CIDs in a CIDFont\", which is what `CMap::cid` returns. The writing mode is read from the file's own /WMode and from Table 118's, and mode 1 is refused rather than drawn horizontally, because the clause makes the mode decide \"which metrics shall be used\" and §9.7.4.3's /W2 is unread. That refusal is what keeps this `partial`: 4 corpus fonts ask for it."
 
 [[clause]]
 clause = "9.7.5.2"
 title = "Predefined CMaps"
 status = "reported"
-code = ["crates/pdf-font/src/lib.rs"]
-note = "Only the two Identity CMaps are recognised by name, and Identity-V is refused for its writing mode rather than its mapping. A font naming any other predefined CMap is reported: 8 corpus fonts, needing the registered CMap data, which is a licensing decision rather than a coding one."
+code = ["crates/pdf-font/src/cmap.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_predefined_cmap_is_refused_by_name"]
+note = "Table 116's two Identity CMaps are built — as one two-byte range rather than 65 536 entries, which is what the table's own sentence describes — and every other name is refused and reported: 15 corpus fonts across 11 documents. Those names stand for registered CMap *files*, so this is a licensing decision about vendoring data rather than a coding one, and the clause's requirement that a processor \"shall support Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7 and Adobe-KR-9 character collections\" cannot be met without them. Guessing would map codes to plausible wrong glyphs, which is the failure trap 1 exists for."
 
 [[clause]]
 clause = "9.7.5.3"
 title = "Embedded CMap files"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/cmap.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_one_byte_codespace_range_makes_one_byte_one_code"]
+note = "Table 118 in full, in the twentieth session (ADR 0029): the stream's data is parsed by `CMap::parse`, `/WMode` is read and checked against the file's, and `/UseCMap` is followed for a stream and refused for a predefined name whose data the tree lacks. A stream that states no codespace ranges, or no character mappings, is refused and named rather than drawn as a page of .notdef. §9.7.5.4 a)'s companion rule is enforced: a `usecmap` operator with no `/UseCMap` entry beside it names a CMap that cannot be found, so the font is refused."
 
 [[clause]]
 clause = "9.7.5.4"
 title = "CMap example and operator summary"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/cmap.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_bfchar_in_an_encoding_cmap_selects_a_cid"]
+note = "Four of the clause's five constraints are honoured. a) a usecmap reference with no /UseCMap entry is refused. b) a font number other than 0 cannot arise, since only the first descendant is read. d) notdef mappings are implemented, and a notdefrange gives its whole range one CID rather than consecutive ones — which ISO 32000-2 leaves to Adobe Technical Note #5014 and §9.7.6.3's purpose for the mapping implies. e) `beginrearrangedfont` and `beginusematrix` are not implemented and no corpus CMap writes one; an unrecognised keyword ends the current section, so their operands are discarded rather than misread. The row stays `partial` for c): \"beginbfchar and endbfchar shall not appear in a CMap that is used as the Encoding entry of a Type 0 font\", and `bug920426.pdf` writes an Encoding CMap whose only mappings are bfchar lines. §9.7.6.2's own account of the decoding algorithm names bfchar among the character mappings, so the two subclauses disagree and the one describing what a processor does is followed: the destination is read as a character selector, and the page draws its sentence instead of nothing."
 
 [[clause]]
 clause = "9.7.6"
 title = "Type 0 font dictionaries"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/cmap.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_one_byte_codespace_range_makes_one_byte_one_code"]
+note = "Aggregate of the three below. Table 119's entries are read; the decoding algorithm and its undefined-character rules are implemented; what is missing is the predefined CMap data §9.7.5.2 owns."
 
 [[clause]]
 clause = "9.7.6.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_predefined_cmap_is_refused_by_name"]
+note = "Table 119. `/Encoding` in both forms, `/DescendantFonts`' single element, and `/ToUnicode`. `/BaseFont` is deliberately unread for a Type 0 font: the clause's own NOTE calls it \"an arbitrary name, since there is no font program associated directly with a Type 0 font dictionary\", so the descendant's descriptor is what substitution is derived from."
 
 [[clause]]
 clause = "9.7.6.2"
 title = "CMap mapping"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/cmap.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_utf8_shaped_codespace_yields_codes_of_several_lengths", "crates/pdf-font/src/cmap.rs::a_codespace_range_is_matched_byte_by_byte"]
+note = "The whole algorithm, in the twentieth session (ADR 0029). Codespace ranges decide how many bytes the next code takes, shortest first; a code is matched against a range *byte by byte* rather than on its value, which is what makes a UTF-8-shaped CMap work and which no corpus document can distinguish — the numeric reading changes no page of the 1794 compared, so the synthetic test named above is the only thing holding the clause to its words. A code is then looked up \"in the character code mappings for codes of that length\", so `Code` carries its length and every table is indexed by it; failing that, in the notdef mappings. The font number is 0 by construction."
 
 [[clause]]
 clause = "9.7.6.3"
 title = "Handling undefined characters"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/cmap.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/cmap.rs::an_unmatched_first_byte_consumes_the_shortest_code", "crates/pdf-font/src/cmap.rs::a_partial_match_consumes_that_ranges_length"]
+note = "All four of the clause's rules. A code with no character mapping falls to the notdef mappings and then to CID 0; a CID whose glyph the CIDFont lacks does the same, which is also the clause's sentence about a /CIDToGIDMap stream too short for the CID. An *invalid* code — one matching no codespace range — skips the character mappings entirely, because the clause sends it straight to a substitute, and the modified algorithm decides how many bytes it consumes: the longest partial match, ties to the shortest codes, and the shortest codes outright where even the first byte matches nothing. That last rule is where two references depart from us: `issue11768_reduced.pdf` writes a one-byte `begincidchar <e0>` under a UTF-8 codespace that admits no one-byte code above 7F, so each `e0` is invalid and consumes the three bytes its partial match implies. mupdf and ghostscript take the mapping's own length and draw three hyphens; poppler and this tree follow the clause. The standard would not have written this recovery algorithm if a mapping's length were meant to override the codespace."
 
 [[clause]]
 clause = "9.8"

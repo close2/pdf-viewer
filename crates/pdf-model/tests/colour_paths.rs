@@ -528,7 +528,7 @@ fn overprinting_changes_nothing_on_a_three_component_device() {
 
 /// `/SA` reaches the stroke, and only the strokes drawn while it is in force.
 ///
-/// ISO 32000-2 §10.7.5 by way of Table 58's `/SA`. What the parameter *does* is
+/// ISO 32000-2 §10.7.5 by way of Table 57's `/SA`. What the parameter *does* is
 /// `Stroke::device_width`'s and is tested in pixels by `render-cpu/tests/stroke_width.rs`;
 /// what this pins is that the key is read at all and that `q`/`Q` restores it, which is the
 /// half a graphics state parameter carried on the stroke could get wrong.
