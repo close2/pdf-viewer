@@ -425,17 +425,42 @@ fn rotated_size(page: &Page) -> Size {
 /// Builds the transform from PDF user space to the page's own space.
 ///
 /// Two things fold in here. The crop box may not start at the origin, so content is
-/// translated by its lower-left corner; and `/Rotate` turns the page clockwise, which is
-/// a rotation plus a translation to bring the result back into positive coordinates.
+/// translated by its lower-left corner; and `/Rotate` turns the page, which is a rotation
+/// plus a translation to bring the result back into positive coordinates.
+///
+/// # Which way `/Rotate` turns, and the sign that has to be got right
+///
+/// ISO 32000-2 §7.7.3.3 Table 31 defines the entry as
+///
+/// > The number of degrees by which the page shall be rotated clockwise when displayed or
+/// > printed.
+///
+/// **Clockwise as displayed.** This space is not the display's: page space keeps PDF's y-up
+/// axis and [`pdf_render::TargetSpec::for_page`] does the flip to a raster's y-down one. A
+/// turn that is clockwise on the screen is therefore a *negative* rotation here, and each
+/// matrix below is that rotation composed with the translation that puts the page back in
+/// the positive quadrant. Writing them out for `/Rotate 90`, where `H` is the unrotated
+/// height: the rotation takes `(x, y)` to `(y, -x)`, and adding `H'` — the rotated page's own
+/// height, which is the unrotated *width* — gives `(y, W - x)`.
+///
+/// Getting the sign wrong is invisible to everything except a picture, which is how it
+/// survived from the first page tree until the twelfth session: 90 and 270 were exchanged, so
+/// every rotated page in the corpus came out turned by 180° from what four other renderers
+/// draw. Six pages were contradicted by it — five of `hello_world_rotated.pdf`, filed under
+/// substituted fonts because they carry one — and a page that is upside down is one that
+/// still has the right ink in the right *quantity*, so no metric in this tree could see it.
+/// `rotation_turns_the_page_clockwise_as_displayed` pins all four angles.
 fn base_transform(page: &Page) -> Transform {
     let shift = Transform::translate(-page.crop_box[0], -page.crop_box[1]);
     let (width, height) = (page.width(), page.height());
 
     let rotation = match page.rotate {
-        // Clockwise in device terms; in PDF's y-up space that is this matrix.
-        90 => Transform::new(0.0, 1.0, -1.0, 0.0, height, 0.0),
+        // (x, y) -> (y, W - x). The rotated page is `height` wide and `width` tall.
+        90 => Transform::new(0.0, -1.0, 1.0, 0.0, 0.0, width),
+        // (x, y) -> (W - x, H - y).
         180 => Transform::new(-1.0, 0.0, 0.0, -1.0, width, height),
-        270 => Transform::new(0.0, -1.0, 1.0, 0.0, 0.0, width),
+        // (x, y) -> (H - y, x).
+        270 => Transform::new(0.0, 1.0, -1.0, 0.0, height, 0.0),
         // 0, and anything that normalised to it.
         _ => Transform::IDENTITY,
     };
@@ -2676,5 +2701,92 @@ fn blend_mode(name: &[u8]) -> BlendMode {
         // `Normal`, `Compatible`, and any name this reader does not know: the specification
         // requires an unrecognised blend mode to behave as Normal.
         _ => BlendMode::Normal,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_render::Point;
+
+    use super::{base_transform, rotated_size};
+    use crate::page::Page;
+
+    /// A page 400 wide and 200 tall, with no crop offset, at `rotate` degrees.
+    fn landscape(rotate: u16) -> Page {
+        Page {
+            dict: pdf_syntax::Dictionary::default(),
+            resources: pdf_syntax::Dictionary::default(),
+            media_box: [0.0, 0.0, 400.0, 200.0],
+            crop_box: [0.0, 0.0, 400.0, 200.0],
+            rotate,
+        }
+    }
+
+    /// ISO 32000-2 §7.7.3.3 Table 31: `/Rotate` is "the number of degrees by which the page
+    /// shall be rotated **clockwise** when displayed".
+    ///
+    /// Clockwise *as displayed*, and this space is y-up, so the check is written in terms of
+    /// where a corner ends up rather than in terms of a matrix — a matrix can be transcribed
+    /// wrongly and still look like the right kind of thing, which is exactly what happened
+    /// here for eleven sessions.
+    ///
+    /// The user-space point checked is the page's **top-left** corner, `(0, H)`. Turn a sheet
+    /// of paper 90° clockwise and its top-left corner becomes the *top-right* one, which in
+    /// this y-up space with the rotated page `H` wide and `W` tall is `(H, W)`. Turn it 270°
+    /// clockwise and the same corner becomes the bottom-left, `(0, 0)`.
+    ///
+    /// This test was confirmed to fail with the 90 and 270 matrices exchanged, which is how
+    /// they stood until the twelfth session.
+    #[test]
+    fn rotation_turns_the_page_clockwise_as_displayed() {
+        let (width, height) = (400.0_f32, 200.0_f32);
+        let top_left = Point::new(0.0, height);
+
+        let unrotated = base_transform(&landscape(0)).apply(top_left);
+        assert_eq!((unrotated.x, unrotated.y), (0.0, height), "0 degrees");
+
+        // Clockwise: the top-left corner becomes the top-right of a page that is now
+        // `height` wide and `width` tall.
+        let quarter = base_transform(&landscape(90)).apply(top_left);
+        assert_eq!((quarter.x, quarter.y), (height, width), "90 degrees");
+
+        let half = base_transform(&landscape(180)).apply(top_left);
+        assert_eq!((half.x, half.y), (width, 0.0), "180 degrees");
+
+        // Three quarters clockwise puts it at the origin.
+        let three_quarters = base_transform(&landscape(270)).apply(top_left);
+        assert_eq!(
+            (three_quarters.x, three_quarters.y),
+            (0.0, 0.0),
+            "270 degrees"
+        );
+    }
+
+    /// Every corner of the page must land inside the rotated page, at every angle.
+    ///
+    /// The corner test above pins the direction; this pins that the translation which brings
+    /// a rotation back into the positive quadrant is the right one. A sign error in either
+    /// would otherwise put content off the page, where a comparison sees a blank sheet and
+    /// reports a difference without saying it was a placement.
+    #[test]
+    fn every_corner_lands_inside_the_rotated_page() {
+        for rotate in [0, 90, 180, 270] {
+            let page = landscape(rotate);
+            let size = rotated_size(&page);
+            let transform = base_transform(&page);
+            for corner in [
+                Point::new(0.0, 0.0),
+                Point::new(400.0, 0.0),
+                Point::new(0.0, 200.0),
+                Point::new(400.0, 200.0),
+            ] {
+                let mapped = transform.apply(corner);
+                assert!(
+                    (0.0..=size.width).contains(&mapped.x)
+                        && (0.0..=size.height).contains(&mapped.y),
+                    "rotate {rotate}: {corner:?} landed at {mapped:?}, outside {size:?}"
+                );
+            }
+        }
     }
 }
