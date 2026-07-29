@@ -245,6 +245,19 @@ impl Image {
         self.data.len() == expected && self.width > 0 && self.height > 0
     }
 
+    /// Whether every sample is fully opaque.
+    ///
+    /// Asked by `pdf-model` about the elements of a knockout group (§11.4.6): knockout and
+    /// ordinary compositing give the same pixels wherever the upper object is opaque, so a
+    /// report about the difference has to be able to tell one from the other. An image
+    /// carrying a soft mask or a stencil is exactly the case a constant alpha cannot see.
+    ///
+    /// Linear in the samples, which is why the one caller asks it only for a knockout group.
+    #[must_use]
+    pub fn is_opaque(&self) -> bool {
+        self.data.chunks_exact(4).all(|sample| sample[3] == u8::MAX)
+    }
+
     /// Whether a backend should filter between samples when drawing under `placement`.
     ///
     /// `placement` maps the unit square onto the device, so the length of its two edges is

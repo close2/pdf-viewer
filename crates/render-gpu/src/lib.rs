@@ -341,7 +341,20 @@ impl GpuRasterizer {
         drop(mapped);
         staging.unmap();
 
-        demultiply(&mut data);
+        // §11.4.7: the page group is isolated, so the medium's colour is composited with the
+        // finished page rather than being the backdrop its blend modes saw. Shared with the
+        // CPU backend so the two cannot differ about it, and done in premultiplied form,
+        // which is where a source-over composite is exact.
+        //
+        // Vello hands back **straight** alpha, hence the conversion around it rather than
+        // after it — see the note above `demultiply`. Skipped entirely for a transparent
+        // medium, where the composite is the identity and the round trip would cost a level
+        // on every partly covered pixel for nothing.
+        if self.background.a > 0.0 {
+            premultiply(&mut data);
+            pdf_render::impose_on_medium(&mut data, self.background);
+            demultiply(&mut data);
+        }
 
         Ok(Raster {
             width: target.width,
@@ -391,12 +404,11 @@ impl Rasterizer for GpuRasterizer {
                 &scene,
                 &view,
                 &vello::RenderParams {
-                    base_color: vello::peniko::Color::new([
-                        self.background.r,
-                        self.background.g,
-                        self.background.b,
-                        self.background.a,
-                    ]),
+                    // Transparent, not the background: §11.4.7's page group is isolated, so
+                    // the medium's colour is composited with the *result* rather than being
+                    // the backdrop the page's own blend modes see. `read_back` ends with
+                    // `impose_on_medium`, which is the same function the CPU backend uses.
+                    base_color: vello::peniko::Color::TRANSPARENT,
                     width: target.width,
                     height: target.height,
                     antialiasing_method: vello::AaConfig::Area,
@@ -408,12 +420,39 @@ impl Rasterizer for GpuRasterizer {
     }
 }
 
+/// Converts straight-alpha RGBA to premultiplied, in place: [`demultiply`]'s inverse.
+fn premultiply(data: &mut [u8]) {
+    for pixel in data.chunks_exact_mut(4) {
+        let alpha = pixel[3];
+        if alpha == u8::MAX {
+            continue;
+        }
+        for channel in &mut pixel[..3] {
+            // `u8 * u8` peaks at 65 025, inside `u16`, and the quotient is at most 255.
+            // Rounded rather than truncated so that a fully opaque channel round-trips.
+            let scaled = u16::from(*channel)
+                .saturating_mul(u16::from(alpha))
+                .saturating_add(127);
+            *channel = u8::try_from(scaled / 255).unwrap_or(u8::MAX);
+        }
+    }
+}
+
 /// Converts premultiplied RGBA to straight alpha, in place.
 ///
-/// Vello writes premultiplied alpha; [`Raster`] is documented as straight alpha. With
-/// an opaque background the two coincide, so this is a no-op in the common case — but
-/// relying on that would break silently the first time a transparent background is
-/// used for page compositing.
+/// [`Raster`] is documented as straight alpha, which is also what Vello hands back — so this
+/// runs only over what [`premultiply`] did, to undo it after the page has been imposed on its
+/// medium (§11.4.7). With an opaque medium every pixel ends fully opaque and the pair is a
+/// no-op; with a transparent one they are exact inverses except for the rounding of a channel
+/// that is about to be divided by its own alpha again.
+///
+/// **This function used to be applied to Vello's output directly, on the belief that Vello
+/// wrote premultiplied alpha, and that was wrong.** It went unnoticed for fifteen sessions
+/// because the background was opaque and every pixel came back with an alpha of 255, where
+/// the conversion is the identity. The first render onto transparency showed it: a pixel half
+/// covered by a 50% grey came back `[128, 0, 0, 128]` from `tiny-skia` and `[255, 0, 0, 128]`
+/// from here, the colour divided by its own coverage. `vello_hands_back_straight_alpha` pins
+/// it.
 fn demultiply(data: &mut [u8]) {
     for pixel in data.chunks_exact_mut(4) {
         let alpha = pixel[3];
@@ -478,4 +517,7 @@ pub enum GpuRasterError {
     /// A clip's parent chain forms a cycle.
     #[error("clip {0:?} is part of a cyclic parent chain")]
     CyclicClip(ClipId),
+    /// A failure originating in the shared backend layer.
+    #[error(transparent)]
+    Target(#[from] pdf_render::BackendError),
 }

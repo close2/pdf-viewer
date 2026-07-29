@@ -40,6 +40,28 @@ pub struct Shading {
 }
 
 impl Shading {
+    /// Whether every colour this shading can paint is fully opaque.
+    ///
+    /// Asked for the same reason as [`crate::Image::is_opaque`]: §11.4.6's knockout differs
+    /// from ordinary compositing only where the upper object is not opaque, and a shading's
+    /// alpha lives in its colours rather than in a single field a caller can read.
+    ///
+    /// A shading that does not extend leaves part of its region unpainted, which is a shape
+    /// of zero rather than an opacity, so it is not what this answers.
+    #[must_use]
+    pub fn is_opaque(&self) -> bool {
+        let opaque = |colour: &Color| colour.a >= 1.0;
+        match &self.kind {
+            ShadingKind::Axial { ramp, .. } | ShadingKind::Radial { ramp, .. } => {
+                ramp.colours.iter().all(opaque)
+            }
+            ShadingKind::Sampled { pixels, .. } => pixels.iter().all(opaque),
+            ShadingKind::Mesh { triangles } => triangles
+                .iter()
+                .all(|triangle| triangle.colours.iter().all(opaque)),
+        }
+    }
+
     /// Returns this shading with every colour's alpha scaled by `alpha`.
     ///
     /// A shading is the one paint whose colours are not a single [`Color`] the caller can

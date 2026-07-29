@@ -25,8 +25,8 @@ mod shading;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use pdf_render::{
-    BackendError, ClipId, Color, Command, DisplayList, MAX_EXTENT, Paint, Raster, RasterFormat,
-    Rasterizer, TargetSpec, Transform,
+    BackendError, ClipId, Color, Command, DisplayList, MAX_EXTENT, MAX_GROUP_DEPTH, Paint, Raster,
+    RasterFormat, Rasterizer, TargetSpec, Transform, impose_on_medium,
 };
 
 /// Renders display lists on the CPU.
@@ -143,11 +143,80 @@ impl Rasterizer for CpuRasterizer {
                 height: target.height,
             },
         )?;
-        pixmap.fill(convert::color(self.background));
+        // Not filled with the background: §11.4.7 makes the page group *isolated*, so the
+        // page's elements composite onto transparency and the medium's colour is applied to
+        // the result — see `impose_on_medium`, which both backends end with.
 
         let mut masks = MaskCache::new(target, self.anti_alias);
+        self.encode(&mut pixmap, list, list.commands(), target, &mut masks, 0)?;
 
-        for command in list.commands() {
+        // §11.4.7's page group is isolated, so the medium's colour is composited with the
+        // finished page rather than being the backdrop its blend modes saw. Before the
+        // conversion below, because `tiny-skia`'s pixels are premultiplied here and that is
+        // where the composite is exact.
+        impose_on_medium(pixmap.data_mut(), self.background);
+
+        Ok(Raster {
+            width: target.width,
+            height: target.height,
+            format: RasterFormat::Rgba8,
+            // `tiny-skia` stores premultiplied alpha internally; `Raster` is documented
+            // as straight alpha, so the conversion happens here at the backend boundary
+            // rather than being left to every consumer to remember.
+            data: pixmap.take_demultiplied(),
+        })
+    }
+}
+
+impl CpuRasterizer {
+    /// Draws a sequence of commands onto a target-sized pixmap.
+    ///
+    /// Split out of [`CpuRasterizer::rasterize`] because a transparency group is the same
+    /// loop over a nested list and a fresh surface, and a second copy of the band and clip
+    /// handling would be a place for the two to diverge.
+    ///
+    /// `depth` counts enclosing groups; see [`MAX_GROUP_DEPTH`] for why it is bounded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CpuRasterError`] for anything [`CpuRasterizer::draw`] rejects, for a clip
+    /// chain that is dangling or cyclic, and for groups nested past the bound.
+    fn encode(
+        &self,
+        pixmap: &mut tiny_skia::Pixmap,
+        list: &DisplayList,
+        commands: &[Command],
+        target: TargetSpec,
+        masks: &mut MaskCache,
+        depth: usize,
+    ) -> Result<(), CpuRasterError> {
+        for command in commands {
+            // A group is the one command that needs the mask cache mutably *while* it
+            // draws, so it cannot hold a clip mask borrowed from it across the recursion.
+            // It therefore resolves its own clip, twice, either side of its elements.
+            if let Command::Group {
+                commands,
+                alpha,
+                blend,
+                ..
+            } = command
+            {
+                self.draw_group(
+                    pixmap,
+                    list,
+                    Group {
+                        commands,
+                        alpha: *alpha,
+                        blend: *blend,
+                        clip: command.clip(),
+                    },
+                    target,
+                    masks,
+                    depth,
+                )?;
+                continue;
+            }
+
             // Resolved before the match so that every arm shares one code path for
             // clip handling; a per-arm lookup would be a place for them to diverge.
             let (band, clip) = match command.clip() {
@@ -166,27 +235,104 @@ impl Rasterizer for CpuRasterizer {
             // and images all move together; missing one would tear the page apart in a
             // way no metric would notice, so there is exactly one of these.
             let to_device = target.transform.then(band.offset());
-            let mut surface = band.rows(&mut pixmap).ok_or(CpuRasterError::Allocation {
+            let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
                 width: target.width,
                 height: band.height,
             })?;
 
             self.draw(&mut surface, command, to_device, clip)?;
         }
-
-        Ok(Raster {
-            width: target.width,
-            height: target.height,
-            format: RasterFormat::Rgba8,
-            // `tiny-skia` stores premultiplied alpha internally; `Raster` is documented
-            // as straight alpha, so the conversion happens here at the backend boundary
-            // rather than being left to every consumer to remember.
-            data: pixmap.take_demultiplied(),
-        })
+        Ok(())
     }
-}
 
-impl CpuRasterizer {
+    /// Composites one transparency group (ISO 32000-2 §11.4.1).
+    ///
+    /// The elements are drawn onto a fully transparent surface of the target's size — the
+    /// isolated group's initial backdrop of §11.4.5 — and the result is then painted onto
+    /// the page once, under the group's own constant alpha and blend mode. Compositing the
+    /// elements one at a time onto the page instead is what §11.6.6's initialisation of the
+    /// alpha constants exists to prevent, and is visibly different wherever two elements
+    /// overlap.
+    ///
+    /// The surface is the whole target rather than the group's band because the elements'
+    /// clips are resolved against the target, so their bands are target rows; a band-sized
+    /// buffer would need every one of them shifted, and one coordinate system that is right
+    /// beats two that have to agree.
+    fn draw_group(
+        &self,
+        pixmap: &mut tiny_skia::Pixmap,
+        list: &DisplayList,
+        group: Group<'_>,
+        target: TargetSpec,
+        masks: &mut MaskCache,
+        depth: usize,
+    ) -> Result<(), CpuRasterError> {
+        let depth = depth.saturating_add(1);
+        if depth > MAX_GROUP_DEPTH {
+            return Err(BackendError::GroupsTooDeep {
+                depth,
+                limit: MAX_GROUP_DEPTH,
+            }
+            .into());
+        }
+
+        // The band is taken first so that a group whose clip admits no row costs nothing at
+        // all — not even the buffer.
+        let band = match group.clip {
+            Some(id) => match masks.get(list, id)? {
+                Some((band, _)) => band,
+                None => return Ok(()),
+            },
+            None => Band::whole(target),
+        };
+
+        let mut buffer = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+            CpuRasterError::Allocation {
+                width: target.width,
+                height: target.height,
+            },
+        )?;
+        self.encode(&mut buffer, list, group.commands, target, masks, depth)?;
+
+        // Resolved again rather than held across the recursion: the elements' own clips
+        // share this cache and may have evicted the entry, and a rebuilt mask is the mask
+        // that was dropped — see `a_rebuilt_mask_is_the_mask_that_was_evicted`.
+        let clip = match group.clip {
+            Some(id) => match masks.get(list, id)? {
+                Some((_, mask)) => Some(mask),
+                None => return Ok(()),
+            },
+            None => None,
+        };
+
+        let paint = tiny_skia::PixmapPaint {
+            opacity: group.alpha.clamp(0.0, 1.0),
+            blend_mode: convert::blend_mode(group.blend),
+            // The buffer is drawn at 1:1 with no transform, so no sample is ever
+            // interpolated and the quality setting cannot change a pixel.
+            quality: tiny_skia::FilterQuality::Nearest,
+        };
+        let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
+            width: target.width,
+            height: band.height,
+        })?;
+        // Negative, because the buffer covers the whole target and the surface starts at
+        // the band's first row.
+        let top = i32::try_from(band.top).map_err(|_| CpuRasterError::Allocation {
+            width: target.width,
+            height: band.height,
+        })?;
+        surface.draw_pixmap(
+            0,
+            top.saturating_neg(),
+            buffer.as_ref(),
+            &paint,
+            tiny_skia::Transform::identity(),
+            clip,
+        );
+        Ok(())
+    }
+
     /// Draws one command onto `surface`, which is the band its clip admits.
     ///
     /// `to_device` maps page space onto that band, so it already carries the band's row
@@ -287,6 +433,18 @@ impl CpuRasterizer {
         }
         Ok(())
     }
+}
+
+/// One transparency group, unpacked from its command.
+///
+/// Grouped for the same reason as [`ImagePlacement`]: four values that always travel
+/// together, and a call site that would otherwise be a row of unlabelled arguments.
+#[derive(Debug, Clone, Copy)]
+struct Group<'a> {
+    commands: &'a [Command],
+    alpha: f32,
+    blend: pdf_render::BlendMode,
+    clip: Option<ClipId>,
 }
 
 /// Where and how an image is placed.

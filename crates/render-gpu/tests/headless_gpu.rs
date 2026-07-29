@@ -155,6 +155,94 @@ fn cpu_and_gpu_agree_on_curves() {
     );
 }
 
+/// A transparency group is one object to both backends, or neither is the other's oracle.
+///
+/// ISO 32000-2 §11.4.1. `tiny-skia` composites the group into a buffer of its own and draws
+/// that buffer once; Vello pushes a layer, which is the same construction expressed as a
+/// stack. Those are different enough mechanisms that agreement is evidence rather than
+/// tautology — and the failure mode this catches is the quiet one, a backend that applies the
+/// group's alpha to each element and doubles the overlap.
+#[test]
+fn cpu_and_gpu_agree_on_a_transparency_group() {
+    let list = test_scenes::transparency_group();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+
+    assert_within_tolerance(
+        "transparency group",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
+
+/// Vello hands back straight alpha, and this backend used to convert it as if it were
+/// premultiplied.
+///
+/// The defect was invisible for fifteen sessions because the page was rendered onto an opaque
+/// background: every pixel came back with an alpha of 255, and the conversion is the identity
+/// there. §11.4.7's page group is what made it visible — the page is now drawn onto
+/// transparency and imposed on the medium afterwards, so a partly covered pixel reaches the
+/// conversion with an alpha of its own.
+///
+/// A half-covered pixel of a 50% grey is the whole test: straight alpha is `[128, 0, 0, 128]`,
+/// and dividing a colour by its own coverage gives `[255, 0, 0, 128]`. The CPU backend is the
+/// oracle for the expected value, as it is for everything else here.
+#[test]
+fn vello_hands_back_straight_alpha() {
+    use pdf_render::{
+        BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Size,
+        Transform,
+    };
+
+    let mut list = DisplayList::new(Size::new(20.0, 20.0));
+    let mut path = Path::new();
+    // The right edge falls at x = 10.5, so column 10 is covered exactly half.
+    path.push(PathCommand::MoveTo(Point::new(2.0, 2.0)));
+    path.push(PathCommand::LineTo(Point::new(10.5, 2.0)));
+    path.push(PathCommand::LineTo(Point::new(10.5, 18.0)));
+    path.push(PathCommand::LineTo(Point::new(2.0, 18.0)));
+    path.push(PathCommand::Close);
+    list.push(Command::Fill {
+        path: std::sync::Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(Color::rgb(0.5, 0.0, 0.0)),
+        clip: None,
+        blend: BlendMode::Normal,
+    });
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    // A transparent medium, because an opaque one hides exactly this: it takes every alpha
+    // back to 255 before the raster leaves the backend.
+    let raster = gpu()
+        .with_background(Color::TRANSPARENT)
+        .rasterize(&list, target)
+        .expect("supported");
+    let cpu = CpuRasterizer::new()
+        .with_background(Color::TRANSPARENT)
+        .rasterize(&list, target)
+        .expect("supported");
+
+    let at = ((10 * 20 + 10) * 4) as usize;
+    let edge = &raster.data[at..at + 4];
+    assert_eq!(
+        edge,
+        &cpu.data[at..at + 4],
+        "half-covered pixel: GPU {edge:?} against the CPU oracle"
+    );
+    assert_eq!(
+        edge[3], 128,
+        "the pixel must be half covered, or the test proves nothing"
+    );
+    assert_eq!(
+        edge[0], 128,
+        "the colour is the colour, not the colour over its own coverage"
+    );
+}
+
 /// Row padding in the GPU readback, which is invisible in ordinary sizes.
 ///
 /// A width of 101 pixels is 404 bytes per row, padded to 512. A backend that fails to

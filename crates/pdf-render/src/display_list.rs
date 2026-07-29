@@ -90,6 +90,43 @@ pub enum Command {
         /// How the result combines with the backdrop.
         blend: BlendMode,
     },
+    /// Composites a nested sequence of commands as a single object (§11.4).
+    ///
+    /// ISO 32000-2 §11.4.1: a transparency group is "a sequence of consecutive objects in
+    /// a transparency stack that shall be collected together and composited to produce a
+    /// single colour, shape, and opacity at each point", and
+    ///
+    /// > The result shall then be treated as if it were a single object for subsequent
+    /// > compositing operations.
+    ///
+    /// That is the whole of what this command asks a backend for: draw `commands` onto a
+    /// fully transparent backdrop, then paint the result once, under `alpha` and `blend`.
+    ///
+    /// # Why no isolation or knockout flag
+    ///
+    /// A backend is told to composite onto a transparent backdrop, which is §11.4.5's
+    /// isolated group. The two attributes that would ask for anything else are decided
+    /// before the command is built: `pdf-model` emits this command for a non-isolated
+    /// group only where the computation is provably the same one (every element blending
+    /// Normal — see ADR 0026), and reports the cases that are not. A flag no backend reads
+    /// would be a placeholder rather than a description.
+    Group {
+        /// The group's elements, in painting order.
+        ///
+        /// [`ClipId`]s inside refer to the enclosing [`DisplayList`], not to a table of
+        /// their own: a group's elements are clipped by chains that begin outside it, so
+        /// one table is what keeps a chain expressible.
+        commands: Vec<Command>,
+        /// Constant alpha applied to the composited group, in `0.0..=1.0`.
+        ///
+        /// §11.6.6 initialises the alpha constants to 1.0 *inside* a group precisely so
+        /// that this one is applied once, here, rather than to each element as well.
+        alpha: f32,
+        /// Active clip, or `None` for unclipped.
+        clip: Option<ClipId>,
+        /// How the composited group combines with its backdrop.
+        blend: BlendMode,
+    },
     /// Draws the outline of a path.
     Stroke {
         /// Geometry to stroke.
@@ -112,7 +149,10 @@ impl Command {
     #[must_use]
     pub fn clip(&self) -> Option<ClipId> {
         match self {
-            Self::Fill { clip, .. } | Self::Stroke { clip, .. } | Self::Image { clip, .. } => *clip,
+            Self::Fill { clip, .. }
+            | Self::Stroke { clip, .. }
+            | Self::Image { clip, .. }
+            | Self::Group { clip, .. } => *clip,
         }
     }
 }
@@ -149,6 +189,33 @@ impl DisplayList {
     /// Appends a drawing command.
     pub fn push(&mut self, command: Command) {
         self.commands.push(command);
+    }
+
+    /// Returns how many commands have been pushed.
+    ///
+    /// Exists for [`DisplayList::split_off_commands`]: a caller that is about to run
+    /// content which may turn out to be a transparency group records the mark here and
+    /// takes what was drawn after it.
+    #[must_use]
+    pub fn command_count(&self) -> usize {
+        self.commands.len()
+    }
+
+    /// Removes and returns every command pushed after `at`, leaving the clips behind.
+    ///
+    /// A transparency group is discovered from the outside — the elements are drawn, and
+    /// only then are they collected into one object (§11.4.1) — so a builder needs to take
+    /// back what it has just pushed. The clip table is deliberately not split: a group's
+    /// elements are clipped by chains that begin outside the group, and renumbering them
+    /// would break every parent link.
+    ///
+    /// A mark past the end returns nothing rather than panicking, since it can only mean
+    /// the commands were already taken.
+    pub fn split_off_commands(&mut self, at: usize) -> Vec<Command> {
+        if at >= self.commands.len() {
+            return Vec::new();
+        }
+        self.commands.split_off(at)
     }
 
     /// Registers a clip region and returns its identifier.

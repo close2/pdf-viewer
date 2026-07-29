@@ -131,6 +131,61 @@ pub fn basic() -> DisplayList {
     list
 }
 
+/// A transparency group over a backdrop, with its own constant alpha and blend mode.
+///
+/// ISO 32000-2 §11.4.1: a group's elements are composited to one colour and opacity and the
+/// result painted once. A backend that instead applies the group's alpha to each element
+/// paints the band where the two squares overlap twice, and one that ignores the group
+/// entirely paints it opaque — so the scene fails in the axis the defect moves.
+///
+/// It fails at the right *magnitude* too, which is the harder half: the group covers about a
+/// fifth of the page, so a wrong overlap is tens of thousands of channels rather than the few
+/// hundred a corner-sized scene would give, and cannot pass under
+/// `MAX_DIFFERING_FRACTION`. Half of it lies over the green backdrop and half over the
+/// unpainted page, which is also where §11.4.7's page group shows: a blend mode over an
+/// unpainted area sees nothing there, not the medium's white.
+#[must_use]
+pub fn transparency_group() -> DisplayList {
+    let mut list = DisplayList::new(A4);
+
+    list.push(Command::Fill {
+        path: Arc::new(rect(50.0, 400.0, 545.0, 700.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(GREEN),
+        clip: None,
+        blend: BlendMode::Normal,
+    });
+
+    let elements = vec![
+        Command::Fill {
+            path: Arc::new(rect(100.0, 200.0, 400.0, 500.0)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(RED),
+            clip: None,
+            blend: BlendMode::Normal,
+        },
+        Command::Fill {
+            path: Arc::new(rect(250.0, 350.0, 550.0, 650.0)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(BLUE),
+            clip: None,
+            blend: BlendMode::Normal,
+        },
+    ];
+
+    list.push(Command::Group {
+        commands: elements,
+        alpha: 0.5,
+        clip: None,
+        blend: BlendMode::Multiply,
+    });
+
+    list
+}
+
 /// A single diagonal stroke, which is where antialiasing differences between backends
 /// actually appear.
 ///

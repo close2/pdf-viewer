@@ -27,7 +27,10 @@ pub mod geom;
 pub mod paint;
 pub mod shading;
 
-pub use backend::{BackendError, MAX_EXTENT, Raster, RasterFormat, Rasterizer, TargetSpec};
+pub use backend::{
+    BackendError, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer, TargetSpec,
+    impose_on_medium,
+};
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use paint::{BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke};

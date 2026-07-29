@@ -380,7 +380,14 @@ const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 1] = ["issue5070.pdf page 1"]
 /// an opaque gradient over three objects the references show through it. `Shading::with_alpha`
 /// is the fix. The page agrees now — and it is no longer in this comparison either, because
 /// the same session began reporting §11.6.2's fill-and-stroke and that page has one.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 18] = [
+///
+/// # Two left in the seventeenth, and neither was about its font either
+///
+/// `knockout_groups_test.pdf` pages 2 and 3 were filed here for the usual reason and are
+/// knockout groups (§11.4.6), which the same session began reporting. They are still
+/// contradicted; they are no longer *judged*, which is the trade a report makes. Four for
+/// five now on this list's name failing to diagnose a member.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 16] = [
     "bad-PageLabels.pdf page 1",
     "bug1671312_reduced.pdf page 1",
     "calrgb.pdf page 1",
@@ -397,23 +404,26 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 18] = [
     "issue8088.pdf page 3",
     "issue8092.pdf page 1",
     "issue8125.pdf page 1",
-    "knockout_groups_test.pdf page 2",
-    "knockout_groups_test.pdf page 3",
 ];
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 66 pages carrying no undrawn annotation, no hidden optional content and no substituted
-/// font — so the difference is in something we believe we implement. Two causes have been
-/// identified by looking at the artefacts; the rest are unexamined, and working through them
-/// is the highest-value use of this gate:
+/// 59 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// font — so the difference is in something we believe we implement. One cause is identified
+/// and live; the rest are unexamined, and working through them is the highest-value use of
+/// this gate:
 ///
-/// - `knockout_*.pdf` are knockout transparency groups (§11.4.6), where an object
-///   composites against the group's initial backdrop rather than against what is already
-///   there. `mutool` and `gs` show no blend where two rectangles overlap; we and `poppler`
-///   show the blend. Unimplemented, and — unlike soft masks — unreported.
 /// - `mesh_shading_empty.pdf` draws the same mesh as the references, displaced
 ///   horizontally. A placement question rather than a missing feature.
+///
+/// **Five pages left in the seventeenth session and only one of them was fixed.** Four
+/// `knockout_*.pdf` are knockout transparency groups (§11.4.6), which that session began to
+/// *report* rather than to implement, so they left this list by leaving the comparison — the
+/// same trade §9.3.8 and §11.6.2 made before them. The fifth, `issue11279.pdf`, is a fix and
+/// had nothing to do with groups: it draws a form XObject that paints beyond its own `/BBox`,
+/// which §8.10.1 step c) says shall be clipped, and this tree clipped only an annotation's
+/// appearance. That was found by reading §8.10 because §11.6.6 sent a reader there, which is
+/// the family review paying for itself again.
 ///
 /// **15 pages left this list at once**, which is the largest single fall it has had, and
 /// they were all one cause: ISO 32000-2 §9.6.5.4, the algorithm that turns a character code
@@ -441,7 +451,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 18] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 64] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 59] = [
     "bug1108301.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
@@ -458,7 +468,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 64] = [
     "function_based_shading_cmyk.pdf page 2",
     "issue1002.pdf page 1",
     "issue10572.pdf page 1",
-    "issue11279.pdf page 1",
     "issue11477_reduced.pdf page 1",
     "issue11549_reduced.pdf page 1",
     "issue11740_reduced.pdf page 1",
@@ -495,10 +504,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 64] = [
     "issue845r.pdf page 1",
     "issue8570.pdf page 1",
     "issue8960_reduced.pdf page 1",
-    "knockout_inner_backdrop.pdf page 1",
-    "knockout_isolated_overlap.pdf page 1",
-    "knockout_nested.pdf page 1",
-    "knockout_nested_group_alpha.pdf page 1",
     "mesh_shading_empty.pdf page 1",
     "openoffice.pdf page 1",
     "pattern_text_embedded_font.pdf page 1",

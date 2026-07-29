@@ -138,6 +138,18 @@ pub enum Unsupported {
         /// What painted the object in parts.
         detail: &'static str,
     },
+    /// A transparency group asking for something §11.4 defines and this does not do.
+    ///
+    /// A `/Group` is composited as §11.4.5's isolated, non-knockout group: its elements are
+    /// drawn onto a transparent backdrop and the result painted once, under the constant
+    /// alpha and blend mode in force at `Do`. Table 145's other two answers — non-isolated
+    /// and knockout — and a group blending colour space that is not the device's are drawn
+    /// the same way, and reported where they can change a pixel. See
+    /// [`Interpreter::note_group_departures`] for each condition and the clause it is from.
+    TransparencyGroup {
+        /// What the group asked for.
+        detail: String,
+    },
     /// Optional content whose visibility could not be decided, so it was drawn.
     ///
     /// ISO 32000-2 §8.11. Only a visibility expression nested past the interpreter's bound
@@ -230,6 +242,22 @@ struct Tiling {
     ///
     /// `/PaintType 2` cells carry no colour of their own; the colour comes from `scn`.
     tint: Option<Color>,
+}
+
+/// What a form `XObject`'s `/Group` asks for (ISO 32000-2 §11.6.6 Table 145).
+///
+/// Only the three entries that change what is drawn. `/S` is not carried because a
+/// dictionary whose subtype is not `/Transparency` never becomes one of these.
+#[derive(Debug, Clone)]
+struct TransparencyGroup {
+    /// `/I`: whether the elements are composited onto a transparent initial backdrop
+    /// (§11.4.5) rather than onto the group's backdrop.
+    isolated: bool,
+    /// `/K`: whether each element is composited with the initial backdrop rather than with
+    /// the elements below it (§11.4.6).
+    knockout: bool,
+    /// `/CS`: the group's blending colour space, unresolved, or `Null` where absent.
+    colour_space: Object,
 }
 
 /// One level of PDF graphics state.
@@ -405,6 +433,140 @@ fn outline_bounds(outline: &Path, transform: Transform) -> Option<Rect> {
         }
     }
     bounds
+}
+
+/// Whether any command in a group, at any depth, satisfies `wanted`.
+///
+/// Recursive because a group's elements may themselves be groups: §11.4.3 calls both an
+/// *element*, and a question about what a group contains is a question about its tree.
+fn any_command(commands: &[Command], wanted: &dyn Fn(&Command) -> bool) -> bool {
+    commands.iter().any(|command| {
+        wanted(command)
+            || match command {
+                Command::Group { commands, .. } => any_command(commands, wanted),
+                _ => false,
+            }
+    })
+}
+
+/// Whether a command asks to be blended with what is under it, rather than painted over it.
+fn command_blends(command: &Command) -> bool {
+    match command {
+        Command::Fill { blend, .. }
+        | Command::Stroke { blend, .. }
+        | Command::Image { blend, .. }
+        | Command::Group { blend, .. } => *blend != BlendMode::Normal,
+        // `Command` is non-exhaustive. A command whose blending is unknown counts as
+        // blending, because both callers decide whether to *report*: an unnecessary report
+        // is recoverable, a missed one is a page drawn wrong in silence.
+        _ => true,
+    }
+}
+
+/// Whether a command's result can let what is under it show through.
+///
+/// The union of blending and of any transparency at all — a constant alpha below one, a
+/// colour or shading carrying alpha, an image with a soft mask or a stencil. A group is
+/// transparent if its own alpha is, or if anything inside it is: a group of half-opaque
+/// objects produces a half-opaque result.
+///
+/// Scanning an image's samples is linear in them, which is why the one caller asks this only
+/// for a knockout group.
+fn command_composites(command: &Command) -> bool {
+    if command_blends(command) {
+        return true;
+    }
+    match command {
+        Command::Fill { paint, .. } | Command::Stroke { paint, .. } => match paint {
+            Paint::Solid(colour) => colour.a < 1.0,
+            Paint::Shading(shading) => !shading.is_opaque(),
+            // `Paint` is non-exhaustive, and a paint whose opacity is unknown is treated as
+            // compositing: this decides whether to *report*, and an unnecessary report is
+            // recoverable where a missed one is a page drawn wrong in silence.
+            _ => true,
+        },
+        Command::Image { image, alpha, .. } => *alpha < 1.0 || !image.is_opaque(),
+        Command::Group {
+            commands, alpha, ..
+        } => *alpha < 1.0 || any_command(commands, &command_composites),
+        _ => true,
+    }
+}
+
+/// Where a command marks the page, as a box containing its ink.
+///
+/// A superset rather than a tight fit — control points rather than curve extremes, and a
+/// stroke widened by its whole line width rather than by half of it — because the one caller
+/// is an overlap test for a *report*, where saying two elements might overlap when they do
+/// not is recoverable and the reverse is a missed gap.
+fn command_bounds(command: &Command) -> Option<Rect> {
+    match command {
+        Command::Fill {
+            path, transform, ..
+        } => outline_bounds(path, *transform),
+        Command::Stroke {
+            path,
+            transform,
+            stroke,
+            ..
+        } => {
+            let bounds = outline_bounds(path, *transform)?;
+            // The width is in the path's space, so it reaches the page scaled by the
+            // transform. The determinant's square root is that scale for a uniform
+            // transform and an over-estimate for a sheared one, which is the safe way round.
+            let scale = transform.determinant().abs().sqrt();
+            let margin = stroke.width * scale;
+            Some(Rect::from_corners(
+                Point::new(bounds.min.x - margin, bounds.min.y - margin),
+                Point::new(bounds.max.x + margin, bounds.max.y + margin),
+            ))
+        }
+        Command::Image { transform, .. } => {
+            // An image occupies the unit square, which the command's transform places.
+            let mut square = Path::new();
+            square.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+            square.push(PathCommand::LineTo(Point::new(1.0, 0.0)));
+            square.push(PathCommand::LineTo(Point::new(1.0, 1.0)));
+            square.push(PathCommand::LineTo(Point::new(0.0, 1.0)));
+            outline_bounds(&square, *transform)
+        }
+        Command::Group { commands, .. } => commands
+            .iter()
+            .filter_map(command_bounds)
+            .reduce(Rect::union),
+        // Unbounded, which the overlap test reads as covering everything.
+        _ => None,
+    }
+}
+
+/// Whether §11.4.6's knockout could change a pixel of this group.
+///
+/// True when an element that composites overlaps an element painted before it. Where the
+/// upper element is opaque and blends Normal it overwrites the lower one under either model,
+/// and where two elements do not overlap there is nothing to knock out.
+///
+/// An element whose ink cannot be bounded is taken to overlap everything, which is the same
+/// direction [`TextObject::note_knockout`] errs in and for the same reason.
+fn knockout_can_show(commands: &[Command]) -> bool {
+    let mut painted: Vec<Option<Rect>> = Vec::with_capacity(commands.len());
+    for command in commands {
+        let bounds = command_bounds(command);
+        if command_composites(command)
+            && painted.iter().any(|below| match (below, bounds) {
+                (Some(first), Some(second)) => {
+                    first.min.x < second.max.x
+                        && second.min.x < first.max.x
+                        && first.min.y < second.max.y
+                        && second.min.y < first.max.y
+                }
+                _ => true,
+            })
+        {
+            return true;
+        }
+        painted.push(bounds);
+    }
+    false
 }
 
 /// The text-related part of the graphics state.
@@ -1766,6 +1928,28 @@ impl Interpreter<'_> {
             inner.transform = matrix.then(inner.transform);
         }
 
+        // §8.10.1 lists what `Do` performs on a form XObject, and step c) is "Clips
+        // according to the form dictionary's BBox entry"; Table 93 says of `/BBox` that
+        //
+        // > These boundaries shall be used to clip the form XObject and to determine its
+        // > size for caching.
+        //
+        // Required of every form, not only of an annotation's appearance — which is the one
+        // place this tree had it. §11.6.6 needs it too: a group's shape is the union of its
+        // elements "clipped by the group XObject's bounding box".
+        //
+        // A form with no `/BBox` is malformed, since Table 93 makes it required. It is drawn
+        // unclipped rather than refused: there is no box to honour, and the alternative
+        // reading — clip to nothing — would delete content the producer plainly meant to
+        // draw.
+        if let Some(bbox) = self.rectangle(&stream.dict, "BBox") {
+            let Some(clip) = self.rect_clip(bbox, inner.transform, inner.clip) else {
+                self.note(Unsupported::LimitReached { limit: "max_clips" });
+                return;
+            };
+            inner.clip = Some(clip);
+        }
+
         let form_resources = self
             .document
             .get_key(&stream.dict, "Resources")
@@ -1773,7 +1957,212 @@ impl Interpreter<'_> {
             .cloned()
             .unwrap_or_else(|| resources.clone());
 
-        self.run(&data, &form_resources, &inner, form_depth.saturating_add(1));
+        let Some(group) = self.transparency_group(&stream.dict) else {
+            self.run(&data, &form_resources, &inner, form_depth.saturating_add(1));
+            return;
+        };
+        self.run_transparency_group(&group, &data, &form_resources, &inner, state, form_depth);
+    }
+
+    /// Runs a transparency group `XObject`'s content and composites it as one object.
+    ///
+    /// `inner` is the state its content runs under — the form's matrix and `/BBox` clip
+    /// already applied — and `outer` the state at the `Do`, which is what the group as an
+    /// object is painted with.
+    fn run_transparency_group(
+        &mut self,
+        group: &TransparencyGroup,
+        content: &[u8],
+        resources: &Dictionary,
+        inner: &GraphicsState,
+        outer: &GraphicsState,
+        form_depth: usize,
+    ) {
+        let mut inner = inner.clone();
+        // §11.6.6, of what `Do` adds for a transparency group XObject:
+        //
+        // > Before execution of the transparency group XObject's content stream, the current
+        // > blend mode in the graphics state shall be initialised to Normal , the current
+        // > stroking and nonstroking alpha constants to 1.0, and the current soft mask to
+        // > None .
+        //
+        // Its NOTE 1 gives the reason: those parameters apply to the *group*, once, when it
+        // is composited into its parent, and leaving them in force would apply them a second
+        // time to every element inside. This renderer has no graphics-state soft mask to
+        // reset; `gs` reports one instead.
+        inner.blend = BlendMode::Normal;
+        inner.fill_alpha = 1.0;
+        inner.stroke_alpha = 1.0;
+
+        let mark = self.list.command_count();
+        self.run(content, resources, &inner, form_depth.saturating_add(1));
+        let commands = self.list.split_off_commands(mark);
+        if commands.is_empty() {
+            return;
+        }
+
+        self.note_group_departures(group, &commands);
+        // §11.6.6's final compositing: the group's shape "shall then be painted into the
+        // parent group or page, using the group's accumulated colour and opacity at each
+        // point" — under the state in force at `Do`, which is where `ca` and `/BM` were left
+        // by the caller. `ca` and not `CA`, because painting a form is not a stroking
+        // operation and §11.6.4.4 gives `CA` to those alone.
+        self.list.push(Command::Group {
+            commands,
+            alpha: outer.fill_alpha,
+            clip: inner.clip,
+            blend: outer.blend,
+        });
+    }
+
+    /// Reads a form `XObject`'s `/Group`, if it is a transparency group (§8.10.3, §11.6.6).
+    ///
+    /// `None` for a form with no `/Group` at all and for one whose group subtype is not
+    /// `/Transparency`, which §11.6.6 makes the same case:
+    ///
+    /// > An ordinary form XObject -one having no Group entry -or having a Group entry with a
+    /// > subtype other than Transparency -shall not be subject to any grouping behaviour for
+    /// > transparency purposes.
+    fn transparency_group(&mut self, dict: &Dictionary) -> Option<TransparencyGroup> {
+        let group = self.document.get_key(dict, "Group");
+        let group = group.as_dict()?;
+        // §8.10.3 Table 94: `/S` is required and "identifies the type of group whose
+        // attributes this dictionary describes"; `/Transparency` is the only subtype the
+        // specification defines.
+        if self.document.get_key(group, "S").as_name()?.as_bytes() != b"Transparency" {
+            return None;
+        }
+        // Table 145's `/I` and `/K`, both booleans defaulting to false.
+        Some(TransparencyGroup {
+            isolated: matches!(self.document.get_key(group, "I"), Object::Boolean(true)),
+            knockout: matches!(self.document.get_key(group, "K"), Object::Boolean(true)),
+            colour_space: self.document.get_key(group, "CS"),
+        })
+    }
+
+    /// Reports the parts of §11.4 this group asks for and does not get.
+    ///
+    /// A group is composited here onto a transparent backdrop, under its own constant alpha
+    /// and blend mode: §11.4.5's isolated, non-knockout group. Three of Table 145's answers
+    /// ask for something else, and each is reported only where it can change a pixel —
+    /// a report that fires where the output is provably identical costs the page its place
+    /// in the oracle's comparison and buys nothing.
+    fn note_group_departures(&mut self, group: &TransparencyGroup, commands: &[Command]) {
+        // §11.4.4 composites a non-isolated group's elements onto the group's backdrop and
+        // then removes that backdrop's contribution again (its NOTE 3). Under the Normal
+        // blend mode the removal is exact and the backdrop cancels, which is what §11.6.7's
+        // NOTE 1 states for the same computation applied to a pattern cell: "in the common
+        // case in which the pattern consists entirely of objects painted with the Normal
+        // blend mode, this behaviour can be optimised by treating the pattern cell as if it
+        // were an isolated group. Since in this case the results depend only on the colour,
+        // shape, and opacity of the pattern cell and not on those of the backdrop". So a
+        // non-isolated group is drawn as an isolated one, and only a blend mode inside it
+        // makes that a departure — which is the same sentence §11.4.4's NOTE 2 gives as the
+        // reason the two kinds of group differ at all.
+        if !group.isolated && any_command(commands, &|command| command_blends(command)) {
+            self.note(Unsupported::TransparencyGroup {
+                detail: "non-isolated, and an element blends with the backdrop it excludes"
+                    .to_owned(),
+            });
+        }
+
+        // §11.4.6: "In a knockout group, each individual element shall be composited with
+        // the group's initial backdrop rather than with the stack of preceding elements in
+        // the group." Where the upper of two overlapping elements is opaque and blends
+        // Normal it overwrites either way, so the two models differ only where a later
+        // element that composites covers an earlier one — which is the condition below,
+        // and the same shape as §9.3.8's for a text object.
+        if group.knockout && knockout_can_show(commands) {
+            self.note(Unsupported::TransparencyGroup {
+                detail: "knockout, and an element composites over another".to_owned(),
+            });
+        }
+
+        // §11.6.6: for an isolated group, a `/CS` means "all painting operators shall
+        // convert source colours ... to the group colour space before compositing objects
+        // into the group", and the result is interpreted in that space. Compositing here
+        // happens on the device's RGB components, so a group asking for any other space is
+        // blended with different arithmetic — visible only where something composites at
+        // all, since an opaque Normal paint carries its colour through unchanged.
+        if let Some(name) = self.group_space_departure(&group.colour_space)
+            && any_command(commands, &command_composites)
+        {
+            self.note(Unsupported::TransparencyGroup {
+                detail: format!("blending colour space {name}"),
+            });
+        }
+    }
+
+    /// Names a group's `/CS` if compositing in it would differ from compositing in RGB.
+    ///
+    /// Compositing here happens on the three components of the device raster. §11.6.6 makes
+    /// an absent `/CS` inherit the parent's space, and §11.4.7 leaves the page group's to the
+    /// processor — so the spaces that ask for what already happens are the three-component
+    /// RGB ones: `/DeviceRGB`, `CalRGB`, and an ICC profile of three components, each of
+    /// which this tree already resolves *to* device RGB one colour at a time. Those are a
+    /// colorimetric difference this renderer takes page-wide and records as a choice.
+    ///
+    /// What is reported is a space whose components are not those: `/DeviceGray`,
+    /// `/DeviceCMYK`, `Separation` and `DeviceN` blend a different number of components, and
+    /// `Lab` blends three that are not a linear map of these. Honouring any of them means
+    /// compositing the group in its own components and converting once at the end, which is a
+    /// second raster format rather than a colour conversion — which is why it is reported
+    /// rather than approximated.
+    fn group_space_departure(&mut self, entry: &Object) -> Option<String> {
+        let object = self.document.resolve(entry);
+        if matches!(object, Object::Null) {
+            return None;
+        }
+        // Named before it is parsed, because what a report has to say is what the file
+        // asked for, and a space this crate cannot read has no other description.
+        let described = match &object {
+            Object::Name(name) => format!("/{}", String::from_utf8_lossy(name.as_bytes())),
+            _ => "an array-formed space".to_owned(),
+        };
+        match ColourSpace::parse(self.document, &object, &Dictionary::new()) {
+            Some(ColourSpace::Rgb | ColourSpace::CalRgb { .. }) => None,
+            Some(ColourSpace::Icc { profile }) if profile.channels() == 3 => None,
+            _ => Some(described),
+        }
+    }
+
+    /// Reads a rectangle entry as four numbers, in the order the file wrote them.
+    fn rectangle(&mut self, dict: &Dictionary, key: &str) -> Option<[f32; 4]> {
+        let entry = self.document.get_key(dict, key);
+        let items = entry.as_array()?;
+        let values: Vec<f32> = items
+            .iter()
+            .map(|item| self.document.resolve(item))
+            .filter_map(|item| item.as_number())
+            .map(narrow)
+            .collect();
+        (values.len() >= 4).then(|| [values[0], values[1], values[2], values[3]])
+    }
+
+    /// Registers a clip shaped like a rectangle, nested inside `parent`.
+    ///
+    /// `None` only when the display list is full of clips, which the caller reports.
+    fn rect_clip(
+        &mut self,
+        corners: [f32; 4],
+        transform: Transform,
+        parent: Option<ClipId>,
+    ) -> Option<ClipId> {
+        let [x0, y0, x1, y1] = corners;
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(x0, y0)));
+        path.push(PathCommand::LineTo(Point::new(x1, y0)));
+        path.push(PathCommand::LineTo(Point::new(x1, y1)));
+        path.push(PathCommand::LineTo(Point::new(x0, y1)));
+        path.push(PathCommand::Close);
+        self.list
+            .add_clip(Clip {
+                path,
+                transform,
+                fill_rule: FillRule::NonZero,
+                parent,
+            })
+            .ok()
     }
 
     /// Draws one image `XObject`.

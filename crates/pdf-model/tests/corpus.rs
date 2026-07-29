@@ -76,7 +76,7 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 231, and *not* a defect count — it is the honest-reporting requirement working. The
+/// 237, and *not* a defect count — it is the honest-reporting requirement working. The
 /// breakdown, by each document's first report, which is the useful part, and recomputed
 /// every session because a number nothing recomputes is a number that drifts — this table
 /// had said 263 while the ratchet below said 251:
@@ -89,9 +89,18 @@ const MAX_PAGELESS: usize = 19;
 /// | `Operator` | 15 | malformed streams, mostly; the text rendering modes have left this row |
 /// | `Image` | 11 | see below; a soft mask of another size has left this row |
 /// | `Content` | 7 | a `/Contents` stream that did not decode |
-/// | `TextKnockout` | 2 | §9.3.8, new in the fourteenth session and described below |
+/// | `TransparencyGroup` | 7 | §11.4, new in the seventeenth session and described below |
+/// | `TextKnockout` | 1 | §9.3.8, new in the fourteenth session and described below |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
 /// | `CompositedInParts` | 1 | §11.6.2, new in the fifteenth session and described below |
+///
+/// The count **rose** by six in the seventeenth session, and both directions of that are the
+/// design. Six documents joined by saying that their `/Group` is a *knockout* group (§11.4.6)
+/// and one that its group is non-isolated with an element that blends (§11.4.4) — two silences
+/// ending, on the pages where the two models can differ rather than on every group there is.
+/// One left: `issue15372.pdf` reported §9.3.8's text knockout only because a constant alpha
+/// reached its glyphs, and §11.6.6 resets that constant inside the group the glyphs are in,
+/// so the report no longer fires and the alpha is applied once, to the group.
 ///
 /// The `Operator` row was 33 before §9.3.6's rendering modes were implemented. What remains
 /// is `BT` without `ET`, `BDC` without `EMC`, and the byte soup a fuzzed content stream
@@ -261,7 +270,7 @@ const MAX_PAGELESS: usize = 19;
 /// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
 /// and it is the visible face of a gap this project already knows about: a font reports as a
 /// whole, so a glyph that fails to load draws nothing and says nothing.
-const MAX_INCOMPLETE: usize = 231;
+const MAX_INCOMPLETE: usize = 237;
 
 /// How long one document may take before it counts as a failure.
 ///

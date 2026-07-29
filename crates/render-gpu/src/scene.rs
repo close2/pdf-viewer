@@ -19,8 +19,8 @@
 
 use pdf_render::display_list::Clip;
 use pdf_render::{
-    BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin, Paint, Path,
-    PathCommand, Stroke, Transform,
+    BackendError, BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin,
+    MAX_GROUP_DEPTH, Paint, Path, PathCommand, Stroke, Transform,
 };
 use vello::kurbo;
 use vello::peniko;
@@ -244,12 +244,33 @@ pub(crate) fn build(
     to_device: Transform,
 ) -> Result<vello::Scene, GpuRasterError> {
     let mut scene = vello::Scene::new();
-    // The clip chain currently pushed as layers, root-first.
+    encode(&mut scene, list, list.commands(), to_device, 0)?;
+    Ok(scene)
+}
+
+/// Encodes one sequence of commands, opening and closing clip layers as the chain changes.
+///
+/// `depth` counts enclosing transparency groups; see [`MAX_GROUP_DEPTH`].
+///
+/// # Errors
+///
+/// As [`build`], plus [`GpuRasterError::Target`] for groups nested past the bound.
+fn encode(
+    scene: &mut vello::Scene,
+    list: &DisplayList,
+    commands: &[Command],
+    to_device: Transform,
+    depth: usize,
+) -> Result<(), GpuRasterError> {
+    // The clip chain currently pushed as layers, root-first. A group's elements start with
+    // an empty one rather than inheriting the caller's: reconciling against a chain opened
+    // outside the group's own layer could pop that layer, and re-pushing a clip already in
+    // force costs an intersection with itself and changes nothing.
     let mut open: Vec<ClipId> = Vec::new();
 
-    for command in list.commands() {
+    for command in commands {
         let wanted = resolve_chain(list, command.clip())?;
-        reconcile_layers(&mut scene, list, &mut open, &wanted, to_device)?;
+        reconcile_layers(scene, list, &mut open, &wanted, to_device)?;
 
         match command {
             Command::Fill {
@@ -261,7 +282,7 @@ pub(crate) fn build(
                 ..
             } => {
                 encode_fill(
-                    &mut scene,
+                    scene,
                     &bez_path(path),
                     Spaces::new(*transform, to_device)?,
                     fill_rule(*rule),
@@ -304,7 +325,44 @@ pub(crate) fn build(
                 alpha,
                 blend,
                 ..
-            } => draw_image(&mut scene, image, transform.then(to_device), *alpha, *blend)?,
+            } => draw_image(scene, image, transform.then(to_device), *alpha, *blend)?,
+            Command::Group {
+                commands,
+                alpha,
+                blend,
+                ..
+            } => {
+                let depth = depth.saturating_add(1);
+                if depth > MAX_GROUP_DEPTH {
+                    return Err(BackendError::GroupsTooDeep {
+                        depth,
+                        limit: MAX_GROUP_DEPTH,
+                    }
+                    .into());
+                }
+                // A Vello layer *is* a transparency group: its contents are composited
+                // onto a transparent surface and the result is painted once, under the
+                // layer's alpha and blend mode. That is §11.4.1's definition, so this
+                // command translates rather than being implemented.
+                //
+                // The layer's shape is the page, because the group itself clips nothing —
+                // the clip in force is already open as a layer of its own, and nothing
+                // outside the page bounds can reach a target built from them.
+                scene.push_layer(
+                    peniko::Fill::NonZero,
+                    blend_mode(*blend),
+                    alpha.clamp(0.0, 1.0),
+                    affine(to_device),
+                    &kurbo::Rect::new(
+                        f64::from(list.page_bounds().min.x),
+                        f64::from(list.page_bounds().min.y),
+                        f64::from(list.page_bounds().max.x),
+                        f64::from(list.page_bounds().max.y),
+                    ),
+                );
+                encode(scene, list, commands, to_device, depth)?;
+                scene.pop_layer();
+            }
             other => {
                 return Err(GpuRasterError::UnsupportedCommand(format!("{other:?}")));
             }
@@ -316,7 +374,7 @@ pub(crate) fn build(
         scene.pop_layer();
     }
 
-    Ok(scene)
+    Ok(())
 }
 
 /// Draws one image over the unit square its command names.

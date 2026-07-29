@@ -1314,42 +1314,64 @@ note = "Implemented in the eleventh session (ADR 0019). Table 91's abbreviated k
 [[clause]]
 clause = "8.10"
 title = "Form XObjects"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs"]
+note = "Aggregate of the four below, read as a family in the seventeenth session because a transparency group is a form XObject and §11.6.6 sends a reader here for the rest of it. A form is run inline with its /Matrix and its /Resources and — as of that session — clipped by its /BBox; a group XObject is composited as one object (§11.6.6); a reference XObject is drawn as the proxy §8.10.4.1 tells a processor that does not import to draw."
 
 [[clause]]
 clause = "8.10.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_forms_bounding_box_clips_what_it_draws"]
+note = "The five actions Do performs on a form — save the state, concatenate /Matrix, clip to /BBox, paint the content, restore — and the sentence that the rest of the initial state is inherited. Step c) was the gap: this tree clipped an annotation's appearance to its box, where §12.5.5 made that unavoidable, and let a form invoked by Do paint outside its own. tracemonkey.pdf page 6 is what that cost — a form painting a white background beyond its box covered the figure above it, and four reference renderers draw the figure. A form with no /BBox is malformed, since Table 93 makes it required, and is drawn unclipped rather than deleted."
 
 [[clause]]
 clause = "8.10.2"
 title = "Form dictionaries"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_forms_bounding_box_clips_what_it_draws"]
+note = "Table 93's entries that decide what is drawn are read: /BBox as the clip, /Matrix, /Resources with §7.8.3's fallback to the page's, /Group (§8.10.3, §11.6.6) and /OC (§8.11.3.3). Not read: /FormType, whose only valid value is 1; /Ref, which is §8.10.4's; /Metadata, /PieceInfo, /LastModified, /StructParent, /StructParents, /OPI, /Name, /AF, /Measure and /PtData, none of which changes a mark on the page. Nothing here is silently approximated: the unread entries describe the form rather than its appearance."
 
 [[clause]]
 clause = "8.10.3"
 title = "Group XObjects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_form_becomes_a_group_only_for_the_transparency_subtype"]
+note = "Table 94: a group XObject is a form with a /Group, and its /S names the subtype. The only subtype the specification defines is /Transparency, and the second half of §11.6.6's sentence is the one an implementation drops — a /Group with any other subtype shall not be subject to any grouping behaviour. Tested rather than assumed, because no corpus document writes another subtype."
 
 [[clause]]
 clause = "8.10.4"
 title = "Reference XObjects"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/corpus.rs"]
+note = "Aggregate of the three below. Content is never imported from another document, and the clause names that case explicitly: a processor that does not recognise /Ref draws the proxy as an ordinary form XObject, which is what happens here. The gap is a feature not built rather than a requirement broken, and nothing is drawn wrong by it."
 
 [[clause]]
 clause = "8.10.4.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/corpus.rs"]
+note = "\"PDF processors that do not recognise the Ref entry shall simply display or print the proxy as an ordinary form XObject.\" That is this renderer, and it is the clause's own provision rather than a shortcut — the same shape as §10.7.2's permission to ignore flatness. What is not implemented is Table 95: finding the target document by /F and /ID and drawing its /Page in the proxy's place. A document whose proxy is a grey box is drawn as a grey box, which is what the clause says a processor like this shall do, so there is nothing to report."
 
 [[clause]]
 clause = "8.10.4.2"
 title = "Printing reference XObjects"
-status = "unreviewed"
+status = "inapplicable"
+note = "What a processor may emit when printing a page holding a reference XObject. This renderer draws to a screen and prints nothing, and the clause is permissive in any case: it lists alternatives a processor may choose among rather than requiring one."
 
 [[clause]]
 clause = "8.10.4.3"
 title = "Special considerations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/corpus.rs"]
+note = "Three considerations, all conditional on importing the target page: its annotation appearances must be rendered with it, its logical structure may be ignored, and the proxy's /Group applies to the imported page. None arises while the proxy is what is drawn (§8.10.4.1). The last is the one that would matter first, because this tree now composites a /Group on any form."
 
 [[clause]]
 clause = "8.11"
@@ -2124,7 +2146,10 @@ status = "unreviewed"
 [[clause]]
 clause = "11.3.6"
 title = "Interpretation of alpha"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-render/src/backend.rs", "crates/render-cpu/src/lib.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_transparency_group"]
+note = "The weighted average of backdrop, source and blended colour that both backends evaluate through their rasterisers, and the sentence that decides three things this session leaned on: \"An alpha value of αs = 0.0 or αb = 0.0 results in no blend mode effect\". That is why §11.4.7's transparent page group changes every blend mode over an unpainted area — the backdrop alpha is zero there, so the blend collapses to the source colour — and why an element's blend mode has no effect inside an isolated knockout group (§11.4.6). NOTE 2's undefined colour at zero result alpha is what a premultiplied raster represents naturally. The formula itself is tiny-skia's and Vello's rather than this tree's, which is why the row is `partial`: what is implemented here is the choice of what they composite onto."
 
 [[clause]]
 clause = "11.3.7"
@@ -2153,8 +2178,10 @@ note = "Six sources, three of shape and three of opacity. Object shape is what f
 [[clause]]
 clause = "11.3.7.3"
 title = "Result shape and opacity"
-status = "silent"
-note = "Not implemented and not reported. The union formula for a group's result shape and opacity, which cannot exist before transparency groups do — §11.4.6 owns that gap and this row is the same silence seen from the compositing model. A form XObject with a `/Group` is drawn as an ordinary form and nothing says so; see §11.6.6."
+status = "partial"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_transparency_group"]
+note = "The union formulas for the shape and opacity a compositing step leaves behind. The alpha half is what every raster here carries, and a transparency group's result is now that union rather than nothing (§11.4.1). What is still absent is the separation: this renderer holds one alpha per pixel, the product of shape and opacity, where the clause keeps two. §11.4.6 names the one construction that needs them apart — \"The separate shape value shall be computed in any group that is subsequently used as an element of a knockout group\" — and that is reported rather than silent since the seventeenth session, which is why this row is no longer `silent` either."
 
 [[clause]]
 clause = "11.3.8"
@@ -2164,48 +2191,72 @@ status = "unreviewed"
 [[clause]]
 clause = "11.4"
 title = "Transparency groups"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/display_list.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs"]
+note = "Aggregate of the eight below, read as a family in the seventeenth session with transparency groups as the demand item. A group's elements are composited onto a transparent backdrop and the result painted once under the constant alpha and blend mode in force at Do — §11.4.5's isolated, non-knockout group, which is what both backends express natively. §11.4.7's page group is implemented and was the session's largest finding. Knockout (§11.4.6) is reported, and so is a non-isolated group whose elements blend, which is the only case where §11.4.4's backdrop removal does not cancel."
 
 [[clause]]
 clause = "11.4.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/display_list.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_group_is_composited_once_rather_than_object_by_object"]
+note = "A group is \"collected together and composited to produce a single colour, shape, and opacity at each point\" and the result treated as one object, which is what Command::Group asks a backend for. Of the four further attributes this clause lists three are here — the compositing inputs applied to the group as a whole, isolation, knockout — and the fourth is §11.5's: a group's result used as a source of shape or opacity for a soft mask, still reported rather than built."
 
 [[clause]]
 clause = "11.4.2"
 title = "Notation for group compositing computations"
-status = "unreviewed"
+status = "inapplicable"
+note = "Notation, and Table 138's renaming of §11.3's variables so that §11.4.4 can state its recurrences. There is no requirement to implement; marking it implemented would claim code for a clause that asks for none, which is the reading §11.6.1 already has."
 
 [[clause]]
 clause = "11.4.3"
 title = "Group structure and nomenclature"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/render-cpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_group_is_composited_once_rather_than_object_by_object"]
+note = "The three backdrops this clause distinguishes. The group backdrop is what is already on the page; the initial backdrop is transparent here, which is the isolated choice (§11.4.5); the immediate backdrop is what a group's own buffer accumulates, and is right because the elements are drawn into that buffer in order. Its last requirement — \"A PDF processor shall ensure that the backdrop's contribution to the overall result is applied only once\" — holds by construction, since a transparent initial backdrop has no contribution to remove. What is absent is the non-isolated reading of the same sentence; see §11.4.4."
 
 [[clause]]
 clause = "11.4.4"
 title = "Group compositing computations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_reports_only_when_an_element_blends"]
+note = "The recurrence for a non-isolated, non-knockout group, and NOTE 3's backdrop removal at the end of it. With every element blending Normal the removal is exact and the backdrop cancels, so the isolated computation both backends perform is this one — §11.6.7's NOTE 1 states that equivalence for the same formulas applied to a pattern cell. What is not implemented is a non-isolated group holding an element with another blend mode, where NOTE 2 makes the backdrop the whole point; that is reported, on 9 corpus documents. Table 140's separate group shape and group alpha are not maintained either: this renderer holds one alpha per pixel, which is §11.3.7.3's row."
 
 [[clause]]
 clause = "11.4.5"
 title = "Isolated groups"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_group_is_composited_once_rather_than_object_by_object"]
+note = "\"α0 = 0.0 if the group is isolated\" — a transparent buffer, which is what a tiny-skia pixmap and a Vello layer both start as. The consequence the clause spends its length on follows from it: an element's blend mode inside the group sees only what the group itself painted. Its closing sentence, about which rendering intent converts the group's colours into the backdrop's space, has nothing to convert here — there is one blending space, device RGB, and a group asking for another is reported (§11.6.6)."
 
 [[clause]]
 clause = "11.4.6"
 title = "Knockout groups"
-status = "silent"
-note = "Not implemented and not reported. Transparency groups are absent altogether, so a knockout group composites as if it were an ordinary group: knockout_*.pdf show a blend where two rectangles overlap and mupdf and ghostscript show none. Listed in oracle.rs under CONTRADICTED_UNEXPLAINED. Nothing in the interpreter looks at /Group /K, which is why this is `silent` rather than `reported`."
+status = "reported"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_reports_only_where_the_two_models_differ"]
+note = "Was this tree's first `silent` row, from the ninth session; reported since the seventeenth, and still owed. A knockout group's elements are composited with the group's initial backdrop rather than with each other, so at any point the topmost object wins. This renderer composites them with each other. The report fires where the two models can differ — an element that composites overlapping one painted before it — which is 6 corpus documents rather than the 8 that write /K true. The reading is written down because it is the load-bearing part of the implementation nobody has written yet: for an isolated knockout group the initial backdrop is transparent, so §11.3.6's formula leaves each element its own colour and its blend mode has no effect at all, and the clause's two-stage average by source shape is then a Porter-Duff Source composite modulated by coverage. A non-isolated knockout group needs the group's backdrop, which is the same thing §11.4.4 lacks. knockout_*.pdf are the corpus's cases and sat in oracle.rs's CONTRADICTED_UNEXPLAINED until the report moved them out of the comparison."
 
 [[clause]]
 clause = "11.4.7"
 title = "Page group"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-render/src/backend.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::vello_hands_back_straight_alpha"]
+note = "The seventeenth session's largest finding, and it was invisible until a group made it visible. Everything painted on a page belongs to a page group that \"shall be treated as an isolated group, whose results shall then be composited with a backdrop colour appropriate for the medium\" — so the page's own initial backdrop is transparent, and the medium's white is applied to the finished page. Both backends filled the raster with white and drew over it, which is a different picture for every blend mode: an object blending against an unpainted part of the page saw white where the standard says it sees nothing. transparency_group.pdf draws a Difference ellipse that four reference renderers show crimson over white, and this tree showed as its inverse. `impose_on_medium` in pdf-render is the composite, called by both backends so neither can differ about it. What is not implemented is the clause's second case, a page used as an element of another document's page through a reference XObject (§8.10.4), which needs importing before the page group's attributes can matter."
 
 [[clause]]
 clause = "11.4.8"
 title = "Summary of group compositing computations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_transparency_group"]
+note = "A restatement of §11.4.4's formulas with the subscript b that selects the backdrop — 0 in a knockout group, i-1 otherwise — and with isolation folded in. Its own NOTE says the formulas \"can be significantly simplified when some sources of shape and opacity are not present\" and that each kind of group cancels some of the terms; the isolated, non-knockout case is the one this tree evaluates, as a source-over composite of the group's buffer. The status follows §11.4.4's and §11.4.6's rather than adding anything: this clause introduces no requirement they do not."
 
 [[clause]]
 clause = "11.5"
@@ -2331,8 +2382,10 @@ note = "An `/SMask` sample-for-sample with its image supplies its alpha, and `/S
 [[clause]]
 clause = "11.6.6"
 title = "Transparency group XObjects"
-status = "silent"
-note = "Not implemented and not reported. A form XObject with a `/Group` whose `/S` is `/Transparency` is drawn as an ordinary form XObject: `/CS`, `/I` and `/K` are not read, the group is not composited separately, and nothing says so. This is where §11.4.6's knockout row, §11.4.7's page group and §11.3.7.3's result formula all come from, and it is the largest rendering gap left. The corpus reports a soft mask beside it on 29 documents, which is what has made the gap *look* reported; the group itself is silent."
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs"]
+note = "Was `silent` — a /Group was read nowhere and a group XObject was drawn as an ordinary form — and is implemented as of the seventeenth session. Table 145's /S selects the subtype, /I and /K are read, and the four actions this clause adds to Do are performed: the initial backdrop, the initialisation of the blend mode and both alpha constants (NOTE 1's reason — those parameters belong to the group, and leaving them in force applies them twice), compositing the elements into the group, and painting the group's result into the parent under the state at Do. The requirement that each Do be treated as a separate group falls out, since nothing is cached. What is not implemented is the group colour space: /CS is read and named where compositing in it would differ from compositing in the device's three components, which is 4 corpus documents, all of them /DeviceCMYK. Honouring it means holding the group's raster in its own components, which is a second raster format rather than a colour conversion."
 
 [[clause]]
 clause = "11.6.7"

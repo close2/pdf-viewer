@@ -42,6 +42,81 @@ pub struct TargetSpec {
 /// precision — which is the difference between a guarantee and a hope.
 pub const MAX_EXTENT: u32 = 1 << 24;
 
+/// Composites a rendered page onto the colour of the medium it is imposed on.
+///
+/// ISO 32000-2 §11.4.7, of the page group — the group every object on a page belongs to:
+///
+/// > Ordinarily, the page shall be imposed directly on an output medium, such as paper or a
+/// > display screen. The page group shall be treated as an isolated group, whose results
+/// > shall then be composited with a backdrop colour appropriate for the medium.
+///
+/// **Isolated**, so the page's own initial backdrop is transparent and not the medium: an
+/// object blending against an unpainted part of the page sees nothing there, and §11.3.6's
+/// formula gives it its own colour. Painting the medium's colour *first* and drawing over it
+/// is the natural implementation and a different picture — every blend mode then sees white
+/// where the standard says it sees nothing. `transparency_group.pdf` is the case: an ellipse
+/// under `/BM /Difference` is crimson where it covers white in all four reference renderers,
+/// and the inverse of crimson if the white is a backdrop.
+///
+/// Both backends therefore render onto transparency and call this at the end, so that
+/// neither can make the choice differently.
+///
+/// `data` is **premultiplied** RGBA8, which is what both rasterisers hold before they convert
+/// at their boundary. Premultiplied and not straight, because this is a source-over
+/// composite and doing it in premultiplied form is both the natural arithmetic and lossless:
+/// a page rendered onto transparency and demultiplied first would divide every antialiased
+/// edge by its own alpha and multiply it back here, and the two roundings cost a level per
+/// channel across every glyph on the page.
+pub fn impose_on_medium(data: &mut [u8], medium: crate::Color) {
+    let scale = |component: f32| {
+        let value = component.clamp(0.0, 1.0) * medium.a.clamp(0.0, 1.0) * 255.0 + 0.5;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the product of two values in 0..=1 scaled by 255 is in 0..=255"
+        )]
+        {
+            value as u8
+        }
+    };
+    let backdrop = [
+        scale(medium.r),
+        scale(medium.g),
+        scale(medium.b),
+        scale(1.0),
+    ];
+    if backdrop[3] == 0 {
+        // Nothing to composite onto: the caller wants the page's own alpha, which is what
+        // the raster already holds.
+        return;
+    }
+
+    for pixel in data.chunks_exact_mut(4) {
+        if pixel[3] == u8::MAX {
+            continue;
+        }
+        let clear = u16::from(u8::MAX.wrapping_sub(pixel[3]));
+        for (channel, below) in pixel.iter_mut().zip(backdrop) {
+            // `below * clear` peaks at 255 * 255 = 65 025, inside `u16`, and the quotient is
+            // at most 255 — so the whole of this is exact in eight bits, which is the point
+            // of doing it here rather than after the conversion to straight alpha.
+            let contribution = (u16::from(below).saturating_mul(clear).saturating_add(127)) / 255;
+            *channel =
+                u8::try_from(u16::from(*channel).saturating_add(contribution)).unwrap_or(u8::MAX);
+        }
+    }
+}
+
+/// Deepest nesting of [`crate::Command::Group`] a backend will composite.
+///
+/// A backend renders a group by recursing over its elements, so the nesting depth of a
+/// display list becomes stack depth. `pdf-model` bounds groups by its own form-XObject
+/// depth, but a [`DisplayList`] is a public type that anything may build, and a rasteriser
+/// must not be able to exhaust the stack because it was handed a list nobody checked. The
+/// value matches that bound: legitimate artwork nests a handful of groups, and sixteen is
+/// already far past anything the corpus contains.
+pub const MAX_GROUP_DEPTH: usize = 16;
+
 impl TargetSpec {
     /// Builds a spec that renders a whole page at the given scale.
     ///
@@ -189,6 +264,14 @@ pub enum BackendError {
     /// The requested target rounds to zero pixels, or its size is not finite.
     #[error("target dimensions are degenerate")]
     DegenerateTarget,
+    /// Transparency groups nest deeper than [`MAX_GROUP_DEPTH`].
+    #[error("transparency groups nest {depth} deep, over the limit of {limit}")]
+    GroupsTooDeep {
+        /// Depth that was reached.
+        depth: usize,
+        /// Configured maximum.
+        limit: usize,
+    },
 }
 
 #[cfg(test)]
