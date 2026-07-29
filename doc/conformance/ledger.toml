@@ -815,9 +815,9 @@ status = "unreviewed"
 clause = "8.4.3.2"
 title = "Line width"
 status = "implemented"
-code = ["crates/pdf-model/src/content.rs", "crates/render-cpu/src/convert.rs"]
-test = ["crates/render-cpu/tests/headless_render.rs"]
-note = "The `w` operator sets the width, and a width of 0 reaches the rasteriser as the thinnest line it draws. The clause is cited from `oracle.rs` for what it does *not* say: it gives a stroke a device-resolution minimum and gives an image none, which is why `issue4436r.pdf`'s half-pixel-tall image mask is drawn at its coverage rather than snapped to a whole row."
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/paint.rs"]
+test = ["crates/render-cpu/tests/stroke_width.rs::a_zero_width_stroke_is_one_device_pixel_at_every_scale", "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_the_thinnest_line_the_device_draws"]
+note = "The `w` operator sets the width, and a width of 0 is drawn as \"the thinnest line that can be rendered at device resolution: 1 device pixel wide\". **This row was wrong for fifteen sessions and is the ledger's second known error**: it said a zero width \"reaches the rasteriser as the thinnest line it draws\", which was true of `tiny-skia`, whose hairline mode a zero width selects, and false of Vello, where `kurbo` expands a zero-width stroke into an empty outline and the line vanished. A row that names a *rasteriser's* convention has recorded that rasteriser rather than the clause. `Stroke::device_width` now states the minimum in `pdf-render`, where both backends read it, and the scene that would have caught the defect exists. The clause is also cited from `oracle.rs` for what it does *not* say: it gives a stroke a device-resolution minimum and gives an image none, which is why `issue4436r.pdf`'s half-pixel-tall image mask is drawn at its coverage rather than snapped to a whole row."
 
 [[clause]]
 clause = "8.4.3.3"
@@ -1021,17 +1021,24 @@ status = "unreviewed"
 [[clause]]
 clause = "8.6.6"
 title = "Special colour spaces"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs"]
+note = "Aggregate of the six below, read as a family in the nineteenth session because §11.7.4's overprinting is stated in terms of the colourants a `Separation` or `DeviceN` space names, and this is the clause that says what those are. All four families are implemented. The reading produced two rules neither the code nor any earlier note had: §8.6.6.4's `/All` and `/None` colourants, which are decided before the alternate space rather than through it."
 
 [[clause]]
 clause = "8.6.6.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "Two sentences naming the four special families — Pattern, Indexed, Separation and DeviceN — all four of which are implemented under the subclauses below. No requirement of its own."
 
 [[clause]]
 clause = "8.6.6.2"
 title = "Pattern colour spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/tiling.rs", "crates/pdf-model/tests/shadings.rs"]
+note = "Three sentences: an area is painted with a pattern rather than a colour, the pattern is a tiling (Type 1) or a shading (Type 2) one, and §8.7 has the detail. Both types are implemented on both backends. `ColourSpace::Pattern` carries the *underlying* space this clause's second form names, because an uncoloured tiling pattern takes its colour there rather than in any of its own — which is §8.7.3.3's requirement reaching this clause's array."
 
 [[clause]]
 clause = "8.6.6.3"
@@ -1044,7 +1051,10 @@ note = "The four-element array, both forms of the table (byte string and stream)
 [[clause]]
 clause = "8.6.6.4"
 title = "Separation colour spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::the_none_colourant_marks_nothing", "crates/pdf-model/tests/colour_paths.rs::the_all_colourant_is_a_complemented_tint"]
+note = "The four-element array, the tint in 0.0 to 1.0 treated subtractively, the initial value of 1.0, and the reversion to the alternate space through the tint transform. The reversion is not a fallback here but what the clause *requires* of this device: \"The preceding paragraph applies only to subtractive output devices such as printers and imagesetters. For an additive device such as a computer display, a Separation colour space never applies a process colourant directly; it always reverts to the alternate colour space as described below.\" That sentence is also what makes §11.7.3's soft-mask rule and §11.7.4's Table 146 collapse here, and it is a stronger citation for the choice than §11.7.3's own. Two rules were found missing by reading it in the nineteenth session, and both are now implemented: `/None`, which \"shall not produce any visible output\" and was painted through its tint transform like any other colourant, and `/All`, whose subtractive tint \"shall be complemented by subtracting from 1 before applying to all available colourants\" on an additive device and was likewise run through a transform the clause says to ignore. Both are decided before the alternate space and the tint transform are even parsed, because the clause requires those to be ignored \"although valid values shall still be provided\" — so an unreadable one cannot take the space with it. 2 corpus first pages set `/All`; none sets a `Separation` `/None`, which is trap 8 rather than evidence it is rare in the world."
 
 [[clause]]
 clause = "8.6.6.5"
@@ -1052,17 +1062,21 @@ title = "DeviceN colour spaces"
 status = "partial"
 code = ["crates/pdf-model/src/colour.rs"]
 test = ["crates/pdf-model/tests/colour_paths.rs"]
-note = "The space's four elements are read and a colour is converted by running the tint transform into the alternate space, which is what the clause requires of a processor with none of the named colourants available — and this one has none, since it draws to a screen. `None` colourants are therefore passed to the tint transform rather than discarded, which is what the clause says for the reverting case. Not implemented: `/NChannel` and the `/Colorants` attributes dictionary, neither of which changes the reverting path, and the all-`None` rule that such a space \"shall always discard its output\"."
+note = "The space's four elements are read and a colour is converted by running the tint transform into the alternate space, which is what the clause requires of a processor with none of the named colourants available — and this one has none, since it draws to a screen. `None` colourants are therefore passed to the tint transform rather than discarded, which is what the clause says for the reverting case. The all-`None` rule was the exception and is implemented as of the nineteenth session: \"A DeviceN colour space whose component colourant names are all None shall always discard its output, just the same as a Separation colour space for None; it shall never revert to the alternate colour space.\" Still not implemented: `/NChannel` and the `/Colorants` attributes dictionary, neither of which changes the reverting path — an `/NChannel` space's per-component reversion is the one requirement of the pair that could, and it needs a colourant this device has."
 
 [[clause]]
 clause = "8.6.6.6"
 title = "Multitone examples"
-status = "unreviewed"
+status = "inapplicable"
+code = ["crates/pdf-model/src/colour.rs"]
+note = "Four worked examples of `Indexed` over `DeviceN` producing duotones, tritones and quadtones, all of them NOTEs and EXAMPLEs. There is no requirement here that the two clauses they compose do not already state, and both are implemented — `MAX_DEPTH` exists so that exactly this nesting resolves. Read and dismissed, which the ledger records rather than leaving blank."
 
 [[clause]]
 clause = "8.6.7"
 title = "Overprint control"
-status = "unreviewed"
+status = "inapplicable"
+code = ["crates/pdf-model/src/content.rs"]
+note = "`/OP`, `/op` and `/OPM` are read nowhere, and this clause is why rather than an omission it excuses. Overprinting decides what happens to the device colourants a painting operation does *not* name: \"If the overprint parameter is false (the default value), painting a colour in any colour space shall cause the corresponding areas of unspecified colourants to be erased\", and if true \"and the output device supports overprinting, erasing actions shall not be performed\". This device has three additive process colourants and produces no separations, and the clause states what such a device does: \"Not all devices support overprinting. … If overprinting is not supported, the value of the overprint parameter shall be ignored\" (NOTE 1). The overprint *mode* is settled by a `shall not` in the clause's own body: \"It also shall not apply if the native colour space of the output device does not include CMYK device colourants; in that case, source colours shall be converted to the device's native colour space, and all components participate in the conversion, whatever their values.\" Conversion of every component whatever its value is exactly what `ColourSpace::to_rgb` does. §11.7.4 reaches the same answer for the transparent model by an independent route, and ADR 0028 has both arguments and the honest limit — the one configuration where overprinting would change a pixel here is a group whose blending space is `DeviceCMYK`, which §11.6.6 already reports."
 
 [[clause]]
 clause = "8.6.8"
@@ -2065,8 +2079,10 @@ note = "Three deliberate departures, all in one direction, and the sixteenth ses
 [[clause]]
 clause = "10.7.5"
 title = "Automatic stroke adjustment"
-status = "silent"
-note = "`/SA` is read nowhere and nothing reports it. 49 corpus documents set it true. \"When stroke adjustment is enabled, the line width and the coordinates of a stroke shall automatically be adjusted as necessary to produce lines of uniform thickness\" — this renderer anti-aliases instead, which gives a hairline uniform *ink* but not the crisp grid-snapped column the clause asks for, so a document enabling it gets a blurrier thin line with nothing said. Not reported this session on purpose, and the reason is trap 11: presence of the key is not the condition. A report has to test that a stroke is actually painted while the parameter is in force and that it is thin enough in device space for the half-pixel adjustment the clause bounds to be visible, or it names 49 documents and moves every one of them out of the oracle's gated set for a difference most of them cannot show. Sizing that condition is the work this row is owed."
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/paint.rs"]
+test = ["crates/render-cpu/tests/stroke_width.rs::stroke_adjustment_promotes_only_a_sub_half_pixel_line", "crates/pdf-model/tests/colour_paths.rs::stroke_adjustment_is_read_and_restored", "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_the_thinnest_line_the_device_draws"]
+note = "The clause has two requirements and the nineteenth session implemented the one a display can state exactly: \"If stroke adjustment is enabled and the requested line width, transformed into device space, is less than half a pixel, the stroke shall be rendered as a single-pixel line.\" `/SA` is read from Table 58 and carried on the `Stroke`, and `Stroke::device_width` makes such a stroke one device pixel — the same width the clause's NOTE says a zero width means, which is why both rules live in one function that both backends call. 49 corpus documents set the parameter true. Not implemented: the first requirement, that \"the line width and the coordinates of a stroke shall automatically be adjusted as necessary to produce lines of uniform thickness … no more than half a pixel different\". That is a grid-fitting of the *coordinates*, and the non-uniformity it exists to remove is an artefact of the binary scan conversion §10.7.4 describes — Figure 70 shows an aliased line — which this tree already departs from by anti-aliasing. An anti-aliased stroke's coverage-weighted thickness is the requested width at every position, so the clause's stated purpose is met by a different route; what is not met is uniformity of the *rasterised* line on a device that quantises coverage. That is a departure of the same family as §10.7.4's three, licensed by §10.7.1's NOTE, and nothing reports it because there is no page on which this device could do better. ADR 0028."
 
 [[clause]]
 clause = "10.8"
@@ -2406,7 +2422,7 @@ title = "Colour space and rendering issues"
 status = "partial"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/colour.rs", "crates/pdf-model/src/soft_mask.rs"]
 test = ["crates/pdf-model/tests/colour_paths.rs", "crates/pdf-model/tests/soft_masks.rs"]
-note = "Aggregate of the five below, read as a family in the eighteenth session because §11.6.5.1's `/BC` is stated in a group's blending colour space and this is the clause that says what such a space is. Two of its five subclauses are satisfied, one is a departure this tree already reports, and §11.7.4's overprinting is not implemented and — as of this reading — the ledger's third `silent` row."
+note = "Aggregate of the five below, read as a family in the eighteenth session because §11.6.5.1's `/BC` is stated in a group's blending colour space and this is the clause that says what such a space is. Two of its five subclauses are satisfied and one is a departure this tree already reports. §11.7.4's overprinting was recorded as six `silent` rows by that reading and re-decided by the nineteenth session's reading of §8.6.6 and §8.6.7: Table 146's blend function is the source colour for every row a three-process-component group space with no spot colourants can reach, so four of its five subclauses are satisfied and the fifth is §11.6.2's already-reported gap. ADR 0028."
 
 [[clause]]
 clause = "11.7.1"
@@ -2432,38 +2448,47 @@ note = "The clause offers two treatments for a spot colour inside a group — ke
 [[clause]]
 clause = "11.7.4"
 title = "Overprinting and transparency"
-status = "silent"
-note = "Aggregate of the five below, and the ledger's third `silent` row. `/OP`, `/op` and `/OPM` are read nowhere in this tree, and 63 of the corpus's first-page `/ExtGState` dictionaries set one of the two booleans true. Under §11.7.4.2 an object painted with overprinting enabled composites through the *special overprinting blend mode* rather than through Normal, which leaves the backdrop's value in every colour component the source does not paint — so a document that enables it gets more ink than it asked for here, with nothing said. Sizing a report is the work this row is owed, and trap 11 is the reason it was not written this session: presence of the key is not the condition, since overprinting changes nothing where the source paints every component of the group's space, which is what an ordinary `rg` or `g` fill does."
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::overprinting_changes_nothing_on_a_three_component_device"]
+note = "Aggregate of the five below, and **the ledger's six `silent` rows the eighteenth session opened, closed by reading Table 146 rather than by writing a blend mode**. Four of the five subclauses are satisfied here by derivation: this device's group colour space has three additive *process* components and no spot colourants, and every row of Table 146 that such a space can reach gives the blend function the source colour `C_s`, in all three of its `OP false` / `OP true, OPM 0` / `OP true, OPM 1` columns — which is the Normal blend function, and is what this tree composites through. §11.7.4.5 has the row-by-row working. The fifth, §11.7.4.4, is a gap and is `reported` under §11.6.2. The honest limit is one configuration: Table 146's first row needs the *group* space to be `DeviceCMYK`, which §11.6.6 and §11.7.2 already report as a departure on 4 corpus documents, so overprinting's one visible case here is a gap that is already named. ADR 0028."
 
 [[clause]]
 clause = "11.7.4.1"
 title = "General"
-status = "silent"
-note = "Introduces the special overprinting blend mode and the two parameters that select it. Nothing here reads either; see §11.7.4."
+status = "inapplicable"
+note = "One paragraph describing overprinting in the *opaque* imaging model — §8.6.7's parameters — and two NOTEs. It states no requirement of its own, and the paragraph's own subject is settled by §8.6.7 on this device: overprinting deals with device colourants, and NOTE 2 says as much, \"it is best to think of transparency as taking place in appearance space, but overprinting of device colourants in device space\". This device produces no separations. The requirements are in the four subclauses below."
 
 [[clause]]
 clause = "11.7.4.2"
 title = "Blend modes and overprinting"
-status = "silent"
-note = "\"When overprinting is enabled, the blend mode shall be replaced by the special overprinting blend mode, disregarding the current blend mode\" — this tree keeps the current blend mode. Table 146's per-component rule is what an implementation owes: a component the source does not paint takes the backdrop's value under `OP true`, which is not expressible while compositing happens in three device components rather than in the group's colourants (§11.7.2)."
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "The clause's requirement is what happens *without* the special blend mode, and this tree does it: \"For colour components whose value has not been specified, a source colour value of 1.0 shall be assumed; when objects are fully opaque and the Normal blend mode is used, this shall have the effect of erasing those components. This treatment is consistent with the behaviour of the opaque imaging model with the overprint parameter set to false.\" Every colour here is converted into all three components of the device raster and painted through Normal, so no component of the group space is ever left unspecified and there is nothing to erase. Its second half — that only separable, white-preserving blend modes apply to spot colours, and Normal is substituted otherwise — has no spot colourant to apply to (§8.6.6.4 requires an additive device to substitute the alternate space always), so it is true with nothing to do. The eighteenth session's note for this row quoted a sentence — \"the blend mode shall be replaced by the special overprinting blend mode, disregarding the current blend mode\" — that **is not in the standard**; the sentence it paraphrases is §11.7.4.3's, and that clause says *may*."
 
 [[clause]]
 clause = "11.7.4.3"
 title = "Compatibility with opaque overprinting"
-status = "silent"
-note = "The rule that makes transparent overprinting agree with the opaque model where both apply. Unimplemented with the rest of §11.7.4."
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::overprinting_changes_nothing_on_a_three_component_device"]
+note = "This is where the special overprinting blend mode is defined, and the clause's own verb is permissive: \"a PDF processor **may** consider implementing a special blend mode that consults the overprint-related graphics state parameters\". What settles the row is not the permission but the mode's *value* here, which the clause gives in two bullets. The first needs both the current and the group colour space to be `DeviceCMYK`; this device's group space is three additive components, so the second applies: \"In all other cases, the value of B(Cb,Cs) shall be Cs for all colour components specified in the current colour space, otherwise Cb.\" §11.7.3 makes every object paint every *process* component of the group space, so all three are specified and the blend function is `Cs` — Normal. NOTE 2 closes the one route that might have escaped: for \"Separation and DeviceN spaces that revert to their alternate colour space\" the current colour space *is* the alternate, which §8.6.6.4 makes unconditional on an additive device, so a spot colour cannot reach the first bullet either. The implicit non-isolated group the clause asks for when the current blend mode is not Normal is therefore unnecessary by its own NOTE 3."
 
 [[clause]]
 clause = "11.7.4.4"
 title = "Special path-painting considerations"
-status = "silent"
-note = "A path filled *and* stroked under overprinting is one object whose two parts must not overprint each other. This tree emits two commands for `B` and already reports that under §11.6.2 for a paint that composites; the overprinting half of the same sentence is unreported because overprinting itself is."
+status = "reported"
+code = ["crates/pdf-model/src/content.rs"]
+note = "The one requirement of §11.7.4 that is *not* satisfied here, and it is not about overprinting. With overprinting disabled — which is this device's state always — the clause's second bullet applies unconditionally to `B`, `B*`, `b`, `b*` and text rendering modes 2 and 6: \"In all other cases, a non-isolated knockout group shall be established. Within the group, the fill and stroke shall be performed with their respective prevailing alpha constants and the prevailing blend mode. The group results shall then be composited with the backdrop, using an alpha value of 1.0 and the Normal blend mode.\" This tree emits a `Fill` and a `Stroke`, so the band they share composites twice. That is the same gap §11.6.2 owns and is reported on the same condition — the paint composites and both parts mark the page — on 4 corpus documents. Implementing it is §11.4.6's knockout groups, which is where the fix belongs."
 
 [[clause]]
 clause = "11.7.4.5"
 title = "Summary of overprinting behavior"
-status = "silent"
-note = "Table 146, which is the whole of what an implementation of §11.7.4 has to execute, plus its NOTE 2's rule that a *group* reverts to Normal because nothing records which components its elements painted. Read, and not implemented."
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::overprinting_changes_nothing_on_a_three_component_device"]
+note = "Table 146 is the whole of what an implementation executes, and it collapses on this device. Its nine rows are indexed by the source colour space and by which component *of the group space* is affected; here the group space is device RGB, three process components and no spot colourants. Row by row: the three `spot colourant` rows — the only ones whose `OP true` cells give the backdrop `C_b` — have no component to affect, because there are none. Row 1's `OPM 1` cell, the only other departure from `C_s`, applies to a `C, M, Y, or K` component of the *group* space, which §11.7.4.3's first bullet confirms by requiring both spaces to be `DeviceCMYK`. Row 2 (`DeviceCMYK` source, process component other than CMYK), row 4 (any process space, process component) and row 9 (a group) give `C_s` in all three columns. The `Separation`/`DeviceN` rows are unreachable, since §8.6.6.4 makes such a space revert to its alternate on an additive device and NOTE 2 of §11.7.4.3 says the reverted space is the current one. So `B(C_b,C_s) = C_s` everywhere, which is Normal. NOTE 2's rule that a group reverts to Normal is the same answer arriving for a second reason. What this derivation rests on is that the device has no spot colourants and three process components: a separations-capable device would owe the whole table, and this row is where that would be recorded."
 
 [[clause]]
 clause = "11.7.5"

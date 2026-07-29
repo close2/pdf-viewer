@@ -641,3 +641,86 @@ fn cpu_and_gpu_agree_on_a_deeply_reduced_image() {
         );
     }
 }
+
+/// The two backends agree on the thinnest line the device can draw.
+///
+/// The scene the fifteenth session did not have. ISO 32000-2 §8.4.3.2 makes a zero width
+/// "the thinnest line that can be rendered at device resolution: 1 device pixel wide", and
+/// `tiny-skia` implements that as its hairline mode while `kurbo` expands a zero-width stroke
+/// into an **empty outline** — so the GPU drew nothing at all, on every `0 w` line in every
+/// document, and the eleven scenes before this one all stroked a width the document stated.
+/// A backend-specific convention that one of two backends happens to share with PDF is not a
+/// reading of the clause; `Stroke::device_width` is where the rule lives now.
+///
+/// §10.7.5's stroke adjustment is the same substitution on a different condition, so it is in
+/// the same scene: a 0.2-unit line under `/SA` is a fifth of a pixel at scale 1.0 and must
+/// come out as a whole one on both backends.
+///
+/// Two scales, because the substituted width is a *reciprocal* of the scale and one scale
+/// cannot tell a reciprocal from a constant.
+#[test]
+fn cpu_and_gpu_agree_on_the_thinnest_line_the_device_draws() {
+    use pdf_render::{
+        BlendMode, Color, Command, DisplayList, Paint, Path, PathCommand, Point, Size, Stroke,
+        Transform,
+    };
+    use std::sync::Arc;
+
+    // Both a horizontal and a diagonal line: a horizontal one at a half-integer y covers
+    // exactly one row, which is where a wrong width shows as a wrong ink level, and a
+    // diagonal one is where the two rasterisers' coverage differs and sets the floor for
+    // these tolerances.
+    let scene = |stroke: Stroke| {
+        let mut list = DisplayList::new(Size::new(200.0, 200.0));
+        for (from, to) in [
+            (Point::new(20.0, 100.5), Point::new(180.0, 100.5)),
+            (Point::new(20.0, 20.0), Point::new(180.0, 80.0)),
+        ] {
+            let mut path = Path::new();
+            path.push(PathCommand::MoveTo(from));
+            path.push(PathCommand::LineTo(to));
+            list.push(Command::Stroke {
+                path: Arc::new(path),
+                transform: Transform::IDENTITY,
+                stroke: stroke.clone(),
+                paint: Paint::Solid(Color::BLACK),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+        list
+    };
+
+    let cases = [
+        (
+            "a zero-width stroke",
+            Stroke {
+                width: 0.0,
+                ..Stroke::default()
+            },
+        ),
+        (
+            "a stroke-adjusted hairline",
+            Stroke {
+                width: 0.2,
+                adjust: true,
+                ..Stroke::default()
+            },
+        ),
+    ];
+    for (what, stroke) in cases {
+        let list = scene(stroke);
+        for scale in [1.0, 2.5] {
+            let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+            let cpu = CpuRasterizer::new()
+                .rasterize(&list, target)
+                .expect("supported");
+            let gpu = gpu().rasterize(&list, target).expect("supported");
+            assert_within_tolerance(
+                &format!("{what} at scale {scale}"),
+                raster_compare::compare(&cpu, &gpu).expect("same size"),
+            );
+        }
+    }
+}

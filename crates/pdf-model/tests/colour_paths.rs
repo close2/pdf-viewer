@@ -401,3 +401,154 @@ fn pdf_with_content_filter(filter: &str) -> Vec<u8> {
     );
     out.into_bytes()
 }
+
+/// A `Separation` space naming `colourant`, whose tint transform paints pure red.
+///
+/// Red is chosen because it is what the transform would produce if it were consulted, and
+/// neither `/All` nor `/None` may produce it: §8.6.6.4 says a processor "shall ignore the
+/// alternateSpace and tintTransform parameters" for both names. A transform that agreed with
+/// the right answer would leave the test unable to tell whether it had been ignored.
+fn special_separation(colourant: &str) -> String {
+    format!(
+        "5 0 obj\n[/Separation /{colourant} /DeviceRGB 6 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [1 0 0] /N 1 >>\nendobj\n"
+    )
+}
+
+/// The `/None` colourant paints nothing at all.
+///
+/// ISO 32000-2 §8.6.6.4: "The special colourant name None shall not produce any visible
+/// output. Painting operations in a Separation space with this colourant name shall have no
+/// effect on the current page." The fixture paints a green background and then covers it
+/// entirely with a `/None` fill; the background is what must survive. Before the nineteenth
+/// session the colourant name was not read at all, so the tint transform ran and the page
+/// came out red.
+#[test]
+fn the_none_colourant_marks_nothing() {
+    let colour = centre_colour(pdf_with(
+        &special_separation("None"),
+        "/ColorSpace << /Sep 5 0 R >>",
+        "0 1 0 rg 0 0 20 20 re f /Sep cs 1 scn 0 0 20 20 re f",
+    ));
+    assert_eq!(colour, (0, 255, 0), "a /None fill covered the background");
+}
+
+/// A `DeviceN` space whose colourants are all `/None` paints nothing either.
+///
+/// §8.6.6.5 requires a `DeviceN` space "whose component colourant names are all None" to
+/// "always discard its output, just the same as a Separation colour space for None; it shall
+/// never revert to the alternate colour space". The two-component space is deliberate — the
+/// repetition of `None` is the one case that clause's names array permits.
+#[test]
+fn a_devicen_of_only_none_colourants_marks_nothing() {
+    let space = "5 0 obj\n[/DeviceN [/None /None] /DeviceRGB 6 0 R]\nendobj\n\
+                 6 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [1 0 0] /N 1 >>\n\
+                 endobj\n";
+    let colour = centre_colour(pdf_with(
+        space,
+        "/ColorSpace << /Sep 5 0 R >>",
+        "0 1 0 rg 0 0 20 20 re f /Sep cs 1 1 scn 0 0 20 20 re f",
+    ));
+    assert_eq!(
+        colour,
+        (0, 255, 0),
+        "an all-/None fill covered the background"
+    );
+}
+
+/// The `/All` colourant is the tint complemented, applied to every colourant.
+///
+/// §8.6.6.4: "When outputting to an additive device, such as a computer monitor, the
+/// subtractive tint values of the All colourant shall be complemented by subtracting from 1
+/// before applying to all available colourants." A tint of 0.25 is therefore 0.75 in each of
+/// this device's three, which is 191 of 255. Two further tints pin the direction: full ink is
+/// black and none is white, which is the opposite of what a `DeviceGray` operand would mean
+/// and the reason the clause states the complement at all.
+#[test]
+fn the_all_colourant_is_a_complemented_tint() {
+    let draw = |tint: &str| {
+        centre_colour(pdf_with(
+            &special_separation("All"),
+            "/ColorSpace << /Sep 5 0 R >>",
+            &format!("/Sep cs {tint} scn 0 0 20 20 re f"),
+        ))
+    };
+    assert_eq!(draw("0.25"), (191, 191, 191));
+    assert_eq!(draw("1"), (0, 0, 0), "full ink in every colourant is black");
+    assert_eq!(draw("0"), (255, 255, 255), "no ink at all is white");
+}
+
+/// `/All` and `/None` survive a tint transform that cannot be read.
+///
+/// §8.6.6.4 requires the alternate space and the tint transform to be ignored for these two
+/// names "although valid values shall still be provided" — so a file that fails to provide
+/// them has still named a colourant this processor is required to support "on all devices,
+/// even if the devices are not capable of supporting any others". The names are therefore
+/// decided before either parameter is parsed; reading the transform first would have refused
+/// the space and reported it.
+#[test]
+fn a_special_colourant_does_not_need_a_readable_tint_transform() {
+    let space = "5 0 obj\n[/Separation /All /Bogus null]\nendobj\n";
+    let colour = centre_colour(pdf_with(
+        space,
+        "/ColorSpace << /Sep 5 0 R >>",
+        "/Sep cs 0.25 scn 0 0 20 20 re f",
+    ));
+    assert_eq!(colour, (191, 191, 191));
+}
+
+/// Overprinting changes no pixel on a device with three process colourants and no spot ones.
+///
+/// This is a *derivation*, not an omission, and the test is here to keep it honest — see ADR
+/// 0028 and the ledger's §8.6.7 and §11.7.4 rows. Table 146's blend function is the source
+/// colour `Cs` for every row this device can reach: its group colour space has three process
+/// components and no spot colourants, so every "spot colourant" row has no component to
+/// affect, and the one row whose `OPM 1` cell differs requires the *group* space to be
+/// `DeviceCMYK` (§11.7.4.3), which §11.6.6 reports as a departure when a document asks for it.
+/// `Cs` is the Normal blend function, which is what these pixels composite through.
+///
+/// The fixture is the case overprinting is written for — `DeviceCMYK` with a zero component,
+/// under `/OP true /OPM 1`, painted over a backdrop that component would otherwise erase. If
+/// a later session implements the special blend mode without reading those rows, this is what
+/// fails.
+#[test]
+fn overprinting_changes_nothing_on_a_three_component_device() {
+    let content = |gs: &str| format!("0 0 1 1 k 0 0 20 20 re f {gs} 0 0.9 0.9 0 k 0 0 20 20 re f");
+    let plain = centre_colour(pdf_with("", "", &content("")));
+    let overprinting = centre_colour(pdf_with(
+        "",
+        "/ExtGState << /GS << /OP true /op true /OPM 1 >> >>",
+        &content("/GS gs"),
+    ));
+    assert_eq!(
+        plain, overprinting,
+        "overprinting must not change a page composited in three additive components"
+    );
+}
+
+/// `/SA` reaches the stroke, and only the strokes drawn while it is in force.
+///
+/// ISO 32000-2 §10.7.5 by way of Table 58's `/SA`. What the parameter *does* is
+/// `Stroke::device_width`'s and is tested in pixels by `render-cpu/tests/stroke_width.rs`;
+/// what this pins is that the key is read at all and that `q`/`Q` restores it, which is the
+/// half a graphics state parameter carried on the stroke could get wrong.
+#[test]
+fn stroke_adjustment_is_read_and_restored() {
+    let document = Document::open(pdf_with(
+        "",
+        "/ExtGState << /GS << /SA true >> >>",
+        "0 0 m 10 10 l S q /GS gs 0 0 m 10 10 l S Q 0 0 m 10 10 l S",
+    ))
+    .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let adjusted: Vec<bool> = pdf_model::interpret(&document, &page)
+        .display_list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            pdf_render::Command::Stroke { stroke, .. } => Some(stroke.adjust),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(adjusted, vec![false, true, false]);
+}

@@ -547,10 +547,13 @@ fn command_bounds(command: &Command) -> Option<Rect> {
         } => {
             let bounds = outline_bounds(path, *transform)?;
             // The width is in the path's space, so it reaches the page scaled by the
-            // transform. The determinant's square root is that scale for a uniform
-            // transform and an over-estimate for a sheared one, which is the safe way round.
-            let scale = transform.determinant().abs().sqrt();
-            let margin = stroke.width * scale;
+            // transform — by the *largest* factor the transform stretches a length, since the
+            // margin has to hold in every direction. This used to be the determinant's square
+            // root, described as "an over-estimate for a sheared one", which is the wrong way
+            // round: a shear can leave the determinant at 1 while tripling a length, so the
+            // margin was too small and an overlap could be missed. `Transform::max_stretch`
+            // is the bound the comment claimed.
+            let margin = stroke.width * transform.max_stretch();
             Some(Rect::from_corners(
                 Point::new(bounds.min.x - margin, bounds.min.y - margin),
                 Point::new(bounds.max.x + margin, bounds.max.y + margin),
@@ -1677,6 +1680,27 @@ impl Interpreter<'_> {
                 state.stroke.width = (width as f32).max(0.0);
             }
         }
+        // Table 58's `/SA`: §10.7.5's automatic stroke adjustment. What it changes here is
+        // the one rule of that clause a display can state exactly — a line under half a
+        // device pixel wide "shall be rendered as a single-pixel line" — which
+        // `Stroke::device_width` applies once for both backends, since only a backend knows
+        // the resolution. The clause's other half, adjusting a stroke's *coordinates* to the
+        // pixel grid for uniform thickness, is what anti-aliasing already achieves by a
+        // different route; ADR 0028 has that argument and the ledger's §10.7.5 row records it.
+        if let Object::Boolean(adjust) = self.document.get_key(dict, "SA") {
+            state.stroke.adjust = adjust;
+        }
+        // Table 58's `/OP`, `/op` and `/OPM`: overprint and overprint mode, deliberately not
+        // read, which §8.6.7 is explicit about rather than silent on. Overprinting decides
+        // what happens to the device colourants a painting operation does *not* name, and
+        // this device has three additive process colourants and no separations: "Not all
+        // devices support overprinting. … If overprinting is not supported, the value of the
+        // overprint parameter shall be ignored" (§8.6.7 NOTE 1), and of the overprint mode,
+        // "It also shall not apply if the native colour space of the output device does not
+        // include CMYK device colourants; in that case, source colours shall be converted to
+        // the device's native colour space, and all components participate in the conversion,
+        // whatever their values." §11.7.4's transparent-model reading reaches the same place
+        // by a second route — see ADR 0028 and the ledger's §11.7.4 rows.
         // ISO 32000-2 §8.6.5.9 and its table entry: `/UseBlackPtComp` takes ON, OFF or
         // Default, and a rendering intent of AbsColorimetric forces it off regardless.
         //

@@ -188,12 +188,38 @@ impl Transform {
 
     /// Returns the signed area scale factor.
     ///
-    /// Used to convert user-space line widths and flatness tolerances into device
-    /// space. A determinant of zero denotes a degenerate transform that collapses
-    /// all geometry to a line or point.
+    /// A determinant of zero denotes a degenerate transform that collapses all geometry to
+    /// a line or point. It is *not* the factor a length is scaled by — see
+    /// [`Self::max_stretch`], which is, and which a shear separates from this one.
     #[must_use]
     pub fn determinant(self) -> f32 {
         self.a * self.d - self.b * self.c
+    }
+
+    /// Returns the largest factor by which this transform lengthens a vector.
+    ///
+    /// This is the linear part's larger singular value. It is what a line width is
+    /// multiplied by to reach its widest extent in the target space, which is the question
+    /// ISO 32000-2 §8.4.3.2 asks — "the effect produced in device space depends on the
+    /// current transformation matrix … If the CTM specifies scaling by different factors in
+    /// the horizontal and vertical dimensions, the thickness of stroked lines in device
+    /// space shall vary according to their orientation."
+    ///
+    /// `determinant().abs().sqrt()` is the *geometric mean* of the two singular values and
+    /// agrees with this only where they are equal — every similarity transform, which is
+    /// what a page transform is. A shear separates them without changing the determinant at
+    /// all, so a length bound derived from the determinant can be arbitrarily too small.
+    #[must_use]
+    pub fn max_stretch(self) -> f32 {
+        // For the linear part M, the singular values are the square roots of the
+        // eigenvalues of MᵗM, whose trace is `sum` and whose determinant is `det²`. The
+        // quadratic's larger root is therefore (sum + √(sum² − 4·det²)) / 2, and the
+        // discriminant is non-negative for any real matrix — clamped anyway, because
+        // rounding can take it a hair below zero when the two roots coincide.
+        let sum = self.a * self.a + self.b * self.b + self.c * self.c + self.d * self.d;
+        let determinant = self.determinant();
+        let discriminant = (sum * sum - 4.0 * determinant * determinant).max(0.0);
+        f32::midpoint(sum, discriminant.sqrt()).max(0.0).sqrt()
     }
 
     /// Returns the transform that undoes this one.
@@ -434,6 +460,66 @@ mod invert_tests {
                 "{point:?} became {round_trip:?}"
             );
         }
+    }
+
+    /// `max_stretch` is the largest factor a vector's length is multiplied by.
+    ///
+    /// Checked against the definition rather than against the closed form: the maximum over
+    /// a fine sweep of directions must reach the returned value and never exceed it. That is
+    /// the property callers rely on, and it catches a sign or a swapped root in the
+    /// quadratic, which a spot value would not.
+    #[test]
+    fn max_stretch_bounds_every_direction() {
+        let cases = [
+            Transform::scale(3.0, 3.0),
+            Transform::scale(4.0, 0.25),
+            // A rotation by 30 degrees: every direction is stretched by exactly one.
+            Transform::new(0.866_025_4, 0.5, -0.5, 0.866_025_4, 0.0, 0.0),
+            // A pure shear, whose determinant is 1 and whose longest direction is not.
+            Transform::new(1.0, 0.0, 2.0, 1.0, 0.0, 0.0),
+            Transform::new(2.0, 0.5, -0.25, 3.0, 10.0, -4.0),
+        ];
+        for transform in cases {
+            let bound = transform.max_stretch();
+            let mut worst = 0.0_f32;
+            for step in 0..3600 {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "test code: the loop counter is under four thousand, which f32 \
+                              represents exactly"
+                )]
+                let angle = step as f32 * std::f32::consts::TAU / 3600.0;
+                // Translation is irrelevant to a length, so the vector's image is the
+                // difference of two mapped points.
+                let origin = transform.apply(Point::new(0.0, 0.0));
+                let tip = transform.apply(Point::new(angle.cos(), angle.sin()));
+                worst = worst.max((tip.x - origin.x).hypot(tip.y - origin.y));
+            }
+            assert!(
+                worst <= bound * 1.000_1,
+                "{transform:?}: a direction stretched by {worst}, above the bound {bound}"
+            );
+            assert!(
+                worst >= bound * 0.999,
+                "{transform:?}: the bound {bound} is not reached; the worst was {worst}"
+            );
+        }
+    }
+
+    /// A shear separates the two singular values without changing the determinant.
+    ///
+    /// The reason `max_stretch` exists rather than `determinant().abs().sqrt()`, and the
+    /// reason the comment that used to claim the determinant was "the safe way round" for a
+    /// stroke's margin was wrong: here the determinant says 1 and a length triples.
+    #[test]
+    fn a_shear_stretches_more_than_its_determinant_says() {
+        let shear = Transform::new(1.0, 0.0, 2.0, 1.0, 0.0, 0.0);
+        assert!((shear.determinant() - 1.0).abs() < 1e-6);
+        assert!(
+            shear.max_stretch() > 2.0,
+            "a shear of 2 stretches by {}",
+            shear.max_stretch()
+        );
     }
 
     #[test]

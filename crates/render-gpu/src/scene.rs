@@ -102,12 +102,18 @@ fn blend_mode(mode: BlendMode) -> peniko::BlendMode {
     peniko::BlendMode::new(mix, peniko::Compose::SrcOver)
 }
 
-/// Converts stroke parameters.
+/// Converts stroke parameters, resolving the width against the device.
+///
+/// The width is [`Stroke::device_width`]'s rather than the field's, which is not a
+/// refinement here but the whole of ISO 32000-2 §8.4.3.2 on this backend: `kurbo` expands
+/// a zero-width stroke into an empty outline, so a `0 w` line — the standard's "thinnest
+/// line that can be rendered at device resolution" — drew nothing at all until the
+/// nineteenth session. §10.7.5's stroke adjustment arrives through the same call.
 ///
 /// As in `render-cpu`, the miter limit is always set explicitly: `kurbo`'s default is
 /// `4.0` where PDF's initial value is `10.0`.
-fn stroke(s: &Stroke) -> kurbo::Stroke {
-    let mut out = kurbo::Stroke::new(f64::from(s.width))
+fn stroke(s: &Stroke, to_device: Transform) -> kurbo::Stroke {
+    let mut out = kurbo::Stroke::new(f64::from(s.device_width(to_device)))
         .with_caps(match s.cap {
             LineCap::Butt => kurbo::Cap::Butt,
             LineCap::Round => kurbo::Cap::Round,
@@ -360,7 +366,7 @@ fn encode(
                 let spaces = Spaces::new(*transform, to_device)?;
                 let at = spaces.at;
                 let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
-                let style = stroke(s);
+                let style = stroke(s, transform.then(to_device));
 
                 // The stroke width is in the command's own coordinate space, and the
                 // transform scales it along with the geometry, as PDF specifies.

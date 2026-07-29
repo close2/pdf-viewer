@@ -4,8 +4,9 @@
 //! is visible in a single file. If the CPU rasteriser is ever replaced, this is
 //! the file that changes.
 
-use pdf_render::{BlendMode, Color, FillRule, LineCap, LineJoin, Path, PathCommand, Stroke};
-use pdf_render::{Point, Transform};
+use pdf_render::{
+    BlendMode, Color, FillRule, LineCap, LineJoin, Path, PathCommand, Point, Stroke, Transform,
+};
 
 /// Converts a PDF matrix to a `tiny-skia` transform.
 ///
@@ -83,20 +84,23 @@ pub(crate) fn blend_mode(mode: BlendMode) -> tiny_skia::BlendMode {
     }
 }
 
-/// Converts stroke parameters.
+/// Converts stroke parameters, resolving the width against the device.
 ///
-/// Two semantics line up in our favour and are worth naming, because relying on
-/// them silently would be fragile:
+/// The width comes from [`Stroke::device_width`] rather than from the field, because
+/// ISO 32000-2 §8.4.3.2's zero-width minimum and §10.7.5's stroke adjustment are the
+/// same decision and both backends have to make it the same way. `tiny-skia` would
+/// answer §8.4.3.2 by itself — a width of `0.0` selects hairline stroking, which is one
+/// device pixel — and at every scale the two answers coincide, which is what
+/// `render-cpu/tests/stroke_width.rs` pins. Vello has no hairline mode at all, so
+/// relying on the rasteriser's convention was the reason a zero-width stroke was
+/// invisible on the GPU for fifteen sessions.
 ///
-/// - A width of `0.0` means "thinnest line the device can draw" in PDF, and
-///   selects hairline stroking in `tiny-skia`. Both agree, so zero width needs no
-///   special handling.
-/// - `tiny-skia`'s default miter limit is `4.0` while PDF's initial value is
-///   `10.0`. The limit is therefore always set explicitly from the PDF state and
-///   never left to default.
-pub(crate) fn stroke(s: &Stroke) -> tiny_skia::Stroke {
+/// One semantic still needs naming: `tiny-skia`'s default miter limit is `4.0` while
+/// PDF's initial value is `10.0`, so the limit is always set explicitly from the PDF
+/// state and never left to default.
+pub(crate) fn stroke(s: &Stroke, to_device: Transform) -> tiny_skia::Stroke {
     tiny_skia::Stroke {
-        width: s.width,
+        width: s.device_width(to_device),
         miter_limit: s.miter_limit,
         line_cap: match s.cap {
             LineCap::Butt => tiny_skia::LineCap::Butt,

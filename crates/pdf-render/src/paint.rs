@@ -1,5 +1,7 @@
 //! Colour, fill rules, and stroke parameters.
 
+use crate::geom::Transform;
+
 /// A colour in device RGB with straight (non-premultiplied) alpha.
 ///
 /// # Why colour is already resolved here
@@ -117,8 +119,17 @@ pub struct Stroke {
     /// Line width in the command's coordinate space.
     ///
     /// A width of `0.0` is legal in PDF and means the thinnest line the device can
-    /// render — one pixel — rather than an invisible one. Backends must honour that.
+    /// render — one pixel — rather than an invisible one. Backends must not read this
+    /// field directly: [`Self::device_width`] is where that rule and §10.7.5's live, so
+    /// that the two backends cannot answer it differently.
     pub width: f32,
+    /// Whether ISO 32000-2 §10.7.5's automatic stroke adjustment is enabled (`/SA`).
+    ///
+    /// A graphics state parameter rather than a stroke parameter in the standard's own
+    /// arrangement (Table 58), and carried here because a stroke is the only thing it
+    /// affects and because that makes `q`/`Q` save and restore it for free. Initial value
+    /// `false`, per Table 58.
+    pub adjust: bool,
     /// Treatment of open subpath ends.
     pub cap: LineCap,
     /// Treatment of segment joins.
@@ -131,11 +142,70 @@ pub struct Stroke {
     pub dash_phase: f32,
 }
 
+impl Stroke {
+    /// The width to stroke with, in the path's own space, given the path-to-device map.
+    ///
+    /// Two of the standard's rules meet here, and both are about the one thickness a device
+    /// cannot go below.
+    ///
+    /// ISO 32000-2 §8.4.3.2:
+    ///
+    /// > A line width of 0 shall denote the thinnest line that can be rendered at device
+    /// > resolution: 1 device pixel wide.
+    ///
+    /// ISO 32000-2 §10.7.5, when `/SA` has enabled automatic stroke adjustment:
+    ///
+    /// > If stroke adjustment is enabled and the requested line width, transformed into
+    /// > device space, is less than half a pixel, the stroke shall be rendered as a
+    /// > single-pixel line.
+    ///
+    /// Both answers are the same width, and its NOTE says so: the second case "is
+    /// equivalent to the effect produced by setting the line width to 0".
+    ///
+    /// # Why this is a function here rather than each backend's own hairline
+    ///
+    /// `tiny-skia` treats a width of `0.0` as a hairline and gets §8.4.3.2 right for free;
+    /// Vello has no such mode and drew **nothing at all** for a zero-width stroke until the
+    /// nineteenth session, on every page of every document since the backend existed. A
+    /// backend-specific convention that one backend happens to share with PDF is not a
+    /// reading of the clause, and the cross-backend comparison could not see the difference
+    /// because no scene stroked a zero width. One device pixel expressed back in the path's
+    /// own space is a width both backends can draw, and it is the same width for both.
+    ///
+    /// The minimum is stated in device pixels and applied in path space, so it is divided by
+    /// the stretch it will be multiplied by. Where the transform scales the two axes
+    /// differently there is no single answer — §8.4.3.2 says as much, "the thickness of
+    /// stroked lines in device space shall vary according to their orientation" — and this
+    /// takes the widest direction: [`Transform::max_stretch`] makes the substituted stroke
+    /// exactly one pixel at its widest and thinner elsewhere, and makes §10.7.5's test fire
+    /// only where the stroke is under half a pixel in *every* direction. For a similarity
+    /// transform, which is what every page transform in this renderer is, the two singular
+    /// values coincide and the choice does not arise.
+    #[must_use]
+    pub fn device_width(&self, to_device: Transform) -> f32 {
+        let stretch = to_device.max_stretch();
+        // A degenerate transform has collapsed the path to a line or a point; there is no
+        // width in device space to compare against and nothing to divide by.
+        if !stretch.is_finite() || stretch <= 0.0 {
+            return self.width;
+        }
+        let one_pixel = 1.0 / stretch;
+        let in_device = self.width * stretch;
+        if self.width <= 0.0 || (self.adjust && in_device < 0.5) {
+            one_pixel
+        } else {
+            self.width
+        }
+    }
+}
+
 impl Default for Stroke {
-    /// The PDF initial graphics state: 1.0 width, butt caps, miter joins, limit 10.
+    /// The PDF initial graphics state: 1.0 width, butt caps, miter joins, limit 10, and
+    /// stroke adjustment off (Table 58).
     fn default() -> Self {
         Self {
             width: 1.0,
+            adjust: false,
             cap: LineCap::default(),
             join: LineJoin::default(),
             miter_limit: 10.0,
@@ -280,7 +350,7 @@ impl Image {
     /// is the oracle for the GPU one and a difference in this choice would show up as a
     /// disagreement about every magnified image.
     #[must_use]
-    pub fn is_smoothed(&self, placement: crate::Transform) -> bool {
+    pub fn is_smoothed(&self, placement: Transform) -> bool {
         if self.interpolate {
             return true;
         }
@@ -306,7 +376,7 @@ impl Image {
     /// and two source samples per device pixel: enough for a four-tap filter to see all of
     /// them, which is what makes [`Image::area_averaged`] and the backends' own bilinear
     /// filters complementary rather than redundant.
-    fn reduction(&self, placement: crate::Transform) -> (u32, u32) {
+    fn reduction(&self, placement: Transform) -> (u32, u32) {
         #[expect(
             clippy::cast_precision_loss,
             reason = "an image's dimensions are bounded well below f32's exact integer range \
@@ -371,7 +441,7 @@ impl Image {
     /// disagree about. This produces new samples, so both backends draw the same raster and
     /// their own filters then do the same residual, sub-two-fold work.
     #[must_use]
-    pub fn area_averaged(&self, placement: crate::Transform) -> Option<Self> {
+    pub fn area_averaged(&self, placement: Transform) -> Option<Self> {
         let (kx, ky) = self.reduction(placement);
         if (kx <= 1 && ky <= 1) || !self.is_consistent() {
             return None;
@@ -530,8 +600,7 @@ fn round_div(numerator: u64, denominator: u64) -> u8 {
               what each fixture contains"
 )]
 mod resampling {
-    use super::{Bands, Image};
-    use crate::Transform;
+    use super::{Bands, Image, Transform};
 
     /// An image of `width` x `height` opaque samples, each carrying `f(x, y)` in red.
     fn image(width: u32, height: u32, f: impl Fn(u32, u32) -> u8) -> Image {
@@ -721,5 +790,87 @@ mod resampling {
                 .area_averaged(Transform::scale(f32::NAN, f32::NAN))
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::float_cmp,
+    reason = "test code: the widths here are exactly representable, and the whole point is \
+              that the substituted width is the reciprocal of the scale rather than near it"
+)]
+mod stroke_width {
+    use super::{Stroke, Transform};
+
+    /// A zero width is one device pixel, expressed in the path's own space.
+    ///
+    /// ISO 32000-2 §8.4.3.2: "A line width of 0 shall denote the thinnest line that can be
+    /// rendered at device resolution: 1 device pixel wide." At more than one scale, because a
+    /// single scale cannot tell a reciprocal from a constant — the defect this class of test
+    /// exists to catch, per trap 2.
+    #[test]
+    fn a_zero_width_is_one_device_pixel() {
+        let stroke = Stroke {
+            width: 0.0,
+            ..Stroke::default()
+        };
+        assert_eq!(stroke.device_width(Transform::IDENTITY), 1.0);
+        assert_eq!(stroke.device_width(Transform::scale(2.0, 2.0)), 0.5);
+        assert_eq!(stroke.device_width(Transform::scale(0.25, 0.25)), 4.0);
+    }
+
+    /// Without `/SA`, a thin stroke stays as thin as the document asked.
+    ///
+    /// §10.7.5's substitution is conditional on the parameter, and this is the half a
+    /// document that never says `/SA` relies on: a 0.1-unit hairline is drawn at a tenth of a
+    /// pixel's coverage, not promoted to a whole one.
+    #[test]
+    fn a_thin_stroke_is_left_alone_without_stroke_adjustment() {
+        let stroke = Stroke {
+            width: 0.1,
+            ..Stroke::default()
+        };
+        assert_eq!(stroke.device_width(Transform::IDENTITY), 0.1);
+        assert_eq!(stroke.device_width(Transform::scale(2.0, 2.0)), 0.1);
+    }
+
+    /// With `/SA`, a stroke under half a device pixel becomes a single-pixel line.
+    ///
+    /// §10.7.5: "If stroke adjustment is enabled and the requested line width, transformed
+    /// into device space, is less than half a pixel, the stroke shall be rendered as a
+    /// single-pixel line." The test is at the boundary in both directions and at two scales,
+    /// because the condition is on the *device* width: 0.4 units is under half a pixel at
+    /// scale 1 and over it at scale 2, so the same stroke must be adjusted in one case and
+    /// left alone in the other.
+    #[test]
+    fn stroke_adjustment_promotes_a_sub_half_pixel_line() {
+        let thin = Stroke {
+            width: 0.4,
+            adjust: true,
+            ..Stroke::default()
+        };
+        assert_eq!(thin.device_width(Transform::IDENTITY), 1.0);
+        assert_eq!(thin.device_width(Transform::scale(2.0, 2.0)), 0.4);
+
+        let thick = Stroke {
+            width: 0.5,
+            adjust: true,
+            ..Stroke::default()
+        };
+        assert_eq!(thick.device_width(Transform::IDENTITY), 0.5);
+    }
+
+    /// A degenerate transform leaves the width alone rather than dividing by zero.
+    ///
+    /// The path has collapsed to a line or a point, so there is no device width to compare
+    /// against; returning the field is the only answer that is not an infinity.
+    #[test]
+    fn a_collapsed_transform_leaves_the_width_alone() {
+        let stroke = Stroke {
+            width: 0.0,
+            adjust: true,
+            ..Stroke::default()
+        };
+        assert_eq!(stroke.device_width(Transform::scale(0.0, 0.0)), 0.0);
     }
 }

@@ -465,7 +465,7 @@ impl CpuRasterizer {
                 surface.stroke_path(
                     &path,
                     &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
-                    &convert::stroke(stroke),
+                    &convert::stroke(stroke, transform.then(to_device)),
                     convert::transform(transform.then(to_device)),
                     clip,
                 );

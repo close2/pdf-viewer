@@ -94,6 +94,33 @@ pub enum ColourSpace {
         /// The tint transform.
         transform: Box<Function>,
     },
+    /// The `/All` colourant of ISO 32000-2 §8.6.6.4, which marks every colourant at once.
+    ///
+    /// > When outputting to an additive device, such as a computer monitor, the subtractive
+    /// > tint values of the All colourant shall be complemented by subtracting from 1 before
+    /// > applying to all available colourants.
+    ///
+    /// So on this device a tint of `t` is the grey `1 − t` in all three components: full ink
+    /// is black and no ink is white. It is not a `Separation` with a grey alternate, because
+    /// the clause requires the alternate space and the tint transform to be *ignored* —
+    /// whatever the file provides, and even where they are unreadable.
+    AllColourants,
+    /// A `Separation` or `DeviceN` space that marks nothing. ISO 32000-2 §8.6.6.4:
+    ///
+    /// > The special colourant name None shall not produce any visible output. Painting
+    /// > operations in a Separation space with this colourant name shall have no effect on
+    /// > the current page.
+    ///
+    /// §8.6.6.5 extends it to a `DeviceN` whose component names are *all* `None`, which
+    /// "shall always discard its output … it shall never revert to the alternate colour
+    /// space". A `DeviceN` with only *some* `None` components is an ordinary
+    /// [`Self::Separation`] here, because the same clause says those components "shall be
+    /// passed to the tint transformation function" once the space reverts — which on an
+    /// additive device it always does.
+    NoColourant {
+        /// How many tint components the space takes, so that `sc`/`scn` still parse.
+        inputs: usize,
+    },
     /// A colour space defined by an embedded ICC profile.
     Icc {
         /// The parsed profile.
@@ -211,14 +238,36 @@ impl ColourSpace {
             b"Indexed" | b"I" => Self::parse_indexed(document, items, resources, depth),
             b"Separation" | b"DeviceN" => {
                 let is_separation = family.as_slice() == b"Separation";
-                let inputs = if is_separation {
-                    1
-                } else {
-                    items
-                        .get(1)
-                        .map(|item| document.resolve(item))
-                        .and_then(|item| item.as_array().map(<[Object]>::len))?
-                };
+                let names = colourant_names(document, items.get(1), is_separation);
+                let inputs = if is_separation { 1 } else { names.len() };
+
+                // §8.6.6.4's two special names are decided *before* the alternate space and
+                // the tint transform, because the clause requires both to be ignored: "A PDF
+                // processor shall support Separation colour spaces with the colourant names
+                // All and None on all devices, even if the devices are not capable of
+                // supporting any others. When processing Separation spaces with either of
+                // these colourant names PDF processors shall ignore the alternateSpace and
+                // tintTransform parameters … although valid values shall still be provided."
+                // Reading them first is what makes that true even where they are unreadable.
+                if is_separation {
+                    match names.first().map(Vec::as_slice) {
+                        Some(b"All") => return Some(Self::AllColourants),
+                        Some(b"None") => return Some(Self::NoColourant { inputs: 1 }),
+                        _ => {}
+                    }
+                } else if inputs > 0 && names.iter().all(|name| name.as_slice() == b"None") {
+                    // §8.6.6.5: "A DeviceN colour space whose component colourant names are
+                    // all None shall always discard its output, just the same as a Separation
+                    // colour space for None; it shall never revert to the alternate colour
+                    // space."
+                    return Some(Self::NoColourant { inputs });
+                }
+
+                if inputs == 0 {
+                    // §8.6.6.5's `names` array decides how many operands `scn` takes, so an
+                    // empty or missing one leaves the space undefined rather than degenerate.
+                    return None;
+                }
                 let alternate =
                     Self::parse_at(document, items.get(2)?, resources, depth.saturating_add(1))?;
                 let transform = Function::parse(document, items.get(3)?).ok()?;
@@ -396,14 +445,14 @@ impl ColourSpace {
     #[must_use]
     pub fn components(&self) -> usize {
         match self {
-            Self::Gray | Self::Indexed { .. } | Self::CalGray { .. } => 1,
+            Self::Gray | Self::Indexed { .. } | Self::CalGray { .. } | Self::AllColourants => 1,
             Self::Icc { profile } => profile.channels(),
             // A pattern is named, not given as components; where an uncoloured one takes
             // a colour, that colour belongs to the underlying space.
             Self::Pattern { base } => base.as_ref().map_or(1, |base| base.components()),
             Self::Rgb | Self::Lab { .. } | Self::CalRgb { .. } => 3,
             Self::Cmyk => 4,
-            Self::Separation { inputs, .. } => *inputs,
+            Self::Separation { inputs, .. } | Self::NoColourant { inputs } => *inputs,
         }
     }
 
@@ -441,8 +490,10 @@ impl ColourSpace {
             // "In an Indexed colour space, the initial colour value shall be 0."
             Self::Indexed { .. } => vec![0.0],
             // "In a Separation or DeviceN colour space, the initial tint value shall be 1.0
-            // for all colourants."
-            Self::Separation { inputs, .. } => vec![1.0; *inputs],
+            // for all colourants." `/All` and `/None` are Separation spaces too, so they
+            // start at full ink like any other — which for `/All` is black.
+            Self::Separation { inputs, .. } | Self::NoColourant { inputs } => vec![1.0; *inputs],
+            Self::AllColourants => vec![1.0],
             // A pattern has no colour of its own until `scn` names one.
             Self::Pattern { .. } => Vec::new(),
         }
@@ -562,6 +613,17 @@ impl ColourSpace {
                 let converted = transform.eval(values);
                 alternate.to_rgb_at(&converted, depth.saturating_add(1), black_point)
             }
+            // §8.6.6.4's `/All`, complemented for an additive device: a tint of 1.0 is every
+            // colourant at maximum, which on a monitor is black.
+            Self::AllColourants => {
+                let grey = 1.0 - channel(values.first().copied().unwrap_or(1.0));
+                Color::rgb(grey, grey, grey)
+            }
+            // §8.6.6.4's `/None`, which "shall have no effect on the current page". An alpha
+            // of zero is that effect exactly: §11.3.6's compositing formulae leave the
+            // backdrop untouched at zero alpha under every blend mode, so nothing downstream
+            // needs to know this colour is special.
+            Self::NoColourant { .. } => Color::TRANSPARENT,
             // A pattern has no colour of its own. Where it names an underlying space, an
             // uncoloured pattern's colour is in that; otherwise there is nothing to say.
             Self::Pattern { base } => base.as_ref().map_or(Color::BLACK, |base| {
@@ -850,6 +912,33 @@ fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> Color {
     // PDF's default white point for Lab is D50, which is already the connection space's,
     // so no adaptation stands between this and the matrix.
     xyz_d50_to_srgb([D50[0] * expand(l), D50[1] * expand(m), D50[2] * expand(n)])
+}
+
+/// Reads the colourant names of a `Separation` or `DeviceN` space.
+///
+/// ISO 32000-2 §8.6.6.4 gives a `Separation` one `name` object; §8.6.6.5 gives a `DeviceN`
+/// an array of them, whose length is also how many operands `scn` takes. The returned vector
+/// therefore keeps the array's *arity*: an entry that is not a name becomes empty rather than
+/// disappearing, so a malformed name cannot silently change the number of components.
+fn colourant_names(document: &Document, object: Option<&Object>, single: bool) -> Vec<Vec<u8>> {
+    let name_of = |item: &Object| {
+        document
+            .resolve(item)
+            .as_name()
+            .map(|name| name.as_bytes().to_vec())
+            .unwrap_or_default()
+    };
+    let Some(object) = object else {
+        return Vec::new();
+    };
+    if single {
+        return vec![name_of(object)];
+    }
+    document
+        .resolve(object)
+        .as_array()
+        .map(|items| items.iter().map(name_of).collect())
+        .unwrap_or_default()
 }
 
 /// Reads a fixed-length array of numbers from a colour space dictionary.
