@@ -273,6 +273,33 @@ impl Path {
         &self.commands
     }
 
+    /// Appends another path's commands, with every point mapped by `transform`.
+    ///
+    /// A path normally travels with a transform beside it on the command that references
+    /// it, which is cheaper and keeps the geometry shared. This exists for the two cases
+    /// where that is not expressive enough, and both are text (ISO 32000-2 §9.3.6): a glyph
+    /// outline has to reach *user* space before it can be stroked, because a line width is
+    /// stated in that space and a stroke's width is in its path's; and the clipping render
+    /// modes combine every glyph of a text object into one path, which cannot carry the
+    /// glyphs' several transforms.
+    ///
+    /// Baking a transform into the points is exact here rather than an approximation: an
+    /// affine map takes a cubic Bézier to the cubic Bézier through its mapped control
+    /// points, so no curve is flattened and no segment is added.
+    pub fn extend_transformed(&mut self, other: &Self, transform: Transform) {
+        self.commands.reserve(other.commands.len());
+        for command in &other.commands {
+            self.commands.push(match *command {
+                PathCommand::MoveTo(p) => PathCommand::MoveTo(transform.apply(p)),
+                PathCommand::LineTo(p) => PathCommand::LineTo(transform.apply(p)),
+                PathCommand::CurveTo(a, b, c) => {
+                    PathCommand::CurveTo(transform.apply(a), transform.apply(b), transform.apply(c))
+                }
+                PathCommand::Close => PathCommand::Close,
+            });
+        }
+    }
+
     /// Returns `true` if the path contains no commands.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -320,6 +347,54 @@ mod tests {
     fn determinant_detects_a_collapsing_transform() {
         assert_eq!(Transform::scale(3.0, 4.0).determinant(), 12.0);
         assert_eq!(Transform::scale(0.0, 4.0).determinant(), 0.0);
+    }
+
+    /// Every point of every command kind is mapped, and `Close` carries no point.
+    ///
+    /// The failure this pins is a partial transform — mapping a curve's endpoint and not
+    /// its control points, which draws a glyph that is *nearly* right and is exactly the
+    /// kind of defect no metric in this tree can see.
+    #[test]
+    fn extend_transformed_maps_every_point_of_every_command() {
+        use super::{Path, PathCommand};
+
+        let mut glyph = Path::new();
+        glyph.push(PathCommand::MoveTo(Point::new(1.0, 0.0)));
+        glyph.push(PathCommand::LineTo(Point::new(2.0, 0.0)));
+        glyph.push(PathCommand::CurveTo(
+            Point::new(3.0, 0.0),
+            Point::new(4.0, 0.0),
+            Point::new(5.0, 0.0),
+        ));
+        glyph.push(PathCommand::Close);
+
+        let mut combined = Path::new();
+        combined.extend_transformed(&glyph, Transform::scale(10.0, 1.0));
+        // A second glyph under a different transform: the case a single path plus a single
+        // transform cannot express, which is why this method exists.
+        combined.extend_transformed(&glyph, Transform::translate(100.0, 0.0));
+
+        assert_eq!(
+            combined.commands(),
+            [
+                PathCommand::MoveTo(Point::new(10.0, 0.0)),
+                PathCommand::LineTo(Point::new(20.0, 0.0)),
+                PathCommand::CurveTo(
+                    Point::new(30.0, 0.0),
+                    Point::new(40.0, 0.0),
+                    Point::new(50.0, 0.0)
+                ),
+                PathCommand::Close,
+                PathCommand::MoveTo(Point::new(101.0, 0.0)),
+                PathCommand::LineTo(Point::new(102.0, 0.0)),
+                PathCommand::CurveTo(
+                    Point::new(103.0, 0.0),
+                    Point::new(104.0, 0.0),
+                    Point::new(105.0, 0.0)
+                ),
+                PathCommand::Close,
+            ]
+        );
     }
 
     #[test]

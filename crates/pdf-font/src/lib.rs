@@ -550,6 +550,26 @@ impl LoadedFont {
         }
     }
 
+    /// Whether this font's codes are one byte each, which decides word spacing.
+    ///
+    /// ISO 32000-2 §9.3.3 makes the distinction and states it as a rule about the *code's
+    /// encoded length* rather than about its value:
+    ///
+    /// > Word spacing shall be applied to every occurrence of the single-byte character code
+    /// > 32 in a string when using a simple font (including Type 3) or a composite font that
+    /// > defines code 32 as a single-byte code. It shall not apply to occurrences of the byte
+    /// > value 32 in multiple-byte codes.
+    ///
+    /// So an `Identity-H` string containing the two bytes `00 20` selects code 32 and takes
+    /// no word spacing, while a simple font's single byte `20` does. Answering it per *font*
+    /// is exact for every mapping this crate builds, because each is wholly one-byte or
+    /// wholly two-byte; a general `CMap` may mix code lengths, and when embedded `CMap`
+    /// streams land this has to become a property of the code rather than of the font.
+    #[must_use]
+    pub fn has_single_byte_codes(&self) -> bool {
+        matches!(self.mapping, CodeMapping::Named(_))
+    }
+
     /// Returns a code's advance width in text-space units, where one em is 1.0.
     #[must_use]
     pub fn advance(&self, code: u32) -> f32 {

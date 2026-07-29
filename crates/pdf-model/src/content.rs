@@ -271,12 +271,59 @@ impl Font {
             Self::Type3(font) => font.text(code, out),
         }
     }
+
+    /// Whether ISO 32000-2 §9.3.3's word spacing applies to this code.
+    ///
+    /// The clause makes it a rule about the code's *encoded length*, not its value: word
+    /// spacing applies to "every occurrence of the single-byte character code 32 … when
+    /// using a simple font (including Type 3) or a composite font that defines code 32 as a
+    /// single-byte code", and "shall not apply to occurrences of the byte value 32 in
+    /// multiple-byte codes". A Type 3 font is always single-byte (Table 110 gives it
+    /// `/FirstChar` and `/LastChar`), so the question only reaches the font for the other
+    /// kind.
+    fn takes_word_spacing(&self, code: u32) -> bool {
+        code == 32
+            && match self {
+                Self::Program(font) => font.has_single_byte_codes(),
+                Self::Type3(_) => true,
+            }
+    }
+}
+
+/// What a text object owns, as against what the graphics state does.
+///
+/// ISO 32000-2 §9.4.1 draws the line:
+///
+/// > In addition, three parameters may be specified only within a text object and shall not
+/// > persist from one text object to the next
+///
+/// Two of the three are fields here. The third, `Trm`, "is actually just an intermediate
+/// result" and is recomputed for each glyph in [`Interpreter::show_text`] rather than
+/// stored. The accumulated clipping path joins them because it has exactly the same scope —
+/// §9.3.6 starts it at `BT` and consumes it at `ET` — and because keeping it out of
+/// [`GraphicsState`] is what stops `q`/`Q` from saving and restoring something the
+/// specification never puts in the graphics state.
+///
+/// A `BT` resets the whole struct, which is Table 105's requirement for the two matrices
+/// and §9.3.6's for the third field, in one line that cannot get one of them wrong.
+#[derive(Debug, Default)]
+struct TextObject {
+    /// `Tm`, the text matrix.
+    matrix: Transform,
+    /// `Tlm`, the text line matrix: `Tm` as it was at the start of the current line.
+    line: Transform,
+    /// Glyph outlines accumulated by rendering modes 4 to 7, already in page space.
+    ///
+    /// Empty means no clipping mode has shown a glyph with an outline, which §9.3.6 makes a
+    /// meaningful state of its own rather than an empty clip — see
+    /// [`Interpreter::end_text_object`].
+    clip: Path,
 }
 
 /// The text-related part of the graphics state.
 ///
-/// Separate from the text *object* state (`Tm` and `Tlm`), which the specification resets
-/// at every `BT` and which therefore does not survive `q`/`Q`.
+/// Separate from [`TextObject`], which the specification resets at every `BT` and which
+/// therefore does not survive `q`/`Q`.
 #[derive(Debug, Clone)]
 struct TextState {
     /// The resource name of the current font, and the font itself once loaded.
@@ -608,9 +655,8 @@ impl Interpreter<'_> {
         let mut current = Point::new(0.0, 0.0);
         let mut pending_clip: Option<FillRule> = None;
         let mut in_text = false;
-        // The text object's own matrices, which `BT` resets and `q`/`Q` do not touch.
-        let mut text_matrix = Transform::IDENTITY;
-        let mut line_matrix = Transform::IDENTITY;
+        // The text object's own parameters, which `BT` resets and `q`/`Q` do not touch.
+        let mut text_object = TextObject::default();
         // One entry per open marked-content section, saying whether it hid what follows.
         // Every `BMC` and `BDC` pushes, so an `EMC` closes the section it actually belongs
         // to rather than the last optional one — which is why this is not just a counter.
@@ -868,11 +914,16 @@ impl Interpreter<'_> {
                 // --- text ---
                 b"BT" => {
                     in_text = true;
-                    // Both matrices reset at the start of every text object.
-                    text_matrix = Transform::IDENTITY;
-                    line_matrix = Transform::IDENTITY;
+                    // Table 105: `BT` initialises both matrices. Resetting the whole
+                    // structure also discards any glyph outlines a malformed stream left
+                    // unconsumed by an `ET`, which is the only state a second `BT` could
+                    // otherwise carry into the text object it starts.
+                    text_object = TextObject::default();
                 }
-                b"ET" => in_text = false,
+                b"ET" => {
+                    in_text = false;
+                    self.end_text_object(&mut text_object, &mut state);
+                }
                 b"Tf" => {
                     if let Some(name) = name_at(&operands, 0) {
                         state.text.font = self.font(resources, &name);
@@ -908,36 +959,48 @@ impl Interpreter<'_> {
                 }
                 b"Tr" => {
                     if let Some(mode) = integer_at(&operands, 0) {
-                        state.text.render_mode = mode;
+                        // Table 104 defines eight modes and no default for anything else.
+                        // Silently keeping an out-of-range value would draw nothing at all,
+                        // since none of the three operations would match it — a whole text
+                        // object missing, with no report. The mode is left as it was and the
+                        // operand is named instead.
+                        if (0..=7).contains(&mode) {
+                            state.text.render_mode = mode;
+                        } else {
+                            self.note(Unsupported::Operator {
+                                operator: format!("Tr with mode {mode}"),
+                            });
+                        }
                     }
                 }
                 b"Td" => {
                     if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
-                        line_matrix = Transform::translate(x, y).then(line_matrix);
-                        text_matrix = line_matrix;
+                        text_object.line = Transform::translate(x, y).then(text_object.line);
+                        text_object.matrix = text_object.line;
                     }
                 }
                 b"TD" => {
                     if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
                         // `TD` is `Td` with the side effect of setting the leading.
                         state.text.leading = -y;
-                        line_matrix = Transform::translate(x, y).then(line_matrix);
-                        text_matrix = line_matrix;
+                        text_object.line = Transform::translate(x, y).then(text_object.line);
+                        text_object.matrix = text_object.line;
                     }
                 }
                 b"Tm" => {
                     if let Some(matrix) = matrix_from(&operands) {
-                        line_matrix = matrix;
-                        text_matrix = matrix;
+                        text_object.line = matrix;
+                        text_object.matrix = matrix;
                     }
                 }
                 b"T*" => {
-                    line_matrix = Transform::translate(0.0, -state.text.leading).then(line_matrix);
-                    text_matrix = line_matrix;
+                    text_object.line =
+                        Transform::translate(0.0, -state.text.leading).then(text_object.line);
+                    text_object.matrix = text_object.line;
                 }
                 b"Tj" => {
                     if let Some(bytes) = string_at(&operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_matrix, resources, form_depth);
+                        self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
                     }
                 }
                 b"TJ" => {
@@ -950,7 +1013,7 @@ impl Interpreter<'_> {
                                 self.show_text(
                                     bytes,
                                     &state,
-                                    &mut text_matrix,
+                                    &mut text_object,
                                     resources,
                                     form_depth,
                                 );
@@ -963,18 +1026,19 @@ impl Interpreter<'_> {
                                     let shift = -narrow(adjust) / 1000.0
                                         * state.text.size
                                         * state.text.horizontal_scale;
-                                    text_matrix =
-                                        Transform::translate(shift, 0.0).then(text_matrix);
+                                    text_object.matrix =
+                                        Transform::translate(shift, 0.0).then(text_object.matrix);
                                 }
                             }
                         }
                     }
                 }
                 b"'" => {
-                    line_matrix = Transform::translate(0.0, -state.text.leading).then(line_matrix);
-                    text_matrix = line_matrix;
+                    text_object.line =
+                        Transform::translate(0.0, -state.text.leading).then(text_object.line);
+                    text_object.matrix = text_object.line;
                     if let Some(bytes) = string_at(&operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_matrix, resources, form_depth);
+                        self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
                     }
                 }
                 b"\"" => {
@@ -985,10 +1049,11 @@ impl Interpreter<'_> {
                     if let Some(character) = number_at(&operands, 1) {
                         state.text.char_spacing = character;
                     }
-                    line_matrix = Transform::translate(0.0, -state.text.leading).then(line_matrix);
-                    text_matrix = line_matrix;
+                    text_object.line =
+                        Transform::translate(0.0, -state.text.leading).then(text_object.line);
+                    text_object.matrix = text_object.line;
                     if let Some(bytes) = string_at(&operands, 2) {
-                        self.show_text(&bytes, &state, &mut text_matrix, resources, form_depth);
+                        self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
                     }
                 }
 
@@ -1097,10 +1162,10 @@ impl Interpreter<'_> {
                         // be painted with the current colour". A description that strokes is
                         // therefore describing part of the same region, not asking for the
                         // stroking colour, so the two colour parameters become one here.
-                        // Which one is the text rendering mode's business (§9.3.6): mode 0
-                        // fills, and a mode that strokes is reported as approximated in
-                        // `show_text`, which is where this becomes a choice rather than the
-                        // only answer.
+                        // Which of the two operations runs is the text rendering mode's
+                        // business (§9.3.6) and is decided in `show_text`; making them the
+                        // same colour is what stops that decision from changing the colour
+                        // of an uncoloured glyph, which Table 111 does not allow it to.
                         state.stroke_colour = state.fill;
                         state.stroke_pattern = state.fill_pattern.clone();
                         state.stroke_alpha = state.fill_alpha;
@@ -1118,6 +1183,9 @@ impl Interpreter<'_> {
         }
 
         // An unclosed `BT` is malformed but harmless here; noted so it is not invisible.
+        // Any glyph outlines a clipping render mode accumulated are discarded with it —
+        // §9.3.6 makes `ET` the moment they become a clip, and a text object that never
+        // ended never reached it.
         if in_text {
             self.note(Unsupported::Operator {
                 operator: "BT without ET".to_owned(),
@@ -1794,11 +1862,19 @@ impl Interpreter<'_> {
     ///
     /// Getting the order wrong produces text that is present but misplaced, which looks
     /// like a font bug and is really an arithmetic one.
+    ///
+    /// # The rendering mode
+    ///
+    /// §9.3.6 Table 104's eight modes are three independent operations — fill, stroke, add
+    /// to the clipping path — rather than eight cases, and they are read that way below.
+    /// The clause makes each behave as it would for a path: "Stroking, filling, and clipping
+    /// shall have the same effects for a text object as they do for a path object … although
+    /// they are specified in an entirely different way."
     fn show_text(
         &mut self,
         bytes: &[u8],
         state: &GraphicsState,
-        text_matrix: &mut Transform,
+        text: &mut TextObject,
         resources: &Dictionary,
         form_depth: usize,
     ) {
@@ -1811,21 +1887,23 @@ impl Interpreter<'_> {
             return;
         };
 
-        // Mode 3 is invisible text, and mode 7 adds to the clip without painting. Both are
-        // used for the OCR layer under a scanned image, where drawing them would be wrong.
-        // Mode 3 and mode 7 paint nothing, and so does text inside a hidden layer — but only
-        // the painting stops. Everything below still runs: the text matrix advances, the
-        // extracted text accumulates, and the state at `ET` is the same as if the layer were
-        // on. §8.11.3.1 requires exactly that, naming the text position specifically.
-        let invisible = matches!(state.text.render_mode, 3 | 7) || self.is_hidden();
-        // Modes 4 to 7 also add the glyphs to the clipping path, which takes effect at `ET`
-        // and lasts until the graphics state is restored — ISO 32000-2 §9.3.6 Table 106 and
-        // §9.4.1. We do not build that clip, so anything painted afterwards in the
-        // expectation of being cut to the glyph shapes covers its whole area instead.
-        // `text_clip_cff_cid.pdf` shows what that costs: a rectangle meant to be seen only
-        // through the word "ABC123" is drawn as a solid blue bar. Reported rather than
-        // silently mis-drawn, per the rule that unsupported input stays loud.
-        let clipping = matches!(state.text.render_mode, 4..=7);
+        // The three operations of Table 104. Mode 3 does none of them and mode 7 only the
+        // last, which is what an OCR layer under a scanned image uses; either way the text
+        // matrix still advances and the extracted text still accumulates, because §9.3.6
+        // requires it — "The e and f components of Tm shall be updated for each glyph drawn
+        // when using text rendering mode 3 or 7 in exactly the same way as would be done for
+        // other text rendering modes."
+        //
+        // A hidden optional-content layer suppresses the two that mark the page and *not*
+        // the clip: §8.11.3.1 lists clipping among the "graphics state operations" that
+        // "shall still be applied", and requires that "graphics state parameters that
+        // persist past the end of a marked-content section shall be the same whether the
+        // optional content is visible or not". The clip a text object leaves behind is one
+        // of those, since it outlives the `ET` that built it.
+        let mode = state.text.render_mode;
+        let fills = matches!(mode, 0 | 2 | 4 | 6) && !self.is_hidden();
+        let strokes = matches!(mode, 1 | 2 | 5 | 6) && !self.is_hidden();
+        let clipping = matches!(mode, 4..=7);
         let size = state.text.size;
         let scale = state.text.horizontal_scale;
 
@@ -1835,11 +1913,15 @@ impl Interpreter<'_> {
         // of. A fixed fraction of the font size cannot work: a title set with loose
         // tracking moves each glyph further than a body-text space, and judging it by size
         // alone spells "Clarification" as "Clar if ic at ion".
+        //
+        // Taken from the magnitude of the size because §9.3.1's NOTE says "Negative text
+        // font size is permitted", and a negative threshold is below every gap there is —
+        // which would have put a space between every pair of glyphs in the extracted text.
         let space_em = font.advance(32);
         let word_gap = if space_em > 0.0 {
-            space_em * size * 0.6
+            space_em * size.abs() * 0.6
         } else {
-            size * 0.25
+            size.abs() * 0.25
         };
 
         for code in font.decode(bytes) {
@@ -1853,10 +1935,10 @@ impl Interpreter<'_> {
             // pass. `pdftotext` does do that analysis, which is why the comparison
             // normalises whitespace away.
             // The text-space origin under the matrix is simply its translation.
-            let here = (text_matrix.e, text_matrix.f);
+            let here = (text.matrix.e, text.matrix.f);
             if let Some((last_x, last_y)) = self.text_cursor {
                 let gap = here.0 - last_x;
-                if (here.1 - last_y).abs() > size * 0.5 {
+                if (here.1 - last_y).abs() > size.abs() * 0.5 {
                     self.text.push('\n');
                 } else if gap > word_gap {
                     self.text.push(' ');
@@ -1864,58 +1946,154 @@ impl Interpreter<'_> {
             }
             font.text(code, &mut self.text);
 
-            if !invisible && size != 0.0 {
+            if (fills || strokes || clipping) && size != 0.0 {
                 // Glyph space to text space: scale by the font size, apply horizontal
                 // scaling and rise, then the text matrix and the current transform. §9.4.4
                 // calls this the text rendering matrix, and both kinds of glyph are placed
                 // by it — the difference is only what is placed.
                 let glyph_to_text =
                     Transform::new(size * scale, 0.0, 0.0, size, 0.0, state.text.rise);
-                let transform = glyph_to_text.then(*text_matrix).then(state.transform);
+                let glyph_to_user = glyph_to_text.then(text.matrix);
+                let transform = glyph_to_user.then(state.transform);
 
                 match &font {
                     Font::Program(program) => {
                         if let Some(outline) = program.outline(code) {
-                            self.list.push(Command::Fill {
-                                // The font hands out shared outlines and the display list
-                                // keeps them shared: a page of text is the same few dozen
-                                // glyphs over and over, so this is a refcount rather than a
-                                // copy of the segments.
-                                path: Arc::clone(&outline),
-                                transform,
-                                // Glyph outlines are non-zero filled; even-odd would hollow
-                                // out counters that overlap, such as in a bold 'B'.
-                                fill_rule: FillRule::NonZero,
-                                // Mode 1 strokes rather than fills; approximated as a fill,
-                                // which is closer than drawing nothing, and noted so it is
-                                // not silent.
-                                paint: state.fill_paint(),
-                                clip: state.clip,
-                                blend: state.blend,
-                            });
+                            if fills {
+                                self.list.push(Command::Fill {
+                                    // The font hands out shared outlines and the display
+                                    // list keeps them shared: a page of text is the same few
+                                    // dozen glyphs over and over, so this is a refcount
+                                    // rather than a copy of the segments.
+                                    path: Arc::clone(&outline),
+                                    transform,
+                                    // Glyph outlines are non-zero filled; even-odd would
+                                    // hollow out counters that overlap, such as in a bold
+                                    // 'B'.
+                                    fill_rule: FillRule::NonZero,
+                                    paint: state.fill_paint(),
+                                    clip: state.clip,
+                                    blend: state.blend,
+                                });
+                            }
+                            if strokes {
+                                self.stroke_glyph(&outline, glyph_to_user, state);
+                            }
+                            if clipping {
+                                // §9.3.6 wants "a single path, treating the individual
+                                // outlines as subpaths of that path", and the glyphs of one
+                                // text object have as many transforms as there are glyphs —
+                                // so the transform is baked in here and the clip carries
+                                // none. Note that a hidden layer still reaches this line.
+                                text.clip.extend_transformed(&outline, transform);
+                            }
                         }
                     }
                     Font::Type3(type3) => {
-                        self.draw_type3_glyph(type3, code, state, transform, resources, form_depth);
+                        // §9.3.6 on a Type 3 font: the glyph description is run for every
+                        // mode but 3 and 7 — which is exactly `fills || strokes`, since the
+                        // description does its own painting and the mode's choice between
+                        // filling and stroking has nothing to apply to — and "If text
+                        // rendering mode is set to a value of 4, 5, 6 or 7, nothing shall be
+                        // added to the clipping path."
+                        if fills || strokes {
+                            self.draw_type3_glyph(
+                                type3, code, state, transform, resources, form_depth,
+                            );
+                        }
                     }
                 }
             }
 
-            // Word spacing applies only to the single-byte code 32.
-            let word = if code == 32 {
+            // Word spacing applies only to the single-byte code 32 (§9.3.3).
+            let word = if font.takes_word_spacing(code) {
                 state.text.word_spacing
             } else {
                 0.0
             };
             let shift = (advance_em * size + state.text.char_spacing + word) * scale;
-            *text_matrix = Transform::translate(shift, 0.0).then(*text_matrix);
-            self.text_cursor = Some((text_matrix.e, text_matrix.f));
+            text.matrix = Transform::translate(shift, 0.0).then(text.matrix);
+            self.text_cursor = Some((text.matrix.e, text.matrix.f));
         }
+    }
 
-        if (clipping || matches!(state.text.render_mode, 1 | 2)) && !self.is_hidden() {
-            self.note(Unsupported::Operator {
-                operator: format!("text render mode {}", state.text.render_mode),
-            });
+    /// Strokes one glyph outline, ISO 32000-2 §9.3.6 rendering modes 1, 2, 5 and 6.
+    ///
+    /// `glyph_to_user` maps the outline from glyph space to the *user* space in effect,
+    /// which is the whole reason this is not two lines beside the fill. The clause puts the
+    /// stroke's parameters in that space:
+    ///
+    /// > The graphics state parameters affecting those operations, such as line width, shall
+    /// > be interpreted in user space rather than in text space.
+    ///
+    /// A [`Command::Stroke`]'s width and dash lengths are in its path's own space, so
+    /// leaving the outline in em units would have divided the width by the font size and
+    /// stretched it by the horizontal scaling — an 11-point glyph would have been outlined
+    /// about eleven times too thickly, and a horizontally scaled one anisotropically. Moving
+    /// the geometry instead is exact for any text matrix, including one that shears; the
+    /// cost is a copy of the outline per stroked glyph, which is paid only by the modes that
+    /// stroke and never on the ordinary fill path.
+    fn stroke_glyph(
+        &mut self,
+        outline: &Arc<Path>,
+        glyph_to_user: Transform,
+        state: &GraphicsState,
+    ) {
+        let mut in_user_space = Path::new();
+        in_user_space.extend_transformed(outline, glyph_to_user);
+        self.list.push(Command::Stroke {
+            path: Arc::new(in_user_space),
+            transform: state.transform,
+            stroke: state.stroke.clone(),
+            paint: state.stroke_paint(),
+            clip: state.clip,
+            blend: state.blend,
+        });
+    }
+
+    /// Turns the glyph outlines a text object accumulated into a clip, at its `ET`.
+    ///
+    /// ISO 32000-2 §9.3.6:
+    ///
+    /// > At the end of the text object identified by the ET operator the accumulated glyph
+    /// > outlines, if any, shall be combined into a single path, treating the individual
+    /// > outlines as subpaths of that path and applying the non-zero winding number rule
+    /// > (see 8.5.3.3.2, "Non-zero winding number rule"). The current clipping path in the
+    /// > graphics state shall be set to the intersection of this path with the previous
+    /// > clipping path.
+    ///
+    /// Intersection is what the display list's `parent` chain already means, so the new clip
+    /// is a child of the one in effect. It is set on the live graphics state rather than on a
+    /// saved copy because the clause continues: "It remains in effect until a previous
+    /// clipping path is restored by an invocation of the Q operator" — so it outlives the
+    /// text object, and `Q` is the only thing that ends it.
+    ///
+    /// # An empty accumulator is not an empty clip
+    ///
+    /// > If no glyphs are shown or if the only glyphs shown have no outlines (for example,
+    /// > if they are ASCII SPACE characters (20h)), no clipping shall occur.
+    ///
+    /// Clipping to an empty path would hide everything drawn after the text object, which is
+    /// the opposite of what the clause says and would be invisible to every metric this tree
+    /// owns except pixels somebody else produced. A text object in mode 7 showing one space
+    /// is not a hypothetical: it is what a producer emits when a line of OCR text happens to
+    /// be blank.
+    fn end_text_object(&mut self, text: &mut TextObject, state: &mut GraphicsState) {
+        let path = std::mem::take(&mut text.clip);
+        if path.is_empty() {
+            return;
+        }
+        let clip = Clip {
+            path,
+            // The outlines were mapped into page space as they were collected, because one
+            // path cannot carry one transform per glyph.
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            parent: state.clip,
+        };
+        match self.list.add_clip(clip) {
+            Ok(id) => state.clip = Some(id),
+            Err(_) => self.note(Unsupported::LimitReached { limit: "max_clips" }),
         }
     }
 

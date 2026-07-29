@@ -1529,67 +1529,105 @@ note = "Horizontal writing is implemented, including the clause's one exception:
 [[clause]]
 clause = "9.3"
 title = "Text state parameters and operators"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs", "crates/pdf-model/tests/text_render_modes.rs"]
+note = "Reviewed as a family in the thirteenth session. Eight of Table 102's nine text state parameters are implemented and tested one clause at a time; the ninth, text knockout, is §9.3.8 and is this tree's third `silent` row. All seven of Table 103's operators are executed, and the clause's rule that they \"may appear outside text objects, and the values they set are retained across text objects in a single content stream\" falls out of their living in the graphics state rather than in the text object."
 
 [[clause]]
 clause = "9.3.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs::zero_sized_text_neither_marks_nor_clips", "crates/pdf-model/tests/text_state.rs::a_negative_font_size_draws_and_reads_normally"]
+note = "Table 103's seven operators — Tc, Tw, Tz, TL, Tf, Tr, Ts — are all executed with the initial values the table states, and they sit in the graphics state so that q/Q saves them and a page starts from the defaults. Two sentences here are load-bearing and tested: \"Zero sized text shall not mark or clip any pixels (depending on text render mode)\", which is a guard on both the marking and the clipping path rather than only the first; and the NOTE that \"Negative text font size is permitted\", which draws a flipped glyph advancing leftwards. Partial only because of Tk, whose absence is §9.3.8."
 
 [[clause]]
 clause = "9.3.2"
 title = "Character spacing"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs::horizontal_scaling_reaches_the_character_spacing_too"]
+note = "Tc is added to each glyph's horizontal displacement and is then scaled by Th, which the clause requires — it is \"specified in unscaled text space units (although it shall be subject to scaling by the Th parameter if the writing mode is horizontal)\". The vertical branch does not exist because no writing mode 1 does; see §9.2.4."
 
 [[clause]]
 clause = "9.3.3"
 title = "Word spacing"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/text_state.rs::word_spacing_moves_the_glyph_after_a_simple_fonts_space", "crates/pdf-model/tests/text_state.rs::word_spacing_does_not_reach_a_two_byte_code_32"]
+note = "Corrected by this review. The clause states the rule about the code's *encoding*, not its value — word spacing applies to \"every occurrence of the single-byte character code 32 … when using a simple font (including Type 3) or a composite font that defines code 32 as a single-byte code\" and \"shall not apply to occurrences of the byte value 32 in multiple-byte codes\" — and this tree applied it to any code numerically equal to 32, so an Identity-H string containing 00 20 was pushed right by Tw for every one. `LoadedFont::has_single_byte_codes` answers it per font, which is exact for every mapping this crate builds because each is wholly one-byte or wholly two-byte; a general CMap may mix lengths, and when embedded CMap streams land it has to become a property of the code."
 
 [[clause]]
 clause = "9.3.4"
 title = "Horizontal scaling"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs::horizontal_scaling_reaches_the_character_spacing_too", "crates/pdf-model/tests/text_state.rs::horizontal_scaling_reaches_a_tj_adjustment"]
+note = "Th is a factor rather than the percentage the operator takes, and it reaches all four things the clause lists: the glyph's shape, its horizontal displacement, the spacing parameters Tc and Tw, and \"any positioning adjustments performed by the TJ operator\". The last three are the ones a plausible implementation misses, which is why each has a test."
 
 [[clause]]
 clause = "9.3.5"
 title = "Leading"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs::leading_moves_the_next_line_downwards"]
+note = "Tl is used by exactly the four operators Table 103 names — TD, T*, ' and \" — and by nothing else. TD sets it to the negation of its second operand and T* moves by its negation, which is the sign the clause explains in Table 106: leading is \"expressed as a positive number\" and going to the next line decreases y."
 
 [[clause]]
 clause = "9.3.6"
 title = "Text rendering mode"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_render_modes.rs", "crates/pdf-model/tests/render_real_pdf.rs::a_real_documents_text_clip_reaches_what_it_paints_afterwards"]
+note = "All eight of Table 104's modes, thirteenth session, ADR 0022. The three operations are independent: a fill in the non-stroking colour, a stroke in the stroking colour whose parameters are read \"in user space rather than in text space\" — so the outline is moved into user space rather than the width divided by the font size — and an accumulation of outlines that becomes one non-zero-filled clip at ET and lasts until Q. Four of the clause's own exceptions are implemented and tested rather than inferred: an accumulator holding no outlines sets no clip at all (\"If no glyphs are shown or if the only glyphs shown have no outlines … no clipping shall occur\"); modes 2 and 6 fill and stroke glyph by glyph, giving \"the appearance of stacked opaque glyphs\"; a Type 3 glyph is rendered for every mode but 3 and 7 and adds nothing to the clipping path; and modes 3 and 7 still advance Tm. A hidden optional-content layer suppresses the marking and not the clip, because §8.11.3.1 puts clipping among the graphics state operations that \"shall still be applied\". A Tr operand outside 0..7 is reported and ignored rather than silently blanking the text object."
 
 [[clause]]
 clause = "9.3.7"
 title = "Text rise"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs::text_rise_is_not_scaled_by_the_font_size"]
+note = "Trise is the f component of the glyph-space-to-text-space matrix, so it moves the baseline in unscaled text space units — not multiplied by the font size, which is the reading that would make a superscript's height depend on the point size. It applies to the vertical coordinate regardless of writing mode, which is trivially true here because only mode 0 exists."
 
 [[clause]]
 clause = "9.3.8"
 title = "Text knockout"
-status = "unreviewed"
+status = "silent"
+code = ["crates/pdf-model/src/content.rs"]
+note = "Not implemented and not reported — this tree's third `silent` row, alongside §11.4.6 and §8.11.4.4, and it is a corner of the first. Tk has no operator; it arrives only as /TK in an /ExtGState, and `apply_ext_gstate` does not look for the key. Its initial value is true, which the clause defines as treating the whole text object \"as if it were a non-isolated knockout transparency group\" so that a later glyph overwrites an earlier one where they overlap. We composite each glyph normally, which is indistinguishable while glyphs are opaque and wrong for overlapping glyphs under a constant alpha or a non-Normal blend mode. Reporting it costs one key lookup and is the cheaper half; implementing it belongs with knockout groups."
 
 [[clause]]
 clause = "9.4"
 title = "Text objects"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs", "crates/pdf-model/tests/text_render_modes.rs"]
+note = "Reviewed as a family in the thirteenth session. BT and ET, all four positioning operators and all four showing operators are implemented; §9.4.4 stays partial because the vertical branch of the displacement formula has no writing mode 1 to reach it. The clause's constraints on a *writer* — that text objects shall not be nested, that the showing operators shall only appear within one, and that q…Q must nest separately from BT…ET — are recovered from rather than enforced, which is what a reader owes a malformed file."
 
 [[clause]]
 clause = "9.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_render_modes.rs::a_text_clip_survives_et_and_ends_at_q"]
+note = "The three parameters the clause says \"may be specified only within a text object and shall not persist from one text object to the next\" are the `TextObject` struct, so BT resets all of them in one line and q/Q cannot save them: Tm and Tlm are fields, and Trm \"is actually just an intermediate result\" recomputed per glyph. Table 105's BT initialises both matrices to the identity. A second BT before an ET is malformed; it restarts the text object, and an ET that never arrives is reported."
 
 [[clause]]
 clause = "9.4.2"
 title = "Text-positioning operators"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs::leading_moves_the_next_line_downwards"]
+note = "All four of Table 106: Td translates Tlm and copies it to Tm, TD does the same after setting the leading to the negation of ty, Tm replaces both rather than concatenating onto either, and T* is 0 -Tl TD. Tlm is tracked separately from Tm, which is what makes a run of Td or T* operators land on evenly spaced lines rather than accumulating the showing operators' advances."
 
 [[clause]]
 clause = "9.4.3"
 title = "Text-showing operators"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_state.rs::horizontal_scaling_reaches_a_tj_adjustment", "crates/pdf-model/tests/text_extraction.rs"]
+note = "All four of Table 107. TJ's numeric elements are subtracted in thousandths of a unit of text space and scaled by Tfs and Th; ' is T* then Tj; \" sets Tw and Tc first. The clause's \"Showing multiple glyphs with one invocation … shall produce the same results as showing them with a separate invocation for each\" holds because nothing here is per-string except the decoding into codes. A string is split into codes by the font — one byte for a simple font, two for the composite encodings this tree reads — which is §9.6.5 and §9.7 rather than this clause."
 
 [[clause]]
 clause = "9.4.4"

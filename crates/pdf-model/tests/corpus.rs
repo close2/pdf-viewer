@@ -76,18 +76,24 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 263, and *not* a defect count — it is the honest-reporting requirement working. The
-/// breakdown, by each document's first report, which is the useful part:
+/// 235, and *not* a defect count — it is the honest-reporting requirement working. The
+/// breakdown, by each document's first report, which is the useful part, and recomputed in
+/// the thirteenth session because a number nothing recomputes is a number that drifts —
+/// this table had said 263 while the ratchet below said 251:
 ///
 /// | reported | count | why |
 /// |---|---|---|
 /// | `Text` | 100 | CID encodings and embedded `CMap`s |
 /// | `Annotation` | 66 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
-/// | `Operator` | 31 | transparency groups, and text render modes |
+/// | `Operator` | 15 | malformed streams, mostly; the text rendering modes have left this row |
 /// | `Image` | 18 | see below; inline images and CCITT have left this row |
 /// | `Shading` | 28 | soft masks in `/ExtGState`, which is transparency rather than shading |
 /// | `Content` | 7 | a `/Contents` stream that did not decode |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
+///
+/// The `Operator` row was 33 before §9.3.6's rendering modes were implemented. What remains
+/// is `BT` without `ET`, `BDC` without `EMC`, and the byte soup a fuzzed content stream
+/// lexes as operator names — nothing on it is a feature anybody could implement.
 ///
 /// The `Image` row was 161 before JBIG2 and JPEG 2000 landed, 42 after, 30 once inline images
 /// (§8.9.7) drew and `Indexed`, `Separation` and `DeviceN` images unpacked, and is 18 now that
@@ -106,10 +112,12 @@ const MAX_PAGELESS: usize = 19;
 /// from a sparse one. The tenth is `bomb_giant.pdf`, refusing a decompression bomb.
 ///
 /// Five, when text render modes 4 to 7 started reporting. Those modes add the glyphs to
-/// the clipping path (ISO 32000-2 §9.3.6), which we do not build, so a rectangle painted
-/// afterwards to be seen only through the letters covers its whole area instead. The
+/// the clipping path (ISO 32000-2 §9.3.6), which we did not build, so a rectangle painted
+/// afterwards to be seen only through the letters covered its whole area instead. The
 /// reference-oracle gate found two of these drawing a solid bar over the text while
-/// claiming to be complete; see `oracle.rs`.
+/// claiming to be complete; see `oracle.rs`. **All eight modes are implemented as of the
+/// thirteenth session**, and the report is gone — which is what a rise is supposed to end
+/// in, and the reason a rise is not a regression.
 ///
 /// Five more, when an image's `/Mask` started reporting. An explicit mask or a colour-key
 /// range makes part of an image transparent (§8.9.6.3 and §8.9.6.4) and neither is applied,
@@ -204,7 +212,25 @@ const MAX_PAGELESS: usize = 19;
 /// it. What CCITT uncovered is not a *report*, it is a picture: `bug1001080.pdf` is now
 /// contradicted by the oracle for a reason that has nothing to do with the filter, and
 /// `oracle.rs`'s `CONTRADICTED_IMAGE_RESAMPLING` has it.
-const MAX_INCOMPLETE: usize = 251;
+///
+/// **251 to 235 in the thirteenth session**, and the arithmetic is again simple: §9.3.6's
+/// eight text rendering modes are all implemented, so the report that stood in for four of
+/// them is gone from 18 documents — 16 of which report nothing else and became complete. The
+/// `Operator` row falls from 33 to 15 and what is left on it is malformed streams rather
+/// than anything unimplemented. Nothing came back, and nothing newly appeared: no corpus
+/// document names a `Tr` operand outside Table 104's eight.
+///
+/// One of the 16 is worth knowing about, because it is a picture rather than a count.
+/// `recursiveCompositGlyf.pdf` shows "hello world" in mode 7 and then paints the page red,
+/// expecting to see it through the letters — and its font is a deliberately malformed
+/// TrueType whose composite glyph refers to itself. `skrifa` produces no outline for it, so
+/// §9.3.6's "if the only glyphs shown have no outlines … no clipping shall occur" applies
+/// and the page comes out solidly red. So do poppler's and `hayro`'s; `mupdf` refuses the
+/// font and draws nothing; only `ghostscript`, with its own TrueType interpreter, recovers
+/// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
+/// and it is the visible face of a gap this project already knows about: a font reports as a
+/// whole, so a glyph that fails to load draws nothing and says nothing.
+const MAX_INCOMPLETE: usize = 235;
 
 /// How long one document may take before it counts as a failure.
 ///

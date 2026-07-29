@@ -205,29 +205,41 @@ fn every_specification_pdf_interprets() {
     }
 }
 
-/// Text that adds itself to the clipping path must be reported, because we do not clip.
+/// A real document's clipping text object cuts what follows it to the glyph shapes.
 ///
-/// ISO 32000-2 §9.3.6 Table 106 gives modes 4 to 7 as "fill/stroke/... and add to path for
-/// clipping", and §9.4.1 says that path takes effect at `ET` and lasts until the graphics
-/// state is restored. We build no such clip, so whatever is painted afterwards in the
-/// expectation of being cut to the glyph shapes covers its whole area instead.
+/// ISO 32000-2 §9.3.6 Table 104 gives modes 4 to 7 as "…and add to path for clipping", and
+/// the clause makes that path take effect at `ET` and last until `Q`. `text_clip_cff_cid.pdf`
+/// is the corpus's own witness: it shows "ABC123" in mode 7 and then paints a rectangle over
+/// the whole area, expecting to see it only through the letters. Until the thirteenth session
+/// we built no clip, drew a solid blue bar, and said `unsupported: []` — the oracle found it
+/// and no metric this tree owns could have.
 ///
-/// The cost is not subtle, which is why this is reported rather than left to look right by
-/// luck: on `text_clip_cff_cid.pdf` the reference renderers show the word "ABC123" and we
-/// drew a solid blue bar over it — with `unsupported: []`. The reference-oracle gate found
-/// it; no metric we own could have.
-///
-/// Implementing the clip should make this test fail, and that is the right moment to
-/// revisit it.
+/// `tests/text_render_modes.rs` pins each of the clause's rules on a fixture; this pins that
+/// they reach a document written by somebody else, where the glyphs come from an embedded
+/// CID-keyed CFF font rather than from a substitute.
 #[test]
-fn text_that_adds_to_the_clipping_path_is_reported() {
+fn a_real_documents_text_clip_reaches_what_it_paints_afterwards() {
     let Some(interpretation) = corpus_page_one("text_clip_cff_cid.pdf") else {
         return;
     };
     let reported = format!("{:?}", interpretation.unsupported);
     assert!(
-        reported.contains("text render mode 7"),
-        "a text object that clips must say so: {reported}"
+        !reported.contains("render mode"),
+        "every rendering mode is implemented, so none should report: {reported}"
+    );
+
+    let list = &interpretation.display_list;
+    let clipped = list
+        .commands()
+        .iter()
+        .filter_map(pdf_render::Command::clip)
+        .filter_map(|id| list.clip(id))
+        .find(|clip| clip.transform == pdf_render::Transform::IDENTITY && !clip.path.is_empty());
+    let clip = clipped.expect("something on this page is clipped to accumulated glyph outlines");
+    assert!(
+        clip.path.commands().len() > 100,
+        "the clip is six glyphs of an embedded font, not a rectangle: {} commands",
+        clip.path.commands().len()
     );
 }
 

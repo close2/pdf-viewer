@@ -404,8 +404,9 @@ only by someone who has read that clause against this code.
 missing *subsystem* in this tree reports — `LZWDecode`, encryption, Type 3 fonts — because
 whoever decided not to build it wrote the report the same afternoon. The gaps that ship are the
 ones *inside* something implemented, where the operator is handled and the code path exists:
-`Tr` parsed with four of its eight modes changing a clip nobody built, `/SMask` honoured while
-`/Mask` beside it was not, knockout groups compositing as though they were not knockouts.
+`Tr` parsed with four of its eight modes changing a clip nobody built (fixed in the
+thirteenth session, ADR 0022), `/SMask` honoured while `/Mask` beside it was not, knockout
+groups compositing as though they were not knockouts.
 Reading the clause is the only thing that finds those; this is where the finding goes. The
 ninth session's first pass produced two, §11.4.6 and §8.11.4.4, and both were invisible to
 every other instrument here. The eleventh found a third silence and *removed* one. The one it
@@ -506,6 +507,9 @@ decided against. Where it stands on its first green run:
 | `unreviewed`, and the number that may only fall | 688 |
 | cited clauses still owing a review (`REVIEW_OWED`) | 25 |
 
+Four sessions later, at the end of the thirteenth: 382 citations, 13 quotations, 31 distinct
+tables, 150 rows reviewed, **673** `unreviewed`, and 23 clauses still owing a review.
+
 The measurements that justified it were 146 citations over 36 distinct clause numbers, two of
 which named clauses that do not exist, and three of five sampled quotations that were
 paraphrases inside quotation marks. All five are now fixed, and each of the four checks was
@@ -531,6 +535,26 @@ entry. A wrong number the standard happens to have passes every automated check 
 only reading the clause catches it. Reading §8.9.5.4 properly then produced the one case where
 `/Alternates` decides what is on the page — a base image hidden by `/OC` should be replaced by
 its first visible alternate — which was silent and now reports.
+
+The thirteenth session read §9.3 and §9.4 as two families — thirteen rows — and produced a
+defect, a `silent` row and a limit of the checker itself. The defect is §9.3.3: word spacing
+is a rule about a code's *encoded length* and was implemented as a rule about its value, so an
+`Identity-H` string containing the bytes `00 20` was pushed right by `Tw` for every one of
+them. The `silent` row is §9.3.8, text knockout, whose `/TK` entry nothing looks for. And the
+limit is the one below.
+
+**Table numbers are now checked, weakly and honestly.** The tree cited "§9.3.6 Table 106" for
+the text rendering modes in four comments, two tests and a written report; the modes are Table
+104, and Table 106 is the text-*positioning* operators. Every automated check passed, because
+the clause exists and the table exists and only the pair is wrong. The obvious gate — the
+clause beside a table reference must be one the standard discusses that table in — was built
+and then **rejected by its own output**: it fails fourteen of this tree's twenty-five
+references and all fourteen are correct writing, because a comment about one clause routinely
+names a table belonging to another. A gate that is more exceptions than rule is not a gate. So
+the assertion is the weaker true one, that the number names a table the standard has, and the
+gate *prints the title of every distinct table the tree cites* — thirty-one lines, in which
+"Table 106 — Text-positioning operators" beside a file about rendering modes is visible at a
+glance. A checker cannot read a comment's intent; a person reading thirty-one lines can.
 
 ## 6. Security architecture
 
