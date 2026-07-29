@@ -52,7 +52,6 @@ code = ["crates/pdf-syntax/src/lexer.rs"]
 test = ["crates/pdf-syntax/src/lexer.rs::dictionary_and_array_delimiters_are_recognised", "crates/pdf-syntax/src/lexer.rs::every_byte_value_terminates"]
 note = "Table 1's six white-space characters exactly, including NUL, and Table 2's ten delimiters including the two braces type 4 functions add. `is_regular` is the clause's own definition — neither of the other two. The end-of-line rule that a CARRIAGE RETURN followed by a LINE FEED is one marker is applied where it decides content: after `ID` in an inline image (§8.9.7) and after `stream` (§7.3.8.1). Elsewhere an EOL is white space, which the clause permits: \"EOL markers may be treated the same as any other white-space characters.\""
 
-
 [[clause]]
 clause = "7.2.4"
 title = "Comments"
@@ -125,7 +124,6 @@ status = "partial"
 code = ["crates/pdf-syntax/src/parser.rs", "crates/pdf-syntax/src/document.rs"]
 test = ["crates/pdf-syntax/tests/real_documents.rs"]
 note = "Stream objects are read: the dictionary, the `stream` keyword with its EOL, `/Length` including the indirect form, and `endstream`. Reviewed here for the sentence the inline-image scanner leans on — that `stream` is followed by CRLF or LF and not by CR alone — which is the same one-marker rule §8.9.7 applies after `ID`. What is not implemented is the recovery the clause's own NOTE describes for a wrong `/Length`; the parser scans for `endstream` instead, which is the same answer by a different route and is not the clause's."
-
 
 [[clause]]
 clause = "7.3.8.2"
@@ -523,7 +521,6 @@ code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/page.rs", "crat
 test = ["crates/pdf-model/tests/render_real_pdf.rs", "crates/pdf-model/tests/type3.rs"]
 note = "All four ways a resource dictionary reaches a content stream: a page's own or inherited `/Resources` (§7.7.3.4), a Type 3 font's, a form `XObject`'s or pattern's own, and the pre-1.2 fallback where a form omits `/Resources` and inherits the page's. The last was implemented for form `XObject`s and not for *annotation appearances*, which are form `XObject`s too (§12.5.5) — an appearance with no `/Resources` was run against an empty dictionary, so every font and image it named was lost. Found by reading this clause in the eleventh session, and fixed. A tiling pattern still falls back to an empty dictionary rather than to the page's: the clause's inheritance sentence names forms and Type 3 fonts, so this is the letter of it, and a pattern that relies on the page's resources is malformed."
 
-
 [[clause]]
 clause = "7.9"
 title = "Common data structures"
@@ -822,7 +819,6 @@ code = ["crates/pdf-model/src/content.rs", "crates/render-cpu/src/convert.rs"]
 test = ["crates/render-cpu/tests/headless_render.rs"]
 note = "The `w` operator sets the width, and a width of 0 reaches the rasteriser as the thinnest line it draws. The clause is cited from `oracle.rs` for what it does *not* say: it gives a stroke a device-resolution minimum and gives an image none, which is why `issue4436r.pdf`'s half-pixel-tall image mask is drawn at its coverage rather than snapped to a whole row."
 
-
 [[clause]]
 clause = "8.4.3.3"
 title = "Line cap style"
@@ -997,7 +993,6 @@ code = ["crates/pdf-model/src/colour.rs"]
 test = ["crates/pdf-model/src/colour.rs::lab_maps_its_anchor_colours"]
 note = "`/WhitePoint`, `/BlackPoint` and `/Range` are read, and a Lab colour is converted through XYZ by the one route every CIE-based space takes (ADR 0012). Reviewed in the eleventh session for its component *ranges* rather than its conversion: L runs 0 to 100 and a and b take `/Range`'s bounds, which is what an `Indexed` space's colour table has to be scaled into (§8.6.6.3) and was not."
 
-
 [[clause]]
 clause = "8.6.5.5"
 title = "ICCBased colour spaces"
@@ -1046,7 +1041,6 @@ code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/src/colour.rs::an_indexed_space_reads_its_table", "crates/pdf-model/tests/inline_images.rs::a_colour_space_name_is_looked_up_in_the_resources"]
 note = "The four-element array, both forms of the table (byte string and stream), `hival` clamping, and the initial colour of 0. The sentence that had not been applied is the scaling one: \"Each byte shall be an unsigned integer in the range 0 to 255 that shall be scaled to the range of the corresponding colour component in the base colour space\". Every byte was divided by 255, which is that scaling only where the base's components run 0 to 1 — `issue2761.pdf` indexes into a `Lab` base and drew a black square where four renderers draw a pale grey gradient. Fixed in the eleventh session, and only visible then because `Indexed` images did not unpack before it."
 
-
 [[clause]]
 clause = "8.6.6.4"
 title = "Separation colour spaces"
@@ -1059,7 +1053,6 @@ status = "partial"
 code = ["crates/pdf-model/src/colour.rs"]
 test = ["crates/pdf-model/tests/colour_paths.rs"]
 note = "The space's four elements are read and a colour is converted by running the tint transform into the alternate space, which is what the clause requires of a processor with none of the named colourants available — and this one has none, since it draws to a screen. `None` colourants are therefore passed to the tint transform rather than discarded, which is what the clause says for the reverting case. Not implemented: `/NChannel` and the `/Colorants` attributes dictionary, neither of which changes the reverting path, and the all-`None` rule that such a space \"shall always discard its output\"."
-
 
 [[clause]]
 clause = "8.6.6.6"
@@ -1210,7 +1203,6 @@ code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/inline_image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs", "crates/pdf-model/tests/inline_images.rs"]
 note = "Both of the two means the clause names exist: an image `XObject` painted by `Do`, and an inline image (§8.9.7), which landed in the eleventh session. Sample components of 1 and 8 bits are unpacked; 2, 4 and 16 are refused and reported, which is §8.9.3's row rather than this one's."
 
-
 [[clause]]
 clause = "8.9.2"
 title = "Image parameters"
@@ -1218,7 +1210,6 @@ status = "implemented"
 code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs"]
 note = "All four interrelated items the clause requires are specified for every image drawn: format from `/Width`, `/Height`, the colour space's component count and `/BitsPerComponent`; the data from the stream; the user-space correspondence from §8.9.4's unit square; and the mapping from sample to colour from `/Decode` and the space. The clause states requirements rather than behaviour, so what it reviews is that nothing is left implicit."
-
 
 [[clause]]
 clause = "8.9.3"
@@ -1236,7 +1227,6 @@ code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
 test = ["crates/render-cpu/tests/image_placement.rs"]
 note = "Both backends map image space to the unit square with the clause's own matrix, `[1/w 0 0 1/h 0 1]` composed with the y flip that puts row 0 at the *top* — the coordinate (0,0) of user space corresponds to (0,h) of image space. Pinned at three scales in `image_placement.rs`, because a mirrored mapping is invisible at one scale and in one axis; see trap 2 in doc/HANDOVER.md."
 
-
 [[clause]]
 clause = "8.9.5"
 title = "Image dictionaries"
@@ -1250,7 +1240,6 @@ code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs"]
 note = "Table 87's entries, and which of them are read: `/Width`, `/Height`, `/ColorSpace` (any family but `Pattern`, which the table excludes), `/BitsPerComponent`, `/Decode`, `/ImageMask`, `/SMask`, `/SMaskInData`, `/Filter` and `/DecodeParms`. Not read: `/Alternates` (§8.9.5.4), `/Interpolate` was not until the eleventh session and now is (§8.9.5.3), `/Name`, `/StructParent`, `/ID`, `/OPI` and `/Metadata`. `/Mask` is read only to report it (§8.9.6.3, §8.9.6.4)."
 
-
 [[clause]]
 clause = "8.9.5.2"
 title = "Decode arrays"
@@ -1259,24 +1248,20 @@ code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"]
 note = "Table 88's defaults are implemented, and the eleventh session found that the `Indexed` row is not the same rule as the others: every space's default maps a sample onto 0.0 to 1.0 except `Indexed`, whose `[0 2^n - 1]` passes an index through unchanged. An index divided by 255 is index 0 for every sample but the last. What is *not* implemented is a general decode array: only the fully-inverted form `[1 0]` is applied, which is what real files write, and an arbitrary linear map is silently ignored. That silence is this row's debt — the formula is two multiplications and the reason it has not been done is that the device fast paths unpack `u8` without touching floating point."
 
-
 [[clause]]
 clause = "8.9.5.3"
 title = "Image interpolation"
 status = "implemented"
 code = ["crates/pdf-render/src/paint.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
 test = ["crates/render-gpu/tests/headless_gpu.rs", "crates/render-cpu/tests/image_placement.rs"]
-note = "Implemented in the eleventh session; before it `/Interpolate` was read nowhere and every image was filtered bilinearly. The clause makes interpolation a hint for the *magnified* case — an image \"whose resolution is significantly lower than that of the output device\" — with a default of false, so `Image::is_smoothed` filters a reduced image and draws a magnified one sample by sample unless the entry asks otherwise. `issue11124.pdf` blurs sixteen samples across a page where three references draw sixteen flat squares; it agreed with the consensus the moment this landed. The clause says nothing about reduction, and that half is a documented choice rather than a derivation."
-
+note = "Implemented in the eleventh session; before it `/Interpolate` was read nowhere and every image was filtered bilinearly. The clause makes interpolation a hint for the *magnified* case — an image \"whose resolution is significantly lower than that of the output device\" — with a default of false, so `Image::is_smoothed` filters a reduced image and draws a magnified one sample by sample unless the entry asks otherwise. `issue11124.pdf` blurs sixteen samples across a page where three references draw sixteen flat squares; it agreed with the consensus the moment this landed. The clause says nothing about reduction — but the standard does, in §10.7.4, which requires point sampling and forbids averaging over the pixel area. This note claimed for two sessions that reduction was unspecified; it is specified and departed from, which ADR 0025 records as a choice. `/Interpolate` itself is unaffected: it governs magnification only, and §10.7.4 is where the other half lives."
 
 [[clause]]
 clause = "8.9.5.4"
 title = "Alternate images"
 status = "reported"
 code = ["crates/pdf-model/src/content.rs"]
-test = []
 note = "Not implemented. `/Alternates` is never selected from, which matters in exactly one of the clause's four steps: where a base image's `/OC` says it is not visible, step c) draws the first visible alternate in its place, and we draw nothing. That case now reports. Steps a), b) and d) need nothing — a visible base image is drawn, and `/DefaultForPrinting` addresses printing, which this viewer does not do. A citation of this clause on `/SMaskInData` was wrong and was corrected in the eleventh session: that entry is Table 87's."
-
 
 [[clause]]
 clause = "8.9.6"
@@ -1285,6 +1270,7 @@ status = "partial"
 code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs"]
 note = "Aggregate of the four below, and of the family the fourteenth session implemented. /ImageMask, /SMask and both forms of /Mask now apply; the row stays `partial` for §8.9.6.2's last sentence, which asks interpolation to smooth a low-resolution stencil's edges, and for the two image codecs §8.9.6.4 is refused on."
+
 [[clause]]
 clause = "8.9.6.1"
 title = "General"
@@ -1292,6 +1278,7 @@ status = "partial"
 code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs"]
 note = "Names four masking mechanisms. Three are implemented — /ImageMask (§8.9.6.2), /Mask in both its forms (§8.9.6.3 and §8.9.6.4, fourteenth session), and, from the transparent imaging model, /SMask and /SMaskInData. The fourth is the graphics state's own soft mask, which arrives as /SMask in an /ExtGState and is reported rather than applied on 28 corpus documents."
+
 [[clause]]
 clause = "8.9.6.2"
 title = "Stencil masking"
@@ -1307,6 +1294,7 @@ status = "implemented"
 code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs::an_explicit_mask_paints_the_base_image_only_where_it_marks", "crates/pdf-model/tests/image_masks.rs::a_mask_finer_than_its_image_keeps_its_own_resolution", "crates/pdf-model/tests/image_masks.rs::a_mask_that_is_not_an_image_mask_is_reported"]
 note = "Implemented in the fourteenth session (ADR 0023). The mask is decoded by the ordinary image route, so a stencil behind CCITTFaxDecode works (`issue4379.pdf`), and §8.9.6.2 decides which sample marks — including any /Decode [1 0], which two of the corpus's six write. The clause's sentence that the two \"need not have the same resolution\" is the substance: they are combined on the finer of the two grids in each axis, nearest-neighbour, which discards nothing either raster carries. `issue4246.pdf` is the case that decides it, a 50x40 image under a 1000x800 stencil spelling three words. The true answer is a composite at device resolution, which this crate does not know; the choice and its cost are in `apply_explicit_mask`. Two refusals, both reported: a combined grid above 2^24 samples, and a /Mask stream that is not an image mask, which Table 87 and §8.9.6.2 both exclude — `issue6621.pdf` writes one and the two readings available for it are opposite."
+
 [[clause]]
 clause = "8.9.6.4"
 title = "Colour key masking"
@@ -1314,6 +1302,7 @@ status = "partial"
 code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs::colour_key_masking_removes_the_samples_inside_the_range", "crates/pdf-model/tests/image_masks.rs::the_colour_key_bounds_are_inclusive", "crates/pdf-model/tests/image_masks.rs::a_colour_key_array_of_the_wrong_length_is_reported"]
 note = "Implemented in the fourteenth session (ADR 0023) for every image whose samples reach the unpacker unfiltered, which is both corpus instances. The range test is on the values \"before decoding with the Decode array\", so it lives inside `unpack` rather than filtering the RGBA that comes out of it; the bounds are inclusive, and an array whose length is not twice the component count is refused rather than applied to what fits. `partial` for the codec paths: a DCTDecode or JPXDecode image has become RGBA before the unpacker sees it, and the clause's own NOTE 2 names that pair as the one lossy coding makes unreliable. JBIG2 and CCITT are refused with them rather than special-cased, since a colour key over one-bit samples is a stencil written the long way. All four are reported."
+
 [[clause]]
 clause = "8.9.7"
 title = "Inline images"
@@ -1321,7 +1310,6 @@ status = "implemented"
 code = ["crates/pdf-model/src/inline_image.rs", "crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/inline_images.rs"]
 note = "Implemented in the eleventh session (ADR 0019). Table 91's abbreviated keys and Table 92's abbreviated colour space and filter names are expanded into the dictionary an image `XObject` would have had, so one decoder serves both; entries the table does not list are dropped, as the clause requires. `/CS` naming a resource in the page's `/ColorSpace` subdictionary is resolved, and NOTE 3's rule that the device names never do is kept. Where the data ends is answered by `/L` where the file is PDF 2.0, by §8.9.3's sample layout where there is no filter, and by a search for a token-delimited `EI` otherwise. The one thing not honoured is the prohibition on `JPXDecode`, `JBIG2Decode` and `Crypt`: an inline image naming one is decoded rather than refused, which is leniency towards a malformed file and cannot mis-draw a valid one."
-
 
 [[clause]]
 clause = "8.10"
@@ -1529,6 +1517,7 @@ status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/text_state.rs", "crates/pdf-model/tests/text_render_modes.rs"]
 note = "Reviewed as a family in the thirteenth session. Eight of Table 102's nine text state parameters are implemented and tested one clause at a time; the ninth, text knockout, is §9.3.8, which was this tree's third `silent` row until the fourteenth session made it report. All seven of Table 103's operators are executed, and the clause's rule that they \"may appear outside text objects, and the values they set are retained across text objects in a single content stream\" falls out of their living in the graphics state rather than in the text object."
+
 [[clause]]
 clause = "9.3.1"
 title = "General"
@@ -1592,6 +1581,7 @@ status = "reported"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/text_state.rs::text_knockout_is_reported_only_where_the_two_models_differ", "crates/pdf-model/tests/text_state.rs::a_text_knockout_set_inside_a_text_object_is_ignored"]
 note = "Was this tree's third `silent` row; reported since the fourteenth session, and still owed. Tk has no operator and arrives only as /TK in an /ExtGState, which is now read — including the clause's rule that a value installed between BT and ET \"shall be ignored\". Its initial value is true, which makes a text object a non-isolated knockout group (§11.4.6) so a later glyph overwrites an earlier one where they overlap; we composite each glyph separately, which is exactly the Tk false model. The report fires only where both of the clause's conditions hold — the paint composites at all, and two glyphs of the object overlap — which is 2 corpus documents rather than the 7 a looser test named or the several hundred that a report on /TK alone would have. Implementing it belongs with knockout groups."
+
 [[clause]]
 clause = "9.4"
 title = "Text objects"
@@ -2013,32 +2003,48 @@ status = "unreviewed"
 [[clause]]
 clause = "10.7"
 title = "Scan conversion details"
-status = "unreviewed"
+status = "partial"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs", "crates/pdf-render/src/paint.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs", "crates/pdf-render/src/paint.rs"]
+note = "Reviewed in the sixteenth session, as the family ADR 0025's image resampling lives in — and nothing in this tree had cited §10.7 before that. The subclauses below split three ways: two parameters the clause lets a processor ignore and which are ignored (§10.7.2, §10.7.3), one set of rules this renderer deliberately departs from in three places because it draws to a display rather than to a marking device (§10.7.4), and one requirement that is neither implemented nor reported (§10.7.5). §10.7.1 is what licenses the departures and is quoted where they are taken."
 
 [[clause]]
 clause = "10.7.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/paint.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_the_basic_scene"]
+note = "The one requirement is that scan conversion happens — \"the final step of rendering shall be scan conversion\" — and both backends are that step. The clause's substance for this project is its NOTE, which says the algorithm is not part of PDF: \"Different implementations can perform scan conversion in different ways; techniques that are appropriate for one device could be inappropriate for another.\" That sentence is what makes §10.7.4's departures choices rather than defects, and it is quoted in `Image::area_averaged` beside the rule it licenses departing from. Read it before concluding that any §10.7.4 rule is binding on a screen."
 
 [[clause]]
 clause = "10.7.2"
 title = "Flatness tolerance"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/corpus.rs"]
+note = "The normative content is a permission, and it is exercised: \"PDF processors may choose to ignore any flatness tolerance specified within a PDF file.\" The `i` operator is matched and discarded with `MP`, `DP`, `BX` and `EX`, and `/FL` in an `/ExtGState` is not read; no corpus document writes `/FL` in one at all. `tiny-skia` and Vello each flatten curves to their own tolerance, which the clause's NOTE 2 anticipates by warning that a large value makes the result \"unpredictable\" — so honouring a document's number could only ever make a curve worse. Nothing is owed and nothing is silent, because the clause itself grants the omission."
 
 [[clause]]
 clause = "10.7.3"
 title = "Smoothness tolerance"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-render/src/shading.rs", "crates/pdf-model/src/mesh.rs"]
+test = ["crates/pdf-render/src/shading.rs::a_triangle_inside_one_pixel_is_subpixel"]
+note = "`/SM` is read nowhere. 23 corpus documents write one. What the clause asks for is a bound on \"the allowable colour error between a shading approximated by piecewise linear interpolation and the true value\", and this renderer has one fixed internal bound instead of a per-document one: a `Ramp` carries 256 samples, and `Triangle::is_subpixel` stops subdividing a mesh triangle smaller than a sample. The clause contemplates exactly that — \"each output device may have internal limits on the maximum and minimum tolerances attainable\" — so a document asking for a *coarser* shading than we draw is given a finer one, which cannot be a fidelity error. A document asking for finer than 1/256 of a component is not honoured and nothing says so, which is this row's silence and is why it is `partial` rather than `implemented`. It is the same shape as §8.9.5.2's `/Decode`: a clause half implemented and quiet about the other half."
 
 [[clause]]
 clause = "10.7.4"
 title = "Scan conversion rules"
-status = "unreviewed"
+status = "partial"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs", "crates/pdf-render/src/paint.rs"]
+test = ["crates/pdf-render/src/paint.rs::a_block_of_samples_becomes_their_mean", "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_deeply_reduced_image"]
+note = "Three deliberate departures, all in one direction, and the sixteenth session is the first time any of them was written down. (1) \"A shape shall be scan-converted by painting any pixel whose half-open square region intersects the shape, no matter how small the intersection is\" — both backends anti-alias instead, so a partly covered pixel is partly painted. This has been true since the first commit and cited nothing. (2) The same rule's \"the area covered by painted pixels shall always be at least as large as the area of the original shape\" fails for the same reason. (3) \"There shall not be averaging over the pixel area\" — `Image::area_averaged` averages, which is ADR 0025 and what made `bug1001080.pdf` legible and `firefox_logo.pdf` and `french_diacritics.pdf` agree with the reference consensus. All three are licensed by §10.7.1's NOTE that the algorithm is not defined by PDF, and all three describe a device that quantises coverage to whole pixels, which a display does not. What *is* honoured: pixel boundaries on integers, half-open regions, a zero-width stroke drawn as the thinnest line the device can produce (the clause's own permission), and glyphs scan-converted by the font rasteriser's own algorithm, which the clause's last sentence allows."
 
 [[clause]]
 clause = "10.7.5"
 title = "Automatic stroke adjustment"
-status = "unreviewed"
+status = "silent"
+note = "`/SA` is read nowhere and nothing reports it. 49 corpus documents set it true. \"When stroke adjustment is enabled, the line width and the coordinates of a stroke shall automatically be adjusted as necessary to produce lines of uniform thickness\" — this renderer anti-aliases instead, which gives a hairline uniform *ink* but not the crisp grid-snapped column the clause asks for, so a document enabling it gets a blurrier thin line with nothing said. Not reported this session on purpose, and the reason is trap 11: presence of the key is not the condition. A report has to test that a stroke is actually painted while the parameter is in force and that it is thin enough in device space for the half-pixel adjustment the clause bounds to be visible, or it names 49 documents and moves every one of them out of the oracle's gated set for a difference most of them cannot show. Sizing that condition is the work this row is owed."
 
 [[clause]]
 clause = "10.8"
@@ -2266,6 +2272,7 @@ status = "partial"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs::a_soft_mask_overrides_an_explicit_mask"]
 note = "Aggregate of the four below, read as a family in the fourteenth session because §11.6.4.3 decides the precedence between the masks that session implemented. Two of the three sources §11.6.4.1 names are implemented — object shape and the constant — and the third, the mask, only where it is an image's own /SMask or /Mask."
+
 [[clause]]
 clause = "11.6.4.1"
 title = "General"
@@ -2273,6 +2280,7 @@ status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/transparency.rs"]
 note = "Lists the three sources of shape and opacity and defers each to a subclause. Object shape (§11.6.4.2) and the constants (§11.6.4.4) are implemented; a mask (§11.6.4.3) is implemented for an image's own entries and reported for the graphics state's."
+
 [[clause]]
 clause = "11.6.4.2"
 title = "Object shape and opacity"
@@ -2280,6 +2288,7 @@ status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs"]
 note = "Every clause of the list holds here. A path or a glyph has shape 1 inside and 0 outside, which is what filling an outline does; an image has shape 1 inside its rectangle \"further modified by an explicit or colour key mask\", which became true in the fourteenth session (§8.9.6.3, §8.9.6.4); an image mask has shape 1 where it paints; a pattern's shape is constrained by the objects that define it, which falls out of replaying a tiling pattern's content stream. The last one is worth naming because it is satisfied by *absence*: the shape of an `sh` is its geometry \"disregarding the Background entry in the shading dictionary\", and nothing in this tree reads /Background at all. The intrinsic opacity of 1.0 everywhere is likewise structural — opacity enters only through `ca`, `CA` and a mask."
+
 [[clause]]
 clause = "11.6.4.3"
 title = "Mask shape and opacity"
@@ -2287,6 +2296,7 @@ status = "partial"
 code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs::a_soft_mask_overrides_an_explicit_mask"]
 note = "The clause's precedence is implemented as of the fourteenth session, and it was read here rather than in §8.9: an image's /SMask, and a non-zero /SMaskInData, \"shall override any explicit or colour key mask specified by the image dictionary's Mask entry\". Before that a file writing both would have had the loser applied. The graphics state's own /SMask is reported rather than applied (28 corpus documents) and /None is the only value that needs nothing. What is not read is /AIS: its default of false is what this renderer assumes, and a document setting it true asks for the constant and the mask to be *shape* rather than opacity values, which §11.3.7.2 distinguishes only in how a transparency group accumulates them — so it cannot show until §11.4.6 exists. No corpus document writes it."
+
 [[clause]]
 clause = "11.6.4.4"
 title = "Constant shape and opacity"
@@ -2294,6 +2304,7 @@ status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/transparency.rs::the_two_alpha_constants_reach_stroking_and_non_stroking_paint_separately", "crates/pdf-model/tests/transparency.rs::an_object_drawn_without_a_constant_is_opaque"]
 note = "`ca` and `CA` are two scalars in the graphics state, applied to non-stroking and stroking paint respectively, which is the clause, and which no test isolates — they reach the page through the corpus and the oracle. Two sentences are not: \"The nonstroking alpha constant shall also be applied when painting a transparency group's results onto its backdrop\", which needs groups (§11.4.6), and the /AIS flag, which decides whether the constants are shape or opacity — see §11.6.4.3 for why that cannot show here yet."
+
 [[clause]]
 clause = "11.6.5"
 title = "Specifying soft masks"
@@ -2316,7 +2327,6 @@ status = "partial"
 code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs"]
 note = "An `/SMask` sample-for-sample with its image supplies its alpha, and `/SMaskInData` is honoured for JPEG 2000. Table 143's `/Width` restriction is where the gap is: a mask's dimensions are \"independent\" of the parent's, and \"both images shall be mapped to the unit square in user space … regardless of whether the samples coincide individually\" — so a mask of a different size must still apply. We hold one raster per image and no device resolution, so combining them means choosing a grid: the image's loses the mask's detail, the mask's costs its area (`issue16263.pdf` gives a 2x2 image a 34862x4332 mask). Neither is a decision for an image decoder, so the mask is left unapplied and reported. 3 corpus documents. `/Matte` is not read, and is only meaningful where the dimensions match."
-
 
 [[clause]]
 clause = "11.6.6"

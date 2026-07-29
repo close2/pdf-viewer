@@ -457,3 +457,65 @@ fn cpu_and_gpu_agree_on_a_mesh_shading() {
         raster_compare::compare(&cpu, &gpu).expect("same size"),
     );
 }
+
+/// A deeply reduced image, where the two backends' own filters read different taps.
+///
+/// The scene the ninth image test could not be: `cpu_and_gpu_agree_on_an_image`
+/// *magnifies* sixteen samples, and magnification is the one direction where
+/// `tiny-skia`'s and Vello's samplers are held to the same answer by
+/// `Image::is_smoothed` alone. Under reduction they are not — a four-tap bilinear and
+/// whatever Vello's `Medium` does read different neighbourhoods of a grid eight times
+/// finer than the pixels — so an area average applied in only one of them, or applied
+/// with different block boundaries, separates them here and nowhere else. That is trap
+/// 2's other half: a scene that cannot fail in the direction the change moves is not a
+/// test of it. ADR 0025.
+#[test]
+fn cpu_and_gpu_agree_on_a_deeply_reduced_image() {
+    use pdf_render::{BlendMode, Command, DisplayList, Image, Size, Transform};
+
+    // Fine detail at the sample grid — a pattern no reduction can resolve, so any
+    // disagreement about *which* samples are read shows as a different average.
+    //
+    // The image has to be large and cover most of the page, not merely be reduced: the
+    // first draft of this scene shrank 64x64 into an 8x4 corner, which differs on 32
+    // pixels of 40 000 and passes `MAX_DIFFERING_FRACTION` with the GPU filter removed
+    // altogether. A test of a filter has to put the filtered pixels where the tolerance
+    // can see them.
+    let (width, height) = (800u32, 800u32);
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for row in 0..height {
+        for column in 0..width {
+            let on = (row % 2 == 0) ^ (column % 3 == 0);
+            let value = if on { 255 } else { 0 };
+            data.extend_from_slice(&[value, u8::try_from(column % 256).unwrap_or(255), 128, 255]);
+        }
+    }
+
+    let mut list = DisplayList::new(Size::new(200.0, 200.0));
+    list.push(Command::Image {
+        image: Image {
+            width,
+            height,
+            data: data.into(),
+            interpolate: false,
+        },
+        // Five samples per pixel across and ten down, so the two axes reduce by different
+        // factors and a filter that used one factor for both would show.
+        transform: Transform::scale(160.0, 80.0).then(Transform::translate(20.0, 60.0)),
+        alpha: 1.0,
+        clip: None,
+        blend: BlendMode::Normal,
+    });
+
+    for scale in [1.0, 2.0] {
+        let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+        let cpu = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let gpu = gpu().rasterize(&list, target).expect("supported");
+        assert_within_tolerance(
+            &format!("reduced image at scale {scale}"),
+            raster_compare::compare(&cpu, &gpu).expect("same size"),
+        );
+    }
+}

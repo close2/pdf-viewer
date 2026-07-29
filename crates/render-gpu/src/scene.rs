@@ -339,6 +339,12 @@ fn draw_image(
         });
     }
 
+    // The same area averaging the CPU backend applies, from the same function, so the two
+    // cannot disagree about a deeply reduced image — Vello's own filters read a fixed
+    // neighbourhood exactly as `tiny-skia`'s do. ADR 0025.
+    let reduced = image.area_averaged(placement);
+    let image = reduced.as_ref().unwrap_or(image);
+
     // Vello draws an image over a rectangle in *pixel* units, so the transform must map
     // pixel space onto the unit square before the command's own transform. The vertical flip
     // is because PDF's y-up space puts the image's first row at the top of the unit square.

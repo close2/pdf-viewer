@@ -130,19 +130,28 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// against `poppler`'s and `mupdf`'s 596. A row of glyphs shifted by one pixel is a
 /// page-wide structural change on a page that is mostly white.
 ///
+/// **`french_diacritics.pdf` has now left, and not by being rounded differently.** It agrees
+/// as of the sixteenth session, because area averaging replaced the four-tap filter that was
+/// drawing its reduced inline images (ADR 0025) — worst tile 12.60 against a bound of 5.89
+/// before, inside the bound after. Its raster really is 595x842 against `poppler`'s and
+/// `mupdf`'s 596, which is what put it here; that was true and was not what the references
+/// were disagreeing about. **The fourth time a group's name has turned out not to be a
+/// diagnosis of one of its members**, after Type 3 fonts, `/Rotate`, and `alphatrans.pdf`'s
+/// gradient. Read the rest of this comment with that in mind: it is a hypothesis about seven
+/// pages, and it has now been wrong about one of the eight it used to hold.
+///
 /// `colorkeymask.pdf` is the fourteenth session's, and the third arrival of the same shape:
 /// its page became comparable when §8.9.6.4's colour key masking landed, and it is the same
 /// 595-against-596 split, ours and `ghostscript`'s against `poppler`'s and `mupdf`'s. The
 /// masking itself is not in question — the difference is three vertical lines one pixel
 /// wide, at the three band edges, on a page whose only content is two coloured bands. The
 /// heatmap says so in one look, which is what the artefacts are for.
-const CONTRADICTED_PAGE_ROUNDING: [&str; 8] = [
+const CONTRADICTED_PAGE_ROUNDING: [&str; 7] = [
     "bug1065245.pdf page 1",
     "colorkeymask.pdf page 1",
     "bug1669097.pdf page 1",
     "bug1922766.pdf page 1",
     "bug1934157.pdf page 1",
-    "french_diacritics.pdf page 1",
     "issue12963.pdf page 6",
     "issue19505.pdf page 1",
 ];
@@ -224,9 +233,14 @@ const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
 
 /// Contradicted, where a large image is drawn small.
 ///
-/// 2 pages, and the second one changes what this group is worth.
+/// **Empty as of the sixteenth session**, and kept rather than deleted because what it held
+/// is the clearest example in this file of a group whose two members looked like the same
+/// cosmetic difference and were not. Both agree now: ADR 0025 replaced the four-tap filter
+/// with an average over the samples that share a device pixel, which is a documented
+/// departure from §10.7.4's "there shall not be averaging over the pixel area" rather than a
+/// reading of it. The two paragraphs below are what the group said when it had members.
 ///
-/// `firefox_logo.pdf` is a hair over the bound: worst tile 9.97 against a bound of 9.95, mean
+/// `firefox_logo.pdf` was a hair over the bound: worst tile 9.97 against a bound of 9.95, mean
 /// 0.09, structural similarity 0.9974. It draws a 512x543 image into about a hundred pixels
 /// square, and the three references all soften the eight-fold reduction more than
 /// `tiny-skia`'s bilinear filter does — bilinear samples four neighbours whatever the
@@ -249,13 +263,11 @@ const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
 /// at that row.
 ///
 /// The page therefore became comparable in the twelfth session because `CCITTFaxDecode`
-/// landed (§7.4.6), and the thing it exposed is not in §7.4.6 at all. The fix is the one
-/// `firefox_logo.pdf` already asked for — a filter that averages over the area a destination
-/// pixel covers, a rasteriser change in both backends, wanting a benchmark first — but the
-/// argument for it is no longer "0.02 outside the bound on a logo". A glyph reduced eleven
-/// times is text nobody can read.
-const CONTRADICTED_IMAGE_RESAMPLING: [&str; 2] =
-    ["bug1001080.pdf page 1", "firefox_logo.pdf page 1"];
+/// landed (§7.4.6), and the thing it exposed is not in §7.4.6 at all. The fix was the one
+/// `firefox_logo.pdf` had already asked for, and it took four sessions to be scheduled
+/// because the only page arguing for it was a logo 0.02 outside a bound. **A cosmetic-looking
+/// entry and an unreadable one can be the same defect**, and only the second gets built.
+const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
 
 /// Contradicted, and **we are the ones who are right**: a visibility expression.
 ///

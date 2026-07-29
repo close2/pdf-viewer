@@ -315,6 +315,9 @@ impl CpuRasterizer {
     /// a page is viewed at less than full size, which is the common case and where
     /// nearest-neighbour would alias badly, and nearest where the document has magnified a
     /// few samples across an area and asked for no smoothing.
+    ///
+    /// Deep reductions are handled before that, by [`pdf_render::Image::area_averaged`],
+    /// which leaves this filter under a two-fold shrink where four taps see every sample.
     fn draw_image(
         &self,
         pixmap: &mut tiny_skia::PixmapMut<'_>,
@@ -335,6 +338,15 @@ impl CpuRasterizer {
                 bytes: image.data.len(),
             });
         }
+
+        let placement = transform.then(to_device);
+        // Blocks of samples that would share one device pixel are averaged before
+        // `tiny-skia` sees them, because its bilinear filter reads four neighbours whatever
+        // the reduction and an eleven-fold shrink never looks at most of the source. The
+        // decision is `pdf_render`'s so that both backends make it identically; ADR 0025 has
+        // why it is a departure from §10.7.4 rather than a reading of it.
+        let reduced = image.area_averaged(placement);
+        let image = reduced.as_ref().unwrap_or(image);
 
         // `tiny-skia` pixmaps are premultiplied; `Image` is documented as straight alpha,
         // so the conversion happens here at the boundary.
@@ -371,7 +383,6 @@ impl CpuRasterizer {
         // and composing the device transform in here as well would apply it twice.
         let to_unit = Transform::new(1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0);
 
-        let placement = transform.then(to_device);
         let filter = if image.is_smoothed(placement) {
             tiny_skia::FilterQuality::Bilinear
         } else {

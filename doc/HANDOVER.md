@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-29 at the end of the **fifteenth** working session. Read
+Written 2026-07-26, updated 2026-07-29 at the end of the **sixteenth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the
 specification is the only source of truth, and agreement with poppler, mupdf or pdf.js is
@@ -8,6 +8,119 @@ evidence that we read it right, never the definition of right. `doc/PLAN.md` hol
 and the conformance ledger's design; `doc/adr/` holds every decision's argument. **This file
 is only the state of play, the traps, and what to do next** — when something here is also
 written there, it is a pointer.
+
+## What the sixteenth session changed
+
+**A reduced image is averaged rather than sampled — and the clause that governs it says not
+to.** The last item on the short list three sessions had been working off was "a filter that
+averages over the area a destination pixel covers", carried since the twelfth session because
+`bug1001080.pdf` draws `pinL LesL` where four renderers draw `pint test`. It is built, both
+backends share one function, and **three contradicted pages became agreeing** — the two the
+item named and one it did not. But the interesting half is what reading the clause first did
+to the argument.
+
+**§10.7.4 addresses image reduction and forbids the fix.** "The position of the centre of such
+a pixel … shall be mapped back into source space to determine how to colour the pixel. **There
+shall not be averaging over the pixel area.** If the resolution of the source image is higher
+than that of device space, some source samples might not be used." That is point sampling,
+normatively, and it is the opposite of what every reference does and of what makes a page of
+eleven-times-reduced fax glyphs legible. Three things had to be settled before departing:
+
+- **This tree's comments said the standard was silent here.** `is_smoothed`'s doc comment and
+  the ledger's §8.9.5.3 row both said reduction was something "the clause does not address" —
+  meaning §8.9.5.3, which is about magnification. It does not; §10.7.4 does, and **nothing in
+  the tree had ever cited §10.7 at all**. *"The clause says nothing" is a licence to choose;
+  "the clause says the opposite" is a debt to record*, and the two had been confused for two
+  sessions.
+- **We already depart from the same subclause and had never said so.** §10.7.4's first rule is
+  that a shape "shall be scan-converted by painting any pixel whose half-open square region
+  intersects the shape, no matter how small the intersection is". Both backends **anti-alias**.
+  That has been true since the first commit with no clause cited anywhere near it.
+- **§10.7.1's NOTE is what licenses all three** — "the specifics of the scan conversion
+  algorithm are not defined as part of PDF". §10.7.4 describes a device that quantises coverage
+  to whole pixels; a display does not.
+
+So it is taken as a *departure*, with its cost written down: a producer who relied on one
+sample surviving the reduction — a one-pixel rule, a dither pattern — gets a softened version
+of it instead. ADR 0025.
+
+**The block boundaries were wrong first, and the corpus said so in one run.** Fixed multiples
+of the reduction factor leave a short block at the right and bottom edge; giving that remainder
+a whole output cell squeezes the image into 99.4% of the unit square. On `firefox_logo.pdf`
+that moved the worst tile from 9.97 to **14.23** — *further* from three references than no
+filtering at all. Proportional bands fixed it and have a test, because a sub-pixel geometry
+error is invisible in every picture except the one that shows it.
+
+**And the page that left the contradicted list unpredicted was filed under the wrong cause,
+for the fourth time.** `french_diacritics.pdf` sat in `CONTRADICTED_PAGE_ROUNDING` because its
+raster is 595x842 against `poppler`'s and `mupdf`'s 596. That is true, and it was not what the
+references were disagreeing about: worst tile 12.60 against a bound of 5.89 before, inside the
+bound after, from a change that touches nothing but the image path. Type 3 fonts, `/Rotate`,
+`alphatrans.pdf`'s gradient, and now this.
+
+**§10.7 got six ledger rows where it had none**, and the family review produced a fifth
+`silent` row: **§10.7.5, automatic stroke adjustment**. `/SA` is read nowhere, 49 corpus
+documents set it true, and a document that enables it gets an anti-aliased hairline rather
+than the grid-snapped one the clause asks for. It is deliberately **not** reported yet, and
+that is trap 11 rather than an oversight — see the table below.
+
+| | was | is |
+|---|---|---|
+| **an image reduced eight-fold or more** | four taps of a bilinear filter, most samples unread | averaged over the samples that share a device pixel |
+| **`bug1001080.pdf`** | `pinL LesL`, unreadable | `pint test`, agreeing with three references |
+| **`firefox_logo.pdf`, `french_diacritics.pdf`** | contradicted | agreeing |
+| **§10.7** | cited nowhere, six `unreviewed` rows | reviewed, with three departures named and one new `silent` row |
+| **"the clause says nothing about reduction"** | in a doc comment and a ledger row | corrected: §10.7.4 says the opposite |
+| **anti-aliasing** | done since the first commit, citing nothing | recorded as §10.7.4's first departure |
+| **a backend's cost** | unmeasurable — `callgrind_interpret.rs` stops at the display list | `callgrind_rasterise.rs`, and four numbers |
+
+**The numbers:**
+
+| | before | now |
+|---|---|---|
+| corpus documents drawing with nothing reported | 724 | 724 |
+| corpus documents reporting something | 231 | 231 |
+| pages we call complete, in the oracle | 1513 | 1513 |
+| of those, agreeing with the reference consensus | 673 | **676** |
+| of those, contradicted | 103 | **100** |
+| ledger subclauses nobody has read | 652 | **646** |
+| ledger rows that are `silent` | 4 | **5** |
+| `§` citations the checker verified | 479 | **491** |
+| tests | 367 | **377** |
+
+Nothing moved on the corpus gate, and that is the shape of this session rather than an
+oversight: it fixed *how* pages already drawn were drawn, so the only instrument that could see
+it is the one holding us against other renderers. A session whose corpus row is flat and whose
+oracle row moves by three is the reverse of the eighth session's, and both are progress.
+
+What it taught:
+
+- **Read the clause even when the fix is obviously right, because the clause may forbid it.**
+  Every reference does area averaging, the page in question is unreadable without it, and the
+  standard still says "there shall not be averaging over the pixel area". Finding that turned a
+  two-hour improvement into a documented departure with three parts, one of which — anti-aliasing
+  — the project had been doing silently since day one. Principle 5's direction of inference
+  survives intact: the references are not why we average, they are evidence that a display is
+  not the device §10.7.4 describes.
+- **A benchmark that measures nothing looks exactly like a change that costs nothing.** The
+  first four callgrind numbers for this change were flat to four significant figures. The
+  example was passing 4096 as `for_page`'s *total pixel* budget rather than an extent, so every
+  run panicked and callgrind counted the panic. A page-sized raster is half a million pixels and
+  the argument is not named at the call site. **A suspiciously clean result is a reason to check
+  the instrument**, and this is trap 4's shape inside a measurement.
+- **A test of a filter has to put the filtered pixels where the tolerance can see them.** The
+  first CPU-versus-GPU scene reduced a 64x64 image into an 8x4 corner of a 200x200 page and
+  **passed with the GPU filter removed altogether** — 32 channels of 160 000 is under
+  `MAX_DIFFERING_FRACTION`. Trap 2 has always said a scene must be able to fail in the *axis*
+  the defect moves; it must also be able to fail at its *magnitude*.
+- **Saturating arithmetic cost 8 points of the 17 this change spent on its worst page.** Plain
+  arithmetic under an `#[expect]` naming the bound halved it. This is the seventh session's
+  lesson arriving in a new loop, and the bound is the sort that is provable rather than assumed:
+  a block holds at most as many samples as the image, and each contributes under 2^16.
+- **A cosmetic entry and an unreadable page can be the same defect, and only the second gets
+  built.** `firefox_logo.pdf` was 0.02 outside a bound for four sessions and was correctly sized
+  "Small". Nothing about the defect changed when `bug1001080.pdf` joined it; what changed was
+  the evidence available for ranking it.
 
 ## What the fifteenth session changed
 
@@ -421,10 +534,11 @@ Each session's argument is in its ADR; this file keeps only what is still load-b
 | 13 | All eight text rendering modes; §9.3 and §9.4 reviewed; table numbers checked | ADR 0022 |
 | 14 | `/Mask` in both its forms; §11.6.4 reviewed; §9.3.8 reports | ADR 0023 |
 | 15 | Soft masks at any resolution and `/Matte`; §11.3.7, §11.5 and §11.6 reviewed; a shading carries `ca` | ADR 0024 |
+| 16 | Area averaging for reduced images; §10.7 reviewed, and it forbids what was built | ADR 0025 |
 
-The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103
-across sessions 6 to 15, and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 → 263 →
-251 → 235 → 232 → 231 —
+The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 →
+100 across sessions 6 to 16, and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 →
+263 → 251 → 235 → 232 → 231 → 231 —
 both move in both directions on purpose: a rise in the first can mean pages *joined* the comparison and a
 rise in the second is honesty when a silence ends, and the sections below say which.
 
@@ -436,7 +550,7 @@ backend, with JBIG2 and JPEG 2000 images decoded in a confined worker process. I
 a PDF *viewer* in the full sense — no forms, encryption or transparency groups — and the gap
 between those two words is measured further down rather than guessed at.
 
-- **367 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **377 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks (verified, not assumed — and
   the thirteenth session found this line had been *wrong*: eleven warnings had accumulated in
   the twelfth session's own new files, because `allow-panic-in-tests` does not reach an
@@ -453,8 +567,8 @@ between those two words is measured further down rather than guessed at.
   poppler, mupdf and ghostscript over **1794 pages** — every page of the corpus, plus page
   one of each specification PDF — **in 34 s**, because the references' renders are remembered
   between runs rather than recomputed (ADR 0020). Of the 1513 pages we claim to draw
-  completely, **673 agree with the reference consensus, 103 are contradicted by it and 724 are
-  pages the references cannot agree on among themselves**. The 103 are named, grouped and
+  completely, **676 agree with the reference consensus, 100 are contradicted by it and 724 are
+  pages the references cannot agree on among themselves**. The 100 are named, grouped and
   ratcheted in both directions. ADR 0011.
 - **JBIG2 and JPEG 2000 decode in a sandboxed worker.** `pdf-sandbox` confines it with
   resource limits, Landlock and a seccomp-BPF allow-list; `--no-sandbox` turns it off for
@@ -492,10 +606,15 @@ between those two words is measured further down rather than guessed at.
   *clockwise* turn as displayed, which in this y-up space is a negative rotation; 90 and 270
   had been exchanged since the first page tree, so every rotated page in the corpus was drawn
   180° out. Six contradicted pages were this one line.
-- **An image is filtered only where the document allows it.** §8.9.5.3's `/Interpolate`
-  decides whether a *magnified* image is smoothed, and both backends ask
-  `Image::is_smoothed` so they cannot disagree. A reduced image is still filtered, which the
-  clause does not address and this does not pretend it does.
+- **An image is filtered only where the document allows it, and a reduced one is averaged.**
+  §8.9.5.3's `/Interpolate` decides whether a *magnified* image is smoothed, and both backends
+  ask `Image::is_smoothed` so they cannot disagree. A reduced image is averaged over the
+  samples that share a device pixel, by `Image::area_averaged` — which is a **documented
+  departure from §10.7.4**, not a reading of it: that clause requires point sampling and says
+  "there shall not be averaging over the pixel area". §10.7.1 licenses the departure, this tree
+  already takes two others in the same subclause by anti-aliasing at all, and the page that
+  argues for it is a Type 3 font of eleven-times-reduced fax glyphs that is otherwise
+  illegible. ADR 0025.
 - **A layer the document turns off is not drawn.** §8.11 in full as far as it decides what is
   marked: the default configuration, membership dictionaries including `/VE` visibility
   expressions, intent, and `/OC` on marked-content spans, XObjects and annotations. ADR 0017.
@@ -527,7 +646,7 @@ cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run and needs nothing but the tree. Its summary is
 # worth reading rather than only passing:
-cargo test -p conformance -- --nocapture   # 479 citations, 25 quotations, 33 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 491 citations, 26 quotations, 33 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild
 # another package's binaries. Build it first or the numbers below are somebody else's.
@@ -548,6 +667,12 @@ cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 179
 cargo build --release -p hayro-compare --bins
 cargo run --release -p hayro-compare --bin hayro-speed -- doc/pdf.js/test/pdfs/*.pdf
 cargo bench -p pdf-model                   # interpretation, the time-to-first-page path
+# Two callgrind examples, and they measure different halves. The first stops at the display
+# list, so a backend change measures as exactly zero there; the second rasterises.
+valgrind --tool=callgrind --callgrind-out-file=/dev/null \
+  target/release/examples/callgrind_interpret
+valgrind --tool=callgrind --callgrind-out-file=/dev/null \
+  target/release/examples/callgrind_rasterise [file.pdf] [page]
 cargo deny check
 cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
 ```
@@ -565,7 +690,7 @@ chase.
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document` | Touches untrusted bytes first |
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `optional_content.rs` answers "is this layer on"; the interpreter asks it in three places (§8.11.3.2 and §8.11.3.3). `type3.rs` reads a font whose glyphs are content streams, because running one needs the interpreter (§9.6.4, ADR 0018). `inline_image.rs` turns a `BI` … `EI` sequence into the stream an image `XObject` would have been, so `image.rs` stays the only decoder (§8.9.7, ADR 0019). `image.rs` also owns §8.9.6's and §11.6.5.2's masking: `mask_entry` and `soft_mask_entry` each read one key once and decide what it means, so a report cannot outlive its gap, and `combine_on_the_finer_grid` is the one place two rasters of different sizes are combined rather than refused (ADRs 0023, 0024) |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both encoding algorithms: §9.6.5.2 for CFF, §9.6.5.4 for `TrueType` (ADR 0015). `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D and Table 113 data; `substitute.rs` is the only machine-dependent code in the tree. A Type 3 font is refused here — its glyphs are content streams, so it belongs in `pdf-model` |
-| `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. `Path::extend_transformed` is the one place geometry is moved rather than travelling with a transform, and both callers are §9.3.6's text (ADR 0022). `Shading::with_alpha` is how §11.6.4.4's constant reaches a paint that has no single colour to carry it (ADR 0024) |
+| `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. `Path::extend_transformed` is the one place geometry is moved rather than travelling with a transform, and both callers are §9.3.6's text (ADR 0022). `Shading::with_alpha` is how §11.6.4.4's constant reaches a paint that has no single colour to carry it (ADR 0024). `Image::is_smoothed` and `Image::area_averaged` are the two resampling decisions, here rather than in a backend so the CPU oracle and the GPU backend cannot make them differently — the second is a documented departure from §10.7.4 (ADR 0025) |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path |
 | `render-gpu` | Vello/wgpu backend | Headless by construction |
 | `raster-compare` | Tolerant image metrics | Worst-tile error is the load-bearing one |
@@ -686,6 +811,15 @@ standard defines nothing, the page is the only thing that can tell you your read
 untenable — and "untenable" is a stronger result than "wrong", because it is what justifies
 refusing rather than guessing.**
 
+**The sixteenth session is the same rule pointed at a page nobody would have called suspect.**
+`french_diacritics.pdf` had been contradicted for two sessions under `CONTRADICTED_PAGE_ROUNDING`,
+whose whole story — its raster is 595x842 where `poppler`'s and `mupdf`'s is 596 — is *true* and
+was not the disagreement. A change that touches nothing but reduced images took it from worst
+tile 12.60 against a bound of 5.89 to agreeing. **Four for four**: Type 3 fonts, `/Rotate`,
+`alphatrans.pdf`'s gradient, and this. The habit that keeps failing is not writing the group
+down — the groups are useful — it is *believing* one without opening the artefact, and the
+groups whose stories are verifiably true about the page are the most convincing wrong ones.
+
 ### 2. A paint is positioned in the *path's* space, not the device's
 
 Both `tiny-skia` and Vello apply the drawing transform to a paint as well as to the shape:
@@ -718,6 +852,15 @@ pin values against ISO 32000-2 §8.7.4.5.3 and §8.9.5.2 **at three scales**, an
 `headless_gpu.rs`'s vertical-gradient and image scenes. One scale cannot see this class of
 defect; that is why every case runs at more than one. All were confirmed to fail when the
 defects are reintroduced.
+
+**And a scene must be able to fail at the defect's *magnitude* as well as in its axis.** The
+sixteenth session added `cpu_and_gpu_agree_on_a_deeply_reduced_image` for ADR 0025, in the
+right axis — reduction, where the two samplers read different neighbourhoods — and its first
+draft **passed with the GPU's filter removed altogether**: it shrank a 64x64 image into an 8x4
+corner of a 200x200 page, and 32 differing channels of 160 000 is under `MAX_DIFFERING_FRACTION`.
+The scene now draws an 800x800 image across most of the page, and removing the GPU call site
+fails it at mean error 6.50 against a bound of 0.5. Deleting the code a scene guards is one
+command and it is the only thing that establishes the scene guards it.
 
 The same reasoning shaped the sixth session's annotation tests: §12.5.5's placement algorithm is
 correct for any axis-aligned `/Matrix` even if you measure the *untransformed* `/BBox`, so
@@ -1025,7 +1168,8 @@ documents' first pages it affects.
 | Text knockout (`Tk`, §9.3.8) | 2 | Medium | Table 102's ninth text state parameter, and the only one absent. Its initial value is `true`, which makes a whole text object a non-isolated knockout group so a later glyph overwrites an earlier one where they overlap; we composite each glyph separately, which is the `Tk` false model — indistinguishable while glyphs are opaque under the Normal blend mode, and wrong otherwise. **Reported since the fourteenth session**, on the two documents where both of the clause's conditions hold: the paint composites, and two glyphs of one object overlap. `/TK` is read, including the rule that a value set between `BT` and `ET` is ignored. Implementing it is §11.4.6's knockout groups seen from clause 9, and belongs with them. |
 | Compositing an object in parts (§11.6.2) | 1 | Medium | "Portions of an object shall not be composited with one another", and `B` and its three relatives paint one object as a `Fill` and a `Stroke` — so the band a centred stroke shares with the fill composites twice under a paint that composites at all. **Reported since the fifteenth session** (ADR 0024), on the pages where it can show: the paint composites, and both parts mark the page. 4 documents reach the report, `alphatrans.pdf` is the one visibly wrong, and the fix is the same one as `Tk`'s — composite the parts as one element, which is §11.4.6's groups. |
 | Image `/Mask` on a filtered image, `/Matte` outside the device spaces | 0 | Small | What is left of §8.9.6 and §11.6.5.2 after ADRs 0023 and 0024, and no corpus document writes any of it. A colour key is a test on the samples a filter delivers, and a `DCTDecode` or `JPXDecode` image has become RGBA before the unpacker sees it — the clause's own NOTE 2 names that pair as the one lossy coding makes unreliable; JBIG2 and CCITT are refused with them rather than special-cased. A `/Mask` stream that is not an image mask is here too, which Table 87 excludes and 1 document writes (see trap 11). So is a `/Matte` on an image whose colour space is not `DeviceGray` or `DeviceRGB`: §11.6.5.2 requires the pre-blending to be undone *before* colour conversion, and this crate holds one RGBA raster per image, so the inversion is exact only where that conversion was the identity on components. |
-| **Image reduction quality** | 2 | **Medium** | The *other* half of §8.9.5.3, which the clause does not address: `/Interpolate` is honoured for magnification (eleventh session), and a reduced image is still filtered bilinearly whatever the reduction. This row said "Small, 1 document, 0.02 outside the bound" for four sessions, on `firefox_logo.pdf`'s eightfold shrink of a logo. **`bug1001080.pdf` is the same defect and the cost is legibility**: its text is a Type 3 font whose every glyph is an inline CCITT image mask, a 39x53 bitmap drawn at about five pixels, so the crossbar of a `t` is one source row in fifty-three and bilinear's four neighbours never touch it — we draw `pinL LesL` where four renderers draw `pint test`. The fix is a filter averaging over the destination pixel's footprint, in both backends, and wants a benchmark first. It is now the best-argued small item on this list. |
+| Automatic stroke adjustment (`/SA`, §10.7.5) | 49 | Medium | **The ledger's fifth `silent` row**, found by the sixteenth session's review of §10.7. "When stroke adjustment is enabled, the line width and the coordinates of a stroke shall automatically be adjusted as necessary to produce lines of uniform thickness" — `/SA` is read nowhere, and a document enabling it gets an anti-aliased hairline rather than the grid-snapped one the clause asks for. 49 corpus documents set it true, which is *why it is not reported yet*: trap 11 says a report on the key's presence would move all 49 out of the oracle's gated set for a difference most of them cannot show, and §9.3.8's first draft made exactly that mistake at a seventh of the scale. The condition a report needs is that a stroke is actually painted while the parameter is in force **and** that it is thin enough in device space for the half-pixel adjustment the clause bounds to be visible. Sizing that condition is the work this row is owed. |
+| Smoothness tolerance (`/SM`, §10.7.3) | 23 | Small | Read nowhere, and mostly harmless: this renderer has one fixed internal bound — a 256-sample `Ramp`, and `Triangle::is_subpixel` — where the clause asks for a per-document one, and "each output device may have internal limits on the maximum and minimum tolerances attainable" contemplates precisely that. A document asking for a *coarser* shading than we draw is given a finer one, which cannot be a fidelity error; one asking for finer than 1/256 of a component is not honoured and nothing says so. That silence hides inside a `partial` row, which is the same shape as §8.9.5.2's `/Decode`. |
 | `/UserUnit` | 2 | Small | §7.7.3.3: the size of a default user-space unit in multiples of 1/72 inch. `mutool` and `gs` scale the page by it, we and `poppler` do not — `bug1947248_*.pdf` come out at 612x792 where they produce 1836x2376. Neither applied nor reported; the oracle lists them under `GEOMETRY`. |
 | Annotation `NoZoom`, `NoRotate` | — | Small | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. Rare. |
 | Type1 fonts (`/FontFile`) | 0 | Medium | No corpus page one reaches it, so this is smaller than it looks. `read_fonts::ps::type1` exists — check before writing any. |
@@ -1053,11 +1197,18 @@ fonts were reported for two sessions in which they were not. Both errors were fo
 pixels, not by reading. Read the "By clause" table as what the code's authors believe.
 
 **The fourth now exists**, and it is the conformance ledger. Its headline is not a percentage
-implemented but a count of unasked questions: **652 of 823 subclauses are `unreviewed`**, and
-171 have been read against this code — 81 of those being clause 13, which principle 5
+implemented but a count of unasked questions: **646 of 823 subclauses are `unreviewed`**, and
+177 have been read against this code — 81 of those being clause 13, which principle 5
 excludes by name. So the honest summary of clause coverage is that the project has begun
-measuring it and has measured 11% of it. That number is meant to look bad; the alternative was
+measuring it and has measured 12% of it. That number is meant to look bad; the alternative was
 not knowing.
+
+**And the ledger has now been wrong once too**, which is worth knowing before trusting a row:
+§8.9.5.3's note said reduction was something the standard does not address, for two sessions,
+and §10.7.4 addresses it in the opposite direction. A row states what its author found in the
+clause it names; it cannot state what is in a clause nobody opened. The defence is the one the
+ninth session built for citations — read the *family*, not the row — and it is why the review
+unit is a clause family rather than a subclause.
 
 ### By what real documents need
 
@@ -1097,21 +1248,30 @@ draw completely:
 
 | | count | share of the 1513 |
 |---|---|---|
-| agree with the reference consensus | 673 | 44% |
-| **contradicted by it** | **103** | **7%** |
+| agree with the reference consensus | 676 | 45% |
+| **contradicted by it** | **100** | **7%** |
 | the references cannot agree among themselves | 724 | 48% |
 | not comparable (geometry, or fewer than two renderers) | 13 | 1% |
 
 **One page in fifteen that we say we drew completely, two independent implementations say we
-did not.** The 103 are named in `oracle.rs` and grouped by what the page carries: 18 use a
+did not.** The 100 are named in `oracle.rs` and grouped by what the page carries: 18 use a
 font nobody embeds so every renderer substitutes differently, **8 are pages where the two
 references that agree are wrong and we are right** — 7 where they are the same JBIG2 decoder
-and 1 where neither implements `/VE` (trap 9 has both) — 8 are a one-pixel page-rounding
-difference, 2 are image reduction quality, 1 is an image half a device pixel tall, 1 is a
+and 1 where neither implements `/VE` (trap 9 has both) — 7 are a one-pixel page-rounding
+difference, 1 is an image half a device pixel tall, 1 is a
 `CalRGB` alternate space two references do not convert, 1 is a page of glyphs being judged
 with the tolerance for flat fills, and **64 have nothing on them to explain it**. That last
 group is the most valuable list in the repository. 21 of them are pages beyond the first,
 which a page-one comparison would never have seen.
+
+**103 → 100 in the sixteenth session, and one of the three departures was in the wrong
+group.** Area averaging for reduced images (ADR 0025) fixed the two pages
+`CONTRADICTED_IMAGE_RESAMPLING` named — emptying the first group in `oracle.rs` ever to
+empty — and a third, `french_diacritics.pdf`, which was filed under page rounding. Its raster
+really is 595x842 against `poppler`'s and `mupdf`'s 596; that was true and was not the
+disagreement. **Four for four now** on a group's name failing to diagnose one of its members.
+All three departures are fixes, and all three stayed in the comparison, which is the cleanest
+shape this count comes in.
 
 **104 → 103 in the fifteenth session, and the departure was fixed and then left anyway.**
 `alphatrans.pdf` had been contradicted by all three references since the oracle existed, filed
@@ -1170,7 +1330,7 @@ one that had to name a code site.
 | 7 Syntax | 138 | **Nearly complete**, and 4 of its 138 rows are now reviewed. Objects, **every standard filter but `LZWDecode`** — JBIG2 and JPEG 2000 in the seventh session, `CCITTFaxDecode` in the twelfth (§7.4.6, ADR 0021) — classic and stream xrefs, object streams, incremental updates, recovery by scanning. **Encryption is absent** and is the largest hole here. |
 | 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 38 of its 128 rows are reviewed, §8.9 now as a family. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images (§8.9.7, eleventh session), `/Interpolate`, an image's `/Mask` in both forms (§8.9.6, fourteenth session), ICC colour management, and — since the ninth session — optional content (§8.11) wherever it decides what is drawn. A general `/Decode` array is still not applied and not reported, and 2, 4 and 16 bits per component are refused. |
 | 9 Text | 65 | **Partial**, and 23 of its 65 rows are reviewed — §9.3 and §9.4 as two whole families in the thirteenth session. Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts, whose glyphs are content streams (§9.6.4, ADR 0018); and all eight text rendering modes (§9.3.6, ADR 0022). §9.6.5.2's CFF encoding algorithm and §9.6.5.4's `TrueType` one are both implemented in full, the second as of the eighth session (ADR 0015). Missing: bare Type1 (`/FontFile`), embedded `CMap` streams, predefined `CMap`s, vertical writing mode, and text knockout (§9.3.8), which since the fourteenth session is `reported` rather than `silent`. |
-| 10 Rendering | 36 | **Partial, and much of it is `inapplicable` rather than missing.** Colour management and rendering intents are done. Halftones, transfer functions, flatness and smoothness describe a marking device rather than a screen — a ledger status of its own, and not the same as excluded. |
+| 10 Rendering | 36 | **Partial**, and 6 of its 36 rows are reviewed — the whole of §10.7 in the sixteenth session, which is the first time this tree cited the clause at all. Colour management and rendering intents are done. Halftones and transfer functions describe a marking device rather than a screen. **Flatness turned out not to belong on that list**: §10.7.2 makes ignoring it an explicit permission, which is a different and better answer than "inapplicable". §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over, and ADR 0025's area averaging — and §10.7.5's `/SA` is the ledger's fifth `silent` row. |
 | 11 Transparency | 58 | **Minimal**, and 23 of its 58 rows are reviewed — §11.6.4 in the fourteenth session and §11.3.7, §11.5 and the rest of §11.6 in the fifteenth. All sixteen blend modes are implemented and reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` are two constants that now reach a shading as well as a colour; and an image's `/SMask` supplies its alpha at any resolution, with `/Matte` undone (§11.6.5.2, ADR 0024). Transparency groups, knockout and isolation are not — this is the largest *rendering* gap and it owns **three** of the ledger's four `silent` rows: §11.4.6, §11.6.6 where a `/Group` is read nowhere, and §11.3.7.3's result-shape formula. §11.6.2's one-object rule is reported. `/AIS` is read nowhere; it can only show once groups exist. |
 | 12 Interactive features | 166 | **Appearances only.** Annotations are placed and drawn from `/AP` (§12.5.5), with the visibility flags of §12.5.3 honoured. Nothing is synthesised, and no forms, actions or navigation exist. |
 | 13 Multimedia | 81 | **Excluded**, by name, on principle 5's closed list: a media engine rather than a rendering question. Its rows still appear in the ledger carrying that exclusion, because an invisible exclusion is indistinguishable from an oversight. |
@@ -1201,17 +1361,19 @@ done; the parts that make a document *interactive* are not started.
 | Image masking | 3 of §8.9.6's 4 mechanisms, plus §11.6.5.2's `/SMask`: the image's own `/ImageMask` stencil, an explicit `/Mask` (§8.9.6.3) and a colour-key `/Mask` (§8.9.6.4) from the fourteenth session (ADR 0023), and a soft-mask image at any resolution with `/Matte` undone, from the fifteenth (ADR 0024). Two rasters of different sizes are combined on the finer of the two grids, bounded on the growth. The fourth mechanism is the graphics state's own soft mask, reported on 28 documents. |
 | Blend modes and constants | All sixteen names of Tables 134 and 135, and §11.6.3's rule for an array of them — the first name the reader *recognises*, which is not the first name. `ca` and `CA` reach solid colours, images and, since the fifteenth session, shadings (§11.6.4.4). |
 | Page rotation | §7.7.3.3 Table 31's `/Rotate`, clockwise as displayed, from the twelfth session. Before it 90 and 270 were exchanged and every rotated page was drawn 180° out. |
+| Image resampling | Magnification is §8.9.5.3's `/Interpolate`, from the eleventh session. Reduction is §10.7.4's, from the sixteenth (ADR 0025) — and is the one place this tree knowingly does what a clause forbids: blocks of samples sharing a device pixel are averaged, where the clause requires point sampling. Both decisions live in `pdf-render` so the two backends cannot make them differently. |
+| Scan conversion (§10.7) | Three deliberate departures, named as of the sixteenth session: anti-aliasing violates §10.7.4's "painting any pixel whose half-open square region intersects the shape" and its area rule, and area averaging violates its image rule. §10.7.1's NOTE — "the specifics of the scan conversion algorithm are not defined as part of PDF" — licenses all three. `/FL` is ignored by the clause's own permission; `/SM` and `/SA` are read nowhere. |
 
 ## What to do next
 
 **Two tracks now, and the discipline is to take from both in every session.**
 
-*Demand-driven* is everything the corpus and the oracle name — 103 contradicted pages, 64 of
+*Demand-driven* is everything the corpus and the oracle name — 100 contradicted pages, 64 of
 them unexplained, and a feature list sized by how many documents want each item. It has been
-productive for twelve sessions, it is where the low-hanging fruit is, and it stays.
+productive for thirteen sessions, it is where the low-hanging fruit is, and it stays.
 
 *Spec-driven* is what the ledger and §6.3.2.2's ranking name — coverage against the
-specification rather than against a file set. It exists now, and it has a number: **652 of
+specification rather than against a file set. It exists now, and it has a number: **646 of
 823 subclauses are `unreviewed`**. A project running only the first track finishes when the
 corpus goes quiet, which can happen with a great deal of the standard unimplemented and
 nothing anywhere able to say which parts.
@@ -1234,7 +1396,17 @@ produced a precedence rule — an image's `/SMask` supersedes its `/Mask` — th
 nor Table 87 states and that the implementation had just got wrong; and soft-mask images made
 §11.3.7, §11.5 and the rest of §11.6, whose seventeen rows produced three defects the demand
 item could not have reached, one of them the four-session-old contradiction on
-`alphatrans.pdf`.
+`alphatrans.pdf`; and image resampling made §10.7, where the sixteenth session found that the
+clause governing its demand item **forbids what the demand item asked for**.
+
+**That last one is the strongest argument yet for the pairing, and it is a new shape.** The
+first six times, reading the family found something the demand item had *missed*. The seventh
+found that the standard says the opposite of what was about to be built — which did not stop
+the work, because §10.7.1 licenses the departure and the page is unreadable without it, but it
+turned an obvious improvement into a documented choice with three parts and corrected two
+places in the tree that claimed the standard was silent. **Read the family before writing the
+feature, not only after**: the cost is an hour and the alternative is a defensible improvement
+with no idea that it is a departure.
 
 **A third thing is worth taking from the twelfth and thirteenth sessions, and it is not on
 either track: the instrument.** 95% of the oracle's cost was three other programs answering a
@@ -1243,13 +1415,15 @@ wrong. The thirteenth found the citation checker blind to table numbers, and one
 tree was also not `clippy` clean while this file said it was. **Whatever this file asserts
 about the tooling, run it once before believing it.**
 
-The one-line version of the demand track: **103 pages we claim to draw are contradicted, 64 of
+The one-line version of the demand track: **100 pages we claim to draw are contradicted, 64 of
 them for no reason visible on the page. The two largest gaps of any kind are text — 100
 documents naming a CID encoding or an embedded `CMap` — and synthesised annotation appearances
-at 63; the best-argued small one is image reduction, which renders a page of Type 3 fax glyphs
-illegible, and it is now the only entry left on the short list the last three sessions have
-been working off.** The one-line version of the spec track: **23 clauses the code already
-cites have never been read against it**, and they are named in `REVIEW_OWED`.
+at 63.** The short list the last four sessions were working off is **empty**: text clipping
+modes, image `/Mask`, soft masks at any resolution and image reduction all landed, and nothing
+has replaced them, so the next demand item has to come from the unexplained list or from the
+sized table rather than from a queue somebody else formed. The one-line version of the spec
+track: **23 clauses the code already cites have never been read against it**, and they are
+named in `REVIEW_OWED`.
 
 ### 0. The ledger, and the cheapest reviews available
 
@@ -1260,23 +1434,28 @@ the ones the code already points at.
   so the reading is against something that exists rather than against a blank. Take them by
   family — §8.6.5 is five of them, §12.5 another five — because that is how the standard
   distributes its requirements, and because §9.6.5.4 was missed for the opposite reason:
-  nobody had read §9.6.5 as a unit. **Expect findings**: nine families have now been reviewed
-  and they have produced nineteen, four of them in §8.9, three in §11.6 — including the
-  gradient defect that had made a page contradicted for four sessions — three in one clause
-  (§8.6.8) that had looked like a formality, two in §7.4.6 that turned into refusals rather
-  than code, and two in §9.3.
+  nobody had read §9.6.5 as a unit. **Expect findings**: ten families have now been reviewed
+  and they have produced twenty-two, four of them in §8.9, three in §11.6 — including the
+  gradient defect that had made a page contradicted for four sessions — three in §10.7, which
+  are three *departures* rather than defects and are the first of that kind, three in one
+  clause (§8.6.8) that had looked like a formality, two in §7.4.6 that turned into refusals
+  rather than code, and two in §9.3.
 - **Prefer the family belonging to whatever else the session is doing.** §7.4.6, §8.6.4.2,
-  §8.6.8, §8.9 (all of it), §9.3, §9.4, §9.6.4, §9.6.5, §11.3.7, §11.5 and §11.6 are done;
-  §11.4 if transparency groups are the demand item — and after the fifteenth session that is
-  the family with the most pointing at it — §12.5.6 if synthesised appearances are, §7.6 if
-  encryption is.
+  §8.6.8, §8.9 (all of it), §9.3, §9.4, §9.6.4, §9.6.5, §10.7, §11.3.7, §11.5 and §11.6 are
+  done; §11.4 if transparency groups are the demand item — and after the fifteenth session
+  that is the family with the most pointing at it, three of the five `silent` rows — §12.5.6
+  if synthesised appearances are, §7.6 if encryption is.
   Record every row, including the ones that turn out to be `inapplicable` — a clause read and
   dismissed is worth as much as one implemented, and costs a minute.
-- **Four `silent` rows are open**, and they are the most valuable kind. §11.4.6 (knockout
-  groups), §11.6.6 (transparency group XObjects), §11.3.7.3 (a group's result shape) and
-  §8.11.4.4 (usage dictionaries) are drawn wrong with nothing said — and the first three are
+- **Five `silent` rows are open**, and they are the most valuable kind. §11.4.6 (knockout
+  groups), §11.6.6 (transparency group XObjects), §11.3.7.3 (a group's result shape),
+  §8.11.4.4 (usage dictionaries) and — since the sixteenth session — §10.7.5 (`/SA`, automatic
+  stroke adjustment) are drawn wrong with nothing said, and the first three are
   **one gap**, recorded three times because a reader of any of those clauses should find it.
-  The count rose in the fifteenth session by reading, not by regressing. Either implementing
+  The count has risen in both of the last two sessions by reading, not by regressing.
+  §10.7.5 is the one with a *sizing* question attached rather than an implementation one: 49
+  corpus documents set `/SA true`, so the work it is owed is the narrow condition, not the
+  key lookup. Either implementing
   them or making them *report* is progress; the second is much cheaper and is what principle 3
   actually requires, and a `/Group` key that nothing looks at is the cheapest report in this
   file. §9.3.8, the third that used to be here, was closed in the fourteenth session
@@ -1288,12 +1467,13 @@ the ones the code already points at.
   be half implemented and quiet about the other half.
 
 Four small items, listed before the big lists because they are small. The first is the
-twelfth session's leftover; the other three have been carried since the seventh:
+sixteenth session's leftover; the other three have been carried since the seventh:
 
-- **An area-averaging filter for reduced images**, in both backends. See the row in the
-  not-implemented table: this stopped being cosmetic when a page of Type 3 glyphs drawn as
-  eleven-times-reduced CCITT bitmaps came out unreadable. It wants a benchmark first, and it
-  must land on the CPU and GPU backends together or the agreement scenes will separate them.
+- **Give §10.7.5's `/SA` a condition, and then a report.** The cheapest of the five `silent`
+  rows to close and the one whose difficulty is entirely in the condition — see the row in the
+  not-implemented table, and read trap 11 first. 49 documents set it true; the question is how
+  many of them paint a stroke thin enough for the clause's half-pixel adjustment to show, and
+  the answer needs a `eprintln!` in the branch before it needs any code.
 - **Sandbox the interpreter and rasteriser too.** Spike D exists and is exercised; the rest
   of the renderer still runs in the main process, which is the half of principle 3 that is
   not yet built. The protocol would have to carry a display list rather than an image, which
@@ -1345,25 +1525,21 @@ of ADR 0012 started. And principle 5 is not suspended by a list: each entry is a
 take to the specification, and "make it match mupdf" is exactly the failure this project
 forbids.
 
-### 2. Image reduction, carried from the twelfth session
+### 2. Image reduction — done in the sixteenth session, and what is left of it
 
-Nobody took it in the thirteenth, fourteenth or fifteenth, which took the text rendering modes,
-image masking and soft masks instead. It stays here, it stays the best-argued small item on the
-list, and it is now the *only* thing left on the short list those three sessions worked off.
+The item this heading held for four sessions landed as ADR 0025 and `CONTRADICTED_IMAGE_RESAMPLING`
+is empty. Two pieces of it are still open, and both are the *same* piece:
 
-`tiny-skia`'s bilinear filter samples four neighbours whatever the reduction, so an image
-drawn much smaller than its samples loses most of them. That was a 0.02 miss on
-`firefox_logo.pdf` for four sessions and looked cosmetic. `bug1001080.pdf` shows the other end
-of it: its text is a Type 3 font whose every glyph is an inline CCITT image mask, 39x53 samples
-drawn at about five device pixels, and the crossbar of a `t` is one row in fifty-three. Four
-renderers draw `pint test`; we draw `pinL LesL`.
+- **Reduction happens at decode resolution, not at device resolution.** §10.7.4's answer is
+  per-device-pixel; `Image::area_averaged` works in whole source samples and leaves a residual
+  under two-to-one to the backends' own filters. A good approximation, not the thing itself.
+- **A mask combined with its image is bounded rather than composited at device resolution**,
+  which ADR 0024 named and `issue16263.pdf` still trips.
 
-The fix is a filter that averages over the area a destination pixel covers — a mip chain, or
-box-filtering the source down to roughly the device size before handing it to the rasteriser.
-Three things to get right: it belongs in both backends or the headless GPU scenes will
-separate them (trap 2's other half), it wants an instruction-count benchmark before and after
-because it is on the image path of every page, and the bound to prove it against is the oracle
-rather than an eye — both pages are named in `CONTRADICTED_IMAGE_RESAMPLING`.
+Both need the display list to carry an image and its sampling intent to the backends rather
+than a finished raster, which is one `pdf-render` change and belongs to whoever takes it. The
+same change is what "give the JPEG 2000 decoder a target resolution" needs, so three items on
+this file's small list are one design question about where decoding and resampling belong.
 
 ### 3. The three gaps that draw a page visibly wrong
 
@@ -1452,6 +1628,27 @@ adds one `Option` check per sample to a loop that had none, and it costs +0.12%,
 the run-to-run noise of ordinary code motion; the corpus gate is unchanged at 1.4 s. The
 fifteenth measured **1.924 G** — +0.05%, which is nothing: its per-path work is two comparisons
 before a report and its per-sample work only runs on an image that carries a mask.
+
+**The sixteenth session's change is invisible to that example, and that is the point.**
+`callgrind_interpret.rs` stops at the display list, so a change to how a backend *draws* a
+command measures as exactly zero there — which is why
+`crates/pdf-model/examples/callgrind_rasterise.rs` now exists. Its numbers for area averaging,
+twenty rasterisations apiece:
+
+| page | before | after | |
+|---|---|---|---|
+| ISO 32000-2 p101, no reduced image | 14.0726 G | 14.0726 G | free |
+| `bug1001080.pdf`, many 8x glyph bitmaps | 338.96 M | 330.91 M | **−2.4%** |
+| `firefox_logo.pdf`, one 5x logo | 515.09 M | 540.34 M | +4.9% |
+| `issue19971.pdf`, one 5x 2500x1364 photograph | 3.9264 G | 4.2793 G | +9.0% |
+
+A page of many small reduced bitmaps got *cheaper*, because the premultiply pass and the
+pattern allocation now run over the reduced grid rather than the source one; a page that is one
+large photograph pays 9%; the corpus gate is unchanged at 1.6–1.8 s, so the aggregate is below
+what it can measure. **Saturating arithmetic was 8 of the original 17 points** on the worst
+page, and plain arithmetic under an `#[expect]` naming a provable bound halved the cost — the
+seventh session's per-pixel-loop lesson arriving in a new loop.
+
 The seventh session's two fixes were both to outliers. **The typical corpus page
 is small and text-heavy and has never been profiled**, which is the next measurement rather
 than the next optimisation.
@@ -1539,15 +1736,18 @@ Ratcheted in `crates/pdf-model/tests/oracle.rs`, by name and in both directions.
 
 | of the 1513 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 673 | |
-| **contradicted** | **103** | 8 page rounding, 7 a shared JBIG2 decoder and 1 a shared *gap* (trap 9, both halves), **2 image reduction**, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 glyphs judged as vector, 18 substituted fonts, **64 unexplained** |
+| agree with the reference consensus | 676 | |
+| **contradicted** | **100** | 7 page rounding, 7 a shared JBIG2 decoder and 1 a shared *gap* (trap 9, both halves), 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 glyphs judged as vector, 18 substituted fonts, **64 unexplained** |
 | ambiguous | 724 | the references disagree with each other; 372 of them are two long books set in fonts nobody embedded |
 | our page geometry differs | 3 | 2 are `/UserUnit`, 1 unexamined |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
 The 281 incomplete pages are compared and printed too, but cannot fail the gate: a page we
 already say we cannot draw is expected to differ, and listing hundreds of them would drown
-the signal. It fell by 1 in the fifteenth session — two pages gained as soft masks of another
+the signal. It did not move at all in the sixteenth session, which is that session's shape:
+area averaging changed *how* pages already drawn were drawn, so nothing entered or left the
+gated set and the whole result is three verdicts flipping inside it. It fell by 1 in the
+fifteenth session — two pages gained as soft masks of another
 size began to apply, one lost as §11.6.2 began to report — and by 4 in the fourteenth — seven pages gained as `/Mask` began to
 apply, three lost as §9.3.8 began to report, and trap 11 is about the second half of that
 trade. It fell by 16 in the thirteenth session as the text rendering modes landed, by 14
@@ -1589,6 +1789,38 @@ skipped rather than failing — but the ratchets only mean anything where it is 
 must have it.
 
 ## Habits these sessions earned
+
+**"The clause says nothing" and "the clause says the opposite" are different findings, and
+only one of them is a licence.** Two places in this tree recorded image reduction as
+unspecified — `is_smoothed`'s doc comment and the ledger's §8.9.5.3 row — meaning §8.9.5.3,
+which is about magnification and genuinely is silent. §10.7.4 is not: "there shall not be
+averaging over the pixel area", in a clause nothing here had ever cited. Both sentences
+produce the same code; only the second produces a *departure*, which has to be argued,
+recorded and costed. When a comment says the standard is silent about something, the question
+to ask is not "is that true of this clause" but "which clause would say it".
+
+**A departure is only honest once you have looked for the others.** Finding §10.7.4's image
+sentence made it necessary to read the rest of the subclause, and the first rule in it —
+"painting any pixel whose half-open square region intersects the shape, no matter how small
+the intersection is" — has been departed from since the first commit, by anti-aliasing, with
+no clause cited anywhere near it. One departure looks like a compromise; three in one
+subclause, all in the same direction, is a *reading* of what §10.7.4 describes, which is a
+device that quantises coverage to whole pixels. §10.7.1's NOTE then licenses all three at once.
+
+**A suspiciously clean measurement is a reason to check the instrument.** The first four
+callgrind numbers for area averaging were flat to four significant figures across pages that
+obviously do different amounts of work. The benchmark was passing 4096 as `TargetSpec::for_page`'s
+**total pixel** budget rather than an extent, so every run panicked and callgrind faithfully
+counted the panic. A page-sized raster is half a million pixels and the argument is not named
+at the call site. This is trap 4 inside a measurement: a tool exercised on nothing reports
+success.
+
+**A test has to be able to fail at the defect's magnitude, not only in its axis.** Trap 2 has
+always said a scene must vary in the direction the defect moves. The sixteenth session's first
+CPU-versus-GPU scene did — it reduced an image, which is the direction — and **passed with the
+GPU's filter removed altogether**, because it reduced 64x64 into an 8x4 corner of a 200x200
+page and 32 differing channels of 160 000 is under the tolerance. Check both halves by
+deleting the code the scene is meant to guard.
 
 **A constant that is a property of the state must reach every paint, including the ones that
 replace the colour.** `ca` is not part of a colour; §11.6.4.4 makes it a property of the
@@ -1989,7 +2221,12 @@ lookup from 1.37 ms to 18 µs. `cargo bench -p pdf-model` is the baseline.
   ISO 18619 — which black to align, and why `AbsoluteColorimetric` must not compensate. It
   had been sitting unread while the same question was being answered by looking at what
   other renderers do. Check what is already in `doc/md/` before concluding the
-  specification is silent.
+  specification is silent. **The sixteenth session is the sharper form of that**: image
+  reduction was recorded as unspecified in two places, and the clause that specifies it —
+  §10.7.4 — is in the same file, four clauses away from one the tree cites constantly. The
+  cheap move is `grep -n '^## '` over `ISO_32000-2_sponsored_EC3.md` and reading the *titles*
+  around the subject, which takes a minute and is how "scan conversion rules" was found at
+  all.
 - **Debug builds are ~15× slower here, and it changes what a test can assert.** The corpus
   gate is 1.6 s in release and minutes in debug. Any test with a timing assertion is
   meaningless at debug speed; run those in release and say so in the test. The oracle gate
