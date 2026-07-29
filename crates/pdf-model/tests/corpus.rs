@@ -84,19 +84,19 @@ const MAX_PAGELESS: usize = 19;
 /// | `Text` | 100 | CID encodings and embedded `CMap`s |
 /// | `Annotation` | 66 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
 /// | `Operator` | 31 | transparency groups, and text render modes |
-/// | `Image` | 30 | see below; inline images have left this row |
+/// | `Image` | 18 | see below; inline images and CCITT have left this row |
 /// | `Shading` | 28 | soft masks in `/ExtGState`, which is transparency rather than shading |
 /// | `Content` | 7 | a `/Contents` stream that did not decode |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
 ///
-/// The `Image` row was 161 before JBIG2 and JPEG 2000 landed, 42 after, and is 30 now that
-/// inline images (§8.9.7) draw and `Indexed`, `Separation` and `DeviceN` images unpack. What
-/// is left of it, counted per image rather than per document: 22 `CCITTFaxDecode`, 14 soft
-/// masks whose grid is not the image's (§11.6.5.2 Table 143 — see `image::unapplied_soft_mask`
-/// for why that is left undone rather than guessed), 7 `/Mask` entries, 5 images at a bit
-/// depth the unpacker refuses, 4 malformed streams, and two files the new decoders refuse:
-/// one JBIG2 with a segment type ISO/IEC 14492 does not define, and one 212-megapixel JPEG
-/// 2000 scan larger than the sandbox is given room to decode.
+/// The `Image` row was 161 before JBIG2 and JPEG 2000 landed, 42 after, 30 once inline images
+/// (§8.9.7) drew and `Indexed`, `Separation` and `DeviceN` images unpacked, and is 18 now that
+/// `CCITTFaxDecode` decodes (§7.4.6). What is left of it, counted per image rather than per
+/// document: 14 soft masks whose grid is not the image's (§11.6.5.2 Table 143 — see
+/// `image::unapplied_soft_mask` for why that is left undone rather than guessed), 7 `/Mask`
+/// entries, 5 images at a bit depth the unpacker refuses, 4 malformed streams, and two files
+/// the new decoders refuse: one JBIG2 with a segment type ISO/IEC 14492 does not define, and
+/// one 212-megapixel JPEG 2000 scan larger than the sandbox is given room to decode.
 ///
 /// This number has gone *up* four times, and every rise was the point.
 ///
@@ -196,7 +196,15 @@ const MAX_PAGELESS: usize = 19;
 /// `smaskdim.pdf` carry a soft mask whose sample grid is not their image's, which §11.6.5.2
 /// Table 143 expressly permits and this tree does not apply. All three were drawing an
 /// unmasked image in silence; `issue16263.pdf` puts black bars across its text.
-const MAX_INCOMPLETE: usize = 263;
+///
+/// **263 to 251 in the twelfth session**, and for once the arithmetic is simple: 12
+/// documents reported `CCITTFaxDecode` and none of them reports anything else, so all 12
+/// became complete when §7.4.6 landed. Nothing came back — which is worth stating rather
+/// than passing over, because every other feature in this list uncovered something behind
+/// it. What CCITT uncovered is not a *report*, it is a picture: `bug1001080.pdf` is now
+/// contradicted by the oracle for a reason that has nothing to do with the filter, and
+/// `oracle.rs`'s `CONTRADICTED_IMAGE_RESAMPLING` has it.
+const MAX_INCOMPLETE: usize = 251;
 
 /// How long one document may take before it counts as a failure.
 ///

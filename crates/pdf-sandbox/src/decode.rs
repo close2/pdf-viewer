@@ -1,14 +1,14 @@
-//! The two filters, as the worker implements them.
+//! The three image filters, as the worker implements them.
 //!
-//! This module is the only place in the tree where a JBIG2 or JPEG 2000 codestream is
+//! This module is the only place in the tree where a JBIG2, JPEG 2000 or CCITT codestream is
 //! looked at, and it runs after [`crate::lockdown::apply`] has taken away everything the
 //! process could do with what it finds there.
 //!
-//! Its job is the *filter*, not the codec. `hayro-jbig2` and `hayro-jpeg2000` implement
-//! ITU-T T.88 and T.800; ISO 32000-2 §7.4.7 and §7.4.9 say what a PDF filter built on them
-//! delivers, and the difference between those two statements is what is written here — the
-//! embedded segment organisation, the sense of a bilevel sample, the eight-bit sample
-//! format, and the bounds.
+//! Its job is the *filter*, not the codec. `hayro-jbig2`, `hayro-jpeg2000` and `hayro-ccitt`
+//! implement ITU-T T.88, T.800 and T.4/T.6; ISO 32000-2 §7.4.6, §7.4.7 and §7.4.9 say what a
+//! PDF filter built on them delivers, and the difference between those two statements is what
+//! is written here — the embedded segment organisation, the sense of a bilevel sample, the
+//! eight-bit sample format, and the bounds.
 //!
 //! # Where the boundary of responsibility is
 //!
@@ -17,7 +17,7 @@
 //! dictionary's `/ColorSpace` a question about the PDF, and answering it needs the image
 //! dictionary — which is on the other side of this boundary, deliberately.
 
-use crate::protocol::{Bilevel, Colour, Raster, Request};
+use crate::protocol::{Bilevel, CcittParameters, Colour, Raster, Request};
 use crate::{Decoded, SandboxError};
 
 /// Decodes in this process, with no confinement.
@@ -29,6 +29,7 @@ pub(crate) fn here(request: &Request<'_>) -> Result<Decoded, SandboxError> {
     let decoded = match request {
         Request::Jbig2 { data, globals } => jbig2(data, globals).map(Decoded::Bilevel),
         Request::Jpx { data, indices } => jpx(data, *indices).map(Decoded::Raster),
+        Request::Ccitt { data, parameters } => ccitt(data, *parameters).map(Decoded::Bilevel),
     };
     decoded.map_err(|detail| SandboxError::Undecodable { detail })
 }
@@ -83,27 +84,35 @@ pub(crate) fn jbig2(data: &[u8], globals: &[u8]) -> Result<Bilevel, String> {
         ));
     }
 
-    let mut rows = PackedRows::new(width, height);
+    let mut rows = PackedRows::new("JBIG2", width, height);
     image
         .decode(&mut rows)
         .map_err(|error| format!("JBIG2: {error}"))?;
     rows.finish()
 }
 
-/// Packs decoded pixels into the rows the `JBIG2Decode` filter delivers.
+/// Packs decoded pixels into the rows a bilevel filter delivers.
 ///
-/// Two things are happening at once here, and they are easy to conflate:
+/// **Packing only.** One bit per pixel, most significant bit first, each row starting on a
+/// byte boundary — what ISO 32000-2 Table 87 requires of a bilevel filter's output, and what
+/// the image pipeline already unpacks for every other 1-bit image, so neither filter needs a
+/// special case above this point.
 ///
-/// - **Packing.** One bit per pixel, most significant bit first, each row starting on a
-///   byte boundary. This is what ISO 32000-2 Table 87 requires of the filter's output, and
-///   it is what the image pipeline already unpacks for every other 1-bit image, so JBIG2
-///   needs no special case above this point.
-/// - **Inverting.** ISO/IEC 14492 gives a *set* pixel the value 1 and calls it black.
-///   `DeviceGray` gives black the value 0. The two conventions are opposite, so the bit
-///   written here is the complement of the bit decoded. Getting this backwards produces a
-///   photographic negative of a scanned page — wrong in a way that is obvious on sight and
-///   invisible to every metric, which is why it is stated rather than implied.
+/// **What a bit *means* belongs to each filter, not here**, because the two disagree and each
+/// disagrees with `DeviceGray`:
+///
+/// - ISO/IEC 14492 gives a *set* JBIG2 pixel the value 1 and calls it black, where
+///   `DeviceGray` gives black 0. So the [`hayro_jbig2::Decoder`] impl below writes the
+///   complement of what it is handed.
+/// - `CCITTFaxDecode` has no fixed answer: §7.4.6 Table 11's `/BlackIs1` decides it per
+///   image, and defaults to the PDF convention. So [`CcittRows`] applies that entry.
+///
+/// Getting either backwards produces a photographic negative of a scanned page — wrong in a
+/// way that is obvious on sight and invisible to every metric, which is why the two rules are
+/// stated separately rather than folded into one shared inversion.
 struct PackedRows {
+    /// Which filter this is packing for, so a length complaint names it.
+    filter: &'static str,
     /// Width in pixels, which is not in general a whole number of bytes.
     width: u32,
     /// Bytes in one packed row.
@@ -119,9 +128,10 @@ struct PackedRows {
 }
 
 impl PackedRows {
-    fn new(width: u32, height: u32) -> Self {
+    fn new(filter: &'static str, width: u32, height: u32) -> Self {
         let row_bytes = (width as usize).saturating_add(7) / 8;
         Self {
+            filter,
             width,
             row_bytes,
             height,
@@ -140,7 +150,8 @@ impl PackedRows {
         let expected = self.row_bytes.saturating_mul(self.height as usize);
         if self.rows.len() != expected {
             return Err(format!(
-                "JBIG2: the decoder produced {} packed bytes where {expected} were expected",
+                "{}: the decoder produced {} packed bytes where {expected} were expected",
+                self.filter,
                 self.rows.len()
             ));
         }
@@ -150,11 +161,10 @@ impl PackedRows {
             rows: self.rows,
         })
     }
-}
 
-impl hayro_jbig2::Decoder for PackedRows {
-    fn push_pixel(&mut self, black: bool) {
-        if !black {
+    /// Appends one sample, `one` being the bit the filter delivers rather than a colour.
+    fn push_bit(&mut self, one: bool) {
+        if one {
             self.partial |= 0x80u8 >> self.filled.min(7);
         }
         self.filled = self.filled.saturating_add(1);
@@ -165,22 +175,23 @@ impl hayro_jbig2::Decoder for PackedRows {
         }
     }
 
-    fn push_pixel_chunk(&mut self, black: bool, chunk_count: u32) {
-        // The contract says this arrives only on a byte boundary. Honouring that rather
-        // than assuming it costs one branch and means a future change upstream degrades
-        // into slower packing instead of into shifted pixels.
+    /// Appends `chunks` whole bytes of the same sample value.
+    fn push_byte_run(&mut self, one: bool, chunks: u32) {
+        // Both decoders' contracts say this arrives only on a byte boundary. Honouring that
+        // rather than assuming it costs one branch and means a future change upstream
+        // degrades into slower packing instead of into shifted pixels.
         if self.filled != 0 {
-            for _ in 0..chunk_count.saturating_mul(8) {
-                self.push_pixel(black);
+            for _ in 0..chunks.saturating_mul(8) {
+                self.push_bit(one);
             }
             return;
         }
-        let byte = if black { 0x00 } else { 0xFF };
-        self.rows
-            .extend(std::iter::repeat_n(byte, chunk_count as usize));
+        let byte = if one { 0xFF } else { 0x00 };
+        self.rows.extend(std::iter::repeat_n(byte, chunks as usize));
     }
 
-    fn next_line(&mut self) {
+    /// Closes the current row, padding the last byte.
+    fn end_row(&mut self) {
         if self.filled != 0 {
             // The bits past the image's width are not part of any sample: the unpacker
             // reads exactly `/Width` of them per row and stops. They are left clear.
@@ -188,6 +199,129 @@ impl hayro_jbig2::Decoder for PackedRows {
             self.partial = 0;
             self.filled = 0;
         }
+    }
+
+    /// Fills any rows the decoder never produced with the sample value `one`.
+    ///
+    /// Only `CCITTFaxDecode` uses this, and only because §7.4.6 Table 11 says in as many
+    /// words that the filter "shall stop when it has decoded the number of lines indicated by
+    /// Rows or when its data has been exhausted, whichever occurs first" — so a stream that
+    /// ends early is a legal stream, not a damaged one. What the *image* then shows for the
+    /// samples that were never delivered is not stated anywhere in ISO 32000-2, so it is a
+    /// choice, and it is made here: blank, which is what an unsent fax scan line is.
+    fn pad_to_height(&mut self, one: bool) {
+        self.end_row();
+        let expected = self.row_bytes.saturating_mul(self.height as usize);
+        let byte = if one { 0xFF } else { 0x00 };
+        while self.rows.len() < expected {
+            self.rows.push(byte);
+        }
+    }
+}
+
+impl hayro_jbig2::Decoder for PackedRows {
+    fn push_pixel(&mut self, black: bool) {
+        self.push_bit(!black);
+    }
+
+    fn push_pixel_chunk(&mut self, black: bool, chunk_count: u32) {
+        self.push_byte_run(!black, chunk_count);
+    }
+
+    fn next_line(&mut self) {
+        self.end_row();
+    }
+}
+
+/// Decodes a CCITT fax-encoded image.
+///
+/// ISO 32000-2 §7.4.6: Group 3 or Group 4 encoding as ITU-T T.4 and T.6 define it, with
+/// Table 11's parameters deciding which. Everything PDF-specific about it is in these thirty
+/// lines, because `hayro-ccitt` implements the two ITU recommendations and nothing else:
+///
+/// - **Which scheme.** Table 11 says the filter "shall distinguish among negative, zero, and
+///   positive values of K to determine how to interpret the encoded data; however, it shall
+///   not distinguish between different positive K values" — so the sign selects, and the
+///   magnitude is carried through for the mixed mode's own use rather than compared.
+/// - **The sense of a bit**, which `/BlackIs1` decides. See [`CcittRows`].
+/// - **Where the image ends**, which is [`PackedRows::pad_to_height`]'s paragraph.
+///
+/// # Errors
+///
+/// Returns a description of what the decoder refused. A malformed stream is reported rather
+/// than partially drawn: the decoder can leave usable rows behind an error, and taking them
+/// would be a page that is silently missing its bottom half.
+pub(crate) fn ccitt(data: &[u8], parameters: CcittParameters) -> Result<Bilevel, String> {
+    use hayro_ccitt::{DecodeSettings, DecoderContext, EncodingMode};
+
+    let (width, height) = (parameters.columns, parameters.rows);
+    let pixels = u64::from(width).saturating_mul(u64::from(height));
+    if pixels > MAX_PIXELS {
+        return Err(format!(
+            "CCITTFaxDecode: {width}x{height} exceeds {MAX_PIXELS} pixels"
+        ));
+    }
+
+    let settings = DecodeSettings {
+        columns: width,
+        rows: height,
+        end_of_block: parameters.end_of_block,
+        end_of_line: parameters.end_of_line,
+        rows_are_byte_aligned: parameters.encoded_byte_align,
+        encoding: match parameters.k {
+            ..0 => EncodingMode::Group4,
+            0 => EncodingMode::Group3_1D,
+            k => EncodingMode::Group3_2D {
+                k: k.unsigned_abs(),
+            },
+        },
+        // Left false, and `/BlackIs1` applied in `CcittRows` instead: the decoder's flag and
+        // the PDF entry mean the same thing here, and having one place that turns a colour
+        // into a sample keeps the clause beside the line that implements it.
+        invert_black: false,
+    };
+
+    let mut rows = CcittRows {
+        packed: PackedRows::new("CCITTFaxDecode", width, height),
+        black_is_1: parameters.black_is_1,
+    };
+    hayro_ccitt::decode(data, &mut rows, &mut DecoderContext::new(settings))
+        .map_err(|error| format!("CCITTFaxDecode: {error}"))?;
+
+    // White, in whichever sense this image's `/BlackIs1` gives the word.
+    rows.packed.pad_to_height(!parameters.black_is_1);
+    rows.packed.finish()
+}
+
+/// Packs a CCITT decode, applying `/BlackIs1`.
+///
+/// ISO 32000-2 §7.4.6 Table 11 defines the entry as
+///
+/// > A flag indicating whether bits with a value of 1 shall be interpreted as black pixels
+/// > and 0 bits as white pixels, the reverse of the normal PDF syntactic convention for image
+/// > data. Default value: false .
+///
+/// So a white pixel is the bit 1 by default and the bit 0 when `/BlackIs1` is true, which is
+/// the single exclusive-or below. Unlike JBIG2's inversion this is not a property of the
+/// codec — the same encoded bytes mean opposite pictures in two documents that differ only in
+/// this entry.
+struct CcittRows {
+    packed: PackedRows,
+    black_is_1: bool,
+}
+
+impl hayro_ccitt::Decoder for CcittRows {
+    fn push_pixel(&mut self, white: bool) {
+        self.packed.push_bit(white != self.black_is_1);
+    }
+
+    fn push_pixel_chunk(&mut self, white: bool, chunk_count: u32) {
+        self.packed
+            .push_byte_run(white != self.black_is_1, chunk_count);
+    }
+
+    fn next_line(&mut self) {
+        self.packed.end_row();
     }
 }
 

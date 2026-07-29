@@ -162,6 +162,10 @@ pub fn decode(
             false,
         ),
         Some(b"JPXDecode") => decode_jpx(document, dict, &source, width, height, is_mask, fill)?,
+        Some(b"CCITTFaxDecode" | b"CCF") => (
+            decode_ccitt(document, dict, &source, width, height, is_mask, fill)?,
+            false,
+        ),
         Some(other) => {
             return Err(ImageError::UnsupportedFilter {
                 filter: String::from_utf8_lossy(other).into_owned(),
@@ -603,6 +607,115 @@ fn decode_jbig2(
         return Err(ImageError::Malformed {
             detail: format!(
                 "JBIG2 page is {}x{} but the dictionary says {width}x{height}",
+                bilevel.width, bilevel.height
+            ),
+        });
+    }
+
+    let space = if is_mask {
+        ColourSpace::Mask
+    } else {
+        colour_space(document, dict)?
+    };
+    unpack(
+        &bilevel.rows,
+        width,
+        height,
+        1,
+        &space,
+        decode_inverts(document, dict),
+        fill,
+    )
+}
+
+/// Decodes a CCITT fax-encoded image through the sandbox.
+///
+/// ISO 32000-2 §7.4.6. Everything the decoder needs is in Table 11's `/DecodeParms`, and
+/// every entry there has a default, so this function's whole job is to turn a dictionary that
+/// may be absent into a complete description — and to refuse the two cases where the
+/// dictionary says something this cannot honour rather than quietly doing something else.
+///
+/// # The two refusals, and why they are refusals
+///
+/// **`/DamagedRowsBeforeError` above zero.** Table 11 defines it as the number of damaged rows
+/// tolerated before an error, where tolerating one means "locating its end in the encoded data
+/// by searching for an `EndOfLine` pattern and then substituting decoded data from the previous
+/// row". That is error *concealment*, the decoder underneath has none, and a document that
+/// asks for it is a document that expects damage — so drawing what came out anyway would be
+/// drawing an image whose producer said in advance it might be wrong.
+///
+/// **`/Columns` disagreeing with `/Width`.** The filter delivers rows of `/Columns` samples
+/// padded to a byte boundary; §8.9.5.1 says the image is `/Width` samples wide. Where the two
+/// differ the row stride the unpacker assumes is not the stride the filter produced, and
+/// nothing in ISO 32000-2 says which of the two statements wins. Reported rather than guessed.
+fn decode_ccitt(
+    document: &Document,
+    dict: &Dictionary,
+    source: &ImageStream,
+    width: u32,
+    height: u32,
+    is_mask: bool,
+    fill: pdf_render::Color,
+) -> Result<Vec<u8>, ImageError> {
+    let parms = source.parms.as_ref();
+    let integer = |key: &str, default: i64| -> i64 {
+        parms
+            .map(|parms| document.get_key(parms, key))
+            .and_then(|value| value.as_integer())
+            .unwrap_or(default)
+    };
+    let flag = |key: &str, default: bool| -> bool {
+        match parms.map(|parms| document.get_key(parms, key)) {
+            Some(Object::Boolean(value)) => value,
+            _ => default,
+        }
+    };
+
+    let damaged_rows = integer("DamagedRowsBeforeError", 0);
+    if damaged_rows > 0 {
+        return Err(ImageError::UnsupportedFilter {
+            filter: format!("CCITTFaxDecode with /DamagedRowsBeforeError {damaged_rows}"),
+        });
+    }
+
+    let columns = u32::try_from(integer("Columns", 1728)).unwrap_or(0);
+    if columns != width {
+        return Err(ImageError::Malformed {
+            detail: format!("CCITTFaxDecode /Columns {columns} is not the image's width {width}"),
+        });
+    }
+
+    let parameters = pdf_sandbox::CcittParameters {
+        k: i32::try_from(integer("K", 0)).unwrap_or(0),
+        columns,
+        // Table 11: a zero or absent `/Rows` means the height "is not predetermined", so the
+        // image dictionary's `/Height` is the only statement of it left.
+        rows: match u32::try_from(integer("Rows", 0)).unwrap_or(0) {
+            0 => height,
+            rows => rows,
+        },
+        end_of_line: flag("EndOfLine", false),
+        encoded_byte_align: flag("EncodedByteAlign", false),
+        end_of_block: flag("EndOfBlock", true),
+        black_is_1: flag("BlackIs1", false),
+    };
+
+    let decoded = pdf_sandbox::decode(&Request::Ccitt {
+        data: &source.data,
+        parameters,
+    })
+    .map_err(|error| ImageError::Sandboxed {
+        detail: error.to_string(),
+    })?;
+    let Decoded::Bilevel(bilevel) = decoded else {
+        return Err(ImageError::Malformed {
+            detail: "CCITTFaxDecode did not decode to bilevel samples".to_owned(),
+        });
+    };
+    if (bilevel.width, bilevel.height) != (width, height) {
+        return Err(ImageError::Malformed {
+            detail: format!(
+                "CCITTFaxDecode produced {}x{} but the dictionary says {width}x{height}",
                 bilevel.width, bilevel.height
             ),
         });

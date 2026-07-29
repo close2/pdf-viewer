@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hayro-ccitt.workspace = true
 hayro-jbig2.workspace = true
 hayro-jpeg2000.workspace = true
 landlock.workspace = true

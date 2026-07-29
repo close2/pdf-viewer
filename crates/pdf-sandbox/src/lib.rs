@@ -83,7 +83,7 @@ pub mod lockdown;
 mod protocol;
 mod worker;
 
-pub use protocol::{Bilevel, Colour, Raster, Request};
+pub use protocol::{Bilevel, CcittParameters, Colour, Raster, Request};
 pub use worker::serve;
 
 use std::io::{Read as _, Write as _};

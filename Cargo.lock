@@ -1823,6 +1823,7 @@ dependencies = [
 name = "pdf-sandbox"
 version = "0.1.0"
 dependencies = [
+ "hayro-ccitt",
  "hayro-jbig2",
  "hayro-jpeg2000 0.4.0",
  "landlock",

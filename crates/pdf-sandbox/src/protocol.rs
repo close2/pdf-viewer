@@ -31,6 +31,8 @@ const REQUEST_HEADER_LEN: usize = 1 + 1 + 4 + 4;
 const KIND_JBIG2: u8 = 1;
 /// Request kind: the `JPXDecode` filter.
 const KIND_JPX: u8 = 2;
+/// Request kind: the `CCITTFaxDecode` filter.
+const KIND_CCITT: u8 = 3;
 
 /// Request flag: return palette indices rather than colours. `JPXDecode` only.
 const FLAG_INDICES: u8 = 1 << 0;
@@ -74,6 +76,124 @@ pub enum Request<'a> {
         /// an index stretched to eight bits is a different index.
         indices: bool,
     },
+    /// The `CCITTFaxDecode` filter (ISO 32000-2 §7.4.6).
+    Ccitt {
+        /// The encoded bit stream, after any filter that precedes this one in the chain.
+        data: &'a [u8],
+        /// Table 11's parameters, already resolved against their defaults by the caller.
+        parameters: CcittParameters,
+    },
+}
+
+/// ISO 32000-2 §7.4.6 Table 11's optional parameters, resolved.
+///
+/// Resolved, not raw: every field here has a value, because Table 11 gives every one of them
+/// a default and the place that can read a `/DecodeParms` dictionary is the place that can
+/// apply those defaults. What crosses the pipe is therefore a complete description of what to
+/// decode, which is what lets the worker hold no opinion about PDF at all.
+///
+/// `/DamagedRowsBeforeError` is deliberately absent: it is the one entry this decoder cannot
+/// honour, so it is refused where the dictionary is read rather than dropped here — see
+/// `pdf_model::image`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the fields are Table 11's entries and the count is the standard's; a state \
+              machine or two-variant enums would make the correspondence unreadable"
+)]
+pub struct CcittParameters {
+    /// `/K`. Negative selects Group 4, zero Group 3 one-dimensional, positive Group 3 mixed.
+    pub k: i32,
+    /// `/Columns`, the width of the image in pixels. Table 11's default is 1728.
+    pub columns: u32,
+    /// How many rows to decode.
+    ///
+    /// `/Rows` where the document gives a non-zero one. Table 11 says a zero or absent
+    /// `/Rows` means "the image's height is not predetermined", and the only other statement
+    /// of that height is the image dictionary's `/Height` (§8.9.5.1) — which is on the other
+    /// side of this pipe, so the caller substitutes it and this field is never zero.
+    pub rows: u32,
+    /// `/EndOfLine`: whether end-of-line bit patterns are present. Default false.
+    pub end_of_line: bool,
+    /// `/EncodedByteAlign`: whether each encoded line begins on a byte boundary. Default
+    /// false.
+    pub encoded_byte_align: bool,
+    /// `/EndOfBlock`: whether an end-of-block pattern terminates the data. Default true.
+    pub end_of_block: bool,
+    /// `/BlackIs1`: whether a 1 bit is black, "the reverse of the normal PDF syntactic
+    /// convention for image data". Default false.
+    pub black_is_1: bool,
+}
+
+impl Default for CcittParameters {
+    /// Table 11's defaults, except for [`Self::rows`] — see its documentation.
+    fn default() -> Self {
+        Self {
+            k: 0,
+            columns: 1728,
+            rows: 0,
+            end_of_line: false,
+            encoded_byte_align: false,
+            end_of_block: true,
+            black_is_1: false,
+        }
+    }
+}
+
+/// How many bytes [`CcittParameters`] occupies on the wire.
+const CCITT_PARAMETERS_LEN: usize = 4 + 4 + 4 + 1;
+
+/// Bit positions of the four booleans, in Table 11's order.
+const CCITT_END_OF_LINE: u8 = 1 << 0;
+const CCITT_ENCODED_BYTE_ALIGN: u8 = 1 << 1;
+const CCITT_END_OF_BLOCK: u8 = 1 << 2;
+const CCITT_BLACK_IS_1: u8 = 1 << 3;
+
+impl CcittParameters {
+    /// The fixed-width encoding that travels in a request's auxiliary payload.
+    fn encode(self) -> [u8; CCITT_PARAMETERS_LEN] {
+        let mut out = [0u8; CCITT_PARAMETERS_LEN];
+        let (k, rest) = out.split_at_mut(4);
+        k.copy_from_slice(&self.k.to_be_bytes());
+        let (columns, rest) = rest.split_at_mut(4);
+        columns.copy_from_slice(&self.columns.to_be_bytes());
+        let (rows, flags) = rest.split_at_mut(4);
+        rows.copy_from_slice(&self.rows.to_be_bytes());
+        for (set, bit) in [
+            (self.end_of_line, CCITT_END_OF_LINE),
+            (self.encoded_byte_align, CCITT_ENCODED_BYTE_ALIGN),
+            (self.end_of_block, CCITT_END_OF_BLOCK),
+            (self.black_is_1, CCITT_BLACK_IS_1),
+        ] {
+            if set {
+                flags[0] |= bit;
+            }
+        }
+        out
+    }
+
+    /// Reads the encoding above, or `None` if it is not one.
+    ///
+    /// Length-checked like every other field the worker receives: the pipe carries no
+    /// invariants, and a short parameter block must be a refusal rather than a default.
+    fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != CCITT_PARAMETERS_LEN {
+            return None;
+        }
+        let k = i32::from_be_bytes(bytes.get(0..4)?.try_into().ok()?);
+        let columns = u32::from_be_bytes(bytes.get(4..8)?.try_into().ok()?);
+        let rows = u32::from_be_bytes(bytes.get(8..12)?.try_into().ok()?);
+        let flags = *bytes.get(12)?;
+        Some(Self {
+            k,
+            columns,
+            rows,
+            end_of_line: flags & CCITT_END_OF_LINE != 0,
+            encoded_byte_align: flags & CCITT_ENCODED_BYTE_ALIGN != 0,
+            end_of_block: flags & CCITT_END_OF_BLOCK != 0,
+            black_is_1: flags & CCITT_BLACK_IS_1 != 0,
+        })
+    }
 }
 
 /// A decoded bilevel image.
@@ -182,6 +302,8 @@ pub(crate) fn parse_handshake(greeting: &[u8; HANDSHAKE_LEN]) -> Option<Confinem
 
 /// Encodes a request.
 pub(crate) fn encode_request(request: &Request<'_>) -> Vec<u8> {
+    // Outlives the borrow the match arm takes of it, which is why it is declared here.
+    let encoded_parameters;
     let (kind, flags, primary, auxiliary) = match request {
         Request::Jbig2 { data, globals } => (KIND_JBIG2, 0, *data, *globals),
         Request::Jpx { data, indices } => (
@@ -190,6 +312,10 @@ pub(crate) fn encode_request(request: &Request<'_>) -> Vec<u8> {
             *data,
             [].as_slice(),
         ),
+        Request::Ccitt { data, parameters } => {
+            encoded_parameters = parameters.encode();
+            (KIND_CCITT, 0, *data, encoded_parameters.as_slice())
+        }
     };
 
     let mut out = Vec::with_capacity(
@@ -246,13 +372,14 @@ pub(crate) fn read_request(input: &mut impl std::io::Read) -> std::io::Result<Op
 /// A request as it arrived, before it is known to name a filter this worker implements.
 #[derive(Debug)]
 pub(crate) struct Wire {
-    /// Which filter, as [`KIND_JBIG2`] or [`KIND_JPX`].
+    /// Which filter, as [`KIND_JBIG2`], [`KIND_JPX`] or [`KIND_CCITT`].
     pub(crate) kind: u8,
     /// Per-filter flags, currently only [`FLAG_INDICES`].
     pub(crate) flags: u8,
     /// The image's own stream.
     pub(crate) primary: Vec<u8>,
-    /// The globals stream, where the filter has one.
+    /// Whatever the filter needs beside its data: JBIG2's globals stream, or
+    /// `CCITTFaxDecode`'s parameter block.
     pub(crate) auxiliary: Vec<u8>,
 }
 
@@ -275,6 +402,10 @@ pub(crate) fn typed_request(wire: &Wire) -> Option<Request<'_>> {
         KIND_JPX => Some(Request::Jpx {
             data: &wire.primary,
             indices: wire.flags & FLAG_INDICES != 0,
+        }),
+        KIND_CCITT => Some(Request::Ccitt {
+            data: &wire.primary,
+            parameters: CcittParameters::decode(&wire.auxiliary)?,
         }),
         _ => None,
     }

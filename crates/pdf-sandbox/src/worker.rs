@@ -61,6 +61,9 @@ fn answer(request: &protocol::Request<'_>) -> Vec<u8> {
         protocol::Request::Jpx { data, indices } => {
             decode::jpx(data, *indices).map(Decoded::Raster)
         }
+        protocol::Request::Ccitt { data, parameters } => {
+            decode::ccitt(data, *parameters).map(Decoded::Bilevel)
+        }
     };
     match decoded {
         Ok(decoded) => protocol::encode_response(&decoded),
