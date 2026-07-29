@@ -549,11 +549,12 @@ documents' first pages it affects.
 | `CCITTFaxDecode` | 12 | Small | The last image codec absent, and now cheap: `hayro-ccitt` is already in the tree as `hayro-jbig2`'s MMR dependency. The count rose from 5 when inline images started drawing: seven documents write theirs inline, and a fax-encoded inline image used to be reported as an inline image. |
 | Text: CID encodings, embedded `CMap`s | 100 | Medium | The breakdown from the gate's own output, counting *fonts* rather than documents: 27 with no `/ToUnicode` so a substitute cannot be addressed, 26 with a non-identity `/CIDToGIDMap`, 23 whose substitute draws none of the codes the document declares, 14 with an embedded `CMap` stream, 6 with a predefined `CMap` (`90ms-RKSJ-H`, `UniJIS-UTF16-H`, …), 3 asking for vertical writing (below). Only the predefined `CMap`s need vendored data, which is a licensing decision rather than a coding one. |
 | Synthesised annotation appearances | 63 | Medium–large | An annotation with **no** `/AP` must be drawn from `/IC`, `/C`, `/BS`, `/Border` and its subtype's own rules — a different routine per subtype. 26 `Widget`, 18 `Link`, and the rest markup annotations. Reported, never guessed. ADR 0013. |
-| Transparency groups, soft masks | 45 | Large | 26 report as `Shading`, 19 as `Operator`. The largest *rendering* gap, and the last thing `doc/` reports. **Knockout groups (§11.4.6) are a silent subset** and the ledger's first `silent` row: `knockout_*.pdf` render as if the group were not a knockout, nothing looks at `/Group /K`, and nothing reports it. |
+| Transparency groups, soft masks | 29 | Large | The largest *rendering* gap, and the last thing `doc/` reports. What reports is a soft mask in an `/ExtGState`, on 29 documents, as `Shading { name: "SMask in /GSn" }`. A transparency **group** reports nothing at all: it is drawn as an ordinary form `XObject`, so `/Group`, its isolation and its knockout flag are silent. §11.4.6 is the ledger's first `silent` row for that reason. (This row said 45 documents, "26 as `Shading`, 19 as `Operator`", until the eleventh session checked it: the 19 `Operator` reports are the text render modes two rows down. A number in this file that nothing recomputes is a number that drifts.) |
 | Encryption | 20 | Medium | RC4/AES, `/Encrypt`. 11 documents cannot reach page one at all and 9 more draw a blank page. |
 | Form field appearance construction | 7 | Medium | `/NeedAppearances` (§12.7.4.3). The field's value is known only at viewing time, so its appearance has to be built from `/V`, `/DA` and `/Q`. The stored appearance is drawn and the staleness reported. |
 | Optional content: the interactive half | — | Medium | §8.11 is honoured wherever it decides what is *drawn* (ADR 0017). What is missing is a layer panel and what feeds it: `/Usage` and the `/AS` usage application dictionaries (§8.11.4.4), which switch groups by zoom, language or print state, and `/Order`, `/ListMode`, `/RBGroups`, `/Locked` and the alternate `/Configs`. §8.11.4.4 is the ledger's second `silent` row: this viewer has a window, so those requirements do apply to it, and a layer that should switch itself off is drawn with nothing said. |
-| `LZWDecode` | 3 | Small | One of the two standard filters still absent, the other being `CCITTFaxDecode` above. A test pins the report and will fail when it lands. |
+| `LZWDecode` | 0 | Small | One of the two standard filters still absent, the other being `CCITTFaxDecode` above. **This row said 3 and the three were miscounted**: `bug864847.pdf`, `XiaoBiaoSong.pdf` and `SimFang-variant.pdf` contain the string `LZWDecode` and all three draw page one completely, so nothing in the corpus exercises it on a first page. `colour_paths.rs` pins the report on a synthetic file and will fail when the filter lands — which is the only instrument that covers it, and trap 8 in one line. |
+| Stroked text (`Tr` 1 and 2) | 14 | Medium | §9.3.6: mode 1 strokes a glyph's outline with the current stroking parameters and mode 2 fills *and* strokes. Both are approximated as a fill in the non-stroking colour, which is closer than drawing nothing and is reported as `text render mode 1` or `2` — so a page that outlines its display type comes out solid. **This row was missing from this table until the eleventh session audited it**, though the approximation and its report have been in `show_text` since the eighth. Implementing it means a `Command::Stroke` carrying the glyph outline, which `pdf-render` already expresses. |
 | Text clipping modes (`Tr` 4–7) | 5 | Medium | Modes 4 to 7 add the glyphs to the clipping path, which takes effect at `ET` and lasts until the state is restored (§9.3.6 Table 106, §9.4.1). We build no clip, so a rectangle painted afterwards to show through the letters covers its whole area — `text_clip_cff_cid.pdf` drew a solid bar over the word. Now reported; a test pins that and will fail when the clip lands. Implementing it means accumulating the glyph outlines of a text object into one clip path. |
 | Image `/Mask` | 8 | Medium | Explicit masking by a second image (§8.9.6.3) and colour-key range array (§8.9.6.4). Not to be confused with §8.9.6.2, *stencil* masking, which is the image's own `/ImageMask` and is implemented and tested. Only `/SMask` is honoured, so the masked-out part is drawn — `colorkeymask.pdf` painted a band all three references hide. Now reported, with a test. The colour-key form must be applied to the *source* samples, before colour conversion, which is why it is not a two-line change. |
 | Image reduction quality | 1 | Small | The *other* half of §8.9.5.3, which the clause does not address: `/Interpolate` is honoured for magnification (eleventh session), and a reduced image is still filtered bilinearly whatever the reduction. `firefox_logo.pdf` shrinks a 512x543 image eightfold and misses the oracle's bound by 0.02. |
@@ -605,11 +606,11 @@ Over the 974-document pdf.js corpus, page one:
 That 71% is the number to quote for *reporting*, and it **rose** by two points in the eleventh
 session and by one in the tenth: inline images and the four colour space families the image
 unpacker refused account for 23 documents, and three began saying that their soft mask is not
-the size of its image. Both halves are the point. It **fell** from 72% in the eighth session, when 24 documents began saying they
-carry a Type 3 font and 19 that their substitute draws none of the codes the document
-declares — nothing had stopped drawing correctly, what stopped was drawing *incorrectly in
-silence*, and `issue918.pdf` was emitting 388 text operations of letter fragments while
-reporting nothing.
+the size of its image. Both halves are the point. It **fell** from 72% in the eighth session,
+when 24 documents began saying they carry a Type 3 font and 19 that their substitute draws
+none of the codes the document declares — nothing had stopped drawing correctly, what stopped
+was drawing *incorrectly in silence*, and `issue918.pdf` was emitting 388 text operations of
+letter fragments while reporting nothing.
 
 It went down in the sixth session too, from 68% to 60%, for the same kind of reason, and up
 in the seventh when JBIG2 and JPEG 2000 landed. **This number measures honesty, and honesty
@@ -685,7 +686,7 @@ done; the parts that make a document *interactive* are not started.
 | | |
 |---|---|
 | Content-stream operators | **73 of 73** in Table 50 (`ID`/`EI` are consumed inside the `BI` handler rather than as arms). `d0` and `d1` landed with Type 3 fonts and were the last two. `BMC`/`EMC` maintain the optional-content stack; `MP`/`DP`/`BX`/`EX`/`i` are matched and deliberately ignored. `BI` draws its image as of the eleventh session; before it, the row was the standing example that an operator having an arm is not the same as its being implemented. |
-| Filters | **7 of 8** standard filters decode: `ASCIIHex`, `ASCII85`, `Flate`, `RunLength`, `Crypt` (pass-through), plus `DCTDecode`, **`JBIG2Decode` and `JPXDecode`** for images. `LZWDecode` is **absent** (3 corpus documents) and `CCITTFaxDecode` is reported, not decoded (12, seven of them inline). Table 92's abbreviations are expanded in `inline_image.rs`, so the filter layer sees full names. |
+| Filters | **7 of 8** standard filters decode: `ASCIIHex`, `ASCII85`, `Flate`, `RunLength`, `Crypt` (pass-through), plus `DCTDecode`, **`JBIG2Decode` and `JPXDecode`** for images. `LZWDecode` is **absent** (no corpus first page reaches one) and `CCITTFaxDecode` is reported, not decoded (12 documents, seven of them inline). Table 92's abbreviations are expanded in `inline_image.rs`, so the filter layer sees full names. |
 | Colour spaces | **11 of 11** families, and the three CIE-based ones are converted rather than approximated. |
 | Function types | **4 of 4** (sampled, exponential, stitching, `PostScript` calculator). |
 | Shading types | **7 of 7**, on both backends. |
@@ -724,11 +725,12 @@ made §9.6.4, §9.6.5 and §8.6.8 the obvious families; inline images made the w
 reading it produced four defects that had nothing to do with inline images and one wrong
 citation that named a real clause.
 
-The one-line version of the demand track: **108 pages we claim to draw are contradicted, 64
-of them for no reason visible on the page. `CCITTFaxDecode` is now the largest named image gap
-at 12 documents and is nearly free, and synthesised annotation appearances are the largest gap
-of any kind at 63.** The one-line version of the spec track: **25 clauses the code already
-cites have never been read against it**, and they are named in `REVIEW_OWED`.
+The one-line version of the demand track: **108 pages we claim to draw are contradicted, 64 of
+them for no reason visible on the page. `CCITTFaxDecode` is now the largest named image gap at
+12 documents and is nearly free; the two largest gaps of any kind are text — 100 documents
+naming a CID encoding or an embedded `CMap` — and synthesised annotation appearances at 63.**
+The one-line version of the spec track: **25 clauses the code already cites have never been
+read against it**, and they are named in `REVIEW_OWED`.
 
 ### 0. The ledger, and the cheapest reviews available
 
@@ -737,11 +739,11 @@ the ones the code already points at.
 
 - **Work `REVIEW_OWED` down.** 25 clauses, each already cited by the code that implements it,
   so the reading is against something that exists rather than against a blank. Take them by
-  family — §8.6.5 is six of them, §12.5 is four — because that is how the standard distributes
-  its requirements, and because §9.6.5.4 was missed for the opposite reason: nobody had read
-  §9.6.5 as a unit. **Expect findings**: five families have now been reviewed and they have
-  produced twelve, four of them in §8.9 and three in one clause (§8.6.8) that had looked like
-  a formality.
+  family — §8.6.5 is five of them, §12.5 another five — because that is how the standard
+  distributes its requirements, and because §9.6.5.4 was missed for the opposite reason:
+  nobody had read §9.6.5 as a unit. **Expect findings**: five families have now been reviewed
+  and they have produced twelve, four of them in §8.9 and three in one clause (§8.6.8) that
+  had looked like a formality.
 - **Prefer the family belonging to whatever else the session is doing.** §8.6.8, §8.9 (all of
   it), §9.6.4 and §9.6.5 are done; §11.4 if transparency groups are the demand item, §12.5.6
   if synthesised appearances are, §7.6 if encryption is. Record every row, including the ones
@@ -750,16 +752,16 @@ the ones the code already points at.
 - **Two `silent` rows are open**, and they are the most valuable kind. §11.4.6 (knockout
   groups) and §8.11.4.4 (usage dictionaries) are drawn wrong with nothing said. Either
   implementing them or making them *report* is progress; the second is much cheaper and is
-  what principle 3 actually requires.
+  what principle 3 actually requires. A third silence hides *inside* a `partial` row —
+  §8.9.5.2's general `/Decode` array — which is worth remembering when reading the ledger by
+  status: a clause can be half implemented and quiet about the other half.
 
 Four cheap items carried over from the seventh session, listed before the big lists because
 they are small:
 
-- **`CCITTFaxDecode`** is **12** corpus first pages — it was 5 until inline images started
-  drawing and seven documents turned out to write theirs inline — and is now nearly free:
-  `hayro-ccitt` is already in the dependency tree, pulled in as `hayro-jbig2`'s MMR decoder,
-  and the filter would be an arm in `image.rs` plus the same `Bilevel` round trip JBIG2
-  already uses. It is the largest named *image* gap and the cheapest thing on this list.
+- **`CCITTFaxDecode`**, which has grown from 5 corpus first pages to 12 and is still nearly
+  free. It has its own section below, because it is now the demand track's obvious next item
+  rather than a footnote.
 - **Sandbox the interpreter and rasteriser too.** Spike D exists and is exercised; the rest
   of the renderer still runs in the main process, which is the half of principle 3 that is
   not yet built. The protocol would have to carry a display list rather than an image, which
@@ -824,10 +826,10 @@ round trip JBIG2 already uses. §7.4.6 is the clause and it owes a review — `/
 whose defaults decide what the image looks like, and `ccitt_EndOfBlock_false.pdf` is in the
 corpus precisely because one of them is easy to get wrong.
 
-### 3. The three silent gaps still open
+### 3. The five gaps that draw a page visibly wrong
 
-Each is loud, each has a test that will fail when it lands, and each is a page drawn visibly
-wrong today:
+Four of them are loud — they report, and most have a test that will fail when the gap is
+closed. The `/Decode` one is the one to take first if a silence is what you are after:
 
 - **Text clipping modes** (`Tr` 4–7, §9.3.6 Table 106 and §9.4.1). The glyphs of a text
   object join the clipping path at `ET` and stay until the state is restored. Implementing it
@@ -838,20 +840,32 @@ wrong today:
   be applied to the *source* samples before colour conversion, which is why it is not a
   two-line change in `image.rs`. 8 corpus first pages report it. Stencil masking (§8.9.6.2) —
   the image's *own* `/ImageMask` — is a different thing and is implemented.
-- **A general `/Decode` array** (§8.9.5.2). Only the fully-inverted form `[1 0]` is applied;
-  any other linear map is ignored **and not reported**, which makes this the newest `silent`
-  row in the ledger. The formula is two multiplications per component; the reason it has not
-  been written is that the device fast paths unpack `u8` without touching floating point, so
-  applying it everywhere would cost the hot loop. A `Decode` that is neither the default nor
-  the inversion is rare enough that reporting it would be a good first move.
+- **A general `/Decode` array** (§8.9.5.2), and this is the silent one. Only the
+  fully-inverted form `[1 0]` is applied; any other linear map is ignored **and not
+  reported**. The ledger records it inside a `partial` row rather than as a `silent` one,
+  because the clause's defaults *are* implemented — which is a limit of a one-word status
+  worth knowing about when hunting for silence. The formula is two multiplications per
+  component; the reason it has not been written is that the device fast paths unpack `u8`
+  without touching floating point, so applying it everywhere would cost the hot loop. A
+  `Decode` that is neither the default nor the inversion is rare enough that reporting it
+  would be a good first move.
 - **`/UserUnit`** (§7.7.3.3), which scales the page. 2 corpus documents, and the only reason
   it matters more than that count suggests is that getting a page's *size* wrong invalidates
   every comparison on it.
+- **A soft mask whose sample grid is not its image's** (§11.6.5.2 Table 143). 3 corpus
+  documents, reported since the eleventh session, and `issue16263.pdf` draws black bars across
+  a page of text because of it. This one is a *design* question rather than a coding one, and
+  the reason it was left: combining an image with a mask of another size means choosing a
+  grid, and both choices are bad — the image's loses the mask's detail, the mask's costs its
+  whole area, which for a 2x2 image with a 34862x4332 mask is 604 MB. The answer the clause
+  actually describes is compositing the two at *device* resolution, which means the display
+  list carrying an image and its mask separately and both backends sampling them. That is a
+  `pdf-render` change and belongs to whoever takes transparency groups, since a group's soft
+  mask has the same shape.
 
 ### 4. Synthesised annotation appearances, if the corpus count is the argument
 
-63 documents carry an annotation with no `/AP`, which is now the largest reported gap of any
-kind.
+63 documents carry an annotation with no `/AP`, second only to the 100 that report a font.
 It is genuinely a different drawing routine per subtype and should not be started as one
 task. If it is taken, take it one subtype at a time in corpus order: `Widget` (26), `Link`
 (18, and its whole appearance is a border — §12.5.6.5 with §12.5.4), then the markup
@@ -861,14 +875,18 @@ references guess differently.
 
 ### 5. Then, by what the corpus says real documents need
 
-**Soft masks and transparency groups** (45 documents, and the last thing `doc/` reports),
+**Soft masks and transparency groups** (29 documents report a soft mask, and it is the last
+thing `doc/` reports; a group itself reports nothing),
 **encryption** (20 documents — 11 cannot reach page one, 9 more draw a blank page and now
 say so), and **CID encodings** (100 fonts; note that only 6 of those need the predefined
 `CMap` data with its licensing question, and 3 need vertical writing — the rest need code).
 **Type1 fonts** are smaller than they look: no corpus page one reaches one.
 
-All three announce themselves, which is why they sit below the items above: a gap that
-reports is a gap you can measure and schedule, and a gap that does not is a gap that ships.
+All three announce themselves — with one exception worth knowing about, since it is the kind
+this file keeps warning about: a transparency *group* is drawn as an ordinary form `XObject`
+and says nothing, and what reports on those 29 documents is the soft mask beside it. Otherwise
+they sit below the items above because a gap that reports is a gap you can measure and
+schedule, and a gap that does not is a gap that ships.
 
 ### Where the time went, and where it still goes
 
@@ -982,11 +1000,12 @@ The 316 incomplete pages are compared and printed too, but cannot fail the gate:
 already say we cannot draw is expected to differ, and listing hundreds of them would drown
 the signal. It fell by 42 in the eleventh session as inline and `Indexed` images started
 drawing, and by 10 in the tenth as Type 3 pages did — every one of those pages moved *into*
-the gated set, which is why the contradicted count rose while nothing got worse. In the eighth it rose by 43 and the gated total fell
-by the same, which is the cost of honesty: a page that starts reporting stops being watched
-by *this* gate. It is the reason a report should never be reached for as a way of making a
-contradiction go away, and the reason `CONTRADICTED_SUBSTITUTED_FONT` now records which of
-its departures were fixes and which were exits.
+the gated set, which is why the contradicted count rose while nothing got worse. In the eighth
+it rose by 43 and the gated total fell by the same, which is the cost of honesty: a page that
+starts reporting stops being watched by *this* gate. It is the reason a report should never be
+reached for as a way of making a contradiction go away, and the reason
+`CONTRADICTED_SUBSTITUTED_FONT` now records which of its departures were fixes and which were
+exits.
 
 **Where its time goes, measured and printed by the gate itself:** roughly 1000–1300 s of
 processor time in the three external renderers against 45–55 s in ours, for a steady 75 s of

@@ -408,9 +408,11 @@ ones *inside* something implemented, where the operator is handled and the code 
 `/Mask` beside it was not, knockout groups compositing as though they were not knockouts.
 Reading the clause is the only thing that finds those; this is where the finding goes. The
 ninth session's first pass produced two, §11.4.6 and §8.11.4.4, and both were invisible to
-every other instrument here. The eleventh added a third — §8.9.5.2's general `/Decode` array,
-where only the fully-inverted case is applied and any other linear map is dropped without a
-word — and *removed* one by making it report: an `/SMask` whose sample grid is not its image's
+every other instrument here. The eleventh found a third silence and *removed* one. The one it
+found does not get a `silent` row, and that is worth recording: §8.9.5.2's defaults are
+implemented and its general `/Decode` array is not, so the row is `partial` and the silence
+lives in its note. A one-word status cannot say "half of this is quiet", so a reader hunting
+silence by status alone will miss it. The one it removed was made to report: an `/SMask` whose sample grid is not its image's
 (§11.6.5.2 Table 143) was silently not applied, and `issue16263.pdf` drew black bars across a
 page of text because of it.
 
