@@ -2432,7 +2432,13 @@ impl Interpreter<'_> {
                 crate::annotation::Decision::Unsupported(detail) => {
                     self.note(Unsupported::Annotation { detail });
                 }
-                crate::annotation::Decision::Draw(appearance) => {
+                crate::annotation::Decision::Draw { appearance, owed } => {
+                    // What the subtype's clause asks for and `crate::appearance` could not
+                    // construct — a field's value, a bevel's shadow — said out loud beside the
+                    // part that *is* drawn, rather than either being lost.
+                    if let Some(detail) = owed {
+                        self.note(Unsupported::Annotation { detail });
+                    }
                     // §12.7.4.3: a field whose value is not known until viewing time — one
                     // filled in by the user, or calculated by an action — "cannot provide a
                     // statically defined appearance stream", and "the PDF processor shall
@@ -2460,20 +2466,26 @@ impl Interpreter<'_> {
         base: Transform,
         page_resources: &Dictionary,
     ) {
-        let Some(data) = self.document.decoded_stream_data(&appearance.stream) else {
-            self.note(Unsupported::Annotation {
-                detail: "undecodable appearance stream".to_owned(),
-            });
-            return;
+        let data = match &appearance.content {
+            crate::annotation::Content::Stored(stream) => {
+                let Some(data) = self.document.decoded_stream_data(stream) else {
+                    self.note(Unsupported::Annotation {
+                        detail: "undecodable appearance stream".to_owned(),
+                    });
+                    return;
+                };
+                data
+            }
+            crate::annotation::Content::Constructed(bytes) => Arc::from(bytes.as_slice()),
         };
 
         let transform = appearance.transform.then(base);
         let mut state = GraphicsState::initial(transform);
-        // §12.5.5: the appearance "shall be composited with a backdrop consisting of the
-        // page content along with any previously painted annotations, using the values of
-        // the BM, ca and CA entries in the annotation dictionary".
-        state.fill_alpha = appearance.alpha;
-        state.stroke_alpha = appearance.alpha;
+        // Table 166: `/ca` and `/CA` are the opacities a *constructed* appearance's nonstroking
+        // and stroking operations use. A stored stream carries 1.0 here, because §12.5.2 has a
+        // reader ignore both — see `crate::annotation`.
+        state.fill_alpha = appearance.fill_alpha;
+        state.stroke_alpha = appearance.stroke_alpha;
         if let Some(name) = &appearance.blend {
             state.blend = blend_mode(name.as_bytes());
         }
@@ -2504,12 +2516,17 @@ impl Interpreter<'_> {
         // those forms and fonts shall be inherited from the resource dictionary of the page
         // on which they are used." An empty dictionary instead loses every named font and
         // image the appearance draws with.
-        let resources = self
-            .document
-            .get_key(&appearance.stream.dict, "Resources")
-            .as_dict()
-            .cloned()
-            .unwrap_or_else(|| page_resources.clone());
+        let resources = match &appearance.content {
+            crate::annotation::Content::Stored(stream) => self
+                .document
+                .get_key(&stream.dict, "Resources")
+                .as_dict()
+                .cloned()
+                .unwrap_or_else(|| page_resources.clone()),
+            // A constructed stream names no resource: every colour in it is a device colour
+            // and every shape a path, which is what makes it self-contained.
+            crate::annotation::Content::Constructed(_) => Dictionary::new(),
+        };
 
         // Depth 1 rather than 0: an appearance is itself a form, so a chain of forms
         // inside it is bounded the same way one inside the page content is.

@@ -24,6 +24,7 @@
 #![forbid(unsafe_code)]
 
 mod annotation;
+mod appearance;
 pub mod colour;
 pub mod content;
 pub mod function;

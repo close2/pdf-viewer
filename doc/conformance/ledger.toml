@@ -2676,17 +2676,26 @@ status = "unreviewed"
 [[clause]]
 clause = "12.5"
 title = "Annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_annotation_draws_over_the_page_content"]
+note = "An annotation is drawn over the page content and in /Annots order, which is the only thing fixing its order because nothing in a content stream refers to it. Each entry is placed by §12.5.5 and drawn by the same machinery as any other form XObject, with §12.5.3's flags and §8.11.3.3's /OC deciding whether it appears at all. What is missing is everything that is not a mark on the page: no annotation responds to input, and §12.6's actions are not read."
 
 [[clause]]
 clause = "12.5.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_annotation_draws_over_the_page_content"]
+note = "The clause's rendering content is that an annotation is associated with a location on a page and that a closed one 'appear[s] on the page in some distinctive form, such as an icon, a box, or a rubber stamp, depending on the specific annotation type' — which each subtype's clause then defines, or does not: see §12.5.6.4's icons. Everything else here is interaction that does not exist yet: opening an annotation to exhibit its object, and Table 31's /Tabs giving the keyboard a row, column or structure order to visit annotations in."
 
 [[clause]]
 clause = "12.5.2"
 title = "Annotation dictionaries"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_stored_appearance_ignores_the_annotations_opacity"]
+note = "Table 166's entries that decide what is drawn are read: /Subtype, /Rect (normalised, and an empty one draws nothing), /F, /AP, /AS, /Border, /C, /CA, /ca, /BM and /OC. The clause's closing rule is implemented and is what shapes crate::appearance — 'A PDF reader shall render the appearance dictionary without regard to any other keys and values in the annotation dictionary and shall ignore the values of the C, IC, Border, BS, BE, BM, CA, ca, H, DA, Q, DS, LE, LL, LLE, and Sy keys' — so those entries are read only where there is no appearance stream to ignore them for. That contradicts one sentence of §12.5.5, which has the appearance's group composited 'using the values of the BM, ca and CA entries'; this row's reading is Table 166's own, stated twice in the /CA and /ca entries, and the contradiction is recorded in §12.5.5's row. Not read: /Contents and /RC (text for a popup window, and §14.9.3's alternate description), /P, /NM, /M, /StructParent, /AF and /Lang — none of which marks the page."
 
 [[clause]]
 clause = "12.5.3"
@@ -2694,147 +2703,214 @@ title = "Annotation flags"
 status = "partial"
 code = ["crates/pdf-model/src/annotation.rs"]
 test = ["crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing"]
-note = "Table 167's three flags that decide whether a screen shows the annotation are honoured: Hidden and NoView suppress it, and Invisible suppresses it only for a subtype outside Table 171, which is the condition the flag's own wording places on it. Print is a printing decision this viewer does not yet make. NoZoom and NoRotate make an appearance's size or orientation depend on the view, which a resolution-independent display list cannot express — neither is applied nor reported. ReadOnly, Locked, ToggleNoView and LockedContents constrain user interaction, which does not exist yet."
+note = "Table 167's three flags that decide whether a screen shows the annotation are honoured: Hidden and NoView suppress it, and Invisible suppresses it only for a subtype outside Table 171, which is the condition the flag's own wording places on it. Print is a printing decision this viewer does not yet make, and the twenty-first session found that it is also the reason a reference renderer disagrees with us about four link borders: ghostscript renders for a printer, where 'If clear, never print the annotation, regardless of whether it is rendered on the screen' means a page with no /F draws no annotation at all. The flag's own next sentence would settle even that case in our favour — 'If the annotation does not contain any appearance streams this flag shall be ignored' — which matters for every appearance this crate constructs. NoZoom and NoRotate make an appearance's size or orientation depend on the view, which a resolution-independent display list cannot express — neither is applied nor reported. ReadOnly, Locked, ToggleNoView and LockedContents constrain user interaction, which does not exist yet."
 
 [[clause]]
 clause = "12.5.4"
 title = "Border styles"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_link_border_is_drawn_inside_its_rectangle_in_its_own_colour"]
+note = "Table 168's /W and /D and three of its five styles are implemented for a constructed appearance, with §12.5.4's own rule about where the border goes: 'If present, the border shall be drawn completely inside the annotation rectangle', so the stroked path is the rectangle inset by half the width. S is solid, D dashes by /D or by /Border's fourth element with the phase the clause fixes at 0, U is 'a single line along the bottom of the annotation rectangle'. B and I are drawn as S and reported: Table 168 calls each a 'simulated' embossed or engraved rectangle and states neither the highlight nor the shadow colour that would produce the illusion, and no corpus document writes either. Table 169's cloudy /BE is refused and reported for the same reason — 'a series of convex curved line segments' states no curve. An unrecognised style name falls back to S, which Table 168 requires. Where an appearance stream exists all of this is ignored, per §12.5.2."
 
 [[clause]]
 clause = "12.5.5"
 title = "Appearance streams"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_appearance_is_scaled_and_translated_onto_the_annotation_rectangle"]
+note = "The placement algorithm is implemented in all three steps, including the part that only a rotating /Matrix exercises: the transformed appearance box is measured around the mapped quadrilateral, and A maps its extreme corners onto /Rect's. /N is followed through an appearance subdictionary by /AS, and a state /AS names but the dictionary does not define draws nothing, which the clause gives as the specified 'reasonable behaviour'. §8.10.2's /BBox clip is applied, which this clause relies on. The requirement that an appearance with no /Group 'shall be treated as a non-isolated, non-knockout transparency group' is satisfied by construction rather than by code: with the annotation's own /BM, /ca and /CA ignored (§12.5.2), that group has alpha 1, the Normal blend mode and no soft mask, and §11.6.7's NOTE 1 makes it identical to painting the elements directly, which is what the interpreter does. **One sentence of this clause is not followed**: 'The transparency group shall be composited ... using the values of the BM, ca and CA entries in the annotation dictionary'. Table 166 says of each of /CA and /ca that it 'shall not be used if the annotation has an appearance stream ... in that case, the appearance stream shall specify any transparency', and §12.5.2 lists all three among the keys a reader shall ignore. Two statements against one, and the two explain the risk the one creates: highlight.pdf writes /CA 0.8 on the annotation and ca 0.8 inside the stream, so applying both would darken the highlight its producer specified. Not implemented: the /R and /D appearances, which are for a cursor this viewer has not got yet, and the NoZoom and NoRotate scaling this clause defers to §12.5.3."
 
 [[clause]]
 clause = "12.5.6"
 title = "Annotation types"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
+note = "Table 171's subtypes are all recognised. Where one carries an appearance stream it is drawn without regard to the subtype, which is what this clause's parent requires; where one does not, the subtype's own subclause decides, and the rows below say which are constructed, which are refused for stating no geometry, and which are excluded."
 
 [[clause]]
 clause = "12.5.6.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
+note = "Table 171's list of subtypes is what decides the Invisible flag's scope in §12.5.3 and nothing else here switches on it, which is this clause's own requirement read through §12.5.5: a processor with no native support for a type still renders its normal appearance."
 
 [[clause]]
 clause = "12.5.6.2"
 title = "Markup annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_stored_appearance_ignores_the_annotations_opacity"]
+note = "Table 172's /CA is read, as Table 166's entry of the same name. Nothing else in the clause marks the page by itself: /T, /Subj, /RC, /IRT, /RT, /IT and /ExData are a title, a subject, formatted text, a reply relationship, an intent and external data, all of which reach a comments pane rather than a raster, and /Popup is the window §12.5.6.14 excludes from the page. What is owed is the accessibility half — /Contents is what §14.9.3 extracts as an alternate description — and the interactive one."
 
 [[clause]]
 clause = "12.5.6.3"
 title = "Annotation states"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_appearance_state_is_selected_by_as"]
+note = "This clause is about /State and /StateModel on a reply annotation — Marked or Review, set by a user in a comments pane — and neither marks the page. It is not to be confused with §12.5.5's appearance *state*, which /AS selects and which is implemented; the two words are unrelated and the test named here is for the second. Nothing is owed for rendering; a review workflow is owed for a viewer with interaction."
 
 [[clause]]
 clause = "12.5.6.4"
 title = "Text annotations"
-status = "unreviewed"
+status = "reported"
+note = "A text annotation 'shall appear as an icon' whose name comes from Table 175's /Name, and the clause requires a processor to 'provide predefined icon appearances for at least the following standard names: Comment, Key, Note, Help, NewParagraph, Paragraph, Insert' while stating what none of them looks like. The artwork would be this processor's invention rather than the document's statement, so an appearance-less text annotation is refused and named, in crate::appearance. 1 corpus document. Two further requirements are recorded here rather than implemented: such an annotation 'shall not scale and rotate with the page; they shall behave as if the NoZoom and NoRotate annotation flags ... were always set', which §12.5.3 already owes for those flags, and /Open selects a popup window §12.5.6.14 does not draw."
 
 [[clause]]
 clause = "12.5.6.5"
 title = "Link annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_link_border_is_drawn_inside_its_rectangle_in_its_own_colour"]
+note = "A link's visible part is its border, and this is the one subtype whose appearance is stated outside its own subclause: Table 166 makes /C 'a colour used for ... The border of a link annotation' and /Border the rounded rectangle it is drawn as, and §12.5.4 puts it inside /Rect. Both are implemented, including the corner radii and Table 176's /BS. A link with no /C draws nothing, which is a documented choice rather than a derivation — Table 166 gives an *empty* /C the meaning 'No colour; transparent' and states no default for an absent one, and inventing black would put a box around every link whose file says nothing about its colour. Not implemented, and not visible: /A, /Dest and /PA are navigation, /QuadPoints bounds the activation region rather than the drawing (with one exception this crate cannot reach, 'such as when applying an underline border style'), and /H's highlighting mode is a response to a mouse. Four corpus pages are contradicted for drawing this border at all; oracle.rs's CONTRADICTED_LINK_BORDER has the analysis, and neither silent reference is reading the clause differently."
 
 [[clause]]
 clause = "12.5.6.6"
 title = "Free text annotations"
-status = "unreviewed"
+status = "reported"
+note = "A free text annotation 'display[s] text directly on the page' out of /Contents, laid out by the /DA appearance string and /Q quadding of §12.7.4.3, with Table 177's /RC rich text, /DS default style, /CL callout line and /IT intent on top. The text is the annotation, so there is nothing to draw without §12.7.4.3's variable text: refused and named in crate::appearance. 4 corpus documents."
 
 [[clause]]
 clause = "12.5.6.7"
 title = "Line annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_ink_annotation_is_stroked_along_its_ink_list"]
+note = "Table 178's /L is drawn as a stroked segment in /C at the width and dash §12.5.4 gives, which is the clause's 'single straight line on the page'. Three of its entries are refused rather than approximated, each because the clause states an effect without stating a shape or because drawing without it would be wrong: /LE's endings are Table 179's nine named shapes with no dimension between them; /Cap 'replicated as a caption in the appearance of the line' is text, with /CP and /CO positioning it; and /LL makes /L 'represent the endpoints of the leader lines rather than the endpoints of the line itself', so a reader that drew /L anyway would draw the line in the wrong place — the whole annotation is refused there rather than drawn wrongly. /LLE, /LLO, /IT and /Measure are refused with it. 2 corpus documents draw, 2 report. The named test covers the shared stroking path; the line's own geometry has no test of its own yet, which is why this row is partial rather than implemented on its drawable half."
 
 [[clause]]
 clause = "12.5.6.8"
 title = "Square and circle annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_circle_is_an_ellipse_inscribed_in_its_rectangle"]
+note = "'Square and circle annotations shall display, respectively, a rectangle or an ellipse on the page ... inscribed within the annotation rectangle', filled with Table 180's /IC and stroked in /C at §12.5.4's width — implemented, with /RD's four differences applied in the clause's own order of left, top, right, bottom. The ellipse is four cubic Béziers rather than a conic, which is an approximation this crate documents: PDF has no operator that draws an ellipse. /BE's cloudy border is refused and reported."
 
 [[clause]]
 clause = "12.5.6.9"
 title = "Polygon and polyline annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_polygons_interior_colour_fills_it_and_a_polylines_does_not"]
+note = "Table 181's /Vertices and PDF 2.0's /Path are both built — the second as the m, l and c operands it defines, superseding /Vertices as the table requires — and stroked in /C at §12.5.4's width, closed for a polygon and open for a polyline. /IC divides the two subtypes and the clause says how: 'For Polyline annotations, the value of the IC key is used to fill only the line ending. However, for Polygon annotations, the value of the IC key is used to fill the entire shape', so a polygon's fills it and a polyline's is left to the line endings this crate refuses. A non-None /LE and a cloudy /BE are both refused and reported. /IT and /Measure are not read."
 
 [[clause]]
 clause = "12.5.6.10"
 title = "Text markup annotations"
-status = "unreviewed"
+status = "reported"
+note = "The four text markup subtypes are refused and named, and this row is the clearest case in the family of a clause that describes an appearance without stating it. §12.5.6.10 gives the /QuadPoints of Table 182 — each quadrilateral 'encompasses a word or group of contiguous words', oriented against the edge from (x1, y1) to (x2, y2) — and then says only that such annotations 'shall appear as highlights, underlines, strikeouts ... or jagged ('squiggly') underlines'. Nothing states an underline's thickness or offset, where in the quadrilateral a strikeout crosses, a squiggle's amplitude or period, or how a highlight keeps the text under it legible, and Table 182 does not even admit a /BS to take a width from. The corpus shows the guesses differ: on annotation-highlight-without-appearance.pdf the three reference renderers draw three different pictures. 13 corpus documents."
 
 [[clause]]
 clause = "12.5.6.11"
 title = "Caret annotations"
-status = "unreviewed"
+status = "reported"
+note = "A caret annotation is 'a visual symbol that indicates the presence of text edits' and Table 183 adds only /RD, the difference between /Rect and 'the actual boundaries of the underlying caret', and /Sy naming a paragraph symbol. The symbol itself is not stated anywhere, so an appearance-less caret is refused and named. No corpus document reaches it."
 
 [[clause]]
 clause = "12.5.6.12"
 title = "Rubber stamp annotations"
-status = "unreviewed"
+status = "reported"
+note = "A rubber stamp's appearance is an icon named by Table 184's /Name — Approved, Draft, Experimental and eleven more — and the clause states no artwork for any of them, exactly as §12.5.6.4 does not for its seven. Refused and named. No corpus document reaches it without an /AP; every stamp in the corpus carries one, which is what a producer that cares about its stamp looking like anything has to do."
 
 [[clause]]
 clause = "12.5.6.13"
 title = "Ink annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_ink_annotation_is_stroked_along_its_ink_list"]
+note = "Table 185's /InkList is drawn as one stroked subpath per entry, in /C at §12.5.4's width, and PDF 2.0's /Path supersedes it as the table requires. The clause leaves this crate a choice and it is taken openly: 'When drawn, the points shall be connected by straight lines or curves in an implementation-dependent way' — straight lines, because a curve fitted through a digitiser's samples would be smoothing the document did not ask for. Nothing in the clause is unimplemented; the row is partial rather than implemented because /Path has no test of its own yet."
 
 [[clause]]
 clause = "12.5.6.14"
 title = "Popup annotations"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing"]
+note = "A popup is 'a window ... containing text' belonging to a parent markup annotation and displayed in response to it, so it is never part of the page's own rendering: it is skipped before any other question is asked, and its absence is not a gap. Table 166's /AP entry agrees from the other side, naming Popup as one of three subtypes a writer need not supply an appearance dictionary for. /Open and /Parent are the interactive half. The test named here is the nearest one: it pins that an annotation the document does not show reaches neither the display list nor the report, which is the property this clause needs."
 
 [[clause]]
 clause = "12.5.6.15"
 title = "File attachment annotations"
-status = "unreviewed"
+status = "reported"
+note = "A file attachment annotation displays 'an icon' from Table 186's /Name — Graph, PushPin, Paperclip, Tag — and the clause states none of them, so an appearance-less one is refused and named, as §12.5.6.4's and §12.5.6.12's icons are. /FS is the embedded file, which is not a rendering question."
 
 [[clause]]
 clause = "12.5.6.16"
 title = "Sound annotations"
-status = "unreviewed"
+status = "reported"
+note = "A sound annotation, deprecated in PDF 2.0, 'shall be represented by an icon' whose /Name Table 187 gives as Speaker or Mic, with no artwork stated: refused and named. Playing the /Sound stream is a media question, and principle 5's exclusion of clause 13 covers the engine; the icon is not excluded, it is unstated."
 
 [[clause]]
 clause = "12.5.6.17"
 title = "Movie annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
+note = "A movie annotation, deprecated in PDF 2.0, carries an /AP like any other annotation and it is drawn — which is the whole of what a still page can show of one. Table 188's /Movie, /A and /Aw are the player and its activation, which principle 5's clause-13 exclusion covers as a media engine; an appearance-less movie annotation is refused and named, because a poster frame is a decoded movie rather than a stated shape."
 
 [[clause]]
 clause = "12.5.6.18"
 title = "Screen annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
+note = "A screen annotation is a rectangle a media clip plays in, and its /AP is drawn like any other. Table 189's /MK is an appearance characteristics dictionary as a widget's is, but it reaches this crate only through /AP today, and /A, /AA and /P are activation. The clip itself is clause 13 and excluded by principle 5; an appearance-less screen annotation is refused and named."
 
 [[clause]]
 clause = "12.5.6.19"
 title = "Widget annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value"]
+note = "Table 192's /BG background and /BC border are constructed, at §12.5.4's width and style, which is what a widget looks like before its value is set. A widget stating neither and holding no value draws *nothing*, quietly, and that decision is worth as much as the drawing: Table 192 is where a widget's colours come from, so a field without one states no appearance at all, and reporting those named 23 corpus documents for a gap that is not one. What is owed is the value: a text field's /V, a check box's or radio button's state, and a push-button's /CA caption all need §12.7.4.3's variable text, so a widget holding one draws its frame and reports the rest — two true statements rather than one. Table 192's /R is not read and cannot yet matter: it rotates the widget's contents inside /Rect, which no background filling that rectangle and no border inside it can see. /I, /RI, /IX and /IF are a push-button's icon and its fit; /H is a response to a mouse; /Parent is followed for §12.7.4.1's inheritable entries."
 
 [[clause]]
 clause = "12.5.6.20"
 title = "Printer's mark annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
+note = "A printer's mark annotation is a registration target, colour bar or cut mark added for production, and §14.11.3 is where it is discussed. Its /AP is drawn like any other annotation's. Table 190's /MN names the mark and §14.11.3 says nothing about what any name looks like, so an appearance-less one is refused and named. Whether such a mark belongs on a screen at all is a §14.11.3 question this row does not settle."
 
 [[clause]]
 clause = "12.5.6.21"
 title = "Trap network annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
+note = "A trap network annotation, deprecated in PDF 2.0, defines trapping for a marking device; §14.11.6 owns the subject. Its /AP is drawn like any other, and there is nothing else here a screen can show: trapping compensates for misregistration between printing plates, which a display does not have."
 
 [[clause]]
 clause = "12.5.6.22"
 title = "Watermark annotations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
+note = "A watermark annotation's appearance stream is drawn like any other annotation's. Table 191's /FixedPrint is what makes it a watermark rather than a stamp — a matrix and a size that keep the mark constant when the page is scaled or printed to another sheet — and it is neither applied nor reported, which is the same shape as §12.5.3's NoZoom and NoRotate: a resolution-independent display list cannot express a size that depends on the view."
 
 [[clause]]
 clause = "12.5.6.23"
 title = "Redaction annotations"
-status = "unreviewed"
+status = "reported"
+note = "A redaction annotation marks content for removal and, in the state this crate sees, is drawn from its /AP if it has one. Table 193's /OverlayText, /Q and /DA describe text painted over the redacted region, which needs §12.7.4.3's variable text, and /RO is an appearance stream to use *after* the redaction is applied — an operation that rewrites the document rather than renders it. /IC and /QuadPoints without /AP would be a guess of the same kind §12.5.6.10 refuses, so an appearance-less redaction is refused and named."
 
 [[clause]]
 clause = "12.5.6.24"
 title = "Projection annotations"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing"]
+note = "A projection annotation 'is only valid within the context of an associated run-time environment, such as an activated 3D model', and saves a 3D measurement as markup. With clause 13 excluded by principle 5 there is no such environment here, so an appearance-less projection draws nothing and reports nothing — which Table 166 supports from the other side, naming Projection with Popup and Link as the three subtypes a writer need not give an appearance dictionary. One with an /AP is drawn like any other annotation. The test named here pins the property this row needs: an annotation that is not shown reaches neither the display list nor the report."
 
 [[clause]]
 clause = "12.5.6.25"
 title = "3D and RichMedia annotations"
-status = "unreviewed"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+note = "3D and RichMedia annotations are defined by §13.6.2 and §13.7.2, which principle 5's closed list excludes as a media engine rather than a rendering question. Their appearance streams are drawn where they exist, like any other annotation's, because nothing in the placement path switches on subtype."
 
 [[clause]]
 clause = "12.6"
@@ -2979,7 +3055,10 @@ status = "unreviewed"
 [[clause]]
 clause = "12.7.4.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value"]
+note = "One requirement of this clause reaches the page today, and it is inheritance: Table 226 marks /FT, /Ff, /V and /DV inheritable, and a widget merged with its field may hold none of them, so /V is looked for up the /Parent chain when deciding whether a field has a value §12.7.4.3 would have to lay out. **The clause forbids the bound that walk carries** — 'An interactive PDF processor shall not limit the range of inheritance for field dictionaries' — and it is bounded at 32 anyway, because a /Parent chain in a hostile file can be a cycle and principle 3's resource budgets outrank a depth no legitimate form approaches. Reaching the bound is reported rather than read as 'no value', so the departure is visible on any page that hits it. Nothing else here is a rendering requirement: /T, /TU and /TM are names, /Kids is the hierarchy, /AA is a trigger, and Table 227's ReadOnly, Required and NoExport constrain interaction and submission."
 
 [[clause]]
 clause = "12.7.4.2"
@@ -2989,7 +3068,8 @@ status = "unreviewed"
 [[clause]]
 clause = "12.7.4.3"
 title = "Variable text"
-status = "unreviewed"
+status = "reported"
+note = "The clause a field's own appearance needs, and none of it is implemented. Its subject is the appearance a processor builds when 'the value ... is not known until viewing time', which 'cannot provide a statically defined appearance stream': the field's /V laid out in the font, size and colour a /DA string names against the /DR resource dictionary, with a size of 0 meaning 'auto-size to fit', /Q's quadding choosing the alignment, and the whole thing wrapped in the /Tx BMC ... EMC marked-content pair the clause requires. /DS and /RV add a rich-text form of the same. This is reported from two places rather than skipped: an /AcroForm setting /NeedAppearances says the stored appearance streams may be stale and we draw them anyway because they are all the file offers (Table 226), and a widget with no appearance stream at all draws Table 192's background and border and reports the value it cannot lay out (§12.5.6.19). 13 corpus documents report one or the other. Closing this is the same work as §12.5.6.6's free text and §12.5.6.10's text markup: a text layout routine this crate does not have yet."
 
 [[clause]]
 clause = "12.7.5"

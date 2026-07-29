@@ -7,37 +7,66 @@
 //! deliberately only about drawing.
 //!
 //! What draws is the appearance stream: `/AP /N` is a form `XObject`, and the interpreter
-//! already runs those. So the work here is entirely selection and placement — which
-//! annotations are visible, which of an appearance dictionary's states applies, and the
-//! matrix ISO 32000-2 §12.5.5 defines from the stream's `/BBox` and `/Matrix` to the
-//! annotation's `/Rect`.
+//! already runs those. So the work here is selection and placement — which annotations are
+//! visible, which of an appearance dictionary's states applies, and the matrix ISO 32000-2
+//! §12.5.5 defines from the stream's `/BBox` and `/Matrix` to the annotation's `/Rect`.
 //!
-//! # What is not here
+//! An annotation with *no* appearance stream is handed to [`crate::appearance`], which
+//! constructs one out of the entries its subtype's clause states. That module holds every
+//! per-subtype rule; this one does not know a `Square` from a `Widget` except to ask.
 //!
-//! An annotation with no appearance stream is *reported*, not synthesised. Constructing one
-//! from `/IC`, `/C`, `/BS`, `/Border` and the subtype's own rules is a separate and much
-//! larger job — it is a different drawing routine per annotation type — and guessing at it
-//! would put plausible-looking marks on the page that the document never described.
+//! # A stored appearance is self-contained
+//!
+//! §12.5.2's closing sentence — quoted in full in [`crate::appearance`] — has a reader "ignore
+//! the values of the C, IC, Border, BS, BE, BM, CA, ca, H, DA, Q, DS, LE, LL, LLE, and Sy
+//! keys" when an appearance dictionary is present, and Table 166 says of `/CA` and `/ca` that
+//! each "shall not be used if the annotation has an appearance stream ... in that case, the
+//! appearance stream shall specify any transparency". So the opacity and blend mode below are
+//! read for a *constructed* appearance and left at their defaults for a stored one.
+//!
+//! §12.5.5 states the opposite in one sentence — the appearance's group "shall be composited
+//! ... using the values of the BM, ca and CA entries in the annotation dictionary" — and this
+//! tree followed that reading until the twenty-first session. Two statements against one, and
+//! the two explain themselves: the entries are what an appearance is *regenerated* from, and a
+//! stream that carries its own `/ExtGState` would otherwise have the same opacity applied
+//! twice. `highlight.pdf` is exactly that file: `/CA 0.8` on the annotation, `ca 0.8` inside
+//! the stream.
 
 use pdf_render::{Transform, geom::Point};
 use std::sync::Arc;
 
 use pdf_syntax::{Dictionary, Document, Stream};
 
+/// What an appearance's content is: a stream the file stored, or one this crate wrote.
+#[derive(Debug, Clone)]
+pub(crate) enum Content {
+    /// `/AP /N`, a form `XObject` (§12.5.5).
+    Stored(Arc<Stream>),
+    /// A content stream constructed from the annotation's appearance characteristics
+    /// (§12.7.4.3, [`crate::appearance`]).
+    Constructed(Vec<u8>),
+}
+
 /// An appearance stream, resolved and placed.
 #[derive(Debug, Clone)]
 pub(crate) struct Appearance {
-    /// The form `XObject` to run.
-    pub stream: Arc<Stream>,
+    /// The content stream to run.
+    pub content: Content,
     /// `AA` from §12.5.5: maps the appearance's own coordinates into the page's default
     /// user space, so that its bounding box covers the annotation's `/Rect`.
     pub transform: Transform,
     /// The appearance's `/BBox`, in the appearance's own coordinates, which §8.10.2 makes
     /// the clip for a form `XObject`'s content.
     pub bbox: [f32; 4],
-    /// The annotation's constant opacity, from `/CA`.
-    pub alpha: f32,
-    /// The annotation's blend mode name, from `/BM`, if it names one.
+    /// Table 166's `/ca`, the opacity "used for all nonstroking operations on all visible
+    /// elements of the annotation", defaulting to `/CA` and then to 1. Only a constructed
+    /// appearance has one.
+    pub fill_alpha: f32,
+    /// Table 166's `/CA`, the same for stroking operations. Only a constructed appearance has
+    /// one.
+    pub stroke_alpha: f32,
+    /// The annotation's blend mode name, from `/BM`, if it names one and the appearance is
+    /// constructed.
     pub blend: Option<String>,
     /// Whether this is a `Widget`, whose appearance `/NeedAppearances` may declare stale.
     pub is_widget: bool,
@@ -46,8 +75,13 @@ pub(crate) struct Appearance {
 /// What an entry in `/Annots` asks the page to draw.
 #[derive(Debug, Clone)]
 pub(crate) enum Decision {
-    /// Run this appearance stream.
-    Draw(Box<Appearance>),
+    /// Run this appearance stream, and report `owed` if the construction fell short of what
+    /// the clause asks for — a widget's background is drawable where its field's text is not,
+    /// and losing either statement would be worse than making both.
+    Draw {
+        appearance: Box<Appearance>,
+        owed: Option<String>,
+    },
     /// Draw nothing, and say nothing — the document asked for nothing to be drawn.
     Nothing,
     /// Draw nothing, because this crate cannot. The string says what, for the report.
@@ -124,79 +158,105 @@ pub(crate) fn decide(document: &Document, annotation: &Dictionary) -> Decision {
     }
 
     let name = String::from_utf8_lossy(&subtype).into_owned();
-    let stream = match normal_appearance(document, annotation) {
-        Normal::Stream(stream) => stream,
-        Normal::Absent => return missing_appearance(document, annotation, &name),
-        Normal::StateNotDefined => return Decision::Nothing,
-    };
-
     let Some(rect) = rectangle(document, annotation, "Rect") else {
         return Decision::Unsupported(format!("{name}: no usable /Rect"));
     };
+    // An annotation covering no area cannot show anything, whether its appearance is stored or
+    // constructed — and Table 166 excuses a writer from supplying one for exactly that shape.
+    if rect[2] - rect[0] <= 0.0 || rect[3] - rect[1] <= 0.0 {
+        return Decision::Nothing;
+    }
+
+    let stored = match normal_appearance(document, annotation) {
+        Normal::Stream(stream) => stream,
+        Normal::Absent => return construct(document, annotation, &subtype, &name, rect),
+        Normal::StateNotDefined => return Decision::Nothing,
+    };
+
     // §8.10.2 makes `/BBox` required of a form `XObject`, and §12.5.5's algorithm starts by
     // transforming it. Without one there is nothing to map onto `/Rect`.
-    let Some(bbox) = rectangle(document, &stream.dict, "BBox") else {
+    let Some(bbox) = rectangle(document, &stored.dict, "BBox") else {
         return Decision::Unsupported(format!("{name}: appearance stream has no /BBox"));
     };
-    let matrix = matrix(document, &stream.dict);
+    let matrix = matrix(document, &stored.dict);
 
-    Decision::Draw(Box::new(Appearance {
-        transform: placement(bbox, matrix, rect),
-        bbox,
-        alpha: document
-            .get_key(annotation, "CA")
-            .as_number()
-            .map_or(1.0, |value| narrow(value).clamp(0.0, 1.0)),
-        blend: document
-            .get_key(annotation, "BM")
-            .as_name()
-            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
-        is_widget: subtype == b"Widget",
-        stream,
-    }))
+    Decision::Draw {
+        appearance: Box::new(Appearance {
+            transform: placement(bbox, matrix, rect),
+            bbox,
+            // §12.5.2 and Table 166: a stored stream states its own transparency, so the
+            // annotation's `/ca`, `/CA` and `/BM` are not applied to it.
+            fill_alpha: 1.0,
+            stroke_alpha: 1.0,
+            blend: None,
+            is_widget: subtype == b"Widget",
+            content: Content::Stored(stored),
+        }),
+        owed: None,
+    }
 }
 
-/// Decides what to say about an annotation carrying no appearance stream.
+/// Constructs an appearance for an annotation that has none, and places it.
 ///
-/// Reporting every one of them would be noise, because for some the answer really is
-/// "nothing is drawn" and that is not a gap. Only two cases are certain enough to be worth
-/// separating out, and both are read from the document rather than assumed:
-///
-/// - A `Link`'s appearance without `/AP` is its border and nothing else (§12.5.6.5), so a
-///   border width of zero means there was never anything to draw. §12.5.4 puts that width
-///   in `/BS /W`, falling back to the third element of `/Border`, defaulting to 1.
-/// - An annotation whose `/Rect` is empty covers no area, so nothing synthesised into it
-///   could be visible either.
-fn missing_appearance(document: &Document, annotation: &Dictionary, name: &str) -> Decision {
-    if let Some(rect) = rectangle(document, annotation, "Rect")
-        && (rect[2] - rect[0] <= 0.0 || rect[3] - rect[1] <= 0.0)
-    {
+/// The constructed stream is written in the page's own default user space, so its `/BBox` *is*
+/// the annotation's `/Rect` and §12.5.5's algorithm reduces to the identity — which is worth
+/// stating because it is the reason this path needs no second placement rule. The `/BBox` still
+/// clips, which is §8.10.2 doing what §12.5.5 relies on: an appearance is "a self-contained
+/// content stream that shall be rendered inside the annotation rectangle".
+fn construct(
+    document: &Document,
+    annotation: &Dictionary,
+    subtype: &[u8],
+    name: &str,
+    rect: [f32; 4],
+) -> Decision {
+    // §12.5.6.14: a popup is the window belonging to some *other* annotation, and §12.5.6.24's
+    // projection is a measurement inside an activated 3D model — clause 13, which principle 5
+    // excludes. Table 166 names both, with `Link`, as the subtypes a writer need not give an
+    // appearance dictionary at all.
+    if subtype == b"Projection" {
         return Decision::Nothing;
     }
-    if name == "Link" && border_width(document, annotation) == 0.0 {
-        return Decision::Nothing;
-    }
-    Decision::Unsupported(format!("{name}: no appearance stream"))
-}
 
-/// Reads the border width §12.5.4 defines, in points.
-fn border_width(document: &Document, annotation: &Dictionary) -> f32 {
-    if let Some(style) = document.get_key(annotation, "BS").as_dict()
-        && let Some(width) = document.get_key(style, "W").as_number()
-    {
-        return narrow(width);
-    }
-    // "If neither the Border nor the BS entry is present, the border shall be drawn as a
-    // solid line with a width of 1 point."
-    let border = document.get_key(annotation, "Border");
-    let Some(border) = border.as_array() else {
-        return 1.0;
+    let constructed = crate::appearance::construct(document, annotation, subtype);
+    let owed = constructed.report.map(|detail| format!("{name}: {detail}"));
+    let Some(content) = constructed.content else {
+        return match owed {
+            Some(detail) => Decision::Unsupported(detail),
+            None => Decision::Nothing,
+        };
     };
-    border
-        .get(2)
-        .map(|item| document.resolve(item))
-        .and_then(|item| item.as_number())
-        .map_or(1.0, narrow)
+
+    // Table 166: `/CA` is the opacity for stroking "all visible elements of the annotation in
+    // its closed state, including its background and border", and `/ca` the same for
+    // nonstroking — "If a ca entry is not present in this dictionary, then the value of this CA
+    // entry shall also be used for nonstroking operations as well."
+    let stroke_alpha = opacity(document, annotation, "CA");
+    Decision::Draw {
+        appearance: Box::new(Appearance {
+            transform: Transform::IDENTITY,
+            bbox: rect,
+            fill_alpha: opacity(document, annotation, "ca")
+                .or(stroke_alpha)
+                .unwrap_or(1.0),
+            stroke_alpha: stroke_alpha.unwrap_or(1.0),
+            blend: document
+                .get_key(annotation, "BM")
+                .as_name()
+                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
+            is_widget: subtype == b"Widget",
+            content: Content::Constructed(content),
+        }),
+        owed,
+    }
+}
+
+/// Reads one of Table 166's opacity entries, clamped to the range it states.
+fn opacity(document: &Document, annotation: &Dictionary, key: &'static str) -> Option<f32> {
+    document
+        .get_key(annotation, key)
+        .as_number()
+        .map(|value| narrow(value).clamp(0.0, 1.0))
 }
 
 /// What `/AP /N` resolved to.
@@ -322,7 +382,11 @@ fn matrix(document: &Document, dict: &Dictionary) -> Transform {
 ///
 /// A `/Rect` written the other way round is common enough that not normalising means
 /// annotations placed off the page.
-fn rectangle(document: &Document, dict: &Dictionary, key: &'static str) -> Option<[f32; 4]> {
+pub(crate) fn rectangle(
+    document: &Document,
+    dict: &Dictionary,
+    key: &'static str,
+) -> Option<[f32; 4]> {
     let values = numbers(document, dict, key)?;
     let at = |index: usize| values.get(index).copied().unwrap_or_default();
     if values.len() < 4 || values.iter().any(|value| !value.is_finite()) {

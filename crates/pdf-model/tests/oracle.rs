@@ -341,6 +341,58 @@ const CONTRADICTED_MASK_QUANTISATION: [&str; 1] = ["smask_luminosity_oob_transfe
 /// about that reading rather than a target to move toward.
 const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.pdf page 1"];
 
+/// Contradicted for drawing a link's border, where the two references that agree agree for two
+/// unrelated reasons — and neither of them is a reading of the clause.
+///
+/// 4 pages, all gated for the first time in the twenty-first session, when appearances began
+/// being constructed (ADR 0030). Each carries `Link` annotations with a colour and a non-zero
+/// border width, and on each of them we and `poppler` draw the rectangles while `mupdf` and
+/// `ghostscript` draw nothing.
+///
+/// Three arrived by becoming *comparable*. The fourth, `issue18823.pdf`, was contradicted
+/// before this session at mean 7.38 while not being gated — it reported its seven appearance-less
+/// links — and is 8.10 now, so its borders account for 0.7 of a difference that was already 2.2
+/// outside the bound and is spread across every glyph and both ellipses on the page.
+///
+/// # What the clause says
+///
+/// Table 166 names a link as one of the three subtypes a writer need not supply an appearance
+/// dictionary for, gives `/C` as "a colour used for ... The border of a link annotation", and
+/// says of `/Border` that it "shall be drawn as a rounded rectangle ... if the border width is
+/// 0, no border is drawn". §12.5.4 adds where it goes: "completely inside the annotation
+/// rectangle". `file_url_link.pdf` writes `/C [0 1 0]` and `/Border [0 0 1]`, which is a green
+/// one-unit border and nothing about it is ambiguous.
+///
+/// # Why the agreement is not evidence
+///
+/// The two silent renderers are silent for different reasons, which is trap 9's second shape
+/// with a twist: the premise is not "two implementations read the clause the same way" but "two
+/// implementations happened to produce the same picture".
+///
+/// - **`mupdf` constructs no appearance for a link at all.** `source/pdf/pdf-appearance.c`
+///   switches over eighteen subtypes in `pdf_write_appearance` — widget, ink, polygon, polyline,
+///   line, square, circle, caret, text, file attachment, sound, the four text markups, redact,
+///   stamp, free text — and its `default` arm throws `cannot create appearance stream for %s
+///   annotations`. `Link` is not in the list.
+/// - **`ghostscript` does implement it, and is being asked to print.** `pdf/pdf_annot.c` has
+///   `pdfi_annot_draw_Link` call `pdfi_annot_setcolor` and then `pdfi_annot_draw_border`, so its
+///   blank page is not a missing feature. It is Table 167's Print flag: this annotation has no
+///   `/F` at all, so bit 3 is clear, and "If clear, never print the annotation, regardless of
+///   whether it is rendered on the screen." Adding `/F 4` to the same file makes `gs` draw the
+///   green border — checked, not assumed. Table 167's next sentence is also worth recording,
+///   because it makes even the printing case ours: "If the annotation does not contain any
+///   appearance streams this flag shall be ignored."
+///
+/// So one reference has a gap, one is answering a different question, and a viewer is a screen —
+/// where bit 6, `NoView`, is the flag with a say, and it is clear on all four pages. Listed
+/// rather than chased.
+const CONTRADICTED_LINK_BORDER: [&str; 4] = [
+    "file_url_link.pdf page 1",
+    "issue14802.pdf page 1",
+    "issue18823.pdf page 1",
+    "issue7115.pdf page 1",
+];
+
 /// Contradicted, drawing glyphs this gate is measuring with the *vector* tolerance.
 ///
 /// 1 page, and it is a measurement artefact rather than a rendering one — but a real one,
@@ -1296,6 +1348,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_SUBPIXEL_IMAGE)
         .chain(&CONTRADICTED_MASK_QUANTISATION)
         .chain(&CONTRADICTED_VISIBILITY_EXPRESSION)
+        .chain(&CONTRADICTED_LINK_BORDER)
         .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
         .chain(&CONTRADICTED_SYMBOLIC_FONT_FLAGS)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)

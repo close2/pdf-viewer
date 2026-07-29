@@ -508,7 +508,9 @@ decided against. Where it stands on its first green run:
 | cited clauses still owing a review (`REVIEW_OWED`) | 25 |
 
 Six sessions later, at the end of the fifteenth: 479 citations, 25 quotations, 33 distinct
-tables, 171 rows reviewed, **652** `unreviewed`, and 23 clauses still owing a review.
+tables, 171 rows reviewed, **652** `unreviewed`, and 23 clauses still owing a review. At the end
+of the twenty-first: 891 citations, 68 quotations, 51 distinct tables, 262 rows reviewed,
+**561** `unreviewed`, and 16 clauses still owing a review.
 
 The measurements that justified it were 146 citations over 36 distinct clause numbers, two of
 which named clauses that do not exist, and three of five sampled quotations that were

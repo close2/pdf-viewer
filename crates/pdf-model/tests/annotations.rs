@@ -81,14 +81,40 @@ fn render(bytes: Vec<u8>) -> pdf_render::Raster {
         .expect("supported")
 }
 
-/// Whether anything was painted at a point, given in PDF coordinates.
+/// Interprets a fixture without demanding that it drew completely.
+fn interpret(bytes: Vec<u8>) -> pdf_model::Interpretation {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    pdf_model::interpret(&document, &page)
+}
+
+/// The index of a pixel's first channel, given a point in PDF coordinates.
 ///
 /// The raster's rows run downward and PDF's y runs upward, so the flip happens here once
 /// rather than in every assertion, where it would be easy to get right by accident.
-fn painted(raster: &pdf_render::Raster, x: u32, y: u32) -> bool {
+fn at(raster: &pdf_render::Raster, x: u32, y: u32) -> usize {
     let row = raster.height.saturating_sub(1).saturating_sub(y);
-    let at = ((row.saturating_mul(raster.width)).saturating_add(x) as usize).saturating_mul(4);
-    raster.data[at + 3] > 0
+    ((row.saturating_mul(raster.width)).saturating_add(x) as usize).saturating_mul(4)
+}
+
+/// Whether anything was painted at a point, given in PDF coordinates.
+fn painted(raster: &pdf_render::Raster, x: u32, y: u32) -> bool {
+    raster.data[at(raster, x, y) + 3] > 0
+}
+
+/// A pixel's opacity, which is what a fixture testing `/ca` and `/CA` has to look at.
+fn alpha_at(raster: &pdf_render::Raster, x: u32, y: u32) -> u8 {
+    raster.data[at(raster, x, y) + 3]
+}
+
+/// A pixel's colour, ignoring its opacity.
+fn colour_at(raster: &pdf_render::Raster, x: u32, y: u32) -> (u8, u8, u8) {
+    let index = at(raster, x, y);
+    (
+        raster.data[index],
+        raster.data[index + 1],
+        raster.data[index + 2],
+    )
 }
 
 /// Reports which of an annotation's edges the appearance actually reached.
@@ -250,21 +276,20 @@ fn an_appearance_state_is_selected_by_as() {
     );
 }
 
-/// An annotation with no appearance stream is reported rather than invented.
+/// An annotation whose clause states no appearance is reported rather than invented.
 ///
-/// Synthesising one from `/IC`, `/C` and `/BS` is a separate job — a different routine per
-/// subtype — and drawing a guess would put a mark on the page the document never described.
-/// This is the rule that keeps the corpus gate's counts meaningful.
+/// §12.5.6.10 gives a highlight its `/QuadPoints` and says nothing about what mark goes in
+/// them — no thickness, no blend, nothing that would keep the text underneath visible. Drawing
+/// a guess would put a mark on the page the document never described, so the report is the
+/// answer, and it is what keeps the corpus gate's counts meaningful.
 #[test]
-fn an_annotation_with_no_appearance_is_reported() {
-    let bytes = pdf_with(
-        "<< /Type /Annot /Subtype /Square /Rect [20 20 60 60] /F 4 /IC [1 0 0] >>",
+fn an_annotation_whose_appearance_is_not_stated_is_reported() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Highlight /Rect [20 20 60 60] /F 4 /C [1 1 0] \
+         /QuadPoints [20 60 60 60 20 20 60 20] >>",
         "/BBox [0 0 10 10]",
         "1 0 0 rg 0 0 10 10 re f",
-    );
-    let document = Document::open(bytes).expect("the fixture is a valid PDF");
-    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-    let interpretation = pdf_model::interpret(&document, &page);
+    ));
     assert!(
         interpretation.display_list.commands().is_empty(),
         "nothing may be invented for it"
@@ -272,6 +297,284 @@ fn an_annotation_with_no_appearance_is_reported() {
     assert!(
         !interpretation.is_complete(),
         "and its absence must be reported"
+    );
+}
+
+/// A subtype this crate knows nothing about still draws its normal appearance.
+///
+/// §12.5.5: "If a PDF processor does not have native support for a particular annotation type,
+/// the PDF processor shall render the annotation with its normal (N) appearance." So the
+/// placement path may not switch on `/Subtype` — and Table 171's list is consulted for exactly
+/// one thing, the `Invisible` flag, whose own wording is conditional on it.
+#[test]
+fn an_unknown_subtype_still_draws_its_normal_appearance() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /SomethingFromThePDF3Era /Rect [20 30 60 70] /F 4 \
+         /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+
+    assert_eq!(extent(&raster), (20, 30, 59, 69));
+}
+
+/// A square with no appearance stream is drawn from Table 180's `/IC`.
+///
+/// §12.5.6.8: the rectangle "shall be inscribed within the annotation rectangle defined by the
+/// annotation dictionary's Rect entry". With no border to inset it, the fill reaches every edge
+/// of `/Rect` and nothing outside it.
+#[test]
+fn a_square_with_no_appearance_is_drawn_from_its_interior_colour() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 30 60 70] /F 4 /IC [1 0 0] /Border [0 0 0] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+
+    assert_eq!(extent(&raster), (20, 30, 59, 69));
+    assert!(painted(&raster, 40, 50), "the middle of /Rect");
+}
+
+/// A circle is an ellipse inscribed in the rectangle, which its corners prove.
+///
+/// The distinction this test exists for is the one a square `/Rect` and a filled rectangle
+/// cannot tell apart: an ellipse touches the middle of each edge and leaves all four corners
+/// empty. A reader that drew `re` instead would fill them.
+#[test]
+fn a_circle_is_an_ellipse_inscribed_in_its_rectangle() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Circle /Rect [10 10 90 90] /F 4 /IC [0 0 1] /Border [0 0 0] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+
+    assert!(painted(&raster, 50, 50), "the centre");
+    assert!(painted(&raster, 50, 11), "the bottom of the ellipse");
+    assert!(painted(&raster, 11, 50), "the left of the ellipse");
+    for (x, y) in [(12, 12), (87, 12), (12, 87), (87, 87)] {
+        assert!(
+            !painted(&raster, x, y),
+            "({x}, {y}) is a corner of /Rect, which an ellipse does not reach"
+        );
+    }
+}
+
+/// A link's border is §12.5.4's rectangle, in Table 166's `/C`, inside `/Rect`.
+///
+/// Table 166 makes `/C` "a colour used for ... The border of a link annotation" and §12.5.4
+/// requires that "the border shall be drawn completely inside the annotation rectangle" — so a
+/// four-unit border covers the rectangle's own edge and the four units within it, and leaves
+/// the middle alone. A reader that centred the stroke on `/Rect` would paint two units outside
+/// it; one that ignored the width would paint one.
+#[test]
+fn a_link_border_is_drawn_inside_its_rectangle_in_its_own_colour() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] /Border [0 0 4] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+
+    assert_eq!(extent(&raster), (20, 20, 79, 59));
+    assert_eq!(colour_at(&raster, 50, 20), (0, 255, 0), "the bottom edge");
+    assert!(
+        painted(&raster, 50, 23),
+        "the inner limit of a 4-unit border"
+    );
+    assert!(!painted(&raster, 50, 24), "just inside the border");
+    assert!(!painted(&raster, 50, 40), "the middle of the annotation");
+    assert!(!painted(&raster, 19, 40), "outside /Rect");
+}
+
+/// A zero-width border, or one with no colour, draws nothing and says nothing.
+///
+/// Table 166: "if the border width is 0, no border is drawn", and an empty `/C` is "No colour;
+/// transparent". Both are the document specifying nothing rather than this crate failing —
+/// which matters at the scale of the corpus, where most links are written `/Border [0 0 0]`.
+#[test]
+fn a_link_with_nothing_to_draw_reports_nothing() {
+    for annotation in [
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] /Border [0 0 0] >>",
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [] /Border [0 0 4] >>",
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /Border [0 0 4] >>",
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] \
+         /BS << /W 0 /S /S >> >>",
+    ] {
+        let interpretation = interpret(pdf_with(annotation, "/BBox [0 0 10 10]", ""));
+        assert!(
+            interpretation.display_list.commands().is_empty(),
+            "{annotation} states no border: {:?}",
+            interpretation.display_list.commands()
+        );
+        assert!(
+            interpretation.unsupported.is_empty(),
+            "{annotation} is not a gap: {:?}",
+            interpretation.unsupported
+        );
+    }
+}
+
+/// A widget stating no background, no border and holding no value draws nothing, quietly.
+///
+/// This is the commonest widget in the corpus — an empty text field — and it is the reason
+/// this decision matters more than any drawing routine: Table 192 is where a widget's
+/// background and border come from, so a widget without one states no appearance at all, and
+/// reporting it named 23 corpus documents for a gap that is not one.
+#[test]
+fn a_widget_stating_no_appearance_characteristics_draws_nothing_and_reports_nothing() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [20 20 80 40] /F 4 /FT /Tx /T (name) \
+         /DA (/Helv 9 Tf 0 g) >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        interpretation.display_list.commands().is_empty(),
+        "an empty field with no /MK draws nothing"
+    );
+    assert!(
+        interpretation.unsupported.is_empty(),
+        "and is not a gap: {:?}",
+        interpretation.unsupported
+    );
+}
+
+/// A widget with a background draws it *and* reports the value it cannot set.
+///
+/// Table 192's `/BG` is derivable and §12.7.4.3's variable text is not, so both statements are
+/// made: the frame is on the page and the text is named as missing. Suppressing either would
+/// lose information — the same pairing `/NeedAppearances` and `/Matte` already use.
+#[test]
+fn a_widget_draws_its_background_and_reports_its_field_value() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [20 20 80 40] /F 4 /FT /Tx /T (name) \
+         /V (Ada) /MK << /BG [0 0 1] >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !interpretation.display_list.commands().is_empty(),
+        "the background is stated and must be drawn"
+    );
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("12.7.4.3"),
+        "the value it cannot lay out must be named: {reported}"
+    );
+}
+
+/// A polygon's `/IC` fills the shape; a polyline's does not.
+///
+/// Table 181 states the difference outright — for a polyline "the value of the IC key is used
+/// to fill only the line ending", and this crate draws no line endings — so the same fixture
+/// under two subtypes must differ in the middle of the shape. Nothing else in either clause
+/// separates them.
+#[test]
+fn a_polygons_interior_colour_fills_it_and_a_polylines_does_not() {
+    let vertices = "/Vertices [20 20 80 20 80 80 20 80]";
+    let polygon = render(pdf_with(
+        &format!(
+            "<< /Type /Annot /Subtype /Polygon /Rect [10 10 90 90] /F 4 /IC [1 0 0] \
+             /C [0 0 1] /BS << /W 1 >> {vertices} >>"
+        ),
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(painted(&polygon, 50, 50), "a polygon's /IC fills it");
+
+    let polyline = render(pdf_with(
+        &format!(
+            "<< /Type /Annot /Subtype /PolyLine /Rect [10 10 90 90] /F 4 /IC [1 0 0] \
+             /C [0 0 1] /BS << /W 1 >> {vertices} >>"
+        ),
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !painted(&polyline, 50, 50),
+        "a polyline's /IC is for its line endings, not its interior"
+    );
+    assert!(painted(&polyline, 50, 20), "and its line is still stroked");
+}
+
+/// An ink annotation is stroked along `/InkList`, one subpath per entry.
+#[test]
+fn an_ink_annotation_is_stroked_along_its_ink_list() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Ink /Rect [10 10 90 90] /F 4 /C [0 0 0] /BS << /W 2 >> \
+         /InkList [[20 20 80 20] [20 80 80 80]] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+
+    assert!(painted(&raster, 50, 20), "the first stroke");
+    assert!(painted(&raster, 50, 80), "the second stroke");
+    assert!(
+        !painted(&raster, 50, 50),
+        "and nothing between them: the subpaths are separate, not one polyline"
+    );
+}
+
+/// A stored appearance stream states its own transparency; the annotation's `/CA` is ignored.
+///
+/// Table 166 of `/CA`: it "shall not be used if the annotation has an appearance stream ... in
+/// that case, the appearance stream shall specify any transparency". §12.5.2 lists it among the
+/// keys a reader "shall ignore" when an appearance dictionary is present. §12.5.5 says the
+/// opposite in one sentence, and that is the reading this tree followed until the twenty-first
+/// session; `highlight.pdf` shows why the other two win — it writes `/CA 0.8` *and* `ca 0.8`
+/// inside its stream, so applying both would darken the highlight the producer specified.
+///
+/// **No corpus document can tell the two readings apart**, which was measured: every one of the
+/// twelve that carries a `/CA` beside an appearance stream also sets its own alpha inside it, so
+/// all 1794 oracle verdicts are identical either way. This test is the only thing in the tree
+/// holding the clause to its words.
+#[test]
+fn a_stored_appearance_ignores_the_annotations_opacity() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 80 80] /F 4 /CA 0.5 \
+         /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+
+    assert_eq!(
+        alpha_at(&raster, 50, 50),
+        255,
+        "the stream painted opaquely, so the annotation's /CA may not thin it"
+    );
+}
+
+/// A constructed appearance *does* use `/ca` and `/CA`, which is what Table 166 defines them
+/// for: the opacity "when regenerating the annotation's appearance stream".
+///
+/// The two are separate operations — `/ca` for nonstroking, `/CA` for stroking — and the
+/// clause's fallback is one-directional: "If a ca entry is not present in this dictionary, then
+/// the value of this CA entry shall also be used for nonstroking operations as well." So a
+/// `/CA` alone thins a fill, and a `/ca` beside it overrides that fill without touching the
+/// stroke.
+#[test]
+fn a_constructed_appearance_takes_its_opacity_from_the_annotation() {
+    let from_stroking_alpha = render(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 80 80] /F 4 /CA 0.5 /IC [1 0 0] \
+         /Border [0 0 0] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert_eq!(
+        alpha_at(&from_stroking_alpha, 50, 50),
+        128,
+        "/CA stands in for /ca when there is no /ca"
+    );
+
+    let with_own_alpha = render(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 80 80] /F 4 /CA 0.5 /ca 0.25 \
+         /IC [1 0 0] /Border [0 0 0] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert_eq!(
+        alpha_at(&with_own_alpha, 50, 50),
+        64,
+        "/ca is the nonstroking opacity and outranks /CA for a fill"
     );
 }
 

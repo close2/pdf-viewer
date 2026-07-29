@@ -34,7 +34,7 @@ use conformance::quote;
 /// requirement nobody has thought about. Neither gate that renders a page can: a corpus
 /// ranks what documents ask for, and a demand curve cannot rank a requirement no file
 /// exercises.
-const UNREVIEWED_CEILING: usize = 609;
+const UNREVIEWED_CEILING: usize = 561;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///
@@ -66,12 +66,6 @@ const REVIEW_OWED: &[&str] = &[
     "8.7.4.5.3",
     "9.9.1",
     "10.3.1",
-    "12.5",
-    "12.5.4",
-    "12.5.5",
-    "12.5.6.5",
-    "12.5.6.14",
-    "12.7.4.3",
     "14.11.5",
 ];
 
