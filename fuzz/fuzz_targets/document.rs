@@ -22,10 +22,14 @@ fuzz_target!(|data: &[u8]| {
         max_stream_len: 1 << 22,
     };
 
-    let Ok(document) = Document::open_with_limits(data.to_vec(), limits) else { return };
+    let Ok(document) = Document::open_with_limits(data.to_vec(), limits) else {
+        return;
+    };
 
     // Opening is not enough: the object graph must also be safe to walk.
-    let Ok(catalog) = document.catalog() else { return };
+    let Ok(catalog) = document.catalog() else {
+        return;
+    };
 
     let pages = document.get_key(&catalog, "Pages");
     let Some(pages) = pages.as_dict() else { return };

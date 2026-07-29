@@ -59,6 +59,11 @@
     reason = "test code: the survey output is the point of the run, on a failure it is the \
               evidence, and an explanatory panic is the intended failure"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "the group comments quote the standard, and a quotation with backticks added \
+              to please a lint is no longer a quotation"
+)]
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -82,7 +87,7 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// Pages we claim to draw completely, and which two independent reference renderers
 /// contradict: pages whose raster is one pixel smaller than the references'.
 ///
-/// 5 pages, and the whole group is one arithmetic difference. Each has a page box whose
+/// 7 pages, and the whole group is one arithmetic difference. Each has a page box whose
 /// size is fractional, and at 72 dpi we and `ghostscript` produce a raster of one size while
 /// `poppler` and `mupdf` produce one a pixel wider, taller, or both. `bug1922766.pdf` is
 /// 383x72 for us and for `ghostscript`, 384x73 for `poppler`. Nothing in ISO 32000-2 says
@@ -117,13 +122,60 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// `mupdf`'s are 596x842, and a one-pixel shift under two percent ink is a page-wide
 /// structural change. The JBIG2 decode itself is not in question — see
 /// `CONTRADICTED_SHARED_JBIG2_DECODER` and `tests/jbig2.rs` for why.
-const CONTRADICTED_PAGE_ROUNDING: [&str; 5] = [
+/// `bug1065245.pdf` and `french_diacritics.pdf` joined for the same reason one session
+/// later, when inline images started drawing (§8.9.7) and their pages became comparable at
+/// all. Both are one pixel out and the pair that agrees is the pair that rounded the other
+/// way: on `bug1065245.pdf` we and `ghostscript` produce 596x842 while `poppler` and `mupdf`
+/// produce 596x843, and on `french_diacritics.pdf` we and `ghostscript` produce 595x842
+/// against `poppler`'s and `mupdf`'s 596. A row of glyphs shifted by one pixel is a
+/// page-wide structural change on a page that is mostly white.
+const CONTRADICTED_PAGE_ROUNDING: [&str; 7] = [
+    "bug1065245.pdf page 1",
     "bug1669097.pdf page 1",
     "bug1922766.pdf page 1",
     "bug1934157.pdf page 1",
+    "french_diacritics.pdf page 1",
     "issue12963.pdf page 6",
     "issue19505.pdf page 1",
 ];
+
+/// Contradicted, where the difference is a `CalRGB` space converted rather than assumed.
+///
+/// 1 page. `issue9940.pdf` draws its cover art through
+/// `[/Indexed [/DeviceN [/IBM /None /None /None] [/CalRGB …] tint] 255 table]`, and the
+/// alternate space is the whole of the disagreement: we and `poppler` convert a `CalRGB`
+/// through CIE XYZ as §8.6.5.3 defines it, while `mupdf` and `ghostscript` take its
+/// components for `DeviceRGB` — so their page is pinker than ours by a few levels across
+/// every pixel the image covers, which is 6.8% of the page.
+///
+/// The same difference kept four pages of `calrgb.pdf` in `CONTRADICTED_SUBSTITUTED_FONT`,
+/// where it is described as "a residue of colour management rather than of fonts". It is
+/// listed separately here because this page has no substituted font to be confused with, and
+/// because the argument is ADR 0012's rather than anyone's arithmetic: §8.6.5.3 gives a
+/// `CalRGB` a white point, a gamma and a matrix into XYZ, and a renderer that ignores all
+/// three is not reading the clause.
+///
+/// The `None` colourants are not the cause, though they look like one. §8.6.6.5 is explicit:
+/// "when the DeviceN colour space reverts to its alternate colour space, those components
+/// shall be passed to the tint transformation function", which is what happens here — the
+/// space never reaches a device colourant, so it always reverts.
+const CONTRADICTED_CALIBRATED_COLOUR: [&str; 1] = ["issue9940.pdf page 1"];
+
+/// Contradicted, where an image is thinner than a device pixel.
+///
+/// 1 page. `issue4436r.pdf` is the whole test: a 1x1 image mask under
+/// `180 0 0 -0.48 10 25 cm`, so it covers 180 pixels by *0.48* of one, and the page says in
+/// words that "a thin line should be visible above this text". We draw it antialiased, at
+/// 48% coverage of one row; `poppler` and `mupdf` draw a solid black row.
+///
+/// Nothing in ISO 32000-2 decides this. §8.4.3.2 gives a *stroke* the rule — a zero width
+/// "shall denote the thinnest line that can be rendered at device resolution" — and says
+/// nothing of the kind about an image, whose geometry is the unit square its matrix maps.
+/// Coverage is what the image asks for and is what we draw; snapping it to a full row is a
+/// device-specific minimum, which is a defensible choice and not one the standard states.
+/// The page is listed rather than chased for that reason: closing it would mean copying a
+/// convention rather than reading a clause.
+const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 
 /// Contradicted, where the two references that agree are the same decoder.
 ///
@@ -992,6 +1044,8 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .iter()
         .chain(&CONTRADICTED_SHARED_JBIG2_DECODER)
         .chain(&CONTRADICTED_IMAGE_RESAMPLING)
+        .chain(&CONTRADICTED_CALIBRATED_COLOUR)
+        .chain(&CONTRADICTED_SUBPIXEL_IMAGE)
         .chain(&CONTRADICTED_VISIBILITY_EXPRESSION)
         .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)

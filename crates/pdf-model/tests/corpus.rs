@@ -76,26 +76,27 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 290, and *not* a defect count — it is the honest-reporting requirement working. The
+/// 263, and *not* a defect count — it is the honest-reporting requirement working. The
 /// breakdown, by each document's first report, which is the useful part:
 ///
 /// | reported | count | why |
 /// |---|---|---|
-/// | `Text` | 121 | CID encodings and embedded `CMap`s, and now Type 3 fonts |
-/// | `Annotation` | 65 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
-/// | `Image` | 42 | see below; JBIG2 and JPX have left this row |
-/// | `Operator` | 28 | transparency groups, and text render modes |
-/// | `Shading` | 26 | soft masks in `/ExtGState`, which is transparency rather than shading |
+/// | `Text` | 100 | CID encodings and embedded `CMap`s |
+/// | `Annotation` | 66 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
+/// | `Operator` | 31 | transparency groups, and text render modes |
+/// | `Image` | 30 | see below; inline images have left this row |
+/// | `Shading` | 28 | soft masks in `/ExtGState`, which is transparency rather than shading |
 /// | `Content` | 7 | a `/Contents` stream that did not decode |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
 ///
-/// The `Image` row was 161 and is 42, which is this session's whole story: JBIG2 and JPEG
-/// 2000 decode now, in a sandboxed worker. What is left of it is a different set of
-/// problems — 12 inline images, 10 `Indexed` and 3 `DeviceN` colour spaces the image
-/// unpacker does not convert, 6 `/Mask` entries, 5 `CCITTFaxDecode`, 4 malformed streams,
-/// and exactly two files the new decoders refuse: one JBIG2 with a segment type ISO/IEC
-/// 14492 does not define, and one 212-megapixel JPEG 2000 scan larger than the sandbox is
-/// given room to decode.
+/// The `Image` row was 161 before JBIG2 and JPEG 2000 landed, 42 after, and is 30 now that
+/// inline images (§8.9.7) draw and `Indexed`, `Separation` and `DeviceN` images unpack. What
+/// is left of it, counted per image rather than per document: 22 `CCITTFaxDecode`, 14 soft
+/// masks whose grid is not the image's (§11.6.5.2 Table 143 — see `image::unapplied_soft_mask`
+/// for why that is left undone rather than guessed), 7 `/Mask` entries, 5 images at a bit
+/// depth the unpacker refuses, 4 malformed streams, and two files the new decoders refuse:
+/// one JBIG2 with a segment type ISO/IEC 14492 does not define, and one 212-megapixel JPEG
+/// 2000 scan larger than the sandbox is given room to decode.
 ///
 /// This number has gone *up* four times, and every rise was the point.
 ///
@@ -186,7 +187,16 @@ const MAX_PAGELESS: usize = 19;
 /// metrics no part of this tree reads. `vertical.pdf` should set two columns down the right
 /// edge of the page; it came out as one overlapping line across the top, reporting
 /// `unsupported: []`. Nothing stopped drawing correctly.
-const MAX_INCOMPLETE: usize = 283;
+///
+/// **283 to 263 in the eleventh session, and again the arithmetic rather than the total.**
+/// Inline images (§8.9.7) took 13 documents off this list and named the reason on the other
+/// 9 — an inline image now reports `CCITTFaxDecode` or a bit depth rather than the bare word
+/// `<inline>`. `Indexed`, `Separation`, `DeviceN` and `Lab` images unpack, which took another
+/// 10. And 3 came *back*: `chrome-text-selection-markedContent.pdf`, `issue16263.pdf` and
+/// `smaskdim.pdf` carry a soft mask whose sample grid is not their image's, which §11.6.5.2
+/// Table 143 expressly permits and this tree does not apply. All three were drawing an
+/// unmasked image in silence; `issue16263.pdf` puts black bars across its text.
+const MAX_INCOMPLETE: usize = 263;
 
 /// How long one document may take before it counts as a failure.
 ///

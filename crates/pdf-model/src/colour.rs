@@ -285,11 +285,53 @@ impl ColourSpace {
             Object::Stream(stream) => document.decoded_stream_data(stream)?,
             _ => return None,
         };
+        // §8.6.6.3: "Each byte shall be an unsigned integer in the range 0 to 255 that shall
+        // be scaled to the range of the corresponding colour component in the base colour
+        // space; that is, 0 corresponds to the minimum value in the range for that
+        // component, and 255 corresponds to the maximum."
+        //
+        // Dividing by 255 is that scaling only where the base's components run 0 to 1, which
+        // is every space but `Lab`. `issue2761.pdf` indexes into a `Lab` base and drew a
+        // black square where four renderers draw a pale grey gradient: its lightest entry is
+        // L = 253, which is 0.99 as a fraction and 99 out of 100 as a lightness.
+        let components = base.components().max(1);
+        let scaled: Vec<f32> = bytes
+            .chunks(components)
+            .flat_map(|entry| {
+                entry.iter().enumerate().map(|(component, byte)| {
+                    let (low, high) = base.component_range(component);
+                    low + f32::from(*byte) * (high - low) / 255.0
+                })
+            })
+            .collect();
         Some(Self::Indexed {
             base: Box::new(base),
-            lookup: bytes.iter().map(|byte| f32::from(*byte) / 255.0).collect(),
+            lookup: scaled,
             high,
         })
+    }
+
+    /// The range one component of a colour in this space may take.
+    ///
+    /// Every family's components run from 0.0 to 1.0 except `Lab`, whose lightness is a
+    /// percentage and whose two chromatic axes take their bounds from the space's own
+    /// `/Range` (§8.6.5.4, Table 65). Only [`Self::parse_indexed`] needs this, because a
+    /// colour table's bytes are the one place the specification asks for a component's range
+    /// rather than its value.
+    fn component_range(&self, component: usize) -> (f32, f32) {
+        match self {
+            Self::Lab { range } => match component {
+                0 => (0.0, 100.0),
+                other => {
+                    let at = other.saturating_sub(1).saturating_mul(2);
+                    (
+                        range.get(at).copied().unwrap_or(-100.0),
+                        range.get(at.saturating_add(1)).copied().unwrap_or(100.0),
+                    )
+                }
+            },
+            _ => (0.0, 1.0),
+        }
     }
 
     /// Resolves a space named directly, looking it up in the resources if need be.

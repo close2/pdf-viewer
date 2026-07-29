@@ -304,48 +304,7 @@ pub(crate) fn build(
                 alpha,
                 blend,
                 ..
-            } => {
-                if !image.is_consistent() {
-                    return Err(GpuRasterError::InvalidImage {
-                        width: image.width,
-                        height: image.height,
-                        bytes: image.data.len(),
-                    });
-                }
-
-                // Vello draws an image over a rectangle in *pixel* units, so the transform
-                // must map pixel space onto the unit square before the command's own
-                // transform. The vertical flip is because PDF's y-up space puts the image's
-                // first row at the top of the unit square.
-                let width = f64::from(image.width);
-                let height = f64::from(image.height);
-                let to_unit = kurbo::Affine::new([1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0]);
-                #[expect(
-                    clippy::arithmetic_side_effects,
-                    reason = "composing two affine transforms is floating-point \
-                              multiplication, which cannot overflow"
-                )]
-                let at = affine(transform.then(to_device)) * to_unit;
-
-                let data = peniko::ImageData {
-                    data: peniko::Blob::new(std::sync::Arc::new(image.data.to_vec())),
-                    format: peniko::ImageFormat::Rgba8,
-                    // Straight alpha, matching `pdf_render::Image`'s documented format.
-                    alpha_type: peniko::ImageAlphaType::Alpha,
-                    width: image.width,
-                    height: image.height,
-                };
-                let brush = peniko::ImageBrush::new(data).with_alpha(alpha.clamp(0.0, 1.0));
-
-                if *blend == BlendMode::Normal {
-                    scene.draw_image(&brush, at);
-                } else {
-                    let unit = kurbo::Rect::new(0.0, 0.0, width, height);
-                    scene.push_layer(peniko::Fill::NonZero, blend_mode(*blend), 1.0, at, &unit);
-                    scene.draw_image(&brush, at);
-                    scene.pop_layer();
-                }
-            }
+            } => draw_image(&mut scene, image, transform.then(to_device), *alpha, *blend)?,
             other => {
                 return Err(GpuRasterError::UnsupportedCommand(format!("{other:?}")));
             }
@@ -358,6 +317,71 @@ pub(crate) fn build(
     }
 
     Ok(scene)
+}
+
+/// Draws one image over the unit square its command names.
+///
+/// Split out of [`build`] because Vello wants an image's brush, its sampler and its blend
+/// layer set up together, and because it is the one command whose *sampler* is a decision
+/// rather than a translation — see [`pdf_render::Image::is_smoothed`].
+fn draw_image(
+    scene: &mut vello::Scene,
+    image: &pdf_render::Image,
+    placement: Transform,
+    alpha: f32,
+    blend: BlendMode,
+) -> Result<(), GpuRasterError> {
+    if !image.is_consistent() {
+        return Err(GpuRasterError::InvalidImage {
+            width: image.width,
+            height: image.height,
+            bytes: image.data.len(),
+        });
+    }
+
+    // Vello draws an image over a rectangle in *pixel* units, so the transform must map
+    // pixel space onto the unit square before the command's own transform. The vertical flip
+    // is because PDF's y-up space puts the image's first row at the top of the unit square.
+    let width = f64::from(image.width);
+    let height = f64::from(image.height);
+    let to_unit = kurbo::Affine::new([1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0]);
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "composing two affine transforms is floating-point multiplication, which \
+                  cannot overflow"
+    )]
+    let at = affine(placement) * to_unit;
+
+    let data = peniko::ImageData {
+        data: peniko::Blob::new(std::sync::Arc::new(image.data.to_vec())),
+        format: peniko::ImageFormat::Rgba8,
+        // Straight alpha, matching `pdf_render::Image`'s documented format.
+        alpha_type: peniko::ImageAlphaType::Alpha,
+        width: image.width,
+        height: image.height,
+    };
+    // §8.9.5.3, through the same decision the CPU backend makes: `Medium` is bilinear and
+    // `Low` is nearest-neighbour, and which one an image gets is `is_smoothed`'s business so
+    // that the two backends cannot disagree about a magnified image the document asked not
+    // to smooth.
+    let quality = if image.is_smoothed(placement) {
+        peniko::ImageQuality::Medium
+    } else {
+        peniko::ImageQuality::Low
+    };
+    let brush = peniko::ImageBrush::new(data)
+        .with_alpha(alpha.clamp(0.0, 1.0))
+        .with_quality(quality);
+
+    if blend == BlendMode::Normal {
+        scene.draw_image(&brush, at);
+    } else {
+        let unit = kurbo::Rect::new(0.0, 0.0, width, height);
+        scene.push_layer(peniko::Fill::NonZero, blend_mode(blend), 1.0, at, &unit);
+        scene.draw_image(&brush, at);
+        scene.pop_layer();
+    }
+    Ok(())
 }
 
 /// Returns the clip chain for a command, root-first, or an empty chain if unclipped.

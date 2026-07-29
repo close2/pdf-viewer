@@ -215,6 +215,20 @@ pub struct Image {
     pub height: u32,
     /// Row-major RGBA8 samples, top row first, with no row padding.
     pub data: std::sync::Arc<[u8]>,
+    /// Whether the samples may be smoothed when the image is drawn larger than its grid.
+    ///
+    /// ISO 32000-2 §8.9.5.3, the image dictionary's `/Interpolate`, whose default is false.
+    /// The clause is about magnification — interpolation "is an attempt to produce a smooth
+    /// transition between adjacent sample values when rendering an image whose resolution is
+    /// significantly lower than that of the output device" — and it makes the entry a hint
+    /// that "a PDF processor may ignore".
+    ///
+    /// So this bounds one direction only. A backend drawing an image *smaller* than its
+    /// sample grid is resampling rather than interpolating, which the clause does not
+    /// address and which nearest-neighbour would do badly; that stays the backend's choice.
+    /// What the flag decides is whether a four-sample image blown up to a page is four
+    /// squares or a blur, and three reference renderers draw squares.
+    pub interpolate: bool,
 }
 
 impl Image {
@@ -229,5 +243,38 @@ impl Image {
             .saturating_mul(self.height as usize)
             .saturating_mul(4);
         self.data.len() == expected && self.width > 0 && self.height > 0
+    }
+
+    /// Whether a backend should filter between samples when drawing under `placement`.
+    ///
+    /// `placement` maps the unit square onto the device, so the length of its two edges is
+    /// how many device pixels the whole image covers.
+    ///
+    /// The rule has two halves, and only the first comes from ISO 32000-2 §8.9.5.3. Where a
+    /// sample covers more than one device pixel the image is *magnified*, which is the case
+    /// the clause is about, and there `/Interpolate` decides: false — its default — means
+    /// each sample is drawn as the flat rectangle it is. Where the image is reduced instead,
+    /// several samples share a pixel and something has to combine them; the clause says
+    /// nothing about that, and nearest-neighbour would drop samples outright, so the
+    /// backend's filter stays on.
+    ///
+    /// Both backends ask this rather than deciding for themselves, because the CPU backend
+    /// is the oracle for the GPU one and a difference in this choice would show up as a
+    /// disagreement about every magnified image.
+    #[must_use]
+    pub fn is_smoothed(&self, placement: crate::Transform) -> bool {
+        if self.interpolate {
+            return true;
+        }
+        let across = placement.a.hypot(placement.b);
+        let down = placement.c.hypot(placement.d);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "an image's dimensions are bounded well below f32's exact integer range \
+                      by the decoder's own sample limit, and a pixel either way cannot change \
+                      which side of this comparison a real image falls"
+        )]
+        let magnified = across > self.width as f32 || down > self.height as f32;
+        !magnified
     }
 }

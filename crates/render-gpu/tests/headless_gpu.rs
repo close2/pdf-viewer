@@ -324,6 +324,10 @@ fn cpu_and_gpu_agree_on_an_image() {
             width: 4,
             height: 4,
             data: data.into(),
+            // The default of §8.9.5.3, so this scene also holds the two backends to the
+            // same *sampler*: sixteen samples over 120x80 pixels is magnification, where
+            // one backend filtering and the other not would be visible everywhere.
+            interpolate: false,
         },
         // Deliberately not the whole page, and not square, so that an inverted or
         // transposed mapping moves colours rather than merely permuting a symmetry.

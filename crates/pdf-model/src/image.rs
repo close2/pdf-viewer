@@ -98,14 +98,16 @@ enum ColourSpace {
     Cmyk,
     /// A stencil mask: one bit per sample, painted in the current fill colour.
     Mask,
-    /// A CIE-based space, converted sample by sample through the colour module.
+    /// Any other space, converted sample by sample through the colour module.
     ///
-    /// `CalGray` and `CalRGB` are *not* their device equivalents. ISO 32000-2 §8.6.5.2 and
-    /// §8.6.5.3 define both in CIE terms, so a `Gamma 1` grey is a linear luminance and
-    /// writing it into an sRGB raster unchanged renders the image far too dark. Converting
-    /// per sample costs what the `DeviceCMYK` arm already costs and buys the same thing: one
-    /// answer for a colour, whether it reached the page as a fill or as an image.
-    Calibrated(crate::colour::ColourSpace),
+    /// A CIE-based space is *not* its device equivalent. ISO 32000-2 §8.6.5.2 and §8.6.5.3
+    /// define `CalGray` and `CalRGB` in CIE terms, so a `Gamma 1` grey is a linear luminance
+    /// and writing it into an sRGB raster unchanged renders the image far too dark.
+    /// `Indexed`, `Separation` and `DeviceN` are not device spaces either: each is a function
+    /// of its sample rather than a colour. Converting per sample costs what the `DeviceCMYK`
+    /// arm already costs and buys the same thing: one answer for a colour, whether it reached
+    /// the page as a fill or as an image.
+    Resolved(crate::colour::ColourSpace),
 }
 
 impl ColourSpace {
@@ -114,7 +116,7 @@ impl ColourSpace {
             Self::Gray | Self::Mask => 1,
             Self::Rgb => 3,
             Self::Cmyk => 4,
-            Self::Calibrated(space) => space.components(),
+            Self::Resolved(space) => space.components(),
         }
     }
 }
@@ -201,6 +203,10 @@ pub fn decode(
         width,
         height,
         data: Arc::from(rgba.as_slice()),
+        // §8.9.5.3, and Table 87's default of false. The entry is a hint about what to do
+        // when the image is magnified, so it travels with the samples and the backends
+        // decide what to make of it.
+        interpolate: matches!(document.get_key(dict, "Interpolate"), Object::Boolean(true)),
     };
     if opacity_came_with_the_samples {
         // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
@@ -247,18 +253,6 @@ fn colour_space(document: &Document, dict: &Dictionary) -> Result<ColourSpace, I
                 .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
                 .unwrap_or_default();
             match family.as_slice() {
-                b"CalRGB" | b"CalGray" => crate::colour::ColourSpace::parse(
-                    document,
-                    &space,
-                    // A CIE-based space names nothing outside itself, so it needs no
-                    // resource dictionary to resolve — which is what makes it reachable
-                    // from here, where an image stream has none to offer.
-                    &Dictionary::new(),
-                )
-                .map(ColourSpace::Calibrated)
-                .ok_or_else(|| ImageError::UnsupportedColourSpace {
-                    space: String::from_utf8_lossy(&family).into_owned(),
-                }),
                 // An ICC profile's component count tells us how to unpack even though the
                 // profile itself is not applied — which is an approximation, and the
                 // honest one: the alternative is refusing most real images.
@@ -275,8 +269,27 @@ fn colour_space(document: &Document, dict: &Dictionary) -> Result<ColourSpace, I
                         _ => Ok(ColourSpace::Rgb),
                     }
                 }
-                other => Err(ImageError::UnsupportedColourSpace {
-                    space: String::from_utf8_lossy(other).into_owned(),
+                // §8.9.5.1 Table 87, of `/ColorSpace`: "it can be any type of colour space
+                // except Pattern". A pattern carries no colour of its own, so a sample in
+                // one names nothing that could be unpacked.
+                b"Pattern" => Err(ImageError::UnsupportedColourSpace {
+                    space: "Pattern, which Table 87 excludes".to_owned(),
+                }),
+                // Everything else the colour module reads, converted per sample: `Indexed`,
+                // `Separation`, `DeviceN`, `Lab` and the two Cal spaces. Each is a function
+                // of its samples rather than a colour, so there is nothing to approximate
+                // and one place — `ColourSpace::to_rgb` — that decides what they mean.
+                _ => crate::colour::ColourSpace::parse(
+                    document,
+                    &space,
+                    // An image's colour space is written out in full: `/CS` naming a
+                    // resource is an inline image's spelling and `crate::inline_image` has
+                    // already resolved it, so there is no resource dictionary left to need.
+                    &Dictionary::new(),
+                )
+                .map(ColourSpace::Resolved)
+                .ok_or_else(|| ImageError::UnsupportedColourSpace {
+                    space: String::from_utf8_lossy(&family).into_owned(),
                 }),
             }
         }
@@ -321,6 +334,23 @@ fn unpack(
     }
 
     let components = space.components();
+    // A space taking one component has at most 2^bits colours, so every one of them can be
+    // converted once instead of once per sample. This is exact rather than an approximation
+    // — the samples are integers and the table holds every value one can take — and it is
+    // what keeps an `Indexed` image whose base is an ICC profile, or a `Separation` whose
+    // tint transform is a PostScript program, off the per-sample path.
+    //
+    // Measured over the sixteen corpus documents that draw a space this arm reaches:
+    // 1.03 s of rendering without it, 330 ms with. `issue9940.pdf` is the extreme — 620 ms
+    // to 42 ms — because its images are `Indexed` over a `DeviceN` whose tint transform is a
+    // PostScript calculator, which was being run once per sample rather than once per entry
+    // of a 256-entry table.
+    let palette = match space {
+        ColourSpace::Resolved(resolved) if resolved.components() == 1 => {
+            Some(palette(resolved, bits, invert))
+        }
+        _ => None,
+    };
     let width_usize = width as usize;
     let height_usize = height as usize;
     // Each row starts on a byte boundary.
@@ -337,96 +367,160 @@ fn unpack(
             .unwrap_or_default();
 
         for x in 0..width_usize {
-            match (space, bits) {
-                (ColourSpace::Mask, _) => {
-                    let bit = sample_bit(row, x);
-                    // A set bit means "do not paint" unless `/Decode [1 0]` inverts it.
-                    let paint = if invert { bit } else { !bit };
-                    if paint {
-                        out.extend_from_slice(&[
-                            channel(fill.r),
-                            channel(fill.g),
-                            channel(fill.b),
-                            channel(fill.a),
-                        ]);
-                    } else {
-                        out.extend_from_slice(&[0, 0, 0, 0]);
-                    }
-                }
-                (ColourSpace::Gray, 1) => {
-                    // A set bit is white unless `/Decode [1 0]` inverts the range.
-                    let value = if sample_bit(row, x) ^ invert { 255 } else { 0 };
-                    out.extend_from_slice(&[value, value, value, 255]);
-                }
-                (ColourSpace::Gray, _) => {
-                    let value = maybe_invert(row.get(x).copied().unwrap_or(0), invert);
-                    out.extend_from_slice(&[value, value, value, 255]);
-                }
-                (ColourSpace::Rgb, _) => {
-                    let at = x.saturating_mul(3);
-                    out.extend_from_slice(&[
-                        maybe_invert(row.get(at).copied().unwrap_or(0), invert),
-                        maybe_invert(row.get(at.saturating_add(1)).copied().unwrap_or(0), invert),
-                        maybe_invert(row.get(at.saturating_add(2)).copied().unwrap_or(0), invert),
-                        255,
-                    ]);
-                }
-                (ColourSpace::Cmyk, _) => {
-                    let at = x.saturating_mul(4);
-                    let read = |offset: usize| {
-                        f32::from(maybe_invert(
-                            row.get(at.saturating_add(offset)).copied().unwrap_or(0),
-                            invert,
-                        )) / 255.0
-                    };
-                    // The *same* conversion a `k` operator or an `scn` in DeviceCMYK gets.
-                    // Having a second one here is how the same colour came to render
-                    // differently depending on whether it was drawn as a fill or as an
-                    // image, which is exactly the bug this crate should not have.
-                    let colour = crate::colour::ColourSpace::Cmyk.to_rgb(&[
-                        read(0),
-                        read(1),
-                        read(2),
-                        read(3),
-                    ]);
-                    out.extend_from_slice(&[
-                        channel(colour.r),
-                        channel(colour.g),
-                        channel(colour.b),
-                        255,
-                    ]);
-                }
-                (ColourSpace::Calibrated(calibrated), _) => {
-                    let count = calibrated.components();
-                    let at = x.saturating_mul(count);
-                    let values: Vec<f32> = (0..count)
-                        .map(|offset| {
-                            let index = at.saturating_add(offset);
-                            if bits == 1 {
-                                // One bit per *component*, so the components of a pixel are
-                                // adjacent bits rather than adjacent bytes.
-                                f32::from(sample_bit(row, index) ^ invert)
-                            } else {
-                                f32::from(maybe_invert(
-                                    row.get(index).copied().unwrap_or(0),
-                                    invert,
-                                )) / 255.0
-                            }
-                        })
-                        .collect();
-                    let colour = calibrated.to_rgb(&values);
-                    out.extend_from_slice(&[
-                        channel(colour.r),
-                        channel(colour.g),
-                        channel(colour.b),
-                        255,
-                    ]);
-                }
-            }
+            out.extend_from_slice(&sample_rgba(
+                space,
+                palette.as_deref(),
+                row,
+                x,
+                bits,
+                invert,
+                fill,
+            ));
         }
     }
 
     Ok(out)
+}
+
+/// One pixel, as straight-alpha RGBA8.
+///
+/// Split out of [`unpack`] so that the loop above is the *layout* — rows, byte boundaries,
+/// bit packing — and this is the colour, which is the only part that depends on the space.
+fn sample_rgba(
+    space: &ColourSpace,
+    palette: Option<&[pdf_render::Color]>,
+    row: &[u8],
+    x: usize,
+    bits: u32,
+    invert: bool,
+    fill: pdf_render::Color,
+) -> [u8; 4] {
+    let opaque =
+        |colour: pdf_render::Color| [channel(colour.r), channel(colour.g), channel(colour.b), 255];
+    match (space, bits) {
+        (ColourSpace::Mask, _) => {
+            let bit = sample_bit(row, x);
+            // A set bit means "do not paint" unless `/Decode [1 0]` inverts it.
+            let paint = if invert { bit } else { !bit };
+            if paint {
+                [
+                    channel(fill.r),
+                    channel(fill.g),
+                    channel(fill.b),
+                    channel(fill.a),
+                ]
+            } else {
+                [0, 0, 0, 0]
+            }
+        }
+        (ColourSpace::Gray, 1) => {
+            // A set bit is white unless `/Decode [1 0]` inverts the range.
+            let value = if sample_bit(row, x) ^ invert { 255 } else { 0 };
+            [value, value, value, 255]
+        }
+        (ColourSpace::Gray, _) => {
+            let value = maybe_invert(row.get(x).copied().unwrap_or(0), invert);
+            [value, value, value, 255]
+        }
+        (ColourSpace::Rgb, _) => {
+            let at = x.saturating_mul(3);
+            [
+                maybe_invert(row.get(at).copied().unwrap_or(0), invert),
+                maybe_invert(row.get(at.saturating_add(1)).copied().unwrap_or(0), invert),
+                maybe_invert(row.get(at.saturating_add(2)).copied().unwrap_or(0), invert),
+                255,
+            ]
+        }
+        (ColourSpace::Cmyk, _) => {
+            let at = x.saturating_mul(4);
+            let read = |offset: usize| {
+                f32::from(maybe_invert(
+                    row.get(at.saturating_add(offset)).copied().unwrap_or(0),
+                    invert,
+                )) / 255.0
+            };
+            // The *same* conversion a `k` operator or an `scn` in DeviceCMYK gets. Having a
+            // second one here is how the same colour came to render differently depending on
+            // whether it was drawn as a fill or as an image, which is exactly the bug this
+            // crate should not have.
+            opaque(crate::colour::ColourSpace::Cmyk.to_rgb(&[read(0), read(1), read(2), read(3)]))
+        }
+        (ColourSpace::Resolved(_), _) if palette.is_some() => {
+            let sample = if bits == 1 {
+                usize::from(sample_bit(row, x))
+            } else {
+                usize::from(row.get(x).copied().unwrap_or(0))
+            };
+            // The table already carries `/Decode`'s inversion, so the sample is the index
+            // and nothing else happens to it here.
+            opaque(
+                palette
+                    .and_then(|table| table.get(sample))
+                    .copied()
+                    .unwrap_or(pdf_render::Color::BLACK),
+            )
+        }
+        (ColourSpace::Resolved(resolved), _) => {
+            opaque(resolved_sample(resolved, row, x, bits, invert))
+        }
+    }
+}
+
+/// One pixel of a space the colour module resolves, converted through it.
+///
+/// Reached only for a space taking more than one component; the one-component spaces are a
+/// table lookup, built by [`palette`].
+fn resolved_sample(
+    space: &crate::colour::ColourSpace,
+    row: &[u8],
+    x: usize,
+    bits: u32,
+    invert: bool,
+) -> pdf_render::Color {
+    let count = space.components();
+    let at = x.saturating_mul(count);
+    // §8.9.5.2 Table 88: every space's default `/Decode` maps a sample onto the full range
+    // of its component, which is 0.0 to 1.0 for every space that gets here.
+    let values: Vec<f32> = (0..count)
+        .map(|offset| {
+            let index = at.saturating_add(offset);
+            if bits == 1 {
+                // One bit per *component*, so the components of a pixel are adjacent bits
+                // rather than adjacent bytes.
+                f32::from(sample_bit(row, index) ^ invert)
+            } else {
+                f32::from(maybe_invert(row.get(index).copied().unwrap_or(0), invert)) / 255.0
+            }
+        })
+        .collect();
+    space.to_rgb(&values)
+}
+
+/// Every colour a one-component space can produce at this bit depth, in sample order.
+///
+/// `invert` is baked in, so the table is indexed by the raw sample. §8.9.5.2 Table 88 decides
+/// what a sample *means* before the space sees it: an `Indexed` space's default `/Decode` is
+/// `[0 2^n - 1]`, which passes an index through unchanged, and every other space's maps the
+/// sample onto 0.0 to 1.0.
+fn palette(space: &crate::colour::ColourSpace, bits: u32, invert: bool) -> Vec<pdf_render::Color> {
+    let max = (1u32 << bits.min(8)).saturating_sub(1);
+    let indexed = matches!(space, crate::colour::ColourSpace::Indexed { .. });
+    (0..=max)
+        .map(|raw| {
+            let sample = if invert { max.saturating_sub(raw) } else { raw };
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a sample is at most 255, which f32 represents exactly"
+            )]
+            let value = sample as f32;
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "the maximum is at most 255, which f32 represents exactly"
+            )]
+            let full = max.max(1) as f32;
+            space.to_rgb(&[if indexed { value } else { value / full }])
+        })
+        .collect()
 }
 
 /// Reads bit `index` of a packed row, most significant bit first.
@@ -587,8 +681,11 @@ fn decode_jpx(
         });
     }
 
-    // §8.9.5.4 code 1 and 2 both mean the samples carry opacity; 2 additionally means the
-    // colour components were multiplied by it. Absent or 0 means ignore any that is there.
+    // §8.9.5.1 Table 87, `/SMaskInData`: code 1 and 2 both mean the samples carry opacity,
+    // and 2 additionally means the colour components were multiplied by it. Absent or 0
+    // means ignore any that is there. (This cited §8.9.5.4 until the eleventh session, which
+    // is *alternate images* — a real clause, and not this one. The citation checker holds
+    // every clause number to one the standard has, and cannot tell that from the right one.)
     let smask_in_data = document
         .get_key(dict, "SMaskInData")
         .as_integer()
@@ -832,6 +929,45 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageErr
     Ok(out)
 }
 
+/// Names an `/SMask` this crate cannot apply, for the caller to report.
+///
+/// A soft mask is not required to have the image's dimensions. ISO 32000-2 §11.6.5.2
+/// Table 143, of a mask's `/Width`:
+///
+/// > If a Matte entry (see "Table 144 - Additional entry in a soft-mask image dictionary")
+/// > is present, shall be the same as the Width value of the parent image; otherwise
+/// > independent of it. Both images shall be mapped to the unit square in user space (as
+/// > are all images), regardless of whether the samples coincide individually.
+///
+/// So the two grids are mapped onto the same square and combined at whatever resolution the
+/// output has. This crate has one raster per image and no idea what resolution the page will
+/// be drawn at, so combining them means choosing a grid: the image's loses the mask's detail
+/// wherever the mask is finer, and the mask's costs its whole area — `issue16263.pdf` gives a
+/// 2×2 image a 34862×4332 mask, which is 604 MB of RGBA for two distinct colours. Neither is
+/// a decision to take from inside an image decoder, so the mask is left unapplied and named.
+///
+/// What that costs is on the page: `issue16263.pdf` draws black bars where the mask should
+/// have cut them to overline strokes. Doing it properly means compositing an image and its
+/// mask at *device* resolution, which is a display-list question rather than this one.
+pub fn unapplied_soft_mask(document: &Document, dict: &Dictionary) -> Option<String> {
+    let smask = document.get_key(dict, "SMask");
+    let mask = smask.as_stream()?;
+
+    let dimension = |key| {
+        document
+            .get_key(&mask.dict, key)
+            .as_integer()
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(0)
+    };
+    let (mask_width, mask_height) = (dimension("Width"), dimension("Height"));
+    let width = document.get_key(dict, "Width").as_integer().unwrap_or(0);
+    let height = document.get_key(dict, "Height").as_integer().unwrap_or(0);
+
+    (i64::from(mask_width) != width || i64::from(mask_height) != height)
+        .then(|| format!("/SMask is {mask_width}x{mask_height} against a {width}x{height} image"))
+}
+
 /// Applies an `/SMask` alpha channel, if the image has one and it decodes.
 ///
 /// A soft mask that cannot be read leaves the image opaque rather than failing it: an
@@ -843,11 +979,19 @@ fn apply_soft_mask(document: &Document, dict: &Dictionary, image: Image) -> Imag
         return image;
     };
 
+    // Only a mask sample-for-sample with the image is applied — see [`unapplied_soft_mask`]
+    // for why that is a gap rather than a rule, and for what is reported instead.
+    //
+    // Asked of the *dictionary*, before decoding: `issue16263.pdf` gives a 2×2 image a
+    // 34862×4332 mask, and decoding first to compare afterwards spent 19 seconds and 600 MB
+    // producing a raster that was discarded on the next line.
+    if unapplied_soft_mask(document, dict).is_some() {
+        return image;
+    }
+
     let Ok(mask) = decode(document, mask_stream, pdf_render::Color::BLACK) else {
         return image;
     };
-    // Only a mask matching the image's dimensions is applied; scaling one is resampling,
-    // and doing it badly would show as a halo.
     if mask.width != image.width || mask.height != image.height {
         return image;
     }
@@ -864,5 +1008,6 @@ fn apply_soft_mask(document: &Document, dict: &Dictionary, image: Image) -> Imag
         width: image.width,
         height: image.height,
         data: Arc::from(data.as_slice()),
+        interpolate: image.interpolate,
     }
 }

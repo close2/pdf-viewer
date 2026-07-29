@@ -975,17 +975,35 @@ impl Interpreter<'_> {
                     let name = name_at(&operands, 0).unwrap_or_default();
                     self.paint_shading(&name, resources, &state);
                 }
+                // §8.9.7: an image written into the content stream rather than as an
+                // `XObject`. `crate::inline_image` turns it into the stream the same image
+                // would have been as an `XObject`, so from here on it is an ordinary image —
+                // including §8.6.8's rule about an uncoloured figure, which `draw_image`
+                // owns and which is what a Type 3 glyph drawn as an inline mask needs.
+                //
+                // The lexer is moved past the data on every path, error included: the bytes
+                // between `ID` and `EI` are not a program, and tokenising them would emit
+                // drawing commands from image samples.
                 b"BI" => {
-                    // An inline image runs to `EI` and its data is not PDF syntax, so the
-                    // lexer must be skipped past it or it will tokenise binary as operators.
-                    // The skip happens either way; the report does not, because an image
-                    // inside a hidden layer is not one we failed to draw.
+                    let scanned = crate::inline_image::scan(
+                        self.document,
+                        lexer.input(),
+                        lexer.position(),
+                        resources,
+                    );
+                    lexer.seek(scanned.resume);
+                    // A hidden layer suppresses the drawing and the report both: an image
+                    // the document turns off is not one we failed to draw (§8.11.3.1).
                     if !self.is_hidden() {
-                        self.note(Unsupported::Image {
-                            name: "<inline>".to_owned(),
-                        });
+                        match scanned.image {
+                            Ok(stream) => {
+                                self.draw_image(&Arc::new(stream), "<inline>", &state);
+                            }
+                            Err(error) => self.note(Unsupported::Image {
+                                name: format!("<inline>: {error}"),
+                            }),
+                        }
                     }
-                    skip_inline_image(&mut lexer);
                 }
 
                 // Operators that affect no geometry this renderer produces: marked
@@ -1418,6 +1436,20 @@ impl Interpreter<'_> {
         if let Some(oc) = stream.dict.get("OC").cloned()
             && !self.shows_optional_content(&oc)
         {
+            // §8.9.5.4 step c): where a base image's `/OC` says it is *not* visible, its
+            // `/Alternates` are examined in order and the first one visible is drawn in its
+            // place. Nothing here selects an alternate, so the page loses a picture the
+            // document expected to be there — said out loud rather than left blank, and only
+            // in the one case where it can happen. An `/Alternates` array on a *visible* base
+            // image changes nothing: step b) draws the base.
+            if !matches!(
+                self.document.get_key(&stream.dict, "Alternates"),
+                Object::Null
+            ) {
+                self.note(Unsupported::Image {
+                    name: format!("{name}: hidden, and its /Alternates are not selected from"),
+                });
+            }
             return;
         }
         if self.is_hidden() {
@@ -1523,6 +1555,15 @@ impl Interpreter<'_> {
         //
         // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
         // `/ImageMask` and is implemented — see `tests/image_masks.rs`.
+        // A soft mask whose grid is not the image's is mapped onto the same unit square and
+        // combined at output resolution (§11.6.5.2 Table 143). We combine two rasters
+        // instead, so a mask of a different size is not applied — and saying so is what
+        // keeps `issue16263.pdf`'s black bars from passing as a page we drew.
+        if let Some(detail) = crate::image::unapplied_soft_mask(self.document, &stream.dict) {
+            self.note(Unsupported::Image {
+                name: format!("{name}: {detail}"),
+            });
+        }
         if !matches!(self.document.get_key(&stream.dict, "Mask"), Object::Null) {
             self.note(Unsupported::Image {
                 name: format!("{name}: /Mask"),
@@ -1593,14 +1634,19 @@ impl Interpreter<'_> {
                                 .to_owned(),
                         });
                     }
-                    self.draw_appearance(&appearance, base);
+                    self.draw_appearance(&appearance, base, &page.resources);
                 }
             }
         }
     }
 
     /// Runs one appearance stream, clipped to its `/BBox`.
-    fn draw_appearance(&mut self, appearance: &crate::annotation::Appearance, base: Transform) {
+    fn draw_appearance(
+        &mut self,
+        appearance: &crate::annotation::Appearance,
+        base: Transform,
+        page_resources: &Dictionary,
+    ) {
         let Some(data) = self.document.decoded_stream_data(&appearance.stream) else {
             self.note(Unsupported::Annotation {
                 detail: "undecodable appearance stream".to_owned(),
@@ -1640,12 +1686,17 @@ impl Interpreter<'_> {
         };
         state.clip = Some(clip);
 
+        // §7.8.3: an appearance stream is a form `XObject` (§12.5.5), and a form written
+        // before PDF 1.2 may omit `/Resources` — "All resources that are referenced from
+        // those forms and fonts shall be inherited from the resource dictionary of the page
+        // on which they are used." An empty dictionary instead loses every named font and
+        // image the appearance draws with.
         let resources = self
             .document
             .get_key(&appearance.stream.dict, "Resources")
             .as_dict()
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_else(|| page_resources.clone());
 
         // Depth 1 rather than 0: an appearance is itself a form, so a chain of forms
         // inside it is bounded the same way one inside the page content is.
@@ -2246,40 +2297,6 @@ impl Interpreter<'_> {
         let table = self.document.get_key(resources, category);
         Some(table.as_dict()?.get(name)?.clone())
     }
-}
-
-/// Skips an inline image, whose binary data is not PDF syntax.
-///
-/// Without this the lexer would tokenise compressed image bytes as operators and could emit
-/// arbitrary drawing commands from data that is not a program at all.
-fn skip_inline_image(lexer: &mut pdf_syntax::Lexer<'_>) {
-    let input = lexer.input();
-    let from = lexer.position();
-
-    // `EI` delimited by whitespace marks the end. Searching for the bare bytes would match
-    // inside the image data.
-    let mut at = from;
-    while let Some(found) = input
-        .get(at..)
-        .and_then(|rest| rest.windows(2).position(|window| window == b"EI"))
-    {
-        let candidate = at.saturating_add(found);
-        let before_is_space = candidate
-            .checked_sub(1)
-            .and_then(|index| input.get(index))
-            .is_some_and(|&byte| pdf_syntax::lexer::is_whitespace(byte));
-        let after = input.get(candidate.saturating_add(2)).copied();
-        let after_is_boundary = after.is_none_or(pdf_syntax::lexer::is_whitespace);
-
-        if before_is_space && after_is_boundary {
-            lexer.seek(candidate.saturating_add(2));
-            return;
-        }
-        at = candidate.saturating_add(2);
-    }
-
-    // No terminator: the rest of the stream is image data.
-    lexer.seek(input.len());
 }
 
 /// The operators ISO 32000-2 §8.6.8 says an uncoloured figure's content stream may not use.

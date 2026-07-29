@@ -310,8 +310,11 @@ impl CpuRasterizer {
     /// PDF's y-up space puts the image's *first* row at the top, then the command's
     /// transform, then the device transform.
     ///
-    /// Nearest-neighbour would alias badly when a page is viewed at less than full size,
-    /// which is the common case, so bilinear filtering is used.
+    /// Whether the samples are filtered is [`pdf_render::Image::is_smoothed`]'s decision,
+    /// from §8.9.5.3's `/Interpolate` and how large the image is being drawn: bilinear where
+    /// a page is viewed at less than full size, which is the common case and where
+    /// nearest-neighbour would alias badly, and nearest where the document has magnified a
+    /// few samples across an area and asked for no smoothing.
     fn draw_image(
         &self,
         pixmap: &mut tiny_skia::PixmapMut<'_>,
@@ -368,11 +371,18 @@ impl CpuRasterizer {
         // and composing the device transform in here as well would apply it twice.
         let to_unit = Transform::new(1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0);
 
+        let placement = transform.then(to_device);
+        let filter = if image.is_smoothed(placement) {
+            tiny_skia::FilterQuality::Bilinear
+        } else {
+            tiny_skia::FilterQuality::Nearest
+        };
+
         let paint = tiny_skia::Paint {
             shader: tiny_skia::Pattern::new(
                 samples.as_ref(),
                 tiny_skia::SpreadMode::Pad,
-                tiny_skia::FilterQuality::Bilinear,
+                filter,
                 alpha.clamp(0.0, 1.0),
                 convert::transform(to_unit),
             ),
@@ -396,7 +406,7 @@ impl CpuRasterizer {
             &square,
             &paint,
             tiny_skia::FillRule::Winding,
-            convert::transform(transform.then(to_device)),
+            convert::transform(placement),
             clip,
         );
         Ok(())

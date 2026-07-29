@@ -66,6 +66,10 @@ fn quadrants() -> Image {
         width: 2,
         height: 2,
         data: data.into(),
+        // §8.9.5.3's default: these tests magnify four samples across a page, so the
+        // sampler draws four flat rectangles and a placement error moves an edge rather
+        // than shading it.
+        interpolate: false,
     }
 }
 
