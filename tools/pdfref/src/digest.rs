@@ -203,6 +203,12 @@ impl Sha256 {
     }
 
     /// One 64-byte block, FIPS 180-4 clause 6.2.2.
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "a, b … h and w are FIPS 180-4's own names for the eight working variables \
+                  and the message schedule; renaming them would make this unreadable \
+                  against the document it implements"
+    )]
     fn compress(&mut self, block: &[u8; 64]) {
         /// The message schedule's two σ functions, FIPS 180-4 clause 4.1.2.
         fn small_sigma0(x: u32) -> u32 {

@@ -33,6 +33,13 @@
     clippy::print_stdout,
     reason = "test code: the survey output is the point of the run"
 )]
+#![expect(
+    clippy::panic,
+    reason = "test code, and deliberately loud: these panics are the difference between a \
+              missing corpus, which is a skip, and a corpus that does not contain what the \
+              test needs, which is a failure. `allow-panic-in-tests` does not reach the \
+              helper functions of an integration test, only its `#[test]` bodies."
+)]
 
 use std::path::{Path, PathBuf};
 
