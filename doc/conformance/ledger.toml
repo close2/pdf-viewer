@@ -195,7 +195,10 @@ status = "unreviewed"
 [[clause]]
 clause = "7.4.6"
 title = "CCITTFaxDecode filter"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/image.rs", "crates/pdf-sandbox/src/decode.rs", "crates/pdf-sandbox/src/protocol.rs"]
+test = ["crates/pdf-model/tests/ccitt.rs::black_is_1_gives_the_exact_complement", "crates/pdf-model/tests/ccitt.rs::a_scanned_page_comes_back_mostly_white", "crates/pdf-model/tests/corpus.rs"]
+note = "Group 3 and Group 4 decode through `hayro-ccitt` in the sandboxed worker, twelfth session, and the clause's own content is Table 11 — the coding is ITU-T T.4 and T.6, which this clause says it does not describe. Seven of Table 11's eight entries are honoured with the defaults it states: `/K`'s sign selects among Group 4, Group 3 one-dimensional and Group 3 mixed (\"it shall not distinguish between different positive K values\"), `/Columns`, `/Rows`, `/EndOfLine`, `/EncodedByteAlign`, `/EndOfBlock` and `/BlackIs1`. Partial for `/DamagedRowsBeforeError`, which is error concealment the decoder has none of: a value above zero is refused and reported rather than decoded without it, since a producer that asks for concealment is one expecting damage. Two further readings of the clause that are decisions rather than code: a `/Columns` disagreeing with the image's `/Width` is refused, because the row stride the filter produces and the one §8.9.5.1 makes the unpacker read then differ and nothing here says which wins; and a stream whose data runs out before `/Rows` is legal — \"whichever occurs first\" — with the samples never delivered left blank, which the standard does not specify and `decode.rs::pad_to_height` records as a choice."
 
 [[clause]]
 clause = "7.4.7"
@@ -951,7 +954,10 @@ status = "unreviewed"
 [[clause]]
 clause = "8.6.4.2"
 title = "DeviceGray colour space"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs", "crates/pdf-model/tests/ccitt.rs::a_scanned_page_comes_back_mostly_white"]
+note = "\"A grayscale value shall be represented by a single number in the range 0.0 to 1.0, where 0.0 corresponds to black, 1.0 to white\" — one component, passed through with no gamma, which is what `ColourSpace::Gray` does. All six operators the clause names are implemented and reach the same conversion: `CS`/`cs` with the `/DeviceGray` name, `SC`/`sc` with one operand, and `G`/`g` which set space and colour together. The clause's last sentence — setting the space initialises the colour to 0.0 — is applied where a colour space is selected, and its companion in §8.6.8's initial-state rules is what `colour.rs` cites at the initial-colour comment. Reviewed in the twelfth session because `CCITTFaxDecode`'s sense depends on it: a bilevel filter delivering 1 for white is only right because this clause says 1.0 is white."
 
 [[clause]]
 clause = "8.6.4.3"
