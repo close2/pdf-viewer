@@ -283,7 +283,7 @@ scriptable on Linux — keep a small manually-captured Acrobat golden set.
 depends on three of its crates for JBIG2, JPEG 2000 and CCITT (ADR 0014), so the relationship
 needs stating rather than leaving implicit. `doc/hayro vs this project.md` has the long
 version; what belongs in a plan is what it changes. (Two of its figures have since moved:
-the oracle contradicts us on **104 of 1436** pages rather than 120 of 1340, and **672 of
+the oracle contradicts us on **108 of 1478** pages rather than 120 of 1340, and **692 of
 974** first pages report nothing rather than 587. Its analysis is unaffected.)
 
 **It is a library and this is an application.** That explains most of the differences and it
@@ -293,9 +293,9 @@ consensus with other implementations. That is roughly what `CLAUDE.md` already s
 
 **It is ahead on feature completeness, and not narrowly.** Its regression suite is 1000+
 PDFs and it has closed things we have written down as gaps: transparency groups, encryption,
-predefined `CMap`s (a whole crate, `hayro-cmap`), Type1 fonts, transparency. Type 3 fonts and
-optional content have since landed here. Our own oracle contradicts us on 104 of 1436 pages we
-claim to draw.
+predefined `CMap`s (a whole crate, `hayro-cmap`), Type1 fonts, transparency. Type 3 fonts,
+optional content and inline images have since landed here. Our own oracle contradicts us on
+108 of 1478 pages we claim to draw.
 
 **Where the direction of inference must not reverse.** `hayro-jbig2` and `hayro-jpeg2000`
 are dependencies implementing ITU-T T.88 and T.800, with exactly the status `zune-jpeg` has
@@ -408,7 +408,11 @@ ones *inside* something implemented, where the operator is handled and the code 
 `/Mask` beside it was not, knockout groups compositing as though they were not knockouts.
 Reading the clause is the only thing that finds those; this is where the finding goes. The
 ninth session's first pass produced two, §11.4.6 and §8.11.4.4, and both were invisible to
-every other instrument here.
+every other instrument here. The eleventh added a third — §8.9.5.2's general `/Decode` array,
+where only the fully-inverted case is applied and any other linear map is dropped without a
+word — and *removed* one by making it report: an `/SMask` whose sample grid is not its image's
+(§11.6.5.2 Table 143) was silently not applied, and `issue16263.pdf` drew black bars across a
+page of text because of it.
 
 **`out-of-scope` is the status that would rot first, so it is the one the checker
 constrains.** `CLAUDE.md` principle 5 fixes a closed list of exclusions — clause 13, XFA,
@@ -493,12 +497,12 @@ decided against. Where it stands on its first green run:
 
 | | |
 |---|---|
-| citations checked, all naming clauses the standard has | 268 |
-| rustdoc blockquotes verified verbatim | 5 |
+| citations checked, all naming clauses the standard has | 317 |
+| rustdoc blockquotes verified verbatim | 6 |
 | ledger rows | 823 |
-| reviewed | 119, of which 81 are clause 13's exclusion |
-| `unreviewed`, and the number that may only fall | 704 |
-| cited clauses still owing a review (`REVIEW_OWED`) | 29 |
+| reviewed | 135, of which 81 are clause 13's exclusion |
+| `unreviewed`, and the number that may only fall | 688 |
+| cited clauses still owing a review (`REVIEW_OWED`) | 25 |
 
 The measurements that justified it were 146 citations over 36 distinct clause numbers, two of
 which named clauses that do not exist, and three of five sampled quotations that were
@@ -517,6 +521,14 @@ uncoloured *tiling patterns* as well as `d1` glyph descriptions, that its list i
 Table 111's parenthesis implies, and that `cs`/`CS` must set an initial colour which is black
 in only three of its six cases. None of the three was what the session was looking for, and
 none of them reported anything at runtime.
+
+The eleventh session read §8.9 as a whole family — twelve rows — and found four more of the
+same kind, plus one the checker is *structurally* unable to find: `/SMaskInData` cited
+§8.9.5.4, which is a real clause about alternate images and not the one that defines the
+entry. A wrong number the standard happens to have passes every automated check there is, and
+only reading the clause catches it. Reading §8.9.5.4 properly then produced the one case where
+`/Alternates` decides what is on the page — a base image hidden by `/OC` should be replaced by
+its first visible alternate — which was silent and now reports.
 
 ## 6. Security architecture
 
