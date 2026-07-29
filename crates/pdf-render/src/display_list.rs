@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::geom::{Path, Rect, Size, Transform};
 use crate::paint::{BlendMode, FillRule, Image, Paint, Stroke};
+use crate::soft_mask::{SoftMask, SoftMaskId};
 
 /// Identifies a clip region within a [`DisplayList`].
 ///
@@ -69,6 +70,13 @@ pub enum Command {
         paint: Paint,
         /// Active clip, or `None` for unclipped.
         clip: Option<ClipId>,
+        /// Active soft mask, or `None` for none.
+        ///
+        /// §11.5.1's NOTE 2 calls a soft mask a *soft clip* — "a hard clip can be
+        /// represented as a soft clip having shape values of 1.0 inside and 0.0 outside the
+        /// clipping path" — which is why it is referenced beside the clip and resolved the
+        /// same way.
+        mask: Option<SoftMaskId>,
         /// How the result combines with the backdrop.
         blend: BlendMode,
     },
@@ -87,6 +95,13 @@ pub enum Command {
         alpha: f32,
         /// Active clip, or `None` for unclipped.
         clip: Option<ClipId>,
+        /// Active soft mask, or `None` for none.
+        ///
+        /// §11.6.4.3 makes an image's own mask supersede this one — "[e]ither form of mask
+        /// in the image dictionary shall override, for this image object only, the current
+        /// soft mask in the graphics state" — so an image carrying an `/SMask` or a `/Mask`
+        /// arrives here with `None` however the graphics state was left.
+        mask: Option<SoftMaskId>,
         /// How the result combines with the backdrop.
         blend: BlendMode,
     },
@@ -124,6 +139,12 @@ pub enum Command {
         alpha: f32,
         /// Active clip, or `None` for unclipped.
         clip: Option<ClipId>,
+        /// Soft mask applied to the composited group, or `None` for none.
+        ///
+        /// The mask in force at the `Do`, not inside the group: §11.6.6 initialises "the
+        /// current soft mask to None " for the group's own content, for the same reason it
+        /// initialises the alpha constants — the mask belongs to the group as an object.
+        mask: Option<SoftMaskId>,
         /// How the composited group combines with its backdrop.
         blend: BlendMode,
     },
@@ -139,6 +160,8 @@ pub enum Command {
         paint: Paint,
         /// Active clip, or `None` for unclipped.
         clip: Option<ClipId>,
+        /// Active soft mask, or `None` for none.
+        mask: Option<SoftMaskId>,
         /// How the result combines with the backdrop.
         blend: BlendMode,
     },
@@ -153,6 +176,23 @@ impl Command {
             | Self::Stroke { clip, .. }
             | Self::Image { clip, .. }
             | Self::Group { clip, .. } => *clip,
+        }
+    }
+
+    /// Returns the soft mask in effect for this command, if any.
+    ///
+    /// Per command rather than per run of commands because §11.6.4.3's NOTE 2 makes the
+    /// mask apply to one object at a time: "[i]f a soft mask is applied when painting two or
+    /// more overlapping objects, the effect of the mask multiplies with itself in the area
+    /// of overlap". Applying it once to a run of objects would be a different picture, and
+    /// the one the clause warns is *not* what a mask does.
+    #[must_use]
+    pub fn mask(&self) -> Option<SoftMaskId> {
+        match self {
+            Self::Fill { mask, .. }
+            | Self::Stroke { mask, .. }
+            | Self::Image { mask, .. }
+            | Self::Group { mask, .. } => *mask,
         }
     }
 }
@@ -173,6 +213,7 @@ pub struct DisplayList {
     pub page_size: Size,
     commands: Vec<Command>,
     clips: Vec<Clip>,
+    soft_masks: Vec<SoftMask>,
 }
 
 impl DisplayList {
@@ -183,6 +224,7 @@ impl DisplayList {
             page_size,
             commands: Vec::new(),
             clips: Vec::new(),
+            soft_masks: Vec::new(),
         }
     }
 
@@ -232,6 +274,41 @@ impl DisplayList {
         Ok(ClipId(index))
     }
 
+    /// Registers a soft mask and returns its identifier.
+    ///
+    /// Stored in a table for the same reason clips are: a mask set by `gs` applies to every
+    /// object painted until it is replaced, and duplicating its group per command would
+    /// copy the whole group thousands of times over a page of masked text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DisplayListError::TooManySoftMasks`] if the list already holds `u32::MAX`
+    /// of them — the same bound and the same reasoning as [`DisplayList::add_clip`]'s.
+    pub fn add_soft_mask(&mut self, mask: SoftMask) -> Result<SoftMaskId, DisplayListError> {
+        let index =
+            u32::try_from(self.soft_masks.len()).map_err(|_| DisplayListError::TooManySoftMasks)?;
+        self.soft_masks.push(mask);
+        Ok(SoftMaskId::new(index))
+    }
+
+    /// Returns the soft mask with the given identifier.
+    ///
+    /// Returns `None` only if the identifier came from a different display list, which is a
+    /// programming error rather than a document defect.
+    #[must_use]
+    pub fn soft_mask(&self, id: SoftMaskId) -> Option<&SoftMask> {
+        self.soft_masks.get(id.index())
+    }
+
+    /// Returns how many soft masks the list holds.
+    ///
+    /// A backend evaluates each one at target resolution, so this is how many extra
+    /// rasters a page costs.
+    #[must_use]
+    pub fn soft_mask_count(&self) -> usize {
+        self.soft_masks.len()
+    }
+
     /// Returns the commands in painting order.
     #[must_use]
     pub fn commands(&self) -> &[Command] {
@@ -264,4 +341,7 @@ pub enum DisplayListError {
     /// More clip regions were added than a [`ClipId`] can address.
     #[error("display list exceeded the maximum of {} clip regions", u32::MAX)]
     TooManyClips,
+    /// More soft masks were added than a [`SoftMaskId`] can address.
+    #[error("display list exceeded the maximum of {} soft masks", u32::MAX)]
+    TooManySoftMasks,
 }

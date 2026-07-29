@@ -2261,30 +2261,34 @@ note = "A restatement of §11.4.4's formulas with the subscript b that selects t
 [[clause]]
 clause = "11.5"
 title = "Soft masks"
-status = "reported"
-code = ["crates/pdf-model/src/content.rs"]
-note = "Aggregate of the three below. A soft mask derived from a transparency group is not implemented — it needs the group machinery of §11.4.6 — and `content.rs` reports an `/ExtGState` whose `/SMask` is anything but `/None`, on 28 corpus documents. An image's own `/SMask` is a different mechanism and is implemented: §11.6.5.2."
+status = "implemented"
+code = ["crates/pdf-model/src/soft_mask.rs", "crates/pdf-model/src/content.rs", "crates/pdf-render/src/soft_mask.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/soft_mask.rs"]
+test = ["crates/pdf-model/tests/soft_masks.rs", "crates/render-cpu/tests/soft_mask.rs", "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_soft_mask"]
+note = "Aggregate of the three below, and the eighteenth session's demand item. A soft mask is a transparency group evaluated for its opacity: `pdf-model` runs the group into a command list of its own, both backends rasterise it at device resolution, and `pdf_render::SoftMask::value` — one function, called by both — turns the pixels into mask values. Was `reported` on 28 corpus documents until §11.4's groups made it buildable. ADR 0027."
 
 [[clause]]
 clause = "11.5.1"
 title = "General"
-status = "reported"
-code = ["crates/pdf-model/src/content.rs"]
-note = "Introduces the mask shape and mask opacity a soft mask supplies, and the soft clip its NOTE 2 describes. Neither exists here for a graphics-state mask; the report names the `/ExtGState` it came from."
+status = "implemented"
+code = ["crates/pdf-render/src/soft_mask.rs", "crates/render-cpu/src/lib.rs"]
+test = ["crates/render-cpu/tests/soft_mask.rs::a_constant_mask_interpolates_between_the_object_and_the_backdrop"]
+note = "Introduces the mask shape and mask opacity a soft mask supplies. Its NOTE 2's soft clip is what the CPU backend literally builds — the mask becomes a `tiny_skia::Mask` multiplied into the clip mask, which is the NOTE's \"generalization of the hard clip\" as arithmetic. Shape and opacity are one alpha here (§11.3.7.1's `a = f x q`), so `/AIS` is immaterial and deliberately not read; see §11.6.4.3."
 
 [[clause]]
 clause = "11.5.2"
 title = "Deriving a soft mask from group alpha"
-status = "reported"
-code = ["crates/pdf-model/src/content.rs"]
-note = "Deriving the mask from a group's alpha, with a transfer function applied. Nothing here evaluates a group, so nothing can. `smask_alpha_bc.pdf`, `smask_alpha_oob.pdf` and `smask_alpha_oob_transfer.pdf` are the corpus's cases and all three report."
+status = "implemented"
+code = ["crates/pdf-render/src/soft_mask.rs"]
+test = ["crates/pdf-model/tests/soft_masks.rs::an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour", "crates/pdf-render/src/soft_mask.rs::an_alpha_mask_reads_the_alpha_and_ignores_the_colour"]
+note = "The group is drawn onto a fully transparent surface and its alpha channel taken, which is the clause's backdrop \"whose value does not contribute to the eventual result\" factored out by construction rather than by subtraction. Its NOTE 2 — the shape and alpha of an empty group is 0.0 — falls out of the same surface. `smask_alpha_bc.pdf`, `smask_alpha_oob.pdf` and `smask_alpha_oob_transfer.pdf` are the corpus's cases and all three now draw."
 
 [[clause]]
 clause = "11.5.3"
 title = "Deriving a soft mask from group luminosity"
-status = "reported"
-code = ["crates/pdf-model/src/content.rs"]
-note = "Deriving the mask from a group's luminosity, against a backdrop of the `/BC` colour. Also unimplemented and reported. Cited from `image.rs` for the opposite reason: it is the clause an image's one-bit `/Mask` gets read under by three other renderers, and reading luminosity as opacity there would be this clause applied to a key it says nothing about (§8.9.6.3, ADR 0023)."
+status = "partial"
+code = ["crates/pdf-render/src/soft_mask.rs", "crates/pdf-model/src/soft_mask.rs"]
+test = ["crates/pdf-model/tests/soft_masks.rs::a_luminosity_mask_takes_the_groups_grey_and_the_backdrops_outside_it", "crates/pdf-render/src/soft_mask.rs::a_luminosity_mask_uses_the_clauses_own_coefficients"]
+note = "The group is composited onto the opaque `/BC` backdrop and the luminosity of the result taken, by the clause's device branch: \"convert the colour to DeviceGray by implementation-defined means\", the means being EXAMPLE 2's Y = 0.30 R + 0.59 G + 0.11 B. Those coefficients and not a library's: `tiny_skia::MaskType::Luminance` is Rec. 709 and Vello's luminance mask is the SVG formula, and both are a fifth of the mask's range away on green. What is not done is the clause's *other* branch — a CIE-based group space converted to XYZ and its Y taken — because every colour here is converted to device RGB one at a time long before a mask is composited; that is §11.6.6's departure seen from this clause, and it is exact for the grey spaces (0.30 + 0.59 + 0.11 = 1) and reported for the rest. \"G may be any kind of group - isolated or not, knockout or not\" is honoured by reporting §11.4's two structural departures for a mask group exactly as for a painted one."
 
 [[clause]]
 clause = "11.6"
@@ -2359,17 +2363,18 @@ note = "`ca` and `CA` are two scalars in the graphics state, applied to non-stro
 [[clause]]
 clause = "11.6.5"
 title = "Specifying soft masks"
-status = "partial"
-code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/image_masks.rs"]
-note = "Two ways to specify a soft mask, and this tree implements the second. A soft-mask dictionary in the graphics state (§11.6.5.1) is reported; a soft-mask image on an image XObject (§11.6.5.2) is applied, including at a resolution of its own and with `/Matte` undone."
+status = "implemented"
+code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/soft_mask.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs", "crates/pdf-model/tests/soft_masks.rs"]
+note = "Two ways to specify a soft mask, and both are implemented as of the eighteenth session: a soft-mask dictionary in the graphics state (§11.6.5.1) and a soft-mask image on an image XObject (§11.6.5.2), the latter including at a resolution of its own and with `/Matte` undone. What each of the two rows still owes is stated there."
 
 [[clause]]
 clause = "11.6.5.1"
 title = "Soft-mask dictionaries"
-status = "reported"
-code = ["crates/pdf-model/src/content.rs"]
-note = "Table 142's `/S`, `/G`, `/BC` and `/TR` are read nowhere: deriving mask values needs a transparency group evaluated to alpha or to luminosity (§11.5.2, §11.5.3), which needs §11.4.6. `/None` is the one value that needs nothing, and every other is reported as `SMask in /<name>` — 28 corpus documents. One over-report is known and left: §11.6.4.3 says a mask in an image's own dictionary overrides the graphics state's \"for this image object only\", so a page whose only object under the state is such an image is named for a mask that would not have applied to it."
+status = "implemented"
+code = ["crates/pdf-model/src/soft_mask.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/soft_masks.rs"]
+note = "Table 142 entire. `/S` selects §11.5.2's or §11.5.3's derivation and any other name is refused and reported; `/G` is run as a transparency group with §11.6.6's initialisation, its own `/BBox` clipping it and its `/Matrix` concatenated with the transform in force at the `gs` — not at the painting operation, which is the sentence a later `cm` would otherwise break; `/BC` is read in the group's own `/CS`, so its component count is that space's, and defaults to the space's initial colour; `/TR` is sampled onto the 256 values an eight-bit mask value can take, exactly, and clamped as the clause requires. The value outside the group's bounding box is the transfer function of 0.0 or of the backdrop's luminosity, which falls out of drawing the group onto transparency rather than being a second code path. The over-report the previous note described is gone: §11.6.4.3's precedence is now read, so an image carrying its own mask is drawn with the graphics state's mask off."
 
 [[clause]]
 clause = "11.6.5.2"
@@ -2398,72 +2403,96 @@ note = "A shading pattern composites \"as if the shading dictionary were applied
 [[clause]]
 clause = "11.7"
 title = "Colour space and rendering issues"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/colour.rs", "crates/pdf-model/src/soft_mask.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs", "crates/pdf-model/tests/soft_masks.rs"]
+note = "Aggregate of the five below, read as a family in the eighteenth session because §11.6.5.1's `/BC` is stated in a group's blending colour space and this is the clause that says what such a space is. Two of its five subclauses are satisfied, one is a departure this tree already reports, and §11.7.4's overprinting is not implemented and — as of this reading — the ledger's third `silent` row."
 
 [[clause]]
 clause = "11.7.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "One sentence introducing the subclauses below. There is no requirement to implement, and claiming one would put code against a clause that asks for none."
 
 [[clause]]
 clause = "11.7.2"
 title = "Colour spaces for transparency groups"
-status = "unreviewed"
+status = "reported"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/soft_mask.rs"]
+note = "Every compositing computation here happens on the three components of the device raster, so the group blending space this clause governs is device RGB whatever a `/CS` says. Three of its rules are therefore departures rather than gaps, and each is reported where it can change a pixel: a group whose `/CS` is not a three-component RGB space (§11.6.6, 4 corpus documents, all `/DeviceCMYK`), a soft-mask group whose `/CS` is not one either (§11.5.3, 7 documents), and the inheritance rules — a device space taking the nearest CIE-based ancestor's, a non-isolated group taking its nearest isolated ancestor's — which have nothing to inherit into. \"For the compositing computations to work in a device-independent way, the group's colour space should be CIE-based\" is a *should*, and this tree does not: it converts every colour once, into device RGB, which is trap 6's one-conversion rule and the reason the two backends cannot disagree about colour. Annex P's algorithm is the same subject and equally unimplemented."
 
 [[clause]]
 clause = "11.7.3"
 title = "Spot colours and transparency"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs"]
+note = "The clause offers two treatments for a spot colour inside a group — keep a component of its own, or \"be converted to its alternate colour space\" — and this tree always takes the second: a `Separation` or `DeviceN` colour goes through its tint transform into the alternate space at the moment it is read, before anything composites. That is conforming rather than a shortcut, and it makes the clause's one *shall* about soft masks true by construction: \"spot colours shall not be available in a transparency group XObject that is used to define a soft mask; the alternate colour space shall always be substituted in that case.\" What is given up is the first treatment's separation fidelity, which needs a raster per colourant and a device that has them."
 
 [[clause]]
 clause = "11.7.4"
 title = "Overprinting and transparency"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the five below, and the ledger's third `silent` row. `/OP`, `/op` and `/OPM` are read nowhere in this tree, and 63 of the corpus's first-page `/ExtGState` dictionaries set one of the two booleans true. Under §11.7.4.2 an object painted with overprinting enabled composites through the *special overprinting blend mode* rather than through Normal, which leaves the backdrop's value in every colour component the source does not paint — so a document that enables it gets more ink than it asked for here, with nothing said. Sizing a report is the work this row is owed, and trap 11 is the reason it was not written this session: presence of the key is not the condition, since overprinting changes nothing where the source paints every component of the group's space, which is what an ordinary `rg` or `g` fill does."
 
 [[clause]]
 clause = "11.7.4.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Introduces the special overprinting blend mode and the two parameters that select it. Nothing here reads either; see §11.7.4."
 
 [[clause]]
 clause = "11.7.4.2"
 title = "Blend modes and overprinting"
-status = "unreviewed"
+status = "silent"
+note = "\"When overprinting is enabled, the blend mode shall be replaced by the special overprinting blend mode, disregarding the current blend mode\" — this tree keeps the current blend mode. Table 146's per-component rule is what an implementation owes: a component the source does not paint takes the backdrop's value under `OP true`, which is not expressible while compositing happens in three device components rather than in the group's colourants (§11.7.2)."
 
 [[clause]]
 clause = "11.7.4.3"
 title = "Compatibility with opaque overprinting"
-status = "unreviewed"
+status = "silent"
+note = "The rule that makes transparent overprinting agree with the opaque model where both apply. Unimplemented with the rest of §11.7.4."
 
 [[clause]]
 clause = "11.7.4.4"
 title = "Special path-painting considerations"
-status = "unreviewed"
+status = "silent"
+note = "A path filled *and* stroked under overprinting is one object whose two parts must not overprint each other. This tree emits two commands for `B` and already reports that under §11.6.2 for a paint that composites; the overprinting half of the same sentence is unreported because overprinting itself is."
 
 [[clause]]
 clause = "11.7.4.5"
 title = "Summary of overprinting behavior"
-status = "unreviewed"
+status = "silent"
+note = "Table 146, which is the whole of what an implementation of §11.7.4 has to execute, plus its NOTE 2's rule that a *group* reverts to Normal because nothing records which components its elements painted. Read, and not implemented."
 
 [[clause]]
 clause = "11.7.5"
 title = "Rendering parameters and transparency"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs"]
+note = "Aggregate of the three below: which rendering parameters apply where objects overlap. The halftone and transfer function half describes a marking device this tree does not have; the colour-conversion half is honoured trivially, because a colour is converted once, at the moment it is read, rather than at a group boundary."
 
 [[clause]]
 clause = "11.7.5.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "Prose dividing the rendering parameters into the two categories the two subclauses below treat. No requirement of its own."
 
 [[clause]]
 clause = "11.7.5.2"
 title = "Halftone and transfer function"
-status = "unreviewed"
+status = "inapplicable"
+code = ["crates/pdf-model/src/content.rs"]
+note = "Requires an implementation to track the halftone and transfer function per *region* of the page, since the topmost fully opaque object at each point decides them. Both parameters describe a marking device — §10.5 and §10.6 — and this tree reads neither: `/HT`, `/TR`, `/TR2`, `/BG` and `/UCR` are named in `content.rs` only as the `/ExtGState` entries §8.6.8 forbids an uncoloured figure to set. With nothing to track, the tracking is inapplicable rather than owed. It becomes applicable the day a transfer function is honoured, and this row is where that will be recorded."
 
 [[clause]]
 clause = "11.7.5.3"
 title = "Rendering intent, black point compensation and colour conversions"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "The clause's subject is *when* a conversion happens: in the transparent model the target may be a group's colour space rather than the device's, so the intent and the black point compensation in force at that moment are the ones that apply. Here every colour is converted to device RGB at the moment it is read, so the parameters in force are always the object's own — which is what the clause asks for, by a route that makes the question unaskable. `/RI` and `/UseBlackPtComp` are read and reach that conversion (§8.6.5.9, ADR 0012). What is not done is the second half: black generation and undercolour removal \"shall be applied only during conversion from DeviceRGB to DeviceCMYK\", which this tree never performs, and the selection of an ICC profile's `A2B` table by intent, which §8.6.5.8 already records."
 
 [[clause]]
 clause = "12.1"

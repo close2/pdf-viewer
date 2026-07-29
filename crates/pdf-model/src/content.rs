@@ -24,7 +24,7 @@ use pdf_render::Shading;
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin, Paint, Path,
-    PathCommand, Point, Rect, Size, Stroke, Transform,
+    PathCommand, Point, Rect, Size, SoftMaskId, Stroke, Transform,
 };
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
@@ -58,6 +58,15 @@ const MAX_OPERANDS: usize = 8192;
 /// A form may draw another form, and a form that draws itself is a cycle. The
 /// specification forbids it; files do it anyway.
 const MAX_FORM_DEPTH: usize = 16;
+
+/// Deepest nesting of soft-mask groups.
+///
+/// A mask's group is a content stream like any other, so it may set a soft mask of its own
+/// — including, in a file that is broken or hostile, one whose `/G` is the group being
+/// evaluated. That is a cycle the document controls, and this is what makes it terminate.
+/// Four levels is far past anything a producer writes and cheap to allow: each level costs
+/// a whole group's commands.
+const MAX_SOFT_MASK_DEPTH: usize = 4;
 
 /// Something the interpreter met but could not draw.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -137,6 +146,18 @@ pub enum Unsupported {
     CompositedInParts {
         /// What painted the object in parts.
         detail: &'static str,
+    },
+    /// A graphics state's `/SMask` that could not be evaluated (§11.6.5.1).
+    ///
+    /// A soft mask *is* implemented — a transparency group evaluated for its alpha (§11.5.2)
+    /// or its luminosity (§11.5.3) — so what reaches this is a dictionary the clause does
+    /// not describe: no `/G`, a subtype that is neither of the two Table 142 names, or a
+    /// `/TR` that is not a readable function. The object is then painted *unmasked*, which
+    /// is more ink than the document asked for and never less, and saying so is what keeps
+    /// that from passing as a page we drew.
+    SoftMask {
+        /// What was wrong, and with which resource.
+        detail: String,
     },
     /// A transparency group asking for something §11.4 defines and this does not do.
     ///
@@ -265,6 +286,12 @@ struct TransparencyGroup {
 struct GraphicsState {
     transform: Transform,
     clip: Option<ClipId>,
+    /// The current soft mask, or `None` for §11.6.4.3's implicit 1.0 everywhere.
+    ///
+    /// Set by `gs` and, like every other parameter here, saved and restored by `q`/`Q`.
+    /// It is one identifier rather than the mask itself because a mask's group is a whole
+    /// command list and the same mask commonly applies to every object on a page.
+    soft_mask: Option<SoftMaskId>,
     fill: Color,
     /// The pattern set as the fill colour, if the fill space is `/Pattern`.
     fill_pattern: Option<PatternPaint>,
@@ -466,14 +493,22 @@ fn command_blends(command: &Command) -> bool {
 /// Whether a command's result can let what is under it show through.
 ///
 /// The union of blending and of any transparency at all — a constant alpha below one, a
-/// colour or shading carrying alpha, an image with a soft mask or a stencil. A group is
-/// transparent if its own alpha is, or if anything inside it is: a group of half-opaque
-/// objects produces a half-opaque result.
+/// colour or shading carrying alpha, an image with a soft mask or a stencil, and a soft mask
+/// in the graphics state. A group is transparent if its own alpha is, or if anything inside
+/// it is: a group of half-opaque objects produces a half-opaque result.
 ///
 /// Scanning an image's samples is linear in them, which is why the one caller asks this only
 /// for a knockout group.
 fn command_composites(command: &Command) -> bool {
     if command_blends(command) {
+        return true;
+    }
+    // A soft mask is §11.6.4.1's third source of opacity, so an object painted through one
+    // composites however opaque its colour is. `knockout_smask.pdf` is why this line is
+    // here: its knockout group paints an opaque blue over an opaque red *under a mask*, and
+    // without this the §11.4.6 report saw two opaque fills and stayed quiet about a page
+    // three references draw the other way.
+    if command.mask().is_some() {
         return true;
     }
     match command {
@@ -625,6 +660,7 @@ impl GraphicsState {
         Self {
             transform: base,
             clip: None,
+            soft_mask: None,
             fill: Color::BLACK,
             fill_pattern: None,
             stroke_pattern: None,
@@ -709,6 +745,7 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         optional_content: crate::optional_content::OptionalContent::read(document),
         hidden: 0,
         glyph_depth: 0,
+        soft_mask_depth: 0,
         uncoloured: false,
     };
 
@@ -842,6 +879,11 @@ struct Interpreter<'a> {
     /// used only in a content stream appearing in a Type 3 font's `CharProcs` dictionary"
     /// and this is what tells a stray one in a page's own content stream from a real one.
     glyph_depth: usize,
+    /// How many soft-mask groups are being evaluated, one per level of nesting.
+    ///
+    /// See [`MAX_SOFT_MASK_DEPTH`]: a mask's group may set a mask of its own, and a
+    /// document decides how deep that goes.
+    soft_mask_depth: usize,
     /// Whether the content being run is a figure whose colour is supplied from outside it.
     ///
     /// ISO 32000-2 §8.6.8 names two such circumstances and gives them one rule: "in any glyph
@@ -1517,6 +1559,7 @@ impl Interpreter<'_> {
                     fill_rule: rule,
                     paint: state.fill_paint(),
                     clip: state.clip,
+                    mask: state.soft_mask,
                     blend: state.blend,
                 });
             }
@@ -1527,6 +1570,7 @@ impl Interpreter<'_> {
                     stroke: state.stroke.clone(),
                     paint: state.stroke_paint(),
                     clip: state.clip,
+                    mask: state.soft_mask,
                     blend: state.blend,
                 });
             }
@@ -1683,13 +1727,117 @@ impl Interpreter<'_> {
             state.text.knockout = knockout;
         }
 
-        // A soft mask other than /None changes compositing in a way this renderer cannot
-        // yet reproduce, so it must be reported rather than ignored.
-        if let Object::Dictionary(_) = self.document.get_key(dict, "SMask") {
-            self.note(Unsupported::Shading {
-                name: format!("SMask in /{name}"),
+        // §11.6.4.3's soft mask: an independent source of shape or opacity, defined by a
+        // transparency group and applied to every object painted while it is in force.
+        // Table 57's `/AIS` decides whether its values are shape or opacity, and is
+        // deliberately not read: this renderer carries one alpha per pixel, where §11.3.7.1
+        // makes alpha the product `α = f × q` of the two — so a mask value multiplies the
+        // same alpha whichever of the two it is called. The distinction is visible only to a
+        // model that keeps shape and opacity apart, and the places that would need it —
+        // knockout and non-isolated groups — are reported as departures already.
+        match crate::soft_mask::entry(self.document, dict) {
+            crate::soft_mask::SoftMaskEntry::None => state.soft_mask = None,
+            crate::soft_mask::SoftMaskEntry::Mask(request) => {
+                state.soft_mask = self.build_soft_mask(&request, state);
+            }
+            crate::soft_mask::SoftMaskEntry::Unusable(detail) => {
+                state.soft_mask = None;
+                self.note(Unsupported::SoftMask {
+                    detail: format!("/{name}: {detail}"),
+                });
+            }
+        }
+    }
+
+    /// Evaluates a soft mask's transparency group and registers it (§11.5, §11.6.5.1).
+    ///
+    /// Returns `None` when the group draws nothing at all, which §11.5.2's NOTE 2 makes a
+    /// mask of zero — but only for the alpha derivation, where an empty group masks
+    /// everything away; a luminosity mask over a white backdrop is a mask of *one*. Both
+    /// answers are the mask's own, so the group is registered either way and only an
+    /// unreadable one gives up here.
+    fn build_soft_mask(
+        &mut self,
+        request: &crate::soft_mask::SoftMaskRequest,
+        state: &GraphicsState,
+    ) -> Option<SoftMaskId> {
+        if self.soft_mask_depth >= MAX_SOFT_MASK_DEPTH {
+            self.note(Unsupported::LimitReached {
+                limit: "MAX_SOFT_MASK_DEPTH",
+            });
+            return None;
+        }
+        let Some(content) = self.document.decoded_stream_data(&request.group) else {
+            self.note(Unsupported::SoftMask {
+                detail: "/SMask names an undecodable /G".to_owned(),
+            });
+            return None;
+        };
+
+        // §11.6.5.1: "The mask's coordinate system shall be defined by concatenating the
+        // transformation matrix specified by the Matrix entry in the transparency group's
+        // form dictionary … with the current transformation matrix at the moment the soft
+        // mask is established in the graphics state with the gs operator." The mask is
+        // therefore fixed here, at the `gs`, and does not move with whatever transform is in
+        // force when it is finally used.
+        let mut inner = GraphicsState::initial(state.transform);
+        if let Some(matrix) = self.matrix(&request.group.dict) {
+            inner.transform = matrix.then(inner.transform);
+        }
+        // The clip chain starts fresh rather than inheriting the caller's. A mask is not
+        // painted, so nothing about it is clipped by the path in force; its own `/BBox` is
+        // the whole of its extent, and §11.6.5.1 gives the mask a value everywhere outside
+        // that box — the transfer function of 0.0, or of the backdrop's luminosity — which
+        // an inherited clip would have no way to express.
+        if let Some(bbox) = self.rectangle(&request.group.dict, "BBox") {
+            inner.clip = self.rect_clip(bbox, inner.transform, None);
+            if inner.clip.is_none() {
+                self.note(Unsupported::LimitReached { limit: "max_clips" });
+                return None;
+            }
+        }
+
+        let resources = self
+            .document
+            .get_key(&request.group.dict, "Resources")
+            .as_dict()
+            .cloned()
+            .unwrap_or_default();
+
+        if let Some(detail) = &request.colour_space_departure {
+            self.note(Unsupported::TransparencyGroup {
+                detail: detail.clone(),
             });
         }
+
+        let mark = self.list.command_count();
+        self.soft_mask_depth = self.soft_mask_depth.saturating_add(1);
+        self.run(&content, &resources, &inner, 0);
+        self.soft_mask_depth = self.soft_mask_depth.saturating_sub(1);
+        let commands = self.list.split_off_commands(mark);
+
+        // §11.5.3, of the group a mask is derived from: "G may be any kind of group -
+        // isolated or not, knockout or not - producing various effects on the C result in
+        // each case." So Table 145's two flags mean here what they mean anywhere, and the
+        // group is evaluated as the isolated non-knockout one either way — the same
+        // departure, reported on the same conditions, rather than a second reading of the
+        // same table.
+        if let Some(group) = self.transparency_group(&request.group.dict) {
+            self.note_group_structure(&group, &commands);
+        }
+
+        let evaluated = pdf_render::SoftMask {
+            commands,
+            kind: request.kind,
+            transfer: request.transfer.clone(),
+        };
+        let Ok(id) = self.list.add_soft_mask(evaluated) else {
+            self.note(Unsupported::LimitReached {
+                limit: "max_soft_masks",
+            });
+            return None;
+        };
+        Some(id)
     }
 
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
@@ -1898,33 +2046,7 @@ impl Interpreter<'_> {
 
         // A form carries its own matrix and its own resources, falling back to the page's.
         let mut inner = state.clone();
-        if let Some(matrix) = self
-            .document
-            .get_key(&stream.dict, "Matrix")
-            .as_array()
-            .and_then(|items| {
-                let values: Vec<f32> = items
-                    .iter()
-                    .map(|item| self.document.resolve(item))
-                    .filter_map(|item| item.as_number())
-                    .map(|value| {
-                        #[expect(
-                            clippy::cast_possible_truncation,
-                            reason = "a matrix component outside f32's range is not usable \
-                                      as one"
-                        )]
-                        {
-                            value as f32
-                        }
-                    })
-                    .collect();
-                (values.len() >= 6).then(|| {
-                    Transform::new(
-                        values[0], values[1], values[2], values[3], values[4], values[5],
-                    )
-                })
-            })
-        {
+        if let Some(matrix) = self.matrix(&stream.dict) {
             inner.transform = matrix.then(inner.transform);
         }
 
@@ -1988,11 +2110,12 @@ impl Interpreter<'_> {
         //
         // Its NOTE 1 gives the reason: those parameters apply to the *group*, once, when it
         // is composited into its parent, and leaving them in force would apply them a second
-        // time to every element inside. This renderer has no graphics-state soft mask to
-        // reset; `gs` reports one instead.
+        // time to every element inside. All four are reset here, the soft mask included —
+        // the group carries it instead, on the command below.
         inner.blend = BlendMode::Normal;
         inner.fill_alpha = 1.0;
         inner.stroke_alpha = 1.0;
+        inner.soft_mask = None;
 
         let mark = self.list.command_count();
         self.run(content, resources, &inner, form_depth.saturating_add(1));
@@ -2011,6 +2134,11 @@ impl Interpreter<'_> {
             commands,
             alpha: outer.fill_alpha,
             clip: inner.clip,
+            // The mask in force at the `Do`, applied to the group as one object — which is
+            // §11.6.4.3's NOTE 2 recommending exactly this construction: "[t]o apply a soft
+            // mask to multiple objects, it is usually best to define the objects as a
+            // transparency group and apply the mask to the group as a whole."
+            mask: outer.soft_mask,
             blend: outer.blend,
         });
     }
@@ -2048,6 +2176,31 @@ impl Interpreter<'_> {
     /// a report that fires where the output is provably identical costs the page its place
     /// in the oracle's comparison and buys nothing.
     fn note_group_departures(&mut self, group: &TransparencyGroup, commands: &[Command]) {
+        self.note_group_structure(group, commands);
+
+        // §11.6.6: for an isolated group, a `/CS` means "all painting operators shall
+        // convert source colours ... to the group colour space before compositing objects
+        // into the group", and the result is interpreted in that space. Compositing here
+        // happens on the device's RGB components, so a group asking for any other space is
+        // blended with different arithmetic — visible only where something composites at
+        // all, since an opaque Normal paint carries its colour through unchanged.
+        if let Some(name) = self.group_space_departure(&group.colour_space)
+            && any_command(commands, &command_composites)
+        {
+            self.note(Unsupported::TransparencyGroup {
+                detail: format!("blending colour space {name}"),
+            });
+        }
+    }
+
+    /// Reports Table 145's `/I` and `/K`, which mean the same thing wherever a group is used.
+    ///
+    /// Split from [`Interpreter::note_group_departures`] because a *soft mask's* group asks
+    /// the same two questions and a different colour-space question: §11.6.5.1 makes its
+    /// `/CS` the space the mask's luminosity is computed in, where §11.6.6 makes a painted
+    /// group's the space its elements are composited in. `crate::soft_mask` decides the
+    /// first; this decides what the two share.
+    fn note_group_structure(&mut self, group: &TransparencyGroup, commands: &[Command]) {
         // §11.4.4 composites a non-isolated group's elements onto the group's backdrop and
         // then removes that backdrop's contribution again (its NOTE 3). Under the Normal
         // blend mode the removal is exact and the backdrop cancels, which is what §11.6.7's
@@ -2075,20 +2228,6 @@ impl Interpreter<'_> {
         if group.knockout && knockout_can_show(commands) {
             self.note(Unsupported::TransparencyGroup {
                 detail: "knockout, and an element composites over another".to_owned(),
-            });
-        }
-
-        // §11.6.6: for an isolated group, a `/CS` means "all painting operators shall
-        // convert source colours ... to the group colour space before compositing objects
-        // into the group", and the result is interpreted in that space. Compositing here
-        // happens on the device's RGB components, so a group asking for any other space is
-        // blended with different arithmetic — visible only where something composites at
-        // all, since an opaque Normal paint carries its colour through unchanged.
-        if let Some(name) = self.group_space_departure(&group.colour_space)
-            && any_command(commands, &command_composites)
-        {
-            self.note(Unsupported::TransparencyGroup {
-                detail: format!("blending colour space {name}"),
             });
         }
     }
@@ -2124,6 +2263,31 @@ impl Interpreter<'_> {
             Some(ColourSpace::Icc { profile }) if profile.channels() == 3 => None,
             _ => Some(described),
         }
+    }
+
+    /// Reads a form dictionary's `/Matrix` (§8.10.2 Table 93).
+    ///
+    /// > An array of six numbers specifying the form matrix , which maps form space into
+    /// > user space (see 8.3.4, "Transformation matrices").
+    ///
+    /// Shared by the two places that need it, because §11.6.5.1 defines a soft mask's
+    /// coordinate system as this matrix concatenated with the transform in force at the
+    /// `gs` — the same reading of the same entry that `Do` makes, and one worth making
+    /// once.
+    fn matrix(&mut self, dict: &Dictionary) -> Option<Transform> {
+        let entry = self.document.get_key(dict, "Matrix");
+        let items = entry.as_array()?;
+        let values: Vec<f32> = items
+            .iter()
+            .map(|item| self.document.resolve(item))
+            .filter_map(|item| item.as_number())
+            .map(narrow)
+            .collect();
+        (values.len() >= 6).then(|| {
+            Transform::new(
+                values[0], values[1], values[2], values[3], values[4], values[5],
+            )
+        })
     }
 
     /// Reads a rectangle entry as four numbers, in the order the file wrote them.
@@ -2211,6 +2375,13 @@ impl Interpreter<'_> {
                 transform: state.transform,
                 alpha: state.fill_alpha,
                 clip: state.clip,
+                // §11.6.4.3: an image's own `/SMask`, `/SMaskInData` or `/Mask` "shall
+                // override, for this image object only, the current soft mask in the
+                // graphics state" — so the two are never applied together, and the state's
+                // mask survives for whatever is drawn next.
+                mask: (!crate::image::overrides_graphics_state_mask(self.document, &stream.dict))
+                    .then_some(state.soft_mask)
+                    .flatten(),
                 blend: state.blend,
             }),
             Err(error) => self.note(Unsupported::Image {
@@ -2525,6 +2696,7 @@ impl Interpreter<'_> {
                                     fill_rule: FillRule::NonZero,
                                     paint: state.fill_paint(),
                                     clip: state.clip,
+                                    mask: state.soft_mask,
                                     blend: state.blend,
                                 });
                             }
@@ -2607,6 +2779,7 @@ impl Interpreter<'_> {
             stroke: state.stroke.clone(),
             paint: state.stroke_paint(),
             clip: state.clip,
+            mask: state.soft_mask,
             blend: state.blend,
         });
     }
@@ -2873,6 +3046,7 @@ impl Interpreter<'_> {
                     // non-stroking painting operation.
                     paint: Paint::Shading(shading_with_alpha(&Arc::new(shading), state.fill_alpha)),
                     clip: state.clip,
+                    mask: state.soft_mask,
                     blend: state.blend,
                 });
             }

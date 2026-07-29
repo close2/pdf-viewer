@@ -20,12 +20,13 @@
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BackendError, BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin,
-    MAX_GROUP_DEPTH, Paint, Path, PathCommand, Stroke, Transform,
+    MAX_GROUP_DEPTH, Paint, Path, PathCommand, Stroke, TargetSpec, Transform,
 };
 use vello::kurbo;
 use vello::peniko;
 
 use crate::GpuRasterError;
+use crate::soft_mask::SoftMaskRasters;
 
 /// Converts a PDF matrix to a `kurbo` affine transform.
 ///
@@ -241,11 +242,53 @@ fn brush_for(
 /// comparison harness a plausible-looking wrong image instead of a failure.
 pub(crate) fn build(
     list: &DisplayList,
-    to_device: Transform,
+    target: TargetSpec,
+    masks: &SoftMaskRasters,
+) -> Result<vello::Scene, GpuRasterError> {
+    build_commands(list, list.commands(), target, masks)
+}
+
+/// Builds a Vello scene from one sequence of commands of a display list.
+///
+/// Separate from [`build`] because a soft mask's group is exactly that — a command list of
+/// the same display list, drawn onto transparency at the same target — and evaluating one
+/// must go through the same translation as the page, or the mask would be built by code the
+/// cross-backend tests never exercise.
+///
+/// # Errors
+///
+/// As [`build`].
+pub(crate) fn build_commands(
+    list: &DisplayList,
+    commands: &[Command],
+    target: TargetSpec,
+    masks: &SoftMaskRasters,
 ) -> Result<vello::Scene, GpuRasterError> {
     let mut scene = vello::Scene::new();
-    encode(&mut scene, list, list.commands(), to_device, 0)?;
+    encode(
+        &mut scene,
+        list,
+        commands,
+        Spec {
+            target,
+            masks,
+            depth: 0,
+        },
+    )?;
     Ok(scene)
+}
+
+/// What every level of [`encode`] needs and none of it changes except the depth.
+///
+/// Grouped because threading three more arguments through a recursive encoder made every
+/// call site a row of unlabelled values, and because the target and the masks travel
+/// together by necessity: a mask raster is only valid for the target it was rendered at.
+#[derive(Debug, Clone, Copy)]
+struct Spec<'a> {
+    target: TargetSpec,
+    masks: &'a SoftMaskRasters,
+    /// How many enclosing transparency groups; see [`MAX_GROUP_DEPTH`].
+    depth: usize,
 }
 
 /// Encodes one sequence of commands, opening and closing clip layers as the chain changes.
@@ -259,9 +302,9 @@ fn encode(
     scene: &mut vello::Scene,
     list: &DisplayList,
     commands: &[Command],
-    to_device: Transform,
-    depth: usize,
+    spec: Spec<'_>,
 ) -> Result<(), GpuRasterError> {
+    let to_device = spec.target.transform;
     // The clip chain currently pushed as layers, root-first. A group's elements start with
     // an empty one rather than inheriting the caller's: reconciling against a chain opened
     // outside the group's own layer could pop that layer, and re-pushing a clip already in
@@ -271,6 +314,21 @@ fn encode(
     for command in commands {
         let wanted = resolve_chain(list, command.clip())?;
         reconcile_layers(scene, list, &mut open, &wanted, to_device)?;
+
+        // §11.6.4.3's soft mask applies to one object at a time, so the object is isolated
+        // in a layer of its own and the mask's alpha then multiplied into it. Opened before
+        // the command and closed after, both inside the clip layers, because a clip and a
+        // mask intersect and the order two coverages multiply in does not matter.
+        let masked = command.mask();
+        if masked.is_some() {
+            scene.push_layer(
+                peniko::Fill::NonZero,
+                peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::SrcOver),
+                1.0,
+                kurbo::Affine::IDENTITY,
+                &device_rect(spec.target),
+            );
+        }
 
         match command {
             Command::Fill {
@@ -331,41 +389,15 @@ fn encode(
                 alpha,
                 blend,
                 ..
-            } => {
-                let depth = depth.saturating_add(1);
-                if depth > MAX_GROUP_DEPTH {
-                    return Err(BackendError::GroupsTooDeep {
-                        depth,
-                        limit: MAX_GROUP_DEPTH,
-                    }
-                    .into());
-                }
-                // A Vello layer *is* a transparency group: its contents are composited
-                // onto a transparent surface and the result is painted once, under the
-                // layer's alpha and blend mode. That is §11.4.1's definition, so this
-                // command translates rather than being implemented.
-                //
-                // The layer's shape is the page, because the group itself clips nothing —
-                // the clip in force is already open as a layer of its own, and nothing
-                // outside the page bounds can reach a target built from them.
-                scene.push_layer(
-                    peniko::Fill::NonZero,
-                    blend_mode(*blend),
-                    alpha.clamp(0.0, 1.0),
-                    affine(to_device),
-                    &kurbo::Rect::new(
-                        f64::from(list.page_bounds().min.x),
-                        f64::from(list.page_bounds().min.y),
-                        f64::from(list.page_bounds().max.x),
-                        f64::from(list.page_bounds().max.y),
-                    ),
-                );
-                encode(scene, list, commands, to_device, depth)?;
-                scene.pop_layer();
-            }
+            } => encode_group(scene, list, commands, (*alpha, *blend), spec)?,
             other => {
                 return Err(GpuRasterError::UnsupportedCommand(format!("{other:?}")));
             }
+        }
+
+        if let Some(id) = masked {
+            apply_mask(scene, spec, id)?;
+            scene.pop_layer();
         }
     }
 
@@ -374,6 +406,86 @@ fn encode(
         scene.pop_layer();
     }
 
+    Ok(())
+}
+
+/// Encodes one transparency group as a Vello layer (§11.4.1).
+///
+/// A Vello layer *is* a transparency group: its contents are composited onto a transparent
+/// surface and the result is painted once, under the layer's alpha and blend mode. That is
+/// §11.4.1's definition, so this command translates rather than being implemented.
+///
+/// The layer's shape is the page, because the group itself clips nothing — the clip in force
+/// is already open as a layer of its own, and nothing outside the page bounds can reach a
+/// target built from them.
+///
+/// # Errors
+///
+/// As [`encode`], plus [`BackendError::GroupsTooDeep`] past [`MAX_GROUP_DEPTH`].
+fn encode_group(
+    scene: &mut vello::Scene,
+    list: &DisplayList,
+    commands: &[Command],
+    (alpha, blend): (f32, BlendMode),
+    spec: Spec<'_>,
+) -> Result<(), GpuRasterError> {
+    let depth = spec.depth.saturating_add(1);
+    if depth > MAX_GROUP_DEPTH {
+        return Err(BackendError::GroupsTooDeep {
+            depth,
+            limit: MAX_GROUP_DEPTH,
+        }
+        .into());
+    }
+    scene.push_layer(
+        peniko::Fill::NonZero,
+        blend_mode(blend),
+        alpha.clamp(0.0, 1.0),
+        affine(spec.target.transform),
+        &kurbo::Rect::new(
+            f64::from(list.page_bounds().min.x),
+            f64::from(list.page_bounds().min.y),
+            f64::from(list.page_bounds().max.x),
+            f64::from(list.page_bounds().max.y),
+        ),
+    );
+    encode(scene, list, commands, Spec { depth, ..spec })?;
+    scene.pop_layer();
+    Ok(())
+}
+
+/// The whole target, in device pixels.
+///
+/// A mask has a value everywhere — §11.6.5.1 gives one for the area outside its group's
+/// bounding box — so the layer it is applied through covers everything the target can show.
+fn device_rect(target: TargetSpec) -> kurbo::Rect {
+    kurbo::Rect::new(0.0, 0.0, f64::from(target.width), f64::from(target.height))
+}
+
+/// Multiplies the layer in progress by a soft mask's values.
+///
+/// `Compose::DestIn` is "the parts of the destination that overlap with the source", which
+/// for a source of no colour and this much alpha is the destination scaled by the mask —
+/// §11.3.7.1's `α = f × q` with the mask as one of the two factors. The mask image is in
+/// device pixels and drawn under the identity, since it was rendered at exactly this target.
+///
+/// # Errors
+///
+/// [`GpuRasterError::UnknownSoftMask`] if the mask was not evaluated for this target.
+fn apply_mask(
+    scene: &mut vello::Scene,
+    spec: Spec<'_>,
+    id: pdf_render::SoftMaskId,
+) -> Result<(), GpuRasterError> {
+    scene.push_layer(
+        peniko::Fill::NonZero,
+        peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::DestIn),
+        1.0,
+        kurbo::Affine::IDENTITY,
+        &device_rect(spec.target),
+    );
+    scene.draw_image(spec.masks.get(id)?, kurbo::Affine::IDENTITY);
+    scene.pop_layer();
     Ok(())
 }
 

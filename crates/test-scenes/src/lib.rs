@@ -16,7 +16,7 @@ use std::sync::Arc;
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Size,
-    Stroke, Transform,
+    SoftMask, SoftMaskKind, Stroke, Transform,
 };
 
 /// A4 in PDF user-space units: 210mm x 297mm at 72 units per inch.
@@ -92,6 +92,7 @@ pub fn basic() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(RED),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
 
@@ -110,6 +111,7 @@ pub fn basic() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(GREEN),
         clip: Some(clip),
+        mask: None,
         blend: BlendMode::Normal,
     });
 
@@ -125,6 +127,7 @@ pub fn basic() -> DisplayList {
         },
         paint: Paint::Solid(BLUE),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
 
@@ -154,6 +157,7 @@ pub fn transparency_group() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(GREEN),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
 
@@ -164,6 +168,7 @@ pub fn transparency_group() -> DisplayList {
             fill_rule: FillRule::NonZero,
             paint: Paint::Solid(RED),
             clip: None,
+            mask: None,
             blend: BlendMode::Normal,
         },
         Command::Fill {
@@ -172,6 +177,7 @@ pub fn transparency_group() -> DisplayList {
             fill_rule: FillRule::NonZero,
             paint: Paint::Solid(BLUE),
             clip: None,
+            mask: None,
             blend: BlendMode::Normal,
         },
     ];
@@ -180,7 +186,90 @@ pub fn transparency_group() -> DisplayList {
         commands: elements,
         alpha: 0.5,
         clip: None,
+        mask: None,
         blend: BlendMode::Multiply,
+    });
+
+    list
+}
+
+/// A large object painted through a luminosity soft mask (ISO 32000-2 §11.5.3).
+///
+/// Built to fail in the axis a soft-mask defect moves, and at a magnitude the tolerances can
+/// see — which for a mask means three things at once:
+///
+/// - **The mask varies across the page.** Its group paints a green square over the left half
+///   of the masked area and leaves the right half to the `/BC` backdrop, so a backend that
+///   applied a constant, or that dropped the mask entirely, differs over half the object
+///   rather than at an edge.
+/// - **The mask's colour is not grey.** Green is the colour that separates §11.5.3's
+///   `0.59 G` from the `0.7152` of Rec. 709 and the `0.7154` of the SVG luminance both
+///   rasterisers offer natively: a backend using a library's own luminance is 21% of the
+///   mask's range away here and identical on any grey. That is the whole reason this scene
+///   is coloured.
+/// - **The backdrop is not black.** `/BC` is a mid grey, so the area outside the mask
+///   group's marks takes §11.6.5.1's outside-the-bounding-box value rather than zero, and a
+///   backend that leaves it transparent — the natural mistake — differs over the other half.
+///
+/// The masked object covers a third of the page, so a wrong mask is hundreds of thousands of
+/// channels rather than the few hundred `MAX_DIFFERING_FRACTION` absorbs.
+///
+/// # Panics
+///
+/// Cannot panic in practice: the only fallible step is registering a soft mask, which fails
+/// only past `u32::MAX` of them, and this scene registers one.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "a single add_soft_mask cannot exhaust a u32 index; a Result here would push \
+              an impossible error case onto every caller"
+)]
+pub fn soft_mask() -> DisplayList {
+    let mut list = DisplayList::new(A4);
+
+    // What the mask is applied over, so that a mask value below one shows as this colour
+    // coming through rather than as the page.
+    list.push(Command::Fill {
+        path: Arc::new(rect(40.0, 100.0, 555.0, 742.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(BLUE),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    let mask = list
+        .add_soft_mask(SoftMask {
+            commands: vec![Command::Fill {
+                path: Arc::new(rect(40.0, 300.0, 300.0, 600.0)),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(GREEN),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            }],
+            kind: SoftMaskKind::Luminosity {
+                backdrop: Color {
+                    r: 0.4,
+                    g: 0.4,
+                    b: 0.4,
+                    a: 1.0,
+                },
+            },
+            transfer: None,
+        })
+        .expect("the first soft mask of this list");
+
+    list.push(Command::Fill {
+        path: Arc::new(rect(40.0, 200.0, 555.0, 700.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(RED),
+        clip: None,
+        mask: Some(mask),
+        blend: BlendMode::Normal,
     });
 
     list
@@ -208,6 +297,7 @@ pub fn diagonal_stroke() -> DisplayList {
         },
         paint: Paint::Solid(BLUE),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
 
@@ -243,6 +333,7 @@ pub fn curves() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(RED),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
 
@@ -272,6 +363,7 @@ pub fn unaligned_full_bleed() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(RED),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
 

@@ -178,6 +178,36 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
     );
 }
 
+/// A soft mask is the same mask on both backends, values and all (§11.5).
+///
+/// The two mechanisms could hardly be less alike: `tiny-skia` builds an eight-bit coverage
+/// mask and multiplies it into the clip, while Vello renders the mask's group to a texture
+/// of its own and composites it back with `Compose::DestIn`. What they *share* is
+/// `pdf_render::SoftMask::value`, which turns rendered pixels into mask values — and that is
+/// the point of the scene: the derivation is one function, so a difference here is a
+/// difference in how a mask is applied rather than in what it says.
+///
+/// `test_scenes::soft_mask` is coloured rather than grey on purpose. Both rasterisers offer
+/// a luminance mask of their own — `tiny_skia::MaskType::Luminance` and Vello's
+/// `push_luminance_mask_layer` — and both use coefficients that are not §11.5.3's. On grey
+/// artwork every formula agrees; on the green square in this scene they are a fifth of the
+/// mask's range apart, so reaching for either library's version fails this test.
+#[test]
+fn cpu_and_gpu_agree_on_a_soft_mask() {
+    let list = test_scenes::soft_mask();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+
+    assert_within_tolerance(
+        "soft mask",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
+
 /// Vello hands back straight alpha, and this backend used to convert it as if it were
 /// premultiplied.
 ///
@@ -211,6 +241,7 @@ fn vello_hands_back_straight_alpha() {
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(Color::rgb(0.5, 0.0, 0.0)),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
@@ -351,6 +382,7 @@ fn shaded_page(kind: pdf_render::ShadingKind) -> pdf_render::DisplayList {
             transform: Transform::IDENTITY,
         })),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
     list
@@ -422,6 +454,7 @@ fn cpu_and_gpu_agree_on_an_image() {
         transform: Transform::scale(120.0, 80.0).then(Transform::translate(40.0, 60.0)),
         alpha: 1.0,
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
 
@@ -592,6 +625,7 @@ fn cpu_and_gpu_agree_on_a_deeply_reduced_image() {
         transform: Transform::scale(160.0, 80.0).then(Transform::translate(20.0, 60.0)),
         alpha: 1.0,
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
 

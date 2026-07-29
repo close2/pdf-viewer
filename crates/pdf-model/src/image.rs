@@ -1386,6 +1386,30 @@ pub fn unapplied_mask(document: &Document, dict: &Dictionary) -> Option<String> 
     }
 }
 
+/// Whether this image carries a mask of its own, which supersedes the graphics state's.
+///
+/// ISO 32000-2 §11.6.4.3, having listed the three ways a soft mask reaches a compositing
+/// operation:
+///
+/// > Either form of mask in the image dictionary shall override, for this image object
+/// > only, the current soft mask in the graphics state.
+///
+/// So an image with an `/SMask`, an `/SMaskInData` or a `/Mask` is painted through that and
+/// *not* through the mask a `gs` left in force — and the state's mask is untouched for
+/// everything drawn after it. Asked of the keys rather than of the decoded image, because
+/// the clause is about what the dictionary says: a `/Mask` this crate cannot apply still
+/// overrides, and is reported by [`unapplied_mask`] rather than quietly replaced by a
+/// different mask than the file named.
+#[must_use]
+pub fn overrides_graphics_state_mask(document: &Document, dict: &Dictionary) -> bool {
+    !matches!(document.get_key(dict, "SMask"), Object::Null)
+        || document
+            .get_key(dict, "SMaskInData")
+            .as_integer()
+            .is_some_and(|value| value != 0)
+        || !matches!(document.get_key(dict, "Mask"), Object::Null)
+}
+
 /// Combines an image with a mask that need not share its resolution, on the finer grid.
 ///
 /// `sample` is asked of each base colour and the four bytes of the mask sample above it, for

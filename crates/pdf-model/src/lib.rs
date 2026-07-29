@@ -34,6 +34,7 @@ pub mod mesh;
 pub mod optional_content;
 pub mod page;
 pub mod shading;
+mod soft_mask;
 pub mod type3;
 
 pub use content::{Interpretation, Unsupported, interpret};

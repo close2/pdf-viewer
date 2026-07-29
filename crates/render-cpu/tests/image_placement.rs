@@ -81,6 +81,7 @@ fn image_page(transform: Transform) -> DisplayList {
         transform,
         alpha: 1.0,
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
     list

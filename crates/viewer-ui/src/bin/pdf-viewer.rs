@@ -306,16 +306,33 @@ fn render(
         );
     };
 
+    let handle = &context.devices[state.surface.dev_id];
+
+    // §11.5's soft masks are rendered first, each into a texture of its own: a mask is a
+    // transparency group evaluated at device resolution, so it cannot be part of the scene
+    // that uses it. Costs nothing on a page with no mask.
+    let Ok(masks) = render_gpu::evaluate_soft_masks(
+        &handle.device,
+        &handle.queue,
+        &mut state.renderer,
+        list,
+        target,
+    ) else {
+        return format!(
+            "page {} has a soft mask this build cannot evaluate",
+            page_index.saturating_add(1)
+        );
+    };
+
     // The same translation the headless tests exercise, so what the window shows cannot
     // drift from what CI checks.
-    let Ok(scene) = render_gpu::build_scene(list, target.transform) else {
+    let Ok(scene) = render_gpu::build_scene(list, target, &masks) else {
         return format!(
             "page {} contains content this build cannot draw",
             page_index.saturating_add(1)
         );
     };
 
-    let handle = &context.devices[state.surface.dev_id];
     if state
         .renderer
         .render_to_texture(

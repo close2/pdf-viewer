@@ -113,6 +113,7 @@ fn vertical_gradient(path_space: Transform) -> DisplayList {
             transform: Transform::IDENTITY,
         })),
         clip: None,
+        mask: None,
         blend: BlendMode::Normal,
     });
     list

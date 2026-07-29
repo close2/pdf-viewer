@@ -76,7 +76,7 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 237, and *not* a defect count — it is the honest-reporting requirement working. The
+/// 220, and *not* a defect count — it is the honest-reporting requirement working. The
 /// breakdown, by each document's first report, which is the useful part, and recomputed
 /// every session because a number nothing recomputes is a number that drifts — this table
 /// had said 263 while the ratchet below said 251:
@@ -85,14 +85,22 @@ const MAX_PAGELESS: usize = 19;
 /// |---|---|---|
 /// | `Text` | 100 | CID encodings and embedded `CMap`s |
 /// | `Annotation` | 66 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
-/// | `Shading` | 28 | soft masks in `/ExtGState`, which is transparency rather than shading |
+/// | `TransparencyGroup` | 17 | §11.4 and §11.5.3, described below |
 /// | `Operator` | 15 | malformed streams, mostly; the text rendering modes have left this row |
 /// | `Image` | 11 | see below; a soft mask of another size has left this row |
 /// | `Content` | 7 | a `/Contents` stream that did not decode |
-/// | `TransparencyGroup` | 7 | §11.4, new in the seventeenth session and described below |
+/// | `CompositedInParts` | 2 | §11.6.2, new in the fifteenth session and described below |
 /// | `TextKnockout` | 1 | §9.3.8, new in the fourteenth session and described below |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
-/// | `CompositedInParts` | 1 | §11.6.2, new in the fifteenth session and described below |
+///
+/// **The `Shading` row is gone.** It held 28 documents, every one of them a soft mask in an
+/// `/ExtGState` — which is transparency rather than shading, and was filed there because
+/// nothing else fitted. §11.5's masks are implemented as of the eighteenth session (ADR
+/// 0027), so 17 documents left this list outright and the rest report something narrower:
+/// 7 that the luminosity of their mask group is taken in device RGB rather than in the
+/// blending colour space its `/CS` names (§11.5.3), and 1, `knockout_smask.pdf`, that its
+/// group is a *knockout* one — a report that had been hidden behind the mask report, because
+/// the condition for it is that an element composites and a mask is what makes this one do so.
 ///
 /// The count **rose** by six in the seventeenth session, and both directions of that are the
 /// design. Six documents joined by saying that their `/Group` is a *knockout* group (§11.4.6)
@@ -270,7 +278,7 @@ const MAX_PAGELESS: usize = 19;
 /// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
 /// and it is the visible face of a gap this project already knows about: a font reports as a
 /// whole, so a glyph that fails to load draws nothing and says nothing.
-const MAX_INCOMPLETE: usize = 237;
+const MAX_INCOMPLETE: usize = 220;
 
 /// How long one document may take before it counts as a failure.
 ///

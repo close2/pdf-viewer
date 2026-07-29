@@ -33,11 +33,14 @@
 
 mod scene;
 mod shading;
+mod soft_mask;
 
 use pdf_render::{
-    ClipId, Color, DisplayList, Raster, RasterFormat, Rasterizer, TargetSpec, Transform,
+    ClipId, Color, DisplayList, Raster, RasterFormat, Rasterizer, SoftMaskId, TargetSpec,
 };
 use vello::wgpu;
+
+pub use soft_mask::SoftMaskRasters;
 
 /// Translates a display list into a Vello scene.
 ///
@@ -59,9 +62,88 @@ use vello::wgpu;
 /// cyclic clip chains.
 pub fn build_scene(
     list: &DisplayList,
-    to_device: Transform,
+    target: TargetSpec,
+    masks: &SoftMaskRasters,
 ) -> Result<vello::Scene, GpuRasterError> {
-    scene::build(list, to_device)
+    scene::build(list, target, masks)
+}
+
+/// Evaluates every soft mask a display list carries, at one target (§11.5).
+///
+/// A mask is a transparency group rendered at device resolution, so it cannot be part of the
+/// scene that uses it: each one is rendered to its own texture, read back, and converted into
+/// mask values by `pdf_render::SoftMask`, which is the function the CPU backend calls on its
+/// own pixels. The result is handed to [`build_scene`], which draws it as the alpha of a
+/// `DestIn` layer around each object the mask applies to.
+///
+/// Exposed for the same reason [`build_scene`] is: window presentation needs the same masks
+/// as offscreen rasterisation, and a second implementation would drift. A list with no soft
+/// mask costs nothing here — the loop does not run — so a caller may always call it.
+///
+/// # Errors
+///
+/// As [`build_scene`], plus [`GpuRasterError::Render`] and [`GpuRasterError::Readback`] for
+/// a mask that could not be rendered or read back.
+pub fn evaluate_soft_masks(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut vello::Renderer,
+    list: &DisplayList,
+    target: TargetSpec,
+) -> Result<SoftMaskRasters, GpuRasterError> {
+    soft_mask::evaluate(list, target, &mut |scene| {
+        let texture = render_to_texture(device, queue, renderer, scene, target)?;
+        read_pixels(device, queue, &texture, target)
+    })
+}
+
+/// Renders a scene into a fresh target-sized texture, onto transparency.
+///
+/// Transparent rather than the medium's colour for the reason `rasterize` gives: §11.4.7's
+/// page group is isolated, and a soft mask's group has no medium at all.
+///
+/// # Errors
+///
+/// [`GpuRasterError::Render`] if Vello rejects the scene.
+fn render_to_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut vello::Renderer,
+    scene: &vello::Scene,
+    target: TargetSpec,
+) -> Result<wgpu::Texture, GpuRasterError> {
+    // Vello writes its result through a storage binding, and the pixels are then
+    // copied out, so both usages are required.
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("render target"),
+        size: wgpu::Extent3d {
+            width: target.width,
+            height: target.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    renderer
+        .render_to_texture(
+            device,
+            queue,
+            scene,
+            &view,
+            &vello::RenderParams {
+                base_color: vello::peniko::Color::TRANSPARENT,
+                width: target.width,
+                height: target.height,
+                antialiasing_method: vello::AaConfig::Area,
+            },
+        )
+        .map_err(|e| GpuRasterError::Render(e.to_string()))?;
+    Ok(texture)
 }
 
 /// How long to wait for the GPU before giving up on a readback.
@@ -245,111 +327,24 @@ impl GpuRasterizer {
         &self.context
     }
 
-    /// Copies a rendered texture into a [`Raster`].
+    /// Copies a rendered texture into a [`Raster`], imposing the medium's colour.
     ///
-    /// `copy_texture_to_buffer` requires each row to begin on a
-    /// [`wgpu::COPY_BYTES_PER_ROW_ALIGNMENT`] boundary, so the staging buffer holds
-    /// padded rows that are stripped on the way out. Getting this wrong yields an
-    /// image that is progressively sheared rather than obviously broken, which is why
-    /// a test covers a width whose row length is not already aligned.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "row offsets are bounded by the buffer that was just allocated from \
-                  these same dimensions, and the two multiplications that could \
-                  overflow are checked explicitly above"
-    )]
+    /// §11.4.7: the page group is isolated, so the medium's colour is composited with the
+    /// finished page rather than being the backdrop its blend modes saw. Shared with the CPU
+    /// backend so the two cannot differ about it, and done in premultiplied form, which is
+    /// where a source-over composite is exact.
+    ///
+    /// Vello hands back **straight** alpha, hence the conversion around it rather than after
+    /// it — see the note above [`demultiply`]. Skipped entirely for a transparent medium,
+    /// where the composite is the identity and the round trip would cost a level on every
+    /// partly covered pixel for nothing.
     fn read_back(
         &self,
         texture: &wgpu::Texture,
         target: TargetSpec,
     ) -> Result<Raster, GpuRasterError> {
-        let unpadded_row = target
-            .width
-            .checked_mul(4)
-            .ok_or(GpuRasterError::TargetTooLarge)?;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let padded_row = unpadded_row
-            .div_ceil(align)
-            .checked_mul(align)
-            .ok_or(GpuRasterError::TargetTooLarge)?;
-        let buffer_size = u64::from(padded_row) * u64::from(target.height);
+        let mut data = read_pixels(&self.context.device, &self.context.queue, texture, target)?;
 
-        let staging = self.context.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("readback"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let mut encoder =
-            self.context
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("readback"),
-                });
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &staging,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_row),
-                    rows_per_image: Some(target.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: target.width,
-                height: target.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        self.context.queue.submit(Some(encoder.finish()));
-
-        let slice = staging.slice(..);
-        let (sender, receiver) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            // A send failure would mean the receiver is gone, which cannot happen
-            // while this function is still on the stack waiting on it.
-            let _ = sender.send(result);
-        });
-        self.context
-            .device
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                // Bounded rather than indefinite: a wedged driver must surface as an
-                // error instead of hanging the viewer or the test suite.
-                timeout: Some(std::time::Duration::from_secs(GPU_WAIT_TIMEOUT_SECS)),
-            })
-            .map_err(|e| GpuRasterError::Readback(e.to_string()))?;
-        receiver
-            .recv()
-            .map_err(|e| GpuRasterError::Readback(e.to_string()))?
-            .map_err(|e| GpuRasterError::Readback(e.to_string()))?;
-
-        let mapped = slice.get_mapped_range();
-        let row_len = unpadded_row as usize;
-        let mut data = Vec::with_capacity(row_len * target.height as usize);
-        for row in 0..target.height as usize {
-            let start = row * padded_row as usize;
-            data.extend_from_slice(&mapped[start..start + row_len]);
-        }
-        drop(mapped);
-        staging.unmap();
-
-        // §11.4.7: the page group is isolated, so the medium's colour is composited with the
-        // finished page rather than being the backdrop its blend modes saw. Shared with the
-        // CPU backend so the two cannot differ about it, and done in premultiplied form,
-        // which is where a source-over composite is exact.
-        //
-        // Vello hands back **straight** alpha, hence the conversion around it rather than
-        // after it — see the note above `demultiply`. Skipped entirely for a transparent
-        // medium, where the composite is the identity and the round trip would cost a level
-        // on every partly covered pixel for nothing.
         if self.background.a > 0.0 {
             premultiply(&mut data);
             pdf_render::impose_on_medium(&mut data, self.background);
@@ -365,6 +360,109 @@ impl GpuRasterizer {
     }
 }
 
+/// Copies a rendered texture into straight-alpha RGBA8 pixels.
+///
+/// `copy_texture_to_buffer` requires each row to begin on a
+/// [`wgpu::COPY_BYTES_PER_ROW_ALIGNMENT`] boundary, so the staging buffer holds padded rows
+/// that are stripped on the way out. Getting this wrong yields an image that is
+/// progressively sheared rather than obviously broken, which is why a test covers a width
+/// whose row length is not already aligned.
+///
+/// A free function rather than a method because a soft mask is read back the same way and
+/// through a device the caller may own — the viewer shares one with its window.
+///
+/// # Errors
+///
+/// [`GpuRasterError::TargetTooLarge`] if the row arithmetic overflows, and
+/// [`GpuRasterError::Readback`] if the copy or the mapping fails.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "row offsets are bounded by the buffer that was just allocated from \
+              these same dimensions, and the two multiplications that could \
+              overflow are checked explicitly above"
+)]
+fn read_pixels(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    target: TargetSpec,
+) -> Result<Vec<u8>, GpuRasterError> {
+    let unpadded_row = target
+        .width
+        .checked_mul(4)
+        .ok_or(GpuRasterError::TargetTooLarge)?;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_row = unpadded_row
+        .div_ceil(align)
+        .checked_mul(align)
+        .ok_or(GpuRasterError::TargetTooLarge)?;
+    let buffer_size = u64::from(padded_row) * u64::from(target.height);
+
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: buffer_size,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("readback"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &staging,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_row),
+                rows_per_image: Some(target.height),
+            },
+        },
+        wgpu::Extent3d {
+            width: target.width,
+            height: target.height,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+
+    let slice = staging.slice(..);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        // A send failure would mean the receiver is gone, which cannot happen
+        // while this function is still on the stack waiting on it.
+        let _ = sender.send(result);
+    });
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            // Bounded rather than indefinite: a wedged driver must surface as an
+            // error instead of hanging the viewer or the test suite.
+            timeout: Some(std::time::Duration::from_secs(GPU_WAIT_TIMEOUT_SECS)),
+        })
+        .map_err(|e| GpuRasterError::Readback(e.to_string()))?;
+    receiver
+        .recv()
+        .map_err(|e| GpuRasterError::Readback(e.to_string()))?
+        .map_err(|e| GpuRasterError::Readback(e.to_string()))?;
+
+    let mapped = slice.get_mapped_range();
+    let row_len = unpadded_row as usize;
+    let mut data = Vec::with_capacity(row_len * target.height as usize);
+    for row in 0..target.height as usize {
+        let start = row * padded_row as usize;
+        data.extend_from_slice(&mapped[start..start + row_len]);
+    }
+    drop(mapped);
+    staging.unmap();
+    Ok(data)
+}
+
 impl Rasterizer for GpuRasterizer {
     type Error = GpuRasterError;
 
@@ -373,48 +471,28 @@ impl Rasterizer for GpuRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
-        let scene = scene::build(list, target.transform)?;
+        // Before the scene, because every mask a command names has to exist by the time that
+        // command is encoded — and because a mask is a render of its own, at this target.
+        let masks = evaluate_soft_masks(
+            &self.context.device,
+            &self.context.queue,
+            &mut self.context.renderer,
+            list,
+            target,
+        )?;
+        let scene = scene::build(list, target, &masks)?;
 
-        // Vello writes its result through a storage binding, and the pixels are then
-        // copied out, so both usages are required.
-        let texture = self
-            .context
-            .device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("render target"),
-                size: wgpu::Extent3d {
-                    width: target.width,
-                    height: target.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
-            });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        self.context
-            .renderer
-            .render_to_texture(
-                &self.context.device,
-                &self.context.queue,
-                &scene,
-                &view,
-                &vello::RenderParams {
-                    // Transparent, not the background: §11.4.7's page group is isolated, so
-                    // the medium's colour is composited with the *result* rather than being
-                    // the backdrop the page's own blend modes see. `read_back` ends with
-                    // `impose_on_medium`, which is the same function the CPU backend uses.
-                    base_color: vello::peniko::Color::TRANSPARENT,
-                    width: target.width,
-                    height: target.height,
-                    antialiasing_method: vello::AaConfig::Area,
-                },
-            )
-            .map_err(|e| GpuRasterError::Render(e.to_string()))?;
+        // Transparent, not the background: §11.4.7's page group is isolated, so the medium's
+        // colour is composited with the *result* rather than being the backdrop the page's
+        // own blend modes see. `read_back` ends with `impose_on_medium`, which is the same
+        // function the CPU backend uses.
+        let texture = render_to_texture(
+            &self.context.device,
+            &self.context.queue,
+            &mut self.context.renderer,
+            &scene,
+            target,
+        )?;
 
         self.read_back(&texture, target)
     }
@@ -514,6 +592,9 @@ pub enum GpuRasterError {
     /// A command referenced a clip that is not present in the display list.
     #[error("clip {0:?} is not present in this display list")]
     UnknownClip(ClipId),
+    /// A command referenced a soft mask that was not evaluated for this target.
+    #[error("soft mask {0:?} was not evaluated for this target")]
+    UnknownSoftMask(SoftMaskId),
     /// A clip's parent chain forms a cycle.
     #[error("clip {0:?} is part of a cyclic parent chain")]
     CyclicClip(ClipId),

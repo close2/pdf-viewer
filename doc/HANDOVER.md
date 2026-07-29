@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-29 at the end of the **seventeenth** working session. Read
+Written 2026-07-26, updated 2026-07-29 at the end of the **eighteenth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the
 specification is the only source of truth, and agreement with poppler, mupdf or pdf.js is
@@ -8,6 +8,115 @@ evidence that we read it right, never the definition of right. `doc/PLAN.md` hol
 and the conformance ledger's design; `doc/adr/` holds every decision's argument. **This file
 is only the state of play, the traps, and what to do next** — when something here is also
 written there, it is a pointer.
+
+## What the eighteenth session changed
+
+**A soft mask in an `/ExtGState` is applied, which was the largest reported rendering gap
+left.** 28 corpus documents said `SMask in /GSn` and drew the object opaque; the whole
+`Shading` row of the corpus gate's breakdown was that one report. §11.5's mask is a
+transparency group evaluated for its *opacity* rather than its colour — its alpha (§11.5.2)
+or the luminosity of its colour over a chosen backdrop (§11.5.3), through a transfer function
+— so the seventeenth session's groups are what made it buildable, exactly as this file
+predicted. ADR 0027.
+
+**The design question was not what a mask says but where it is evaluated**, and the answer
+shapes three crates:
+
+- **The display list carries a mask's commands, not its pixels.** A mask is a coverage per
+  *device* pixel, and `pdf-model` does not know a resolution — the same list is drawn at every
+  zoom and by both backends. So `DisplayList` grows a table of `SoftMask`s beside its clips and
+  every command grows `mask: Option<SoftMaskId>` beside its `clip`. Per command, because
+  §11.6.4.3's NOTE 2 says a mask applied to two overlapping objects "multiplies with itself in
+  the area of overlap" — applying it once to a run of them would be the other picture, the one
+  the NOTE tells producers to get by grouping.
+- **What the pixels mean is decided once, for both backends.** `SoftMask::value` turns one
+  rendered pixel into one mask value, and this is load-bearing rather than tidy: §11.5.3's
+  device formula is `Y = 0.30 R + 0.59 G + 0.11 B`, and **both rasterisers offer a luminance
+  mask of their own that is not it** — `tiny_skia::MaskType::Luminance` is Rec. 709, Vello's
+  `push_luminance_mask_layer` is the SVG formula. On grey artwork every formula agrees, which
+  is 64 of the corpus's 134 mask dictionaries and how this would have shipped unnoticed. On
+  green they are a fifth of the mask's range apart.
+- **The GPU renders each mask to a texture and reads it back.** Vello expresses half of this
+  natively — `Compose::DestIn` is §11.5.2 exactly — and no blend mode is §11.6.5.1's `/TR`,
+  which 11 of those 134 dictionaries carry. A round trip per mask buys the two backends *the
+  same mask*, which is the premise the cross-backend comparison rests on, and the corpus says
+  what it costs: the heaviest first page of the 974 registers 27 masks, and the corpus gate's
+  wall clock did not move.
+
+**Then reading §11.7 as a family — because `/BC` is stated in a group's blending colour space
+and §11.7.2 is the clause that says what one is — found the session's silence.** §11.7.4,
+overprinting: `/OP`, `/op` and `/OPM` are read nowhere, and **63 of the corpus's first-page
+`/ExtGState` dictionaries set one of the two booleans true**. Under §11.7.4.2 an object painted
+with overprinting enabled composites through a special blend mode that leaves the backdrop's
+value in every component the source does not paint; here it composites through Normal with
+nothing said. Six `silent` rows for one gap, recorded where a reader of any of them would look.
+The family also produced a row *satisfied by a decision taken for another reason*: §11.7.3
+requires that "spot colours shall not be available in a transparency group XObject that is used
+to define a soft mask; the alternate colour space shall always be substituted in that case",
+and this tree converts every `Separation` and `DeviceN` colour through its tint transform at
+the moment it is read — so the sentence is true here by construction.
+
+**And a report that had been hidden behind another report appeared.** `knockout_smask.pdf`
+paints an opaque blue over an opaque red inside a knockout group, *under a mask*. §11.4.6's
+report fires where an element that composites overlaps one painted before it, and an opaque
+fill under a soft mask composites — `command_composites` had not known that, because until
+this session no command could carry a mask. The page reported the mask instead, so the
+knockout gap was invisible underneath it.
+
+| | was | is |
+|---|---|---|
+| **`/SMask` in a `gs`** | reported, the object drawn opaque | evaluated, per §11.5.2 or §11.5.3, with `/BC` and `/TR` |
+| **the mask's coordinate system** | — | `/Matrix` × the transform at the `gs`, not at the painting |
+| **outside a mask group's `/BBox`** | — | the transfer function of 0.0, or of the backdrop's luminosity |
+| **an image with its own `/SMask` under a `gs` mask** | would have applied both | the image's wins, per §11.6.4.3 |
+| **a mask group's `/CS`** | — | read for `/BC`'s components, and reported where it is not the device's |
+| **an opaque fill under a mask** | did not count as compositing | does, which is what §11.4.6's report needed |
+| **§11.7** | `unreviewed`, fourteen rows | reviewed: one satisfied, two inapplicable, six `silent` |
+| **the 14 specification PDFs in `doc/`** | three reported a soft mask | **all fourteen draw page one with nothing reported** |
+
+**The numbers:**
+
+| | before | now |
+|---|---|---|
+| corpus documents drawing with nothing reported | 718 | **735** |
+| corpus documents reporting something | 237 | **220** |
+| pages we call complete, in the oracle | 1505 | **1525** |
+| of those, agreeing with the reference consensus | 676 | **688** |
+| of those, contradicted | 93 | **96** |
+| ledger subclauses nobody has read | 629 | **615** |
+| ledger rows that are `silent` | 2 | **8**, and they are three gaps |
+| `§` citations the checker verified | 557 | **674** |
+| tests | 385 | **401** |
+
+The contradicted count rose by three and none of the three is a masking defect. `issue21346.pdf`
+and `issue7891_bc1.pdf` are pages that became *comparable*: the first is 178 pixels square where
+`poppler` and `mupdf` produce 179 and its colour matches three references exactly, the second
+differs only in the edge coverage of six-pixel glyphs at a mean error of 0.22. The third is the
+interesting one and it is now `CONTRADICTED_MASK_QUANTISATION`.
+
+What it taught:
+
+- **A mask value is eight bits, and on a flat page that is a whole level.**
+  `smask_luminosity_oob_transfer.pdf` paints one rectangle over the whole page through a mask
+  of 0.75. The closed form is `(223, 99, 80)`; we give `(223, 100, 81)`, `mupdf` `(222, 98, 79)`,
+  `ghostscript` `(223, 99, 79)`. Everybody is within a level of the arithmetic — but `mupdf` and
+  `ghostscript` are within a level of *each other*, so the bound derived from them is a mean of
+  1.11 and ours is 2.02. **A tolerance derived from two references that agree closely is tighter
+  than the arithmetic anyone is doing**, and that is a property of the gate worth knowing before
+  reading a small contradiction as a defect.
+- **Reading the family found the gap the feature could not.** Overprinting has nothing to do
+  with soft masks; §11.7 is where it lives, and §11.7 is where it lives *because* it is about
+  colour spaces for transparency, which is what `/BC` needed. That is the seventh consecutive
+  session where the family review produced something the demand item could not have reached.
+- **A report can hide another report.** The knockout gap on `knockout_smask.pdf` was covered by
+  the soft-mask report for four sessions. Every gap that reports takes a page out of the
+  comparison, and a page out of the comparison is a page whose *other* gaps nobody is measuring
+  — which is an argument for closing reports rather than accumulating them, and the reverse of
+  the usual worry about over-reporting.
+- **A library's luminance is not the clause's luminance, and grey artwork hides it.** Both
+  rasterisers have a luminance mask primitive and both would have been wrong by a fifth of the
+  range on coloured mask artwork while agreeing exactly on the 64 grey masks the corpus is full
+  of. Trap 2's shape again: the natural test data cannot fail in the axis the defect moves.
 
 ## What the seventeenth session changed
 
@@ -638,10 +747,11 @@ Each session's argument is in its ADR; this file keeps only what is still load-b
 | 15 | Soft masks at any resolution and `/Matte`; §11.3.7, §11.5 and §11.6 reviewed; a shading carries `ca` | ADR 0024 |
 | 16 | Area averaging for reduced images; §10.7 reviewed, and it forbids what was built | ADR 0025 |
 | 17 | Transparency groups; §8.10 and §11.4 reviewed; the page group is isolated | ADR 0026 |
+| 18 | Soft masks in an `/ExtGState`; §11.7 reviewed, and overprinting is silent | ADR 0027 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 →
-100 → 93 across sessions 6 to 17, and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 →
-263 → 251 → 235 → 232 → 231 → 231 → 237 —
+100 → 93 → 96 across sessions 6 to 18, and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 →
+263 → 251 → 235 → 232 → 231 → 231 → 237 → 220 —
 both move in both directions on purpose: a rise in the first can mean pages *joined* the comparison and a
 rise in the second is honesty when a silence ends, and the sections below say which.
 
@@ -649,28 +759,29 @@ rise in the second is honesty when a silence ends, and the sections below say wh
 
 A PDF **renderer** that opens real files and draws pages: geometry, colour, images,
 shadings, patterns, embedded text and annotation appearances, on both a CPU and a GPU
-backend, with JBIG2 and JPEG 2000 images decoded in a confined worker process. It is not yet
-a PDF *viewer* in the full sense — no forms, no encryption and no soft masks — and the gap
-between those two words is measured further down rather than guessed at.
+backend, with JBIG2 and JPEG 2000 images decoded in a confined worker process, and with
+transparency groups and soft masks composited as clause 11 defines them. It is not yet a PDF
+*viewer* in the full sense — no forms and no encryption — and the gap between those two words
+is measured further down rather than guessed at.
 
-- **385 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **401 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks (verified, not assumed — and
   the thirteenth session found this line had been *wrong*: eleven warnings had accumulated in
   the twelfth session's own new files, because `allow-panic-in-tests` does not reach an
   integration test's helper functions).
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and
-  101 318 objects — all parse, all render page one with only a soft mask reported on three
-  of them, and all extract **100% of the words `pdftotext` finds**.
+  101 318 objects — all parse, all render page one with **nothing reported at all** since
+  §11.5's soft masks landed, and all extract **100% of the words `pdftotext` finds**.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open, 955 reach page
-  one, **718 draw with nothing reported at all**, and everything the other 237 cannot draw
+  one, **735 draw with nothing reported at all**, and everything the other 220 cannot draw
   is named. The counts are ratcheted. 1501 of 1501 PDF functions parse; **all 1793 shadings
-  build**, mesh types included. The whole gate runs in **1.5 s** and has **no named slow
+  build**, mesh types included. The whole gate runs in **1.6 s** and has **no named slow
   document left**.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against
   poppler, mupdf and ghostscript over **1794 pages** — every page of the corpus, plus page
   one of each specification PDF — **in 34 s**, because the references' renders are remembered
-  between runs rather than recomputed (ADR 0020). Of the 1505 pages we claim to draw
-  completely, **676 agree with the reference consensus, 93 are contradicted by it and 723 are
+  between runs rather than recomputed (ADR 0020). Of the 1525 pages we claim to draw
+  completely, **688 agree with the reference consensus, 96 are contradicted by it and 728 are
   pages the references cannot agree on among themselves**. The 93 are named, grouped and
   ratcheted in both directions. ADR 0011.
 - **JBIG2 and JPEG 2000 decode in a sandboxed worker.** `pdf-sandbox` confines it with
@@ -725,6 +836,13 @@ between those two words is measured further down rather than guessed at.
   backends have natively; the three answers that ask for something else — non-isolated with a
   blend mode inside it, knockout, and a blending colour space that is not the device's — are
   reported on the condition each clause states. ADR 0026.
+- **A soft mask is a group evaluated for its opacity.** §11.5's mask in an `/ExtGState`: the
+  group named by `/G` is run into a command list of its own, positioned by `/Matrix` and the
+  transform in force at the `gs` (§11.6.5.1), and each backend rasterises it at the target it
+  is drawing to — the CPU into a `tiny_skia::Mask` multiplied into the clip, the GPU into a
+  texture composited back with `Compose::DestIn`. `SoftMask::value` is the one place rendered
+  pixels become mask values, so the two backends cannot differ about `/S`, `/BC` or `/TR`. An
+  image carrying its own mask ignores the graphics state's, per §11.6.4.3. ADR 0027.
 - **A page is a group too, and an isolated one.** §11.4.7: the page's own initial backdrop is
   transparent and the medium's white is composited with the *result*, which is what
   `impose_on_medium` does at both backends' boundary. Painting onto white instead is a
@@ -736,11 +854,11 @@ between those two words is measured further down rather than guessed at.
   marked: the default configuration, membership dictionaries including `/VE` visibility
   expressions, intent, and `/OC` on marked-content spans, XObjects and annotations. ADR 0017.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause
-  the standard has, every rustdoc blockquote to the standard's own words, and the conformance
-  ledger's 823 rows to the standard's subclauses. ADR 0016, `doc/PLAN.md` §5a.
-- Both backends draw everything the display list can express, and agree on it: **nine**
+  the standard has — 674 of them — every rustdoc blockquote to the standard's own words, and
+  the conformance ledger's 823 rows to the standard's subclauses. ADR 0016, `doc/PLAN.md` §5a.
+- Both backends draw everything the display list can express, and agree on it: **ten**
   headless GPU scenes hold `tiny-skia` and Vello to the same pixels, at more than one scale
-  and along both axes — see trap 2 for why that matters. A tenth test is not a scene but a
+  and along both axes — see trap 2 for why that matters. An eleventh test is not a scene but a
   single pixel: `vello_hands_back_straight_alpha`, which is what fifteen sessions of
   opaque-background comparisons could not see.
 
@@ -765,12 +883,12 @@ cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run and needs nothing but the tree. Its summary is
 # worth reading rather than only passing:
-cargo test -p conformance -- --nocapture   # 557 citations, 35 quotations, 36 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 674 citations, 42 quotations, 37 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild
 # another package's binaries. Build it first or the numbers below are somebody else's.
 cargo build --release -p pdf-sandbox --bins
-cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~1.6 s
+cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~2 s
 cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 1794 pages vs 3 voting renderers, ~34 s
 # The first run of that on a fresh build directory is ~95 s and writes 319 MB of remembered
 # reference renders; every run after it is the 34 s above — it was 25 s when the cache
@@ -807,11 +925,11 @@ chase.
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document` | Touches untrusted bytes first |
-| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `optional_content.rs` answers "is this layer on"; the interpreter asks it in three places (§8.11.3.2 and §8.11.3.3). `type3.rs` reads a font whose glyphs are content streams, because running one needs the interpreter (§9.6.4, ADR 0018). `inline_image.rs` turns a `BI` … `EI` sequence into the stream an image `XObject` would have been, so `image.rs` stays the only decoder (§8.9.7, ADR 0019). `image.rs` also owns §8.9.6's and §11.6.5.2's masking: `mask_entry` and `soft_mask_entry` each read one key once and decide what it means, so a report cannot outlive its gap, and `combine_on_the_finer_grid` is the one place two rasters of different sizes are combined rather than refused (ADRs 0023, 0024) |
+| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `soft_mask.rs` reads Table 142 and nothing else: what a `/SMask` *means*, with its group left for `content.rs` to run, because running one needs the interpreter.  `optional_content.rs` answers "is this layer on"; the interpreter asks it in three places (§8.11.3.2 and §8.11.3.3). `type3.rs` reads a font whose glyphs are content streams, because running one needs the interpreter (§9.6.4, ADR 0018). `inline_image.rs` turns a `BI` … `EI` sequence into the stream an image `XObject` would have been, so `image.rs` stays the only decoder (§8.9.7, ADR 0019). `image.rs` also owns §8.9.6's and §11.6.5.2's masking: `mask_entry` and `soft_mask_entry` each read one key once and decide what it means, so a report cannot outlive its gap, and `combine_on_the_finer_grid` is the one place two rasters of different sizes are combined rather than refused (ADRs 0023, 0024) |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both encoding algorithms: §9.6.5.2 for CFF, §9.6.5.4 for `TrueType` (ADR 0015). `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D and Table 113 data; `substitute.rs` is the only machine-dependent code in the tree. A Type 3 font is refused here — its glyphs are content streams, so it belongs in `pdf-model` |
-| `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. `Command::Group` is the one nested command: a transparency group's elements, drawn onto transparency and painted once (§11.4.1, ADR 0026), and `impose_on_medium` is §11.4.7's composite of the finished page onto its medium — in `pdf-render` rather than in a backend for the same reason the resampling decisions are. `Path::extend_transformed` is the one place geometry is moved rather than travelling with a transform, and both callers are §9.3.6's text (ADR 0022). `Shading::with_alpha` is how §11.6.4.4's constant reaches a paint that has no single colour to carry it (ADR 0024). `Image::is_smoothed` and `Image::area_averaged` are the two resampling decisions, here rather than in a backend so the CPU oracle and the GPU backend cannot make them differently — the second is a documented departure from §10.7.4 (ADR 0025) |
+| `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. `soft_mask.rs` is where rendered pixels become §11.5's mask values — one function both backends call, because §11.5.3's coefficients are not the luminance either rasteriser offers (ADR 0027). `Command::Group` is the one nested command: a transparency group's elements, drawn onto transparency and painted once (§11.4.1, ADR 0026), and `impose_on_medium` is §11.4.7's composite of the finished page onto its medium — in `pdf-render` rather than in a backend for the same reason the resampling decisions are. `Path::extend_transformed` is the one place geometry is moved rather than travelling with a transform, and both callers are §9.3.6's text (ADR 0022). `Shading::with_alpha` is how §11.6.4.4's constant reaches a paint that has no single colour to carry it (ADR 0024). `Image::is_smoothed` and `Image::area_averaged` are the two resampling decisions, here rather than in a backend so the CPU oracle and the GPU backend cannot make them differently — the second is a documented departure from §10.7.4 (ADR 0025) |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path |
-| `render-gpu` | Vello/wgpu backend | Headless by construction |
+| `render-gpu` | Vello/wgpu backend | Headless by construction. `soft_mask.rs` renders each mask's group into a texture of its own and reads it back, because Vello's own luminance mask is the SVG formula and no blend mode is a `/TR` |
 | `raster-compare` | Tolerant image metrics | Worst-tile error is the load-bearing one |
 | `test-scenes` | Shared fixtures | Holds the same page as a display list *and* as PDF bytes |
 | `tools/pdfref` | Reference-comparison harness | Triangulation rule lives here. `cache.rs` remembers what each reference renderer produced, keyed on the invocation itself so a changed flag cannot be answered from a render made under the old one (ADR 0020); `digest.rs` is the SHA-256 that key is built from, and is the one file in the tree citing a standard other than ISO 32000-2 |
@@ -929,6 +1047,15 @@ the code was right about the clause it cited, and the clause does not apply. **W
 standard defines nothing, the page is the only thing that can tell you your reading is
 untenable — and "untenable" is a stronger result than "wrong", because it is what justifies
 refusing rather than guessing.**
+
+**The eighteenth session's instance took four seconds and found a report, not a defect.**
+Soft masks landed, four pages arrived on the newly-contradicted list, and the first
+side-by-side opened — `knockout_smask.pdf` — showed our purple overlap where two references
+draw pure blue. Nothing about the mask was wrong; the page is a *knockout* group, whose report
+had been suppressed by the very report the session had just removed. **Every page a new
+feature makes drawable is a page nobody has ever looked at**, and on this one the artefact was
+the only thing that could distinguish "we drew it wrong" from "we stopped saying we could not
+draw it".
 
 **The sixteenth session is the same rule pointed at a page nobody would have called suspect.**
 `french_diacritics.pdf` had been contradicted for two sessions under `CONTRADICTED_PAGE_ROUNDING`,
@@ -1248,6 +1375,39 @@ So the third thing to carry is: **print what the condition matched before trusti
 Both of the times this trap has been exercised, the first draft was defensible from the clause
 and wrong about the corpus, and a `eprintln!` in the branch settled it in one run.
 
+**And the eighteenth session found the trap's other end: a report can hide another report.**
+`knockout_smask.pdf` paints an opaque blue over an opaque red inside a *knockout* group, under
+a soft mask. §11.4.6's report has fired since the seventeenth session on exactly that
+condition — an element that composites overlapping one painted before it — and it stayed quiet
+here, because `command_composites` knew about alphas, blend modes and image transparency and
+nothing yet could carry a soft mask. The page reported the mask instead, so nobody looked. A
+page that reports one thing is a page whose *other* gaps are unmeasured, which is an argument
+for closing reports rather than accumulating them and the exact reverse of the usual worry
+about over-reporting.
+
+### 12. A bound derived from two agreeing references is tighter than the arithmetic
+
+Added in the eighteenth session, and it is about the *gate* rather than the renderer.
+
+`oracle.rs` judges us relative to how far the consensus references sit from one another: the
+tolerance is theirs, widened by a factor. That is the right rule — it stops a page where every
+renderer differs from being called our defect — and it has a consequence worth knowing.
+**Where two references agree very closely, the bound they generate can be tighter than eight-bit
+arithmetic.**
+
+`smask_luminosity_oob_transfer.pdf` is the case. Its whole page is one flat composite through a
+mask of 0.75; the closed form is `(223, 99, 80)`, `mupdf` gives `(222, 98, 79)`, `ghostscript`
+`(223, 99, 79)` and we give `(223, 100, 81)`. Everybody is within a level of the arithmetic.
+But `mupdf` and `ghostscript` are within a level of *each other*, so the bound is a mean of
+1.11 and ours is 2.02 — contradicted, by one level of mask quantisation on a page with nothing
+else on it.
+
+What to do with such an entry is not to chase it. It is to check the *closed form* — write the
+clause's arithmetic down and see whether we are within a level of it, which
+`render-cpu/tests/soft_mask.rs` now does — and then list the page with the calculation beside
+it. What would be wrong is the reflex the number invites: tightening our own rounding until a
+reference's rounding is matched, which is curve-fitting with extra steps.
+
 ## Environment
 
 The agent runs as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer`
@@ -1279,7 +1439,7 @@ documents' first pages it affects.
 |---|---|---|---|
 | Text: CID encodings, embedded `CMap`s | 100 | Medium | The breakdown from the gate's own output, counting *fonts* rather than documents: 27 with no `/ToUnicode` so a substitute cannot be addressed, 26 with a non-identity `/CIDToGIDMap`, 23 whose substitute draws none of the codes the document declares, 14 with an embedded `CMap` stream, 6 with a predefined `CMap` (`90ms-RKSJ-H`, `UniJIS-UTF16-H`, …), 3 asking for vertical writing (below). Only the predefined `CMap`s need vendored data, which is a licensing decision rather than a coding one. |
 | Synthesised annotation appearances | 63 | Medium–large | An annotation with **no** `/AP` must be drawn from `/IC`, `/C`, `/BS`, `/Border` and its subtype's own rules — a different routine per subtype. 26 `Widget`, 18 `Link`, and the rest markup annotations. Reported, never guessed. ADR 0013. |
-| Soft masks in an `/ExtGState` | 28 | Large | The largest *rendering* gap left, and the one transparency groups unblock: §11.5.2 and §11.5.3 derive a soft mask from a group's alpha or its luminosity, and until the seventeenth session nothing here could evaluate a group at all. What reports is `Shading { name: "SMask in /GSn" }`, on 28 documents. The group itself is no longer part of this row — a `/Group` is composited as one object (§11.6.6, ADR 0026) and the three things it asks for that this does not do are reported separately, below. |
+| Overprinting (`/OP`, `/op`, `/OPM`, §11.7.4) | 63 | Medium | **The ledger's newest silence, and six rows of it**, found by the eighteenth session's review of §11.7. The three keys are read nowhere; 63 of the corpus's first-page `/ExtGState` dictionaries set one of the two booleans true. §11.7.4.2 replaces the blend mode with a *special overprinting blend mode* that leaves the backdrop's value in every colour component the source does not paint, and Table 146 is the whole of what an implementation executes. Two things stand between this row and a report, and neither is the key lookup: overprinting changes nothing where the source paints every component of the group's space — which an ordinary `rg` or `g` fill does — so trap 11's condition has to be found first; and the components in question are the *group's*, where this renderer composites in three device ones (§11.7.2). Sizing the condition is the work this row is owed. |
 | Encryption | 20 | Medium | RC4/AES, `/Encrypt`. 11 documents cannot reach page one at all and 9 more draw a blank page. |
 | Form field appearance construction | 7 | Medium | `/NeedAppearances` (§12.7.4.3). The field's value is known only at viewing time, so its appearance has to be built from `/V`, `/DA` and `/Q`. The stored appearance is drawn and the staleness reported. |
 | Optional content: the interactive half | — | Medium | §8.11 is honoured wherever it decides what is *drawn* (ADR 0017). What is missing is a layer panel and what feeds it: `/Usage` and the `/AS` usage application dictionaries (§8.11.4.4), which switch groups by zoom, language or print state, and `/Order`, `/ListMode`, `/RBGroups`, `/Locked` and the alternate `/Configs`. §8.11.4.4 is the ledger's second `silent` row: this viewer has a window, so those requirements do apply to it, and a layer that should switch itself off is drawn with nothing said. |
@@ -1287,13 +1447,13 @@ documents' first pages it affects.
 | Text knockout (`Tk`, §9.3.8) | 2 | Medium | Table 102's ninth text state parameter, and the only one absent. Its initial value is `true`, which makes a whole text object a non-isolated knockout group so a later glyph overwrites an earlier one where they overlap; we composite each glyph separately, which is the `Tk` false model — indistinguishable while glyphs are opaque under the Normal blend mode, and wrong otherwise. **Reported since the fourteenth session**, on the two documents where both of the clause's conditions hold: the paint composites, and two glyphs of one object overlap. `/TK` is read, including the rule that a value set between `BT` and `ET` is ignored. Implementing it is §11.4.6's knockout groups seen from clause 9, and belongs with them. |
 | Compositing an object in parts (§11.6.2) | 1 | Medium | "Portions of an object shall not be composited with one another", and `B` and its three relatives paint one object as a `Fill` and a `Stroke` — so the band a centred stroke shares with the fill composites twice under a paint that composites at all. **Reported since the fifteenth session** (ADR 0024), on the pages where it can show: the paint composites, and both parts mark the page. 4 documents reach the report, `alphatrans.pdf` is the one visibly wrong, and the fix is the same one as `Tk`'s — composite the parts as one element, which is §11.4.6's groups. |
 | Image `/Mask` on a filtered image, `/Matte` outside the device spaces | 0 | Small | What is left of §8.9.6 and §11.6.5.2 after ADRs 0023 and 0024, and no corpus document writes any of it. A colour key is a test on the samples a filter delivers, and a `DCTDecode` or `JPXDecode` image has become RGBA before the unpacker sees it — the clause's own NOTE 2 names that pair as the one lossy coding makes unreliable; JBIG2 and CCITT are refused with them rather than special-cased. A `/Mask` stream that is not an image mask is here too, which Table 87 excludes and 1 document writes (see trap 11). So is a `/Matte` on an image whose colour space is not `DeviceGray` or `DeviceRGB`: §11.6.5.2 requires the pre-blending to be undone *before* colour conversion, and this crate holds one RGBA raster per image, so the inversion is exact only where that conversion was the identity on components. |
-| Transparency group departures (§11.4) | 16 | Medium | Three answers a `/Group` may give that are drawn as the isolated, non-knockout group instead, each reported where it can change a pixel (ADR 0026). **Knockout** (§11.4.6): 6 documents, where an element that composites overlaps one painted before it; the implementation is written down in the ledger row, because for an *isolated* knockout group it is a Porter-Duff Source composite modulated by coverage and nothing more. **Non-isolated with a blend mode inside it** (§11.4.4): 9 documents; without one the two computations are provably identical and nothing is reported. **A blending colour space that is not the device's three components** (§11.6.6): 4 documents, all `/DeviceCMYK`, and honouring it means a second raster format rather than a colour conversion. |
+| Transparency group and mask departures (§11.4, §11.5.3) | 24 | Medium | Three answers a `/Group` may give that are drawn as the isolated, non-knockout group instead, each reported where it can change a pixel (ADR 0026). **Knockout** (§11.4.6): 6 documents, where an element that composites overlaps one painted before it; the implementation is written down in the ledger row, because for an *isolated* knockout group it is a Porter-Duff Source composite modulated by coverage and nothing more. **Non-isolated with a blend mode inside it** (§11.4.4): 9 documents; without one the two computations are provably identical and nothing is reported. **A blending colour space that is not the device's three components** (§11.6.6): 4 documents, all `/DeviceCMYK`, and honouring it means a second raster format rather than a colour conversion. **A soft mask's group with such a space** (§11.5.3, ADR 0027): 7 documents, where neither the compositing nor the luminosity is the clause's — `/DeviceGray` is exempt and it is exact, since a grey converts to `R = G = B` and the three coefficients sum to 1. |
 | Automatic stroke adjustment (`/SA`, §10.7.5) | 49 | Medium | **The ledger's fifth `silent` row**, found by the sixteenth session's review of §10.7. "When stroke adjustment is enabled, the line width and the coordinates of a stroke shall automatically be adjusted as necessary to produce lines of uniform thickness" — `/SA` is read nowhere, and a document enabling it gets an anti-aliased hairline rather than the grid-snapped one the clause asks for. 49 corpus documents set it true, which is *why it is not reported yet*: trap 11 says a report on the key's presence would move all 49 out of the oracle's gated set for a difference most of them cannot show, and §9.3.8's first draft made exactly that mistake at a seventh of the scale. The condition a report needs is that a stroke is actually painted while the parameter is in force **and** that it is thin enough in device space for the half-pixel adjustment the clause bounds to be visible. Sizing that condition is the work this row is owed. |
 | Smoothness tolerance (`/SM`, §10.7.3) | 23 | Small | Read nowhere, and mostly harmless: this renderer has one fixed internal bound — a 256-sample `Ramp`, and `Triangle::is_subpixel` — where the clause asks for a per-document one, and "each output device may have internal limits on the maximum and minimum tolerances attainable" contemplates precisely that. A document asking for a *coarser* shading than we draw is given a finer one, which cannot be a fidelity error; one asking for finer than 1/256 of a component is not honoured and nothing says so. That silence hides inside a `partial` row, which is the same shape as §8.9.5.2's `/Decode`. |
 | `/UserUnit` | 2 | Small | §7.7.3.3: the size of a default user-space unit in multiples of 1/72 inch. `mutool` and `gs` scale the page by it, we and `poppler` do not — `bug1947248_*.pdf` come out at 612x792 where they produce 1836x2376. Neither applied nor reported; the oracle lists them under `GEOMETRY`. |
 | Annotation `NoZoom`, `NoRotate` | — | Small | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. Rare. |
 | Type1 fonts (`/FontFile`) | 0 | Medium | No corpus page one reaches it, so this is smaller than it looks. `read_fonts::ps::type1` exists — check before writing any. |
-| Soft masks and `/Mask` at a grid the bound refuses | 1 | Small | **Closed in the fifteenth session except for one file** (§11.6.5.2 Table 143, ADR 0024): a mask of any size is combined with its image on the finer of the two grids, bounded on how much bigger the combined grid may be than the image itself. `issue16263.pdf` gives a 2x2 image a 34862x4332 mask — 151 million samples, 604 MB — and that pair is refused and named, which is the whole of this row. The answer the clause actually describes is compositing at *device* resolution, which means the display list carrying an image and its mask separately and both backends sampling them; that is a `pdf-render` change and belongs to whoever takes transparency groups. |
+| Soft masks and `/Mask` at a grid the bound refuses | 1 | Small | **Closed in the fifteenth session except for one file** (§11.6.5.2 Table 143, ADR 0024): a mask of any size is combined with its image on the finer of the two grids, bounded on how much bigger the combined grid may be than the image itself. `issue16263.pdf` gives a 2x2 image a 34862x4332 mask — 151 million samples, 604 MB — and that pair is refused and named, which is the whole of this row. The answer the clause actually describes is compositing at *device* resolution, which means the display list carrying an image and its mask separately and both backends sampling them; that is a `pdf-render` change and belongs to whoever takes it. A graphics-state soft mask is now the one raster that *is* combined at device resolution (ADR 0027), which is the shape the answer here wants. |
 | Bit depths 2, 4 and 16 | 3 | Small | §8.9.3 permits five component widths and the unpacker reads two. Refused and reported, which is honest, and is now the largest *codec-shaped* image gap left — though the `/Mask` row above it affects more documents. |
 | Vertical writing (`Identity-V`, `/W2`) | 3 | Medium | §9.2.4 gives a glyph in writing mode 1 a second set of metrics — a displacement vector `w1` and a position vector `v`, from the CIDFont's `/W2` and `/DW2` (§9.7.4.3). None of it is read. `Identity-V` was accepted beside `Identity-H` until the tenth session, because the two map codes identically, and `vertical.pdf` came out as one overlapping line across the top of a page where two columns belong down the right edge. Now refused and reported. |
 | Sampled shadings on the GPU | 2 | Small | Type 1 only; the CPU backend draws them. |
@@ -1317,10 +1477,10 @@ fonts were reported for two sessions in which they were not. Both errors were fo
 pixels, not by reading. Read the "By clause" table as what the code's authors believe.
 
 **The fourth now exists**, and it is the conformance ledger. Its headline is not a percentage
-implemented but a count of unasked questions: **629 of 823 subclauses are `unreviewed`**, and
-194 have been read against this code — 81 of those being clause 13, which principle 5
+implemented but a count of unasked questions: **615 of 823 subclauses are `unreviewed`**, and
+208 have been read against this code — 81 of those being clause 13, which principle 5
 excludes by name. So the honest summary of clause coverage is that the project has begun
-measuring it and has measured 14% of it. That number is meant to look bad; the alternative was
+measuring it and has measured 15% of it. That number is meant to look bad; the alternative was
 not knowing.
 
 **And the ledger has now been wrong once too**, which is worth knowing before trusting a row:
@@ -1338,10 +1498,13 @@ Over the 974-document pdf.js corpus, page one:
 |---|---|---|
 | opens | 974 | 100% |
 | reaches page one | 955 | 98% |
-| **draws with nothing reported** | **718** | **74%** |
-| draws, with something reported | 237 | 24% |
+| **draws with nothing reported** | **735** | **75%** |
+| draws, with something reported | 220 | 23% |
 
-That 74% is the number to quote for *reporting*. It **fell by six** in the seventeenth session,
+That 75% is the number to quote for *reporting*. It **rose by seventeen documents** in the
+eighteenth session, when soft masks in an `/ExtGState` stopped being reported and started being
+drawn (§11.5, ADR 0027) — the largest single movement since `CCITTFaxDecode`, and the first in
+four sessions that is a feature rather than a report. It **fell by six** in the seventeenth session,
 when seven documents began saying that their `/Group` is a knockout group or is non-isolated with
 an element that blends, and one stopped reporting §9.3.8 because §11.6.6 resets the constant
 alpha its glyphs had carried. Nothing stopped drawing correctly; two silences ended. It moved by
@@ -1463,7 +1626,7 @@ one that had to name a code site.
 | 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 46 of its 128 rows are reviewed, §8.9 and §8.10 as families. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images (§8.9.7, eleventh session), `/Interpolate`, an image's `/Mask` in both forms (§8.9.6, fourteenth session), ICC colour management, and — since the ninth session — optional content (§8.11) wherever it decides what is drawn. A form is clipped by its `/BBox` as of the seventeenth session (§8.10.1), which is the one requirement of that family this tree had missed. A general `/Decode` array is still not applied and not reported, and 2, 4 and 16 bits per component are refused. |
 | 9 Text | 65 | **Partial**, and 23 of its 65 rows are reviewed — §9.3 and §9.4 as two whole families in the thirteenth session. Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts, whose glyphs are content streams (§9.6.4, ADR 0018); and all eight text rendering modes (§9.3.6, ADR 0022). §9.6.5.2's CFF encoding algorithm and §9.6.5.4's `TrueType` one are both implemented in full, the second as of the eighth session (ADR 0015). Missing: bare Type1 (`/FontFile`), embedded `CMap` streams, predefined `CMap`s, vertical writing mode, and text knockout (§9.3.8), which since the fourteenth session is `reported` rather than `silent`. |
 | 10 Rendering | 36 | **Partial**, and 6 of its 36 rows are reviewed — the whole of §10.7 in the sixteenth session, which is the first time this tree cited the clause at all. Colour management and rendering intents are done. Halftones and transfer functions describe a marking device rather than a screen. **Flatness turned out not to belong on that list**: §10.7.2 makes ignoring it an explicit permission, which is a different and better answer than "inapplicable". §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over, and ADR 0025's area averaging — and §10.7.5's `/SA` is the ledger's fifth `silent` row. |
-| 11 Transparency | 58 | **Partial**, and 32 of its 58 rows are reviewed — §11.6.4 in the fourteenth session, §11.3.7, §11.5 and the rest of §11.6 in the fifteenth, and the whole of §11.4 in the seventeenth. All sixteen blend modes are implemented and reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` are two constants that reach a shading as well as a colour; an image's `/SMask` supplies its alpha at any resolution, with `/Matte` undone (§11.6.5.2, ADR 0024); and a `/Group` is composited as one object, with the page itself treated as the isolated group §11.4.7 says it is (ADR 0026). The ledger's three `silent` rows here are closed. What is left is knockout (§11.4.6), a non-isolated group whose elements blend (§11.4.4) and a group colour space that is not the device's — all three reported — and the soft masks of §11.5, which the group machinery has just unblocked. `/AIS` is read nowhere. |
+| 11 Transparency | 58 | **Partial**, and 46 of its 58 rows are reviewed — everything from §11.4 onwards, leaving only §11.1 to §11.3.5 and §11.3.8, which are the model rather than its PDF representation. §11.6.4 in the fourteenth session, §11.3.7, §11.5 and the rest of §11.6 in the fifteenth, the whole of §11.4 in the seventeenth, §11.7 in the eighteenth. All sixteen blend modes are implemented and reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` are two constants that reach a shading as well as a colour; an image's `/SMask` supplies its alpha at any resolution, with `/Matte` undone (§11.6.5.2, ADR 0024); a `/Group` is composited as one object, with the page itself treated as the isolated group §11.4.7 says it is (ADR 0026); and a graphics-state `/SMask` is a group evaluated for its alpha or its luminosity, with `/BC` and `/TR` (§11.5, ADR 0027). What is left is knockout (§11.4.6), a non-isolated group whose elements blend (§11.4.4) and a blending colour space that is not the device's, in a group or in a mask — all four reported — and **overprinting (§11.7.4), which is six `silent` rows and the largest gap in the clause**. `/AIS` is read nowhere and is argued for in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
 | 12 Interactive features | 166 | **Appearances only.** Annotations are placed and drawn from `/AP` (§12.5.5), with the visibility flags of §12.5.3 honoured. Nothing is synthesised, and no forms, actions or navigation exist. |
 | 13 Multimedia | 81 | **Excluded**, by name, on principle 5's closed list: a media engine rather than a rendering question. Its rows still appear in the ledger carrying that exclusion, because an invisible exclusion is indistinguishable from an oversight. |
 | 14 Document interchange | 152 | **Output intents only.** No tagged PDF, no metadata, no marked-content semantics — `BDC`/`EMC` are parsed and ignored. |
@@ -1490,7 +1653,7 @@ done; the parts that make a document *interactive* are not started.
 | Optional content | §8.11 wherever it decides what is drawn: configuration, membership, `/VE`, intent, and all three places `/OC` can appear. The interactive half — `/Usage`, `/AS`, `/Order` — is not read. |
 | Inline images | §8.9.7 in full, from the eleventh session: both abbreviation tables, the resource-named colour space, and three ways of finding where the data ends. ADR 0019. |
 | Image colour spaces | All eleven families unpack, `Indexed` through a table converted once per entry rather than once per sample. Bit depths 1 and 8; 2, 4 and 16 are refused and reported. |
-| Image masking | 3 of §8.9.6's 4 mechanisms, plus §11.6.5.2's `/SMask`: the image's own `/ImageMask` stencil, an explicit `/Mask` (§8.9.6.3) and a colour-key `/Mask` (§8.9.6.4) from the fourteenth session (ADR 0023), and a soft-mask image at any resolution with `/Matte` undone, from the fifteenth (ADR 0024). Two rasters of different sizes are combined on the finer of the two grids, bounded on the growth. The fourth mechanism is the graphics state's own soft mask, reported on 28 documents. |
+| Image masking | All four of the mechanisms an image can carry, plus the graphics state's own: the image's `/ImageMask` stencil, an explicit `/Mask` (§8.9.6.3) and a colour-key `/Mask` (§8.9.6.4) from the fourteenth session (ADR 0023), a soft-mask image at any resolution with `/Matte` undone from the fifteenth (ADR 0024), and §11.5's soft mask in an `/ExtGState` from the eighteenth (ADR 0027). Two rasters of different sizes are combined on the finer of the two grids, bounded on the growth; a graphics-state mask is combined at *device* resolution, which is what the clause actually describes. §11.6.4.3's precedence decides which wins where an image carries both. |
 | Transparency groups | §11.6.6's `/Group`, from the seventeenth session (ADR 0026): the elements composited onto a transparent backdrop and the result painted once, with §11.6.6's reset of the blend mode and both alpha constants inside. §11.4.7's page group too, which is why the page is drawn onto transparency and imposed on the medium afterwards. Knockout, a non-isolated group that blends, and a group colour space that is not the device's are reported. |
 | Blend modes and constants | All sixteen names of Tables 134 and 135, and §11.6.3's rule for an array of them — the first name the reader *recognises*, which is not the first name. `ca` and `CA` reach solid colours, images and, since the fifteenth session, shadings (§11.6.4.4). |
 | Page rotation | §7.7.3.3 Table 31's `/Rotate`, clockwise as displayed, from the twelfth session. Before it 90 and 270 were exchanged and every rotated page was drawn 180° out. |
@@ -1501,12 +1664,12 @@ done; the parts that make a document *interactive* are not started.
 
 **Two tracks now, and the discipline is to take from both in every session.**
 
-*Demand-driven* is everything the corpus and the oracle name — 93 contradicted pages, 59 of
+*Demand-driven* is everything the corpus and the oracle name — 96 contradicted pages, 60 of
 them unexplained, and a feature list sized by how many documents want each item. It has been
 productive for thirteen sessions, it is where the low-hanging fruit is, and it stays.
 
 *Spec-driven* is what the ledger and §6.3.2.2's ranking name — coverage against the
-specification rather than against a file set. It exists now, and it has a number: **629 of
+specification rather than against a file set. It exists now, and it has a number: **615 of
 823 subclauses are `unreviewed`**. A project running only the first track finishes when the
 corpus goes quiet, which can happen with a great deal of the standard unimplemented and
 nothing anywhere able to say which parts.
@@ -1534,7 +1697,10 @@ clause governing its demand item **forbids what the demand item asked for**; and
 groups made §8.10 and §11.4, where the seventeenth found two defects the demand item could not
 have reached — a form XObject that paints outside its own `/BBox`, and a page group that is
 *isolated*, so every blend mode in the corpus had been composited against a white backdrop the
-standard says is not there.
+standard says is not there; and soft masks made §11.7, where the eighteenth found the
+overprinting silence and one clause — §11.7.3's rule that a spot colour is never available
+inside a mask group — that a decision taken years earlier for another reason already
+satisfies.
 
 **The seventh was the strongest argument yet for the pairing, and it is a new shape.** The
 first six times, reading the family found something the demand item had *missed*. That one
@@ -1552,15 +1718,14 @@ wrong. The thirteenth found the citation checker blind to table numbers, and one
 tree was also not `clippy` clean while this file said it was. **Whatever this file asserts
 about the tooling, run it once before believing it.**
 
-The one-line version of the demand track: **93 pages we claim to draw are contradicted, 59 of
+The one-line version of the demand track: **96 pages we claim to draw are contradicted, 60 of
 them for no reason visible on the page. The two largest gaps of any kind are text — 100
 documents naming a CID encoding or an embedded `CMap` — and synthesised annotation appearances
-at 63.** The short list has one item on it again, and it is the first time in four sessions that
-the next demand item is *named by the work just done*: **a soft mask in an `/ExtGState`
-(§11.5), 28 documents, which is a transparency group evaluated for its alpha or its
-luminosity** — see item 2 below. The one-line version of the spec
-track: **22 clauses the code already cites have never been read against it**, and they are
-named in `REVIEW_OWED`.
+at 63**, and with soft masks built, those two are now the whole of the top of the list: the
+third-largest is *encryption* at 20. The short list is empty of rendering features for the
+first time since this file existed, which is why item 2 below is a silence rather than a
+feature. The one-line version of the spec track: **22 clauses the code already cites have
+never been read against it**, and they are named in `REVIEW_OWED`.
 
 ### 0. The ledger, and the cheapest reviews available
 
@@ -1571,26 +1736,29 @@ the ones the code already points at.
   so the reading is against something that exists rather than against a blank. Take them by
   family — §8.6.5 is five of them, §12.5 another five — because that is how the standard
   distributes its requirements, and because §9.6.5.4 was missed for the opposite reason:
-  nobody had read §9.6.5 as a unit. **Expect findings**: twelve families have now been reviewed
-  and they have produced twenty-seven, five in §11.4 and §8.10 — including the page group,
+  nobody had read §9.6.5 as a unit. **Expect findings**: thirteen families have now been
+  reviewed and they have produced thirty, five in §11.4 and §8.10 — including the page group,
   which changed how every blend mode in the corpus composites — four in §8.9, three in §11.6,
   including the gradient defect that had made a page contradicted for four sessions, three in
-  §10.7, which are *departures* rather than defects and are the first of that kind, three in one
-  clause (§8.6.8) that had looked like a formality, two in §7.4.6 that turned into refusals
-  rather than code, and two in §9.3.
+  §10.7, which are *departures* rather than defects and are the first of that kind, three in
+  §11.7, of which the overprinting silence is the largest single gap any review has found,
+  three in one clause (§8.6.8) that had looked like a formality, two in §7.4.6 that turned into
+  refusals rather than code, and two in §9.3.
 - **Prefer the family belonging to whatever else the session is doing.** §7.4.6, §8.6.4.2,
-  §8.6.8, §8.9 (all of it), §8.10, §9.3, §9.4, §9.6.4, §9.6.5, §10.7, §11.3.7, §11.4, §11.5 and
-  §11.6 are done; §11.7 if soft masks are the demand item — its §11.7.2 is the group colour
-  space §11.6.6 now reports — §12.5.6 if synthesised appearances are, §7.6 if encryption is.
+  §8.6.8, §8.9 (all of it), §8.10, §9.3, §9.4, §9.6.4, §9.6.5, §10.7, §11.3.7, §11.4, §11.5,
+  §11.6 and §11.7 are done — **the whole of clause 11 has now been read** — so the families
+  left are elsewhere: §12.5.6 if synthesised appearances are the demand item, §7.6 if
+  encryption is, §9.7 if CID encodings are, §8.6.5 (five rows) whenever colour is touched.
   Record every row, including the ones that turn out to be `inapplicable` — a clause read and
   dismissed is worth as much as one implemented, and costs a minute.
-- **Two `silent` rows are open**, down from five, and they are the most valuable kind.
-  §8.11.4.4 (usage dictionaries) and §10.7.5 (`/SA`, automatic stroke adjustment) are drawn
-  wrong with nothing said. The three that closed were **one gap** — transparency groups, seen
-  from §11.4.6, §11.6.6 and §11.3.7.3 — and closing it took a feature rather than a report,
-  which is why it took a session rather than an afternoon. §10.7.5 is the one with a *sizing*
-  question attached rather than an implementation one: 49 corpus documents set `/SA true`, so
-  the work it is owed is the narrow condition, not the key lookup. Either implementing them or
+- **Eight `silent` rows are open, and they are three gaps.** §8.11.4.4 (usage dictionaries),
+  §10.7.5 (`/SA`, automatic stroke adjustment) and — new in the eighteenth session — the six
+  rows of §11.7.4, overprinting, which is one gap recorded where a reader of any of its
+  subclauses would look, the same way transparency groups were recorded three times before they
+  were built. All three are drawn wrong with nothing said, and all three have the *same* shape
+  of work owed: a condition narrow enough that the report names the pages where it can show.
+  49 corpus documents set `/SA true` and 63 first-page `/ExtGState`s enable overprinting, so
+  neither is the key lookup. Either implementing them or
   making them *report* is progress; the second is much cheaper and is what principle 3 actually
   requires. §9.3.8, closed in the fourteenth session, is worth reading before taking either —
   the cost of the report turned out to be not the key lookup this file predicted but the
@@ -1601,12 +1769,20 @@ the ones the code already points at.
   worth remembering when reading the ledger by status: a clause can be half implemented and
   quiet about the other half.
 
-Five small items, listed before the big lists because they are small. The first two are the
-sixteenth and seventeenth sessions' leftovers; the other three have been carried since the
-seventh:
+Six small items, listed before the big lists because they are small. The first is the
+eighteenth session's leftover, the next two the sixteenth's and seventeenth's; the other three
+have been carried since the seventh:
 
-- **Give §10.7.5's `/SA` a condition, and then a report.** The cheapest of the five `silent`
-  rows to close and the one whose difficulty is entirely in the condition — see the row in the
+- **Give §11.7.4's overprinting a condition, and then a report.** The largest of the three
+  silences by document count, and the one whose reading is already done — the ledger's six rows
+  say what Table 146 asks for. What is *not* done is trap 11's half: a report on the key would
+  name 63 documents and take every one of them out of the oracle's gated set, and overprinting
+  changes nothing where the source paints every component of the group's colour space, which an
+  ordinary `rg` fill does. Start with an `eprintln!` naming which documents enable it *and*
+  paint in a `Separation`, `DeviceN` or `/DeviceGray` space, which is where the special blend
+  mode can differ at all.
+- **Give §10.7.5's `/SA` a condition, and then a report.** The cheapest of the three silences
+  to close and the one whose difficulty is entirely in the condition — see the row in the
   not-implemented table, and read trap 11 first. 49 documents set it true; the question is how
   many of them paint a stroke thin enough for the clause's half-pixel adjustment to show, and
   the answer needs a `eprintln!` in the branch before it needs any code.
@@ -1636,7 +1812,7 @@ seventh:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 59 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 60 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. One cause is identified and live — and **read trap 9 before starting**, because
 an entry may be either of its shapes: two references that are one implementation, or two that
@@ -1659,6 +1835,12 @@ one page's closed path and was **every dashed line in every document** — the `
 nothing at all, and both backends had been able to dash from the start. The only way to find
 out which kind an entry is, is to open the artefact.
 
+**One entry arrived in the eighteenth session and it is a page that became comparable rather
+than a page that changed.** `issue7891_bc1.pdf` reported a soft mask until §11.5 landed; what
+is left is a mean error of 0.22 with a worst tile of 10.76 against a bound of 6.04, all of it
+in the edge coverage of six-pixel glyphs. It is listed rather than diagnosed, which is what
+this group is for.
+
 The other 58 are unexamined. Each is a page where two implementations sharing no code agree
 and we differ by more than twice their own disagreement, with the artefacts already written:
 `<target>/tmp/oracle/<stem>/p<n>/` holds our render, each reference's, a side-by-side and a
@@ -1670,28 +1852,22 @@ of ADR 0012 started. And principle 5 is not suspended by a list: each entry is a
 take to the specification, and "make it match mupdf" is exactly the failure this project
 forbids.
 
-### 2. Soft masks in an `/ExtGState`, which groups have just unblocked
+### 2. The three silences, which are what a demand list stops naming
 
-**This is the next demand item, and the seventeenth session is why it can be taken.** 28
-documents report `Shading { name: "SMask in /GSn" }` and it is the largest reported rendering
-gap left. §11.6.5.1's soft-mask dictionary names a transparency group XObject in `/G` and a
-subtype in `/S`: `/Alpha` takes the group's alpha (§11.5.2) and `/Luminosity` its luminosity
-against a `/BC` backdrop (§11.5.3), through an optional `/TR` transfer function. Evaluating a
-group is exactly what `Command::Group` and the two backends now do.
+**This heading held soft masks for two sessions and they landed as ADR 0027.** What replaces
+it is not a feature but the reason the demand track cannot be the only one: a gap that reports
+gets scheduled, and a gap that is silent does not — so the silences outlive every feature
+around them. There are three, they are named in item 0 and in the not-implemented table, and
+between them they are 63, 49 and an unknown number of corpus documents drawn wrong with
+nothing said.
 
-Two things this will need that do not exist yet, and both are `pdf-render` changes rather than
-`pdf-model` ones:
+Take them in the order the ledger's own argument gives: **overprinting (§11.7.4)** first,
+because it is the largest and its reading is finished; **`/SA` (§10.7.5)** next, because its
+condition is the smallest; **usage dictionaries (§8.11.4.4)** last, because it needs a layer
+panel to be worth more than a report.
 
-- **A mask has to reach a command.** A soft mask set by `gs` applies to everything painted
-  until it is replaced, which is a per-command input the display list has no field for. The
-  cheapest shape is probably a mask raster registered like a clip and referenced by id, since
-  §11.5.1's NOTE 2 calls the result a soft clip and clips already work that way.
-- **The group is evaluated at device resolution**, so the mask's raster depends on the target.
-  That is the same design question as "give the JPEG 2000 decoder a target resolution" and as
-  the image-reduction residual below: three items now wait on where resolution enters.
-
-Read §11.7 with it — §11.7.2 is the group colour space §11.6.6 reports today, and a luminosity
-mask is defined in terms of it.
+Each needs the same two hours in the same order — an `eprintln!` that prints what the
+condition would match, then the condition, then the report — and trap 11 is the whole method.
 
 ### 3. Image reduction — done in the sixteenth session, and what is left of it
 
@@ -1752,18 +1928,15 @@ references guess differently.
 
 ### 6. Then, by what the corpus says real documents need
 
-**Soft masks in an `/ExtGState`** (28 documents, and it is the last thing `doc/` reports —
-item 2 above, now that groups exist),
-**encryption** (20 documents — 11 cannot reach page one, 9 more draw a blank page and now
-say so), and **CID encodings** (100 fonts; note that only 6 of those need the predefined
-`CMap` data with its licensing question, and 3 need vertical writing — the rest need code).
+**Encryption** (20 documents — 11 cannot reach page one, 9 more draw a blank page and now
+say so) and **CID encodings** (100 fonts; note that only 6 of those need the predefined `CMap`
+data with its licensing question, and 3 need vertical writing — the rest need code).
 **Type1 fonts** are smaller than they look: no corpus page one reaches one.
 
-All three announce themselves, which is why they sit below the items above: a gap that reports
-is a gap you can measure and schedule, and a gap that does not is a gap that ships. The
-exception this paragraph used to name has been closed — a transparency *group* was drawn as an
-ordinary form and said nothing, and what reported on those documents was the soft mask beside
-it.
+The soft masks this paragraph used to lead with are built (ADR 0027), and `doc/`'s fourteen
+specification PDFs now report **nothing at all**. Both of the items left announce themselves,
+which is why they sit below the ones above: a gap that reports is a gap you can measure and
+schedule, and a gap that does not is a gap that ships — which is item 2's whole argument.
 
 ### Where the time went, and where it still goes
 
@@ -1873,13 +2046,19 @@ a rise is a new report and is written down as one.
 |---|---|---|
 | unopenable | 0 | and it should stay there |
 | no page one | 19 | 11 encrypted, 8 with unrecoverable page trees |
-| draws incompletely | 237 | Counted by each document's *first* report, so the column sums: 100 a font, 66 an annotation, 28 a shading, 15 an operator, 11 an image, 7 an undecodable content stream, 7 a transparency group, 1 a text knockout, 1 a bound reached, 1 an object composited in parts |
+| draws incompletely | 220 | Counted by each document's *first* report, so the column sums: 100 a font, 66 an annotation, 17 a transparency group or mask departure, 15 an operator, 11 an image, 7 an undecodable content stream, 2 an object composited in parts, 1 a text knockout, 1 a bound reached |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 **The operator row was 33** until the thirteenth session implemented §9.3.6's eight text
 rendering modes, and is 15. Nothing left on it is a feature anybody could implement: it is
 `BT` without `ET`, `BDC` without `EMC`, and the byte soup a fuzzed content stream lexes as
 operator names.
+
+**The shading row is gone.** It held 28 documents and every one of them was a soft mask in an
+`/ExtGState` — filed under shading because nothing else fitted. §11.5 is implemented (ADR
+0027), so 17 of those documents left the list outright and the rest say something narrower: 7
+that their mask group's `/CS` is not the device's three components, 1 that its group is a
+knockout one.
 
 The image row was 161 before JBIG2 and JPEG 2000 landed, 53 before inline images did, 31
 before `CCITTFaxDecode` did, 19 before `/Mask` applied, 13 before an `/SMask` of another size
@@ -1899,17 +2078,20 @@ for vertical writing.
 
 Ratcheted in `crates/pdf-model/tests/oracle.rs`, by name and in both directions.
 
-| of the 1505 pages we call complete | count | |
+| of the 1525 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 676 | |
-| **contradicted** | **93** | 7 page rounding, 7 a shared JBIG2 decoder and 1 a shared *gap* (trap 9, both halves), 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 glyphs judged as vector, 16 substituted fonts, **59 unexplained** |
-| ambiguous | 723 | the references disagree with each other; 372 of them are two long books set in fonts nobody embedded |
+| agree with the reference consensus | 688 | |
+| **contradicted** | **96** | 8 page rounding, 7 a shared JBIG2 decoder and 1 a shared *gap* (trap 9, both halves), 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 glyphs judged as vector, 16 substituted fonts, **60 unexplained** |
+| ambiguous | 728 | the references disagree with each other; 372 of them are two long books set in fonts nobody embedded |
 | our page geometry differs | 3 | 2 are `/UserUnit`, 1 unexamined |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
-The 289 incomplete pages are compared and printed too, but cannot fail the gate: a page we
+The 269 incomplete pages are compared and printed too, but cannot fail the gate: a page we
 already say we cannot draw is expected to differ, and listing hundreds of them would drown
-the signal. It **rose by 8** in the seventeenth session, as seven documents began reporting a
+the signal. It **fell by 20** in the eighteenth session as soft masks stopped reporting, which
+is the largest single arrival the gated set has had since inline images — and the reverse of
+the trade the rest of this paragraph describes, because a gap that closes gives the pages back.
+It **rose by 8** in the seventeenth session, as seven documents began reporting a
 transparency group departure and one page changed its mind about §9.3.8 — the cost, in
 coverage, of two silences ending. It did not move at all in the sixteenth session, which is that session's shape:
 area averaging changed *how* pages already drawn were drawn, so nothing entered or left the

@@ -146,9 +146,17 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// masking itself is not in question — the difference is three vertical lines one pixel
 /// wide, at the three band edges, on a page whose only content is two coloured bands. The
 /// heatmap says so in one look, which is what the artefacts are for.
-const CONTRADICTED_PAGE_ROUNDING: [&str; 7] = [
+/// `issue21346.pdf` is the eighteenth session's, and the fourth arrival of that shape: it
+/// became comparable when a soft mask in an `/ExtGState` stopped being reported (§11.5), and
+/// its page is 178x178 where `poppler`'s and `mupdf`'s is 179. Its colour is *identical* to
+/// `poppler`'s, `ghostscript`'s and `hayro`'s at every point sampled — mean error 0.70 and
+/// worst tile 0.96, both inside their bounds — and what fails is structural similarity,
+/// 0.9830 against 0.9900, which is what a one-pixel edge does to a page that is one flat
+/// square.
+const CONTRADICTED_PAGE_ROUNDING: [&str; 8] = [
     "bug1065245.pdf page 1",
     "colorkeymask.pdf page 1",
+    "issue21346.pdf page 1",
     "bug1669097.pdf page 1",
     "bug1922766.pdf page 1",
     "bug1934157.pdf page 1",
@@ -268,6 +276,28 @@ const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
 /// because the only page arguing for it was a logo 0.02 outside a bound. **A cosmetic-looking
 /// entry and an unreadable one can be the same defect**, and only the second gets built.
 const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
+
+/// Contradicted, where the whole difference is that a mask value is eight bits.
+///
+/// 1 page. `smask_luminosity_oob_transfer.pdf` paints one red rectangle over the whole page
+/// through a luminosity mask whose `/BC` is white and whose `/TR` is `0.25 + 0.5 x`, so
+/// every pixel outside the mask group's bounding box — which is almost the whole page — is
+/// the same interpolation between the red and the grey beneath it, at a mask value of
+/// `0.75`. The closed form is `(223, 99, 80)`; we produce `(223, 100, 81)`, `mupdf`
+/// `(222, 98, 79)` and `ghostscript` `(223, 99, 79)`. Everybody is within a level of the
+/// arithmetic and of each other, and because `mupdf` and `ghostscript` are within one level
+/// of *each other*, the bound derived from them is a mean of 1.11 — which our mean of 2.02
+/// exceeds.
+///
+/// The level comes from the mask being quantised: `tiny_skia::Mask` holds one byte per pixel
+/// and a GPU texture holds no more, so `0.75` is stored as 191 of 255 and the interpolation
+/// that follows is done at that resolution. `render-cpu/tests/soft_mask.rs` pins the same
+/// arithmetic against the clause and allows exactly one level for it.
+///
+/// It is listed rather than chased because the alternative is a mask raster of floats, which
+/// costs four times the memory of every mask on every page to move a page-wide difference of
+/// one level. Worth revisiting only if a page is ever contradicted by *more* than that.
+const CONTRADICTED_MASK_QUANTISATION: [&str; 1] = ["smask_luminosity_oob_transfer.pdf page 1"];
 
 /// Contradicted, and **we are the ones who are right**: a visibility expression.
 ///
@@ -451,7 +481,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 16] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 59] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 60] = [
     "bug1108301.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
@@ -468,6 +498,7 @@ const CONTRADICTED_UNEXPLAINED: [&str; 59] = [
     "function_based_shading_cmyk.pdf page 2",
     "issue1002.pdf page 1",
     "issue10572.pdf page 1",
+    "issue7891_bc1.pdf page 1",
     "issue11477_reduced.pdf page 1",
     "issue11549_reduced.pdf page 1",
     "issue11740_reduced.pdf page 1",
@@ -1228,6 +1259,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_IMAGE_RESAMPLING)
         .chain(&CONTRADICTED_CALIBRATED_COLOUR)
         .chain(&CONTRADICTED_SUBPIXEL_IMAGE)
+        .chain(&CONTRADICTED_MASK_QUANTISATION)
         .chain(&CONTRADICTED_VISIBILITY_EXPRESSION)
         .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)

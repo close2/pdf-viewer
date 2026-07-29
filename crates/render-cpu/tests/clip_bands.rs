@@ -61,6 +61,7 @@ fn gradient_page(list: &mut DisplayList, clip: Option<ClipId>) {
             transform: Transform::IDENTITY,
         })),
         clip,
+        mask: None,
         blend: BlendMode::Normal,
     });
 }

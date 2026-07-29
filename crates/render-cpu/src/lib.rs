@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use pdf_render::{
     BackendError, ClipId, Color, Command, DisplayList, MAX_EXTENT, MAX_GROUP_DEPTH, Paint, Raster,
-    RasterFormat, Rasterizer, TargetSpec, Transform, impose_on_medium,
+    RasterFormat, Rasterizer, SoftMaskId, TargetSpec, Transform, impose_on_medium,
 };
 
 /// Renders display lists on the CPU.
@@ -191,6 +191,13 @@ impl CpuRasterizer {
         depth: usize,
     ) -> Result<(), CpuRasterError> {
         for command in commands {
+            // A soft mask is evaluated before anything borrows the cache, because building
+            // it renders a whole command list of its own and so needs the cache mutably.
+            // Idempotent: the second command under the same mask finds it already there.
+            if let Some(id) = command.mask() {
+                self.build_soft_mask(list, id, target, masks, depth)?;
+            }
+
             // A group is the one command that needs the mask cache mutably *while* it
             // draws, so it cannot hold a clip mask borrowed from it across the recursion.
             // It therefore resolves its own clip, twice, either side of its elements.
@@ -209,6 +216,7 @@ impl CpuRasterizer {
                         alpha: *alpha,
                         blend: *blend,
                         clip: command.clip(),
+                        mask: command.mask(),
                     },
                     target,
                     masks,
@@ -219,14 +227,10 @@ impl CpuRasterizer {
 
             // Resolved before the match so that every arm shares one code path for
             // clip handling; a per-arm lookup would be a place for them to diverge.
-            let (band, clip) = match command.clip() {
-                Some(id) => match masks.get(list, id)? {
-                    Some((band, mask)) => (band, Some(mask)),
-                    // The clip admits no row of the target, so nothing this command
-                    // draws can survive it.
-                    None => continue,
-                },
-                None => (Band::whole(target), None),
+            // The clip admits no row of the target, so nothing this command draws can
+            // survive it.
+            let Some((band, clip)) = masks.effective(list, command.clip(), command.mask())? else {
+                continue;
             };
 
             // Everything below draws into the band rather than the page, which is what
@@ -278,12 +282,8 @@ impl CpuRasterizer {
 
         // The band is taken first so that a group whose clip admits no row costs nothing at
         // all — not even the buffer.
-        let band = match group.clip {
-            Some(id) => match masks.get(list, id)? {
-                Some((band, _)) => band,
-                None => return Ok(()),
-            },
-            None => Band::whole(target),
+        let Some((band, _)) = masks.effective(list, group.clip, group.mask)? else {
+            return Ok(());
         };
 
         let mut buffer = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
@@ -294,15 +294,18 @@ impl CpuRasterizer {
         )?;
         self.encode(&mut buffer, list, group.commands, target, masks, depth)?;
 
+        // The elements may have evicted the soft mask this group is painted through, since
+        // they share the cache; rebuilding it is what makes eviction safe here as it is for
+        // a clip.
+        if let Some(id) = group.mask {
+            self.build_soft_mask(list, id, target, masks, depth)?;
+        }
+
         // Resolved again rather than held across the recursion: the elements' own clips
         // share this cache and may have evicted the entry, and a rebuilt mask is the mask
         // that was dropped — see `a_rebuilt_mask_is_the_mask_that_was_evicted`.
-        let clip = match group.clip {
-            Some(id) => match masks.get(list, id)? {
-                Some((_, mask)) => Some(mask),
-                None => return Ok(()),
-            },
-            None => None,
+        let Some((_, clip)) = masks.effective(list, group.clip, group.mask)? else {
+            return Ok(());
         };
 
         let paint = tiny_skia::PixmapPaint {
@@ -330,6 +333,64 @@ impl CpuRasterizer {
             tiny_skia::Transform::identity(),
             clip,
         );
+        Ok(())
+    }
+
+    /// Evaluates a soft mask into the cache, if it is not there already (§11.5).
+    ///
+    /// The mask's group is drawn onto a fully transparent target-sized surface — the same
+    /// isolated backdrop [`CpuRasterizer::draw_group`] uses, and what both §11.5.2 and
+    /// §11.5.3 ask for — and each pixel is then turned into a mask value by
+    /// [`pdf_render::SoftMask::value`], which is the function the GPU backend calls on its
+    /// own readback. That shared derivation is the whole reason the display list carries a
+    /// mask's *commands* rather than a raster: the group is evaluated at device resolution,
+    /// which only a backend knows, while what the pixels mean is decided once for both.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`], plus [`CpuRasterError::UnknownSoftMask`] for an
+    /// identifier this display list does not hold.
+    fn build_soft_mask(
+        &self,
+        list: &DisplayList,
+        id: SoftMaskId,
+        target: TargetSpec,
+        masks: &mut MaskCache,
+        depth: usize,
+    ) -> Result<(), CpuRasterError> {
+        if masks.holds_soft_mask(id) {
+            return Ok(());
+        }
+        let mask = list
+            .soft_mask(id)
+            .ok_or(CpuRasterError::UnknownSoftMask(id))?;
+
+        let mut buffer = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+            CpuRasterError::Allocation {
+                width: target.width,
+                height: target.height,
+            },
+        )?;
+        self.encode(&mut buffer, list, &mask.commands, target, masks, depth)?;
+
+        // Straight alpha, which is what `SoftMask::value` is defined over and what the GPU
+        // backend reads back; `tiny-skia` stores premultiplied, so the conversion happens
+        // here at the same boundary as every other one in this backend.
+        let values = mask.values(&buffer.take_demultiplied());
+        let built = tiny_skia::Mask::from_vec(
+            values,
+            tiny_skia::IntSize::from_wh(target.width, target.height).ok_or(
+                CpuRasterError::Allocation {
+                    width: target.width,
+                    height: target.height,
+                },
+            )?,
+        )
+        .ok_or(CpuRasterError::Allocation {
+            width: target.width,
+            height: target.height,
+        })?;
+        masks.admit_soft_mask(id, built, target);
         Ok(())
     }
 
@@ -437,7 +498,7 @@ impl CpuRasterizer {
 
 /// One transparency group, unpacked from its command.
 ///
-/// Grouped for the same reason as [`ImagePlacement`]: four values that always travel
+/// Grouped for the same reason as [`ImagePlacement`]: five values that always travel
 /// together, and a call site that would otherwise be a row of unlabelled arguments.
 #[derive(Debug, Clone, Copy)]
 struct Group<'a> {
@@ -445,6 +506,7 @@ struct Group<'a> {
     alpha: f32,
     blend: pdf_render::BlendMode,
     clip: Option<ClipId>,
+    mask: Option<SoftMaskId>,
 }
 
 /// Where and how an image is placed.
@@ -708,6 +770,26 @@ struct Built {
     band: Band,
 }
 
+/// What a cached mask was built from.
+///
+/// Three kinds share one cache because they share one budget and one eviction order, and
+/// because what a command asks for is the *effective* mask: a clip, a soft mask, or their
+/// product. Keeping the product under its own key is what stops a page of masked text from
+/// multiplying the two per glyph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Key {
+    /// The intersection of a clip chain.
+    Clip(ClipId),
+    /// A soft mask's values, over the whole target (§11.5).
+    Soft(SoftMaskId),
+    /// A clip and a soft mask multiplied together.
+    ///
+    /// §11.5.1's NOTE 2 makes that the right arithmetic rather than a shortcut: a hard clip
+    /// "can be represented as a soft clip having shape values of 1.0 inside and 0.0 outside
+    /// the clipping path", so intersecting the two is multiplying them.
+    Both(ClipId, SoftMaskId),
+}
+
 /// Builds and memoises clip masks, within a memory budget.
 ///
 /// A clip commonly applies to thousands of consecutive commands, so rasterising its
@@ -725,13 +807,18 @@ struct Built {
 struct MaskCache {
     target: TargetSpec,
     anti_alias: bool,
-    /// Masks by clip. `None` records a clip that admits no row of the target, which is
-    /// worth remembering rather than rediscovering: every command it clips draws
-    /// nothing. These entries hold no pixels, and there is one at most per clip in the
+    /// Masks by what they were built from. `None` records a clip that admits no row of the
+    /// target, which is worth remembering rather than rediscovering: every command it clips
+    /// draws nothing. These entries hold no pixels, and there is one at most per clip in the
     /// display list, so they are bounded by the list itself.
-    built: HashMap<ClipId, Option<Built>>,
-    /// Clips holding a mask, in build order, for eviction.
-    order: VecDeque<ClipId>,
+    built: HashMap<Key, Option<Built>>,
+    /// Keys holding a mask, in build order, for eviction. Soft masks are not among them —
+    /// see [`MaskCache::admit_soft_mask`] for why they are evicted on their own terms.
+    order: VecDeque<Key>,
+    /// Soft masks holding a raster, in build order, for eviction.
+    soft_order: VecDeque<SoftMaskId>,
+    /// Bytes held by the soft masks in `built`.
+    soft_bytes: usize,
     /// Bytes held by the masks in `built`.
     bytes: usize,
     /// Largest total the masks may reach before the oldest are dropped.
@@ -755,8 +842,151 @@ impl MaskCache {
             anti_alias,
             built: HashMap::new(),
             order: VecDeque::new(),
+            soft_order: VecDeque::new(),
             bytes: 0,
+            soft_bytes: 0,
             budget: MASK_BUDGET,
+        }
+    }
+
+    /// Returns the mask a command with this clip and this soft mask draws through.
+    ///
+    /// `None` means nothing this command draws can survive, which is not the same as
+    /// drawing unmasked; `Some((band, None))` is the unmasked case, where the band is the
+    /// whole target.
+    ///
+    /// A soft mask must already have been evaluated by
+    /// [`CpuRasterizer::build_soft_mask`] — building one means rendering a command list,
+    /// which a cache cannot do.
+    ///
+    /// # Errors
+    ///
+    /// As [`MaskCache::get`], plus [`CpuRasterError::UnknownSoftMask`] for a soft mask that
+    /// was not evaluated first.
+    fn effective(
+        &mut self,
+        list: &DisplayList,
+        clip: Option<ClipId>,
+        mask: Option<SoftMaskId>,
+    ) -> Result<Option<(Band, Option<&tiny_skia::Mask>)>, CpuRasterError> {
+        match (clip, mask) {
+            (None, None) => Ok(Some((Band::whole(self.target), None))),
+            (Some(clip), None) => Ok(self.get(list, clip)?.map(|(band, mask)| (band, Some(mask)))),
+            (None, Some(mask)) => {
+                let entry = self.soft_mask(mask)?;
+                Ok(Some((entry.band, Some(&entry.mask))))
+            }
+            (Some(clip), Some(mask)) => {
+                self.combine(list, clip, mask)?;
+                let entry = self
+                    .built
+                    .get(&Key::Both(clip, mask))
+                    .ok_or(CpuRasterError::UnknownClip(clip))?
+                    .as_ref();
+                Ok(entry.map(|built| (built.band, Some(&built.mask))))
+            }
+        }
+    }
+
+    /// Builds the product of a clip and a soft mask, if it is not cached already.
+    fn combine(
+        &mut self,
+        list: &DisplayList,
+        clip: ClipId,
+        mask: SoftMaskId,
+    ) -> Result<(), CpuRasterError> {
+        if self.built.contains_key(&Key::Both(clip, mask)) {
+            return Ok(());
+        }
+        // The clip is built first and the soft mask read after it, which is safe in that
+        // order only because building a clip cannot evict a soft mask — see
+        // `admit_soft_mask`.
+        self.get(list, clip)?;
+
+        let Some(Some(clipped)) = self.built.get(&Key::Clip(clip)) else {
+            // The clip admits no row, so their product admits none either.
+            self.built.insert(Key::Both(clip, mask), None);
+            return Ok(());
+        };
+        let Some(Some(soft)) = self.built.get(&Key::Soft(mask)) else {
+            return Err(CpuRasterError::UnknownSoftMask(mask));
+        };
+
+        let band = clipped.band;
+        let mut product = clipped.mask.clone();
+        let width = self.target.width as usize;
+        let start = (band.top as usize).saturating_mul(width);
+        let soft_rows = soft
+            .mask
+            .data()
+            .get(start..start.saturating_add(product.data().len()))
+            .ok_or(CpuRasterError::UnknownSoftMask(mask))?
+            .to_vec();
+        for (value, &soft) in product.data_mut().iter_mut().zip(soft_rows.iter()) {
+            // Two coverages multiply: 255 x 255 = 65 025 fits a `u16`, and the rounded
+            // quotient keeps a fully open pair fully open.
+            let scaled = u16::from(*value)
+                .saturating_mul(u16::from(soft))
+                .saturating_add(127);
+            *value = u8::try_from(scaled / 255).unwrap_or(u8::MAX);
+        }
+
+        self.admit(
+            Key::Both(clip, mask),
+            Some(Built {
+                mask: product,
+                band,
+            }),
+        );
+        Ok(())
+    }
+
+    /// Returns an evaluated soft mask's entry.
+    fn soft_mask(&self, id: SoftMaskId) -> Result<&Built, CpuRasterError> {
+        self.built
+            .get(&Key::Soft(id))
+            .and_then(Option::as_ref)
+            .ok_or(CpuRasterError::UnknownSoftMask(id))
+    }
+
+    /// Whether a soft mask's values are already cached.
+    fn holds_soft_mask(&self, id: SoftMaskId) -> bool {
+        self.built.contains_key(&Key::Soft(id))
+    }
+
+    /// Stores an evaluated soft mask, covering the whole target.
+    ///
+    /// Whole rather than banded because a mask has a value everywhere — §11.6.5.1 gives one
+    /// for the area outside its group's bounding box — so there is no row of the target it
+    /// says nothing about.
+    ///
+    /// # Why a soft mask evicts only another soft mask
+    ///
+    /// Rebuilding an evicted *clip* costs a fill; rebuilding an evicted soft mask means
+    /// rendering a whole command list, which only [`CpuRasterizer`] can do — so a cache that
+    /// dropped one while a caller was in the middle of combining it with a clip would have
+    /// nothing to hand back. Soft masks therefore sit outside the clip eviction order
+    /// entirely and are dropped only here, when a *new* one arrives, which is a moment when
+    /// no combination is in flight: [`CpuRasterizer::encode`] evaluates the mask a command
+    /// needs before it asks for anything else. Their budget is the same one, counted
+    /// separately, and the newest is never dropped for the same reason a clip's is not.
+    fn admit_soft_mask(&mut self, id: SoftMaskId, mask: tiny_skia::Mask, target: TargetSpec) {
+        let band = Band::whole(target);
+        self.soft_bytes = self
+            .soft_bytes
+            .saturating_add(band.mask_bytes(self.target.width));
+        self.soft_order.push_back(id);
+        self.built.insert(Key::Soft(id), Some(Built { mask, band }));
+
+        while self.soft_bytes > self.budget && self.soft_order.len() > 1 {
+            let Some(oldest) = self.soft_order.pop_front() else {
+                break;
+            };
+            if let Some(Some(entry)) = self.built.remove(&Key::Soft(oldest)) {
+                self.soft_bytes = self
+                    .soft_bytes
+                    .saturating_sub(entry.band.mask_bytes(self.target.width));
+            }
         }
     }
 
@@ -769,17 +999,17 @@ impl MaskCache {
         list: &DisplayList,
         id: ClipId,
     ) -> Result<Option<(Band, &tiny_skia::Mask)>, CpuRasterError> {
-        if !self.built.contains_key(&id) {
+        if !self.built.contains_key(&Key::Clip(id)) {
             let chain = Self::resolve_chain(list, id)?;
             let built = self.build(list, id, &chain)?;
-            self.admit(id, built);
+            self.admit(Key::Clip(id), built);
         }
 
         // Absence here would mean `admit` dropped the entry it had just stored, which
         // it does not do; reporting it beats drawing an unclipped page if it ever did.
         let entry = self
             .built
-            .get(&id)
+            .get(&Key::Clip(id))
             .ok_or(CpuRasterError::UnknownClip(id))?
             .as_ref();
         Ok(entry.map(|built| (built.band, &built.mask)))
@@ -898,7 +1128,7 @@ impl MaskCache {
     }
 
     /// Stores an entry and evicts oldest-first until the budget is met.
-    fn admit(&mut self, id: ClipId, built: Option<Built>) {
+    fn admit(&mut self, id: Key, built: Option<Built>) {
         if let Some(entry) = &built {
             self.bytes = self
                 .bytes
@@ -927,7 +1157,8 @@ impl MaskCache {
 #[cfg(test)]
 mod tests {
     use pdf_render::{
-        Clip, ClipId, DisplayList, FillRule, Path, PathCommand, Point, Size, TargetSpec, Transform,
+        Clip, ClipId, DisplayList, FillRule, Path, PathCommand, Point, Size, SoftMaskId,
+        TargetSpec, Transform,
     };
 
     use super::{Band, MASK_BUDGET, MaskCache};
@@ -1044,8 +1275,40 @@ mod tests {
         );
         assert_eq!(cache.bytes, 0, "an empty clip holds no pixels");
         assert!(
-            cache.built.contains_key(&id),
+            cache.built.contains_key(&super::Key::Clip(id)),
             "the emptiness is remembered rather than rediscovered per command"
+        );
+    }
+
+    /// A clip must never evict a soft mask, because only the rasteriser can rebuild one.
+    ///
+    /// `MaskCache::combine` reads the soft mask *after* building the clip it multiplies into,
+    /// and that order is only safe under this rule. A cache that dropped the mask there would
+    /// error out on a page that has many clips and one mask — which is `bug1721218_reduced.pdf`
+    /// with a `gs` added, not a hypothetical.
+    #[test]
+    fn a_clip_never_evicts_a_soft_mask() {
+        let (list, ids, target) = stacked_clips(40);
+        let mut cache = MaskCache::new(target, true);
+        cache.budget = Band { top: 0, height: 4 }.mask_bytes(target.width) * 2;
+
+        let mask = SoftMaskId::new(0);
+        cache.admit_soft_mask(
+            mask,
+            tiny_skia::Mask::new(target.width, target.height).expect("a target-sized mask"),
+            target,
+        );
+        for &id in &ids {
+            cache.get(&list, id).expect("a rectangular clip builds");
+        }
+
+        assert!(
+            cache.built.len() < ids.len(),
+            "nothing was evicted, so the rule was never exercised"
+        );
+        assert!(
+            cache.soft_mask(mask).is_ok(),
+            "the soft mask was dropped by clips it has nothing to do with"
         );
     }
 
@@ -1077,6 +1340,9 @@ pub enum CpuRasterError {
     /// A command referenced a clip that is not present in the display list.
     #[error("clip {0:?} is not present in this display list")]
     UnknownClip(ClipId),
+    /// A command referenced a soft mask that is not present, or was never evaluated.
+    #[error("soft mask {0:?} is not present in this display list")]
+    UnknownSoftMask(SoftMaskId),
     /// A clip's parent chain forms a cycle.
     #[error("clip {0:?} is part of a cyclic parent chain")]
     CyclicClip(ClipId),

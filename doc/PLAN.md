@@ -536,6 +536,18 @@ only reading the clause catches it. Reading §8.9.5.4 properly then produced the
 `/Alternates` decides what is on the page — a base image hidden by `/OC` should be replaced by
 its first visible alternate — which was silent and now reports.
 
+The eighteenth session read §11.7 — fourteen rows — beside building §11.5's soft masks, and
+the pairing is why: §11.6.5.1's `/BC` is stated in a group's *blending colour space*, and
+§11.7.2 is the clause that says what such a space is. It produced one row satisfied by a
+decision taken for another reason (§11.7.3: a spot colour is converted through its tint
+transform everywhere here, which is exactly what the clause requires inside a soft mask), two
+`inapplicable` rows whose subject is a marking device this tree does not have (§11.7.5.1 and
+§11.7.5.2), and **a family of six `silent` rows: §11.7.4, overprinting**. `/OP`, `/op` and
+`/OPM` are read nowhere and 63 of the corpus's first-page `/ExtGState` dictionaries set one of
+the two booleans, so a document that enables overprinting is composited through Normal with
+nothing said. Six rows for one gap is the same recording §11.4.6, §11.6.6 and §11.3.7.3 got
+for transparency groups: a reader of any of them should find it.
+
 The fifteenth session read §11.3.7, §11.5 and the whole of §11.6 — seventeen rows, §11.6.4
 having been the fourteenth's — and produced three defects and two `silent` rows. The defects:
 a shading dropped §11.6.4.4's alpha constant, because a shading replaces the colour rather
