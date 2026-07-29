@@ -243,29 +243,43 @@ fn a_real_documents_text_clip_reaches_what_it_paints_afterwards() {
     );
 }
 
-/// An image's `/Mask` must be reported, because we do not apply one.
+/// The corpus document `/Mask` was carried for draws through it now, and says nothing.
 ///
-/// ISO 32000-2 §8.9.6.3 gives `/Mask` as an explicit mask — an image mask (§8.9.6.2) naming
-/// the areas of the base image to leave unpainted — and §8.9.6.4 as a colour-key range
-/// array; either makes part of the image transparent. We honour only `/SMask`, so the
-/// masked-out part is drawn. On `colorkeymask.pdf` that is a whole red band that all three
-/// reference renderers hide — drawn by us, with `unsupported: []`, until this landed.
-///
-/// Stencil masking itself — the image's *own* `/ImageMask` — is implemented, and the two are
-/// easy to conflate: §8.9.6.2 is the image painting the current colour through its set bits,
-/// §8.9.6.3 is that same kind of image used to mask a *different* one.
-///
-/// Implementing either form should make this test fail, which is the right moment to
-/// revisit it.
+/// `colorkeymask.pdf` was this project's standing example of a silent wrong page: three
+/// bands, the red one inside its image's `/Mask [255 255 0 255 0 255]`, all four reference
+/// renderers hiding it and us painting it with `unsupported: []`. The report that stood here
+/// until the fourteenth session was the honest half-measure; §8.9.6.4 is implemented now, and
+/// what this asks is that the document went quiet for the right reason — nothing left to
+/// report *and* the band gone, which `tests/image_masks.rs` pins at the pixel.
 #[test]
-fn an_image_mask_we_do_not_apply_is_reported() {
+fn the_colour_key_document_draws_with_nothing_reported() {
     let Some(interpretation) = corpus_page_one("colorkeymask.pdf") else {
+        return;
+    };
+    assert!(
+        interpretation.is_complete(),
+        "colour key masking is implemented: {:?}",
+        interpretation.unsupported
+    );
+}
+
+/// A `/Mask` stream that is not an image mask is still reported, and the corpus has one.
+///
+/// `issue6621.pdf` gives a JPEG of a court seal a `/Mask` that is a one-bit `DeviceGray`
+/// *image* — no `/ImageMask`, which Table 87 and §8.9.6.3 both require. §8.9.6.2's reading,
+/// where a zero sample marks the page, blanks the seal; §11.6.5.2's, where luminosity is
+/// opacity, draws it. Nothing in the standard says which applies to a key that is neither, so
+/// the base image is drawn unmasked and the entry named. This is the corpus's only instance,
+/// and it is what keeps the refusal from being theoretical.
+#[test]
+fn a_mask_that_is_not_an_image_mask_is_reported_on_the_corpus() {
+    let Some(interpretation) = corpus_page_one("issue6621.pdf") else {
         return;
     };
     let reported = format!("{:?}", interpretation.unsupported);
     assert!(
-        reported.contains("/Mask"),
-        "an image we draw through no mask must say so: {reported}"
+        reported.contains("not an image mask"),
+        "a /Mask outside what the entry admits must say so: {reported}"
     );
 }
 

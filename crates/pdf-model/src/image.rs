@@ -148,6 +148,15 @@ pub fn decode(
     // colour space of its own.
     let is_mask = matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true));
 
+    // §8.9.6.3 and §8.9.6.4: `/Mask` is either a second image naming the areas of this one
+    // that are painted, or a range of colours that are not. Read before the samples, because
+    // the colour-key form is a test *on* the samples and has to travel into the unpacker.
+    let mask = mask_entry(document, dict);
+    let colour_key = match &mask {
+        MaskEntry::ColourKey(ranges) => Some(ranges.as_slice()),
+        _ => None,
+    };
+
     // Every filter before the codec has run; the codec, if there is one, has not.
     let source = document
         .image_stream(stream)
@@ -193,10 +202,13 @@ pub fn decode(
                     &source.data,
                     width,
                     height,
-                    bits,
-                    &space,
-                    decode_inverts(document, dict),
-                    fill,
+                    &Samples {
+                        bits,
+                        space: &space,
+                        invert: decode_inverts(document, dict),
+                        colour_key,
+                        fill,
+                    },
                 )?,
                 false,
             )
@@ -212,14 +224,24 @@ pub fn decode(
         // decide what to make of it.
         interpolate: matches!(document.get_key(dict, "Interpolate"), Object::Boolean(true)),
     };
-    if opacity_came_with_the_samples {
+    let image = if opacity_came_with_the_samples {
         // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
         // the image samples, `/SMask` "shall not be present", and the embedded mask
         // overrides any that is. Applying one on top would multiply two alphas together.
-        return Ok(image);
+        image
+    } else {
+        // Applied last so a soft mask cannot resurrect an inconsistent buffer.
+        apply_soft_mask(document, dict, image)
+    };
+
+    // The explicit mask comes after the soft mask, and the order is not arbitrary: it may
+    // change the raster's dimensions, and `apply_soft_mask` compares its own mask against
+    // them. The two are separate mechanisms — §8.9.6.3 is the opaque imaging model's cut-out
+    // and §11.6.5.2's is a per-sample alpha — so an image carrying both gets both.
+    match &mask {
+        MaskEntry::Explicit(stencil) => apply_explicit_mask(document, &image, stencil),
+        _ => Ok(image),
     }
-    // Applied last so a soft mask cannot resurrect an inconsistent buffer.
-    Ok(apply_soft_mask(document, dict, image))
 }
 
 /// Reads a required positive integer.
@@ -321,16 +343,38 @@ fn decode_inverts(document: &Document, dict: &Dictionary) -> bool {
     matches!(values.first(), Some(first) if *first > 0.5)
 }
 
-/// Unpacks raw samples into RGBA8.
-fn unpack(
-    data: &[u8],
-    width: u32,
-    height: u32,
+/// How a row of raw bytes becomes colour: the layout, and what a value means.
+///
+/// Grouped rather than passed one at a time because all five are settled by the image
+/// dictionary before a byte is read, and because the four routes that reach [`unpack`]
+/// differ only in where the bytes came from.
+struct Samples<'a> {
+    /// Bits per component.
     bits: u32,
-    space: &ColourSpace,
+    /// What a component means.
+    space: &'a ColourSpace,
+    /// Whether `/Decode` reverses the component range (§8.9.5.2).
     invert: bool,
+    /// §8.9.6.4's colour-key ranges, one per component, in raw sample values.
+    ///
+    /// The clause's test is on the samples "before decoding with the Decode array", which is
+    /// why this travels into the unpacker rather than filtering the RGBA it produces: after
+    /// conversion the component values are gone, and for every space but the device ones
+    /// they were never in the raster to begin with.
+    colour_key: Option<&'a [(u32, u32)]>,
+    /// The current fill colour, which a stencil paints through the bits that mark the page.
     fill: pdf_render::Color,
-) -> Result<Vec<u8>, ImageError> {
+}
+
+/// Unpacks raw samples into RGBA8.
+fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec<u8>, ImageError> {
+    let &Samples {
+        bits,
+        space,
+        invert,
+        colour_key,
+        fill: _,
+    } = samples;
     if !matches!(bits, 1 | 8) {
         // 2, 4 and 16 are legal and do occur. Refusing them is honest; guessing would
         // shift every sample.
@@ -371,19 +415,44 @@ fn unpack(
             .unwrap_or_default();
 
         for x in 0..width_usize {
-            out.extend_from_slice(&sample_rgba(
-                space,
-                palette.as_deref(),
-                row,
-                x,
-                bits,
-                invert,
-                fill,
-            ));
+            // §8.9.6.4: "An image sample shall be masked (not painted) if all of its colour
+            // components before decoding … fall within the specified ranges". A masked
+            // sample keeps its position and loses its opacity; nothing else about it is
+            // read, which is why this stands before the conversion rather than after it.
+            if colour_key.is_some_and(|ranges| colour_key_masks(row, x, bits, components, ranges)) {
+                out.extend_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+            out.extend_from_slice(&sample_rgba(samples, palette.as_deref(), row, x));
         }
     }
 
     Ok(out)
+}
+
+/// Whether §8.9.6.4's ranges cover every component of one sample.
+///
+/// The values compared are the raw integers the filter delivered, which is what the clause
+/// means by "before decoding": `min i ≤ c i ≤ max i for all 1 ≤ i ≤ n`. `ranges` has one
+/// entry per component, which [`mask_entry`] checked against the colour space before the
+/// samples were read.
+fn colour_key_masks(
+    row: &[u8],
+    x: usize,
+    bits: u32,
+    components: usize,
+    ranges: &[(u32, u32)],
+) -> bool {
+    let at = x.saturating_mul(components);
+    ranges.iter().enumerate().all(|(offset, (low, high))| {
+        let index = at.saturating_add(offset);
+        let raw = if bits == 1 {
+            u32::from(sample_bit(row, index))
+        } else {
+            u32::from(row.get(index).copied().unwrap_or(0))
+        };
+        raw >= *low && raw <= *high
+    })
 }
 
 /// One pixel, as straight-alpha RGBA8.
@@ -391,14 +460,18 @@ fn unpack(
 /// Split out of [`unpack`] so that the loop above is the *layout* — rows, byte boundaries,
 /// bit packing — and this is the colour, which is the only part that depends on the space.
 fn sample_rgba(
-    space: &ColourSpace,
+    samples: &Samples,
     palette: Option<&[pdf_render::Color]>,
     row: &[u8],
     x: usize,
-    bits: u32,
-    invert: bool,
-    fill: pdf_render::Color,
 ) -> [u8; 4] {
+    let &Samples {
+        bits,
+        space,
+        invert,
+        colour_key: _,
+        fill,
+    } = samples;
     let opaque =
         |colour: pdf_render::Color| [channel(colour.r), channel(colour.g), channel(colour.b), 255];
     match (space, bits) {
@@ -621,10 +694,15 @@ fn decode_jbig2(
         &bilevel.rows,
         width,
         height,
-        1,
-        &space,
-        decode_inverts(document, dict),
-        fill,
+        &Samples {
+            bits: 1,
+            space: &space,
+            invert: decode_inverts(document, dict),
+            // §8.9.6.4's ranges are refused for a JBIG2 or CCITT image rather than applied
+            // here; `mask_entry` says why, and reports it.
+            colour_key: None,
+            fill,
+        },
     )
 }
 
@@ -730,10 +808,15 @@ fn decode_ccitt(
         &bilevel.rows,
         width,
         height,
-        1,
-        &space,
-        decode_inverts(document, dict),
-        fill,
+        &Samples {
+            bits: 1,
+            space: &space,
+            invert: decode_inverts(document, dict),
+            // §8.9.6.4's ranges are refused for a JBIG2 or CCITT image rather than applied
+            // here; `mask_entry` says why, and reports it.
+            colour_key: None,
+            fill,
+        },
     )
 }
 
@@ -821,10 +904,14 @@ fn decode_jpx(
                 &packed,
                 width,
                 height,
-                1,
-                &ColourSpace::Mask,
-                decode_inverts(document, dict),
-                fill,
+                &Samples {
+                    bits: 1,
+                    space: &ColourSpace::Mask,
+                    invert: decode_inverts(document, dict),
+                    // A stencil has no colour components for §8.9.6.4 to range over.
+                    colour_key: None,
+                    fill,
+                },
             )?,
             use_opacity,
         ));
@@ -1040,6 +1127,330 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageErr
     }
 
     Ok(out)
+}
+
+/// Largest grid a `/Mask` and its image are combined on, in samples.
+///
+/// §8.9.6.3's two rasters "need not have the same resolution", so combining them means
+/// choosing a grid — [`apply_explicit_mask`] takes the finer of the two, which discards
+/// nothing either of them carries and costs the product of the two larger dimensions. That
+/// product is what a document controls, and 2^24 samples is 64 MB of RGBA: room for any real
+/// pair, and short of the gigabyte a 2×2 image with a 34862×4332 mask would ask for.
+/// `issue16263.pdf` writes exactly that pair as an `/SMask`.
+const MAX_MASK_GRID: u64 = 1 << 24;
+
+/// What an image's `/Mask` entry holds, once read.
+///
+/// ISO 32000-2 §8.9.6.1 lists it twice, because one key spells two mechanisms: `/Mask` is
+/// either a second image saying *where* this one is painted (§8.9.6.3) or a set of ranges
+/// saying *which colours* are not (§8.9.6.4). They share nothing but the key, which is why
+/// this is read once, before the samples, and decided here rather than at three call sites.
+enum MaskEntry {
+    /// No `/Mask`.
+    Absent,
+    /// Present, and superseded by the document's own precedence rule.
+    ///
+    /// §11.6.4.3, of an image's `/SMask`: "This mask, if present, shall override any explicit
+    /// or colour key mask specified by the image dictionary's Mask entry", and of a non-zero
+    /// `/SMaskInData`: "the embedded soft-mask shall override any explicit or colour key
+    /// mask". So a `/Mask` beside either is not a gap and nothing is owed — reporting it
+    /// would name a key the file itself has told us not to read.
+    Overridden,
+    /// §8.9.6.4: one inclusive range per colour component, in raw sample values.
+    ColourKey(Vec<(u32, u32)>),
+    /// §8.9.6.3: an image mask naming the areas of the base image that are painted.
+    Explicit(Arc<Stream>),
+    /// Present, and not applied. Carries the words the interpreter reports.
+    ///
+    /// A `/Mask` that is silently dropped paints a region the document says is not part of
+    /// the image, and `colorkeymask.pdf` is the standing example: a red band all four
+    /// reference renderers hide, drawn by us with nothing reported until this existed.
+    Unusable(String),
+}
+
+/// Reads `/Mask`, deciding which of §8.9.6's two mechanisms it names and whether it applies.
+fn mask_entry(document: &Document, dict: &Dictionary) -> MaskEntry {
+    let mask = document.get_key(dict, "Mask");
+    if matches!(mask, Object::Null) {
+        return MaskEntry::Absent;
+    }
+    // §11.6.4.3 orders the three mechanisms an image dictionary can carry, and `/Mask` is
+    // last of them. Checked before anything is read out of it, so that a file writing both
+    // cannot have the loser applied.
+    let overridden = document.get_key(dict, "SMask").as_stream().is_some()
+        || document
+            .get_key(dict, "SMaskInData")
+            .as_integer()
+            .is_some_and(|value| value != 0);
+    if overridden {
+        return MaskEntry::Overridden;
+    }
+    match &mask {
+        Object::Null => MaskEntry::Absent,
+        Object::Array(items) => colour_key_entry(document, dict, items),
+        _ => mask.as_stream().map_or_else(
+            || MaskEntry::Unusable("/Mask is neither an image mask nor a range array".to_owned()),
+            |stream| explicit_entry(document, dict, stream),
+        ),
+    }
+}
+
+/// Reads §8.9.6.4's range array against the image it masks.
+///
+/// > For colour key masking, the value of the Mask entry shall be an array of 2 × 𝑛
+/// > integers, [min1max1 …min𝑛max𝑛] , where n is the number of colour components in the
+/// > image's colour space. Each integer shall be in the range 0 to 2 BitsPerComponent - 1,
+/// > representing colour values before decoding with the Decode array.
+///
+/// Both "shall"s are checked rather than assumed, because an array of the wrong length would
+/// otherwise mask by whichever components happened to line up.
+///
+/// The refusal that is not about malformed input is the filtered one. The test is on the
+/// samples a filter delivers, and this crate sees those only where they reach [`unpack`]; a
+/// `DCTDecode` or `JPXDecode` image has become RGBA before then, and the clause's own NOTE 2
+/// says of exactly that pair that lossy coding "can lead to slight changes in the colour
+/// values of image samples, possibly causing samples that were intended to be masked to be
+/// unexpectedly painted". The two bilevel codecs are refused with them for one reason rather
+/// than four: a colour key over one-bit samples is a stencil written the long way, no corpus
+/// document writes one, and a rule with three exceptions is worse than a rule.
+fn colour_key_entry(document: &Document, dict: &Dictionary, items: &[Object]) -> MaskEntry {
+    if matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true)) {
+        return MaskEntry::Unusable(
+            "colour-key /Mask on an image mask, which has no colour components".to_owned(),
+        );
+    }
+    if let Some(codec) = image_codec(document, dict) {
+        return MaskEntry::Unusable(format!("colour-key /Mask on a {codec} image"));
+    }
+    let Ok(space) = colour_space(document, dict) else {
+        return MaskEntry::Unusable(
+            "colour-key /Mask on an image whose colour space this cannot read".to_owned(),
+        );
+    };
+
+    let values: Vec<i64> = items
+        .iter()
+        .map(|item| document.resolve(item))
+        .filter_map(|item| item.as_integer())
+        .collect();
+    let components = space.components();
+    if values.len() != components.saturating_mul(2) {
+        return MaskEntry::Unusable(format!(
+            "colour-key /Mask has {} entries against a {components}-component image",
+            values.len()
+        ));
+    }
+
+    let bits = u32::try_from(
+        document
+            .get_key(dict, "BitsPerComponent")
+            .as_integer()
+            .unwrap_or(8),
+    )
+    .unwrap_or(8);
+    let highest = i64::from(1u32.checked_shl(bits).unwrap_or(u32::MAX).saturating_sub(1));
+    let mut ranges = Vec::with_capacity(components);
+    for pair in values.chunks_exact(2) {
+        let (Some(&low), Some(&high)) = (pair.first(), pair.get(1)) else {
+            continue;
+        };
+        if low < 0 || high > highest {
+            return MaskEntry::Unusable(format!(
+                "colour-key /Mask range {low}..{high} is outside 0..{highest} at {bits} bits \
+                 per component"
+            ));
+        }
+        // A reversed pair is not malformed: `min i ≤ c i ≤ max i` is then satisfied by no
+        // sample, so the range masks nothing, which is a statement a file may make.
+        ranges.push((
+            u32::try_from(low).unwrap_or(0),
+            u32::try_from(high).unwrap_or(0),
+        ));
+    }
+    MaskEntry::ColourKey(ranges)
+}
+
+/// Reads §8.9.6.3's explicit mask against the image it masks.
+///
+/// Two conditions decide whether it applies, and only the first is the clause's:
+///
+/// - **It has to be a stencil.** The clause admits "an image mask, as described in
+///   subclause 8.9.6.2", and §8.9.6.2 defines one as an image `XObject` whose `/ImageMask`
+///   entry is true. Table 87 says the same of the entry. A stream that carries a colour space and
+///   says nothing about `/ImageMask` is therefore outside what `/Mask` is defined to hold,
+///   and it is reported rather than interpreted.
+///
+///   `issue6621.pdf` is why that sentence is a rule rather than a formality. Its `/Mask` is
+///   a one-bit `DeviceGray` image with no `/ImageMask`, and the stencil reading was written,
+///   run, and thrown away on the evidence of the page: §8.9.6.2's "a sample value of 0 shall
+///   mark the page" made the seal's *background* the painted part, so the page came out
+///   blank where three renderers draw a court seal. The reading those three use is
+///   §11.6.5.2's — luminosity as opacity, so white paints — which is a different clause
+///   about a different key, and adopting it here would invert every stencil whose author
+///   merely forgot `/ImageMask`. Refusing draws the image with its rectangle showing and
+///   says so, which is wrong in a way a reader can see.
+/// - **The combined grid has to fit.** See [`MAX_MASK_GRID`].
+fn explicit_entry(document: &Document, dict: &Dictionary, stream: &Arc<Stream>) -> MaskEntry {
+    let mask_dict = &stream.dict;
+    let dimension = |dict: &Dictionary, key| {
+        document
+            .get_key(dict, key)
+            .as_integer()
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(0)
+    };
+    let (mask_width, mask_height) = (
+        dimension(mask_dict, "Width"),
+        dimension(mask_dict, "Height"),
+    );
+    let (width, height) = (dimension(dict, "Width"), dimension(dict, "Height"));
+
+    if !matches!(
+        document.get_key(mask_dict, "ImageMask"),
+        Object::Boolean(true)
+    ) {
+        return MaskEntry::Unusable(format!(
+            "/Mask is a {mask_width}x{mask_height} image that is not an image mask"
+        ));
+    }
+
+    let grid = u64::from(width.max(mask_width)).saturating_mul(u64::from(height.max(mask_height)));
+    if grid > MAX_MASK_GRID {
+        return MaskEntry::Unusable(format!(
+            "/Mask is {mask_width}x{mask_height} against a {width}x{height} image, needing a \
+             grid of {grid} samples"
+        ));
+    }
+    MaskEntry::Explicit(Arc::clone(stream))
+}
+
+/// Names the image codec at the end of a `/Filter` chain, if there is one.
+///
+/// Read from the dictionary rather than from a decoded stream, because the callers that need
+/// it are deciding whether to *report* something and must not pay for a decode to do it.
+fn image_codec(document: &Document, dict: &Dictionary) -> Option<String> {
+    let filter = document.get_key(dict, "Filter");
+    let last = match &filter {
+        Object::Name(name) => Some(name.as_bytes().to_vec()),
+        Object::Array(items) => items
+            .last()
+            .map(|item| document.resolve(item))
+            .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec())),
+        _ => None,
+    }?;
+    matches!(
+        last.as_slice(),
+        b"DCTDecode" | b"DCT" | b"JPXDecode" | b"JBIG2Decode" | b"CCITTFaxDecode" | b"CCF"
+    )
+    .then(|| String::from_utf8_lossy(&last).into_owned())
+}
+
+/// Names a `/Mask` this crate cannot apply, for the caller to report.
+///
+/// Asked of the dictionary alone, so that the interpreter's report and this module's
+/// behaviour cannot drift apart: every reason returned here is a reason [`decode`] will not
+/// have applied the mask, and there is no other. The one case not covered is a mask whose
+/// *data* will not decode, which [`decode`] turns into an error naming it — an image that
+/// cannot be masked at all is refused rather than painted through a mask nobody could read.
+#[must_use]
+pub fn unapplied_mask(document: &Document, dict: &Dictionary) -> Option<String> {
+    match mask_entry(document, dict) {
+        MaskEntry::Unusable(reason) => Some(reason),
+        MaskEntry::Absent
+        | MaskEntry::Overridden
+        | MaskEntry::ColourKey(_)
+        | MaskEntry::Explicit(_) => None,
+    }
+}
+
+/// Applies §8.9.6.3's explicit mask: where the stencil does not mark, the image is not drawn.
+///
+/// # Which grid the two are combined on
+///
+/// > The base image and the image mask need not have the same resolution ( Width and Height
+/// > values), but since all images shall be defined on the unit square in user space, their
+/// > boundaries on the page will coincide; that is, they will overlay each other.
+///
+/// So the clause states the geometry and leaves the sampling to the device: correctly, the
+/// two are combined at *output* resolution, which this crate does not know — it holds one
+/// raster per image and hands it to a rasteriser that may draw it at any scale. The choice
+/// made here is the finer of the two grids in each axis, sampled nearest-neighbour, and its
+/// merit is that it discards nothing either raster carries: `issue4246.pdf` masks a 50×40
+/// image with a 1000×800 stencil, and combining on the image's grid would throw away 399 of
+/// every 400 mask samples. What it costs is memory, which [`MAX_MASK_GRID`] bounds, and the
+/// difference from a device-resolution composite where the page is drawn larger than both.
+///
+/// Nearest-neighbour is not an approximation of a filter here — a stencil's samples are two
+/// values with no meaningful average, and §8.9.5.3 leaves a magnified image unsmoothed
+/// unless `/Interpolate` asks otherwise, which is the same answer for the base image.
+fn apply_explicit_mask(
+    document: &Document,
+    image: &Image,
+    stream: &Stream,
+) -> Result<Image, ImageError> {
+    let stencil = decode(document, stream, pdf_render::Color::BLACK).map_err(|error| {
+        ImageError::Malformed {
+            detail: format!("/Mask did not decode: {error}"),
+        }
+    })?;
+    // The stencil came back from `decode` as the fill colour where its samples mark the page
+    // and as nothing where they do not, so alpha is where the answer already is —
+    // §8.9.6.2's rule about which bit marks, and any `/Decode [1 0]` reversing it, were both
+    // applied there. This is the whole reason the mask goes through the ordinary image route
+    // rather than a private one: `issue4379.pdf`'s stencil is `CCITTFaxDecode`d.
+    let width = image.width.max(stencil.width);
+    let height = image.height.max(stencil.height);
+    let (width_usize, height_usize) = (width as usize, height as usize);
+    let mut data = Vec::with_capacity(width_usize.saturating_mul(height_usize).saturating_mul(4));
+
+    // `scale` maps a column or row of the combined grid onto one of a source grid. Integer
+    // arithmetic throughout: both grids are at least one sample and the divisor is the
+    // combined extent, so nothing here can divide by zero or leave the source's range.
+    let scale = |along: usize, source: u32, combined: usize| {
+        along
+            .saturating_mul(source as usize)
+            .checked_div(combined)
+            .unwrap_or(0)
+    };
+
+    for y in 0..height_usize {
+        let image_row = scale(y, image.height, height_usize).saturating_mul(image.width as usize);
+        let stencil_row =
+            scale(y, stencil.height, height_usize).saturating_mul(stencil.width as usize);
+        for x in 0..width_usize {
+            let at = image_row
+                .saturating_add(scale(x, image.width, width_usize))
+                .saturating_mul(4);
+            let stencil_at = stencil_row
+                .saturating_add(scale(x, stencil.width, width_usize))
+                .saturating_mul(4);
+            let pixel = image
+                .data
+                .get(at..at.saturating_add(4))
+                .unwrap_or(&[0, 0, 0, 0]);
+            let marks = stencil
+                .data
+                .get(stencil_at..stencil_at.saturating_add(4))
+                .is_some_and(|sample| sample.get(3).is_some_and(|alpha| *alpha != 0));
+            data.extend_from_slice(&[
+                pixel.first().copied().unwrap_or(0),
+                pixel.get(1).copied().unwrap_or(0),
+                pixel.get(2).copied().unwrap_or(0),
+                if marks {
+                    pixel.get(3).copied().unwrap_or(0)
+                } else {
+                    0
+                },
+            ]);
+        }
+    }
+
+    Ok(Image {
+        width,
+        height,
+        data: Arc::from(data.as_slice()),
+        interpolate: image.interpolate,
+    })
 }
 
 /// Names an `/SMask` this crate cannot apply, for the caller to report.

@@ -1284,16 +1284,14 @@ title = "Masked images"
 status = "partial"
 code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs"]
-note = "Aggregate of the four below. The image's own /ImageMask (stencil masking) and /SMask are implemented; /Mask in either of its forms is not, and is reported."
-
+note = "Aggregate of the four below, and of the family the fourteenth session implemented. /ImageMask, /SMask and both forms of /Mask now apply; the row stays `partial` for §8.9.6.2's last sentence, which asks interpolation to smooth a low-resolution stencil's edges, and for the two image codecs §8.9.6.4 is refused on."
 [[clause]]
 clause = "8.9.6.1"
 title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/image.rs"]
 test = ["crates/pdf-model/tests/image_masks.rs"]
-note = "Names four masking mechanisms. Two are implemented — /ImageMask (§8.9.6.2) and, from the transparent imaging model, /SMask and /SMaskInData — and two are not: /Mask as an explicit mask (§8.9.6.3) and as a colour-key range (§8.9.6.4)."
-
+note = "Names four masking mechanisms. Three are implemented — /ImageMask (§8.9.6.2), /Mask in both its forms (§8.9.6.3 and §8.9.6.4, fourteenth session), and, from the transparent imaging model, /SMask and /SMaskInData. The fourth is the graphics state's own soft mask, which arrives as /SMask in an /ExtGState and is reported rather than applied on 28 corpus documents."
 [[clause]]
 clause = "8.9.6.2"
 title = "Stencil masking"
@@ -1305,19 +1303,17 @@ note = "The three differences the clause states are implemented: no /ColorSpace 
 [[clause]]
 clause = "8.9.6.3"
 title = "Explicit masking"
-status = "reported"
-code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/render_real_pdf.rs::an_image_mask_we_do_not_apply_is_reported"]
-note = "Not implemented. An image carrying /Mask is reported as `Image { name: \"<name>: /Mask\" }` and its base image is drawn unmasked, so the page is visibly wrong but says so. 5 corpus first pages."
-
+status = "implemented"
+code = ["crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs::an_explicit_mask_paints_the_base_image_only_where_it_marks", "crates/pdf-model/tests/image_masks.rs::a_mask_finer_than_its_image_keeps_its_own_resolution", "crates/pdf-model/tests/image_masks.rs::a_mask_that_is_not_an_image_mask_is_reported"]
+note = "Implemented in the fourteenth session (ADR 0023). The mask is decoded by the ordinary image route, so a stencil behind CCITTFaxDecode works (`issue4379.pdf`), and §8.9.6.2 decides which sample marks — including any /Decode [1 0], which two of the corpus's six write. The clause's sentence that the two \"need not have the same resolution\" is the substance: they are combined on the finer of the two grids in each axis, nearest-neighbour, which discards nothing either raster carries. `issue4246.pdf` is the case that decides it, a 50x40 image under a 1000x800 stencil spelling three words. The true answer is a composite at device resolution, which this crate does not know; the choice and its cost are in `apply_explicit_mask`. Two refusals, both reported: a combined grid above 2^24 samples, and a /Mask stream that is not an image mask, which Table 87 and §8.9.6.2 both exclude — `issue6621.pdf` writes one and the two readings available for it are opposite."
 [[clause]]
 clause = "8.9.6.4"
 title = "Colour key masking"
-status = "reported"
-code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/render_real_pdf.rs::an_image_mask_we_do_not_apply_is_reported"]
-note = "Not implemented, reported by the same check as §8.9.6.3 — the interpreter reports /Mask without distinguishing the stream form from the array form. The range test is against the samples *before* decoding, so implementing it means reaching into the unpacker rather than post-processing the RGBA it produces."
-
+status = "partial"
+code = ["crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs::colour_key_masking_removes_the_samples_inside_the_range", "crates/pdf-model/tests/image_masks.rs::the_colour_key_bounds_are_inclusive", "crates/pdf-model/tests/image_masks.rs::a_colour_key_array_of_the_wrong_length_is_reported"]
+note = "Implemented in the fourteenth session (ADR 0023) for every image whose samples reach the unpacker unfiltered, which is both corpus instances. The range test is on the values \"before decoding with the Decode array\", so it lives inside `unpack` rather than filtering the RGBA that comes out of it; the bounds are inclusive, and an array whose length is not twice the component count is refused rather than applied to what fits. `partial` for the codec paths: a DCTDecode or JPXDecode image has become RGBA before the unpacker sees it, and the clause's own NOTE 2 names that pair as the one lossy coding makes unreliable. JBIG2 and CCITT are refused with them rather than special-cased, since a colour key over one-bit samples is a stencil written the long way. All four are reported."
 [[clause]]
 clause = "8.9.7"
 title = "Inline images"
@@ -1532,8 +1528,7 @@ title = "Text state parameters and operators"
 status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/text_state.rs", "crates/pdf-model/tests/text_render_modes.rs"]
-note = "Reviewed as a family in the thirteenth session. Eight of Table 102's nine text state parameters are implemented and tested one clause at a time; the ninth, text knockout, is §9.3.8 and is this tree's third `silent` row. All seven of Table 103's operators are executed, and the clause's rule that they \"may appear outside text objects, and the values they set are retained across text objects in a single content stream\" falls out of their living in the graphics state rather than in the text object."
-
+note = "Reviewed as a family in the thirteenth session. Eight of Table 102's nine text state parameters are implemented and tested one clause at a time; the ninth, text knockout, is §9.3.8, which was this tree's third `silent` row until the fourteenth session made it report. All seven of Table 103's operators are executed, and the clause's rule that they \"may appear outside text objects, and the values they set are retained across text objects in a single content stream\" falls out of their living in the graphics state rather than in the text object."
 [[clause]]
 clause = "9.3.1"
 title = "General"
@@ -1593,10 +1588,10 @@ note = "Trise is the f component of the glyph-space-to-text-space matrix, so it 
 [[clause]]
 clause = "9.3.8"
 title = "Text knockout"
-status = "silent"
+status = "reported"
 code = ["crates/pdf-model/src/content.rs"]
-note = "Not implemented and not reported — this tree's third `silent` row, alongside §11.4.6 and §8.11.4.4, and it is a corner of the first. Tk has no operator; it arrives only as /TK in an /ExtGState, and `apply_ext_gstate` does not look for the key. Its initial value is true, which the clause defines as treating the whole text object \"as if it were a non-isolated knockout transparency group\" so that a later glyph overwrites an earlier one where they overlap. We composite each glyph normally, which is indistinguishable while glyphs are opaque and wrong for overlapping glyphs under a constant alpha or a non-Normal blend mode. Reporting it costs one key lookup and is the cheaper half; implementing it belongs with knockout groups."
-
+test = ["crates/pdf-model/tests/text_state.rs::text_knockout_is_reported_only_where_the_two_models_differ", "crates/pdf-model/tests/text_state.rs::a_text_knockout_set_inside_a_text_object_is_ignored"]
+note = "Was this tree's third `silent` row; reported since the fourteenth session, and still owed. Tk has no operator and arrives only as /TK in an /ExtGState, which is now read — including the clause's rule that a value installed between BT and ET \"shall be ignored\". Its initial value is true, which makes a text object a non-isolated knockout group (§11.4.6) so a later glyph overwrites an earlier one where they overlap; we composite each glyph separately, which is exactly the Tk false model. The report fires only where both of the clause's conditions hold — the paint composites at all, and two glyphs of the object overlap — which is 2 corpus documents rather than the 7 a looser test named or the several hundred that a report on /TK alone would have. Implementing it belongs with knockout groups."
 [[clause]]
 clause = "9.4"
 title = "Text objects"
@@ -2239,28 +2234,38 @@ status = "unreviewed"
 [[clause]]
 clause = "11.6.4"
 title = "Specifying shape and opacity"
-status = "unreviewed"
-
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs::a_soft_mask_overrides_an_explicit_mask"]
+note = "Aggregate of the four below, read as a family in the fourteenth session because §11.6.4.3 decides the precedence between the masks that session implemented. Two of the three sources §11.6.4.1 names are implemented — object shape and the constant — and the third, the mask, only where it is an image's own /SMask or /Mask."
 [[clause]]
 clause = "11.6.4.1"
 title = "General"
-status = "unreviewed"
-
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency.rs"]
+note = "Lists the three sources of shape and opacity and defers each to a subclause. Object shape (§11.6.4.2) and the constants (§11.6.4.4) are implemented; a mask (§11.6.4.3) is implemented for an image's own entries and reported for the graphics state's."
 [[clause]]
 clause = "11.6.4.2"
 title = "Object shape and opacity"
-status = "unreviewed"
-
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs"]
+note = "Every clause of the list holds here. A path or a glyph has shape 1 inside and 0 outside, which is what filling an outline does; an image has shape 1 inside its rectangle \"further modified by an explicit or colour key mask\", which became true in the fourteenth session (§8.9.6.3, §8.9.6.4); an image mask has shape 1 where it paints; a pattern's shape is constrained by the objects that define it, which falls out of replaying a tiling pattern's content stream. The last one is worth naming because it is satisfied by *absence*: the shape of an `sh` is its geometry \"disregarding the Background entry in the shading dictionary\", and nothing in this tree reads /Background at all. The intrinsic opacity of 1.0 everywhere is likewise structural — opacity enters only through `ca`, `CA` and a mask."
 [[clause]]
 clause = "11.6.4.3"
 title = "Mask shape and opacity"
-status = "unreviewed"
-
+status = "partial"
+code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs::a_soft_mask_overrides_an_explicit_mask"]
+note = "The clause's precedence is implemented as of the fourteenth session, and it was read here rather than in §8.9: an image's /SMask, and a non-zero /SMaskInData, \"shall override any explicit or colour key mask specified by the image dictionary's Mask entry\". Before that a file writing both would have had the loser applied. The graphics state's own /SMask is reported rather than applied (28 corpus documents) and /None is the only value that needs nothing. What is not read is /AIS: its default of false is what this renderer assumes, and a document setting it true asks for the constant and the mask to be *shape* rather than opacity values, which §11.3.7.2 distinguishes only in how a transparency group accumulates them — so it cannot show until §11.4.6 exists. No corpus document writes it."
 [[clause]]
 clause = "11.6.4.4"
 title = "Constant shape and opacity"
-status = "unreviewed"
-
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency.rs::the_two_alpha_constants_reach_stroking_and_non_stroking_paint_separately", "crates/pdf-model/tests/transparency.rs::an_object_drawn_without_a_constant_is_opaque"]
+note = "`ca` and `CA` are two scalars in the graphics state, applied to non-stroking and stroking paint respectively, which is the clause, and which no test isolates — they reach the page through the corpus and the oracle. Two sentences are not: \"The nonstroking alpha constant shall also be applied when painting a transparency group's results onto its backdrop\", which needs groups (§11.4.6), and the /AIS flag, which decides whether the constants are shape or opacity — see §11.6.4.3 for why that cannot show here yet."
 [[clause]]
 clause = "11.6.5"
 title = "Specifying soft masks"

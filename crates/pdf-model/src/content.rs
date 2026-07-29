@@ -24,7 +24,7 @@ use pdf_render::Shading;
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin, Paint, Path,
-    PathCommand, Point, Size, Stroke, Transform,
+    PathCommand, Point, Rect, Size, Stroke, Transform,
 };
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
@@ -108,6 +108,18 @@ pub enum Unsupported {
     LimitReached {
         /// Which bound.
         limit: &'static str,
+    },
+    /// A text object whose glyphs should have knocked one another out (§9.3.8).
+    ///
+    /// `Tk`'s initial value is true, which makes a text object a non-isolated knockout
+    /// transparency group, so a later glyph overwrites an earlier one where they overlap.
+    /// This renderer composites each glyph against what is already there — the `Tk` false
+    /// model — which differs only where two glyphs of one object overlap under a constant
+    /// alpha below one or a blend mode other than Normal. Reported for exactly those
+    /// objects; see [`Interpreter::end_text_object`].
+    TextKnockout {
+        /// How many glyphs the object marked the page with under such a paint.
+        glyphs: usize,
     },
     /// Optional content whose visibility could not be decided, so it was drawn.
     ///
@@ -318,6 +330,64 @@ struct TextObject {
     /// meaningful state of its own rather than an empty clip — see
     /// [`Interpreter::end_text_object`].
     clip: Path,
+    /// Where this object's glyphs have marked the page under a paint that composites.
+    ///
+    /// `None` for a Type 3 glyph, whose ink is a content stream this does not run twice to
+    /// find out. Accumulated rather than reported per glyph because knockout is a property
+    /// of the *text object*: one glyph cannot overlap itself, so the difference §9.3.8
+    /// describes needs two — see [`Interpreter::end_text_object`].
+    composited: Vec<Option<Rect>>,
+    /// Whether two of those glyphs were found to overlap, which is what `Tk` would change.
+    knockout_owed: bool,
+}
+
+impl TextObject {
+    /// Records where a glyph marked the page, and whether §9.3.8 could show on this object.
+    ///
+    /// `bounds` is `None` where the ink is not known — a Type 3 glyph — and an unknown box is
+    /// taken to overlap everything, which is the safe direction for a *report*: it may say a
+    /// text object could differ where it does not, and never the reverse.
+    fn note_knockout(&mut self, bounds: Option<Rect>) {
+        let overlaps = self.composited.iter().any(|other| match (other, bounds) {
+            (Some(first), Some(second)) => {
+                first.min.x < second.max.x
+                    && second.min.x < first.max.x
+                    && first.min.y < second.max.y
+                    && second.min.y < first.max.y
+            }
+            _ => true,
+        });
+        self.knockout_owed |= overlaps;
+        self.composited.push(bounds);
+    }
+}
+
+/// A glyph outline's bounding box in page space, for §9.3.8's overlap test.
+///
+/// Built from the control points rather than from the curves' extremes, so it contains the
+/// outline rather than hugging it. Both approximations run the same way — the box is a
+/// superset of the ink — which is what the caller needs.
+fn outline_bounds(outline: &Path, transform: Transform) -> Option<Rect> {
+    let mut bounds: Option<Rect> = None;
+    let mut add = |point: Point| {
+        let mapped = transform.apply(point);
+        bounds = Some(match bounds {
+            Some(rect) => rect.union(Rect::from_corners(mapped, mapped)),
+            None => Rect::from_corners(mapped, mapped),
+        });
+    };
+    for command in outline.commands() {
+        match *command {
+            PathCommand::MoveTo(point) | PathCommand::LineTo(point) => add(point),
+            PathCommand::CurveTo(first, second, end) => {
+                add(first);
+                add(second);
+                add(end);
+            }
+            PathCommand::Close => {}
+        }
+    }
+    bounds
 }
 
 /// The text-related part of the graphics state.
@@ -342,6 +412,15 @@ struct TextState {
     rise: f32,
     /// Rendering mode: whether glyphs are filled, stroked, both, or invisible.
     render_mode: i64,
+    /// `Tk`, text knockout: whether a text object composites as one knockout group.
+    ///
+    /// ISO 32000-2 §9.3.8, and Table 102's ninth text state parameter. It is the only one
+    /// with no operator — "it may be set only through the TK entry in a graphics state
+    /// parameter dictionary by using the gs operator" — and the only one this tree does not
+    /// implement. It is carried anyway, because its *value* decides whether the gap can be
+    /// seen: `false` asks for exactly what we do, and `true`, which is the initial value,
+    /// asks for §11.4.6's knockout compositing, which we do not have.
+    knockout: bool,
 }
 
 impl Default for TextState {
@@ -355,6 +434,8 @@ impl Default for TextState {
             leading: 0.0,
             rise: 0.0,
             render_mode: 0,
+            // §9.3.8: "Its initial value shall be true."
+            knockout: true,
         }
     }
 }
@@ -730,7 +811,7 @@ impl Interpreter<'_> {
                         state.transform = matrix.then(state.transform);
                     }
                 }
-                b"gs" => self.apply_ext_gstate(&operands, resources, &mut state),
+                b"gs" => self.apply_ext_gstate(&operands, resources, &mut state, in_text),
 
                 // --- line parameters ---
                 b"w" => {
@@ -1284,6 +1365,7 @@ impl Interpreter<'_> {
         operands: &[Object],
         resources: &Dictionary,
         state: &mut GraphicsState,
+        in_text: bool,
     ) {
         let Some(name) = name_at(operands, 0) else {
             return;
@@ -1365,6 +1447,14 @@ impl Interpreter<'_> {
                 }
             }
             _ => {}
+        }
+
+        // §9.3.8, `/TK`: the ninth text state parameter, and the only one with no operator.
+        // "Any TK value in a graphics state parameter dictionary installed using the gs
+        // operator shall be ignored between the BT and ET operators delimiting a text
+        // object" — so a `gs` inside a text object sets everything else here and not this.
+        if !in_text && let Object::Boolean(knockout) = self.document.get_key(dict, "TK") {
+            state.text.knockout = knockout;
         }
 
         // A soft mask other than /None changes compositing in a way this renderer cannot
@@ -1638,16 +1728,6 @@ impl Interpreter<'_> {
             return;
         }
 
-        // `/Mask` makes part of the image transparent, either through an explicit mask — a
-        // second image naming the areas to leave unpainted (§8.9.6.3) — or through a
-        // colour-key range array (§8.9.6.4). Neither is applied; `/SMask` is the only mask
-        // honoured, and the difference is whole objects that should not be visible.
-        // `colorkeymask.pdf` draws three bands and masks the red one out; all three reference
-        // renderers show two bands and we showed three, reporting nothing. Said out loud
-        // until it is implemented.
-        //
-        // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
-        // `/ImageMask` and is implemented — see `tests/image_masks.rs`.
         // A soft mask whose grid is not the image's is mapped onto the same unit square and
         // combined at output resolution (§11.6.5.2 Table 143). We combine two rasters
         // instead, so a mask of a different size is not applied — and saying so is what
@@ -1657,9 +1737,17 @@ impl Interpreter<'_> {
                 name: format!("{name}: {detail}"),
             });
         }
-        if !matches!(self.document.get_key(&stream.dict, "Mask"), Object::Null) {
+        // `/Mask` makes part of the image transparent, either through an explicit mask — a
+        // second image naming the areas to leave unpainted (§8.9.6.3) — or through a
+        // colour-key range array (§8.9.6.4). Both are applied as of the fourteenth session;
+        // what remains reportable is the cases they refuse, and `image::unapplied_mask` is
+        // asked rather than the dictionary so that a report cannot outlive the gap.
+        //
+        // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
+        // `/ImageMask` and is implemented — see `tests/image_masks.rs`.
+        if let Some(detail) = crate::image::unapplied_mask(self.document, &stream.dict) {
             self.note(Unsupported::Image {
-                name: format!("{name}: /Mask"),
+                name: format!("{name}: {detail}"),
             });
         }
         // A PDF image occupies the unit square in user space, so the command's transform is
@@ -1946,6 +2034,20 @@ impl Interpreter<'_> {
             }
             font.text(code, &mut self.text);
 
+            // §9.3.8: with `Tk` true — its initial value — the whole text object behaves as
+            // a non-isolated knockout group, so "later glyphs shall overwrite ('knock out')
+            // earlier ones in the area of overlap". We composite each glyph against what is
+            // already on the page, which is exactly the `Tk` false behaviour. Two conditions
+            // have to hold before the models can differ, and both are checked rather than
+            // assumed: the paint has to composite at all — an opaque glyph under the Normal
+            // blend mode overwrites what it covers either way — and two glyphs of the object
+            // have to overlap, which most text never does.
+            let knockout_can_show = (fills || strokes)
+                && state.text.knockout
+                && (state.fill_alpha < 1.0
+                    || state.stroke_alpha < 1.0
+                    || state.blend != BlendMode::Normal);
+
             if (fills || strokes || clipping) && size != 0.0 {
                 // Glyph space to text space: scale by the font size, apply horizontal
                 // scaling and rise, then the text matrix and the current transform. §9.4.4
@@ -1987,6 +2089,9 @@ impl Interpreter<'_> {
                                 // none. Note that a hidden layer still reaches this line.
                                 text.clip.extend_transformed(&outline, transform);
                             }
+                            if knockout_can_show {
+                                text.note_knockout(outline_bounds(&outline, transform));
+                            }
                         }
                     }
                     Font::Type3(type3) => {
@@ -2000,6 +2105,11 @@ impl Interpreter<'_> {
                             self.draw_type3_glyph(
                                 type3, code, state, transform, resources, form_depth,
                             );
+                            if knockout_can_show {
+                                // A Type 3 glyph's ink is whatever its description painted,
+                                // which is not knowable without running it again.
+                                text.note_knockout(None);
+                            }
                         }
                     }
                 }
@@ -2079,6 +2189,23 @@ impl Interpreter<'_> {
     /// is not a hypothetical: it is what a producer emits when a line of OCR text happens to
     /// be blank.
     fn end_text_object(&mut self, text: &mut TextObject, state: &mut GraphicsState) {
+        // §9.3.8's knockout is a property of the finished object, so this is where it can be
+        // judged: two or more glyphs marked the page under a paint that composites, and `Tk`
+        // asked for them to knock one another out instead. Reported rather than approximated
+        // — implementing it means §11.4.6's knockout groups, which is the same gap seen from
+        // clause 11 and the largest one left in this renderer.
+        //
+        // The condition is deliberately narrow. Reporting every text object drawn while `Tk`
+        // is true would report almost every page in the world, since true is the initial
+        // value, and would say nothing: with opaque glyphs and the Normal blend mode the two
+        // models produce identical pixels.
+        if text.knockout_owed {
+            let glyphs = text.composited.len();
+            self.note(Unsupported::TextKnockout { glyphs });
+        }
+        text.knockout_owed = false;
+        text.composited.clear();
+
         let path = std::mem::take(&mut text.clip);
         if path.is_empty() {
             return;

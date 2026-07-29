@@ -55,7 +55,9 @@ fn fixture(content: &str) -> Vec<u8> {
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /Font << /F1 5 0 R /F0 6 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         /Resources << /Font << /F1 5 0 R /F0 6 0 R >> \
+         /ExtGState << /Half << /ca 0.5 /CA 0.5 >> /Knock << /TK true >> \
+         /NoKnock << /TK false >> >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
          6 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /TestCID /Encoding /Identity-H \
@@ -282,5 +284,70 @@ fn a_negative_font_size_draws_and_reads_normally() {
     assert!(
         transform.d < 0.0,
         "and the glyph is flipped rather than skipped: {transform:?}"
+    );
+}
+
+/// Whether a content stream reported §9.3.8's text knockout.
+fn reports_knockout(content: &str) -> bool {
+    interpret(content)
+        .unsupported
+        .iter()
+        .any(|item| matches!(item, pdf_model::Unsupported::TextKnockout { .. }))
+}
+
+/// §9.3.8 is reported where it could change the page, and nowhere else.
+///
+/// `Tk`'s initial value is true, which the clause defines as treating the text object "as if
+/// it were a non-isolated knockout transparency group", so that "later glyphs shall overwrite
+/// ('knock out') earlier ones in the area of overlap". This renderer composites each glyph
+/// against what is already there, which is the `Tk` false model, and the two agree unless
+/// *both* of the clause's conditions hold: the paint composites, and two glyphs overlap.
+///
+/// The test drives all four combinations from one fixture, because the value of a report is
+/// entirely in its precision — one that fires on every page of text under a constant alpha
+/// would name a difference that cannot be on almost any of them, and would take pages out of
+/// the oracle's gated set for nothing. Two glyphs are overlapped by moving the text matrix
+/// back by less than an advance.
+#[test]
+fn text_knockout_is_reported_only_where_the_two_models_differ() {
+    let overlapping = "BT /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET";
+    let apart = "BT /F1 24 Tf 10 50 Td (A) Tj 40 0 Td (A) Tj ET";
+
+    assert!(
+        reports_knockout(&format!("/Half gs {overlapping}")),
+        "two overlapping glyphs at half alpha are where knockout shows"
+    );
+    assert!(
+        !reports_knockout(&format!("/Half gs {apart}")),
+        "glyphs that do not overlap composite the same either way"
+    );
+    assert!(
+        !reports_knockout(overlapping),
+        "opaque glyphs under the Normal blend mode overwrite what they cover either way"
+    );
+    assert!(
+        !reports_knockout(&format!("/Half gs /NoKnock gs {overlapping}")),
+        "/TK false asks for exactly the model this renderer has"
+    );
+}
+
+/// §9.3.8: a `/TK` set inside a text object is ignored.
+///
+/// > Any TK value in a graphics state parameter dictionary installed using the gs operator
+/// > shall be ignored between the BT and ET operators delimiting a text object.
+///
+/// So the `/NoKnock gs` below changes nothing, and the object still reports — where the same
+/// operator one line earlier, outside the `BT`, silences it. This is the only text state
+/// parameter with a rule of that kind, and the natural implementation reads the key wherever
+/// it appears.
+#[test]
+fn a_text_knockout_set_inside_a_text_object_is_ignored() {
+    assert!(
+        reports_knockout("/Half gs BT /NoKnock gs /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET"),
+        "a /TK between BT and ET does not take effect"
+    );
+    assert!(
+        !reports_knockout("/Half gs /NoKnock gs BT /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET"),
+        "the same dictionary outside the text object does"
     );
 }

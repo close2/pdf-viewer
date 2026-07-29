@@ -129,8 +129,16 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// produce 596x843, and on `french_diacritics.pdf` we and `ghostscript` produce 595x842
 /// against `poppler`'s and `mupdf`'s 596. A row of glyphs shifted by one pixel is a
 /// page-wide structural change on a page that is mostly white.
-const CONTRADICTED_PAGE_ROUNDING: [&str; 7] = [
+///
+/// `colorkeymask.pdf` is the fourteenth session's, and the third arrival of the same shape:
+/// its page became comparable when §8.9.6.4's colour key masking landed, and it is the same
+/// 595-against-596 split, ours and `ghostscript`'s against `poppler`'s and `mupdf`'s. The
+/// masking itself is not in question — the difference is three vertical lines one pixel
+/// wide, at the three band edges, on a page whose only content is two coloured bands. The
+/// heatmap says so in one look, which is what the artefacts are for.
+const CONTRADICTED_PAGE_ROUNDING: [&str; 8] = [
     "bug1065245.pdf page 1",
+    "colorkeymask.pdf page 1",
     "bug1669097.pdf page 1",
     "bug1922766.pdf page 1",
     "bug1934157.pdf page 1",

@@ -76,19 +76,20 @@ const MAX_PAGELESS: usize = 19;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 235, and *not* a defect count — it is the honest-reporting requirement working. The
-/// breakdown, by each document's first report, which is the useful part, and recomputed in
-/// the thirteenth session because a number nothing recomputes is a number that drifts —
-/// this table had said 263 while the ratchet below said 251:
+/// 232, and *not* a defect count — it is the honest-reporting requirement working. The
+/// breakdown, by each document's first report, which is the useful part, and recomputed
+/// every session because a number nothing recomputes is a number that drifts — this table
+/// had said 263 while the ratchet below said 251:
 ///
 /// | reported | count | why |
 /// |---|---|---|
 /// | `Text` | 100 | CID encodings and embedded `CMap`s |
 /// | `Annotation` | 66 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
 /// | `Operator` | 15 | malformed streams, mostly; the text rendering modes have left this row |
-/// | `Image` | 18 | see below; inline images and CCITT have left this row |
+/// | `Image` | 13 | see below; `/Mask` has left this row |
 /// | `Shading` | 28 | soft masks in `/ExtGState`, which is transparency rather than shading |
 /// | `Content` | 7 | a `/Contents` stream that did not decode |
+/// | `TextKnockout` | 2 | §9.3.8, new in the fourteenth session and described below |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
 ///
 /// The `Operator` row was 33 before §9.3.6's rendering modes were implemented. What remains
@@ -96,13 +97,15 @@ const MAX_PAGELESS: usize = 19;
 /// lexes as operator names — nothing on it is a feature anybody could implement.
 ///
 /// The `Image` row was 161 before JBIG2 and JPEG 2000 landed, 42 after, 30 once inline images
-/// (§8.9.7) drew and `Indexed`, `Separation` and `DeviceN` images unpacked, and is 18 now that
-/// `CCITTFaxDecode` decodes (§7.4.6). What is left of it, counted per image rather than per
-/// document: 14 soft masks whose grid is not the image's (§11.6.5.2 Table 143 — see
-/// `image::unapplied_soft_mask` for why that is left undone rather than guessed), 7 `/Mask`
-/// entries, 5 images at a bit depth the unpacker refuses, 4 malformed streams, and two files
-/// the new decoders refuse: one JBIG2 with a segment type ISO/IEC 14492 does not define, and
-/// one 212-megapixel JPEG 2000 scan larger than the sandbox is given room to decode.
+/// (§8.9.7) drew and `Indexed`, `Separation` and `DeviceN` images unpacked, 18 once
+/// `CCITTFaxDecode` decoded (§7.4.6), and is 13 now that `/Mask` is applied in both its forms
+/// (§8.9.6.3 and §8.9.6.4). What is left of it, counted per image rather than per document:
+/// 14 soft masks whose grid is not the image's (§11.6.5.2 Table 143 — see
+/// `image::unapplied_soft_mask` for why that is left undone rather than guessed), 3 images at
+/// a bit depth the unpacker refuses, 4 malformed streams, one `/Mask` that is not an image
+/// mask and so is outside what Table 87 defines the entry to hold, and two files the decoders
+/// refuse: one JBIG2 with a segment type ISO/IEC 14492 does not define, and one 212-megapixel
+/// JPEG 2000 scan larger than the sandbox is given room to decode.
 ///
 /// This number has gone *up* four times, and every rise was the point.
 ///
@@ -120,9 +123,23 @@ const MAX_PAGELESS: usize = 19;
 /// in, and the reason a rise is not a regression.
 ///
 /// Five more, when an image's `/Mask` started reporting. An explicit mask or a colour-key
-/// range makes part of an image transparent (§8.9.6.3 and §8.9.6.4) and neither is applied,
+/// range makes part of an image transparent (§8.9.6.3 and §8.9.6.4) and neither was applied,
 /// so `colorkeymask.pdf` drew a band all three references correctly hide. Found the same
-/// way.
+/// way. **Both forms are implemented as of the fourteenth session**, and five of those six
+/// documents have left this count — the sixth writes a `/Mask` that is not an image mask,
+/// which is outside what Table 87 defines the entry to hold, and still reports.
+///
+/// Two, when §9.3.8's text knockout started reporting — the ledger's third `silent` row
+/// closed at the cheap end. `Tk`'s initial value is *true*, which makes a text object a
+/// non-isolated knockout group so that a later glyph overwrites an earlier one where they
+/// overlap; we composite each glyph separately, which is the `Tk` false model. The report
+/// costs two documents rather than several hundred because both of the clause's conditions
+/// are tested rather than assumed: the paint has to composite — a constant alpha below one
+/// or a blend mode other than Normal, since opaque Normal painting gives both models the
+/// same pixels — and two glyphs of one text object have to overlap. The looser version of
+/// this check, which asked only for two glyphs under a compositing paint, reported seven
+/// documents and took three *agreeing* pages out of the oracle's gated set for a difference
+/// that could not have been on any of them.
 ///
 /// Seventy-seven, when annotation appearance streams started being drawn — the largest rise
 /// yet, and the one that most needs explaining, because it accompanied a *feature landing*.
@@ -230,7 +247,7 @@ const MAX_PAGELESS: usize = 19;
 /// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
 /// and it is the visible face of a gap this project already knows about: a font reports as a
 /// whole, so a glyph that fails to load draws nothing and says nothing.
-const MAX_INCOMPLETE: usize = 235;
+const MAX_INCOMPLETE: usize = 232;
 
 /// How long one document may take before it counts as a failure.
 ///
