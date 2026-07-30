@@ -192,9 +192,9 @@ pub(crate) fn construct(
         b"Ink" => ink(document, annotation, &mut stream),
         b"Line" => line(document, annotation, &mut stream),
         b"Widget" => widget(document, annotation, &mut stream),
-        b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => Err(Refusal::NotDerivable(
-            "§12.5.6.10 states its /QuadPoints without stating what mark to make in them",
-        )),
+        b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => {
+            text_markup(document, annotation, &mut stream, subtype)
+        }
         b"FreeText" => free_text(document, annotation, &mut stream),
         b"Text" | b"FileAttachment" | b"Sound" | b"Stamp" => Err(Refusal::NotDerivable(
             "its icon's artwork is the processor's own, and no clause states it",
@@ -562,6 +562,196 @@ fn polygon(
     }
     stream.paint(interior != Colour::None, border.strokes());
     Ok(Painted::DRAWN)
+}
+
+/// Draws §12.5.6.10's four text markup annotations, from their `/QuadPoints`.
+///
+/// # What the clause states, and what it leaves to this function
+///
+/// It states the mark's *kind* — the annotations "shall appear as highlights, underlines,
+/// strikeouts (all PDF 1.3), or jagged ("squiggly") underlines" — its *region*, Table 182's
+/// required `/QuadPoints`, "an array of 8×n numbers specifying the coordinates of n
+/// quadrilaterals in default user space", and its *orientation*: "The text shall be oriented
+/// with respect to the edge connecting points ( x 1 , y 1 ) and ( x 2 , y 2 )." Table 166's
+/// `/C` gives the colour.
+///
+/// It states no thickness, no position within the quadrilateral for a strikeout, and no
+/// period for a squiggle. Those are decided here, and the whole of the decision is that **the
+/// quadrilateral's own height is the only length the annotation gives**: it "shall encompass a
+/// word or group of contiguous words", so its height is the text's. A thickness of one
+/// sixteenth of it, a squiggle of one twelfth in amplitude and a third in wavelength, and a
+/// strikeout across the middle are choices at that scale rather than measurements. They are
+/// stated as fractions so that they are right at every font size without a constant that is
+/// right at one.
+///
+/// # Two readings of "counterclockwise", and a construction that needs neither
+///
+/// Table 182 says the four vertices are "in counterclockwise order" and Figure 84 shows
+/// (x1, y1) and (x2, y2) as the *top* edge — which is not counterclockwise in a y-up space,
+/// and every producer follows the figure. Rather than choose, this takes the clause's one
+/// unambiguous sentence: the edge from (x1, y1) to (x2, y2) is the text's direction. The
+/// other two vertices are the opposite edge, and which of them pairs with (x1, y1) is decided
+/// by projecting them onto that direction — true under either reading.
+///
+/// Which of the two edges is the *bottom* is then the one open question, and it is answered by
+/// the page rather than by the clause: the lower midpoint in default user space, ties going to
+/// the second edge, which is Figure 84's arrangement.
+///
+/// # Why a highlight multiplies
+///
+/// The clause says these annotations appear "in the text of a document", and a mark that
+/// covers the text is not a highlight in it — §12.5 draws an annotation *over* the page.
+/// §11.3.5.2 defines exactly one blend mode whose "result colour is always at least as dark as
+/// either of the two constituent colours", which is the standard's own guarantee that what was
+/// under the wash survives it. So a highlight is its quadrilateral filled under `Multiply`,
+/// and the `/ExtGState` that selects it is the constructed stream's only resource.
+fn text_markup(
+    document: &Document,
+    annotation: &Dictionary,
+    stream: &mut Stream,
+    subtype: &[u8],
+) -> Outcome {
+    let Some(points) = points(document, annotation, "QuadPoints") else {
+        return Err(Refusal::Missing("/QuadPoints"));
+    };
+    let quads: Vec<Quad> = points.chunks_exact(4).filter_map(Quad::read).collect();
+    if quads.is_empty() {
+        return Err(Refusal::Missing("/QuadPoints"));
+    }
+
+    // Table 166's `/C`, which §12.5.6.10 gives no entry of its own for. A markup with no
+    // colour states no mark, which is empty rather than unsupported.
+    let colour = colour(document, annotation, "C")?;
+    if colour == Colour::None {
+        return Ok(Painted::EMPTY);
+    }
+
+    if subtype == b"Highlight" {
+        stream.multiply();
+    }
+    stream.set_colour(colour, false);
+    for quad in &quads {
+        match subtype {
+            b"Highlight" => quad.outline(stream),
+            b"StrikeOut" => quad.bar(stream, 0.5),
+            b"Squiggly" => quad.squiggle(stream),
+            // Underline: a bar sitting on the bottom edge, inside the quadrilateral.
+            _ => quad.bar(stream, 0.0),
+        }
+    }
+    stream.paint(true, false);
+    Ok(Painted::DRAWN)
+}
+
+/// One of §12.5.6.10's quadrilaterals, in the frame the clause's own sentence defines.
+///
+/// `origin` is the bottom edge's first vertex, `along` runs to its second, and `up` is the
+/// offset from the bottom edge to the top one — so `along` is the text's direction and
+/// `up.length()` is the height every fraction below is taken of.
+struct Quad {
+    origin: [f32; 2],
+    along: [f32; 2],
+    up: [f32; 2],
+}
+
+impl Quad {
+    /// Reads one quadrilateral, or `None` if it encloses nothing.
+    fn read(vertices: &[[f32; 2]]) -> Option<Self> {
+        let (&first, &second) = (vertices.first()?, vertices.get(1)?);
+        let (&third, &fourth) = (vertices.get(2)?, vertices.get(3)?);
+        let stated = [second[0] - first[0], second[1] - first[1]];
+
+        // The opposite edge, ordered by where each vertex falls along the text's direction,
+        // which is what makes this independent of the two readings of "counterclockwise".
+        let project = |point: [f32; 2]| {
+            (point[0] - first[0]).mul_add(stated[0], (point[1] - first[1]) * stated[1])
+        };
+        let (near, far) = if project(third) <= project(fourth) {
+            (third, fourth)
+        } else {
+            (fourth, third)
+        };
+
+        // Which of the two edges is the bottom: the lower midpoint in default user space,
+        // ties going to the second edge, which is Figure 84's arrangement.
+        let (origin, along, opposite) = if near[1] + far[1] <= first[1] + second[1] {
+            (near, [far[0] - near[0], far[1] - near[1]], first)
+        } else {
+            (first, stated, near)
+        };
+        let up = [opposite[0] - origin[0], opposite[1] - origin[1]];
+        (along[0] != 0.0 || along[1] != 0.0).then_some(Self { origin, along, up })
+    }
+
+    /// The point at `u` along the bottom edge and `v` of the way up.
+    fn at(&self, u: f32, v: f32) -> [f32; 2] {
+        [
+            self.origin[0] + self.along[0] * u + self.up[0] * v,
+            self.origin[1] + self.along[1] * u + self.up[1] * v,
+        ]
+    }
+
+    /// The whole quadrilateral, as a closed subpath.
+    fn outline(&self, stream: &mut Stream) {
+        stream.move_to(self.at(0.0, 0.0));
+        stream.line_to(self.at(1.0, 0.0));
+        stream.line_to(self.at(1.0, 1.0));
+        stream.line_to(self.at(0.0, 1.0));
+        stream.close();
+    }
+
+    /// A bar across the quadrilateral, its lower edge `v` of the way up.
+    ///
+    /// One sixteenth of the height thick; see the note on [`text_markup`] for why that is a
+    /// choice and why it is a fraction.
+    fn bar(&self, stream: &mut Stream, v: f32) {
+        const THICKNESS: f32 = 1.0 / 16.0;
+        let low = (v - THICKNESS * 0.5).max(0.0);
+        let high = low + THICKNESS;
+        stream.move_to(self.at(0.0, low));
+        stream.line_to(self.at(1.0, low));
+        stream.line_to(self.at(1.0, high));
+        stream.line_to(self.at(0.0, high));
+        stream.close();
+    }
+
+    /// A jagged underline: a zig-zag filled as a ribbon along the bottom edge.
+    fn squiggle(&self, stream: &mut Stream) {
+        const AMPLITUDE: f32 = 1.0 / 12.0;
+        const THICKNESS: f32 = 1.0 / 16.0;
+        // A wavelength of a third of the height, rounded to a whole number of periods so the
+        // squiggle begins and ends at the quadrilateral's own edges, and bounded so that a
+        // long quadrilateral with a tiny height cannot ask for an unbounded path.
+        let length = self.along[0].hypot(self.along[1]);
+        let height = self.up[0].hypot(self.up[1]).max(f32::MIN_POSITIVE);
+        let periods = (length / (height / 3.0)).clamp(1.0, 512.0);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 1.0..=512.0 above, so the conversion is exact"
+        )]
+        let steps = (periods.round() * 2.0) as u32;
+
+        // Out along the top of the ribbon and back along the bottom, so one filled path
+        // describes a stroke of constant thickness without needing one.
+        let fraction = |step: u32| f32::from(u16::try_from(step).unwrap_or(u16::MAX));
+        let total = fraction(steps).max(1.0);
+        let peak = |step: u32| if step % 2 == 1 { AMPLITUDE } else { 0.0 };
+        for step in 0..=steps {
+            let u = fraction(step) / total;
+            let point = self.at(u, peak(step) + THICKNESS);
+            if step == 0 {
+                stream.move_to(point);
+            } else {
+                stream.line_to(point);
+            }
+        }
+        for step in (0..=steps).rev() {
+            let u = fraction(step) / total;
+            stream.line_to(self.at(u, peak(step)));
+        }
+        stream.close();
+    }
 }
 
 /// Draws §12.5.6.13's scribble: one stroked path per `/InkList` entry.
@@ -1285,6 +1475,30 @@ impl Stream {
             // §12.5.4: "The dash phase shall not be specified and shall be assumed to be 0."
             let _ = writeln!(self.text, "] 0 d");
         }
+    }
+
+    /// Selects §11.3.5's `Multiply` blend mode, through an `/ExtGState` resource of its own.
+    ///
+    /// The only place a constructed appearance needs one; see [`text_markup`] for the
+    /// argument that a highlight has to be one.
+    fn multiply(&mut self) {
+        let mut blend = Dictionary::new();
+        blend.insert(
+            pdf_syntax::Name::new(b"BM".to_vec()),
+            Object::Name(pdf_syntax::Name::new(b"Multiply".to_vec())),
+        );
+        let mut states = Dictionary::new();
+        states.insert(
+            pdf_syntax::Name::new(b"Mul".to_vec()),
+            Object::Dictionary(blend),
+        );
+        let mut resources = self.resources.take().unwrap_or_default();
+        resources.insert(
+            pdf_syntax::Name::new(b"ExtGState".to_vec()),
+            Object::Dictionary(states),
+        );
+        self.resources = Some(resources);
+        let _ = writeln!(self.text, "/Mul gs");
     }
 
     fn move_to(&mut self, point: [f32; 2]) {

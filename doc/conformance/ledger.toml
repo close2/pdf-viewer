@@ -701,12 +701,18 @@ note = "All four of the clause's ways a resource dictionary reaches a content st
 [[clause]]
 clause = "7.9"
 title = "Common data structures"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/text_string.rs", "crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_surrogate_pair_is_one_character"]
+note = "The two of the clause's structures a rendered page needs: §7.9.2's string object types and §7.9.5's rectangles. Dates, text streams, name trees and number trees belong to features this tree does not have yet; see their rows."
 
 [[clause]]
 clause = "7.9.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_surrogate_pair_is_one_character"]
+note = "Introductory. Its claim — that these structures are \"built from the basic types described in 7.3\" and carry conventional meanings — is the reason `text_string.rs` and `annotation::rectangle` exist as functions rather than as a rule repeated at each use."
 
 [[clause]]
 clause = "7.9.2"
@@ -767,27 +773,34 @@ note = "A byte string is what the lexer produces for every `/String`: 'binary da
 [[clause]]
 clause = "7.9.3"
 title = "Text streams"
-status = "unreviewed"
+status = "reported"
+note = "A text *stream*, whose \"unencoded bytes shall meet the same requirements as a text string with respect to encoding, byte order, and lead bytes\". Nothing here reads one: the only places PDF 2.0 uses it are §12.7.4.3's `/RV` rich text, which principle 5's XFA exclusion covers and which `variable_text.rs` refuses by name, and metadata streams, which are clause 14 beyond this tree. The decoder it would need already exists — `text_string::decode` is the same rule one level down."
 
 [[clause]]
 clause = "7.9.4"
 title = "Dates"
-status = "unreviewed"
+status = "reported"
+note = "A date string, `D:YYYYMMDDHHmmSSOHH'mm`. Nothing here parses one, and nothing here needs to: every entry that holds a date — `/CreationDate`, `/ModDate`, an annotation's `/M`, a signature's `/M` — is displayed or compared rather than drawn, and this tree draws. It is `reported` rather than `inapplicable` because a viewer with a document-properties panel or a comment list owes it, and the day one exists this row is where to start."
 
 [[clause]]
 clause = "7.9.5"
 title = "Rectangles"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_user_unit_scales_the_page_and_its_contents"]
+note = "\"Although rectangles are conventionally specified by their lower-left and upper-right corners, it is acceptable to specify any two diagonally opposite corners.\" `annotation::rectangle` normalises every rectangle it reads to lower-left and upper-right by taking the minimum and maximum of each axis, which is that sentence, and it is the one route to `/Rect`, `/BBox`, `/MediaBox`, `/CropBox` and `/RD`. A rectangle with fewer than four numbers, or any that is not finite, is refused rather than filled in."
 
 [[clause]]
 clause = "7.9.6"
 title = "Name trees"
-status = "unreviewed"
+status = "reported"
+note = "A name tree maps strings to objects, sorted, with `/Kids`, `/Names` and `/Limits`. Nothing here walks one: the catalog's `/Names` reaches destinations, embedded files, JavaScript and page labels, all of which are navigation or interchange rather than marks on a page. §12.3.2.3's named destinations are the first thing that will need it."
 
 [[clause]]
 clause = "7.9.7"
 title = "Number trees"
-status = "unreviewed"
+status = "reported"
+note = "A number tree, the same structure keyed by integers, with `/Nums` in place of `/Names`. Its two users are §14.7's structure-tree `/ParentTree` and §12.4.2's `/PageLabels`, neither of which decides a pixel today."
 
 [[clause]]
 clause = "7.10"
@@ -2650,7 +2663,10 @@ status = "unreviewed"
 [[clause]]
 clause = "11.3.5"
 title = "Blend mode"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/lib.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows"]
+note = "All sixteen blend modes reach both backends, and §11.6.3's rule for choosing among an array of names is implemented — see §11.3.5.2 and §11.3.5.3 for the two families. The clause's own framing, that a blend mode is a function of a backdrop and a source colour computed per component, is what makes it a rasteriser's parameter here rather than a compositing pass of this crate's."
 
 [[clause]]
 clause = "11.3.5.1"
@@ -2660,7 +2676,10 @@ status = "unreviewed"
 [[clause]]
 clause = "11.3.5.2"
 title = "Separable blend modes"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/lib.rs", "crates/render-cpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows"]
+note = "Table 134's twelve separable modes, each a function `B(cb, cs)` applied per component. One of them is load-bearing outside transparency: §12.5.6.10's highlight is a wash that must leave the text under it readable, and `Multiply` is the mode whose \"result colour is always at least as dark as either of the two constituent colours\" — the standard's own guarantee that what was under the wash survives it (ADR 0043)."
 
 [[clause]]
 clause = "11.3.5.3"
@@ -5083,17 +5102,24 @@ status = "unreviewed"
 [[clause]]
 clause = "14.11"
 title = "Prepress support"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/page.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::an_output_intent_says_what_the_documents_device_colours_mean"]
+note = "Two of its seven subclauses reach a screen — §14.11.2's page boundaries and §14.11.5's output intents — and both are implemented. The rest are for a press: printer's marks, separation dictionaries, trapping (deprecated in PDF 2.0) and OPI."
 
 [[clause]]
 clause = "14.11.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "Introductory to the prepress features, which it describes as \"specialised features to support prepress production workflows\". The two entries in it that a viewer reads have rows of their own."
 
 [[clause]]
 clause = "14.11.2"
 title = "Page boundaries"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_user_unit_scales_the_page_and_its_contents"]
+note = "`/MediaBox` and `/CropBox` decide what this viewer draws and are implemented; `/BleedBox`, `/TrimBox` and `/ArtBox` describe where a press cuts and are read by nobody. See §14.11.2.1 and §14.11.2.2."
 
 [[clause]]
 clause = "14.11.2.1"
@@ -5106,47 +5132,58 @@ note = "The crop box is honoured: it is inherited down the page tree, defaults t
 [[clause]]
 clause = "14.11.2.2"
 title = "Display of page boundaries"
-status = "unreviewed"
+status = "inapplicable"
+note = "`/BoxColorInfo`, the colours an *interactive* processor draws page-boundary guidelines in. The clause makes both the guidelines and the entry optional — \"interactive PDF processors **may** offer the ability to display guidelines\" — and this one does not offer it, so there is nothing for the entry to colour. It becomes a row to fill the day a viewer grows a prepress view."
 
 [[clause]]
 clause = "14.11.3"
 title = "Printer's marks"
-status = "unreviewed"
+status = "inapplicable"
+note = "Printer's marks — registration targets, colour bars, cut marks — are annotations \"of subtype PrinterMark\" placed \"outside the boundaries of the page's trim box\", which is by construction outside what this viewer draws. Table 167's Print flag governs them and a screen is not a printer (trap 9's second shape, and the same reading §12.5.3 already uses)."
 
 [[clause]]
 clause = "14.11.4"
 title = "Separation dictionaries"
-status = "unreviewed"
+status = "inapplicable"
+note = "A separation dictionary describes \"a single separation of a colour-separated document\" — one plate of a press run. §10.8.1 makes producing separations \"up to the processing software\", and this one produces a screen."
 
 [[clause]]
 clause = "14.11.5"
 title = "Output intents"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::an_output_intent_says_what_the_documents_device_colours_mean", "crates/pdf-model/tests/colour_paths.rs::a_default_space_outranks_the_output_intent"]
+note = "`output_intent_space` reads the catalog's `/OutputIntents` and takes the `/DestOutputProfile` of the first one that has a readable profile, which becomes what the document's device colours mean where it names no `/DefaultCMYK`. That ranking is the clause's own — §8.6.5.7 NOTE 3 sends a reader here for \"the intended meaning\" of a device space, and §8.6.5.6's default spaces are the nearer statement and win. `/S` is not filtered on: the clause's subtypes name the *kind* of press the profile describes, and a profile is a profile whichever it is. §10.3.1 is where this fits in clause 10's picture."
 
 [[clause]]
 clause = "14.11.6"
 title = "Trapping support"
-status = "unreviewed"
+status = "inapplicable"
+note = "\"The features described in this clause are deprecated with PDF 2.0.\" Trapping overlaps adjacent colours to hide misregistration between a press's plates; there is no misregistration on one raster."
 
 [[clause]]
 clause = "14.11.6.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §14.11.6."
 
 [[clause]]
 clause = "14.11.6.2"
 title = "Trap network annotations"
-status = "unreviewed"
+status = "inapplicable"
+note = "A trap network annotation carries the traps as a content stream, one per page, and Table 167's Print flag is what draws it. Deprecated with §14.11.6, and drawing it on a screen would paint the artefact-hiding overlaps *as* artefacts."
 
 [[clause]]
 clause = "14.11.6.3"
 title = "Trap network appearances"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §14.11.6.2."
 
 [[clause]]
 clause = "14.11.7"
 title = "Open prepress interface (OPI)"
-status = "unreviewed"
+status = "inapplicable"
+note = "OPI substitutes a low-resolution proxy image for a high-resolution one held outside the file, for a prepress workflow that swaps them back at output time. Table 402's `/OPI` is a *proxy's* dictionary: a processor that draws the image the file contains — which is what this one does — has already drawn what OPI describes."
 
 [[clause]]
 clause = "14.12"

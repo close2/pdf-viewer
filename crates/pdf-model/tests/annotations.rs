@@ -278,15 +278,20 @@ fn an_appearance_state_is_selected_by_as() {
 
 /// An annotation whose clause states no appearance is reported rather than invented.
 ///
-/// §12.5.6.10 gives a highlight its `/QuadPoints` and says nothing about what mark goes in
-/// them — no thickness, no blend, nothing that would keep the text underneath visible. Drawing
-/// a guess would put a mark on the page the document never described, so the report is the
-/// answer, and it is what keeps the corpus gate's counts meaningful.
+/// A `Text` annotation displays an *icon*, and §12.5.6.4 names the icons — `/Comment`,
+/// `/Key`, `/Note` — without stating one line of their artwork. Drawing a guess would put a
+/// mark on the page the document never described, so the report is the answer, and it is what
+/// keeps the corpus gate's counts meaningful.
+///
+/// §12.5.6.10's four text markups were here until the thirty-fourth session, and the reason
+/// they left is worth the distinction: that clause states the *mark* — "shall appear as
+/// highlights, underlines, strikeouts … or jagged ('squiggly') underlines" — its region and
+/// its orientation, and leaves only a thickness. An icon's clause states nothing at all.
 #[test]
 fn an_annotation_whose_appearance_is_not_stated_is_reported() {
     let interpretation = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Highlight /Rect [20 20 60 60] /F 4 /C [1 1 0] \
-         /QuadPoints [20 60 60 60 20 20 60 20] >>",
+        "<< /Type /Annot /Subtype /Text /Rect [20 20 60 60] /F 4 /C [1 1 0] \
+         /Name /Comment >>",
         "/BBox [0 0 10 10]",
         "1 0 0 rg 0 0 10 10 re f",
     ));
@@ -300,7 +305,69 @@ fn an_annotation_whose_appearance_is_not_stated_is_reported() {
     );
 }
 
-/// A subtype this crate knows nothing about still draws its normal appearance.
+/// §12.5.6.10's four marks are constructed, and each is the mark its subtype's name is.
+///
+/// The clause states the kind, the region and the orientation and leaves a thickness, so
+/// this checks the three things that distinguish the four rather than any dimension: a
+/// highlight covers the whole quadrilateral, a strikeout crosses its middle, an underline and
+/// a squiggle sit at its foot. See `appearance::text_markup` for what is a reading and what
+/// is a choice.
+#[test]
+fn each_text_markup_draws_its_own_mark() {
+    // A 40-unit quadrilateral, drawn over a red square, on a page this test reads back.
+    let markup = |subtype: &str| {
+        render(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /{subtype} /Rect [20 20 60 60] /F 4 /C [0 0 1] \
+                 /QuadPoints [20 60 60 60 20 20 60 20] >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "1 0 0 rg 0 0 10 10 re f",
+        ))
+    };
+
+    // The page is 100 by 100 at one pixel per unit and y-down in the raster, so the
+    // quadrilateral occupies rows 40..80 and columns 20..60.
+    let blue_rows = |raster: &pdf_render::Raster| -> Vec<u32> {
+        (40..80)
+            .filter(|row| {
+                let at = ((row * raster.width + 40) * 4) as usize;
+                raster.data[at + 2] > raster.data[at]
+            })
+            .collect()
+    };
+
+    let highlight = blue_rows(&markup("Highlight"));
+    assert!(
+        highlight.len() > 30,
+        "a highlight covers its quadrilateral, not {} rows",
+        highlight.len()
+    );
+
+    let strikeout = blue_rows(&markup("StrikeOut"));
+    assert!(
+        !strikeout.is_empty() && strikeout.len() < 10,
+        "a strikeout is a bar, not {} rows",
+        strikeout.len()
+    );
+    let middle = strikeout.iter().sum::<u32>() / u32::try_from(strikeout.len()).unwrap_or(1);
+    assert!(
+        (58..62).contains(&middle),
+        "and it crosses the middle, not row {middle}"
+    );
+
+    for subtype in ["Underline", "Squiggly"] {
+        let rows = blue_rows(&markup(subtype));
+        assert!(!rows.is_empty(), "{subtype} draws nothing");
+        let lowest = rows.iter().copied().max().unwrap_or(0);
+        assert!(
+            lowest > 74,
+            "{subtype} sits at the foot of its quadrilateral, not at row {lowest}"
+        );
+    }
+}
+
+/// A subtype this crate knows nothing about still draws its normal appearance./// A subtype this crate knows nothing about still draws its normal appearance.
 ///
 /// §12.5.5: "If a PDF processor does not have native support for a particular annotation type,
 /// the PDF processor shall render the annotation with its normal (N) appearance." So the

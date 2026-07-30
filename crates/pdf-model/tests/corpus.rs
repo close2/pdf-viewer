@@ -372,7 +372,15 @@ const MAX_PAGELESS: usize = 11;
 /// the name — so `extgstate.pdf`, a page whose text says "I should be courier!", said instead
 /// that it could not address the font. The cache is now keyed by either, and the page draws in
 /// Courier and agrees with the reference consensus.
-const MAX_INCOMPLETE: usize = 105;
+///
+/// **105 to 97 in the thirty-fourth session**, all of them §12.5.6.10's text markup
+/// annotations, which had been refused on the argument that the clause "states its
+/// /QuadPoints without stating what mark to make in them". Reading it again, it states the
+/// mark ("shall appear as highlights, underlines, strikeouts … or jagged ('squiggly')
+/// underlines"), the region and the orientation, and leaves a thickness — which is a choice
+/// to argue rather than a reason to draw nothing. Eight pages joined the oracle's judged set
+/// and six of them agree with the reference consensus; none is contradicted.
+const MAX_INCOMPLETE: usize = 97;
 
 /// How long one document may take before it counts as a failure.
 ///
