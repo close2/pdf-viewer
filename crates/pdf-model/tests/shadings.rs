@@ -234,6 +234,62 @@ fn a_shading_pattern_fills_only_the_path_it_paints() {
     );
 }
 
+/// §8.7.4.3 Table 77's `/BBox` clips the shading, by `sh` and through a pattern alike.
+///
+/// > If present, this bounding box shall be applied as a temporary clipping boundary when
+/// > the shading is painted, in addition to the current clipping path and any other clipping
+/// > boundaries in effect at that time.
+///
+/// "In addition to" is the load-bearing phrase and the reason the box nests inside the
+/// state's clip rather than replacing it. The other half — "the coordinates shall be
+/// interpreted in the shading's target coordinate space" — is what decides *which* transform
+/// carries it: the space the caller paints into, which for `sh` is the current user space
+/// and for a pattern is the pattern space.
+///
+/// Five corpus documents write a shading `/BBox` and **not one of them changes by a pixel**,
+/// because in every case the box is at least as large as the path or page the shading was
+/// already confined to. So the clause has no witness in 974 documents and this fixture is
+/// the whole of what defends it — trap 8's shape, again.
+#[test]
+fn a_shadings_bbox_clips_what_it_paints() {
+    let bounded = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] \
+                   /BBox [0 0 40 100] \
+                   /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] \
+                   /N 1 >> >>";
+
+    // `sh` covers the page, so the box is the only thing that can stop it.
+    let raster = render(pdf_with(bounded, "/Sh0 sh"));
+    assert_eq!(
+        pixel(&raster, 20, 50).3,
+        255,
+        "inside the /BBox the shading paints"
+    );
+    assert_eq!(
+        pixel(&raster, 60, 50).3,
+        0,
+        "beyond the /BBox it must not, however far the gradient reaches"
+    );
+
+    // Through a pattern, filling a rectangle that extends past the box in both directions:
+    // the painted region is the intersection, which is what "in addition to" means.
+    let raster = render(pdf_with(bounded, "/Pattern cs /P0 scn 20 0 60 100 re f"));
+    assert_eq!(
+        pixel(&raster, 10, 50).3,
+        0,
+        "outside the filled path, nothing — the box does not widen the fill"
+    );
+    assert_eq!(
+        pixel(&raster, 30, 50).3,
+        255,
+        "inside both, the shading paints"
+    );
+    assert_eq!(
+        pixel(&raster, 60, 50).3,
+        0,
+        "inside the path but outside the box, nothing"
+    );
+}
+
 /// Colour spaces are resolved before the display list, so a shading in CMYK must land
 /// on the same colours as the equivalent one in RGB.
 #[test]

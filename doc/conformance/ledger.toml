@@ -1356,32 +1356,50 @@ note = "All twelve operators of Table 73, and the clause's two further requireme
 [[clause]]
 clause = "8.7"
 title = "Patterns"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs", "crates/pdf-model/tests/tiling.rs"]
+note = "Both pattern types, reviewed as a family in the twenty-eighth session. A tiling pattern is a content stream replayed inside a clip; a shading pattern is a paint that travels into the display list as one. The two are drawn in completely different ways and the subclauses below say what each one reads."
 
 [[clause]]
 clause = "8.7.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs", "crates/pdf-model/tests/tiling.rs"]
+note = "Descriptive: patterns are Type 1 (tiling) or Type 2 (shading), and both are implemented."
 
 [[clause]]
 clause = "8.7.2"
 title = "General properties of patterns"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/tiling.rs", "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"]
+note = "The sentence that decides where every gradient on a page lands: \"changes to the page's transformation matrix that occur within the page's content stream, such as rotation and scaling, have no effect on the pattern; it maintains its original relationship to the page no matter where on the page it is used\". So a pattern is positioned by its `/Matrix` composed with the *parent content stream's default* space, which the interpreter carries as `base`, and never with the transform in force at the fill. Inside a form XObject the parent is the form, \"that is, the form coordinate space at the time the form is painted with the Do operator\", and that is what `base` holds while a form is being run. `/PatternType` selects between the two kinds; the NOTE says PDF does not support PostScript's define-here-use-there, and neither does this."
 
 [[clause]]
 clause = "8.7.3"
 title = "Tiling patterns"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/tiling.rs"]
+note = "Both paint types. See the subclauses."
 
 [[clause]]
 clause = "8.7.3.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/tiling.rs"]
+note = "Table 74's entries: `/PaintType` selects coloured or uncoloured, `/BBox` clips the cell, `/XStep` and `/YStep` space the tiles, `/Resources` names what the cell draws and `/Matrix` places it. The clause's four steps are what the interpreter does — save, install the state in force at the beginning of the parent content stream with the current transform altered by the pattern matrix, run the cell, restore. **`/TilingType` is not read**, and this row is `partial` for it: all three values describe *adjustments to the device pixel grid* — constant spacing by a multiple of a device pixel, no distortion, or constant spacing with more distortion allowed — and this renderer distorts nothing and snaps nothing, which is value 2's behaviour whatever the file asks for. 21 corpus documents ask for something else. A second departure is recorded here rather than hidden: the clause says `/XStep` and `/YStep` \"shall not be zero\", and a zero or absent step falls back to the cell's own size, because the alternative is an infinite loop or an unpainted area."
 
 [[clause]]
 clause = "8.7.3.2"
 title = "Coloured tiling patterns"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/tiling.rs"]
+note = "`/PaintType 1`: the cell's content stream sets its own colours, starting from \"the ones initially in effect in the pattern's parent content stream\" rather than from the colour in force at the fill — the same rule as the pattern matrix, and for the same reason."
 
 [[clause]]
 clause = "8.7.3.3"
@@ -1394,72 +1412,114 @@ note = "PaintType 2 cells take their colour from the operands beside the pattern
 [[clause]]
 clause = "8.7.4"
 title = "Shading patterns"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "All seven shading types, on both backends, as a pattern and by `sh`. See the subclauses."
 
 [[clause]]
 clause = "8.7.4.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"]
+note = "Table 75's `/PatternType`, `/Shading` and `/Matrix` are read, and the clause's closing paragraph — that a shading pattern paints a path, a glyph or an image mask alike, \"the geometry of the gradient fill is independent of that of the object being painted\" — is why the shading carries its own transform into the display list rather than the path's. **`/ExtGState` is not read**: a graphics state parameter dictionary \"to be put into effect temporarily while the shading pattern is painted\". No corpus document writes one, measured by walking every Type 2 pattern dictionary in all 974, which is why it is recorded here rather than reported."
 
 [[clause]]
 clause = "8.7.4.2"
 title = "Shading operator"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second"]
+note = "`sh` \"applies the corresponding gradient fill directly to current user space\" and \"works without reference to the current colour in the graphics state\", so it is drawn as a fill of the page rectangle whose paint is the shading, with the shading's transform being the current one. §11.6.4.4's non-stroking alpha applies to it as to any other non-stroking painting operation."
 
 [[clause]]
 clause = "8.7.4.3"
 title = "Shading dictionaries"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_shadings_bbox_clips_what_it_paints"]
+note = "Table 77's `/ShadingType` and `/ColorSpace` are required and read; a `Pattern` space is refused as the table requires. **`/BBox` landed in the twenty-eighth session** — \"applied as a temporary clipping boundary when the shading is painted, in addition to the current clipping path\", in the shading's *target* coordinate space, so it nests inside the state's clip and is carried by the caller's transform rather than the shading's own. Five corpus documents write one and not one changes by a pixel, so the fixture in `shadings.rs` is the whole of what defends it. Not implemented: `/Background`, which fills \"those portions of the area to be painted that lie outside the bounds of the shading object\" and only \"when the shading is used as part of a shading pattern, not when painted directly with the sh operator\" — 2 corpus documents write one. `/AntiAlias` is read nowhere and is a hint with a default of false, in the same class as §10.7.2's flatness; 19 documents set it."
 
 [[clause]]
 clause = "8.7.4.4"
 title = "Colour space: special considerations"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/shading.rs", "crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_shading_in_another_colour_space_is_converted"]
+note = "The clause's licence to interpolate is what `Ramp` is: \"PDF processors may actually compute colour values only for some subset of the points in the target area, with the colours of the intervening points determined by interpolation\", bounded by §10.7.3's smoothness tolerance — which this tree fixes at 256 samples rather than reading, a silence recorded under §10.7.3. Types 2 and 3 always carry a `/Function`, and NOTE 3 exempts those from the rule about *where* interpolation happens, so sampling the function and converting each sample is exactly what the clause describes. **The departure is in the mesh types**: a Type 4 to 7 shading without a function interpolates between vertex colours, and the clause says that for a CIE-based space \"all gradient fill calculations shall be performed in that space\" with conversion \"only after all interpolation calculations have been performed\". Here a vertex colour is converted to device RGB when the mesh is read, so the interpolation happens in device RGB. An `Indexed` space's values are converted to the base space immediately, which the clause requires."
 
 [[clause]]
 clause = "8.7.4.5"
 title = "Shading types"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "All seven, on both backends. See the subclauses."
 
 [[clause]]
 clause = "8.7.4.5.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::an_unknown_shading_type_is_reported"]
+note = "A `/ShadingType` outside 1 to 7 is reported by name rather than drawn as something plausible."
 
 [[clause]]
 clause = "8.7.4.5.2"
 title = "Type 1 (function-based) shadings"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Table 78: `/Domain` defaulting to the unit square, `/Matrix` mapping the domain into the target space, and `/Function` evaluated over it. The `/Matrix` is composed ahead of the caller's transform so the display list carries one transform per shading — which is also why Table 77's `/BBox`, stated in the *target* space, is applied by the caller rather than here."
 
 [[clause]]
 clause = "8.7.4.5.3"
 title = "Type 2 (axial) shadings"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second", "crates/pdf-model/tests/shadings.rs::a_shading_that_does_not_extend_paints_nothing_beyond_its_ends", "crates/render-cpu/tests/shading_placement.rs"]
+note = "Table 79 in full: `/Coords` as the axis, `/Domain` defaulting to `[0 1]`, `/Function` sampled across it, and `/Extend` deciding what happens beyond each end — both halves independently, which is what the clause's two booleans mean and what a single flag would get wrong on one document in four. `shading_placement.rs` pins the geometry at three scales against this clause, and exists because both backends once applied the page transform to the paint as well as to the path (trap 2)."
 
 [[clause]]
 clause = "8.7.4.5.4"
 title = "Type 3 (radial) shadings"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_radial_shading_grades_between_its_two_circles"]
+note = "Table 80: two circles from `/Coords`, `/Domain`, `/Function`, and `/Extend` for each end. The clause's blend of circles is computed rather than approximated by an axial gradient, which is what makes a sphere look like one."
 
 [[clause]]
 clause = "8.7.4.5.5"
 title = "Type 4 (free-form Gouraud-shaded triangle mesh) shadings"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/shading.rs", "crates/render-cpu/src/shading.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_triangle_mesh_puts_its_corner_colours_at_its_corners", "crates/pdf-model/tests/shadings.rs::a_truncated_mesh_is_reported"]
+note = "Table 81's `/BitsPerCoordinate`, `/BitsPerComponent`, `/BitsPerFlag`, `/Decode` and optional `/Function`, with the three vertex flags — a new triangle, or one sharing the previous triangle's second and third or first and third vertices. **The departure is how the interior is coloured.** The clause says \"a technique known as Gouraud interpolation is used to colour the interiors\", and neither `tiny-skia` nor Vello has a Gouraud primitive, so each triangle is subdivided until its corner colours agree to within a threshold below what an eight-bit channel can represent, then filled flat, with a measured 0.8-pixel overlap to close the seams. That leaves a faint lattice a per-pixel interpolation would not have. `mesh_shading_empty.pdf` is contradicted for exactly this and for nothing else — the twenty-eighth session measured it pixel by pixel: our colours are within a level of the references everywhere except a one-pixel column at the mesh's right edge, the failing metric is *structural* similarity at 0.972 against a bound of 0.990, and the difference is the subdivision lattice. `doc/HANDOVER.md` had recorded that page as \"the same mesh displaced horizontally\", which measurement refutes: the edges are in the same columns to the pixel. Closing it means a Gouraud rasteriser in *both* backends, since the cross-backend scenes hold them to identical pixels."
 
 [[clause]]
 clause = "8.7.4.5.6"
 title = "Type 5 (lattice-form Gouraud-shaded triangle mesh) shadings"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Table 82's `/VerticesPerRow` with the same vertex encoding as Type 4 and no flags, triangulated between consecutive rows. `partial` for §8.7.4.5.5's interpolation departure, which it shares."
 
 [[clause]]
 clause = "8.7.4.5.7"
 title = "Type 6 (Coons patch mesh) shadings"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Table 83's twelve control points and four corner colours per patch, with the four edge flags that let a patch share an edge and two colours with its predecessor. The surface is evaluated and triangulated here. `partial` for §8.7.4.5.5's interpolation departure and for one of its own: the clause defines the patch's interior by a bilinear surface between its Bézier boundaries, and a triangulation is an approximation of that surface whose fineness this tree fixes rather than deriving from §10.7.3's smoothness tolerance."
 
 [[clause]]
 clause = "8.7.4.5.8"
 title = "Type 7 (tensor-product patch mesh) shadings"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Sixteen control points rather than twelve; the four interior ones are read and used. `partial` for the same two reasons as §8.7.4.5.7."
 
 [[clause]]
 clause = "8.8"

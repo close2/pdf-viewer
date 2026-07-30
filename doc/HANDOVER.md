@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **twenty-seventh** working session. Read
+Written 2026-07-26, updated 2026-07-30 at the end of the **twenty-eighth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,84 +12,77 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the twenty-seventh session changed
+## What the twenty-eighth session changed
 
-**`LZWDecode` is written, and all ten of Table 6's filters now decode.** It had been the one
-standard filter of any kind this reader did not implement, sized *Small / 0 corpus documents*
-for the project's whole life — no corpus page one reaches an LZW stream, so neither gate could
-rank it and neither could see it land. That is the condition the two-track rule exists for.
-ADR 0036.
+**A contradicted page's diagnosis was wrong, and measuring it was the whole session's
+starting point.** `oracle.rs` recorded `mesh_shading_empty.pdf` as "the same mesh displaced
+horizontally — a placement question". It is not displaced: our coloured region begins and ends
+in the same pixel columns as all four references, and our colours are within a level of theirs
+everywhere but one column. The failing metric is *structural* similarity, 0.972 against a
+bound of 0.990, and what it measures is the faint lattice left by filling a Gouraud triangle as
+many flat sub-triangles. **Five for five on a contradicted page's group naming a hypothesis
+rather than a diagnosis.** ADR 0037.
 
-**§7.4.4.2 supplies its own test vector, and it is a sharp one.** EXAMPLE 1's input and
-EXAMPLE 2's nine packed bytes make `lzw_decodes_the_clauses_own_example` the rarest kind of
-test here: an expected value the standard states outright. It is also the case that breaks a
-naive decoder — the example's *third* code names a table entry the decoder has not created yet.
+**Reading §8.7 as a family fixed a contradicted page the corpus could not have ranked.**
+Table 77's `/BBox` — "applied as a temporary clipping boundary when the shading is painted, in
+addition to the current clipping path" — was read nowhere. Five corpus documents write one;
+four are boxes at least as large as the path the shading was already confined to, and the
+fifth, `issue8092.pdf`, was **contradicted** and now agrees. It had been filed under
+*substituted fonts*: the sixth time a list's name has failed to diagnose a member.
 
-**And the corpus stated an invariant about itself, which beat any reference decoder.** Three
-real LZW streams in two documents, checked against those same documents' dictionaries: a
-57×78 eight-bit image must decode to exactly 4446 bytes, an `[/Indexed /DeviceRGB 255 …]`
-lookup to exactly 768, and a `/ToUnicode` stream must begin `/CIDInit /ProcSet findresource
-begin`. A decoder one code out of step produces a *different length*, so matching to the byte
-across 4446 of them says more than agreement with another decoder would.
+**Two phrases decide how a `/BBox` is applied, and both are in the clause.** "In addition to"
+makes it nest inside the state's clip rather than replace it. "Interpreted in the shading's
+target coordinate space" makes the *caller's* transform carry it — which for a Type 1 shading
+means it must not be composed with the shading's own `/Matrix`. And because the clause fixes
+the clip in force "at that time", a shading pattern carries its box as a rectangle and a
+transform rather than as a clip: the paint may be several `q` levels from the `scn`.
 
-**A test written to fail one day did, and the reason is a finding.**
-`a_content_stream_that_will_not_decode_is_reported` named `/LZWDecode` deliberately, with a
-note saying that implementing the filter should break it and that would be the moment to
-revisit. **There is now no standard filter left that this reader does not implement**, so no
-name can stand in for "a filter we do not have"; the test moved to `/JPXDecode`, which is real,
-implemented, and not a content-stream codec.
-
-**Reading §7.4 as a family found a clause whose one witness contradicts it.** Table 13's
-`/ColorTransform` is unread. Four corpus documents write it, all writing `0`; two are
-single-component, where the clause says to ignore it; one has a JFIF marker; and **one —
-`issue12841_reduced.pdf` — is three-component with no Adobe marker, which is exactly the case
-where the clause says the dictionary decides**. Obeying it means not transforming YCbCr to RGB,
-and all four references transform, and the photograph is plainly right transformed. So the
-entry stays unread and the ledger row records the measurement rather than the reflex. Two
-smaller findings beside it: §7.4.2's "any other characters shall cause an error" is departed
-from deliberately, and neither §7.4.7 nor §7.4.9's ban on inline images is enforced.
+**Four more clause requirements measured and left open, each with a count.**
+§8.7.4.3's `/Background` (2 documents), `/AntiAlias` (19, a hint like §10.7.2's flatness),
+§8.7.4.1's `/ExtGState` on a Type 2 pattern (**0**, measured over every Type 2 pattern
+dictionary in all 974), §8.7.3.1's `/TilingType` (21, and all three values are about the device
+pixel grid, which this renderer does not snap to). Plus §8.7.4.4's rule that a CIE-based
+shading interpolates in its own space, which bites only on a mesh with no `/Function`.
 
 | | was | is |
 |---|---|---|
-| **`/Filter /LZWDecode`** | reported as unimplemented | decoded, §7.4.4.2 in full |
-| **`/EarlyChange`** | — | read, and it moves the width increase by one code |
-| **`[/ASCII85Decode /LZWDecode]`** | reported | decoded in the order §7.4.1 states |
-| **the report for an undecodable content stream** | pointed at a standard filter | points at an image codec, because no standard filter is left |
-| **§7.4's 13 `unreviewed` rows** | nobody had read them | 9 implemented, 4 partial |
+| **a shading's `/BBox`** | read nowhere | a clip nested in the state's, in the target space |
+| **`issue8092.pdf` page 1** | contradicted, filed under substituted fonts | agrees |
+| **`mesh_shading_empty.pdf`'s entry** | "displaced horizontally" | measured: the subdivision lattice, and SSIM is what sees it |
+| **§8.7's 19 `unreviewed` rows** | nobody had read them | 8 implemented, 11 partial |
 
 **The numbers:**
 
 | | before | now |
 |---|---|---|
 | corpus documents drawing with nothing reported | 823 | **823** |
-| corpus documents reporting something | 130 | **130** |
-| pages agreeing with the reference consensus | 814 | **814** |
-| pages contradicted by it | 116 | **116** |
-| ledger subclauses nobody has read | 462 | **448** |
-| cited clauses still owing a review | 9 | **7** |
-| `§` citations the checker verified | 1230 | **1235** |
-| rustdoc quotations checked verbatim | 117 | **119** |
-| standard filters that decode | 9 of 10 | **10 of 10** |
-| tests | 547 | **553** |
+| **pages agreeing with the reference consensus** | 814 | **815** |
+| **pages contradicted by it** | 116 | **115** |
+| of those, on pages we call complete | 102 | **101** |
+| ledger subclauses nobody has read | 448 | **428** |
+| cited clauses still owing a review | 7 | **5** |
+| `§` citations the checker verified | 1235 | **1240** |
+| rustdoc quotations checked verbatim | 119 | **121** |
+| tests | 553 | **554** |
 
-**Three sessions running with every gate count unchanged**, and by now that is a statement
-about the gates rather than about the work: the corpus ranks what documents contain, and the
-last three sessions have closed things that either no document exercises or no bound can
-separate. The ledger is the instrument that moved — 475 unreviewed three sessions ago, 448 now.
+**The contradicted count moved for the first time in four sessions**, and it moved by a clause
+no corpus document could have ranked — found by reading the family that a *wrongly diagnosed*
+contradicted page pointed at. That is the two-track rule paying for itself in one step: the
+demand track chose the family, the spec track found the sentence, and neither would have got
+there alone.
 
 What it taught:
 
-- **A closed list can be finished, and finishing it removes an instrument.** The report for an
-  undecodable content stream had a standard filter to point at for the project's whole life,
-  and no longer does. The test noticed, because it had been written to.
-- **Read the clause before assuming an algorithm needs a reference.** §7.4.4.2 states LZW
-  completely and supplies a worked example; §7.4.6 hands its coding to ITU-T and says so. Two
-  filters in the same family, two different kinds of clause, and only one of them needs
-  anything outside the standard.
-- **When a clause has exactly one witness and the witness contradicts it, say so and stop.**
-  `/ColorTransform` is not "ignored because everyone ignores it" — it is unread because the one
-  corpus file where the sentence applies is a file whose producer wrote something it did not
-  mean. That is a measurement with a date on it, not a policy.
+- **Measure a contradiction before believing its label, including a label this project
+  wrote.** "Displaced horizontally" had been in `oracle.rs` for sessions and was refuted by
+  ten minutes with the two rasters. A wrong diagnosis is worse than none: it makes the page
+  look like somebody else's problem.
+- **A demand item can be right about the family and wrong about the defect.** The mesh page
+  sent this session to §8.7 and is still contradicted; the page that got fixed was one nobody
+  had looked at, sitting under a label about fonts.
+- **Where a clause fixes a moment — "in effect at that time" — carry the ingredients, not the
+  result.** A shading pattern's `/BBox` cannot become a clip when `scn` selects it, because
+  the clip it nests inside does not exist yet.
 
 ## How the project got here
 
@@ -121,11 +114,12 @@ below rather than here.
 | 25 | §8.9.5.2's `/Decode` array in full, Table 88 included; the whole of §8.6.5 reviewed; a fast path inherits no clauses | ADR 0034 |
 | 26 | An image's colour space is a fill's; §8.6.4 reviewed; an exact memo where a lookup grid was the obvious answer | ADR 0035 |
 | 27 | `LZWDecode`, the last standard filter; the whole of §7.4 reviewed; a corpus stating an invariant about itself | ADR 0036 |
+| 28 | A shading's `/BBox`; the whole of §8.7 reviewed; a contradicted page's diagnosis refuted by measuring it | ADR 0037 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
-→ 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 across sessions 6 to 27, and the
-corpus's incomplete count 291 → 368 → 250 → 290 → 283 → 263 → 251 → 235 → 232 → 231 → 231 → 237
-→ 220 → 220 → 189 → 147 → 137 → 129 → 130 → 130 → 130 → 130.
+→ 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 across sessions 6 to 28,
+and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 → 263 → 251 → 235 → 232 → 231 →
+231 → 237 → 220 → 220 → 189 → 147 → 137 → 129 → 130 → 130 → 130 → 130 → 130.
 Both move in both directions on purpose: a rise in the first can mean pages *joined* the
 comparison, and a rise in the second is honesty when a silence ends. The sections below say
 which.
@@ -140,7 +134,7 @@ revision and method §7.6 states, and **a form field's value laid out from its `
 is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
 person for a password — and the gap is measured below rather than guessed at.
 
-- **553 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **554 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -238,7 +232,7 @@ person for a password — and the gap is measured below rather than guessed at.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1235 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1240 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -264,7 +258,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1235 citations, 119 quotations, 72 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1240 citations, 121 quotations, 74 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -357,10 +351,13 @@ label — "path is empty or contains non-finite coordinates" — described the *
 missing rule, not the defect the pages then revealed. A `no render` count is a to-do list of
 pages nobody has looked at, and it is now 25, all of them documents rather than pages.
 
-**A contradicted page's group names a hypothesis, not a diagnosis — four for four on being
+**A contradicted page's group names a hypothesis, not a diagnosis — six for six on being
 wrong.** Type 3 fonts, `/Rotate`, `alphatrans.pdf`'s gradient and `french_diacritics.pdf` all sat
-under labels whose stories were *true about the page* and not the disagreement. Open the artefact
-before believing the label.
+under labels whose stories were *true about the page* and not the disagreement. The fifth and
+sixth came together in the twenty-eighth session: `mesh_shading_empty.pdf`'s entry said
+"displaced horizontally" and the mesh is not displaced at all, and `issue8092.pdf` sat under
+*substituted fonts* while its difference was a shading's `/BBox`. Open the artefact before
+believing the label — **and measure it, because a label this project wrote is still a label**.
 
 **And the rule inverts, which is the version worth having**: twice the picture has rejected a
 *reading of the specification* rather than finding a defect in code. `issue6621.pdf` blanked a
@@ -694,10 +691,10 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **448
-of 823 subclauses are `unreviewed`**, and 375 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **428
+of 823 subclauses are `unreviewed`**, and 395 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
-project has measured 34% of its clause coverage. That number is meant to look bad; the alternative
+project has measured 36% of its clause coverage. That number is meant to look bad; the alternative
 was not knowing.
 
 **The ledger has been wrong twice**, which is worth knowing before trusting a row: §8.9.5.3's note
@@ -750,22 +747,24 @@ completely:
 
 | | count | share of the 1620 |
 |---|---|---|
-| agree with the reference consensus | 754 | 47% |
-| **contradicted by it** | **102** | **6%** |
+| agree with the reference consensus | 755 | 47% |
+| **contradicted by it** | **101** | **6%** |
 | the references cannot agree among themselves | 751 | 46% |
 | not comparable (geometry, or fewer than two renderers) | 13 | 1% |
 
 **One page in sixteen that we say we drew completely, two independent implementations say we did
-not.** The 102 are named in `oracle.rs` and grouped by what the page carries: 16 use a font nobody
+not.** The 101 are named in `oracle.rs` and grouped by what the page carries: 15 use a font nobody
 embeds so every renderer substitutes differently, **12 are pages where the references that agree
 are not reading the clause differently** — 7 sharing a JBIG2 decoder, 1 sharing a `/VE` gap, 4
 link borders where one reference has no such feature and the other is rendering for paper (trap 9
 has all three shapes) — 8 are a one-pixel page-rounding difference, 1 an image half a device pixel
 tall, 1 a `CalRGB` alternate two references do not convert, 2 pages of glyphs judged with the
 tolerance for flat fills, 1 a level of mask quantisation on a flat page (trap 12), 1 a symbolic
-font claiming two contradictory descriptor flags, and **60 have nothing on them to explain it**.
+font claiming two contradictory descriptor flags, and **59 have nothing on them to explain it**.
 That last group is the most valuable list in the repository, and 21 of them are pages beyond the
-first, which a page-one comparison would never have seen.
+first, which a page-one comparison would never have seen. **One page left the `substituted fonts`
+group in the twenty-eighth session by being fixed** — `issue8092.pdf`, whose difference was a
+shading's `/BBox` and had nothing to do with its fonts (ADR 0037).
 
 **The pattern to read this table by**: a feature that makes pages drawable adds them to the set
 being judged, so the numerator and the denominator move together and only one of those is news.
@@ -796,7 +795,7 @@ where the two disagree the ledger is the one that had to name a code site.
 | Clause | Subclauses | State |
 |---|---|---|
 | 7 Syntax | 138 | **Nearly complete**, 62 rows reviewed — the whole of §7.4 and §7.6 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
-| 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 87 rows reviewed, with §8.4, §8.5, §8.6.4, §8.6.5, §8.9, §8.10, §8.6.6 and §8.6.7 done as families. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). 2, 4 and 16 bits per component are refused. |
+| 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 107 rows reviewed, with §8.4, §8.5, §8.6.4, §8.6.5, §8.6.6, §8.6.7, §8.7, §8.9 and §8.10 done as families. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). 2, 4 and 16 bits per component are refused. |
 | 9 Text | 65 | **Partial**, 38 rows reviewed — §9.3, §9.4 and the whole of §9.7 as families. Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. Missing: bare Type1, Table 116's predefined `CMap`s, vertical writing, and text knockout (§9.3.8, reported). |
 | 10 Rendering | 36 | **Partial**, 6 rows reviewed — the whole of §10.7. Colour management and rendering intents are done. Halftones and transfer functions describe a marking device. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
 | 11 Transparency | 58 | **Partial**, 46 rows reviewed — everything from §11.4 onwards, leaving only §11.1–§11.3.5 and §11.3.8, which are the model rather than its PDF representation. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
@@ -839,7 +838,7 @@ parts that make a document *interactive* are not started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name — 102 contradicted pages, 60 of them unexplained, and a
 feature list sized by how many documents want each item. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **448 of 823 subclauses are `unreviewed`**. A project running only the
+§6.3.2.2's ranking name: **428 of 823 subclauses are `unreviewed`**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -871,7 +870,7 @@ is not obviously wrong. The thirteenth session found the citation checker blind 
 and one wrong. The tree was also not `clippy` clean while this file said it was. **Whatever this
 file asserts about the tooling, run it once before believing it.**
 
-The one-line version of the demand track: **102 pages we claim to draw are contradicted, 60 of
+The one-line version of the demand track: **101 pages we claim to draw are contradicted, 59 of
 them for no reason visible on the page**, and the largest thing left that any corpus document
 names is §9.7.5.2's predefined `CMap`s at 12 — a licensing decision rather than code — followed by
 §12.5.6.10's text markup at 8, which is a decision about what a highlight looks like. **Variable
@@ -880,14 +879,14 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **The twenty-fifth session put a rendering item back on it**: an image in an
 `ICCBased` space is not converted through its profile though a fill in the same space is, on 31
 documents and visibly on 15 — **closed in the twenty-sixth** (ADR 0035). The one-line version
-of the spec track: **7 clauses the code already cites have never been read against it**, named in `REVIEW_OWED`. For three sessions no
+of the spec track: **5 clauses the code already cites have never been read against it**, named in `REVIEW_OWED`. For three sessions no
 rendering feature any corpus document *announces* was left on either list — the corpus going
 quiet, and exactly the condition `CLAUDE.md`'s two-track rule exists for — and what ended that
 run came from the spec track rather than from any file saying so, which is the rule working.
 
 ### 0. The ledger, and the cheapest reviews available
 
-- **Work `REVIEW_OWED` down.** 7 clauses, each already cited by the code that implements it, so
+- **Work `REVIEW_OWED` down.** 5 clauses, each already cited by the code that implements it, so
   the reading is against something that exists. Take them by family — §8.6.4's two rows and
   §8.7's two are the pairs left — because that is how the standard distributes its requirements, and because §9.6.5.4 was missed
   for the opposite reason: nobody had read §9.6.5 as a unit. **Expect findings.**
@@ -947,13 +946,19 @@ Five small items, listed before the big lists because they are small:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 60 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 59 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. **Read trap 9 before starting**, because an entry may be any of its three shapes, and
 checking costs a web search of the other project's source.
 
-One cause is identified and live: **`mesh_shading_empty.pdf` draws the same mesh displaced
-horizontally** — a placement question, and the class of defect trap 2 is about.
+One cause is identified, measured and live: **`mesh_shading_empty.pdf` differs by the
+subdivision lattice** — filling a Gouraud triangle as many flat sub-triangles rather than
+interpolating per pixel (§8.7.4.5.5). Its entry used to say "displaced horizontally", which the
+twenty-eighth session refuted in ten minutes with the two rasters: the edges are in the same
+columns to the pixel and only *structural* similarity fails, 0.972 against 0.990. Closing it
+needs a Gouraud rasteriser in **both** backends, since the cross-backend scenes hold them to
+identical pixels. **Measure an entry before believing its label, including a label written
+here.**
 
 Three entries that used to be here are the argument for spending the hour, because none was one
 page's problem. `issue20504.pdf` was worth **15 of the 81**: it looked like one page's
@@ -1120,8 +1125,8 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 
 | of the 1620 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 754 | |
-| **contradicted** | **102** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 4 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 2 glyphs judged as vector, 1 a symbolic font's contradictory flags, 16 substituted fonts, **60 unexplained** |
+| agree with the reference consensus | 755 | |
+| **contradicted** | **101** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 4 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 2 glyphs judged as vector, 1 a symbolic font's contradictory flags, 15 substituted fonts, **59 unexplained** |
 | ambiguous | 751 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 3 | 2 are `/UserUnit`, 1 unexamined |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |

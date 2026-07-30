@@ -504,7 +504,7 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 1] = ["issue20232.pdf page 1"];
 /// knockout groups (§11.4.6), which the same session began reporting. They are still
 /// contradicted; they are no longer *judged*, which is the trade a report makes. Four for
 /// five now on this list's name failing to diagnose a member.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 16] = [
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
     "bad-PageLabels.pdf page 1",
     "bug1671312_reduced.pdf page 1",
     "calrgb.pdf page 1",
@@ -519,7 +519,6 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 16] = [
     "issue8088.pdf page 1",
     "issue8088.pdf page 2",
     "issue8088.pdf page 3",
-    "issue8092.pdf page 1",
     "issue8125.pdf page 1",
 ];
 
@@ -530,8 +529,16 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 16] = [
 /// and live; the rest are unexamined, and working through them is the highest-value use of
 /// this gate:
 ///
-/// - `mesh_shading_empty.pdf` draws the same mesh as the references, displaced
-///   horizontally. A placement question rather than a missing feature.
+/// - `mesh_shading_empty.pdf` differs by the **subdivision lattice**, and the twenty-eighth
+///   session measured it rather than repeating the guess this comment used to carry. It said
+///   the mesh was "displaced horizontally"; it is not — our coloured region begins and ends
+///   in the same pixel columns as all four references, and our colours are within a level of
+///   theirs everywhere except a one-pixel column at the mesh's right edge. What fails is
+///   *structural* similarity, 0.972 against a bound of 0.990, and what it is measuring is the
+///   faint lattice left by filling a Gouraud triangle as many flat sub-triangles (§8.7.4.5.5).
+///   Closing it needs a Gouraud rasteriser in **both** backends, because the cross-backend
+///   scenes hold them to identical pixels. **Five for five on this list's name failing to
+///   diagnose a member.**
 ///
 /// **Five pages left in the seventeenth session and only one of them was fixed.** Four
 /// `knockout_*.pdf` are knockout transparency groups (§11.4.6), which that session began to

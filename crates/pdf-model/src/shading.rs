@@ -102,6 +102,36 @@ pub fn build(
     })
 }
 
+/// ISO 32000-2 §8.7.4.3 Table 77's `/BBox`, if the shading dictionary states one.
+///
+/// > An array of four numbers giving the left, bottom, right, and top coordinates,
+/// > respectively, of the shading's bou nding box. The coordinates shall be interpreted in
+/// > the shading's target coordinate space. If present, this bounding box shall be applied
+/// > as a temporary clipping boundary when the shading is painted, in addition to the
+/// > current clipping path and any other clipping boundaries in effect at that time.
+///
+/// Returned as four numbers rather than applied here, for two reasons the clause states. It
+/// is in the shading's *target* space — the space the caller paints into — where everything
+/// else in this module is in the shading's own; and it is a **clip**, which is the
+/// interpreter's to compose, not a property of the gradient. NOTE 2 is a reminder that it
+/// is a clip like any other: a `BBox` of zero height or width "will still paint one pixel".
+#[must_use]
+pub fn bbox_of(document: &Document, object: &Object) -> Option<[f32; 4]> {
+    let resolved = document.resolve(object);
+    let dict = match &resolved {
+        Object::Dictionary(dict) => dict.clone(),
+        Object::Stream(stream) => stream.dict.clone(),
+        _ => return None,
+    };
+    let array = document.get_key(&dict, "BBox");
+    let values: Vec<f32> = array
+        .as_array()?
+        .iter()
+        .filter_map(|item| document.resolve(item).as_number().map(narrow))
+        .collect();
+    <[f32; 4]>::try_from(values.as_slice()).ok()
+}
+
 /// Reads `/Coords` as a fixed number of values.
 fn coords(document: &Document, dict: &Dictionary, expected: usize) -> Option<Vec<f32>> {
     let array = document.get_key(dict, "Coords");

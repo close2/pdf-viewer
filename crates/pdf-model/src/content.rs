@@ -243,8 +243,13 @@ impl BlackPoint {
 /// paint and is expanded here instead.
 #[derive(Debug, Clone)]
 enum PatternPaint {
-    /// A shading pattern (`/PatternType 2`).
-    Shading(Arc<Shading>),
+    /// A shading pattern (`/PatternType 2`), with Table 77's `/BBox` where it states one.
+    ///
+    /// The box travels as a rectangle and a transform rather than as a `ClipId`, because
+    /// the clause makes it a clip "in addition to the current clipping path … in effect at
+    /// that time" — the time being when the *pattern is painted*, which may be several `q`
+    /// levels away from the `scn` that selected it.
+    Shading(Arc<Shading>, Option<([f32; 4], Transform)>),
     /// A tiling pattern (`/PatternType 1`).
     Tiling(Rc<Tiling>),
 }
@@ -674,7 +679,7 @@ impl GraphicsState {
         // session this line dropped it: `alphatrans.pdf` states `Gradient: .5` on the page
         // and draws its gradient over three other objects, and we painted it opaque while
         // three references showed what was behind it.
-        if let Some(PatternPaint::Shading(shading)) = &self.fill_pattern {
+        if let Some(PatternPaint::Shading(shading, _)) = &self.fill_pattern {
             return Paint::Shading(shading_with_alpha(shading, self.fill_alpha));
         }
         Paint::Solid(Color {
@@ -697,7 +702,7 @@ impl GraphicsState {
 
     /// Returns the stroke colour with the constant alpha applied.
     fn stroke_paint(&self) -> Paint {
-        if let Some(PatternPaint::Shading(shading)) = &self.stroke_pattern {
+        if let Some(PatternPaint::Shading(shading, _)) = &self.stroke_pattern {
             return Paint::Shading(shading_with_alpha(shading, self.stroke_alpha));
         }
         Paint::Solid(Color {
@@ -1538,6 +1543,8 @@ impl Interpreter<'_> {
             // A tiling pattern is not a paint: its cell is a content stream, replayed
             // across the area the path covers. Doing that here rather than in the display
             // list keeps the list flat — no backend needs to know what a pattern is.
+            let fill_clip = self.paint_clip(state, true);
+            let stroke_clip = self.paint_clip(state, false);
             if let (Some(rule), Some(PatternPaint::Tiling(tiling))) =
                 (fill, state.fill_pattern.clone())
             {
@@ -1548,7 +1555,7 @@ impl Interpreter<'_> {
                     transform: state.transform,
                     fill_rule: rule,
                     paint: state.fill_paint(),
-                    clip: state.clip,
+                    clip: fill_clip,
                     mask: state.soft_mask,
                     blend: state.blend,
                 });
@@ -1559,7 +1566,7 @@ impl Interpreter<'_> {
                     transform: state.transform,
                     stroke: state.stroke.clone(),
                     paint: state.stroke_paint(),
-                    clip: state.clip,
+                    clip: stroke_clip,
                     mask: state.soft_mask,
                     blend: state.blend,
                 });
@@ -2345,6 +2352,30 @@ impl Interpreter<'_> {
         (values.len() >= 4).then(|| [values[0], values[1], values[2], values[3]])
     }
 
+    /// The clip in force for a paint, including a shading pattern's own `/BBox`.
+    ///
+    /// ISO 32000-2 §8.7.4.3 Table 77 makes `/BBox` "a temporary clipping boundary … in
+    /// addition to the current clipping path and any other clipping boundaries in effect at
+    /// that time", so it nests *inside* whatever the graphics state already has rather than
+    /// replacing it. A pattern with no `/BBox`, or a paint that is not a shading pattern,
+    /// gets the state's clip unchanged and costs nothing.
+    ///
+    /// `None` for the clip is "no clip"; the error case — a display list already holding as
+    /// many clips as it can — falls back to the state's own, because losing a bounding box
+    /// draws too much and losing the whole command draws nothing.
+    fn paint_clip(&mut self, state: &GraphicsState, fill: bool) -> Option<ClipId> {
+        let pattern = if fill {
+            state.fill_pattern.as_ref()
+        } else {
+            state.stroke_pattern.as_ref()
+        };
+        let Some(PatternPaint::Shading(_, Some((corners, transform)))) = pattern else {
+            return state.clip;
+        };
+        self.rect_clip(*corners, *transform, state.clip)
+            .or(state.clip)
+    }
+
     /// Registers a clip shaped like a rectangle, nested inside `parent`.
     ///
     /// `None` only when the display list is full of clips, which the caller reports.
@@ -2732,6 +2763,7 @@ impl Interpreter<'_> {
                 let glyph_to_user = glyph_to_text.then(text.matrix);
                 let transform = glyph_to_user.then(state.transform);
 
+                let glyph_fill_clip = self.paint_clip(state, true);
                 match &font {
                     Font::Program(program) => {
                         if let Some(outline) = program.outline(code) {
@@ -2748,7 +2780,7 @@ impl Interpreter<'_> {
                                     // 'B'.
                                     fill_rule: FillRule::NonZero,
                                     paint: state.fill_paint(),
-                                    clip: state.clip,
+                                    clip: glyph_fill_clip,
                                     mask: state.soft_mask,
                                     blend: state.blend,
                                 });
@@ -2835,12 +2867,13 @@ impl Interpreter<'_> {
     ) {
         let mut in_user_space = Path::new();
         in_user_space.extend_transformed(outline, glyph_to_user);
+        let glyph_stroke_clip = self.paint_clip(state, false);
         self.list.push(Command::Stroke {
             path: Arc::new(in_user_space),
             transform: state.transform,
             stroke: state.stroke.clone(),
             paint: state.stroke_paint(),
-            clip: state.clip,
+            clip: glyph_stroke_clip,
             mask: state.soft_mask,
             blend: state.blend,
         });
@@ -3086,6 +3119,17 @@ impl Interpreter<'_> {
         };
 
         // `sh` is drawn in the current user space, unlike a pattern.
+        //
+        // Table 77's `/BBox` is read here rather than inside `shading::build`, because it is
+        // stated "in the shading's target coordinate space" — which is the space the caller
+        // paints into, not the shading's own — and because the clause makes it a *clip*
+        // rather than a property of the gradient: "this bounding box shall be applied as a
+        // temporary clipping boundary when the shading is painted, in addition to the
+        // current clipping path and any other clipping boundaries in effect at that time".
+        let clip = crate::shading::bbox_of(self.document, &object).map_or(state.clip, |corners| {
+            self.rect_clip(corners, state.transform, state.clip)
+                .or(state.clip)
+        });
         match crate::shading::build(self.document, &object, resources, state.transform) {
             Ok(shading) => {
                 let mut path = Path::new();
@@ -3107,7 +3151,7 @@ impl Interpreter<'_> {
                     // §11.6.4.4's non-stroking constant applies to `sh` as to any other
                     // non-stroking painting operation.
                     paint: Paint::Shading(shading_with_alpha(&Arc::new(shading), state.fill_alpha)),
-                    clip: state.clip,
+                    clip,
                     mask: state.soft_mask,
                     blend: state.blend,
                 });
@@ -3161,7 +3205,14 @@ impl Interpreter<'_> {
             resources,
             matrix.then(self.base),
         ) {
-            Ok(shading) => Some(PatternPaint::Shading(Arc::new(shading))),
+            Ok(shading) => Some(PatternPaint::Shading(
+                Arc::new(shading),
+                // Stated "in the shading's target coordinate space", which for a pattern is
+                // the pattern space — the shading's own `/Matrix` (type 1 only) is applied
+                // inside `build` and comes *after* this.
+                crate::shading::bbox_of(self.document, &shading_object)
+                    .map(|corners| (corners, matrix.then(self.base))),
+            )),
             Err(error) => {
                 self.note(Unsupported::Shading {
                     name: format!("/{name}: {error}"),
