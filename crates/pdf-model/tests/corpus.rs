@@ -366,7 +366,13 @@ const MAX_PAGELESS: usize = 11;
 /// 16 bits were refused and named. Three documents were waiting on that; the fourth is
 /// `issue14256.pdf`, whose 4-bit image was one of eight inline images testing §8.9.7's
 /// abbreviations against their full names, and which now draws all eight alike.
-const MAX_INCOMPLETE: usize = 106;
+///
+/// **106 to 105 in the thirty-third session.** §8.4.5's Table 57 `/Font` selects a font by
+/// indirect reference rather than by resource name, and this crate's font cache was keyed by
+/// the name — so `extgstate.pdf`, a page whose text says "I should be courier!", said instead
+/// that it could not address the font. The cache is now keyed by either, and the page draws in
+/// Courier and agrees with the reference consensus.
+const MAX_INCOMPLETE: usize = 105;
 
 /// How long one document may take before it counts as a failure.
 ///

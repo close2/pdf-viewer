@@ -696,42 +696,57 @@ fn channel(value: f32) -> f32 {
 
 /// The sixteen corners of the CMYK cube, as sRGB, indexed by the bits `c m y k`.
 ///
-/// # This is a choice, because the specification does not make one
+/// # The standard states two answers and ranks them, and this is the higher one
 ///
-/// ISO 32000-2 §8.6.4.4 gives **no** conversion from `DeviceCMYK` to any other space. What
-/// it says of the components is only what they mean:
+/// This comment used to open "ISO 32000-2 gives **no** conversion from `DeviceCMYK` to any
+/// other space", on the evidence of §8.6.4.4, which says of the components only that they
+/// "shall represent the concentrations of these process colourants". That was true of the
+/// clause it cited and false of the standard. **§10.4.2.5 states a conversion outright** —
+/// each additive component is one minus the sum of its complementary ink and the black,
+/// clamped at one — and §10.4.2.1 says what it is for: "a less-capable PDF processor **may** choose to use
+/// the algorithms specified in the following subclauses 10.4.2.2 through 10.4.2.5. These
+/// algorithms are, however, very simple and as perceived by a human viewer they produce only
+/// crude approximations of the original colours." An ICC-enabled processor "should always
+/// follow the provisions and recommendations provided in 10.3".
 ///
-/// > The four components in a DeviceCMYK colour value shall represent the concentrations of
-/// > these process colourants.
+/// So the question is not unanswered; it is answered twice, in a stated order, and this tree
+/// is on the higher branch. §10.3.2 is the sentence that authorises what this table *is*:
 ///
-/// §8.6.5.7 NOTE 3 says
-/// outright that nothing in PDF describes the output device's calibration. The spec is not
-/// silent by omission here — it is telling us the question has no answer in the abstract:
-/// what a `DeviceCMYK` colour looks like is a property of a press, and a press is not
-/// something a PDF describes.
+/// > A PDF processor should establish CIE-based colour specifications for device colour
+/// > spaces ( DeviceGray , DeviceRGB , or DeviceCMYK ), and thus implicitly remap device
+/// > colour spaces into CIEbased colour spaces, when those device colour spaces do not
+/// > match that of the raster output device.
 ///
-/// So this table cannot be derived, and nothing here should be read as claiming it was.
-/// What the specification does say is *which* press to ask, and it names three sources in
-/// order — `/DefaultCMYK` (§8.6.5.6, "shall be used"), an output intent's
+/// A display's native space is not CMYK, so the remapping is required of us, and §10.3.1
+/// puts the choice of destination "beyond the scope of this document" while its NOTE lists
+/// "assumptions made by the PDF processor software" among the ways it may be made. Assuming
+/// standard process inks *is* such an assumption, made in the one place the clause leaves for
+/// it.
+///
+/// What the specification does state is *which press to ask first*, and it names three
+/// sources — `/DefaultCMYK` (§8.6.5.6, "shall be used"), an output intent's
 /// `/DestOutputProfile` (§14.11.5, §8.6.5.7 NOTE 3), and an `ICCBased` space naming the
-/// profile directly. All three are implemented and all three win over this table. It is
-/// reached only when the document names no press at all, and then some press must be
-/// assumed to put anything on screen.
+/// profile directly. All three are implemented and all three win over this table, which is
+/// reached only when the document names no press at all.
 ///
 /// The press assumed is standard process inks, at their published sRGB appearances:
 /// `#00AEEF` cyan, `#EC008C` magenta, `#FFF200` yellow, `#231F20` black, with the
 /// overprints that follow from them. Written as eight-bit values because that is the
 /// precision at which ink appearances are published.
 ///
-/// The naive `1 - min(1, c + k)` this replaced is a different matter: it is off by up to
-/// 115 of 255 at these corners and renders process magenta as `#FF00FF`, a colour no ink
-/// produces. That formula is not a coarser answer to the question — it is an answer to a
-/// question about additive light, asked of subtractive ink.
+/// # And the crude answer was measured rather than dismissed
+///
+/// §10.4.2.5's formula is off by up to 115 of 255 at these corners and renders process
+/// magenta as `#FF00FF`, a colour no ink produces — which is the difference between an answer
+/// about subtractive ink and one about additive light. That is an argument; the measurement
+/// is the evidence. Over the whole oracle, switching this table for §10.4.2.5's formula moves
+/// **802 agreeing and 88 contradicted pages to 800 and 90**. So the standard's own lower
+/// branch is worse here than its higher one, which is what §10.4.2.1 says to expect of it.
 ///
 /// Other readers land within a level of these numbers. That is evidence that assuming
-/// standard process inks is the conventional reading of an unspecified case — not evidence
-/// that these numbers are correct, because for an unspecified case there is nothing for
-/// them to be correct against.
+/// standard process inks is the conventional reading of §10.3.2's licence — not evidence that
+/// these numbers are correct, because the clause states no destination for them to be correct
+/// against.
 #[rustfmt::skip]
 const CMYK_CORNERS: [[u8; 3]; 16] = [
     //  R    G    B      c m y k

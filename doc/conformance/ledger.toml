@@ -2363,132 +2363,180 @@ status = "unreviewed"
 [[clause]]
 clause = "10.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs", "crates/render-cpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "Introductory, and its four steps are the map of this clause: convert to the device's native space (§10.3, §10.4), apply transfer functions (§10.5, deprecated and inapplicable here), scan-convert (§10.7), halftone if the device does (§10.6, inapplicable). Three of the four are answered in the rows below; the one this tree does is the first and the third."
 
 [[clause]]
 clause = "10.2"
 title = "Raster output device native colour"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "This device's native colour space is RGB and it has no spot colourants, which is the fact §8.6.7 and §11.7.4's Table 146 are read against — see ADR 0028, where it makes overprinting Normal rather than a gap. \"Colours specified in any device or CIE-based colour space shall be rendered as process colours\" is `ColourSpace::to_rgb`, the one route from any space to a pixel."
 
 [[clause]]
 clause = "10.3"
 title = "CIE-Based colour to device colour"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/icc.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "The branch this tree is on. See §10.3.1 and §10.3.2."
 
 [[clause]]
 clause = "10.3.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/icc.rs", "crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/src/icc.rs::a_real_cmyk_profile_agrees_with_independent_evaluators"]
+note = "\"Conversion from a CIE-based source colour to a CIE-based destination colour shall be performed based on ISO 15076-1:2010 (ICC.1:2010)\", which is the A2B evaluator in `icc.rs`. The clause puts *establishing* the destination \"beyond the scope of this document\" and names output intents (§14.11.5) as one way — implemented — and its NOTE lists \"assumptions made by the PDF processor software\" as another, which is what `CMYK_CORNERS` is and where it is licensed from."
 
 [[clause]]
 clause = "10.3.2"
 title = "Establishing CIE-based colour space definitions"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "The sentence that authorises the `DeviceCMYK` fallback, and the thirty-third session's finding: a processor \"should establish CIE-based colour specifications for device colour spaces … when those device colour spaces do not match that of the raster output device\". A display's native space is not CMYK, so the remapping is asked of us; assuming standard process inks is the CIE-based specification established for it, and every source the document names — `/DefaultCMYK`, an output intent, an `ICCBased` space — outranks it. `DeviceGray` and `DeviceRGB` need no remapping on an RGB device."
 
 [[clause]]
 clause = "10.4"
 title = "Conversions among device colour spaces"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "See §10.4.2.1: these are the algorithms an ICC-enabled processor is told to prefer §10.3 over, and this tree does. `DeviceGray` to `DeviceRGB` is §10.4.2.2's and is implemented; the rest are not used and are named as departures rather than gaps."
 
 [[clause]]
 clause = "10.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "Introductory; it names the three conversions the subclauses below define."
 
 [[clause]]
 clause = "10.4.2"
 title = "Classic colour conversion methods"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "See §10.4.2.1 for the ranking and the individual rows for what is done."
 
 [[clause]]
 clause = "10.4.2.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "The clause that ranks the two answers, and it is the one that had never been read: \"Although ICC enabled PDF processors should always follow the provisions and recommendations provided in 10.3 … a less-capable PDF processor may choose to use the algorithms specified in the following subclauses 10.4.2.2 through 10.4.2.5. These algorithms are, however, very simple and as perceived by a human viewer they produce only crude approximations of the original colours.\" This tree is on the §10.3 branch, which is a decision recorded here rather than an omission."
 
 [[clause]]
 clause = "10.4.2.2"
 title = "Conversion between DeviceGray and DeviceRGB"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "`DeviceGray` to `DeviceRGB` is the clause's rule exactly — \"a gray level shall be equivalent to an RGB value with all three components the same\" — and it is the whole of `ColourSpace::Gray`'s conversion. The other direction, the NTSC weights that make an RGB colour grey, is for a monochrome device and is asked of nothing here."
 
 [[clause]]
 clause = "10.4.2.3"
 title = "Conversion between DeviceGray and DeviceCMYK"
-status = "unreviewed"
+status = "inapplicable"
+note = "Both directions are for a device whose native space is CMYK or grey. This one's is RGB (§10.2), so neither conversion is on any route to a pixel: a `DeviceGray` colour reaches RGB by §10.4.2.2 and a `DeviceCMYK` one by §10.3.2's established specification."
 
 [[clause]]
 clause = "10.4.2.4"
 title = "Conversion from DeviceRGB to DeviceCMYK"
-status = "unreviewed"
+status = "inapplicable"
+note = "`DeviceRGB` to `DeviceCMYK`, with the black-generation and undercolour-removal functions Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` supply. Nothing on this device converts *to* CMYK, so the two functions are read by nobody and cannot change a pixel — which is why they are not a `silent` row. §11.7.5.3 is where they would matter, and it is about a CMYK blending space this tree already reports (§11.6.6)."
 
 [[clause]]
 clause = "10.4.2.5"
 title = "Conversion from DeviceCMYK to DeviceRGB"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "**The clause this project spent thirty-two sessions asserting did not exist.** It states a `DeviceCMYK` to `DeviceRGB` conversion outright, and `CMYK_CORNERS`'s comment used to open \"ISO 32000-2 gives no conversion from DeviceCMYK to any other space\" on the evidence of §8.6.4.4 — true of that clause and false of the standard. It is not implemented, deliberately: §10.4.2.1 offers it to \"a less-capable PDF processor\" and calls the family's results \"crude approximations\", and §10.3 is what this tree follows instead. Measured rather than argued away — swapping the table for this formula moves the oracle from 802 agreeing and 88 contradicted to 800 and 90."
 
 [[clause]]
 clause = "10.5"
 title = "Transfer functions"
-status = "unreviewed"
+status = "inapplicable"
+note = "A transfer function \"compensates for the device's actual behaviour\", operates \"in the native colour space of the output device\", and its graphics-state entries `/TR` and `/TR2` are **deprecated in PDF 2.0**. A display's calibration is not a property this document may state, and this tree writes sRGB and stops. Not to be confused with §11.6.5.2's `/TR` inside a soft-mask dictionary, which is a different entry in a different dictionary and is implemented (ADR 0027)."
 
 [[clause]]
 clause = "10.6"
 title = "Halftones"
-status = "unreviewed"
+status = "inapplicable"
+note = "Halftoning approximates continuous tone with a pattern of dots on a device that cannot produce it. This one can: every component reaches the raster as eight bits. §10.1 makes the step conditional — \"if the raster output device supports PDF-defined halftoning\" — and it does not."
 
 [[clause]]
 clause = "10.6.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.2"
 title = "Halftone screens"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.3"
 title = "Spot functions"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.4"
 title = "Threshold arrays"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.5"
 title = "Halftone dictionaries"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6. Table 57's `/HT` and `/HTO` are read by nobody for the same reason."
 
 [[clause]]
 clause = "10.6.5.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.5.2"
 title = "Type 1 halftones"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.5.3"
 title = "Type 6 halftones"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.5.4"
 title = "Type 10 halftones"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.5.5"
 title = "Type 16 halftones"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.6.5.6"
 title = "Type 5 halftones"
-status = "unreviewed"
+status = "inapplicable"
+note = "See §10.6."
 
 [[clause]]
 clause = "10.7"
@@ -2541,22 +2589,28 @@ note = "The clause has two requirements and the nineteenth session implemented t
 [[clause]]
 clause = "10.8"
 title = "Rendering for separations"
-status = "unreviewed"
+status = "inapplicable"
+note = "Separations are one output per device colourant, \"usually as bitmaps\", for a press. See §10.8.3 for the one part of this subclause that could apply to a screen."
 
 [[clause]]
 clause = "10.8.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "\"Whether separations are produced is up to the processing software\", and this one produces a screen."
 
 [[clause]]
 clause = "10.8.2"
 title = "Separations"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "The clause states this tree's behaviour as the expected one: \"Alternate colour spaces are supplied for DeviceN and Separation colour spaces so that files prepared for generation of separations can be displayed on other devices and, in many cases, the overprint controls are ignored.\" Both halves are what happens here — the alternate space and its tint transform are evaluated, and overprinting is ignored on the argument ADR 0028 makes from §8.6.7. The clause's own worked example, cyan then yellow overprinting to green on a press and staying yellow on a screen, is the picture this device draws."
 
 [[clause]]
 clause = "10.8.3"
 title = "Separation simulation"
-status = "unreviewed"
+status = "reported"
+note = "Separation simulation — rendering a page as a press would, by making separations, converting each to flat XYZ against a white matte and multiply-blending them. Not implemented and not silent: it is a *simulation* a processor performs when asked to, and nothing in a PDF asks for it. The clause's own condition is \"if it is important … to more closely match those produced when using separations\", which is a user's request rather than a document's, and this viewer has no such control. Recorded here so that the day one exists, the algorithm is known to be stated."
 
 [[clause]]
 clause = "11.1"

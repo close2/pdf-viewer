@@ -782,6 +782,22 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
     }
 }
 
+/// What a loaded font is remembered by.
+///
+/// Two things select a font and they do not select it the same way, which is §8.4.1 NOTE 1's
+/// "either way" with a twist: `Tf` names a resource, and §8.4.5's Table 57 `/Font` is an
+/// array whose first element "shall be an indirect object reference instead of a resource
+/// name". Both are cached, and a document that reaches one font both ways loads it twice —
+/// which costs one parse and is the price of not pretending a name and an object identity are
+/// the same key.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum FontKey {
+    /// A `/Font` resource, by the name the content stream used.
+    Named(String),
+    /// A font dictionary, by the object it is.
+    Referenced(pdf_syntax::ObjectId),
+}
+
 /// Returns the page size after rotation, since a rotated page swaps its extents.
 fn rotated_size(page: &Page) -> Size {
     // §7.7.3.3 Table 31's `/UserUnit` is "the size of default user space units, in multiples
@@ -864,7 +880,7 @@ struct Interpreter<'a> {
     ///
     /// A page names the same font on every `Tf`, and parsing a font program is expensive,
     /// so this is what keeps text rendering from being dominated by font loading.
-    fonts: BTreeMap<String, Option<Font>>,
+    fonts: BTreeMap<FontKey, Option<Font>>,
     /// Maps PDF user space to page space.
     ///
     /// Pattern space is defined relative to the page's default coordinates rather than to
@@ -1730,16 +1746,7 @@ impl Interpreter<'_> {
         if let Some(limit) = self.document.get_key(dict, "ML").as_number() {
             state.stroke.miter_limit = miter_limit(narrow(limit));
         }
-        // Table 57's `/Font`, which is `[font size]` with the font an *indirect reference*
-        // rather than a resource name — the one entry here that cannot go through the same
-        // route its operator does, since `Tf` and this crate's font cache are both keyed by
-        // the name. One corpus document writes it, `extgstate.pdf`, and what it would change
-        // is which glyphs the page draws, so it is named rather than passed over.
-        if !matches!(self.document.get_key(dict, "Font"), Object::Null) {
-            self.note(Unsupported::Font {
-                detail: "a font selected by Table 57's /Font entry".to_owned(),
-            });
-        }
+        self.apply_ext_gstate_font(dict, state);
         if let Some(width) = self.document.get_key(dict, "LW").as_number() {
             #[expect(
                 clippy::cast_possible_truncation,
@@ -2636,21 +2643,68 @@ impl Interpreter<'_> {
         self.run(&data, &resources, &state, 1);
     }
 
+    /// Table 57's `/Font`, which is §8.4.5's other route to the two parameters `Tf` sets.
+    ///
+    /// > An array of the form [ font size ], where font shall be an indirect reference to a
+    /// > font dictionary and size shall be a number expressed in text space units. These two
+    /// > objects correspond to the operands of the Tf operator (see 9.3, "Text state
+    /// > parameters and operators"); however, the first operand shall be an indirect object
+    /// > reference instead of a resource name.
+    ///
+    /// So both text state parameters are set, exactly as `Tf` sets them, and the font is
+    /// cached by the object it *is* rather than by a name it has none of. That last point is
+    /// the whole reason this took twenty-four sessions: the font cache was keyed by resource
+    /// name, so there was nowhere to put a font that has none, and `extgstate.pdf` — whose
+    /// page says "I should be courier!" — was reported rather than drawn.
+    fn apply_ext_gstate_font(&mut self, dict: &Dictionary, state: &mut GraphicsState) {
+        let entry = self.document.get_key(dict, "Font");
+        let Some(entry) = entry.as_array() else {
+            return;
+        };
+        let reference = entry.first().cloned();
+        let size = entry
+            .get(1)
+            .map(|item| self.document.resolve(item))
+            .and_then(|item| item.as_number());
+        if let (Some(Object::Reference(id)), Some(size)) = (reference, size) {
+            let font_dict = self.document.get(id).as_dict().cloned();
+            let name = format!("object {} {}", id.number, id.generation);
+            state.text.font = self.load_font(FontKey::Referenced(id), font_dict.as_ref(), &name);
+            state.text.size = narrow(size);
+        } else {
+            // A `/Font` this crate cannot read as the clause states it is reported rather
+            // than half-applied: a size without a font would move every glyph the page
+            // draws afterwards.
+            self.note(Unsupported::Font {
+                detail: "Table 57's /Font is not [indirect-reference size]".to_owned(),
+            });
+        }
+    }
+
     /// Loads a font by resource name, caching the result including failures.
     ///
     /// A failure is cached too: a page that names an unloadable font on every `Tf` should
     /// pay for the attempt once, and should report it once.
     fn font(&mut self, resources: &Dictionary, name: &str) -> Option<Font> {
-        if let Some(cached) = self.fonts.get(name) {
-            return cached.clone();
-        }
-
         let dict = self
             .resource(resources, "Font", name)
             .and_then(|object| object.as_dict().cloned());
-        let loaded = dict
-            .as_ref()
-            .map(|dict| pdf_font::LoadedFont::load(self.document, dict, name));
+        self.load_font(FontKey::Named(name.to_owned()), dict.as_ref(), name)
+    }
+
+    /// Loads a font, caching it under `key`, which is what `Tf` and Table 57's `/Font` share.
+    ///
+    /// §8.4.1's NOTE 1 gives most graphics state parameters two routes, and this is the one
+    /// where the two do not name the same thing: `Tf` names a *resource*, and Table 57's
+    /// `/Font` is "an indirect reference to a font dictionary" instead. A cache keyed only by
+    /// the resource name therefore had nowhere to put the second, which is why one corpus
+    /// document's `/ExtGState` font was reported rather than loaded for twenty-four sessions.
+    fn load_font(&mut self, key: FontKey, dict: Option<&Dictionary>, name: &str) -> Option<Font> {
+        if let Some(cached) = self.fonts.get(&key) {
+            return cached.clone();
+        }
+
+        let loaded = dict.map(|dict| pdf_font::LoadedFont::load(self.document, dict, name));
 
         let result = match loaded {
             Some(Ok(font)) => Some(Font::Program(Rc::new(font))),
@@ -2658,10 +2712,7 @@ impl Interpreter<'_> {
             // streams, so it is this crate that draws them (§9.6.4). The refusal there is
             // the hand-off rather than a failure, which is why this is not a report.
             Some(Err(pdf_font::FontError::Type3 { .. })) => {
-                match dict
-                    .as_ref()
-                    .map(|dict| crate::type3::Type3Font::read(self.document, dict, name))
-                {
+                match dict.map(|dict| crate::type3::Type3Font::read(self.document, dict, name)) {
                     Some(Ok(font)) => Some(Font::Type3(Rc::new(font))),
                     Some(Err(error)) => {
                         self.note(Unsupported::Font {
@@ -2686,7 +2737,7 @@ impl Interpreter<'_> {
             }
         };
 
-        self.fonts.insert(name.to_owned(), result.clone());
+        self.fonts.insert(key, result.clone());
         result
     }
 
