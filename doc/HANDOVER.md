@@ -142,9 +142,9 @@ person for a password — and the gap is measured below rather than guessed at.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1620 pages we claim to draw completely, **754 agree with the reference
-  consensus, 102 are contradicted and 751 are pages the references cannot agree about among
-  themselves**. The 102 are named, grouped and ratcheted in both directions. Twenty-five pages
+  (ADR 0020). Of the 1620 pages we claim to draw completely, **758 agree with the reference
+  consensus, 101 are contradicted and 751 are pages the references cannot agree about among
+  themselves**. The 101 are named, grouped and ratcheted in both directions. Twenty-five pages
   do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
   target size is degenerate or past the pixel limit. **None is a page we decline to draw** —
   the last four of those left in the twenty-fourth session (ADR 0033). ADR 0011.
@@ -289,8 +289,8 @@ the exception with its reasoning. Nothing to chase.
 | Crate | Does | Notes |
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
-| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings |
-| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused |
+| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings. `filter.rs` is §7.4's ten standard filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately answered `None` so a *content* stream naming one is visibly unsupported |
+| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused; its `Decode` is §8.9.5.2's map held as one table per component and its `Conversion` is an *exact* per-image memo, which is what makes converting every image through its real colour space affordable (ADRs 0034, 0035). `page.rs` is §7.7.3: the tree walk, the four inheritable entries and the twelve that are not, and `/UserUnit` (ADR 0038) |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for CFF, §9.6.5.4 for `TrueType`, ADR 0015). `code_for` is the one *backwards* route — a character to the code that draws it — and it is built by running the forward mapping over every code the font defines, so the two cannot disagree. `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree. `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot make them differently: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `soft_mask.rs` turns rendered pixels into §11.5's mask values. `Command::Group` is the one nested command (ADR 0026) and `impose_on_medium` is §11.4.7. `Path::extend_transformed` is the one place geometry moves rather than travelling with a transform (§9.3.6, ADR 0022). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path |
@@ -758,6 +758,9 @@ shading's `/BBox` and had nothing to do with its fonts (ADR 0037).
 
 **The pattern to read this table by**: a feature that makes pages drawable adds them to the set
 being judged, so the numerator and the denominator move together and only one of those is news.
+The denominator has not moved for six sessions, so the last five sessions' movements are all
+numerator: the twenty-eighth fixed one contradicted page (a shading's `/BBox`) and the
+twenty-ninth moved three out of the geometry bucket into agreement (`/UserUnit`).
 The twenty-fourth session exchanged one page for another — one joined by becoming drawable, one
 left by starting to report — and made four pages that had *never rasterised* draw, three of which
 agree; the twenty-third added 9 pages, 7 of them agreeing and **none contradicted**; the
@@ -1128,8 +1131,10 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
 The 174 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
-say we cannot draw is expected to differ. **The gated set was unchanged in the twenty-fourth session** — one page joined by
-becoming drawable at all and one left by starting to report — and **grew by 9 in the twenty-third,
+say we cannot draw is expected to differ. **The gated set has been the same 1620 pages for six
+sessions**, which is why the last five moved `agrees` and `contradicted` without moving either
+denominator: every one of them fixed or clarified a page already in the comparison rather than
+adding one. Before that it **grew by 9 in the twenty-third,
 by 8 in the twenty-second and by 46 in the twenty-first**, and by 32 in the twentieth, all as
 reports stopped firing; it *shrank* by 8 in the seventeenth as
 two silences ended, and by 43 in the eighth, which is the cost of honesty and the reason a report
