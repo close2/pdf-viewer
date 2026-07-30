@@ -205,6 +205,20 @@ impl Command {
         }
     }
 
+    /// Returns the blend mode this command is composited under (§11.3.5).
+    ///
+    /// Every command carries one, including a group, for which §11.6.6 makes it the mode
+    /// the group's *result* is painted with rather than one its elements see.
+    #[must_use]
+    pub fn blend(&self) -> BlendMode {
+        match self {
+            Self::Fill { blend, .. }
+            | Self::Stroke { blend, .. }
+            | Self::Image { blend, .. }
+            | Self::Group { blend, .. } => *blend,
+        }
+    }
+
     /// Returns the soft mask in effect for this command, if any.
     ///
     /// Per command rather than per run of commands because §11.6.4.3's NOTE 2 makes the

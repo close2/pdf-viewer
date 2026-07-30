@@ -203,7 +203,7 @@ pub fn transparency_group() -> DisplayList {
 /// held to each other at all, which the thirty-seventh session found by reading §11.3.5 rather
 /// than by any gate noticing.
 ///
-/// The four in Table 136 are why that matters. Hue, Saturation, Color and Luminosity are
+/// The four in Table 135 are why that matters. Hue, Saturation, Color and Luminosity are
 /// *non-separable*: each is defined by the clause's `Lum`, `ClipColor`, `SetLum` and `SetSat`
 /// functions over all three components at once, so no per-component formula produces them and
 /// a backend that got one subtly wrong would still produce a plausible picture. Trap 2's rule
@@ -289,7 +289,7 @@ pub fn blend_modes() -> DisplayList {
     list
 }
 
-/// §11.3.5's sixteen modes, in Table 134's order and then Table 136's.
+/// §11.3.5's sixteen modes, in Table 134's order and then Table 135's.
 pub const ALL_BLEND_MODES: [BlendMode; 16] = [
     BlendMode::Normal,
     BlendMode::Multiply,

@@ -266,9 +266,31 @@ impl<'a> Parser<'a> {
                     }
                     match self.parse_object() {
                         Ok(value) => {
-                            // A duplicate key is malformed and the specification does not
-                            // say which wins. First wins here, matching poppler, so at
-                            // least the choice is the same as the majority of readers.
+                            // ISO 32000-2 §7.3.7:
+                            //
+                            // > A dictionary entry whose value is null (see 7.3.9, "Null
+                            // > object") shall be treated the same as if the entry does not
+                            // > exist.
+                            //
+                            // Dropped here rather than at every reader, because "the same
+                            // as" leaves nothing for one to distinguish. `Document::get_key`
+                            // already answers `Null` for an absent key and for a reference
+                            // that resolves to nothing (§7.3.10), so this closes the one
+                            // remaining spelling — a *direct* null, which `Dictionary::get`,
+                            // `len` and `iter` would otherwise show.
+                            if matches!(value, Object::Null) {
+                                continue;
+                            }
+                            // A duplicate key is malformed — "[m]ultiple entries in the same
+                            // dictionary shall not have the same key" — and the clause
+                            // states no recovery. Nor can one be derived: the entries "shall
+                            // be unordered even though an arbitrary order may be imposed
+                            // upon them when written in a file. That ordering shall be
+                            // ignored", so a rule preferring the first or the last would be
+                            // reading the very order the clause discards. **This is a
+                            // documented choice, not a derivation** (`CLAUDE.md` principle
+                            // 5): first wins. poppler agrees, which is evidence that the
+                            // choice is unsurprising and is not a reason for it.
                             let key = Name::new(bytes);
                             if dict.get_by_name(&key).is_none() {
                                 dict.insert(key, value);
@@ -488,15 +510,29 @@ mod tests {
     /// > A dictionary entry whose value is null … shall be treated the same as if the entry
     /// > does not exist.
     ///
-    /// True here without a rule enforcing it, which is the better kind of true: a missing
-    /// key and a null one are the same `Object::Null` to every reader of the dictionary.
+    /// This used to be asserted through `Document::get_key`, which answers `Null` for an
+    /// absent key — so the assertion was the implementation restated and passed while
+    /// `Dictionary::get` still handed back `Some(Null)`, `len` still counted the entry and
+    /// `iter` still yielded it. "The same as if the entry does not exist" is a statement
+    /// about the *dictionary*, so it is asserted about the dictionary.
     #[test]
     fn a_null_value_reads_the_same_as_an_absent_key() {
         let present = dictionary("<< /Mask null >>");
         let absent = dictionary("<< >>");
 
-        let read = |dict: &crate::Dictionary| dict.get("Mask").cloned().unwrap_or(Object::Null);
-        assert_eq!(read(&present), read(&absent));
-        assert_eq!(read(&present), Object::Null);
+        assert_eq!(present, absent);
+        assert_eq!(present.get("Mask"), None);
+        assert_eq!(present.len(), 0);
+    }
+
+    /// The same rule, and the one place it could still be seen: §8.9.7's inline images
+    /// decide between an abbreviated key and its full spelling by *presence*, so a
+    /// `/Filter null` would have made a dictionary that both has and has not got a filter.
+    #[test]
+    fn a_null_value_does_not_survive_beside_a_real_one() {
+        let dict = dictionary("<< /F null /Filter /FlateDecode >>");
+
+        assert_eq!(dict.get("F"), None);
+        assert_eq!(dict.len(), 1);
     }
 }

@@ -188,8 +188,8 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
     );
 }
 
-/// Every one of §11.3.5's sixteen blend modes is the same function on both backends —
-/// except three, which are named here with the clause's own arithmetic beside them.
+/// Every one of §11.3.5's sixteen blend modes is the same function on both backends, to
+/// the channel.
 ///
 /// # The scene that was missing
 ///
@@ -199,16 +199,16 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
 /// been compared with each other, and trap 2 says what that means — a decision either backend
 /// can make alone is a decision neither has made.
 ///
-/// Table 136's four are why it matters. Hue, Saturation, Color and Luminosity are
+/// Table 135's four are why it matters. Hue, Saturation, Color and Luminosity are
 /// *non-separable*: each is defined over all three components at once through the clause's
 /// `Lum`, `ClipColor`, `SetLum` and `SetSat` functions, so no per-component formula produces
 /// them and one of them being wrong still draws a plausible picture.
 ///
-/// # What it found, and why the closed form settles it
+/// # What it found, and why the closed form settled it
 ///
-/// Twelve separable modes and `Saturation` agree **exactly** — not within a tolerance, to the
-/// channel. `Hue`, `Color` and `Luminosity` differ by 113 of 255, and the disagreement is not
-/// a tie: §11.3.5.3's arithmetic says which is right.
+/// Twelve separable modes and `Saturation` agreed exactly at once. `Hue`, `Color` and
+/// `Luminosity` differed by 113 of 255, and that was not a tie: §11.3.5.3's arithmetic says
+/// which is right.
 ///
 /// Take red painted over blue in `Hue`, which the clause defines as
 /// `SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))`. `Sat(blue)` is 1 and `SetSat(red, 1)` is red;
@@ -216,29 +216,29 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
 /// gives (0.81, −0.19, −0.19). `ClipColor` then applies, because a component fell below 0:
 /// with `L` = 0.11 and `n` = −0.19 the red component becomes
 /// `L + (C − L) × L ÷ (L − n)` = 0.11 + 0.70 × 0.11 ÷ 0.30 = **0.367**, which is 94 in eight
-/// bits. Vello produces 94. `tiny-skia` produces 207, which is 0.81 — the value *before*
+/// bits. Vello produced 94. `tiny-skia` produced 207, which is 0.81 — the value *before*
 /// `ClipColor`.
 ///
-/// So the CPU backend, which is this project's correctness oracle for everything else, is the
-/// one that is wrong here, and the three modes are held in a list rather than under a
-/// tolerance: a ratchet in both directions, so that fixing one fails this test and having a
-/// fourth join it fails it too.
+/// The three are now `render-cpu`'s own arithmetic (ADR 0047) and the list of disagreements
+/// is empty. It stays here as a list rather than a tolerance, ratcheted in both directions,
+/// because that is what makes a fourth mode joining it a failure rather than a footnote —
+/// and because two independent implementations of a clause's formula agreeing to the channel
+/// is the strongest evidence this project can produce about arithmetic.
 #[test]
 fn cpu_and_gpu_agree_on_every_blend_mode() {
-    /// The modes whose two implementations are known to differ; see above.
-    const DISAGREE: [pdf_render::BlendMode; 3] = [
-        pdf_render::BlendMode::Hue,
-        pdf_render::BlendMode::Color,
-        pdf_render::BlendMode::Luminosity,
-    ];
+    /// The modes whose two implementations are known to differ; empty since ADR 0047.
+    const DISAGREE: [pdf_render::BlendMode; 0] = [];
     /// Four by four tiles, in the order `test_scenes::ALL_BLEND_MODES` lists them.
     const ACROSS: u32 = 4;
 
-    // In a debug build `tiny-skia`'s own `u16x16` multiply trips Rust's overflow check
-    // inside these three modes — `wide/u16x16_t.rs`, "attempt to multiply with overflow" —
-    // which is the sharpest evidence available that the defect is an intermediate exceeding
-    // sixteen bits and wrapping in release rather than a difference of reading. It is a
-    // dependency's arithmetic either way, so the scene is a release-build test and says so.
+    // Still a release-build test, and the reason is not the one this comment used to give.
+    // `tiny-skia`'s `u16x16` lanes are *meant* to wrap — that is what the SIMD instruction
+    // they stand in for does — so Rust's debug-build overflow check fires inside the library
+    // on modes that are perfectly correct: with the three non-separable ones no longer
+    // reaching it at all, `lowp::overlay` still panics in `wide/u16x16_t.rs`, and `Overlay`
+    // agrees with Vello to the channel in release. So an overflow panic in a dependency
+    // whose arithmetic is modular is not evidence of anything, and ADR 0046 leaned on it —
+    // see ADR 0047. What settled these three was the clause's closed form.
     if cfg!(debug_assertions) {
         return;
     }

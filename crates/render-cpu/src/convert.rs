@@ -104,11 +104,17 @@ pub(crate) fn color(c: Color) -> tiny_skia::Color {
     tiny_skia::Color::from_rgba(c.r, c.g, c.b, c.a).unwrap_or(tiny_skia::Color::BLACK)
 }
 
-/// Converts a blend mode.
+/// Converts a blend mode, for the twelve this backend hands to `tiny-skia`.
 ///
-/// `tiny-skia` implements all sixteen PDF blend modes, including the four
-/// non-separable ones, so this mapping is total — there is no fallback case that
-/// would silently render the wrong compositing result.
+/// ISO 32000-2 §11.3.5.2's twelve separable modes are the library's, and they agree with
+/// Vello to the channel. §11.3.5.3's four are not: three of them are wrong there by 113 of
+/// 255 (ADR 0046), so `crate::blend` computes all four and every call reaching this
+/// function under one of them is drawing onto a *transparent* layer for it.
+///
+/// Which is why they map to `SourceOver` rather than to the library's own versions, and
+/// why that is a derivation rather than a fallback: §11.3.6's compositing formula with
+/// α<sub>b</sub> = 0 collapses to the source colour whatever `B(Cb, Cs)` is, so on an
+/// empty layer every one of the sixteen modes *is* Normal.
 pub(crate) fn blend_mode(mode: BlendMode) -> tiny_skia::BlendMode {
     match mode {
         // PDF's Normal is source-over, not source-replace.
@@ -124,10 +130,10 @@ pub(crate) fn blend_mode(mode: BlendMode) -> tiny_skia::BlendMode {
         BlendMode::SoftLight => tiny_skia::BlendMode::SoftLight,
         BlendMode::Difference => tiny_skia::BlendMode::Difference,
         BlendMode::Exclusion => tiny_skia::BlendMode::Exclusion,
-        BlendMode::Hue => tiny_skia::BlendMode::Hue,
-        BlendMode::Saturation => tiny_skia::BlendMode::Saturation,
-        BlendMode::Color => tiny_skia::BlendMode::Color,
-        BlendMode::Luminosity => tiny_skia::BlendMode::Luminosity,
+        // Table 135's four, drawn onto transparency and composited by `crate::blend`.
+        BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity => {
+            tiny_skia::BlendMode::SourceOver
+        }
     }
 }
 

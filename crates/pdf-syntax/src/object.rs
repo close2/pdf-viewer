@@ -1,4 +1,11 @@
-//! The PDF object model: the eight basic types plus indirect references.
+//! The PDF object model: ISO 32000-2 §7.3.1's nine basic types, plus indirect references.
+//!
+//! > PDF syntax includes nine basic types of objects: boolean values, integers, real
+//! > numbers, strings, names, arrays, dictionaries, streams, and the null object.
+//!
+//! Nine, and this comment said eight for the project's whole life — integer and real are
+//! two of them, which is §7.3.3's own division and the reason [`Object::as_number`] exists
+//! beside [`Object::as_integer`].
 //!
 //! This is deliberately a *syntactic* model. A dictionary here is a dictionary, not a
 //! page or a font — giving objects meaning is `pdf-model`'s job. Keeping the split sharp

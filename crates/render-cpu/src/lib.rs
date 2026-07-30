@@ -19,6 +19,7 @@
 
 #![forbid(unsafe_code)]
 
+mod blend;
 mod convert;
 mod shading;
 
@@ -354,6 +355,28 @@ impl CpuRasterizer {
             // and images all move together; missing one would tear the page apart in a
             // way no metric would notice, so there is exactly one of these.
             let to_device = target.transform.then(band.offset());
+
+            // ISO 32000-2 §11.3.5.3's four modes are computed by this backend rather than
+            // by `tiny-skia`, whose three of them are wrong (ADR 0047), so such a command
+            // is drawn onto transparency first and composited by `blend::composite`.
+            // Drawing onto transparency loses nothing: with αb = 0 the compositing formula
+            // collapses to the source, whatever the blend mode.
+            if let Some(mode) = blend::NonSeparable::of(command.blend()) {
+                let mut layer = tiny_skia::Pixmap::new(target.width, band.height).ok_or(
+                    CpuRasterError::Allocation {
+                        width: target.width,
+                        height: band.height,
+                    },
+                )?;
+                self.draw(&mut layer.as_mut(), command, to_device, clip)?;
+                let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
+                    width: target.width,
+                    height: band.height,
+                })?;
+                blend::composite(&mut surface, &layer, mode);
+                continue;
+            }
+
             let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
                 width: target.width,
                 height: band.height,
@@ -430,13 +453,44 @@ impl CpuRasterizer {
             // interpolated and the quality setting cannot change a pixel.
             quality: tiny_skia::FilterQuality::Nearest,
         };
-        let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
-            width: target.width,
-            height: band.height,
-        })?;
         // Negative, because the buffer covers the whole target and the surface starts at
         // the band's first row.
         let top = i32::try_from(band.top).map_err(|_| CpuRasterError::Allocation {
+            width: target.width,
+            height: band.height,
+        })?;
+
+        // §11.3.5.3's four modes are this backend's own (ADR 0047), and a group reaches
+        // them by the same two steps a command does: the group's clip, alpha and offset
+        // are applied onto transparency, and the result is composited by `blend`. The
+        // extra buffer is the price of the mode, not of every group.
+        if let Some(mode) = blend::NonSeparable::of(group.blend) {
+            let mut layer = tiny_skia::Pixmap::new(target.width, band.height).ok_or(
+                CpuRasterError::Allocation {
+                    width: target.width,
+                    height: band.height,
+                },
+            )?;
+            layer.as_mut().draw_pixmap(
+                0,
+                top.saturating_neg(),
+                buffer.as_ref(),
+                &tiny_skia::PixmapPaint {
+                    blend_mode: tiny_skia::BlendMode::SourceOver,
+                    ..paint
+                },
+                tiny_skia::Transform::identity(),
+                clip,
+            );
+            let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
+                width: target.width,
+                height: band.height,
+            })?;
+            blend::composite(&mut surface, &layer, mode);
+            return Ok(());
+        }
+
+        let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
             width: target.width,
             height: band.height,
         })?;

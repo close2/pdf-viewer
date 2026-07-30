@@ -32,17 +32,24 @@ status = "unreviewed"
 [[clause]]
 clause = "7.2"
 title = "Lexical conventions"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::every_byte_value_terminates"]
+note = "The whole of tokenisation, which `lexer.rs` is. The clause's framing decides the crate's shape rather than any one function: \"a PDF file is a sequence of bytes\", grouped into tokens, assembled into objects — so the lexer works on `&[u8]` throughout and hands the parser tokens that carry no meaning. §7.2.3 is where the byte classes are; §7.2.4 is why skipping white space and skipping a comment are one function."
 
 [[clause]]
 clause = "7.2.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::every_byte_value_terminates"]
+note = "Framing, and one sentence with a consequence: \"A PDF file is represented as a sequence of 8-bit bytes, some of which are interpreted as character codes in the ASCII character set and some of which are treated as arbitrary binary data depending upon the context.\" Decoding to `str` anywhere in the lexer would either reject a valid file or invent replacement characters, which is why `Name` and `Object::String` hold bytes and `Name::as_str` is fallible. The three contexts the clause then names are read elsewhere: §7.9.2's text strings, §7.3.8's stream data, and clause 9's character codes."
 
 [[clause]]
 clause = "7.2.2"
 title = "Representation"
-status = "unreviewed"
+status = "writer-side"
+note = "What a *file* may contain and how it shall be transported: tokens and standard keys in ASCII, string and stream data either ASCII or binary, and a binary file transported as a binary file. A reader implements none of it — it reads whatever bytes arrive. NOTE 2's warning that \"character\" here carries no logical meaning is the same distinction §7.9.2 draws for text strings and clause 9 for character codes, and both are read there."
 
 [[clause]]
 clause = "7.2.3"
@@ -55,37 +62,58 @@ note = "Table 1's six white-space characters exactly, including NUL, and Table 2
 [[clause]]
 clause = "7.2.4"
 title = "Comments"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::every_byte_value_terminates"]
+note = "\"PDF processors shall treat comments as single white-space characters for the purposes of lexical conversion … That is, a comment separates the token preceding it from the one following it.\" Which is why `Lexer::skip_whitespace` skips both and is the only skipping function: a caller that skipped white space without skipping a comment would join two tokens. A comment runs to the EOL marker and *not* through it, so the marker is then consumed as the white space §7.2.3 makes it. `%PDF-n.m` and `%%EOF` are §7.5's and are read there; every other comment has no semantics, as the clause says outright."
 
 [[clause]]
 clause = "7.3"
 title = "Objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/object.rs", "crates/pdf-syntax/src/parser.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::integers_and_reals_are_distinguished"]
+note = "The object model, which is `object.rs`, built by `parser.rs`. Read as a family in the thirty-ninth session; the subclause rows hold what each one decided."
 
 [[clause]]
 clause = "7.3.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/object.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::keywords_are_returned_verbatim"]
+note = "\"PDF syntax includes nine basic types of objects: boolean values, integers, real numbers, strings, names, arrays, dictionaries, streams, and the null object.\" `Object` has exactly those nine variants plus `Reference`, which the clause's next paragraph makes the labelling of any of them (§7.3.10). The module comment said *eight* for the project's whole life, having merged integer and real — the pair §7.3.3 keeps apart and `as_integer`/`as_number` keep apart in code."
 
 [[clause]]
 clause = "7.3.2"
 title = "Boolean objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/parser.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::keywords_are_returned_verbatim"]
+note = "Two keywords. They arrive as `Token::Keyword`, because nothing lexical distinguishes `true` from `obj`, and the parser turns them into `Object::Boolean` — which is also why an unknown keyword where an object belongs is an error naming what it found rather than a silent `false`."
 
 [[clause]]
 clause = "7.3.3"
 title = "Numeric objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs", "crates/pdf-syntax/src/object.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::malformed_numbers_salvage_a_leading_value"]
+note = "Both numeric types, and the sentence that makes them one where it matters: \"Wherever a real number is expected, an integer may be used instead\", which is `Object::as_number` accepting either and is why nearly every caller uses it rather than `as_integer`. The clause's own forms are all lexed, including `4.` and `-.002`. Two deliberate departures from strictness, both toward reading files that exist: PostScript radix and exponential notation are forbidden to a *writer* and this lexer accepts the exponential form rather than rejecting it, and a malformed number such as `--5` or `1.2.3` is salvaged to its leading value rather than aborting the page. Annex C's ranges are `i64` and `f64`, both wider than the clause's typical limits."
 
 [[clause]]
 clause = "7.3.4"
 title = "String objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::literal_strings_handle_nesting_and_escapes"]
+note = "\"A string object shall consist of a series of zero or more bytes\" — bytes, so `Object::String` is `Arc<[u8]>` and never a `String`. The two written forms are §7.3.4.2 and §7.3.4.3. Annex C's implementation limit on length is `Limits::max_string_len`, and exceeding it is an error naming the limit rather than a truncated string."
 
 [[clause]]
 clause = "7.3.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs", "crates/pdf-syntax/src/parser.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::hex_strings_ignore_junk_and_pad_an_odd_digit"]
+note = "The two ways a string may be written, and the length limit. Both forms produce the same `Object::String`, which is what lets §7.9.2's text-string decoding be one function that never asks which syntax delivered the bytes."
 
 [[clause]]
 clause = "7.3.4.2"
@@ -106,43 +134,58 @@ note = "Both of the clause's rules: every character outside `0`-`9`, `A`-`F` and
 [[clause]]
 clause = "7.3.5"
 title = "Name objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs", "crates/pdf-syntax/src/object.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::names_resolve_hash_escapes"]
+note = "Names, with `#xx` resolved at lex time so that `Name` holds the clause's own \"sequence of characters\" and a comparison against `Type` is a byte comparison — which is the clause's definition of distinctness: \"PDF name objects are considered distinct objects if, after all escaping is expanded, the resulting sequences of bytes are not an exact binary match.\" The empty name — \"The token SOLIDUS (a slash followed by no regular characters)\" — is a name, not an error. `Name::as_str` is the clause's UTF-8 sentence, and it is fallible because that sentence is a \"should\" about names that stand for text. Two lenient readings, both named: a name containing a null via `#00` is accepted where the clause excludes character code 0, and a `#` not followed by two hexadecimal digits is kept literally, since dropping it would turn one valid name into a different valid name."
 
 [[clause]]
 clause = "7.3.6"
 title = "Array objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/parser.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs"]
+note = "\"An array may have zero elements\", elements may be of any type, and higher dimensions are arrays of arrays — all of which `Vec<Object>` is without a rule. What needs a rule is the bound: Annex C's implementation limit is `Limits::max_array_len`, and reaching it is an error rather than a shortened array, because a truncated `TJ` array renders a wrong page and reports success (the operand cap that ended three sentences mid-word on the specification's own title page)."
 
 [[clause]]
 clause = "7.3.7"
 title = "Dictionary objects"
 status = "implemented"
 code = ["crates/pdf-syntax/src/object.rs", "crates/pdf-syntax/src/parser.rs"]
-test = ["crates/pdf-syntax/src/parser.rs::a_repeated_key_keeps_the_first_value", "crates/pdf-syntax/src/parser.rs::a_null_value_reads_the_same_as_an_absent_key"]
-note = "Keys are names and only names — a token of any other kind where a key belongs is skipped rather than being fatal, which loses one entry instead of the dictionary. Entries are unordered, which a `BTreeMap` makes true rather than claimed. \"A dictionary entry whose value is null shall be treated the same as if the entry does not exist\" holds without a rule for it: `Document::get_key` answers `Object::Null` for a key that is absent, so the two are the same value at every reader. \"Multiple entries in the same dictionary shall not have the same key\" is a requirement on the *file* and the clause states no recovery; the parser keeps the first, and `inline_image.rs` documents the one place that is decided differently and why. Annex C's implementation limits are `Limits::max_dict_len`."
+test = ["crates/pdf-syntax/src/parser.rs::a_repeated_key_keeps_the_first_value", "crates/pdf-syntax/src/parser.rs::a_null_value_reads_the_same_as_an_absent_key", "crates/pdf-syntax/src/parser.rs::a_null_value_does_not_survive_beside_a_real_one"]
+note = "Keys are names and only names — a token of any other kind where a key belongs is skipped rather than being fatal, which loses one entry instead of the dictionary. Entries are unordered, which a `BTreeMap` makes true rather than claimed. \"A dictionary entry whose value is null … shall be treated the same as if the entry does not exist\" is now enforced where a dictionary is built, rather than asserted through `Document::get_key` — which answers `Object::Null` for an absent key and so made the old test the implementation restated, while `Dictionary::get` still returned `Some(Null)`, `len` still counted the entry and §8.9.7's presence test for an abbreviated key could still see it. \"Multiple entries in the same dictionary shall not have the same key\" is a requirement on the *file* and the clause states no recovery — nor can one be derived, since the entries \"shall be unordered even though an arbitrary order may be imposed upon them when written in a file\" and \"[t]hat ordering shall be ignored\", so a rule preferring the first or the last reads the very order the clause discards. Keeping the first is therefore a **documented choice** rather than a derivation (principle 5); poppler agrees, which is evidence that it is unsurprising and is not a reason for it. `inline_image.rs` documents the one place that is decided differently and why. Annex C's implementation limits are `Limits::max_dict_len`."
 
 [[clause]]
 clause = "7.3.8"
 title = "Stream objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/parser.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Stream objects: the syntax in §7.3.8.1 and the length rules in §7.3.8.2. Table 5's entries are read where they are used — `/Length` and `/Filter` and `/DecodeParms` by the parser and `Document::decoded_stream_data`, `/F` by `Document::is_external`, `/DL` nowhere, since it is \"only a hint\"."
 
 [[clause]]
 clause = "7.3.8.1"
 title = "General"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-syntax/src/parser.rs", "crates/pdf-syntax/src/document.rs"]
-test = ["crates/pdf-syntax/tests/real_documents.rs"]
-note = "Stream objects are read: the dictionary, the `stream` keyword with its EOL, `/Length` including the indirect form, and `endstream`. Reviewed here for the sentence the inline-image scanner leans on — that `stream` is followed by CRLF or LF and not by CR alone — which is the same one-marker rule §8.9.7 applies after `ID`. What is not implemented is the recovery the clause's own NOTE describes for a wrong `/Length`; the parser scans for `endstream` instead, which is the same answer by a different route and is not the clause's."
+test = ["crates/pdf-syntax/src/document.rs::a_stream_whose_data_is_in_a_file_has_no_data_here", "crates/pdf-syntax/tests/real_documents.rs"]
+note = "Stream objects are read: the dictionary, the `stream` keyword with its EOL, `/Length` including the indirect form, and `endstream`. Two sentences are load-bearing and only the first was read before. That `stream` is followed by CRLF or LF and not by CR alone is the same one-marker rule §8.9.7 applies after `ID`; a CR alone is tolerated anyway, because files write it. The second was a silent gap for the project's whole life: \"beginning with PDF 1.2, the bytes may be contained in an external file, in which case the stream dictionary specifies the file, and any bytes between stream and endstream shall be ignored by a PDF processor\" — and those bytes were being decoded and drawn. `Document::is_external` now refuses such a stream, which is the answer principle 3 leaves available, since the renderer has no filesystem to fetch the file from; Table 5's `/FFilter` and `/FDecodeParms` describe the external data and are unread for the same reason. **No corpus document writes one**, measured, so nothing but reading §7.3.8 could have found it. What is still not the clause's is the recovery for a wrong `/Length`: the parser scans for `endstream`, which is the same answer by a different route (§7.3.8.2)."
 
 [[clause]]
 clause = "7.3.8.2"
 title = "Stream extent"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/parser.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs"]
+note = "\"Every stream dictionary shall have a Length entry\", the filters are mostly self-limiting, and \"[a]ll of these constraints shall be consistent\". The parser takes `/Length` when it is a direct integer *and* `endstream` is where it says, and searches for `endstream` otherwise — which covers the indirect form the clause's own EXAMPLE 3 shows, and the wrong-`/Length` corruption. The clause's closing allowance is honoured in the same place: \"there may be an extra end-of-line marker in the PDF file before the keyword endstream\". Reading a filter's EOD to bound the data instead is a third route the clause offers and this tree does not take; it would only matter for a file where `/Length` is wrong *and* `endstream` cannot be found, which is a file with no stream in it."
 
 [[clause]]
 clause = "7.3.9"
 title = "Null object"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/object.rs", "crates/pdf-syntax/src/parser.rs"]
+test = ["crates/pdf-syntax/src/parser.rs::a_null_value_reads_the_same_as_an_absent_key"]
+note = "One keyword, one value, and two rules that live elsewhere and both point here: an indirect reference to a nonexistent object is null (§7.3.10), and a dictionary entry whose value is null is an absent entry (§7.3.7). `Object::Null` is therefore what `Document::get_key` answers for every kind of nothing there is, which is what makes those two rules one behaviour rather than three."
 
 [[clause]]
 clause = "7.3.10"
@@ -2759,7 +2802,7 @@ title = "Blend mode"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/lib.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/lib.rs"]
 test = ["crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows"]
-note = "All sixteen blend modes reach both backends, and §11.6.3's rule for choosing among an array of names is implemented — see §11.3.5.2 and §11.3.5.3 for the two families. The clause's own framing, that a blend mode is a function of a backdrop and a source colour computed per component, is what makes it a rasteriser's parameter here rather than a compositing pass of this crate's."
+note = "All sixteen blend modes reach both backends, and §11.6.3's rule for choosing among an array of names is implemented — see §11.3.5.2 and §11.3.5.3 for the two families. The clause's own framing makes the twelve separable ones a rasteriser's parameter, since each is a function of one backdrop and one source component; the four of §11.3.5.3 are not, and §11.3.5.3's row is where the CPU backend's own compositing pass for them is recorded."
 
 [[clause]]
 clause = "11.3.5.1"
@@ -2780,10 +2823,10 @@ note = "Table 134's twelve separable modes, each a function `B(cb, cs)` applied 
 [[clause]]
 clause = "11.3.5.3"
 title = "Non-separable blend modes"
-status = "partial"
-code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/lib.rs"]
-test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode"]
-note = "Table 136's four non-separable modes — Hue, Saturation, Color, Luminosity — with the clause's `Lum`, `ClipColor`, `SetLum` and `SetSat` functions. **Three of the four are wrong on the CPU backend**, which the thirty-seventh session found by writing the cross-backend scene this clause had never had: twelve separable modes and `Saturation` agree between the backends to the channel, and `Hue`, `Color` and `Luminosity` differ by 113 of 255. The clause settles which is right rather than leaving a tie — red over blue in `Hue` is `SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))`, which after `ClipColor` is 0.367, and Vello produces that where `tiny-skia` produces 0.81, the value before the clip. `partial` because the modes reach both backends and three of them are not the clause's on one; the list is a ratchet in `render-gpu/tests/headless_gpu.rs`."
+status = "implemented"
+code = ["crates/render-cpu/src/blend.rs", "crates/render-gpu/src/lib.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode", "crates/render-cpu/src/blend.rs::hue_of_red_over_blue_is_the_clauses_arithmetic"]
+note = "Table 135's four non-separable modes — Hue, Saturation, Color, Luminosity — written from the clause's `Lum`, `ClipColor`, `SetLum` and `SetSat` in `render-cpu/src/blend.rs`, because three of the four were wrong when handed to `tiny-skia`: the thirty-seventh session's cross-backend scene found `Hue`, `Color` and `Luminosity` 113 of 255 from Vello, and the clause settled which was right rather than leaving a tie. Red over blue in `Hue` is `SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))`, which after `ClipColor` is 0.367; `tiny-skia` produced 0.81, the value before the clip. All sixteen modes now agree between the backends to the channel, which is two independent implementations of the clause's own arithmetic rather than one checked against itself — the functions stay in `render-cpu` for exactly that reason (ADR 0047). `ClipColor` is defined only where `Lum(C)` is itself in range, which the clause supplies by reaching it solely through `SetLum`."
 
 [[clause]]
 clause = "11.3.6"
@@ -2791,7 +2834,7 @@ title = "Interpretation of alpha"
 status = "partial"
 code = ["crates/pdf-render/src/backend.rs", "crates/render-cpu/src/lib.rs"]
 test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_transparency_group"]
-note = "The weighted average of backdrop, source and blended colour that both backends evaluate through their rasterisers, and the sentence that decides three things this session leaned on: \"An alpha value of αs = 0.0 or αb = 0.0 results in no blend mode effect\". That is why §11.4.7's transparent page group changes every blend mode over an unpainted area — the backdrop alpha is zero there, so the blend collapses to the source colour — and why an element's blend mode has no effect inside an isolated knockout group (§11.4.6). NOTE 2's undefined colour at zero result alpha is what a premultiplied raster represents naturally. The formula itself is tiny-skia's and Vello's rather than this tree's, which is why the row is `partial`: what is implemented here is the choice of what they composite onto."
+note = "The weighted average of backdrop, source and blended colour that both backends evaluate through their rasterisers, and the sentence that decides three things this session leaned on: \"An alpha value of αs = 0.0 or αb = 0.0 results in no blend mode effect\". That is why §11.4.7's transparent page group changes every blend mode over an unpainted area — the backdrop alpha is zero there, so the blend collapses to the source colour — and why an element's blend mode has no effect inside an isolated knockout group (§11.4.6). NOTE 2's undefined colour at zero result alpha is what a premultiplied raster represents naturally. For the twelve separable modes the formula is tiny-skia's and Vello's rather than this tree's, and what is implemented here is the choice of what they composite onto; for §11.3.5.3's four it is `render-cpu/src/blend.rs`, which evaluates this clause's weighted average itself with the premultiplication folded in (ADR 0047). `partial` for the first half."
 
 [[clause]]
 clause = "11.3.7"

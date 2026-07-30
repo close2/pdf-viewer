@@ -471,10 +471,11 @@ impl Document {
     ///
     /// Returns `None` when a filter in the chain is not supported, rather than returning
     /// the encoded bytes. Handing back compressed data as if it were decoded would produce
-    /// garbage that looks like a rendering bug.
+    /// garbage that looks like a rendering bug. Also for a stream whose data lives in an
+    /// external file — see [`Self::is_external`].
     #[must_use]
     pub fn decoded_stream_data(&self, stream: &Stream) -> Option<Arc<[u8]>> {
-        if stream.decryption_failed {
+        if stream.decryption_failed || Self::is_external(stream) {
             return None;
         }
         let filters = self.filter_chain(&stream.dict);
@@ -505,7 +506,7 @@ impl Document {
     /// [`Self::decoded_stream_data`] does.
     #[must_use]
     pub fn image_stream(&self, stream: &Stream) -> Option<ImageStream> {
-        if stream.decryption_failed {
+        if stream.decryption_failed || Self::is_external(stream) {
             return None;
         }
         let filters = self.filter_chain(&stream.dict);
@@ -529,6 +530,29 @@ impl Document {
             parms: codec_at.and_then(|index| self.decode_parms(&stream.dict, index)),
             data,
         })
+    }
+
+    /// Whether a stream's data lives in an external file, ISO 32000-2 §7.3.8.1.
+    ///
+    /// > Alternatively, beginning with PDF 1.2, the bytes may be contained in an external
+    /// > file, in which case the stream dictionary specifies the file, and any bytes between
+    /// > stream and endstream shall be ignored by a PDF processor.
+    ///
+    /// So such a stream has **no usable data here**, and returning the embedded bytes would
+    /// be drawing exactly what the clause says to ignore. The renderer has no filesystem
+    /// (`CLAUDE.md` principle 3, and ADR 0014's sandbox), so it cannot fetch the file
+    /// either; the honest answer is the one every unsupported stream already gets, which is
+    /// a refusal its caller reports. Table 5's `/FFilter` and `/FDecodeParms` describe the
+    /// external data's own filters and are unread for the same reason.
+    ///
+    /// Not one of the 974 corpus documents writes one, measured rather than assumed — which
+    /// is why this is a rule that only reading §7.3.8 could have found.
+    #[must_use]
+    pub fn is_external(stream: &Stream) -> bool {
+        // A direct lookup, not `get_key`: `/F` is a file specification, which may be a
+        // string or a dictionary, and its *presence* is what Table 5 conditions on. An
+        // indirect one is a reference, which is equally present.
+        stream.dict.get("F").is_some()
     }
 
     /// Returns the `/DecodeParms` entry for the filter at `index`.
@@ -610,6 +634,34 @@ pub struct ImageStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// §7.3.8.1's external stream: the data is elsewhere and the embedded bytes are not it.
+    ///
+    /// Both halves matter and only one is obvious. Recognising `/F` is the easy half; the
+    /// half worth a test is that a stream carrying it is *refused* rather than decoded,
+    /// because "any bytes between stream and endstream shall be ignored" makes returning
+    /// them a rendering of data the clause discards — and a rendering nothing would report,
+    /// since the bytes are usually a perfectly valid content stream.
+    #[test]
+    fn a_stream_whose_data_is_in_a_file_has_no_data_here() {
+        let external = |present: bool| {
+            let mut dict = Dictionary::new();
+            if present {
+                dict.insert(
+                    Name::new(b"F".to_vec()),
+                    Object::String(Arc::from(b"elsewhere.dat".as_slice())),
+                );
+            }
+            Stream {
+                dict,
+                data: Arc::from(b"1 0 0 1 0 0 cm".as_slice()),
+                decryption_failed: false,
+            }
+        };
+
+        assert!(Document::is_external(&external(true)));
+        assert!(!Document::is_external(&external(false)));
+    }
 
     /// §7.6.2's signature exception, on the predicate that decides it.
     ///
