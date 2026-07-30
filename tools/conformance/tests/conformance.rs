@@ -34,7 +34,7 @@ use conformance::quote;
 /// requirement nobody has thought about. Neither gate that renders a page can: a corpus
 /// ranks what documents ask for, and a demand curve cannot rank a requirement no file
 /// exercises.
-const UNREVIEWED_CEILING: usize = 428;
+const UNREVIEWED_CEILING: usize = 420;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///
@@ -50,7 +50,7 @@ const UNREVIEWED_CEILING: usize = 428;
 /// gate pass is exactly the rubber stamp the ledger exists to prevent — this project's own
 /// habit says a clause-family review costs 20 to 60 minutes and produces findings, which is
 /// not something to do thirty-six of against the clock.
-const REVIEW_OWED: &[&str] = &["7.7.3.3", "7.9.5", "9.9.1", "10.3.1", "14.11.5"];
+const REVIEW_OWED: &[&str] = &["7.9.5", "9.9.1", "10.3.1", "14.11.5"];
 
 /// Every `§` in the tree names a clause ISO 32000-2 has.
 ///

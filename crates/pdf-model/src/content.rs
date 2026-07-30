@@ -768,7 +768,14 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
 
 /// Returns the page size after rotation, since a rotated page swaps its extents.
 fn rotated_size(page: &Page) -> Size {
-    let (width, height) = (page.width(), page.height());
+    // §7.7.3.3 Table 31's `/UserUnit` is "the size of default user space units, in multiples
+    // of 1/72 inch", so a page's extent *in the units a device resolution is stated in* is
+    // its crop box scaled by it. Applying it here and in `base_transform` — rather than
+    // asking every caller to multiply the scale it passes `TargetSpec::for_page` — keeps it
+    // where the page's geometry already lives, and keeps the display list's own coordinates
+    // in seventy-seconds of an inch whatever the file says a unit is.
+    let unit = page.user_unit;
+    let (width, height) = (page.width() * unit, page.height() * unit);
     if page.rotate == 90 || page.rotate == 270 {
         Size::new(height, width)
     } else {
@@ -819,7 +826,11 @@ fn base_transform(page: &Page) -> Transform {
         _ => Transform::IDENTITY,
     };
 
-    shift.then(rotation)
+    // `/UserUnit` last, because the rotation's translations are stated in the page's own
+    // units and scaling before them would move the page off its own origin.
+    shift
+        .then(rotation)
+        .then(Transform::scale(page.user_unit, page.user_unit))
 }
 
 /// Interpreter state for one page.
@@ -3872,6 +3883,7 @@ mod tests {
             media_box: [0.0, 0.0, 400.0, 200.0],
             crop_box: [0.0, 0.0, 400.0, 200.0],
             rotate,
+            user_unit: 1.0,
         }
     }
 

@@ -107,6 +107,19 @@ pub struct Page {
     pub crop_box: [f32; 4],
     /// Clockwise rotation in degrees, normalised to 0, 90, 180 or 270.
     pub rotate: u16,
+    /// §7.7.3.3 Table 31's `/UserUnit`: how big a default user space unit is.
+    ///
+    /// > A positive number that shall give the size of default user space units, in
+    /// > multiples of 1 ⁄ 72 inch. The range of supported values shall be
+    /// > implementation-dependent. Default value: 1.0 (user space unit is 1 ⁄ 72 inch).
+    ///
+    /// So a page is `width() × user_unit` seventy-seconds of an inch across, and a device
+    /// asked to draw at a resolution has to scale by it. Table 31 does **not** mark the
+    /// entry inheritable, and §7.7.3.4 says "attributes that are not explicitly identified
+    /// in the table as inheritable shall not be inherited", so it is read from the page
+    /// object alone — unlike `/MediaBox`, `/CropBox`, `/Resources` and `/Rotate`, which are
+    /// the four entries beside it that are.
+    pub user_unit: f32,
 }
 
 impl Page {
@@ -306,7 +319,7 @@ fn find_leaf(
     let Some(kids) = kids.as_array() else {
         // A leaf. Take it if this is the one asked for.
         if *remaining == 0 {
-            return Some(build_page(node, &inherited));
+            return Some(build_page(document, node, &inherited));
         }
         *remaining = remaining.saturating_sub(1);
         return None;
@@ -346,7 +359,7 @@ fn find_leaf(
 }
 
 /// Assembles a page from its dictionary and the attributes it inherited.
-fn build_page(dict: &Dictionary, inherited: &Inherited) -> Page {
+fn build_page(document: &Document, dict: &Dictionary, inherited: &Inherited) -> Page {
     let media_box = inherited.media_box.unwrap_or(Page::DEFAULT_MEDIA_BOX);
 
     // The crop box is intersected with the media box, as the specification requires: a
@@ -373,12 +386,36 @@ fn build_page(dict: &Dictionary, inherited: &Inherited) -> Page {
     let rotate = u16::try_from(rotate).unwrap_or(0);
     let rotate = (rotate / 90).saturating_mul(90) % 360;
 
+    // "A positive number": zero, a negative and a non-finite one are all refused in favour
+    // of the default rather than scaling the page by nonsense. The upper bound is this
+    // implementation's answer to "the range of supported values shall be
+    // implementation-dependent" — a page is at most 14 400 units on a side, so a unit of
+    // 1000 is a 200-metre page, and the rasteriser's own pixel budget refuses what is left.
+    let user_unit = document
+        .get_key(dict, "UserUnit")
+        .as_number()
+        .map(narrow)
+        .filter(|unit| unit.is_finite() && *unit > 0.0 && *unit <= 1000.0)
+        .unwrap_or(1.0);
+
     Page {
         dict: dict.clone(),
         resources: inherited.resources.clone().unwrap_or_default(),
         media_box,
         crop_box,
         rotate,
+        user_unit,
+    }
+}
+
+/// Narrows a PDF number to the precision the geometry is carried in.
+fn narrow(value: f64) -> f32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "bounded to 0.0..=1000.0 by the caller"
+    )]
+    {
+        value as f32
     }
 }
 

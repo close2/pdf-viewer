@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **twenty-eighth** working session. Read
+Written 2026-07-26, updated 2026-07-30 at the end of the **twenty-ninth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,77 +12,67 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the twenty-eighth session changed
+## What the twenty-ninth session changed
 
-**A contradicted page's diagnosis was wrong, and measuring it was the whole session's
-starting point.** `oracle.rs` recorded `mesh_shading_empty.pdf` as "the same mesh displaced
-horizontally — a placement question". It is not displaced: our coloured region begins and ends
-in the same pixel columns as all four references, and our colours are within a level of theirs
-everywhere but one column. The failing metric is *structural* similarity, 0.972 against a
-bound of 0.990, and what it measures is the faint lattice left by filling a Gouraud triangle as
-many flat sub-triangles. **Five for five on a contradicted page's group naming a hypothesis
-rather than a diagnosis.** ADR 0037.
+**`/UserUnit` is applied, and all three of the oracle's page-geometry disagreements were that
+one entry.** §7.7.3.3 Table 31 defines it as "a positive number that shall give the size of
+default user space units, in multiples of 1/72 inch", and it had been read nowhere. Two
+documents write `/UserUnit 3` and came out a third of the size `mutool` and `ghostscript`
+produce. The third, `issue19176.pdf`, was recorded in `oracle.rs` as "the reverse case … has
+not been looked into" — and it is not the reverse case: `/MediaBox [0 0 8.5 11]` with
+`/UserUnit 72` is **a page stated in inches**, which is US Letter once the entry is applied.
+ADR 0038.
 
-**Reading §8.7 as a family fixed a contradicted page the corpus could not have ranked.**
-Table 77's `/BBox` — "applied as a temporary clipping boundary when the shading is painted, in
-addition to the current clipping path" — was read nowhere. Five corpus documents write one;
-four are boxes at least as large as the path the shading was already confined to, and the
-fifth, `issue8092.pdf`, was **contradicted** and now agrees. It had been filed under
-*substituted fonts*: the sixth time a list's name has failed to diagnose a member.
+**The `GEOMETRY` list is empty.** It is the one bucket in the gate that is not about pixels —
+"we and the references disagree about how large the page *is*, and the comparison cannot even
+proceed" — and it has had three documents on it for the project's whole life.
 
-**Two phrases decide how a `/BBox` is applied, and both are in the clause.** "In addition to"
-makes it nest inside the state's clip rather than replace it. "Interpreted in the shading's
-target coordinate space" makes the *caller's* transform carry it — which for a Type 1 shading
-means it must not be composed with the shading's own `/Matrix`. And because the clause fixes
-the clip in force "at that time", a shading pattern carries its box as a rectangle and a
-transform rather than as a clip: the paint may be several `q` levels from the `scn`.
+**Two against two is a question with an answer.** `mutool` and `ghostscript` scale by
+`/UserUnit`; `poppler` does not. A renderer asked for a *resolution* is asked in inches, and
+there is no reading of the clause under which a larger unit yields the same number of pixels.
+All three documents now agree with the consensus.
 
-**Four more clause requirements measured and left open, each with a count.**
-§8.7.4.3's `/Background` (2 documents), `/AntiAlias` (19, a hint like §10.7.2's flatness),
-§8.7.4.1's `/ExtGState` on a Type 2 pattern (**0**, measured over every Type 2 pattern
-dictionary in all 974), §8.7.3.1's `/TilingType` (21, and all three values are about the device
-pixel grid, which this renderer does not snap to). Plus §8.7.4.4's rule that a CIE-based
-shading interpolates in its own space, which bites only on a mesh with no `/Function`.
+**One word decides that it is not inheritable.** §7.7.3.3 closes the question for every entry
+Table 31 does not mark: "attributes that are not explicitly identified in the table as
+inheritable shall not be inherited". Four are marked and `/UserUnit` is not, so reading it
+through the same overlay `/MediaBox` uses — one line's difference — would scale pages that
+state nothing. The test puts `/UserUnit 3` on a `Pages` node beside an inheritable `/MediaBox`
+and `/Rotate` and demands the first two apply and the third does not.
 
 | | was | is |
 |---|---|---|
-| **a shading's `/BBox`** | read nowhere | a clip nested in the state's, in the target space |
-| **`issue8092.pdf` page 1** | contradicted, filed under substituted fonts | agrees |
-| **`mesh_shading_empty.pdf`'s entry** | "displaced horizontally" | measured: the subdivision lattice, and SSIM is what sees it |
-| **§8.7's 19 `unreviewed` rows** | nobody had read them | 8 implemented, 11 partial |
+| **`/UserUnit 3`** | ignored; a 612×792 page where two references give 1836×2376 | applied; the page and everything on it scale |
+| **`/MediaBox [0 0 8.5 11] /UserUnit 72`** | a 9×11 page, "not looked into" | US Letter, which is what inches are |
+| **`/UserUnit` on a `Pages` node** | — | not inherited, as Table 31's silence requires |
+| **the oracle's `GEOMETRY` list** | 3 documents | **empty** |
+| **§7.7's 8 `unreviewed` rows** | nobody had read them | 5 implemented, 3 partial |
 
 **The numbers:**
 
 | | before | now |
 |---|---|---|
 | corpus documents drawing with nothing reported | 823 | **823** |
-| **pages agreeing with the reference consensus** | 814 | **815** |
-| **pages contradicted by it** | 116 | **115** |
-| of those, on pages we call complete | 102 | **101** |
-| ledger subclauses nobody has read | 448 | **428** |
-| cited clauses still owing a review | 7 | **5** |
-| `§` citations the checker verified | 1235 | **1240** |
-| rustdoc quotations checked verbatim | 119 | **121** |
-| tests | 553 | **554** |
-
-**The contradicted count moved for the first time in four sessions**, and it moved by a clause
-no corpus document could have ranked — found by reading the family that a *wrongly diagnosed*
-contradicted page pointed at. That is the two-track rule paying for itself in one step: the
-demand track chose the family, the spec track found the sentence, and neither would have got
-there alone.
+| **pages agreeing with the reference consensus** | 815 | **818** |
+| pages contradicted by it | 115 | **115** |
+| **pages whose geometry we disagree about** | 3 | **0** |
+| ledger subclauses nobody has read | 428 | **420** |
+| cited clauses still owing a review | 5 | **4** |
+| `§` citations the checker verified | 1240 | **1250** |
+| rustdoc quotations checked verbatim | 121 | **124** |
+| tests | 554 | **558** |
 
 What it taught:
 
-- **Measure a contradiction before believing its label, including a label this project
-  wrote.** "Displaced horizontally" had been in `oracle.rs` for sessions and was refuted by
-  ten minutes with the two rasters. A wrong diagnosis is worse than none: it makes the page
-  look like somebody else's problem.
-- **A demand item can be right about the family and wrong about the defect.** The mesh page
-  sent this session to §8.7 and is still contradicted; the page that got fixed was one nobody
-  had looked at, sitting under a label about fonts.
-- **Where a clause fixes a moment — "in effect at that time" — carry the ingredients, not the
-  result.** A shading pattern's `/BBox` cannot become a clip when `scn` selects it, because
-  the clip it nests inside does not exist yet.
+- **Read a list for what it says it does not know.** "Has not been looked into" had been
+  sitting in `oracle.rs` next to its own answer for many sessions. A comment admitting
+  ignorance is a to-do item that never gets scheduled unless somebody reads the file for that
+  rather than for its counts.
+- **A hypothesis that explains two of three entries has probably explained the third.** The
+  comment split the geometry list into "these two are `/UserUnit`" and "this one is the
+  reverse", and the reverse case was the same entry with a larger value.
+- **Where a clause leaves a decision to the implementation, that is a sentence to answer, not
+  a licence to skip.** "The range of supported values shall be implementation-dependent" is
+  answered here with a bound and a reason, in a place a reader will find it.
 
 ## How the project got here
 
@@ -115,11 +105,12 @@ below rather than here.
 | 26 | An image's colour space is a fill's; §8.6.4 reviewed; an exact memo where a lookup grid was the obvious answer | ADR 0035 |
 | 27 | `LZWDecode`, the last standard filter; the whole of §7.4 reviewed; a corpus stating an invariant about itself | ADR 0036 |
 | 28 | A shading's `/BBox`; the whole of §8.7 reviewed; a contradicted page's diagnosis refuted by measuring it | ADR 0037 |
+| 29 | `/UserUnit`, and the geometry list emptied; the whole of §7.7 reviewed | ADR 0038 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
-→ 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 across sessions 6 to 28,
-and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 → 263 → 251 → 235 → 232 → 231 →
-231 → 237 → 220 → 220 → 189 → 147 → 137 → 129 → 130 → 130 → 130 → 130 → 130.
+→ 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 across sessions 6 to
+29, and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 → 263 → 251 → 235 → 232 →
+231 → 231 → 237 → 220 → 220 → 189 → 147 → 137 → 129 → 130 → 130 → 130 → 130 → 130 → 130.
 Both move in both directions on purpose: a rise in the first can mean pages *joined* the
 comparison, and a rise in the second is honesty when a silence ends. The sections below say
 which.
@@ -134,7 +125,7 @@ revision and method §7.6 states, and **a form field's value laid out from its `
 is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
 person for a password — and the gap is measured below rather than guessed at.
 
-- **554 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **558 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -232,7 +223,7 @@ person for a password — and the gap is measured below rather than guessed at.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1240 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1250 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -258,7 +249,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1240 citations, 121 quotations, 74 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1250 citations, 124 quotations, 74 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -669,7 +660,6 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 | Image `/Mask` on a filtered image, `/Matte` outside the device spaces | 0 | Small | What is left of §8.9.6 and §11.6.5.2 after ADRs 0023 and 0024, and no corpus document writes any of it. A colour key is a test on the samples a filter delivers, and a `DCTDecode` or `JPXDecode` image has become RGBA before the unpacker sees it — the clause's own NOTE 2 names that pair as the one lossy coding makes unreliable. A `/Mask` stream that is not an image mask is here too, which Table 87 excludes and 1 document writes. So is a `/Matte` on an image whose space is not `DeviceGray` or `DeviceRGB`: §11.6.5.2 requires the pre-blending to be undone *before* colour conversion, and this crate holds one RGBA raster per image, so the inversion is exact only where that conversion was the identity on components. |
 | A font selected by `/ExtGState` `/Font` (§8.4.5) | 1 | Small | Table 57's `/Font` is `[font size]` with the font an **indirect reference**, where `Tf` and this crate's font cache are both keyed by a resource *name*. `extgstate.pdf` writes one, and what it decides is which glyphs the page draws, so it is reported rather than passed over. Closing it means a font cache keyed by object identity as well as by name. |
 | A degenerate subpath's single device pixel (§8.5.3.3.1) | — | Small | "[A] degenerate subpath … shall be considered to enclose the single device pixel lying under that point" when *filled* — distinct from §8.5.3.2's stroking rule, which is implemented. Neither backend paints it, and the clause calls the result "device-dependent and not generally useful" in the same breath. Recorded in the ledger rather than reported, because a report would name pages on which no reader could tell. |
-| `/UserUnit` | 2 | Small | §7.7.3.3's multiple of 1/72 inch. `mutool` and `gs` scale the page by it, we and `poppler` do not — `bug1947248_*.pdf` come out at 612x792 where they produce 1836x2376. Neither applied nor reported; the oracle lists them under `GEOMETRY`. |
 | Annotation `NoZoom`, `NoRotate`, `/FixedPrint` | — | Small | Table 167 bits 4 and 5, and a watermark's `/FixedPrint`, make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. Rare. |
 | Type1 fonts (`/FontFile`) | 0 | Medium | No corpus page one reaches it. `read_fonts::ps::type1` exists — check before writing any. |
 | Bit depths 2, 4 and 16 | 3 | Small | §8.9.3 permits five component widths and the unpacker reads two. Refused and reported. |
@@ -691,10 +681,10 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **428
-of 823 subclauses are `unreviewed`**, and 395 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **420
+of 823 subclauses are `unreviewed`**, and 403 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
-project has measured 36% of its clause coverage. That number is meant to look bad; the alternative
+project has measured 37% of its clause coverage. That number is meant to look bad; the alternative
 was not knowing.
 
 **The ledger has been wrong twice**, which is worth knowing before trusting a row: §8.9.5.3's note
@@ -747,10 +737,10 @@ completely:
 
 | | count | share of the 1620 |
 |---|---|---|
-| agree with the reference consensus | 755 | 47% |
+| agree with the reference consensus | 758 | 47% |
 | **contradicted by it** | **101** | **6%** |
 | the references cannot agree among themselves | 751 | 46% |
-| not comparable (geometry, or fewer than two renderers) | 13 | 1% |
+| not comparable (geometry, or fewer than two renderers) | 10 | 1% |
 
 **One page in sixteen that we say we drew completely, two independent implementations say we did
 not.** The 101 are named in `oracle.rs` and grouped by what the page carries: 15 use a font nobody
@@ -794,7 +784,7 @@ where the two disagree the ledger is the one that had to name a code site.
 
 | Clause | Subclauses | State |
 |---|---|---|
-| 7 Syntax | 138 | **Nearly complete**, 62 rows reviewed — the whole of §7.4 and §7.6 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
+| 7 Syntax | 138 | **Nearly complete**, 70 rows reviewed — the whole of §7.4, §7.6 and §7.7 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
 | 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 107 rows reviewed, with §8.4, §8.5, §8.6.4, §8.6.5, §8.6.6, §8.6.7, §8.7, §8.9 and §8.10 done as families. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). 2, 4 and 16 bits per component are refused. |
 | 9 Text | 65 | **Partial**, 38 rows reviewed — §9.3, §9.4 and the whole of §9.7 as families. Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. Missing: bare Type1, Table 116's predefined `CMap`s, vertical writing, and text knockout (§9.3.8, reported). |
 | 10 Rendering | 36 | **Partial**, 6 rows reviewed — the whole of §10.7. Colour management and rendering intents are done. Halftones and transfer functions describe a marking device. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
@@ -830,7 +820,7 @@ parts that make a document *interactive* are not started.
 | Scan conversion (§10.7) | **Four** deliberate departures, all licensed by §10.7.1's NOTE — anti-aliasing twice over, area averaging, and §10.7.5's grid-fitting. `/FL` is ignored by the clause's own permission; `/SM` is read nowhere; `/SA`'s single-pixel rule **is** implemented. |
 | Line width (§8.4.3.2) | A zero width is one device pixel on both backends, in `Stroke::device_width` alongside §10.7.5's rule, because the clause's own NOTE makes them the same width. |
 | Overprint control (§8.6.7, §11.7.4) | Ignored, and the clause says to. Special colourants `/All` and `/None` are honoured before the alternate space and tint transform are parsed. |
-| Page rotation | §7.7.3.3 Table 31's `/Rotate`, clockwise as displayed, which in this y-up space is a negative rotation. |
+| Page geometry (§7.7.3.3) | Table 31's `/MediaBox`, `/CropBox` intersected with it, `/Rotate` clockwise as displayed — which in this y-up space is a negative rotation — and `/UserUnit`, "the size of default user space units, in multiples of 1/72 inch", which scales the page and everything on it. The four inheritable entries are inherited and the twelve that are not, are not (§7.7.3.4). |
 | Optional content | §8.11 wherever it decides what is drawn: configuration, membership, `/VE`, intent, and all three places `/OC` can appear. The interactive half — `/Usage`, `/AS`, `/Order` — is not read. |
 
 ## What to do next
@@ -838,7 +828,7 @@ parts that make a document *interactive* are not started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name — 102 contradicted pages, 60 of them unexplained, and a
 feature list sized by how many documents want each item. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **428 of 823 subclauses are `unreviewed`**. A project running only the
+§6.3.2.2's ranking name: **420 of 823 subclauses are `unreviewed`**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -876,17 +866,23 @@ names is §9.7.5.2's predefined `CMap`s at 12 — a licensing decision rather th
 §12.5.6.10's text markup at 8, which is a decision about what a highlight looks like. **Variable
 text has left this list, as encryption did before it**, and what replaced both is not clause work:
 eight documents need a password prompt and five write a `/DA` naming a font their own `/DR` does
-not define. **The twenty-fifth session put a rendering item back on it**: an image in an
-`ICCBased` space is not converted through its profile though a fill in the same space is, on 31
-documents and visibly on 15 — **closed in the twenty-sixth** (ADR 0035). The one-line version
-of the spec track: **5 clauses the code already cites have never been read against it**, named in `REVIEW_OWED`. For three sessions no
-rendering feature any corpus document *announces* was left on either list — the corpus going
-quiet, and exactly the condition `CLAUDE.md`'s two-track rule exists for — and what ended that
-run came from the spec track rather than from any file saying so, which is the rule working.
+not define. **`/UserUnit` and a shading's `/BBox` are the two rendering items that came back
+onto it and off it again** in the twenty-eighth and twenty-ninth sessions, and neither was
+announced by a document: both were found by reading a clause family, and each fixed a page the
+gate had been carrying (ADRs 0037, 0038). The one-line version of the spec track: **4 clauses
+the code already cites have never been read against it**, named in `REVIEW_OWED`, and **420 of
+823 subclauses have never been read at all**.
+
+Five sessions in a row now, no rendering feature that any corpus document *announces* has been
+left on either list — the corpus going quiet, and exactly the condition `CLAUDE.md`'s two-track
+rule exists for. Everything that moved a gate number in those five sessions came from the
+specification track: `/Decode`'s general map, an image's colour space, `LZWDecode`, a shading's
+`/BBox`, `/UserUnit`. **A demand curve cannot rank a requirement no file exercises, and four of
+those five were invisible to it.**
 
 ### 0. The ledger, and the cheapest reviews available
 
-- **Work `REVIEW_OWED` down.** 5 clauses, each already cited by the code that implements it, so
+- **Work `REVIEW_OWED` down.** 4 clauses, each already cited by the code that implements it, so
   the reading is against something that exists. Take them by family — §8.6.4's two rows and
   §8.7's two are the pairs left — because that is how the standard distributes its requirements, and because §9.6.5.4 was missed
   for the opposite reason: nobody had read §9.6.5 as a unit. **Expect findings.**
@@ -1125,10 +1121,10 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 
 | of the 1620 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 755 | |
+| agree with the reference consensus | 758 | |
 | **contradicted** | **101** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 4 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 2 glyphs judged as vector, 1 a symbolic font's contradictory flags, 15 substituted fonts, **59 unexplained** |
 | ambiguous | 751 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
-| our page geometry differs | 3 | 2 are `/UserUnit`, 1 unexamined |
+| our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
 The 174 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
@@ -1320,6 +1316,12 @@ replace the colour.** `ca` is not part of a colour; §11.6.4.4 makes it a proper
 state applied to painting. A shading replaces the current colour, so the one line that returns it
 dropped the alpha along with the colour it did not use — and the page that shows it says
 `Gradient: .5` on its own face.
+
+**Read this project's own lists for the sentences that admit ignorance, not only for the
+counts.** "Has not been looked into" sat in `oracle.rs`'s geometry list next to its own answer
+for many sessions, while the two entries above it named the very clause that explained it. A
+count gets read every session; a comment saying *we do not know* gets read when somebody goes
+looking for something to do, and nothing schedules that.
 
 **A corpus document can check a decoder against itself, and it beats a second decoder.** An
 LZW-compressed image must decode to exactly `width × height` bytes; a colour table to

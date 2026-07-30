@@ -597,42 +597,66 @@ note = "Every normative sentence here addresses a producer: the wrapper \"shall 
 [[clause]]
 clause = "7.7"
 title = "Document structure"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/page.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs", "crates/pdf-syntax/tests/real_documents.rs"]
+note = "The object hierarchy from the trailer's `/Root` down to a page, reviewed as a family in the twenty-ninth session. What this reader needs of it — the catalog, the page tree and a page object's geometry, resources and content — is complete. What it does not read is everything the catalog holds for a *viewer* rather than a renderer, and the subclauses name each."
 
 [[clause]]
 clause = "7.7.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Descriptive. The object hierarchy is entered at the trailer's `/Root`, which `Document::catalog` resolves, with §7.5.5's recovery when the trailer is damaged."
 
 [[clause]]
 clause = "7.7.2"
 title = "Document catalog dictionary"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/document.rs", "crates/pdf-model/src/page.rs", "crates/pdf-model/src/optional_content.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs", "crates/pdf-model/tests/optional_content.rs"]
+note = "Table 29's entries, and which of them this renderer reads: `/Pages` (the page tree), `/OCProperties` (§8.11's optional content, ADR 0017), `/AcroForm` (§12.7's interactive form, for a field's `/DR` and `/NeedAppearances`, ADR 0032), `/OutputIntents` (§14.11.5's `/DestOutputProfile`, ADR 0009) and `/Version`. Not read, and every one of them is a *viewer* feature rather than a rendering one: `/PageLabels`, `/Names`, `/Dests`, `/ViewerPreferences`, `/PageLayout`, `/PageMode`, `/Outlines`, `/Threads`, `/OpenAction`, `/AA`, `/URI`, `/StructTreeRoot`, `/MarkInfo`, `/Lang`, `/SpiderInfo`, `/Metadata`, `/PieceInfo`, `/Perms`, `/Legal`, `/Requirements`, `/Collection`, `/NeedsRendering`, `/DSS`, `/AF` and `/DPartRoot`. `CLAUDE.md` puts page labels, outlines and destinations in scope as things that *display*; none is started, and none affects a rendered page."
 
 [[clause]]
 clause = "7.7.3"
 title = "Page tree"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs"]
+note = "The tree, its nodes, a page object's entries and the inheritance between them. See the subclauses."
 
 [[clause]]
 clause = "7.7.3.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs"]
+note = "\"Compliant PDF processors shall be prepared to handle any form of tree structure built of such nodes\", and `Pages::get` walks whatever it finds rather than assuming the flat or balanced shape the NOTE describes. Two bounds guard the walk against a tree that is not one: 64 levels of nesting — a balanced tree over a hundred thousand pages is about six — and a million nodes visited per lookup. The clause's own reason for the tree is why the walk is on demand: \"PDF readers using only limited memory, can quickly open a document containing thousands of pages\", which is also this project's time-to-first-page requirement."
 
 [[clause]]
 clause = "7.7.3.2"
 title = "Page tree nodes"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs", "crates/pdf-model/tests/corpus.rs"]
+note = "Table 30's `/Kids` is followed and `/Type` is not required of a node, because files omit it; the walk decides a leaf by the *absence* of `/Kids` rather than by the name, which is what lets a malformed tree still yield its pages. **`/Count` is deliberately not trusted**, and the clause's own NOTE says why: it \"is redundant\", and \"the value of the Count key is consistent with the number of entries in the Kids array and its descendants which definitively determines the number of descendant pages\". Real files disagree with their own counts; the `Kids` arrays are what this reader counts."
 
 [[clause]]
 clause = "7.7.3.3"
 title = "Page objects"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/page.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs"]
+note = "Table 31's entries that decide what is drawn: `/Resources`, `/MediaBox`, `/CropBox`, `/Rotate`, `/Contents` (one stream or an array \"concatenated with at least one white-space character added between the streams' data\", since a token may straddle the boundary), `/Annots` (§12.5), `/Group` (§11.4.7's page group) and — **as of the twenty-ninth session** — `/UserUnit`. That last is \"a positive number that shall give the size of default user space units, in multiples of 1/72 inch\", and it had been read nowhere: **all three of the oracle's page-geometry disagreements were this one entry**, two documents writing `/UserUnit 3` and one writing `/MediaBox [0 0 8.5 11]` with `/UserUnit 72`, which is a page stated in inches. `mutool` and `ghostscript` scale by it and `poppler` does not; the clause settles it rather than the vote. A value that is not positive is the default of 1.0, and values above 1000 are refused — the clause's \"range of supported values shall be implementation-dependent\", answered here. Not read: `/LastModified`, `/BleedBox`, `/TrimBox`, `/ArtBox` and `/BoxColorInfo` (production and guideline boxes, §14.11.2), `/Thumb`, `/B`, `/Dur`, `/Trans`, `/AA`, `/Metadata`, `/PieceInfo`, `/StructParents`, `/ID`, `/PZ`, `/SeparationInfo`, `/Tabs`, `/TemplateInstantiated`, `/PresSteps` and `/VP`."
 
 [[clause]]
 clause = "7.7.3.4"
 title = "Inheritance of page attributes"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_user_unit_on_an_ancestor_is_not_inherited"]
+note = "The four entries Table 31 marks inheritable — `/Resources`, `/MediaBox`, `/CropBox` and `/Rotate` — are overlaid on the way down the tree so that the nearest ancestor's value wins, which is what inheritance means here. The sentence that makes the *rest* of Table 31 a closed question is §7.7.3.3's rather than this one's — \"attributes that are not explicitly identified in the table as inheritable shall not be inherited\" — which is why `/UserUnit` is read from the page object alone even though reading it through the same path as `/MediaBox` would be one word's difference. \"All values shall be inherited as-is, without merging, even for composite data types\" is why a page's `/Resources` is the first dictionary found and not a union of the ones above it."
 
 [[clause]]
 clause = "7.7.4"

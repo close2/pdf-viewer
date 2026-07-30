@@ -645,18 +645,20 @@ const CONTRADICTED_UNEXPLAINED: [&str; 60] = [
 /// defect: a page box, `/Rotate` or `/UserUnit` read differently, not pixels drawn
 /// differently. The comparison cannot even proceed.
 ///
-/// Three documents, and the cause of two of them is known. `bug1947248_forms.pdf` and
-/// `bug1947248_text.pdf` carry `/UserUnit 3`, which §7.7.3.3 defines as the size of a
-/// default user-space unit in multiples of 1/72 inch: `mutool` and `gs` scale the page by
-/// it and produce 1836x2376, we and `poppler` do not and produce 612x792. We neither apply
-/// it nor report it, which is the same silence `/Mask` and the text clipping modes were in.
-/// `issue19176.pdf` is the reverse case — we and `poppler` take a 9x11 page where `mutool`
-/// and `gs` fall back to 612x792 — and has not been looked into.
-const GEOMETRY: [&str; 3] = [
-    "bug1947248_forms.pdf page 1",
-    "bug1947248_text.pdf page 1",
-    "issue19176.pdf page 1",
-];
+/// **Empty since the twenty-ninth session, and all three entries had one cause.**
+///
+/// The list held `bug1947248_forms.pdf` and `bug1947248_text.pdf`, which carry `/UserUnit 3`
+/// and came out 612x792 where `mutool` and `gs` produced 1836x2376; and `issue19176.pdf`,
+/// recorded here as "the reverse case … has not been looked into", where we and `poppler`
+/// took a 9x11 page and the other two fell back to 612x792. It is not the reverse case. Its
+/// `/MediaBox` is `[0 0 8.5 11]` with `/UserUnit 72`: a page stated in **inches**, which is
+/// US Letter once §7.7.3.3's entry is applied. One clause, three documents, and the entry
+/// that explained the two obvious ones was sitting in the third with a comment saying it had
+/// not been examined.
+///
+/// The list stays because the class is real and more serious than a pixel difference: a page
+/// box, `/Rotate` or `/UserUnit` read differently means the comparison cannot even proceed.
+const GEOMETRY: [&str; 0] = [];
 
 /// What the oracle concluded about one document.
 #[derive(Debug)]
