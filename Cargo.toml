@@ -103,6 +103,34 @@ zune-png = "0.5.2"
 hayro-jbig2 = { version = "0.3.0", default-features = false, features = ["std"] }
 hayro-jpeg2000 = { version = "0.4.0", default-features = false, features = ["std"] }
 
+# Cryptography, for ISO 32000-2 §7.6's standard security handler. Five primitives, all
+# from RustCrypto, all named by the clause that needs them: RC4 and AES for §7.6.3.2's
+# Algorithm 1 and §7.6.3.3's Algorithm 1.A, MD5 for §7.6.4.3.2's Algorithm 2, and
+# SHA-256/384/512 for §7.6.4.3.4's Algorithm 2.B, which chooses among the three by a
+# remainder modulo 3.
+#
+# Taking these rather than writing them is doc/adr/0031's decision and follows the same
+# precedent ADR 0014 set for the image codecs: a widely-reviewed implementation of a
+# published algorithm beats a fresh one, and cryptography is the domain where that argument
+# is strongest. The alternative was about 700 lines of in-tree cipher code — all of it
+# covered by published test vectors, none of it reviewed by anyone but us.
+#
+# `cbc` is the mode §7.6.3.2 step (d) names; ECB appears only for the 16-byte `/Perms`
+# block of Algorithm 13, which is one block and so needs no mode wrapper at all.
+aes = "0.9.2"
+cbc = "0.2.1"
+rc4 = "0.2.0"
+md-5 = "0.11.0"
+sha2 = "0.11.0"
+
+# §7.6.4.1 requires a password to be processed with the SASLprep profile (Internet RFC
+# 4013) of stringprep (Internet RFC 3454) before it is used. That is Unicode normalisation,
+# a character-class mapping and a BiDi check — data rather than algorithm, and exactly the
+# kind of thing this project vendors rather than reimplements. It matters only for a
+# non-ASCII password, on which SASLprep is not the identity; `saslprep-r6.pdf` and
+# `pr6531_2.pdf` in the corpus are the two files that prove it.
+stringprep = "0.1.5"
+
 # Group 3 and Group 4 fax, for `CCITTFaxDecode` (ISO 32000-2 §7.4.6). Named here rather
 # than reached through `hayro-jbig2`: it has been in the tree since the seventh session as
 # that crate's MMR dependency, and depending on a dependency's dependency is a version

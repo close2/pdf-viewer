@@ -131,6 +131,10 @@ pub fn scan(document: &Document, content: &[u8], at: usize, resources: &Dictiona
         image: Ok(Stream {
             dict,
             data: Arc::from(data),
+            // §7.6.2: strings and streams "inside streams … which themselves are
+            // encrypted" are not encrypted again, and an inline image lives inside a
+            // content stream.
+            decryption_failed: false,
         }),
     }
 }

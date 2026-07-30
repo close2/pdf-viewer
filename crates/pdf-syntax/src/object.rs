@@ -141,6 +141,16 @@ pub struct Stream {
     pub dict: Dictionary,
     /// The raw bytes between `stream` and `endstream`.
     pub data: Arc<[u8]>,
+    /// True when the document is encrypted and this stream's data could not be decrypted,
+    /// in which case [`Self::data`] is empty rather than ciphertext.
+    ///
+    /// Encryption is syntax — ISO 32000-2 puts it in clause 7 — but the reason this flag is
+    /// on the object rather than handled where it arises is principle 3's: a stream that
+    /// silently became empty is a page that draws blank and reports nothing, which is
+    /// indistinguishable from a page that *is* blank. Carrying the fact means
+    /// [`crate::Document::decoded_stream_data`] can refuse, and every caller already treats
+    /// a refusal as something to report.
+    pub decryption_failed: bool,
 }
 
 /// Any PDF object.

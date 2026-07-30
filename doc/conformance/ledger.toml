@@ -138,7 +138,10 @@ status = "unreviewed"
 [[clause]]
 clause = "7.3.10"
 title = "Indirect objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/parser.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Indirect objects and references. `obj` … `endobj` with an object and generation number, `R` references resolved on demand and cached, and the clause's own rule for a reference that goes nowhere: \"An indirect reference to an undefined object shall not be considered an error by a PDF processor; it shall be treated as a reference to the null object.\" That is what `Document::get` returns for a missing entry, and as of the twenty-second session also for a reference that is reached while the object containing it is still being loaded — a cycle is a reference that resolves to nothing."
 
 [[clause]]
 clause = "7.4"
@@ -286,172 +289,262 @@ status = "unreviewed"
 [[clause]]
 clause = "7.6"
 title = "Encryption"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/crypt.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs"]
+note = "Aggregate of the thirty-three rows below, read as a family in the twenty-second session with encryption as the demand item (ADR 0031). The standard security handler is implemented at every revision §7.6.4.2 Table 21 specifies — 2, 3, 4 and 6 — over /V 1, 2, 4 and 5, with Table 25's V2, AESV2 and AESV3 methods and Table 26's Identity; 19 of the corpus's 26 encrypted documents open with the default user password and the other 7 with theirs. What is left is named rather than silent: §7.6.5's public-key handlers, /R 5, which Table 21 says shall not be used and states no algorithm for, and a revision 4 password outside ASCII, whose PDFDocEncoding bytes are Annex D data this crate does not hold."
 
 [[clause]]
 clause = "7.6.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs::every_specification_pdf_opens", "crates/pdf-syntax/tests/encryption.rs::each_revision_and_method_decrypts_to_a_readable_content_stream"]
+note = "One requirement, and it is the one that decides whether any of the rest runs: \"The absence of this entry from the trailer dictionary means that a PDF processor shall consider the document to be not encrypted.\" `Document::authenticate` returns early on a trailer with no /Encrypt and does nothing else. A trailer whose /Encrypt is not a dictionary is refused rather than treated as absent, because a file that says it is encrypted and will not say how is not a file we can draw."
 
 [[clause]]
 clause = "7.6.2"
 title = "Application of encryption"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::the_file_identifier_is_not_decrypted", "crates/pdf-syntax/tests/encryption.rs::strings_in_the_encryption_dictionary_are_not_decrypted"]
+note = "All four exceptions. The trailer's /ID is read before the handler exists and never walked; the encryption dictionary is exempted by object number, recorded before authentication; objects inside an object stream are parsed out of already-decrypted bytes and not decrypted again, which is the third exception by construction; and a signature dictionary's /Contents is skipped by `decrypt_dict`, §12.8.1 Table 255 requiring that value to be the hexadecimal string the exception names. Table 20 adds two more, both here: a cross-reference stream and a stream naming its own /Crypt filter. The sentence about a stream that \"refers to an external file\" has no site — §7.3.8's external streams are not read at all — rather than being unimplemented here."
 
 [[clause]]
 clause = "7.6.3"
 title = "General encryption algorithm"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::each_revision_and_method_decrypts_to_a_readable_content_stream"]
+note = "Aggregate of the three below. Both algorithms are implemented in the decrypting direction, which is the only one a reader needs; encrypting is writer-side and the one place it appears is inside §7.6.4.3.4's hash."
 
 [[clause]]
 clause = "7.6.3.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::an_initialisation_vector_with_no_ciphertext_is_an_empty_stream"]
+note = "Chooses the algorithm the way the clause does — \"When the value of the V key of the encryption dictionary is 1, 2, 3 or 4 … Algorithm 1 … When the value of the V key … is 5 … Algorithm 1.A\" — and implements RFC 8018's padding, MD5 for key generation at versions 1 to 4, and AES's fixed 16-byte block. The padding sentence is load-bearing in an unobvious direction: \"the pad is present when M is evenly divisible by 16\", so a stream of exactly 16 bytes is an initialisation vector with no message, which three corpus documents write for an empty page."
 
 [[clause]]
 clause = "7.6.3.2"
 title = "Algorithm 1: Encryption of data using the RC4 or AES algorithms"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/src/crypt.rs::an_object_key_appends_the_bytes_the_clause_names", "crates/pdf-syntax/src/crypt.rs::an_aes_object_key_is_salted_and_the_rc4_one_is_not"]
+note = "Steps (a) to (d), including the clause's own worked example for object 258 generation 7, the sAlT extension for AES and only for AES, and the cap at 16 bytes. Step (a)'s \"If the string is a direct object, use the identifier of the indirect object containing it\" is why decryption walks a whole object from its identifier rather than acting on strings where they are found."
 
 [[clause]]
 clause = "7.6.3.3"
 title = "Algorithm 1.A: Encryption of data using the AES algorithms"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::each_revision_and_method_decrypts_to_a_readable_content_stream"]
+note = "One step, and its content is the difference §7.6.3.1 names: the 32-byte file encryption key is used directly, with no per-object derivation. Also implemented here is the clause's closing paragraph, which decides *where* decryption sits: \"Stream data shall be encrypted after applying all stream encoding filters and shall be decrypted before applying any stream decoding filters\", so a stream is decrypted as its object is loaded and the filter chain above it needs no change."
 
 [[clause]]
 clause = "7.6.4"
 title = "Standard security handler"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs"]
+note = "Aggregate of the twelve rows below. Revisions 2, 3, 4 and 6 authenticate and derive keys; revision 5 is refused by name."
 
 [[clause]]
 clause = "7.6.4.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/crypt.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "The reader's obligations are implemented: try the default user password first, accept either password, and preprocess a revision 6 password with SASLprep before converting to UTF-8 and truncating to 127 bytes. What is not is the sentence that follows the permissions list — \"PDF readers shall respect the intent of the document creator by restricting user access\" — which is an obligation on copying, printing and editing rather than on drawing; `Document::permissions` carries Table 22's flags up to an application that has none of those operations yet. The clause's own preceding sentence says why this is a requirement about the application and not about this crate: \"There is nothing inherent in PDF encryption that enforces the document permissions.\""
 
 [[clause]]
 clause = "7.6.4.2"
 title = "Standard encryption dictionary"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::permissions_come_from_the_p_entry"]
+note = "Table 21 and Table 22. /R, /O, /U, /OE, /UE, /P, /Perms and /EncryptMetadata are all read, the last only at /V 4 and 5 as the table says. Table 22's flags are read as an unsigned 32-bit quantity numbered from bit 1, and bit 10 is ignored because the table says to. /R 5 is refused here rather than guessed at: Table 21's entry for it is \"Shall not be used. This value was used by a deprecated proprietary Adobe extension\", so the standard states no algorithm and one corpus document, `issue21579.pdf`, writes it anyway."
 
 [[clause]]
 clause = "7.6.4.3"
 title = "File encryption key algorithm"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::each_revision_and_method_decrypts_to_a_readable_content_stream"]
+note = "Aggregate of the four below; the clause itself only says which algorithm each revision uses."
 
 [[clause]]
 clause = "7.6.4.3.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::each_revision_and_method_decrypts_to_a_readable_content_stream", "crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "One sentence, and it is the branch: Algorithm 2 for revision 4 and earlier, Algorithm 2.A for revision 6."
 
 [[clause]]
 clause = "7.6.4.3.2"
 title = "Algorithm 2: Computing a file encryption key in order to encrypt a document (revision 4 and earlier)"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/src/crypt.rs::a_short_password_is_extended_from_the_start_of_the_padding_string", "crates/pdf-syntax/src/crypt.rs::an_empty_password_is_the_padding_string"]
+note = "Steps (b) to (i) in full, including step (f)'s four 0xFF bytes when /EncryptMetadata is false at revision 4 or greater, and step (h)'s fifty rehashes of the first n bytes. Step (a) is where this is `partial`: it wants the password \"converted to PDFDocEncoding\", and this crate holds no Annex D table, so a character outside the ranges where PDFDocEncoding and Unicode provably agree — 0x20 to 0x7E and 0xA1 to 0xFF, since every code the encoding places elsewhere maps a character outside them — is refused by name rather than hashed as something else. No corpus document needs it. Step (a)'s padding rule is also the session's one real defect: appending \"the first 32 − n bytes of the padding string\" is not the same as overlaying the password on the padding string, and the two differ for every password except the empty one, which is the one every reader tries first."
 
 [[clause]]
 clause = "7.6.4.3.3"
 title = "Algorithm 2.A: Retrieving the file encryption key from an encrypted document in order to decrypt it (revision 6 and later)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "Steps (a) to (f), reading the 48-byte /O and /U as the hash, validation salt and key salt the clause describes. Step (f) is implemented as §7.6.4.4.12's Algorithm 13 and its result outranks the plaintext /P, because the clause says the decrypted bytes *are* the user permissions."
 
 [[clause]]
 clause = "7.6.4.3.4"
 title = "Algorithm 2.B: Computing a hash (revision 6 and later)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "Steps (a) to (f). The remainder modulo 3 is taken as the sum of E's first sixteen bytes, which is exact because 256 is congruent to 1 modulo 3 and avoids owning 128-bit arithmetic for one comparison. The loop carries a bound of 256 rounds against NOTE 3's \"between 65 and 80\", because its exit test reads a byte of ciphertext the document supplies; reaching it yields a key that does not authenticate, which surfaces as a wrong password rather than as a hang."
 
 [[clause]]
 clause = "7.6.4.4"
 title = "Password algorithms"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "Aggregate of the eleven below. Every algorithm a reader runs is implemented; the five that compute what a writer stores are writer-side, and two of those have their first four steps implemented anyway because Algorithms 6 and 7 reuse them."
 
 [[clause]]
 clause = "7.6.4.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/src/crypt.rs::a_long_password_is_truncated"]
+note = "Descriptive. Its one constraint that reaches code is that revision 4 passwords \"are limited to characters in the PDFDocEncoding character set\", which is §7.6.4.3.2 step (a) and is recorded there."
 
 [[clause]]
 clause = "7.6.4.4.2"
 title = "Algorithm 3: Computing the encryption dictionary's O -entry value (revision 4 and earlier)"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "Steps (a) to (d) are implemented, because §7.6.4.4.6's Algorithm 7 begins by running them; steps (e) to (h) compute the /O entry a writer stores and are writer-side."
 
 [[clause]]
 clause = "7.6.4.4.3"
 title = "Algorithm 4: Computing the encryption dictionary's U -entry value (Security handlers of revision 2)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::each_revision_and_method_decrypts_to_a_readable_content_stream"]
+note = "Steps (a) and (b), which §7.6.4.4.5's Algorithm 6 runs to authenticate a revision 2 user password. Step (c) stores the result and is writer-side."
 
 [[clause]]
 clause = "7.6.4.4.4"
 title = "Algorithm 5: Computing the encryption dictionary's U (user password) value (Security handlers of revision 3 or 4)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "Steps (a) to (e), which Algorithm 6 runs at revisions 3 and 4. Step (f) appends \"16 bytes of arbitrary padding\", which is why Algorithm 6 compares only the first sixteen; the corpus's files write zeros there and nothing may depend on that."
 
 [[clause]]
 clause = "7.6.4.4.5"
 title = "Algorithm 6: Authenticating the user password (Security handlers of revision 4 and earlier)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "Both steps, with the revision-dependent comparison length the clause states in parentheses."
 
 [[clause]]
 clause = "7.6.4.4.6"
 title = "Algorithm 7: Authenticating the owner password (Security handlers of revision 4 and earlier)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "All three steps, including the twenty decryptions under keys XORed with a counter running from 19 down to 0 — the reverse of Algorithm 3's 1 to 19. No corpus document is known to be opened by its owner password at revision 4 or earlier, so this path is exercised only by files where both passwords are the same; the reverse counter order is stated by the clause and is not otherwise pinned."
 
 [[clause]]
 clause = "7.6.4.4.7"
 title = "Algorithm 8: Computing the encryption d ictionary's U (user password) and UE (user encryption) values (Security handlers of revision 6)"
-status = "unreviewed"
+status = "writer-side"
+note = "Computes the /U and /UE entries a writer stores. Their *format* is read by §7.6.4.3.3, whose row records that."
 
 [[clause]]
 clause = "7.6.4.4.8"
 title = "Algorithm 9: Computing the encryption dictionary's O (owner password) and OE (owner encryption) values (Security handlers of revision 6)"
-status = "unreviewed"
+status = "writer-side"
+note = "Computes the /O and /OE entries a writer stores; read by §7.6.4.3.3."
 
 [[clause]]
 clause = "7.6.4.4.9"
 title = "Algorithm 10: Computing the encryption dictionary's Perms (p ermissions) value (Security handlers of revision 6)"
-status = "unreviewed"
+status = "writer-side"
+note = "Computes the /Perms block a writer stores. Its layout — permissions in bytes 0 to 7 low-order first, /EncryptMetadata in byte 8, the \"adb\" marker in bytes 9 to 11 — is read by §7.6.4.4.12."
 
 [[clause]]
 clause = "7.6.4.4.10"
 title = "Algorithm 11: Authenticating the user password (Security handlers of revision 6)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "One step, and it is §7.6.4.3.3 step (e)'s validation half."
 
 [[clause]]
 clause = "7.6.4.4.11"
 title = "Algorithm 12: Authenticating the owner password (Security handlers of revision 6)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::an_empty_password_may_be_the_owner_password"]
+note = "One step, and it is §7.6.4.3.3 step (c). `pr6531_2.pdf` is opened by it: the empty password is that file's owner password, which is what `Permissions::owner` reports."
 
 [[clause]]
 clause = "7.6.4.4.12"
 title = "Algorithm 13: Validating the permissions (Security handlers of revision 6)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/src/crypt.rs::a_perms_block_yields_the_permissions_algorithm_10_stored"]
+note = "Decrypts the 16-byte /Perms block with AES-256 over a single block, checks the \"adb\" marker, and takes the permissions and the metadata flag from it. The clause says they \"should match\" /P and §7.6.4.3.3 step (f) says they \"shall\"; where they disagree this tree follows the encrypted copy, because step (f) says the decrypted bytes *are* the user permissions and the encrypted copy is the one a file cannot be edited to change."
 
 [[clause]]
 clause = "7.6.5"
 title = "Public-key security handlers"
-status = "unreviewed"
+status = "reported"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+note = "Not implemented, and named at runtime: a /Filter that is not /Standard produces `SyntaxError::UnsupportedEncryption` quoting the name. What it would take is not a cipher but a public-key infrastructure — CMS enveloped data (RFC 5652) and X.509 certificates, plus access to the user's private keys — which is a dependency and a threat model of its own. No corpus document uses one."
 
 [[clause]]
 clause = "7.6.5.1"
 title = "General"
-status = "unreviewed"
+status = "reported"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+note = "As §7.6.5."
 
 [[clause]]
 clause = "7.6.5.2"
 title = "Public-key encryption dictionary"
-status = "unreviewed"
+status = "reported"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+note = "Table 23 and Table 24 are not read; the handler is refused before them."
 
 [[clause]]
 clause = "7.6.5.3"
 title = "Public-key encryption algorithms"
-status = "unreviewed"
+status = "reported"
+code = ["crates/pdf-syntax/src/crypt.rs"]
+note = "The SHA-1 and AES seed algorithms are not implemented; the handler is refused before them."
 
 [[clause]]
 clause = "7.6.6"
 title = "Crypt filters"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/crypt.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::an_identity_stream_filter_leaves_streams_alone", "crates/pdf-syntax/tests/encryption.rs::a_document_whose_attachment_alone_is_encrypted_still_opens"]
+note = "Table 25's V2, AESV2 and AESV3 and Table 26's Identity are implemented, /CF, /StmF and /StrF are read with Identity as the stated default, and a stream's own /Crypt filter overrides /StmF through its /DecodeParms /Name. /CFM /None is refused by name, because it \"allows the security handler to do its own decryption\" and there is no such handler here. The clause's binding of a failed authorization to the *data* rather than to the file is implemented and is the reason `encrypted-attachment.pdf` and `auth-event-ef-open.pdf` display: both write /StmF /Identity /StrF /Identity with a StdCF reached only through /EFF, and neither authenticates against any known password. `partial` because the /EFF path itself is unexercised — no embedded file's bytes are ever read — and because /AuthEvent is read only far enough to know it does not gate the body."
 
 [[clause]]
 clause = "7.6.7"
 title = "Unencrypted wrapper document"
-status = "unreviewed"
+status = "writer-side"
+note = "Every normative sentence here addresses a producer: the wrapper \"shall include a Collection dictionary\", \"shall include the file specification dictionary … in the EmbeddedFiles name tree\", \"shall include the AFRelationship key\". The one sentence about readers is descriptive and describes what this viewer already does — \"PDF processors without the custom security handler will present the unencrypted wrapper document with helpful instructions to the user\" — because a wrapper is an ordinary unencrypted PDF and draws as one. Presenting the payload instead would need §12.3.5 collections and a handler for whatever /EP names, and is that clause's work rather than this one's."
 
 [[clause]]
 clause = "7.7"
@@ -1766,14 +1859,12 @@ note = "The clause's one requirement of a processor is the sentence that separat
 clause = "9.7.2"
 title = "CID-Keyed fonts overview"
 status = "inapplicable"
-code = []
 note = "Architecture rather than requirement: it introduces CIDs, character collections and the CMap/CIDFont split, and every normative sentence it contains is restated with effect in §9.7.3 to §9.7.6. Its one processor-facing statement — that a CMap's mapping \"yields a font number (which in PDF shall be 0)\" — is §9.7.6.2's, and is honoured there by reading only the first descendant."
 
 [[clause]]
 clause = "9.7.3"
 title = "CIDSystemInfo dictionaries"
 status = "inapplicable"
-code = []
 note = "`/CIDSystemInfo` identifies the character collection a CMap and a CIDFont share, and the clause's requirements are on the *file*: \"In order for a CIDFont and a CMap to be compatible, their Registry and Ordering values shall be the same.\" A renderer that takes both from the same file has nothing to decide — the CIDs it resolves come from that file's own CMap and are looked up in that file's own CIDFont, so a mismatch cannot change which glyph is drawn. It would matter for a *predefined* CMap, where the collection is external; that is §9.7.5.2's gap, and this row will need revisiting with it."
 
 [[clause]]
@@ -3224,7 +3315,10 @@ status = "unreviewed"
 [[clause]]
 clause = "12.8.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/src/document.rs::a_signature_dictionary_is_recognised_by_its_type"]
+note = "Read only as far as §7.6.2's exception needs: a signature dictionary's /Contents is a hexadecimal string that is not encrypted, which `decrypt_dict` skips on a /Type of /Sig or /DocTimeStamp. Nothing validates a signature or draws its appearance from anything but a stored /AP, and neither is reported — a document with an invalid signature looks exactly like one with a valid signature. That is a real gap in clause 12 rather than in this row's use of it."
 
 [[clause]]
 clause = "12.8.2"
@@ -3985,7 +4079,10 @@ status = "unreviewed"
 [[clause]]
 clause = "14.3.2"
 title = "Metadata streams"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::a_metadata_stream_is_in_the_clear_when_encrypt_metadata_is_false"]
+note = "The metadata stream is not parsed — no XMP reaches anything — but its one interaction with clause 7 is implemented: Table 21's /EncryptMetadata false leaves this stream unencrypted in an otherwise encrypted document, so §7.6's handler skips a stream whose /Type is /Metadata. `partial` rather than `unreviewed` for that reason alone."
 
 [[clause]]
 clause = "14.3.3"

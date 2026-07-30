@@ -48,7 +48,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use pdf_render::{Rasterizer, TargetSpec};
-use pdf_syntax::Document;
+use pdf_syntax::{Document, SyntaxError};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use render_cpu::CpuRasterizer;
 
@@ -62,17 +62,46 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// cross-reference table does.
 const MAX_UNOPENABLE: usize = 0;
 
+/// Documents that are encrypted and refuse the default user password.
+///
+/// Eight, and they are not a defect: ISO 32000-2 §7.6.4.1 says a reader "shall first try to
+/// authenticate the encrypted document using the padding string … (default user password)"
+/// and prompt when that fails, which is what a viewer with a window does and what this gate
+/// cannot do. Seven have passwords the pdf.js manifest records, and
+/// `crates/pdf-syntax/tests/encryption.rs` opens every one of them with it; the eighth,
+/// `print_protection.pdf`, has one nobody has recorded and `poppler` refuses it too.
+///
+/// This count going *down* would mean a password had started working that should not.
+const MAX_LOCKED: usize = 8;
+
+/// Documents whose encryption this reader does not implement.
+///
+/// Two, both named at runtime rather than drawn as noise (ADR 0031). `issue21579.pdf` is
+/// `/R 5`, which Table 21 describes as "a deprecated proprietary Adobe extension" and states
+/// no algorithm for, so implementing it would mean copying another reader rather than
+/// reading the standard — the one row in this gate that is a *decision* rather than work
+/// owed. `PDFBOX-4352-0.pdf` is a damaged file whose trailer names an `/Encrypt` that does
+/// not resolve to a dictionary at all; `poppler` cannot read its cross-reference table
+/// either. Refusing is the only honest answer to a file that says it is encrypted and will
+/// not say how.
+const MAX_UNREADABLE_ENCRYPTION: usize = 2;
+
 /// Documents that open but whose first page cannot be reached.
 ///
-/// Nineteen. Eleven are encrypted, which is unimplemented and listed as such in the
-/// handover. The remaining eight are files whose page tree genuinely cannot be recovered.
+/// Eleven, and it was nineteen until the twenty-second session: the eight that were
+/// "encrypted, which is unimplemented" now decrypt (ADR 0031), and what is left is eleven
+/// files whose page tree genuinely cannot be recovered. Two of those eleven,
+/// `issue19484_1.pdf` and `issue19484_2.pdf`, *are* encrypted and authenticate correctly —
+/// their object streams then fail to inflate whether decrypted or not, which is what
+/// `poppler` reports of them too ("Unknown compression method in flate stream", ten times).
+/// A damaged file, not a clause.
 ///
 /// This number is worth more than it looks. It was twenty until running this gate for the
 /// first time: `outline_goto_action.pdf` declares twelve cross-reference entries and writes
 /// eleven, so the twelfth read the `trailer` keyword, and resuming after that keyword
 /// stepped over the only thing naming `/Root`. A document with every object intact produced
 /// no catalogue and no pages. `pdf-syntax`'s robustness suite now pins it.
-const MAX_PAGELESS: usize = 19;
+const MAX_PAGELESS: usize = 11;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
@@ -84,14 +113,22 @@ const MAX_PAGELESS: usize = 19;
 /// | reported | count | why |
 /// |---|---|---|
 /// | `Text` | 67 | see below; embedded `CMap`s and `/CIDToGIDMap` have left this row |
-/// | `Annotation` | 67 | no appearance stream to draw, or one `/NeedAppearances` calls stale |
+/// | `Annotation` | 24 | no appearance stream whose shape a clause states (ADR 0030) |
 /// | `TransparencyGroup` | 18 | §11.4 and §11.5.3, described below |
-/// | `Operator` | 15 | malformed streams, mostly; the text rendering modes have left this row |
-/// | `Image` | 11 | see below; a soft mask of another size has left this row |
-/// | `Content` | 7 | a `/Contents` stream that did not decode |
-/// | `CompositedInParts` | 2 | §11.6.2, new in the fifteenth session and described below |
+/// | `Image` | 12 | see below; one joined when an encrypted document became readable |
+/// | `Operator` | 9 | malformed streams, and three fewer now that ciphertext is decrypted |
+/// | `CompositedInParts` | 4 | §11.6.2, new in the fifteenth session and described below |
+/// | `Content` | 1 | a `/Contents` stream that did not decode |
 /// | `TextKnockout` | 1 | §9.3.8, new in the fourteenth session and described below |
 /// | `LimitReached` | 1 | a bound reached and said so, which is the design |
+///
+/// **The `Content` row was 10 and is 1**, and the `Operator` row 12 and is 9, for one
+/// reason: §7.6's encryption is implemented (ADR 0031). Nine of those ten `Content` reports
+/// were an encrypted `/Contents` refusing to inflate because it was ciphertext, and three of
+/// the `Operator` reports were the same ciphertext lexing as operator names — `issue15893_reduced.pdf`
+/// announced an operator called `)` and two of byte soup. Six of those twelve documents now
+/// draw with nothing reported and six say they need a password, which is the honest form of
+/// what they were saying badly.
 ///
 /// **The `Text` row fell by 33 documents in the twentieth session** and two other rows rose by
 /// one each, which is the same 31 documents rather than a regression: a document whose font
@@ -289,7 +326,7 @@ const MAX_PAGELESS: usize = 19;
 /// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
 /// and it is the visible face of a gap this project already knows about: a font reports as a
 /// whole, so a glyph that fails to load draws nothing and says nothing.
-const MAX_INCOMPLETE: usize = 189;
+const MAX_INCOMPLETE: usize = 137;
 
 /// How long one document may take before it counts as a failure.
 ///
@@ -324,6 +361,8 @@ const KNOWN_SLOW: [&str; 0] = [];
 #[derive(Debug, Default)]
 struct Tally {
     unopenable: Vec<String>,
+    locked: Vec<String>,
+    unreadable_encryption: Vec<String>,
     pageless: Vec<String>,
     incomplete: Vec<(String, String)>,
     slow: Vec<(String, Duration)>,
@@ -384,9 +423,23 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
     let Ok(bytes) = std::fs::read(path) else {
         return;
     };
-    let Ok(document) = Document::open(bytes) else {
-        record(tally, |t| t.unopenable.push(name));
-        return;
+    let document = match Document::open(bytes) {
+        Ok(document) => document,
+        // ISO 32000-2 §7.6.4.1 has a reader try the default user password and then prompt.
+        // A file that refuses it is *locked*, not unreadable, and the distinction is the
+        // point: the first is a document waiting for a person and the second is work owed.
+        Err(SyntaxError::PasswordRequired) => {
+            record(tally, |t| t.locked.push(name));
+            return;
+        }
+        Err(SyntaxError::UnsupportedEncryption { .. }) => {
+            record(tally, |t| t.unreadable_encryption.push(name));
+            return;
+        }
+        Err(_) => {
+            record(tally, |t| t.unopenable.push(name));
+            return;
+        }
     };
     let Some(page) = pdf_model::Pages::new(&document).get(0) else {
         record(tally, |t| t.pageless.push(name));
@@ -459,16 +512,25 @@ fn the_corpus_opens_interprets_and_rasterises() {
     let tally = tally.into_inner().expect("no examination panicked");
 
     println!(
-        "{} documents in {:.1}s: {} unopenable, {} pageless, {} incomplete, {} slow",
+        "{} documents in {:.1}s: {} unopenable, {} locked, {} encrypted beyond us, \
+         {} pageless, {} incomplete, {} slow",
         files.len(),
         elapsed.as_secs_f64(),
         tally.unopenable.len(),
+        tally.locked.len(),
+        tally.unreadable_encryption.len(),
         tally.pageless.len(),
         tally.incomplete.len(),
         tally.slow.len()
     );
     for (name, reported) in &tally.incomplete {
         println!("  incomplete: {name}: {reported}");
+    }
+    for name in &tally.locked {
+        println!("  locked: {name}");
+    }
+    for name in &tally.unreadable_encryption {
+        println!("  encryption we do not implement: {name}");
     }
     for name in tally.unopenable.iter().chain(&tally.pageless) {
         println!("  unusable: {name}");
@@ -491,6 +553,17 @@ fn the_corpus_opens_interprets_and_rasterises() {
         tally.unopenable.len() == MAX_UNOPENABLE,
         "{} documents cannot be opened, was {MAX_UNOPENABLE}",
         tally.unopenable.len()
+    );
+    assert!(
+        tally.locked.len() <= MAX_LOCKED,
+        "{} documents need a password, was {MAX_LOCKED}",
+        tally.locked.len()
+    );
+    assert!(
+        tally.unreadable_encryption.len() <= MAX_UNREADABLE_ENCRYPTION,
+        "{} documents are encrypted in a way this reader does not implement, was \
+         {MAX_UNREADABLE_ENCRYPTION}",
+        tally.unreadable_encryption.len()
     );
     assert!(
         tally.pageless.len() <= MAX_PAGELESS,

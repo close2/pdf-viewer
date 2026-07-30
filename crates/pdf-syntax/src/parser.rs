@@ -350,6 +350,8 @@ impl<'a> Parser<'a> {
         Ok(Object::Stream(Arc::new(Stream {
             dict,
             data: Arc::from(data),
+            // Nothing here knows about encryption; `Document` sets this when it decrypts.
+            decryption_failed: false,
         })))
     }
 

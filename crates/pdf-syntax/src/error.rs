@@ -56,6 +56,22 @@ pub enum SyntaxError {
         /// The absent key.
         key: &'static str,
     },
+    /// The document is encrypted and the password supplied does not open it.
+    ///
+    /// ISO 32000-2 §7.6.4.1 has a reader try the default user password first and prompt
+    /// only if that fails, so this is the signal to ask — not a statement that the file is
+    /// broken.
+    #[error("the document is encrypted and needs a password (ISO 32000-2 §7.6.4.1)")]
+    PasswordRequired,
+    /// The document is encrypted by something this reader does not implement.
+    ///
+    /// Distinct from [`Self::PasswordRequired`] because no password will help: the file
+    /// names a security handler, revision or crypt filter method that is not here.
+    #[error("unsupported encryption: {detail}")]
+    UnsupportedEncryption {
+        /// What was named, and the clause that defines it.
+        detail: String,
+    },
 }
 
 /// Shorthand for a parsing result.

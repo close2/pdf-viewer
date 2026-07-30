@@ -24,6 +24,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod crypt;
 pub mod document;
 pub mod error;
 pub mod filter;
@@ -32,6 +33,7 @@ pub mod object;
 pub mod parser;
 pub mod xref;
 
+pub use crypt::Permissions;
 pub use document::{Document, ImageStream};
 pub use error::{SyntaxError, SyntaxResult};
 pub use lexer::{Lexer, Token};
