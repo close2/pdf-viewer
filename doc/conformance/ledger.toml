@@ -940,62 +940,98 @@ status = "unreviewed"
 [[clause]]
 clause = "8.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/render_real_pdf.rs::every_specification_pdf_interprets"]
+note = "Introductory to the imaging model. Its division — that clause 8 says what is painted and clause 10 how it reaches pixels — is the boundary between `pdf-render`'s display list and the two rasterisers."
 
 [[clause]]
 clause = "8.2"
 title = "Graphics objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::a_move_overrides_the_move_before_it"]
+note = "Table 32's five graphics objects and the state machine between them. All five are interpreted — path, text, external, inline image, shading — and the clause's rule that a path object is built and then painted by one operator is what `end_path` is. \"A content stream that is not a valid graphics object sequence\" is recovered from rather than refused, which the clause does not forbid and trap 5's rule requires be visible: an unbalanced `BT` is reported by name."
 
 [[clause]]
 clause = "8.3"
 title = "Coordinate systems"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/page.rs", "crates/pdf-render/src/lib.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_user_unit_scales_the_page_and_its_contents"]
+note = "See the subclauses. The one decision this tree makes about coordinate spaces is that the display list is stated in *page* space and the device transform is applied by the backend, which is what makes one list rasterisable at any scale."
 
 [[clause]]
 clause = "8.3.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/lib.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_user_unit_scales_the_page_and_its_contents"]
+note = "Introductory. Its claim that PDF's coordinate systems are all related by matrices is why `Transform` is the only geometry type that crosses a crate boundary here."
 
 [[clause]]
 clause = "8.3.2"
 title = "Coordinate spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_page_stated_in_inches_is_the_size_those_inches_are"]
+note = "See §8.3.2.2 through §8.3.2.5."
 
 [[clause]]
 clause = "8.3.2.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_page_stated_in_inches_is_the_size_those_inches_are"]
+note = "Names the spaces the subclauses below define."
 
 [[clause]]
 clause = "8.3.2.2"
 title = "Device space"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/lib.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_the_basic_scene"]
+note = "This device's space: y down, square pixels, origin at the top left, resolution decided by the `TargetSpec` the caller asks for. The clause's warning — that device spaces differ in origin, axis direction and resolution — is the reason the display list carries none of them and the backends carry all of them."
 
 [[clause]]
 clause = "8.3.2.3"
 title = "User space"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_page_stated_in_inches_is_the_size_those_inches_are", "crates/pdf-model/tests/page_geometry.rs::a_user_unit_on_an_ancestor_is_not_inherited"]
+note = "Every sentence of it is in `page.rs`: \"the CropBox entry in the page dictionary shall specify the rectangle of user space corresponding to the visible area\", the positive axes right and up \"subject to alteration by the Rotate entry\", and \"the length of a unit along both the x and y axes is set by the UserUnit entry\" with a default of one seventy-second of an inch (ADR 0038)."
 
 [[clause]]
 clause = "8.3.2.4"
 title = "Other coordinate spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"]
+note = "The spaces defined relative to user space: glyph space (§9.2.4), text space (§9.4.4), image space, form space (§8.10) and pattern space (§8.7.3). All five are implemented, and the one that is easy to get wrong is pattern space — \"the pattern matrix maps pattern space to the default coordinate space of the page\", not to the space in force at the `scn`, which is why `Interpreter::base` exists."
 
 [[clause]]
 clause = "8.3.2.5"
 title = "Relationships among coordinate spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/lib.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_the_basic_scene"]
+note = "The chain from glyph or image space through user space to device space, composed by matrix multiplication. Trap 2 is this subclause read the hard way: a paint is positioned in the space the *path* is stated in, so composing the page-to-device transform into a gradient's own matrix applies it twice."
 
 [[clause]]
 clause = "8.3.3"
 title = "Common transformations"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/lib.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_diagonal_stroke"]
+note = "Translation, scaling, rotation and skew, all four expressible by `Transform` and all four reached by the `cm` operator. Nothing constructs one from an angle here — a content stream states the six numbers — so the clause's formulas are read rather than implemented, and its NOTE 1 about the order mattering is the reason `Transform::then` is named for the order it applies in."
 
 [[clause]]
 clause = "8.3.4"
 title = "Transformation matrices"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/lib.rs"]
+test = ["crates/pdf-render/src/geom.rs::a_shear_stretches_more_than_its_determinant_says"]
+note = "The six-number matrix and its arithmetic, `Transform`. One derived quantity is this crate's own and is worth naming here: `Transform::max_stretch` is the largest factor a matrix can scale a length by, which is **not** `determinant().abs().sqrt()` — a shear separates the singular values without changing the determinant — and it is what decides a stroke's device width (§8.4.3.2)."
 
 [[clause]]
 clause = "8.4"
@@ -1198,22 +1234,34 @@ note = "`W` and `W*` set a pending rule that the *following* painting operator a
 [[clause]]
 clause = "8.6"
 title = "Colour spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "All eleven colour space families, with the CIE-based ones converted rather than approximated. See the subclauses; the ones that decide a page are §8.6.4's device spaces, §8.6.5's CIE-based ones and §8.6.6's special ones."
 
 [[clause]]
 clause = "8.6.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "Introductory. Its separation of *specifying* a colour from *rendering* it is clause 10's subject and this tree's `ColourSpace::to_rgb`, the one route from any space to a pixel."
 
 [[clause]]
 clause = "8.6.2"
 title = "Colour values"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "A colour value is \"one to four numbers\" whose meaning the space decides, and the clause's rule that a value outside the space's range \"shall be adjusted to the nearest valid value\" is `ColourSpace::component_range`'s clamp — the same one §8.9.5.2's `/Decode` map ends with."
 
 [[clause]]
 clause = "8.6.3"
 title = "Colour space families"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::an_icc_space_prefers_its_stated_alternate"]
+note = "The three groups — device, CIE-based and special — and Table 61's eleven families, all of which `colour::ColourSpace` has an arm for. §8.6.5.1's withdrawn `CalCMYK` is the twelfth name and the clause redirects it to `DeviceCMYK`, which is what happens here."
 
 [[clause]]
 clause = "8.6.4"
@@ -1573,17 +1621,26 @@ note = "Sixteen control points rather than twelve; the four interior ones are re
 [[clause]]
 clause = "8.8"
 title = "External objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_forms_bounding_box_clips_what_it_draws"]
+note = "Both of the two the clause names, and in PDF 2.0 there are only two: \"an image XObject … represents a sampled visual image\" and \"a form XObject … is a self-contained description of an arbitrary sequence of graphics objects\". Table 86 says the same of `Do` — \"the effect of Do depends on the value of the XObject's Subtype entry, which may be Image … or Form\". PostScript XObjects are gone from this edition, so a `/Subtype` that is neither has no defined effect and is **reported by name** rather than ignored. This note said the opposite in its first draft, on the strength of a clause of an earlier edition; the code was checked and the note was wrong."
 
 [[clause]]
 clause = "8.8.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_forms_bounding_box_clips_what_it_draws"]
+note = "Introductory: an external object is \"defined outside the content stream and referenced as a named resource\", which is §7.8.3's resource dictionary and the reason `Do` takes a name."
 
 [[clause]]
 clause = "8.9"
 title = "Images"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/inline_image.rs"]
+test = ["crates/pdf-model/tests/bit_depths.rs::a_row_restarts_on_a_byte_boundary"]
+note = "Sampled images in both of the clause's forms — an image XObject and §8.9.7's inline image — with all five bit depths, all four masking mechanisms, §8.9.5.2's `/Decode` in full and §8.9.5.3's `/Interpolate`."
 
 [[clause]]
 clause = "8.9.1"
@@ -1620,7 +1677,10 @@ note = "Both backends map image space to the unit square with the clause's own m
 [[clause]]
 clause = "8.9.5"
 title = "Image dictionaries"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/bit_depths.rs::an_unnamed_depth_is_reported", "crates/pdf-model/tests/decode_arrays.rs::a_general_decode_array_maps_the_samples_linearly_between_its_two_values"]
+note = "Table 87 in full for what decides a drawn image; see §8.9.5.1 through §8.9.5.4 for the entries and §8.9.6 for the masks."
 
 [[clause]]
 clause = "8.9.5.1"

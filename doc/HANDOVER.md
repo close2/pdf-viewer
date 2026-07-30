@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **thirty-seventh** working session. Read
+Written 2026-07-26, updated 2026-07-30 at the end of the **thirty-eighth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,38 +12,39 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the thirty-seventh session changed
+## What the thirty-eighth session changed
 
-**Not one cross-backend scene selected a blend mode**, and reading clause 11 as a family is
-what found it. Fourteen scenes compared geometry, shadings, images, soft masks and a
-transparency group, and every `Command` in every one of them carried `BlendMode::Normal` — so
-the two backends' sixteen blend functions had never been held to each other. Trap 2's rule in
-its stated form: a decision either backend can make alone is a decision neither has made.
-ADR 0046.
+**Clause 8 is complete as a review — 128 rows, none `unreviewed`** — and with clauses 10 and 11
+already complete, **the three clauses that decide whether a page looks right have all been read
+against this code.** Clause 9 is six rows short.
 
-**Twelve separable modes and `Saturation` agree to the channel. `Hue`, `Color` and `Luminosity`
-differ by 113 of 255 — and the clause says which is right.** Red over blue in `Hue` is
-`SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))`, which after `ClipColor` is 0.367, or 94 in eight bits.
-Vello gives 94; `tiny-skia` gives 207, which is the value *before* the clip. **The CPU backend
-is this project's correctness oracle for everything else, and here it is the wrong one.**
+The twenty rows were the ones nobody had had a reason to open: §8.1's introduction, §8.2's five
+graphics objects, the whole of §8.3's coordinate spaces, §8.6's colour-space overview, §8.8's
+external objects, and §8.9 and §8.9.5's own headings. Three are worth carrying:
 
-**A debug build names the cause.** Under Rust's overflow checks `tiny-skia`'s own
-`wide/u16x16_t.rs` panics with "attempt to multiply with overflow" inside these three modes, so
-the release answer is a sixteen-bit intermediate wrapping. The scene is therefore a
-release-build test and says so.
+- **§8.3.2.4's pattern space** is the one coordinate space that is easy to get wrong, and the
+  clause says why: "the pattern matrix maps pattern space to the default coordinate space of the
+  page", not to the space in force at the `scn`. `Interpreter::base` exists for that sentence.
+- **§8.3.2.5 is trap 2 read forwards.** The chain from glyph or image space to device space is
+  composed by matrix multiplication, and a paint is positioned in the space the *path* is stated
+  in — which is why composing the page-to-device transform into a gradient's own matrix applies
+  it twice.
+- **§8.3.4 is where `Transform::max_stretch` belongs**, and it is not
+  `determinant().abs().sqrt()`: a shear separates the singular values without changing the
+  determinant.
 
-**Two details of the scene are load-bearing and both keep an edge rule out of a colour
-measurement**: every coordinate lands on a whole pixel, and every band is inset so that no two
-rectangles share an edge. The first draft had neither and *all sixteen* modes "differed" — by
-the seam between two colours, which two rasterisers antialias differently.
-
-**Clause 11 is complete as a review**, 58 rows with none `unreviewed`.
+**And one of the twenty rows was written wrong and caught by checking.** §8.8's note first said
+that an XObject whose `/Subtype` is neither `Image` nor `Form` is *ignored*, "which is the
+clause's own instruction". It is not: PDF 2.0's §8.8.1 names two types and Table 86 says "the
+effect of `Do` depends on the value of the XObject's `Subtype` entry, which may be Image … or
+Form", PostScript XObjects having been removed from this edition. The code reports such a
+subtype by name, which is trap 5's rule, and the note now says so.
 
 | | was | is |
 |---|---|---|
-| **cross-backend blend-mode coverage** | none, in fourteen scenes | all sixteen, in one |
-| **`Hue`, `Color`, `Luminosity` on the CPU backend** | assumed right | wrong, with the closed form beside them |
-| **clause 11's 10 unread rows** | nobody had read them | 8 implemented, 1 partial, 1 inapplicable |
+| **clause 8's 20 unread rows** | nobody had read them | all 20 implemented |
+| **clauses with no `unreviewed` row** | 10, 11, 13 | **8, 10, 11, 13** |
+| **§8.8's ledger note** | "an unknown `/Subtype` is ignored, which is the clause's instruction" | reported by name, and the note was checked against the code |
 
 **The numbers:**
 
@@ -51,23 +52,20 @@ the seam between two colours, which two rasterisers antialias differently.
 |---|---|---|
 | corpus documents drawing with nothing reported | 859 | **859** |
 | pages agreeing with the reference consensus | 811 | **811** |
-| **ledger subclauses nobody has read** | 344 | **334** |
-| **cross-backend GPU scenes** | 14 | **15** |
-| `§` citations the checker verified | 1358 | **1365** |
-| tests | 589 | **590** |
+| **ledger subclauses nobody has read** | 334 | **314** |
+| `§` citations the checker verified | 1365 | **1365** |
+| tests | 590 | **590** |
 
 What it taught:
 
-- **A comparison is only worth what its scenes can express.** The sixteenth session learned the
-  magnitude version — a scene must be able to fail at the defect's *size* — and this is the
-  axis version: fourteen scenes existed and nobody had asked what they did not cover. The
-  question to ask of a scene set is not "does it pass" but "what parameter does every scene in
-  it leave at its default".
-- **When two backends disagree, write the clause's arithmetic down before deciding who is
-  wrong.** Trap 12 says it about the reference oracle and it is the same move here: 0.367 is a
-  number the clause produces, and it belongs to one of the two answers.
-- **The correctness oracle can be the wrong one.** `render-cpu` is the backend everything else
-  is checked against, and for three of Table 136's four modes it is a dependency's overflow.
+- **A ledger note is a claim, and the ledger cannot check the prose.** The checker holds a row's
+  clause number, its status's evidence and its quotations; it cannot tell that "which is the
+  clause's own instruction" describes an edition the tree does not read. The rule this project
+  applies to its own tooling — whatever this file asserts, run it once — applies to every row
+  written from memory of an earlier PDF.
+- **The rows nobody has a reason to open are where a project's assumptions live.** None of these
+  twenty changed a pixel and three of them are the sentences that explain code written years
+  ago for reasons that were never written down.
 
 ## How the project got here
 
@@ -109,6 +107,7 @@ below rather than here.
 | 35 | §8.11.4.4's usage application dictionaries — the ledger's last original `silent` row | ADR 0044 |
 | 36 | Vertical writing: §9.2.4's second set of metrics, §9.7.4.3's `/W2` and `/DW2` | ADR 0045 |
 | 37 | The blend-mode scene nobody had written; clause 11 completed as a review | ADR 0046 |
+| 38 | Clause 8 completed as a review — the graphics clause, 20 rows | — |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -702,11 +701,13 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **334
-of 823 subclauses are `unreviewed`**, and 489 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **314
+of 823 subclauses are `unreviewed`**, and 509 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
-project has measured 47% of its clause coverage. That number is meant to look bad; the alternative
-was not knowing.
+project has measured 62% of its clause coverage — up from 37% eight sessions ago, and the four
+clauses that decide whether a page is drawn correctly (8, 10, 11 and 13's exclusions) have no
+`unreviewed` row left at all. What remains is concentrated in clause 12's interactive half and
+clause 14, which are the parts this tree has not built.
 
 **The ledger has been wrong twice**, which is worth knowing before trusting a row: §8.9.5.3's note
 said reduction was something the standard does not address, and §10.7.4 addresses it in the
@@ -818,7 +819,7 @@ where the two disagree the ledger is the one that had to name a code site.
 | Clause | Subclauses | State |
 |---|---|---|
 | 7 Syntax | 138 | **Nearly complete**, 74 rows reviewed — the whole of §7.4, §7.6, §7.7 and §7.8 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. §7.8's content streams and resource dictionaries are read in full, including Table 33's `BX`/`EX` compatibility section, in which an unrecognised operator is ignored without error (ADR 0041). §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
-| 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 107 rows reviewed, with §8.4, §8.5, §8.6.4, §8.6.5, §8.6.6, §8.6.7, §8.7, §8.9 and §8.10 done as families. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). **All five of Table 87's bit depths** are unpacked, and §8.9.7's abbreviated keys beat their full names when a file writes both (ADR 0041). |
+| 8 Graphics | 128 | **Complete as a review**, all 128 rows, and the clause with the most ledger coverage. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). **All five of Table 87's bit depths** are unpacked, and §8.9.7's abbreviated keys beat their full names when a file writes both (ADR 0041). |
 | 9 Text | 65 | **Partial**, 61 rows reviewed — §9.2, §9.3, §9.4, §9.6, §9.8, §9.9 and the whole of §9.7 as families. Simple and composite fonts through **every font program Table 124 defines** — TrueType, CFF, OpenType and, from the thirty-first session, the bare Type 1 of `/FontFile`; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. An embedded program's own built-in encoding is the base encoding Table 112 says it is, and `/MissingWidth` defaults to Table 120's 0 (ADR 0039). Both writing modes, from §9.2.4's two sets of metrics (ADR 0045). Missing: Table 116's predefined `CMap`s, text knockout (§9.3.8, reported), and §9.8.3's `/Style` and `/FD`, which are the ledger's two new `silent` rows and reach nothing but a substitute's choice. |
 | 10 Rendering | 36 | **Complete as a review**, all 36 rows. 19 of them are `inapplicable`, because halftoning and transfer functions describe a marking device and `/TR` is deprecated in PDF 2.0 besides; 1 is `reported`, §10.8.3's separation simulation, which a *document* cannot ask for. **§10.4.2.5 defines the `DeviceCMYK` → RGB conversion this project spent thirty-two sessions saying the standard does not** — and §10.4.2.1 ranks it below §10.3's ICC route, which is the one this tree is on (ADR 0042). Colour management and rendering intents are done. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
 | 11 Transparency | 58 | **Complete as a review**, all 58 rows. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names — and **three of Table 136's four non-separable ones are wrong on the CPU backend**, which the thirty-seventh session found by writing the cross-backend scene clause 11 had never had (ADR 0046). `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
@@ -864,7 +865,7 @@ parts that make a document *interactive* are not started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name — 88 contradicted pages, 50 of them unexplained, and a
 feature list sized by how many documents want each item. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **334 of 823 subclauses are `unreviewed`**. A project running only the
+§6.3.2.2's ranking name: **314 of 823 subclauses are `unreviewed`**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
