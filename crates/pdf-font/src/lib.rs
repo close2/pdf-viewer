@@ -66,11 +66,22 @@ fn no_names() -> GlyphNames {
     Box::new(std::array::from_fn(|_| Cow::Borrowed("")))
 }
 
-/// Width assumed when a font gives none, in thousandths of an em.
+/// Width of a simple font's code that neither `/Widths` nor `/MissingWidth` covers.
 ///
-/// Half an em is close to average for Latin text, so spacing degrades gracefully rather
-/// than collapsing to zero.
-const DEFAULT_WIDTH: f32 = 500.0;
+/// ISO 32000-2 §9.8.1's Table 120 gives `/MissingWidth` the default value 0, and §9.6.2's
+/// Table 109 sends every code outside the declared range to it:
+///
+/// > For character codes outside the range FirstChar to LastChar , the value of
+/// > MissingWidth from the FontDescriptor entry for this font shall be used.
+///
+/// It used to be half an em here, on the reasoning that spacing degrades more gracefully
+/// than it does collapsing to zero. That is a plausible thing to want and not a reading of
+/// anything: the clause states the default, and a producer wanting half an em can write
+/// it. `issue7439.pdf` is what the difference costs — its one line of text shows code 2
+/// six times against a `/FirstChar` of 3 and a descriptor with no `/MissingWidth`, so half
+/// an em of invented space opened six times between `Issue` and `7439`. The page was
+/// contradicted by the reference consensus and now agrees.
+const DEFAULT_WIDTH: f32 = 0.0;
 
 /// How a font maps character codes to glyphs.
 #[derive(Debug)]
@@ -374,11 +385,7 @@ impl LoadedFont {
                     name: name.to_owned(),
                     detail: e.to_string(),
                 })?;
-                // A descriptor is present whenever a program was embedded.
-                let descriptor = descriptor.ok_or_else(|| FontError::NotEmbedded {
-                    name: name.to_owned(),
-                })?;
-                let (table, resolved) = simple_code_table(document, dict, descriptor, &cff, name)?;
+                let (table, resolved) = simple_code_table(document, dict, &cff, name)?;
                 names = Some(resolved);
                 CodeMapping::Named(Box::new(table))
             }
@@ -396,10 +403,7 @@ impl LoadedFont {
             },
         );
 
-        let default_width = descriptor
-            .map(|descriptor| document.get_key(descriptor, "MissingWidth"))
-            .and_then(|value| value.as_number())
-            .map_or(DEFAULT_WIDTH, narrow);
+        let default_width = missing_width(document, descriptor);
 
         Ok(Self {
             data,
@@ -1383,6 +1387,17 @@ struct SimpleMetrics<'a> {
 ///
 /// Resolved once here rather than at each lookup, so [`LoadedFont::advance`] stays free of
 /// work and of allocation on the per-character path.
+/// The width of every code the font dictionary's `/Widths` does not cover.
+///
+/// §9.6.2's Table 109 names `/MissingWidth` for exactly that, and Table 120 gives it a
+/// default; see [`DEFAULT_WIDTH`], which is the whole subject.
+fn missing_width(document: &Document, descriptor: Option<&Dictionary>) -> f32 {
+    descriptor
+        .map(|descriptor| document.get_key(descriptor, "MissingWidth"))
+        .and_then(|value| value.as_number())
+        .map_or(DEFAULT_WIDTH, narrow)
+}
+
 fn simple_widths(
     document: &Document,
     dict: &Dictionary,
@@ -1458,9 +1473,26 @@ fn program_widths(data: &[u8], mapping: &CodeMapping, units_per_em: f32) -> BTre
 
 /// Resolves a simple font's character codes to glyphs in a bare CFF program.
 ///
-/// This is the specification's encoding algorithm (ISO 32000-2, 9.6.6.2): choose a base
-/// encoding, layer `/Differences` over it, and resolve the resulting glyph names through
-/// the font's charset.
+/// This is the specification's encoding algorithm for a font whose glyphs are keyed by
+/// name (ISO 32000-2 §9.6.5.2): choose a base encoding, layer `/Differences` over it, and
+/// resolve the resulting glyph names through the font's charset.
+///
+/// # The base encoding of an embedded program is the program's own
+///
+/// §9.6.5.1's Table 112 states the default in three cases, and only the last two turn on
+/// the Symbolic flag:
+///
+/// > For a font program that is embedded in the PDF file, the default base encoding shall
+/// > be the font program's built-in encoding, as described in 9.6.5, "Character encoding"
+/// > and further elaborated in the subclauses on specific font types.
+///
+/// A bare CFF only reaches this function by having been embedded, so the first sentence
+/// decides every font that gets here and the flag decides none of them. An earlier version
+/// asked the flag anyway and gave a nonsymbolic font `StandardEncoding`, which is the rule
+/// for a font this crate would be *substituting* — so a code the document left to the
+/// program drew whatever `StandardEncoding` puts there instead of what the program does.
+/// It is invisible on almost every document, because a CFF's built-in encoding usually
+/// *is* `StandardEncoding`; over the whole corpus it moves one code of one font.
 ///
 /// # Why an unresolved name is not retried against the font's own encoding
 ///
@@ -1469,15 +1501,20 @@ fn program_widths(data: &[u8], mapping: &CodeMapping, units_per_em: f32) -> BTre
 /// The fallback is tempting because it fills the page, and wrong because a subset font's
 /// built-in encoding is arbitrary: it would draw *a* glyph, confidently, and not the one
 /// the document asked for. A blank is a visible defect; a wrong letter is an invisible
-/// one.
+/// one. That is not in tension with the rule above: the built-in encoding is the base
+/// *before* `/Differences` renames a code, never a second chance after a name failed.
 fn simple_code_table(
     document: &Document,
     dict: &Dictionary,
-    descriptor: &Dictionary,
     cff: &CodeToGlyph,
     name: &str,
 ) -> Result<(CodeTable, GlyphNames), FontError> {
-    let CodeToGlyph::Named { by_name, builtin } = cff else {
+    let CodeToGlyph::Named {
+        by_name,
+        builtin,
+        builtin_names,
+    } = cff
+    else {
         // A CID-keyed program has no glyph names for `/Encoding` to address.
         return Err(FontError::UnsupportedEncoding {
             name: name.to_owned(),
@@ -1485,16 +1522,9 @@ fn simple_code_table(
         });
     };
 
-    // With no base encoding named, a symbolic font uses the encoding built into the font
-    // program — its glyphs are outside the standard Latin set, so Latin glyph names would
-    // not address them. A nonsymbolic font defaults to StandardEncoding.
-    let names = encoding_names(
-        document,
-        dict,
-        name,
-        None,
-        !is_symbolic(document, descriptor),
-    )?;
+    // No fall-back to StandardEncoding: an unnamed code belongs to the program's own
+    // encoding, which is what Table 112 makes the base here.
+    let mut names = encoding_names(document, dict, name, None, false)?;
 
     let mut table: CodeTable = [None; 256];
     for (code, slot) in table.iter_mut().enumerate() {
@@ -1504,6 +1534,20 @@ fn simple_code_table(
             Some(glyph_name) => *slot = by_name.get(glyph_name).copied(),
             // The encoding said nothing, so the font's own encoding applies.
             None => *slot = builtin.get(code).copied().flatten(),
+        }
+    }
+
+    // Every code the base encoding answered is now drawn by the right glyph and named by
+    // nothing, and a font with no `/ToUnicode` has only the name to say what a code means.
+    // Taken from the charset rather than from a Latin table, so the name is the program's
+    // own statement about the glyph the code just selected.
+    for (code, slot) in names.iter_mut().enumerate() {
+        if let Some(builtin_name) = builtin_names
+            .get(code)
+            .and_then(Option::as_deref)
+            .filter(|_| slot.is_empty())
+        {
+            *slot = Cow::Owned(builtin_name.to_owned());
         }
     }
 
@@ -2458,5 +2502,292 @@ mod truetype_encoding_tests {
         assert!(Subtables::read(&font).all.is_some());
         let font = FontRef::new(&without).expect("readable");
         assert!(Subtables::read(&font).all.is_none());
+    }
+}
+
+/// ISO 32000-2 §9.6.5.1's Table 112, on a name-keyed program: which encoding is the *base*.
+///
+/// The rule is a sentence rather than an algorithm, and it is the sentence a corpus cannot
+/// test. Table 112 makes an **embedded** font program's own built-in encoding the default
+/// base, and only a font whose program is *not* embedded falls back to `StandardEncoding`
+/// or to the Symbolic flag. Nearly every real CFF's built-in encoding *is*
+/// `StandardEncoding`, so reading the wrong sentence is invisible on all 974 corpus
+/// documents but one, and on that one it moves a single code.
+///
+/// So the fixtures state the two encodings *differently* and ask which one answered. The
+/// CFF is a value rather than a font program: what is under test is the choice of base,
+/// which happens entirely in [`simple_code_table`], and building a byte-level CFF here
+/// would test `read-fonts` instead.
+#[cfg(test)]
+mod cff_encoding_tests {
+    use std::borrow::Cow;
+    use std::collections::BTreeMap;
+
+    use super::fixture::font_dictionary;
+    use super::{CodeToGlyph, simple_code_table};
+
+    /// The glyphs the fixture font holds, by the names its charset gives them.
+    const ALPHA: u16 = 11;
+    const BETA: u16 = 12;
+    /// The charset also names a glyph `A`, which is what `StandardEncoding` asks for at 65.
+    const LATIN_A: u16 = 13;
+
+    /// A name-keyed CFF whose built-in encoding disagrees with `StandardEncoding`.
+    ///
+    /// Code 65 is `A` in `StandardEncoding` and `alpha` in this font; code 66 is `B`, which
+    /// the charset does not have at all, and `beta` in this font. So each code distinguishes
+    /// the two bases, and in opposite ways: one would draw the wrong glyph and the other
+    /// would draw nothing.
+    fn fixture() -> CodeToGlyph {
+        let by_name: BTreeMap<Box<str>, u16> = [
+            ("alpha".into(), ALPHA),
+            ("beta".into(), BETA),
+            ("A".into(), LATIN_A),
+        ]
+        .into_iter()
+        .collect();
+        let mut builtin = Box::new([None; 256]);
+        builtin[65] = Some(ALPHA);
+        builtin[66] = Some(BETA);
+        let builtin_names = Box::new(std::array::from_fn(|code| match code {
+            65 => Some("alpha".into()),
+            66 => Some("beta".into()),
+            _ => None,
+        }));
+        CodeToGlyph::Named {
+            by_name,
+            builtin,
+            builtin_names,
+        }
+    }
+
+    /// Resolves the fixture font's codes under the `/Encoding` entries given.
+    fn resolve(entries: &str) -> (super::CodeTable, super::GlyphNames) {
+        let (document, dict) = font_dictionary(entries);
+        simple_code_table(&document, &dict, &fixture(), "F1").expect("the fixture resolves")
+    }
+
+    /// With no `/Encoding`, every code is the program's own — which is the uncontested half.
+    #[test]
+    fn a_font_with_no_encoding_entry_is_its_own() {
+        let (table, names) = resolve("");
+
+        assert_eq!(table[65], Some(ALPHA));
+        assert_eq!(table[66], Some(BETA));
+        assert_eq!(names[65], Cow::Borrowed("alpha"));
+    }
+
+    /// `/Differences` alone describes differences from the *program's* encoding.
+    ///
+    /// The rule that was wrong: a code the array does not mention keeps the built-in
+    /// glyph. Reading `StandardEncoding` as the base instead would draw `LATIN_A` at 65 —
+    /// a plausible wrong letter — and nothing at all at 66.
+    #[test]
+    fn differences_without_a_base_encoding_layer_over_the_programs_own() {
+        let (table, names) = resolve("/Encoding << /Type /Encoding /Differences [66 /A] >>");
+
+        assert_eq!(table[66], Some(LATIN_A), "the array names this code");
+        assert_eq!(table[65], Some(ALPHA), "and says nothing about this one");
+        assert_eq!(names[65], Cow::Borrowed("alpha"));
+        assert_eq!(names[66], Cow::Borrowed("A"));
+    }
+
+    /// A named `/BaseEncoding` is still the base, and the program's encoding is not consulted.
+    ///
+    /// Which is what keeps the rule above from being a licence: the document may state the
+    /// base, and when it does, a code it leaves undefined is undefined rather than the
+    /// font's own. Code 66 is `B`, which this charset lacks, so it reaches no glyph.
+    #[test]
+    fn a_named_base_encoding_still_wins() {
+        let (table, _) = resolve("/Encoding << /BaseEncoding /WinAnsiEncoding >>");
+
+        assert_eq!(table[65], Some(LATIN_A));
+        assert_eq!(table[66], None);
+    }
+
+    /// The font descriptor's flags decide nothing here, which is the whole finding.
+    ///
+    /// Table 112 asks the Symbolic flag only for a font whose program is *not* embedded,
+    /// and a bare CFF reaches this crate by having been embedded. Stated as a test because
+    /// the previous reading was defensible from the same table's last sentence.
+    #[test]
+    fn the_symbolic_flag_changes_nothing_for_an_embedded_program() {
+        let symbolic = resolve("/FontDescriptor << /Flags 4 >>").0;
+        let nonsymbolic = resolve("/FontDescriptor << /Flags 32 >>").0;
+
+        assert_eq!(symbolic[65], Some(ALPHA));
+        assert_eq!(symbolic, nonsymbolic);
+    }
+}
+
+/// A PDF whose one object is a font dictionary, for stating a rule about a dictionary.
+///
+/// Several rules in clause 9 are about what a font *dictionary* says, and reach a glyph
+/// only afterwards. Building a font program to test one would test the program's reader
+/// instead, so the fixtures that need only a dictionary build only a dictionary.
+#[cfg(test)]
+mod fixture {
+    use std::fmt::Write as _;
+
+    use pdf_syntax::{Dictionary, Document, ObjectId};
+
+    /// A one-object document whose object 1 is a font dictionary with the given entries.
+    pub(super) fn font_dictionary(entries: &str) -> (Document, Dictionary) {
+        let body = format!("1 0 obj\n<< /Type /Font /Subtype /Type1 {entries} >>\nendobj\n");
+        let mut out = String::from("%PDF-1.7\n");
+        let offset = out.len();
+        out.push_str(&body);
+        let xref_at = out.len();
+        out.push_str("xref\n0 2\n0000000000 65535 f \n");
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+        let _ = write!(
+            out,
+            "trailer\n<< /Size 2 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        let document = Document::open(out.into_bytes()).expect("the fixture is a valid PDF");
+        let dict = document
+            .get(ObjectId {
+                number: 1,
+                generation: 0,
+            })
+            .as_dict()
+            .expect("object 1 is the font dictionary")
+            .clone();
+        (document, dict)
+    }
+
+    /// The same, with object 2 a stream the descriptor points at as `/FontFile2`.
+    ///
+    /// The bytes are deliberately not a font: what the callers need is a *deterministic*
+    /// failure that every simple `/Subtype` reaches identically, and a program `skrifa`
+    /// refuses gives one, where an absent program would send the load into substitution
+    /// and make the test depend on which faces this machine has installed.
+    pub(super) fn font_with_program(subtype: &str, program: &[u8]) -> (Document, Dictionary) {
+        let mut body = format!(
+            "1 0 obj\n<< /Type /Font /Subtype /{subtype} \
+             /FontDescriptor << /Flags 32 /FontFile2 2 0 R >> >>\nendobj\n"
+        );
+        let _ = write!(
+            body,
+            "2 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+            program.len(),
+            String::from_utf8_lossy(program)
+        );
+
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for object in body.split_inclusive("endobj\n") {
+            offsets.push(out.len());
+            out.push_str(object);
+        }
+        let xref_at = out.len();
+        let size = offsets.len().saturating_add(1);
+        let _ = writeln!(out, "xref\n0 {size}");
+        out.push_str("0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        let document = Document::open(out.into_bytes()).expect("the fixture is a valid PDF");
+        let dict = document
+            .get(ObjectId {
+                number: 1,
+                generation: 0,
+            })
+            .as_dict()
+            .expect("object 1 is the font dictionary")
+            .clone();
+        (document, dict)
+    }
+}
+
+/// ISO 32000-2 §9.6's simple fonts are one path, and the `/Subtype` name does not fork it.
+///
+/// §9.6.2.3 is the reason this is worth a test rather than a comment: a multiple master
+/// instance carries `/Subtype /MMType1` and, when it is embedded, "shall be an ordinary
+/// Type 1 font program" — a snapshot with the design coordinates already chosen. So the
+/// name distinguishes nothing a reader must do, and neither does `/TrueType`, because
+/// §9.6.3's font may equally be an `OpenType` file holding CFF outlines. What decides is
+/// the program, which `embedded_program` reads by signature.
+#[cfg(test)]
+mod simple_font_subtype_tests {
+    use super::fixture::font_with_program;
+    use super::{FontError, LoadedFont};
+
+    /// Every simple `/Subtype` reaches the same loader and fails identically on one program.
+    #[test]
+    fn a_simple_fonts_subtype_selects_nothing() {
+        let load = |subtype: &str| {
+            let (document, dict) = font_with_program(subtype, b"not a font program at all");
+            LoadedFont::load(&document, &dict, "F1").err()
+        };
+
+        let type1 = load("Type1");
+        assert!(
+            matches!(type1, Some(FontError::Malformed { .. })),
+            "an unreadable program should be reported as malformed, not {type1:?}"
+        );
+        assert_eq!(load("MMType1"), type1);
+        assert_eq!(load("TrueType"), type1);
+    }
+
+    /// The two subtypes that *are* different clauses still are.
+    #[test]
+    fn type0_and_type3_are_not_simple_fonts() {
+        let (document, dict) = font_with_program("Type3", b"not a font program at all");
+        assert!(matches!(
+            LoadedFont::load(&document, &dict, "F1"),
+            Err(FontError::Type3 { .. })
+        ));
+
+        let (document, dict) = font_with_program("Type0", b"not a font program at all");
+        let composite = LoadedFont::load(&document, &dict, "F1");
+        assert!(
+            composite.is_err(),
+            "a Type0 dictionary with no /Encoding and no descendant cannot load"
+        );
+        assert!(
+            !matches!(composite, Err(FontError::Malformed { .. })),
+            "and it fails on the composite path, not on the program: {composite:?}"
+        );
+    }
+}
+
+/// ISO 32000-2 §9.8.1's Table 120, on the one entry of it that moves a glyph.
+///
+/// A width is not a picture, so no rendering test can be pointed at this: what it changes
+/// is where the *next* glyph goes, and only on a code the document's own `/Widths` does
+/// not cover. `issue7439.pdf` is the corpus's one witness and the oracle holds it by name;
+/// these state the rule itself, which is what survives that file being deleted.
+#[cfg(test)]
+#[expect(
+    clippy::float_cmp,
+    reason = "both sides are an integer written in the fixture or a constant, so the \
+              comparison is exact by construction"
+)]
+mod missing_width_tests {
+    use super::fixture::font_dictionary;
+    use super::missing_width;
+
+    /// `/MissingWidth` is read from the descriptor when it is there.
+    #[test]
+    fn a_stated_missing_width_is_the_width() {
+        let (document, dict) = font_dictionary("/FontDescriptor << /MissingWidth 321 >>");
+        let descriptor = document.get_key(&dict, "FontDescriptor");
+
+        assert_eq!(missing_width(&document, descriptor.as_dict()), 321.0);
+    }
+
+    /// Table 120's default value is 0, not a guess at an average glyph.
+    #[test]
+    fn an_absent_missing_width_is_zero() {
+        let (document, dict) = font_dictionary("/FontDescriptor << /Flags 32 >>");
+        let descriptor = document.get_key(&dict, "FontDescriptor");
+
+        assert_eq!(missing_width(&document, descriptor.as_dict()), 0.0);
+        assert_eq!(missing_width(&document, None), 0.0);
     }
 }

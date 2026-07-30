@@ -13,7 +13,7 @@
 //! files are routinely truncated or corrupt — so the lexer never loops waiting for a
 //! terminator that may not arrive.
 
-/// Byte classification per ISO 32000-2, 7.2.3.
+/// Byte classification per ISO 32000-2 §7.2.3.
 mod class {
     /// Whitespace: null, tab, line feed, form feed, carriage return, space.
     #[must_use]

@@ -2017,37 +2017,58 @@ status = "unreviewed"
 [[clause]]
 clause = "9.6"
 title = "Simple fonts"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::the_pdf_widths_agree_with_the_font_programs_own_advances"]
+note = "All three of the clause's properties hold: a simple font's codes are single bytes, each glyph has one horizontal set of metrics, and the descriptor is read where there is one. `LoadedFont::load` sends everything that is not Type0 or Type3 down one path and decides by the *program* the descriptor embeds rather than by `/Subtype`, which is what makes an `OpenType`-wrapped CFF in a `/Type1` dictionary work. Partial only because the bare Type 1 format of `/FontFile` is not read (reported, and no corpus page one reaches one)."
 
 [[clause]]
 clause = "9.6.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-font/src/cmap.rs::code_length_comes_from_the_codespace_ranges"]
+note = "A simple font's codes are one byte each — `Code::single_byte`, against §9.7's variable-length codes — and there is one width per code and no writing mode 1, which is the clause's second property. The third, that a font descriptor is required except for Type 3 and certain standard Type 1 fonts, is why an absent descriptor is not an error but a substitution request."
 
 [[clause]]
 clause = "9.6.2"
 title = "Type 1 fonts"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/cff.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::a_simple_fonts_subtype_selects_nothing", "crates/pdf-font/src/lib.rs::the_corpus_contains_both_kinds_of_bare_cff_font"]
+note = "Type 1 and MMType1 dictionaries are read and their programs drawn where the program is CFF, which is what `/FontFile3` carries. The Type 1 format itself — `/FontFile`, eexec-encrypted charstrings — is not read; a font offering only that is reported by name and substituted for. No corpus page one reaches one."
 
 [[clause]]
 clause = "9.6.2.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::the_pdf_widths_agree_with_the_font_programs_own_advances"]
+note = "Table 109's entries that decide a rendered page: `/BaseFont` (as the substitution request), `/FirstChar` with `/Widths`, `/FontDescriptor`, `/Encoding` and `/ToUnicode`. `/Name` is deprecated in PDF 2.0 and read by nobody, which is what the deprecation asks for. The clause's closing paragraph — that a processor shall supply widths and descriptor data for the standard 14 when the entries are absent — is `standard_metrics.rs`."
 
 [[clause]]
 clause = "9.6.2.2"
 title = "Standard Type 1 fonts (standard 14 fonts) (PDF 1.0-1.7)"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/standard_metrics.rs", "crates/pdf-font/src/substitute.rs"]
+test = ["crates/pdf-font/src/standard_metrics.rs::known_widths_are_what_the_specification_says", "crates/pdf-font/src/standard_metrics.rs::the_metrics_agree_with_an_independently_drawn_metric_clone"]
+note = "All fourteen names, with their published metrics compiled in, so a document that omits `/Widths` is laid out from the specification rather than from whichever face this machine happens to install. The clause asks for \"these fonts, or their font metrics and suitable substitution fonts\"; this is the second reading, and `substitute.rs` is the only machine-dependent code in the tree."
 
 [[clause]]
 clause = "9.6.2.3"
 title = "Multiple master fonts"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::a_simple_fonts_subtype_selects_nothing"]
+note = "Nothing distinguishes an MMType1 dictionary from a Type 1 one here, and the clause is why: an embedded multiple-master instance \"shall be an ordinary Type 1 font program\", a snapshot with the design coordinates already chosen. `/Subtype` is not consulted for a simple font at all, so the entry costs no code. The BaseFont naming convention the clause describes is explicitly \"not prescribed as part of this specification\", so nothing parses design coordinates out of a name."
 
 [[clause]]
 clause = "9.6.3"
 title = "TrueType fonts"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range", "crates/pdf-font/src/lib.rs::a_unicode_subtable_is_reached_through_the_adobe_glyph_list"]
+note = "Both formats the clause requires — `TrueType` and `OpenType` (ISO/IEC 14496-22) — through `skrifa`, which reads glyf and CFF outlines from an sfnt alike. The clause's own content beyond that is the three differences from Table 109, and the load-bearing one is a pointer to §9.6.5.4. `/BaseFont` is used only as a substitution request, so the two ways the clause says to derive it are the producer's problem rather than a reader's."
 
 [[clause]]
 clause = "9.6.4"
@@ -2070,16 +2091,16 @@ clause = "9.6.5.1"
 title = "General"
 status = "partial"
 code = ["crates/pdf-font/src/encoding.rs", "crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-font/src/encoding.rs::the_assignments_made_only_in_the_notes_are_present"]
-note = "Table 112's encoding dictionary in full — /BaseEncoding, /Differences, and the defaults the clause gives when /BaseEncoding is absent — and Annex D's tables for StandardEncoding, WinAnsiEncoding and MacRomanEncoding, extracted from the standard's own Table D.2 rather than written from memory. MacExpertEncoding is absent and reported."
+test = ["crates/pdf-font/src/encoding.rs::the_assignments_made_only_in_the_notes_are_present", "crates/pdf-font/src/lib.rs::differences_without_a_base_encoding_layer_over_the_programs_own", "crates/pdf-font/src/lib.rs::a_named_base_encoding_still_wins"]
+note = "Table 112's encoding dictionary in full, and Annex D's tables for StandardEncoding, WinAnsiEncoding and MacRomanEncoding, extracted from the standard's own Table D.2 rather than written from memory. The thirtieth session found the *default* base encoding was being taken from the wrong sentence: Table 112 gives it three cases and the first is \"for a font program that is embedded in the PDF file, the default base encoding shall be the font program's built-in encoding\", with the Symbolic flag deciding only among the other two. A name-keyed embedded program was getting StandardEncoding whenever its descriptor was nonsymbolic. MacExpertEncoding is the one named encoding absent: a font naming it is refused and reported rather than substituted."
 
 [[clause]]
 clause = "9.6.5.2"
 title = "Encodings for Type 1 fonts"
 status = "partial"
 code = ["crates/pdf-font/src/cff.rs", "crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-font/src/lib.rs::the_pdf_widths_agree_with_the_font_programs_own_advances", "crates/pdf-font/src/lib.rs::an_uncovered_code_has_no_glyph_rather_than_a_guessed_one"]
-note = "Implemented for the Type 1 programs this tree reads, which are the CFF ones: names from the encoding are resolved through the program's charset, and the font dictionary's /Encoding overrides the program's built-in one as the clause requires. A bare Type 1 /FontFile is not read at all and is reported, so the clause's .notdef substitution sentence has no code to apply to yet — no corpus page one reaches one."
+test = ["crates/pdf-font/src/lib.rs::an_uncovered_code_has_no_glyph_rather_than_a_guessed_one", "crates/pdf-font/src/lib.rs::a_font_with_no_encoding_entry_is_its_own"]
+note = "Implemented for the Type 1 programs this tree reads, which are the CFF ones: the encoding's names are resolved through the program's charset, the font dictionary's `/Encoding` overrides the program's built-in one, and — the clause's second paragraph — a `/Differences` name is looked up in the charset whether or not any encoding references it. Two things are left. A bare Type 1 `/FontFile` is not read at all and is reported. And the clause's closing sentence, that .notdef \"shall be substituted\" when an encoding names a glyph the program lacks, is a departure taken deliberately: such a code reaches no glyph here, which is the same picture wherever .notdef is empty and a blank rather than a box where it is not, and which keeps `no character code maps to a glyph` able to fire. No corpus document distinguishes the two."
 
 [[clause]]
 clause = "9.6.5.3"
@@ -2232,37 +2253,56 @@ note = "All four of the clause's rules. A code with no character mapping falls t
 [[clause]]
 clause = "9.8"
 title = "Font descriptors"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/substitute.rs"]
+test = ["crates/pdf-font/src/lib.rs::an_absent_missing_width_is_zero", "crates/pdf-font/src/lib.rs::the_symbolic_flag_changes_nothing_for_an_embedded_program"]
+note = "The descriptor is read for the three things that decide a rendered page — which program is embedded, whether the font is symbolic, and what an uncovered code's width is — and for the four attributes that choose a substitute face. The dimensional metrics are read by nobody, because this tree selects an installed face rather than synthesising one from them. The clause's own restriction, that a descriptor shall not be used with a Type 0 font, is satisfied by construction: `load_composite` reads the *descendant's* descriptor and never the outer dictionary's."
 
 [[clause]]
 clause = "9.8.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/substitute.rs"]
+test = ["crates/pdf-font/src/lib.rs::an_absent_missing_width_is_zero", "crates/pdf-font/src/lib.rs::a_stated_missing_width_is_the_width"]
+note = "Of Table 120: `/Flags`, `/MissingWidth`, `/FontFile`, `/FontFile2`, `/FontFile3`, `/FontWeight` and `/ItalicAngle` are read. `/MissingWidth` had the wrong default — Table 120 says 0 and this tree assumed half an em, which opened six half-ems of invented space on `issue7439.pdf`, a page the reference consensus contradicted and now agrees with. Unread, and each because this tree picks an installed face rather than building one: `/FontFamily`, `/FontStretch`, `/FontBBox`, `/Ascent`, `/Descent`, `/Leading`, `/CapHeight`, `/XHeight`, `/StemV`, `/StemH`, `/AvgWidth`, `/MaxWidth`. `/CharSet` is deprecated in PDF 2.0 and states nothing a charset does not."
 
 [[clause]]
 clause = "9.8.2"
 title = "Font descriptor flags"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/substitute.rs"]
+test = ["crates/pdf-font/src/lib.rs::the_symbolic_flag_changes_nothing_for_an_embedded_program"]
+note = "Table 121's Symbolic bit is the one that decides a rendered page, through §9.6.5.4, and this subclause is what settles a font that sets it *and* Nonsymbolic — which Table 121 forbids in the same sentence and `issue20232.pdf` does anyway: \"A PDF processor should always check the Symbolic flag to determine whether the state is Symbolic or NonSymbolic.\" `is_symbolic` reads bit 3 alone, which is that sentence. FixedPitch, Serif, Italic and ForceBold reach `substitute.rs`; Script, AllCap and SmallCap are read by nobody and would only refine a substitute's choice. ForceBold's own rule is a *may* about thickening at small sizes, which this device does not do."
 
 [[clause]]
 clause = "9.8.3"
 title = "Font descriptors for CIDFonts"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::an_absent_missing_width_is_zero"]
+note = "A CIDFont's descriptor is read exactly as a simple font's is, for its embedded program and its flags — Table 120 governs both, which is what this subclause says before adding to it. See §9.8.3.1 for Table 122's four additional entries, none of which is read."
 
 [[clause]]
 clause = "9.8.3.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::an_absent_missing_width_is_zero"]
+note = "Table 120 applies to a CIDFont's descriptor and is read as far as §9.8.1 records. None of Table 122's four entries is: `/Style` and `/FD` describe glyph classes for building a substitute, `/Lang` is a language tag nothing here consults, and `/CIDSet` is deprecated in PDF 2.0 and states which CIDs a subset holds — which the embedded program already states, by having them. For an embedded CIDFont, which is what every corpus CIDFont that draws is, none of the four can change a glyph."
 
 [[clause]]
 clause = "9.8.3.2"
 title = "Style"
-status = "unreviewed"
+status = "silent"
+code = ["crates/pdf-font/src/substitute.rs"]
+note = "`/Style` has one defined entry, `/Panose`, and it is a twelve-byte classification of a typeface's shape. Nothing reads it. The debt is bounded and worth stating exactly: it can only change which installed face stands in for a CIDFont whose program is *not* embedded, never an embedded one, and `substitute.rs` chooses from Table 120's `/Flags`, `/FontWeight` and `/ItalicAngle` instead. Recorded as silent rather than as nothing owed, because a worse substitute is a different page and no report says so."
 
 [[clause]]
 clause = "9.8.3.3"
 title = "FD"
-status = "unreviewed"
+status = "silent"
+code = ["crates/pdf-font/src/lib.rs"]
+note = "`/FD` overrides font-wide *metric* attributes for a class of glyphs, and the clause bounds it to that: \"This font descriptor shall contain entries for metric information only; it shall not include FontFile , FontFile2 , FontFile3\". Every metric it can override is one §9.8.1 records as unread here, because a glyph's advance comes from `/W` and `/DW` (§9.7.4.3) and its outline from the embedded program. So the debt is the same one §9.8.3.2 carries and no larger: a substitute chosen without it, with nothing said."
 
 [[clause]]
 clause = "9.9"

@@ -66,9 +66,20 @@ pub enum CodeToGlyph {
         by_name: BTreeMap<Box<str>, u16>,
         /// Glyph index by character code, taken from the encoding the font itself carries.
         ///
-        /// This is the fallback when the PDF `/Encoding` leaves a code unnamed, and it is
-        /// the whole mapping for a symbolic font with no `/Encoding` at all.
+        /// ISO 32000-2 §9.6.5.1 Table 112 makes this the *base* encoding whenever the font
+        /// program is embedded and the `/Encoding` dictionary names no `/BaseEncoding`, so
+        /// it is what a `/Differences` array describes differences from rather than only a
+        /// fallback for a code nothing else reached.
         builtin: Box<[Option<u16>; 256]>,
+        /// The glyph name the built-in encoding gives each character code.
+        ///
+        /// The same mapping as `builtin`, carried through the charset instead of stopping
+        /// at the glyph index. Nothing about *drawing* needs it — `builtin` selects the
+        /// glyph directly — but a code's glyph name is what a document with no
+        /// `/ToUnicode` means by that code, so text extraction and
+        /// [`crate::LoadedFont::code_for`] would otherwise lose every code the PDF
+        /// encoding left to the font.
+        builtin_names: Box<[Option<Box<str>>; 256]>,
     },
     /// A CID-keyed font, which is what a PDF *composite* font embeds.
     Keyed {
@@ -102,6 +113,7 @@ impl CodeToGlyph {
         }
 
         let mut by_name = BTreeMap::new();
+        let mut by_glyph = BTreeMap::new();
         for (glyph, sid) in charset.iter() {
             let Ok(glyph) = u16::try_from(glyph.to_u32()) else {
                 continue;
@@ -111,10 +123,11 @@ impl CodeToGlyph {
             };
             // Glyph names are ASCII by specification; a font that breaks that is
             // malformed, not a reason to give up on the glyphs that are well formed.
-            let name = String::from_utf8_lossy(name).into_owned();
+            let name = String::from_utf8_lossy(name).into_owned().into_boxed_str();
+            by_glyph.entry(glyph).or_insert_with(|| name.clone());
             // A duplicated name keeps the lowest glyph index, matching the order a
             // charset assigns them.
-            by_name.entry(name.into_boxed_str()).or_insert(glyph);
+            by_name.entry(name).or_insert(glyph);
         }
 
         let mut builtin = Box::new([None; 256]);
@@ -128,8 +141,19 @@ impl CodeToGlyph {
                     .and_then(|glyph| u16::try_from(glyph.to_u32()).ok());
             }
         }
+        let builtin_names = Box::new(std::array::from_fn(|code| {
+            builtin
+                .get(code)
+                .copied()
+                .flatten()
+                .and_then(|glyph| by_glyph.get(&glyph).cloned())
+        }));
 
-        Ok(Self::Named { by_name, builtin })
+        Ok(Self::Named {
+            by_name,
+            builtin,
+            builtin_names,
+        })
     }
 }
 

@@ -647,7 +647,7 @@ impl Default for TextState {
 }
 
 impl GraphicsState {
-    /// The initial state defined by ISO 32000-2 8.4.
+    /// The initial state defined by ISO 32000-2 §8.4.
     fn initial(base: Transform) -> Self {
         Self {
             transform: base,

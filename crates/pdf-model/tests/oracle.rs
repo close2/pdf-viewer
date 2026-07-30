@@ -441,13 +441,32 @@ const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 2] =
 /// what the document's own `CIDFont` gives CID 8709, which is U+2205. So the name in
 /// `/Differences` describes nothing in the program, and the code reaches no glyph at all.
 ///
-/// The clause that decides it is §9.6.5.4, not §9.7: the descriptor's `/Flags` is 36, which sets
-/// the Symbolic bit (4) *and* the Nonsymbolic bit (32) at once. §9.6.5.4 says that when the
-/// Symbolic flag is set the `/Encoding` entry "is ignored" and the code is looked up in a (3, 0)
-/// or (1, 0) `cmap` subtable directly, which is what would find this glyph; a font that claims
-/// both flags leaves that route unreachable here. Listed rather than fixed, because changing
-/// which route a contradictory descriptor takes is a §9.6.5.4 question and ADR 0015's fifteen
-/// pages are what is at stake.
+/// # The story this entry carried for nine sessions was wrong, and reading §9.8.2 settled it
+///
+/// It said the descriptor's contradictory `/Flags` — 36, which sets the Symbolic bit (4) *and*
+/// the Nonsymbolic bit (32), a combination Table 121 forbids in the same sentence that defines
+/// them — left §9.6.5.4's symbolic route "unreachable here". That is not what happens, and
+/// §9.8.2 says why it cannot be:
+///
+/// > The use of the two flags to represent a single binary choice is a historical accident. A
+/// > PDF processor should always check the Symbolic flag to determine whether the state is
+/// > Symbolic or NonSymbolic.
+///
+/// Which is exactly what `is_symbolic` does. So the font *is* symbolic, `/Encoding` *is*
+/// ignored as §9.6.5.4 requires, and the code goes to the (3, 0) subtable — where it finds
+/// glyph 34, which this subset embeds with an **empty outline**. Of the font's 160 glyphs only
+/// two have any contour at all: 0, and 90, which the `post` table names `Ccedilla`. So the
+/// document's `/Differences` is the only statement in the file that reaches the diameter sign,
+/// and §9.6.5.4 is the clause that says not to read it.
+///
+/// Three things are malformed about this font, and each is a "shall" the file breaks: the two
+/// flags, the (3, 0) subtable's codes (which the clause confines to one of four ranges and
+/// which here run to 0x2219), and `/BaseEncoding /StandardEncoding`, which Table 112 does not
+/// list among the three names it permits. §9.6.5.4's NOTE 1 is about exactly this file —
+/// "implementations … have evolved heuristics for dealing with such problems; those heuristics
+/// are not described here" — and the clause's escape hatch does not open, because it is for a
+/// character that "cannot be mapped", and this one is mapped, to a blank. Listed, with the
+/// reading that produces the blank written down, rather than fixed by copying a heuristic.
 const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 1] = ["issue20232.pdf page 1"];
 
 /// Contradicted, with a font on the page that carries no embedded program.
@@ -524,7 +543,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 59 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// 58 pages carrying no undrawn annotation, no hidden optional content and no substituted
 /// font — so the difference is in something we believe we implement. One cause is identified
 /// and live; the rest are unexamined, and working through them is the highest-value use of
 /// this gate:
@@ -563,6 +582,28 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// Two further causes have been found through this list and fixed: `CalGray` and `CalRGB`
 /// converted as their device equivalents, and now this. That is what the list is for.
 ///
+/// # Two more left in the thirtieth session, and only one of them is a fix
+///
+/// `issue7439.pdf` **is** one, and it is a width rather than a picture: its single line of
+/// text shows character code 2 six times, its `/FirstChar` is 3, and its font descriptor
+/// states no `/MissingWidth` — so §9.6.2's Table 109 sends those six codes to Table 120's
+/// default, which is 0 and which this tree had as half an em. Six half-ems of invented
+/// space opened between `Issue` and `7439`.
+///
+/// `issue3566.pdf` is **not** a fix and is worth more than the page. Its raster is
+/// byte-identical before and after — checked, not assumed — and what changed is which
+/// *bound* it was judged by. The page's font is a symbolic bare CFF with no `/ToUnicode`,
+/// so nothing could name what it drew, so `has_text` was false and a page that is nothing
+/// but the word `different` was held to the tolerance measured on flat fills. It passed
+/// every absolute bound in that class — mean 0.92 against 1.00, worst tile 3.56 against
+/// 5.00, SSIM 0.9940 against 0.9900 — and failed only the relative test. Reading a font
+/// program's built-in encoding for its glyph *names* (§9.6.5.1) made the readback work,
+/// and the page moved to the text tolerance without a pixel moving.
+///
+/// That is the same measurement artefact `CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR` names, and
+/// this is its second witness. It also says which way to fix it: `has_text` asks whether
+/// we could *name* what we drew, and what it means to ask is whether we drew glyphs at all.
+///
 /// `issue6387.pdf` left the list in the same session and **is not a fix**: its text is set
 /// vertically in an `Identity-V` font, which this tree accepted while drawing it
 /// horizontally, and which now reports. The page stopped being compared rather than starting
@@ -575,7 +616,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 60] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 58] = [
     "bug1108301.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
@@ -606,7 +647,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 60] = [
     "issue2948.pdf page 1",
     "issue3207r.pdf page 1",
     "issue3405r.pdf page 1",
-    "issue3566.pdf page 1",
     "issue3694_reduced.pdf page 1",
     "issue3928.pdf page 1",
     "issue3928.pdf page 2",
@@ -622,7 +662,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 60] = [
     "issue6961.pdf page 1",
     "issue6961.pdf page 2",
     "issue7180.pdf page 1",
-    "issue7439.pdf page 1",
     "issue7492.pdf page 1",
     "issue7696.pdf page 1",
     "issue8097_reduced.pdf page 1",
