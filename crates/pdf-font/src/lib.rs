@@ -2036,6 +2036,12 @@ fn embedded_program(
             Program::Sfnt
         };
 
+        let data = if program == Program::Sfnt {
+            repaired_loca_format(&data).map_or(data, Arc::from)
+        } else {
+            data
+        };
+
         return Ok(Embedded { data, program });
     }
 
@@ -2058,6 +2064,97 @@ fn embedded_program(
     Err(FontError::NotEmbedded {
         name: name.to_owned(),
     })
+}
+
+/// Repairs a byte-swapped `indexToLocFormat`, returning the corrected bytes.
+///
+/// # Why this is a derivation and not a heuristic
+///
+/// `issue2537r.pdf` embeds a 60-glyph Helvetica-Bold subset whose `head` table states
+/// `indexToLocFormat` as **0x0100**. The field is defined by ISO/IEC 14496-22 to be 0 (short
+/// offsets) or 1 (long); 0x0100 is 1 written in the wrong byte order and is neither. `skrifa`
+/// reads it strictly and reaches the wrong offsets, so the page drew `.notdef` boxes where
+/// three references draw `LINE UP` — and reported nothing, because the font loaded and
+/// produced *some* glyphs.
+///
+/// The file says which format it is, twice, in its own table directory, and that is what this
+/// function reads rather than guessing:
+///
+/// - the last `loca` entry is the length of `glyf` — 2056 here under the long reading and 0
+///   under the short one, against a `glyf` table of 2056 bytes;
+/// - `loca` holds `numGlyphs + 1` entries, so its length is `2 × (n + 1)` or `4 × (n + 1)` —
+///   244 here, which is the long form for 60 glyphs and twice the short form's 122.
+///
+/// Both agree, and only one format satisfies either. So this is the same shape as the
+/// twenty-seventh session's LZW finding: **a file that states one fact twice can check
+/// itself**, and no other implementation's behaviour is involved.
+///
+/// Returns `None` when the field is already 0 or 1, when the tables it needs are absent or
+/// short, or when *neither* reading satisfies both tests — in which case the font is broken in
+/// a way this cannot name, and `skrifa`'s own answer stands.
+fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
+    /// Offset of `indexToLocFormat` within the `head` table.
+    const INDEX_TO_LOC: usize = 50;
+
+    let be16 = |at: usize| -> Option<u16> {
+        let bytes = data.get(at..at.checked_add(2)?)?;
+        Some(u16::from_be_bytes([*bytes.first()?, *bytes.get(1)?]))
+    };
+    let be32 = |at: usize| -> Option<u32> {
+        let bytes = data.get(at..at.checked_add(4)?)?;
+        Some(u32::from_be_bytes([
+            *bytes.first()?,
+            *bytes.get(1)?,
+            *bytes.get(2)?,
+            *bytes.get(3)?,
+        ]))
+    };
+
+    let count = be16(4)?;
+    let mut tables = BTreeMap::new();
+    for index in 0..usize::from(count) {
+        let entry = 12usize.checked_add(index.checked_mul(16)?)?;
+        let tag = data.get(entry..entry.checked_add(4)?)?.to_vec();
+        let offset = usize::try_from(be32(entry.checked_add(8)?)?).ok()?;
+        let length = usize::try_from(be32(entry.checked_add(12)?)?).ok()?;
+        tables.insert(tag, (offset, length));
+    }
+
+    let (head, _) = *tables.get(b"head".as_slice())?;
+    let stated = be16(head.checked_add(INDEX_TO_LOC)?)?;
+    if stated <= 1 {
+        return None;
+    }
+
+    let (loca, loca_length) = *tables.get(b"loca".as_slice())?;
+    let (_, glyf_length) = *tables.get(b"glyf".as_slice())?;
+    let (maxp, _) = *tables.get(b"maxp".as_slice())?;
+    let glyphs = usize::from(be16(maxp.checked_add(4)?)?);
+    let entries = glyphs.checked_add(1)?;
+
+    // Short offsets are stored halved, which is why the last one is doubled to compare.
+    let short = be16(loca.checked_add(entries.checked_sub(1)?.checked_mul(2)?)?)
+        .map(|value| usize::from(value).checked_mul(2));
+    let long = be32(loca.checked_add(entries.checked_sub(1)?.checked_mul(4)?)?)
+        .and_then(|value| usize::try_from(value).ok());
+    let fits = |width: usize, last: Option<usize>| {
+        last == Some(glyf_length) && entries.checked_mul(width) == Some(loca_length)
+    };
+
+    let corrected: u16 = if fits(2, short.flatten()) {
+        0
+    } else if fits(4, long) {
+        1
+    } else {
+        return None;
+    };
+
+    let mut repaired = data.to_vec();
+    let slot = repaired.get_mut(
+        head.checked_add(INDEX_TO_LOC)?..head.checked_add(INDEX_TO_LOC)?.checked_add(2)?,
+    )?;
+    slot.copy_from_slice(&corrected.to_be_bytes());
+    Some(repaired)
 }
 
 /// Returns `true` for a bare CFF font program.
@@ -2476,7 +2573,9 @@ mod tests {
 /// name. This is trap 8's argument in the handover, from the other direction.
 #[cfg(test)]
 mod truetype_encoding_tests {
-    use super::{Subtables, as_character, named_glyph, post_glyph, symbol_glyph};
+    use super::{
+        Subtables, as_character, named_glyph, post_glyph, repaired_loca_format, symbol_glyph,
+    };
     use skrifa::{FontRef, MetadataProvider};
 
     /// The glyph index every fixture below maps its one covered code to.
@@ -2517,6 +2616,74 @@ mod truetype_encoding_tests {
         }
         out.extend_from_slice(&body);
         out
+    }
+
+    /// A `head`, a `maxp`, a `loca` and a `glyf`, enough for `repaired_loca_format`.
+    ///
+    /// `stated` is what the `head` table claims `indexToLocFormat` is; the tables themselves
+    /// are always built in the *long* form, so a fixture is well-formed exactly when it
+    /// states 1.
+    fn loca_fixture(stated: u16, glyphs: u16) -> Vec<([u8; 4], Vec<u8>)> {
+        let entries = usize::from(glyphs).saturating_add(1);
+        // Two bytes of glyph data apiece, so the last offset is a number nothing else is.
+        let glyf = vec![0u8; entries.saturating_sub(1).saturating_mul(2)];
+        let mut loca = Vec::new();
+        for index in 0..entries {
+            let at = u32::try_from(index.saturating_mul(2)).expect("small");
+            loca.extend_from_slice(&at.to_be_bytes());
+        }
+        let mut head = vec![0u8; 54];
+        head.splice(50..52, stated.to_be_bytes());
+        let mut maxp = vec![0u8; 6];
+        maxp.splice(4..6, glyphs.to_be_bytes());
+        vec![
+            (*b"head", head),
+            (*b"maxp", maxp),
+            (*b"loca", loca),
+            (*b"glyf", glyf),
+        ]
+    }
+
+    /// A byte-swapped `indexToLocFormat` is repaired from the file's own two statements.
+    ///
+    /// `issue2537r.pdf` states 0x0100, which is 1 in the wrong byte order and is neither of
+    /// the two values ISO/IEC 14496-22 defines. What decides the repair is not another
+    /// reader's behaviour but the file: `loca`'s last entry is `glyf`'s length under one
+    /// reading and not the other, and `loca`'s own length is `4 × (n + 1)` rather than
+    /// `2 × (n + 1)`. Both agree, so the answer is derived twice over.
+    #[test]
+    fn a_byte_swapped_loca_format_is_repaired_from_the_fonts_own_lengths() {
+        let broken = sfnt(&loca_fixture(0x0100, 8));
+        let repaired = repaired_loca_format(&broken).expect("the file says which format it is");
+
+        let head = 12 + 16 * 4;
+        assert_eq!(&repaired[head + 50..head + 52], &1_u16.to_be_bytes());
+        assert_eq!(
+            repaired.len(),
+            broken.len(),
+            "two bytes change, nothing else"
+        );
+    }
+
+    /// A font that states a legal format is left alone, whichever of the two it states.
+    #[test]
+    fn a_font_stating_a_legal_loca_format_is_not_touched() {
+        for stated in [0, 1] {
+            assert_eq!(repaired_loca_format(&sfnt(&loca_fixture(stated, 8))), None);
+        }
+    }
+
+    /// A font whose lengths agree with *neither* reading keeps its own answer.
+    ///
+    /// The point of the two tests is that this repair can fail: a `loca` that is neither
+    /// `2 × (n + 1)` nor `4 × (n + 1)` bytes long is broken in a way this cannot name, and
+    /// inventing a format for it would be exactly the guess the derivation exists to avoid.
+    #[test]
+    fn a_font_neither_reading_explains_is_left_to_skrifa() {
+        let mut tables = loca_fixture(0x0100, 8);
+        // One byte short of either form.
+        tables[2].1.pop();
+        assert_eq!(repaired_loca_format(&sfnt(&tables)), None);
     }
 
     /// A `cmap` with one subtable, in format 6, under the platform and encoding IDs given.

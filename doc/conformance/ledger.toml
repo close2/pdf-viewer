@@ -3251,12 +3251,14 @@ note = "The clause's subject is *when* a conversion happens: in the transparent 
 [[clause]]
 clause = "12.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Clause 12's own map: annotations, forms, actions, navigation, digital signatures. This tree implements the parts that *put marks on a page* — §12.5's annotation appearances in full, §12.7.4's variable text, §8.11's optional content — and none of the parts that make a document interactive. `CLAUDE.md` states the split the other way round from the clause: \"everything that displays\" is in scope and *behaviour* is not, with JavaScript excluded by name. So this row is `silent` for the navigation and action families rather than for the whole clause, and the subclause rows say which is which."
 
 [[clause]]
 clause = "12.2"
 title = "Viewer preferences"
-status = "unreviewed"
+status = "silent"
+note = "Table 147's viewer preferences: `/PageMode`, `/PageLayout`, `/HideToolbar`, `/FitWindow`, `/Duplex`, `/PrintScaling` and the rest. Nothing reads them. Most describe a window this program does not have — it shows one page, with no panels and no chrome to hide — but three would change what a *reader* sees and are owed: `/PageLayout` (one page against two-up against continuous), `/PageMode` (whether the outline or the attachments panel opens with the document), and `/Direction`, which decides whether a two-up spread reads left to right. The clause's own fallback is what this program does by accident rather than by decision: \"[i]f no such dictionary is specified, PDF processors should behave in accordance with their own current user preference settings.\""
 
 [[clause]]
 clause = "12.3"
@@ -3339,37 +3341,44 @@ note = "Navigators: a collection's own presentation, supplied as SWF. The *forma
 [[clause]]
 clause = "12.4"
 title = "Page-level navigation"
-status = "unreviewed"
+status = "silent"
+note = "Page-level navigation: page labels, articles and presentations. None implemented, none reported. §12.4.2's page labels are named in `CLAUDE.md`'s scope statement; the other two are a reading order and a slideshow."
 
 [[clause]]
 clause = "12.4.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing. Page-level navigation is what a reader does *within* a document once it is open, as against §12.3's overview of the whole of it."
 
 [[clause]]
 clause = "12.4.2"
 title = "Page labels"
-status = "unreviewed"
+status = "silent"
+note = "Page labels: the catalog's `/PageLabels`, a **number tree** whose keys are the page indices that begin a labelling range, and Table 161's `/S`, `/P` and `/St`. In scope by name and unbuilt, and the *only* row in this family with no user-interface question in it — a label is a string, computed from the document, that a viewer prints beside a page number. Two details are worth leaving here: there is no default numbering style, so a range with a `/P` and no `/S` labels every one of its pages identically; and `/A` and `/a` run `A` to `Z` and then `AA` to `ZZ`, which is not base-26. A number tree is the same structure §12.3.2.4's named destinations need, so the two rows share their missing piece."
 
 [[clause]]
 clause = "12.4.3"
 title = "Articles"
-status = "unreviewed"
+status = "silent"
+note = "Articles: `/Threads` in the catalog, each a chain of beads tying regions of pages into a reading order. A navigation aid, and the one part of it that touches geometry is a bead's `/R` rectangle, which this tree could compute and has nothing to do with."
 
 [[clause]]
 clause = "12.4.4"
 title = "Presentations"
-status = "unreviewed"
+status = "silent"
+note = "Presentations: full-screen page transitions, `/Trans` on a page and `/Dur` for an automatic advance. Table 165's thirteen transition styles are animations, which is nearer clause 13's exclusion than anything else in clause 12 — but again the exclusion list is closed and this is not on it, so it is debt."
 
 [[clause]]
 clause = "12.4.4.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The transition dictionary and its duration. As above."
 
 [[clause]]
 clause = "12.4.4.2"
 title = "Sub-page navigation"
-status = "unreviewed"
+status = "silent"
+note = "Sub-page navigation: `/PresSteps`, which walks a page's optional-content states one at a time as a presentation advances. The *state* half of that is §8.11, which is implemented in full — so this is the one presentation row whose missing piece is a control rather than a renderer."
 
 [[clause]]
 clause = "12.5"

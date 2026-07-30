@@ -696,6 +696,17 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// 1000/719, the ratio between §9.7.4.3's `/DW` default and the width that array states.
 /// Somebody is not reading `/W`; the clause says which of us should be.
 ///
+/// # One left in the forty-fourth session, and the file told us the answer
+///
+/// `issue2537r.pdf` drew `.notdef` boxes where three references draw `LINE UP`, and it was
+/// the only page left where we differed from *every* reference — 10.3 levels from each,
+/// against their own closest agreement of 1.03. Its embedded `TrueType` states
+/// `indexToLocFormat` as **0x0100**, which is 1 written in the wrong byte order and is neither
+/// of the two values ISO/IEC 14496-22 defines, so `skrifa` read `loca` in the wrong width and
+/// reached no outlines. What settled the repair was the font's own table directory rather than
+/// any other reader: `loca`'s last entry equals `glyf`'s length under exactly one of the two
+/// readings, and `loca`'s own length is `4 × (n + 1)` rather than `2 × (n + 1)`. ADR 0052.
+///
 /// # One left in the forty-second session, and it is a fix
 ///
 /// `issue215.pdf` drew `openmagazin` in lower case where all four references draw small
@@ -743,7 +754,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 39] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 38] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -761,7 +772,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 39] = [
     "issue10572.pdf page 1",
     "issue19633.pdf page 1",
     "issue2017r.pdf page 1",
-    "issue2537r.pdf page 1",
     "issue3207r.pdf page 1",
     "issue3405r.pdf page 1",
     "issue3694_reduced.pdf page 1",
