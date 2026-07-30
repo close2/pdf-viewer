@@ -111,6 +111,22 @@ enum ColourSpace {
 }
 
 impl ColourSpace {
+    /// Reduces a resolved space to the arm the unpacker can take fastest.
+    ///
+    /// The three device families are eight-bit channels and nothing else, so they get an arm
+    /// that reads bytes; every other space is a *function* of its samples and takes the one
+    /// that converts. This is a choice about speed and never about meaning — the two routes
+    /// agree by construction, because `crate::colour::ColourSpace::to_rgb` is the identity on
+    /// a device space's components (§8.6.4, and the test that pins it).
+    fn reduced(space: crate::colour::ColourSpace) -> Self {
+        match space {
+            crate::colour::ColourSpace::Gray => Self::Gray,
+            crate::colour::ColourSpace::Rgb => Self::Rgb,
+            crate::colour::ColourSpace::Cmyk => Self::Cmyk,
+            other => Self::Resolved(other),
+        }
+    }
+
     fn components(&self) -> usize {
         match self {
             Self::Gray | Self::Mask => 1,
@@ -278,9 +294,15 @@ impl Decode {
 pub fn decode(
     document: &Document,
     stream: &Stream,
+    resources: &Dictionary,
     fill: pdf_render::Color,
 ) -> Result<Image, ImageError> {
     let dict = &stream.dict;
+    let at = Dictionaries {
+        document,
+        dict,
+        resources,
+    };
 
     let width = positive_integer(document, dict, "Width")?;
     let height = positive_integer(document, dict, "Height")?;
@@ -297,7 +319,7 @@ pub fn decode(
     // §8.9.6.3 and §8.9.6.4: `/Mask` is either a second image naming the areas of this one
     // that are painted, or a range of colours that are not. Read before the samples, because
     // the colour-key form is a test *on* the samples and has to travel into the unpacker.
-    let mask = mask_entry(document, dict);
+    let mask = mask_entry(document, dict, resources);
     let colour_key = match &mask {
         MaskEntry::ColourKey(ranges) => Some(ranges.as_slice()),
         _ => None,
@@ -314,15 +336,16 @@ pub fn decode(
         Some(b"DCTDecode" | b"DCT") => {
             let mut rgba = decode_jpeg(&source.data, width, height)?;
             apply_decode_to_channels(document, dict, &mut rgba);
+            convert_channels(at, is_mask, &mut rgba)?;
             (rgba, false)
         }
         Some(b"JBIG2Decode") => (
-            decode_jbig2(document, dict, &source, width, height, is_mask, fill)?,
+            decode_jbig2(at, &source, width, height, is_mask, fill)?,
             false,
         ),
-        Some(b"JPXDecode") => decode_jpx(document, dict, &source, width, height, is_mask, fill)?,
+        Some(b"JPXDecode") => decode_jpx(at, &source, width, height, is_mask, fill)?,
         Some(b"CCITTFaxDecode" | b"CCF") => (
-            decode_ccitt(document, dict, &source, width, height, is_mask, fill)?,
+            decode_ccitt(at, &source, width, height, is_mask, fill)?,
             false,
         ),
         Some(other) => {
@@ -345,7 +368,7 @@ pub fn decode(
             let space = if is_mask {
                 ColourSpace::Mask
             } else {
-                colour_space(document, dict)?
+                colour_space(document, dict, resources)?
             };
             let decode = Decode::read(document, dict, &space, bits);
             (
@@ -382,7 +405,7 @@ pub fn decode(
         image
     } else {
         // Applied last so a soft mask cannot resurrect an inconsistent buffer.
-        apply_soft_mask(document, dict, image)
+        apply_soft_mask(document, dict, resources, image)
     };
 
     // §11.6.4.3 makes the two mutually exclusive — an `/SMask` "shall override any explicit
@@ -391,7 +414,7 @@ pub fn decode(
     // there was none. The sequence is therefore an ordering of two things that never both
     // happen, kept in the order the clauses rank them.
     match &mask {
-        MaskEntry::Explicit(stencil) => apply_explicit_mask(document, &image, stencil),
+        MaskEntry::Explicit(stencil) => apply_explicit_mask(document, &image, resources, stencil),
         _ => Ok(image),
     }
 }
@@ -412,69 +435,70 @@ fn positive_integer(
         })
 }
 
+/// An image dictionary, the document holding it, and the resources it was named from.
+///
+/// One argument rather than three because the three are never apart. Table 87's entries are
+/// in the dictionary, the objects they reference are in the document, and — this is the one
+/// that was missing until the twenty-fifth session — §8.6.5.6's `/DefaultGray`, `/DefaultRGB`
+/// and `/DefaultCMYK` are in the resource dictionary the image was *drawn* from, which is a
+/// property of the `Do` rather than of the image.
+#[derive(Clone, Copy)]
+struct Dictionaries<'a> {
+    /// The document, for resolving anything indirect.
+    document: &'a Document,
+    /// The image's own dictionary.
+    dict: &'a Dictionary,
+    /// The resources in force where the image was drawn.
+    resources: &'a Dictionary,
+}
+
 /// Determines the colour space, reduced to what the sample unpacker handles.
-fn colour_space(document: &Document, dict: &Dictionary) -> Result<ColourSpace, ImageError> {
+fn colour_space(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+) -> Result<ColourSpace, ImageError> {
     let space = document.get_key(dict, "ColorSpace");
-    match &space {
-        Object::Name(name) => match name.as_bytes() {
-            b"DeviceGray" | b"G" | b"CalGray" => Ok(ColourSpace::Gray),
-            b"DeviceRGB" | b"RGB" | b"CalRGB" => Ok(ColourSpace::Rgb),
-            b"DeviceCMYK" | b"CMYK" => Ok(ColourSpace::Cmyk),
-            other => Err(ImageError::UnsupportedColourSpace {
-                space: String::from_utf8_lossy(other).into_owned(),
-            }),
-        },
-        Object::Array(items) => {
-            let family = items
-                .first()
-                .map(|item| document.resolve(item))
-                .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
-                .unwrap_or_default();
-            match family.as_slice() {
-                // An ICC profile's component count tells us how to unpack even though the
-                // profile itself is not applied — which is an approximation, and the
-                // honest one: the alternative is refusing most real images.
-                b"ICCBased" => {
-                    let count = items
-                        .get(1)
-                        .map(|item| document.resolve(item))
-                        .and_then(|item| item.as_dict().cloned())
-                        .and_then(|inner| document.get_key(&inner, "N").as_integer())
-                        .unwrap_or(3);
-                    match count {
-                        1 => Ok(ColourSpace::Gray),
-                        4 => Ok(ColourSpace::Cmyk),
-                        _ => Ok(ColourSpace::Rgb),
-                    }
-                }
-                // §8.9.5.1 Table 87, of `/ColorSpace`: "it can be any type of colour space
-                // except Pattern". A pattern carries no colour of its own, so a sample in
-                // one names nothing that could be unpacked.
-                b"Pattern" => Err(ImageError::UnsupportedColourSpace {
-                    space: "Pattern, which Table 87 excludes".to_owned(),
-                }),
-                // Everything else the colour module reads, converted per sample: `Indexed`,
-                // `Separation`, `DeviceN`, `Lab` and the two Cal spaces. Each is a function
-                // of its samples rather than a colour, so there is nothing to approximate
-                // and one place — `ColourSpace::to_rgb` — that decides what they mean.
-                _ => crate::colour::ColourSpace::parse(
-                    document,
-                    &space,
-                    // An image's colour space is written out in full: `/CS` naming a
-                    // resource is an inline image's spelling and `crate::inline_image` has
-                    // already resolved it, so there is no resource dictionary left to need.
-                    &Dictionary::new(),
-                )
-                .map(ColourSpace::Resolved)
-                .ok_or_else(|| ImageError::UnsupportedColourSpace {
-                    space: String::from_utf8_lossy(&family).into_owned(),
-                }),
-            }
+    // §8.9.5.1 Table 87, of `/ColorSpace`: "it can be any type of colour space except
+    // Pattern". A pattern carries no colour of its own, so a sample in one names nothing
+    // that could be unpacked, and the refusal has to come before the parse because a
+    // `/Pattern` array *is* a colour space the colour module reads.
+    let family = match &space {
+        Object::Name(name) => name.as_bytes().to_vec(),
+        Object::Array(items) => items
+            .first()
+            .map(|item| document.resolve(item))
+            .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
+            .unwrap_or_default(),
+        _ => {
+            return Err(ImageError::UnsupportedColourSpace {
+                space: "absent".to_owned(),
+            });
         }
-        _ => Err(ImageError::UnsupportedColourSpace {
-            space: "absent".to_owned(),
-        }),
+    };
+    if family == b"Pattern" || family == b"P" {
+        return Err(ImageError::UnsupportedColourSpace {
+            space: "Pattern, which Table 87 excludes".to_owned(),
+        });
     }
+
+    // Everything else goes through the one function that decides what a colour space *is*,
+    // against the resources the image is drawn from. Two clauses want it that way and this
+    // route was reaching neither. §8.6.5.6: the remapping through `/DefaultGray`,
+    // `/DefaultRGB` or `/DefaultCMYK` applies to "a colour space given as an entry in an
+    // image XObject, inline image, or shading dictionary", and an empty resource dictionary
+    // used to be passed here, so a device space named by an image was never remapped.
+    // §8.6.5.5: an `ICCBased` space's profile is the document's own statement of what its
+    // numbers mean, and this function used to reduce such a space to a device one by its
+    // `/N` — so the same colour rendered differently depending on whether it reached the
+    // page as a fill or as an image, which is exactly trap 6's defect one level up.
+    let resolved =
+        crate::colour::ColourSpace::parse(document, &space, resources).ok_or_else(|| {
+            ImageError::UnsupportedColourSpace {
+                space: String::from_utf8_lossy(&family).into_owned(),
+            }
+        })?;
+    Ok(ColourSpace::reduced(resolved))
 }
 
 /// How a row of raw bytes becomes colour: the layout, and what a value means.
@@ -541,6 +565,12 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
         .saturating_mul(bits as usize);
     let row_bytes = row_bits.saturating_add(7) / 8;
 
+    // Only the arm that converts per sample needs one, and only where a tuple fits a key.
+    let mut cache = matches!(space, ColourSpace::Resolved(_))
+        .then(|| palette.is_none() && components <= 4)
+        .filter(|fits| *fits)
+        .map(|_| Conversion::for_pixels(width_usize.saturating_mul(height_usize)));
+
     let mut out = Vec::with_capacity(width_usize.saturating_mul(height_usize).saturating_mul(4));
 
     for y in 0..height_usize {
@@ -557,7 +587,13 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
                 out.extend_from_slice(&[0, 0, 0, 0]);
                 continue;
             }
-            out.extend_from_slice(&sample_rgba(samples, palette.as_deref(), row, x));
+            out.extend_from_slice(&sample_rgba(
+                samples,
+                palette.as_deref(),
+                &mut cache,
+                row,
+                x,
+            ));
         }
     }
 
@@ -596,6 +632,7 @@ fn colour_key_masks(
 fn sample_rgba(
     samples: &Samples,
     palette: Option<&[pdf_render::Color]>,
+    cache: &mut Option<Conversion>,
     row: &[u8],
     x: usize,
 ) -> [u8; 4] {
@@ -673,7 +710,7 @@ fn sample_rgba(
             )
         }
         (ColourSpace::Resolved(resolved), _) => {
-            opaque(resolved_sample(resolved, row, x, bits, decode))
+            opaque(resolved_sample(resolved, row, x, bits, decode, cache))
         }
     }
 }
@@ -688,9 +725,13 @@ fn resolved_sample(
     x: usize,
     bits: u32,
     decode: &Decode,
+    cache: &mut Option<Conversion>,
 ) -> pdf_render::Color {
     let count = space.components();
     let at = x.saturating_mul(count);
+    // The raw samples, before `/Decode`, which is what makes them a key: the map from a
+    // tuple of samples to a colour is fixed for the whole image.
+    let mut key = 1u64 << 32;
     let values: Vec<f32> = (0..count)
         .map(|component| {
             let index = at.saturating_add(component);
@@ -701,10 +742,20 @@ fn resolved_sample(
             } else {
                 usize::from(row.get(index).copied().unwrap_or(0))
             };
+            key = (key << 8) | (raw as u64 & 0xFF);
             decode.value(component, raw)
         })
         .collect();
-    space.to_rgb(&values)
+    if let Some(cache) = cache.as_ref()
+        && let Some(colour) = cache.get(key)
+    {
+        return colour;
+    }
+    let colour = space.to_rgb(&values);
+    if let Some(cache) = cache.as_mut() {
+        cache.put(key, colour);
+    }
+    colour
 }
 
 /// Every colour a one-component space can produce at this bit depth, in sample order.
@@ -722,6 +773,87 @@ fn palette(
         .collect()
 }
 
+/// A memo of what a sample tuple converts to, for one image.
+///
+/// **Exact, not an approximation**: the key is the raw sample bytes, so a hit returns the
+/// colour the conversion would have returned for those very samples. Nothing here rounds,
+/// interpolates or resamples.
+///
+/// It exists because converting an image through a real colour space costs transcendental
+/// functions per pixel. Callgrind on `issue19971.pdf`'s 2500x1364 `ICCBased` photograph
+/// puts 36% of the page in `libm` — an ICC profile's tone curves and the sRGB encode are
+/// both powers — and applying §8.6.5.5 without a memo took the whole corpus gate from 1.7 s
+/// to 11.4 s. A one-component space never gets here: [`palette`] converts each of its at
+/// most 256 possible samples once, which is the same idea where an exact table fits.
+///
+/// Direct-mapped rather than a hash map, and small enough to stay in cache, because an
+/// image's colours are *spatially* clustered: neighbouring pixels are usually the same
+/// colour or a near one, so a fixed table with no chaining and no growth answers most of
+/// them. A collision costs one conversion, which is what the code did before, so the worst
+/// case is the old cost plus a bounded probe.
+struct Conversion {
+    /// Packed sample tuple, with bit 32 set where the entry is occupied.
+    keys: Vec<u64>,
+    /// What that tuple converted to.
+    values: Vec<pdf_render::Color>,
+}
+
+impl Conversion {
+    /// Smallest and largest table, in entries.
+    ///
+    /// Sized from the image rather than fixed, because both ends cost. A 2^18-entry table
+    /// is 2.9 MB to allocate and zero, which a 16x16 icon should not pay; a 2^12-entry one
+    /// collides constantly on a photograph. Measured on `issue19971.pdf`'s 2500x1364
+    /// `ICCBased` photograph and on the whole corpus gate, which is the population of small
+    /// images: 2^14 gives 1.68 G instructions on the photograph and 1.9 s on the gate, 2^16
+    /// gives 1.36 G and 1.8 s, and a fixed 2^18 gives 1.05 G and 1.9 s — the gate paying
+    /// back what the photograph saves. Sizing by the image takes both.
+    const MIN_SLOTS: usize = 1 << 12;
+    const MAX_SLOTS: usize = 1 << 18;
+
+    /// A table proportioned to an image of `pixels` samples.
+    ///
+    /// A quarter of the pixel count, rounded up to a power of two: an image whose colours
+    /// are all distinct cannot be helped by any table, and one with structure repeats long
+    /// before a quarter of its pixels.
+    fn for_pixels(pixels: usize) -> Self {
+        let wanted = pixels.next_power_of_two() / 4;
+        let slots = wanted.clamp(Self::MIN_SLOTS, Self::MAX_SLOTS);
+        Self {
+            keys: vec![0; slots],
+            values: vec![pdf_render::Color::BLACK; slots],
+        }
+    }
+
+    /// Where a tuple lives, if it lives anywhere.
+    ///
+    /// Knuth's multiplicative hash on the packed tuple: the samples of one pixel are
+    /// adjacent bytes, so the low bits alone would put every shade of one hue in one slot.
+    fn slot(&self, key: u64) -> usize {
+        let mixed = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        // Shifted down to 24 bits before the mask, so a table smaller than 2^24 entries is
+        // indexed by mixed bits rather than by the tuple's own low bytes.
+        usize::try_from(mixed >> 40).unwrap_or(0) & (self.keys.len().saturating_sub(1))
+    }
+
+    fn get(&self, key: u64) -> Option<pdf_render::Color> {
+        let at = self.slot(key);
+        (self.keys.get(at) == Some(&key))
+            .then(|| self.values.get(at).copied())
+            .flatten()
+    }
+
+    fn put(&mut self, key: u64, colour: pdf_render::Color) {
+        let at = self.slot(key);
+        if let Some(slot) = self.keys.get_mut(at) {
+            *slot = key;
+        }
+        if let Some(slot) = self.values.get_mut(at) {
+            *slot = colour;
+        }
+    }
+}
+
 /// Reads bit `index` of a packed row, most significant bit first.
 fn sample_bit(row: &[u8], index: usize) -> bool {
     let byte = row.get(index / 8).copied().unwrap_or(0);
@@ -736,7 +868,12 @@ fn channel(value: f32) -> u8 {
         reason = "clamped to 0.0..=1.0 and scaled, so the conversion is exact"
     )]
     {
-        (value.clamp(0.0, 1.0) * 255.0).round() as u8
+        // `+ 0.5` and a truncating cast rather than `.round()`, which is the *same* answer
+        // on this domain — the value is clamped non-negative, where round-half-away-from-zero
+        // and round-half-up agree — and does not call `roundf`. This runs once per component
+        // per pixel and callgrind put the library call at 10.7% of interpreting one
+        // 2500x1364 photograph, 60 instructions a pixel to round three numbers.
+        (value.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
     }
 }
 
@@ -750,14 +887,18 @@ fn channel(value: f32) -> u8 {
 /// What comes back is packed one bit per pixel in `DeviceGray`'s sense, so it feeds
 /// [`unpack`] exactly as any other 1-bit image does.
 fn decode_jbig2(
-    document: &Document,
-    dict: &Dictionary,
+    at: Dictionaries,
     source: &ImageStream,
     width: u32,
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
 ) -> Result<Vec<u8>, ImageError> {
+    let Dictionaries {
+        document,
+        dict,
+        resources,
+    } = at;
     // A globals stream that will not decode is reported rather than skipped: without its
     // symbol dictionary the page would decode to blank or to nothing, and "the image is
     // empty" is a far worse answer than "the image needs a stream I could not read".
@@ -802,7 +943,7 @@ fn decode_jbig2(
     let space = if is_mask {
         ColourSpace::Mask
     } else {
-        colour_space(document, dict)?
+        colour_space(document, dict, resources)?
     };
     let decode = Decode::read(document, dict, &space, 1);
     unpack(
@@ -842,14 +983,18 @@ fn decode_jbig2(
 /// differ the row stride the unpacker assumes is not the stride the filter produced, and
 /// nothing in ISO 32000-2 says which of the two statements wins. Reported rather than guessed.
 fn decode_ccitt(
-    document: &Document,
-    dict: &Dictionary,
+    at: Dictionaries,
     source: &ImageStream,
     width: u32,
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
 ) -> Result<Vec<u8>, ImageError> {
+    let Dictionaries {
+        document,
+        dict,
+        resources,
+    } = at;
     let parms = source.parms.as_ref();
     let integer = |key: &str, default: i64| -> i64 {
         parms
@@ -917,7 +1062,7 @@ fn decode_ccitt(
     let space = if is_mask {
         ColourSpace::Mask
     } else {
-        colour_space(document, dict)?
+        colour_space(document, dict, resources)?
     };
     let decode = Decode::read(document, dict, &space, 1);
     unpack(
@@ -941,14 +1086,18 @@ fn decode_ccitt(
 /// ISO 32000-2 §7.4.9. Returns the samples and whether an opacity channel came with them,
 /// which decides whether an `/SMask` may still be applied.
 fn decode_jpx(
-    document: &Document,
-    dict: &Dictionary,
+    at: Dictionaries,
     source: &ImageStream,
     width: u32,
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
 ) -> Result<(Vec<u8>, bool), ImageError> {
+    let Dictionaries {
+        document,
+        dict,
+        resources,
+    } = at;
     // Resolved before the request, because whether the codestream's own palette should be
     // applied depends on it: §7.4.9 gives `/ColorSpace` precedence over every colour
     // specification in the JPEG 2000 data, a palette included.
@@ -957,11 +1106,11 @@ fn decode_jpx(
         None
     } else {
         Some(
-            crate::colour::ColourSpace::parse(document, &declared, &Dictionary::new()).ok_or_else(
-                || ImageError::UnsupportedColourSpace {
+            crate::colour::ColourSpace::parse(document, &declared, resources).ok_or_else(|| {
+                ImageError::UnsupportedColourSpace {
                     space: space_name(&declared),
-                },
-            )?,
+                }
+            })?,
         )
     };
     let indices = matches!(
@@ -1277,6 +1426,81 @@ fn apply_decode_to_channels(document: &Document, dict: &Dictionary, rgba: &mut [
     }
 }
 
+/// Converts a `DCTDecode` raster from the space its dictionary names into device RGB.
+///
+/// The other four routes decide what a sample means in [`unpack`], through
+/// `crate::colour::ColourSpace::to_rgb`; this one had `zune-jpeg`'s components written
+/// straight into the raster as though `/ColorSpace` said `DeviceGray` or `DeviceRGB`. For
+/// most JPEGs it does — but §8.6.5.5's `ICCBased` and §8.6.5.6's `/DefaultRGB` both put a
+/// space there that means something else, and a page cannot tell you which it got.
+///
+/// A JPEG's components are eight-bit integers, so the conversion is a lookup for a
+/// one-component space and a per-pixel call for three. Nothing runs at all where the space
+/// is the device one the decoder already delivered, which is every corpus JPEG but a
+/// handful.
+fn convert_channels(at: Dictionaries, is_mask: bool, rgba: &mut [u8]) -> Result<(), ImageError> {
+    if is_mask {
+        return Ok(());
+    }
+    // A device space is what the decoder already produced, and an unreadable one is
+    // reported by the ordinary route rather than twice.
+    let Ok(ColourSpace::Resolved(space)) = colour_space(at.document, at.dict, at.resources) else {
+        return Ok(());
+    };
+    match space.components() {
+        1 => {
+            // The same table `palette` builds, for the same reason: 256 possible samples
+            // against a photograph's millions.
+            let table: Vec<[u8; 3]> = (0..=255u8)
+                .map(|value| {
+                    let colour = space.to_rgb(&[f32::from(value) / 255.0]);
+                    [channel(colour.r), channel(colour.g), channel(colour.b)]
+                })
+                .collect();
+            for pixel in rgba.chunks_exact_mut(4) {
+                let grey = usize::from(pixel.first().copied().unwrap_or(0));
+                if let Some(rgb) = pixel.get_mut(..3)
+                    && let Some(converted) = table.get(grey)
+                {
+                    rgb.copy_from_slice(converted);
+                }
+            }
+            Ok(())
+        }
+        3 => {
+            let mut cache = Conversion::for_pixels(rgba.len() / 4);
+            for pixel in rgba.chunks_exact_mut(4) {
+                let Some(rgb) = pixel.get_mut(..3) else {
+                    continue;
+                };
+                let read = |index: usize| rgb.get(index).copied().unwrap_or(0);
+                let key = (1u64 << 32)
+                    | (u64::from(read(0)) << 16)
+                    | (u64::from(read(1)) << 8)
+                    | u64::from(read(2));
+                let colour = if let Some(colour) = cache.get(key) {
+                    colour
+                } else {
+                    let colour = space.to_rgb(&[
+                        f32::from(read(0)) / 255.0,
+                        f32::from(read(1)) / 255.0,
+                        f32::from(read(2)) / 255.0,
+                    ]);
+                    cache.put(key, colour);
+                    colour
+                };
+                rgb.copy_from_slice(&[channel(colour.r), channel(colour.g), channel(colour.b)]);
+            }
+            Ok(())
+        }
+        // `decode_jpeg` refuses anything but one or three components, so a space taking a
+        // different number is a disagreement between the dictionary and the codestream.
+        other => Err(ImageError::UnsupportedColourSpace {
+            space: format!("a {other}-component space on a JPEG of one or three components"),
+        }),
+    }
+}
+
 /// Largest grid a mask and its image are combined on, in samples, where that is larger than
 /// the image itself.
 ///
@@ -1340,7 +1564,7 @@ enum MaskEntry {
 }
 
 /// Reads `/Mask`, deciding which of §8.9.6's two mechanisms it names and whether it applies.
-fn mask_entry(document: &Document, dict: &Dictionary) -> MaskEntry {
+fn mask_entry(document: &Document, dict: &Dictionary, resources: &Dictionary) -> MaskEntry {
     let mask = document.get_key(dict, "Mask");
     if matches!(mask, Object::Null) {
         return MaskEntry::Absent;
@@ -1358,7 +1582,7 @@ fn mask_entry(document: &Document, dict: &Dictionary) -> MaskEntry {
     }
     match &mask {
         Object::Null => MaskEntry::Absent,
-        Object::Array(items) => colour_key_entry(document, dict, items),
+        Object::Array(items) => colour_key_entry(document, dict, resources, items),
         _ => mask.as_stream().map_or_else(
             || MaskEntry::Unusable("/Mask is neither an image mask nor a range array".to_owned()),
             |stream| explicit_entry(document, dict, stream),
@@ -1384,7 +1608,12 @@ fn mask_entry(document: &Document, dict: &Dictionary) -> MaskEntry {
 /// unexpectedly painted". The two bilevel codecs are refused with them for one reason rather
 /// than four: a colour key over one-bit samples is a stencil written the long way, no corpus
 /// document writes one, and a rule with three exceptions is worse than a rule.
-fn colour_key_entry(document: &Document, dict: &Dictionary, items: &[Object]) -> MaskEntry {
+fn colour_key_entry(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+    items: &[Object],
+) -> MaskEntry {
     if matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true)) {
         return MaskEntry::Unusable(
             "colour-key /Mask on an image mask, which has no colour components".to_owned(),
@@ -1393,7 +1622,7 @@ fn colour_key_entry(document: &Document, dict: &Dictionary, items: &[Object]) ->
     if let Some(codec) = image_codec(document, dict) {
         return MaskEntry::Unusable(format!("colour-key /Mask on a {codec} image"));
     }
-    let Ok(space) = colour_space(document, dict) else {
+    let Ok(space) = colour_space(document, dict, resources) else {
         return MaskEntry::Unusable(
             "colour-key /Mask on an image whose colour space this cannot read".to_owned(),
         );
@@ -1523,8 +1752,12 @@ fn image_codec(document: &Document, dict: &Dictionary) -> Option<String> {
 /// *data* will not decode, which [`decode`] turns into an error naming it — an image that
 /// cannot be masked at all is refused rather than painted through a mask nobody could read.
 #[must_use]
-pub fn unapplied_mask(document: &Document, dict: &Dictionary) -> Option<String> {
-    match mask_entry(document, dict) {
+pub fn unapplied_mask(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+) -> Option<String> {
+    match mask_entry(document, dict, resources) {
         MaskEntry::Unusable(reason) => Some(reason),
         MaskEntry::Absent
         | MaskEntry::Overridden
@@ -1669,13 +1902,15 @@ fn combine_on_the_finer_grid(
 fn apply_explicit_mask(
     document: &Document,
     image: &Image,
+    resources: &Dictionary,
     stream: &Stream,
 ) -> Result<Image, ImageError> {
-    let stencil = decode(document, stream, pdf_render::Color::BLACK).map_err(|error| {
-        ImageError::Malformed {
-            detail: format!("/Mask did not decode: {error}"),
-        }
-    })?;
+    let stencil =
+        decode(document, stream, resources, pdf_render::Color::BLACK).map_err(|error| {
+            ImageError::Malformed {
+                detail: format!("/Mask did not decode: {error}"),
+            }
+        })?;
     // The stencil came back from `decode` as the fill colour where its samples mark the page
     // and as nothing where they do not, so alpha is where the answer already is —
     // §8.9.6.2's rule about which bit marks, and any `/Decode [1 0]` reversing it, were both
@@ -1749,7 +1984,11 @@ enum SoftMaskEntry {
 /// A `/Matte` is the fourth thing read here and the only one that does not decide whether the
 /// mask applies — see [`matte_colour`], which decides whether the pre-blending it announces
 /// can be undone in the raster this crate holds.
-fn soft_mask_entry(document: &Document, dict: &Dictionary) -> SoftMaskEntry {
+fn soft_mask_entry(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+) -> SoftMaskEntry {
     let smask = document.get_key(dict, "SMask");
     let Some(mask) = smask.as_stream() else {
         return SoftMaskEntry::Absent;
@@ -1780,7 +2019,7 @@ fn soft_mask_entry(document: &Document, dict: &Dictionary) -> SoftMaskEntry {
         // mask it would change what the mask says, which is not a thing the clause defines.
         return SoftMaskEntry::Unusable("/SMask carries a soft mask of its own".to_owned());
     }
-    match colour_space(document, &mask.dict) {
+    match colour_space(document, &mask.dict, resources) {
         Ok(space) if space.components() == 1 => {}
         Ok(space) => {
             return SoftMaskEntry::Unusable(format!(
@@ -1799,7 +2038,7 @@ fn soft_mask_entry(document: &Document, dict: &Dictionary) -> SoftMaskEntry {
              grid of {grid} samples"
         ));
     }
-    let (matte, owed) = match matte_colour(document, dict, &mask.dict) {
+    let (matte, owed) = match matte_colour(document, dict, resources, &mask.dict) {
         Matte::Absent => (None, None),
         Matte::Colour(colour) => (Some(colour), None),
         Matte::Unreadable(reason) => (None, Some(reason)),
@@ -1840,7 +2079,12 @@ enum Matte {
 /// clause does not describe. Those are reported instead, which is a gap this has never been
 /// asked for: `issue13931.pdf` is the corpus's only `/Matte` and its parent image is
 /// `DeviceRGB`.
-fn matte_colour(document: &Document, dict: &Dictionary, mask_dict: &Dictionary) -> Matte {
+fn matte_colour(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+    mask_dict: &Dictionary,
+) -> Matte {
     let matte = document.get_key(mask_dict, "Matte");
     let Object::Array(items) = &matte else {
         return Matte::Absent;
@@ -1857,7 +2101,10 @@ fn matte_colour(document: &Document, dict: &Dictionary, mask_dict: &Dictionary) 
     // A component is a colour value in the parent's space, so 0..1 for both device spaces
     // this can invert; anything outside that is clamped by `channel` rather than refused,
     // which is what §8.9.5.2 does with an out-of-range sample.
-    match (colour_space(document, dict), components.as_slice()) {
+    match (
+        colour_space(document, dict, resources),
+        components.as_slice(),
+    ) {
         (Ok(ColourSpace::Gray), [grey]) => {
             let grey = channel(*grey);
             Matte::Colour([grey, grey, grey])
@@ -1910,8 +2157,12 @@ fn unblend(value: u8, matte: u8, alpha: u8) -> u8 {
 /// 34862×4332 mask above cost 19 seconds and 600 MB when this question was answered by
 /// decoding first and comparing afterwards.
 #[must_use]
-pub fn unapplied_soft_mask(document: &Document, dict: &Dictionary) -> Option<String> {
-    match soft_mask_entry(document, dict) {
+pub fn unapplied_soft_mask(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+) -> Option<String> {
+    match soft_mask_entry(document, dict, resources) {
         SoftMaskEntry::Unusable(reason)
         | SoftMaskEntry::Image {
             owed: Some(reason), ..
@@ -1925,16 +2176,21 @@ pub fn unapplied_soft_mask(document: &Document, dict: &Dictionary) -> Option<Str
 /// A soft mask that cannot be read leaves the image opaque rather than failing it: an
 /// opaque image is visibly present and slightly wrong, whereas dropping it loses content
 /// entirely.
-fn apply_soft_mask(document: &Document, dict: &Dictionary, image: Image) -> Image {
+fn apply_soft_mask(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+    image: Image,
+) -> Image {
     let SoftMaskEntry::Image {
         stream: mask_stream,
         matte,
         ..
-    } = soft_mask_entry(document, dict)
+    } = soft_mask_entry(document, dict, resources)
     else {
         return image;
     };
-    let Ok(mask) = decode(document, &mask_stream, pdf_render::Color::BLACK) else {
+    let Ok(mask) = decode(document, &mask_stream, resources, pdf_render::Color::BLACK) else {
         return image;
     };
     combine_on_the_finer_grid(&image, &mask, |colour, sample| {

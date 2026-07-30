@@ -1387,7 +1387,7 @@ impl Interpreter<'_> {
                     if !self.is_hidden() {
                         match scanned.image {
                             Ok(stream) => {
-                                self.draw_image(&Arc::new(stream), "<inline>", &state);
+                                self.draw_image(&Arc::new(stream), "<inline>", resources, &state);
                             }
                             Err(error) => self.note(Unsupported::Image {
                                 name: format!("<inline>: {error}"),
@@ -2062,7 +2062,7 @@ impl Interpreter<'_> {
             .unwrap_or_default();
 
         if subtype == b"Image" {
-            self.draw_image(&stream, &name, state);
+            self.draw_image(&stream, &name, resources, state);
             return;
         }
         if subtype != b"Form" {
@@ -2372,7 +2372,13 @@ impl Interpreter<'_> {
     }
 
     /// Draws one image `XObject`.
-    fn draw_image(&mut self, stream: &Arc<pdf_syntax::Stream>, name: &str, state: &GraphicsState) {
+    fn draw_image(
+        &mut self,
+        stream: &Arc<pdf_syntax::Stream>,
+        name: &str,
+        resources: &Dictionary,
+        state: &GraphicsState,
+    ) {
         // §8.6.8, of a `d1` glyph description or an uncoloured tiling pattern's stream:
         // "unless painting an image mask, all image painting operators shall be ignored".
         // Its NOTE 1 gives the reason, and it is the whole of what those two circumstances
@@ -2391,7 +2397,9 @@ impl Interpreter<'_> {
         // combined at output resolution (§11.6.5.2 Table 143). We combine two rasters
         // instead, so a mask of a different size is not applied — and saying so is what
         // keeps `issue16263.pdf`'s black bars from passing as a page we drew.
-        if let Some(detail) = crate::image::unapplied_soft_mask(self.document, &stream.dict) {
+        if let Some(detail) =
+            crate::image::unapplied_soft_mask(self.document, &stream.dict, resources)
+        {
             self.note(Unsupported::Image {
                 name: format!("{name}: {detail}"),
             });
@@ -2404,14 +2412,14 @@ impl Interpreter<'_> {
         //
         // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
         // `/ImageMask` and is implemented — see `tests/image_masks.rs`.
-        if let Some(detail) = crate::image::unapplied_mask(self.document, &stream.dict) {
+        if let Some(detail) = crate::image::unapplied_mask(self.document, &stream.dict, resources) {
             self.note(Unsupported::Image {
                 name: format!("{name}: {detail}"),
             });
         }
         // A PDF image occupies the unit square in user space, so the command's transform is
         // the current transform and nothing else.
-        match crate::image::decode(self.document, stream, state.fill) {
+        match crate::image::decode(self.document, stream, resources, state.fill) {
             Ok(image) => self.list.push(Command::Image {
                 image,
                 transform: state.transform,

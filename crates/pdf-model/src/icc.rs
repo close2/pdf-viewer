@@ -383,7 +383,7 @@ impl Profile {
     /// The connection-space XYZ a colour maps to, before compensation or transfer.
     fn connection(&self, values: &[f32]) -> [f32; 3] {
         let raw = match &self.transform {
-            Transform::Lut(lut) => lut.encoding.decode(&lut.apply(values, self.channels)),
+            Transform::Lut(lut) => lut.encoding.decode(lut.apply(values, self.channels)),
             Transform::Matrix { curves, columns } => {
                 let mut xyz = [0.0f32; 3];
                 for (index, curve) in curves.iter().enumerate().take(3) {
@@ -448,21 +448,37 @@ impl Profile {
     }
 }
 
+/// Largest number of input channels a table is evaluated for without allocating.
+///
+/// ICC permits fifteen; PDF's `/N` permits one, three or four. The bound is the format's
+/// rather than PDF's so that a profile outside PDF's range is still evaluated, and it is a
+/// bound rather than a `Vec` because this runs **once per pixel** of an image in an
+/// `ICCBased` space. The five `Vec`s the first version allocated per call cost 900
+/// instructions a pixel, which is 3.1 G on one 2500x1364 photograph — twenty times the rest
+/// of that page put together.
+const MAX_INPUTS: usize = 15;
+
 impl Lut {
     /// Runs a colour through the input curves, the table and the output curves.
-    fn apply(&self, values: &[f32], channels: usize) -> Vec<f32> {
-        let mut inputs: Vec<f32> = (0..channels)
-            .map(|index| values.get(index).copied().unwrap_or(0.0).clamp(0.0, 1.0))
-            .collect();
+    ///
+    /// The output is three components because the profile connection space has three,
+    /// whatever the table's declared output count: [`Encoding::decode`] reads exactly that
+    /// many, so computing more would be computing what nothing consumes.
+    fn apply(&self, values: &[f32], channels: usize) -> [f32; 3] {
+        let count = channels.min(MAX_INPUTS);
+        let mut inputs = [0.0f32; MAX_INPUTS];
+        for (index, slot) in inputs.iter_mut().enumerate().take(count) {
+            *slot = values.get(index).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+        }
 
         // The matrix applies only to an XYZ input space, which a PDF never has; it is
         // read and applied anyway so that a profile carrying one is not silently ignored.
         if let Some(matrix) = &self.matrix
-            && inputs.len() == 3
+            && count == 3
         {
             let mut out = [0.0f32; 3];
             for (row, value) in out.iter_mut().enumerate() {
-                for (column, input) in inputs.iter().enumerate() {
+                for (column, input) in inputs.iter().enumerate().take(3) {
                     *value += matrix
                         .get(row.saturating_mul(3).saturating_add(column))
                         .copied()
@@ -470,16 +486,18 @@ impl Lut {
                         * input;
                 }
             }
-            inputs = out.to_vec();
+            for (slot, value) in inputs.iter_mut().zip(out) {
+                *slot = value;
+            }
         }
 
-        for (index, value) in inputs.iter_mut().enumerate() {
+        for (index, value) in inputs.iter_mut().enumerate().take(count) {
             if let Some(curve) = self.input.get(index) {
                 *value = curve.apply(*value);
             }
         }
 
-        let mut out = self.sample(&inputs);
+        let mut out = self.sample(inputs.get(..count).unwrap_or_default());
         for (index, value) in out.iter_mut().enumerate() {
             if let Some(curve) = self.output.get(index) {
                 *value = curve.apply(*value);
@@ -489,10 +507,14 @@ impl Lut {
     }
 
     /// Samples the table, interpolating multilinearly between grid points.
-    fn sample(&self, inputs: &[f32]) -> Vec<f32> {
+    fn sample(&self, inputs: &[f32]) -> [f32; 3] {
         let dimensions = self.grid.len();
-        let mut base = Vec::with_capacity(dimensions);
-        let mut fraction = Vec::with_capacity(dimensions);
+        let mut result = [0.0f32; 3];
+        if dimensions > MAX_INPUTS {
+            return result;
+        }
+        let mut base = [0usize; MAX_INPUTS];
+        let mut fraction = [0.0f32; MAX_INPUTS];
         for (index, points) in self.grid.iter().enumerate() {
             #[expect(
                 clippy::cast_precision_loss,
@@ -506,15 +528,18 @@ impl Lut {
                 reason = "position is clamped to 0..=last"
             )]
             let floor = position.floor() as usize;
-            base.push(floor.min(points.saturating_sub(1)));
-            fraction.push(position - position.floor());
+            if let Some(slot) = base.get_mut(index) {
+                *slot = floor.min(points.saturating_sub(1));
+            }
+            if let Some(slot) = fraction.get_mut(index) {
+                *slot = position - position.floor();
+            }
         }
 
         let Some(corners) = 1usize.checked_shl(u32::try_from(dimensions).unwrap_or(32)) else {
-            return vec![0.0; self.outputs];
+            return result;
         };
 
-        let mut result = vec![0.0f32; self.outputs];
         for corner in 0..corners {
             let mut weight = 1.0f32;
             let mut offset = 0usize;
@@ -841,7 +866,7 @@ enum Encoding {
 
 impl Encoding {
     /// Turns a table's normalised outputs into actual connection-space values.
-    fn decode(self, values: &[f32]) -> [f32; 3] {
+    fn decode(self, values: [f32; 3]) -> [f32; 3] {
         let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
         match self {
             // The table normalised by 65535, but the encoding puts 1.0 at 0x8000.

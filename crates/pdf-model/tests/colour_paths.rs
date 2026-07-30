@@ -348,6 +348,106 @@ fn a_default_space_outranks_the_output_intent() {
     );
 }
 
+/// An `ICCBased` image is converted through its profile, exactly as a fill in it is.
+///
+/// ISO 32000-2 §8.6.5.5, and the whole of what this test is about: the profile is the
+/// document's statement of what its numbers mean, so the same four numbers must produce the
+/// same colour whether they arrive as an `scn` operand or as an image sample. Until the
+/// twenty-fifth session they did not — `image.rs` reduced an `ICCBased` space to a device
+/// space by its `/N` and unpacked it as one, so the profile applied to fills and not to
+/// images.
+///
+/// It is the same defect this whole file exists to catch, one level up: three `DeviceCMYK`
+/// conversions once disagreed, and when that was fixed the shape survived where an *image*
+/// was on one side of it. The measurement that made it worth fixing is in ADR 0034 — 31
+/// corpus documents carry 1037 `ICCBased` images and on 15 the two answers differ by 18
+/// levels out of 255 for a mid grey — and none of them could fail a gate, because a
+/// difference that big on an image nobody compares is still `ambiguous`.
+///
+/// [`green_cyan_profile`] answers "pure cyan is sRGB's green primary", which no press makes
+/// and no fallback table produces, so a passing assertion cannot be a coincidence.
+#[test]
+fn an_icc_image_is_converted_through_the_same_profile_as_a_fill() {
+    let mut hex = String::new();
+    for byte in green_cyan_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    // Object order is object number here: the fixture builder numbers what it finds.
+    let objects = format!(
+        "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+         /ColorSpace [/ICCBased 6 0 R] /BitsPerComponent 8 /Filter /ASCIIHexDecode \
+         /Length 9 >>\nstream\nFF000000>\nendstream\nendobj\n\
+         6 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\n\
+         endobj\n",
+        hex.len().saturating_add(1)
+    );
+
+    let by_image = centre_colour(pdf_with(
+        &objects,
+        "/XObject << /Im0 5 0 R >>",
+        "q 20 0 0 20 0 0 cm /Im0 Do Q",
+    ));
+    let by_fill = centre_colour(pdf_with(
+        &objects,
+        "/XObject << /Im0 5 0 R >> /ColorSpace << /CS0 [/ICCBased 6 0 R] >>",
+        "/CS0 cs 1 0 0 0 scn 0 0 20 20 re f",
+    ));
+
+    assert_eq!(
+        by_image, by_fill,
+        "the same colour through the same profile, as a sample and as an operand"
+    );
+    let (r, g, b) = by_image;
+    assert!(
+        r <= 1 && g >= 254 && b <= 1,
+        "the profile says pure cyan is green; got {by_image:?}"
+    );
+}
+
+/// §8.6.5.6's remapping reaches an image's own `/ColorSpace`, not only the graphics state's.
+///
+/// > A colour space is selected for painting each graphics object. This is either the current
+/// > colour space parameter in the graphics state or a colour space given as an entry in an
+/// > image XObject, inline image, or shading dictionary. Regardless of how the colour space
+/// > is specified, it shall be subject to remapping as described below.
+///
+/// The second sentence is the one that was missing. An image's space was parsed against an
+/// *empty* resource dictionary — defensible on the reading that an image states its space in
+/// full, and wrong, because "in full" is about resolving a *name* and this clause is about
+/// replacing a *device space*. One corpus document names a default at all and its images
+/// state their space directly, so nothing in the corpus could have found this.
+#[test]
+fn a_default_colour_space_replaces_an_images_device_space() {
+    let objects = "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+                   /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /ASCIIHexDecode \
+                   /Length 9 >>\nstream\nFF000000>\nendstream\nendobj\n\
+                   6 0 obj\n[/DeviceN [/C /M /Y /K] /DeviceRGB 7 0 R]\nendobj\n\
+                   7 0 obj\n<< /FunctionType 2 /Domain [0 1 0 1 0 1 0 1] /C0 [0 1 0] \
+                   /C1 [0 1 0] /N 1 >>\nendobj\n";
+
+    let with_default = centre_colour(pdf_with(
+        objects,
+        "/XObject << /Im0 5 0 R >> /ColorSpace << /DefaultCMYK 6 0 R >>",
+        "q 20 0 0 20 0 0 cm /Im0 Do Q",
+    ));
+    assert_eq!(
+        with_default,
+        (0, 255, 0),
+        "an image's DeviceCMYK must be remapped through /DefaultCMYK too"
+    );
+
+    let without = centre_colour(pdf_with(
+        objects,
+        "/XObject << /Im0 5 0 R >>",
+        "q 20 0 0 20 0 0 cm /Im0 Do Q",
+    ));
+    assert_eq!(
+        without,
+        (0, 173, 239),
+        "and without the entry it is the process cyan a fill gives"
+    );
+}
+
 /// A content stream that cannot be decoded must be reported, not silently dropped.
 ///
 /// This is the failure mode the project's third principle exists to prevent, in its purest

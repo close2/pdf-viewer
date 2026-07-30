@@ -1127,12 +1127,18 @@ status = "unreviewed"
 [[clause]]
 clause = "8.6.4"
 title = "Device colour spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs"]
+note = "The three families, reviewed as one in the twenty-fifth session alongside §8.6.5. All three are what this device speaks, so the whole family is the identity plus one conversion the standard does not define — see §8.6.4.4."
 
 [[clause]]
 clause = "8.6.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_default_colour_space_replaces_the_device_space"]
+note = "Two normative sentences beyond the descriptive ones. The NOTE points at §8.6.5.6's remapping, which is implemented for every route including — as of the twenty-fifth session — an image's own `/ColorSpace`. The closing paragraph says device colour operators \"should be used only if device colour spaces have been remapped to CIE-based spaces\" inside a transparency group whose group space is CIE-based, and \"otherwise, the colour results are implementation-dependent and unpredictable\". That is advice to a *writer* about a configuration this reader already reports: §11.6.6's row names a group space that is not the device's three components, and there is nothing here for a reader to do that it does not already do."
 
 [[clause]]
 clause = "8.6.4.2"
@@ -1145,12 +1151,18 @@ note = "\"A grayscale value shall be represented by a single number in the range
 [[clause]]
 clause = "8.6.4.3"
 title = "DeviceRGB colour space"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_grey_is_the_same_however_it_is_drawn", "crates/pdf-model/src/colour.rs::grey_and_rgb_pass_through_unchanged"]
+note = "Three components, each \"a number in the range 0.0 to 1.0, where 0.0 shall denote the complete absence of a primary component and 1.0 shall denote maximum intensity\", passed through with no curve — which is the whole of the conversion, because the clause defines a component as an intensity of *this device's* primary and §8.6.5.7 NOTE 3 says nothing in a PDF describes that device's calibration. Applying a gamma here would assert a calibration the file does not state. All six operators reach it: `CS`/`cs`, `SC`/`sc`/`SCN`/`scn` with three operands, and `RG`/`rg`. The closing sentence — selecting the space initialises all three components to 0.0 — is `ColourSpace::initial_colour`."
 
 [[clause]]
 clause = "8.6.4.4"
 title = "DeviceCMYK colour space"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn", "crates/pdf-model/src/colour.rs::the_process_inks_are_the_published_ink_appearances"]
+note = "Four components, \"the concentrations of these process colourants\", and the clause stops there — **it defines no conversion to RGB at all**, which is the standing example in `CLAUDE.md` of a place the standard is silent and a choice has to be documented as one (ADR 0009). What the standard does say is where to *ask*, and all three are implemented and all three outrank the fallback: `/DefaultCMYK` (§8.6.5.6), an output intent's `/DestOutputProfile` (§14.11.5) and an `ICCBased` space's profile (§8.6.5.5). The fallback below them is a table of the sixteen ink corners, interpolated. `partial` records the silence rather than a debt: there is no sentence here left to implement. The closing sentence — cyan, magenta and yellow initialised to 0.0 and black to 1.0, which is black through the K channel rather than through zeroes — is `ColourSpace::initial_colour`, and it is the case a reader is most likely to get wrong by assuming every space starts at black-by-zeroes."
 
 [[clause]]
 clause = "8.6.5"
@@ -1195,18 +1207,18 @@ note = "`/WhitePoint`, `/BlackPoint` and `/Range` are read, and a Lab colour is 
 [[clause]]
 clause = "8.6.5.5"
 title = "ICCBased colour spaces"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/icc.rs", "crates/pdf-model/src/colour.rs", "crates/pdf-model/src/image.rs"]
-test = ["crates/pdf-model/tests/colour_paths.rs"]
-note = "The profile is parsed and evaluated here — an A2B evaluator written in this tree — and it wins over `/Alternate` and `/N`, which is the clause's own order: the profile is the document's statement of what its numbers mean. `/Range` is read. **The gap this review found is not in the parsing but in who asks**: a *fill* in an `ICCBased` space is converted through the profile and an *image* in the same space is not — `image.rs` reduces the space to `DeviceGray`, `DeviceRGB` or `DeviceCMYK` by its `/N` and unpacks it as a device space. That is trap 6's defect one level up, and it is measured rather than suspected: 31 corpus documents carry 1037 `ICCBased` images, and on 15 of them the profile's answer for a mid grey differs from the device passthrough by 18 levels out of 255. It is silent, and closing it is a question about where a per-sample conversion is affordable rather than about the clause."
+test = ["crates/pdf-model/tests/colour_paths.rs::an_icc_image_is_converted_through_the_same_profile_as_a_fill", "crates/pdf-model/src/icc.rs::a_real_cmyk_profile_agrees_with_independent_evaluators"]
+note = "The profile is parsed and evaluated by an A2B evaluator written in this tree, and it wins over `/Alternate` and `/N`, which is the clause's own order: the profile is the document's statement of what its numbers mean. `/Range` is read. **The twenty-fifth session closed the half that was silent**: a *fill* in an `ICCBased` space went through the profile and an *image* in the same space did not — `image.rs` reduced the space to a device one by its `/N` — which is trap 6's defect with an image on one side of it. 31 corpus documents carry 1037 such images and on 15 the two answers differed by 18 levels out of 255 for a mid grey. Closing it was a performance problem before it was a correctness one: an exact per-pixel conversion is dominated by transcendental functions (36% of one page in `libm`, by callgrind) and took the corpus gate from 1.7 s to 11.4 s. What ships is an *exact* per-image memo keyed on the raw sample tuple, which puts the gate at 1.8 s. ADR 0035."
 
 [[clause]]
 clause = "8.6.5.6"
 title = "Default colour spaces"
-status = "partial"
-code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/shading.rs"]
-test = ["crates/pdf-model/tests/colour_paths.rs::a_default_colour_space_replaces_the_device_space", "crates/pdf-model/tests/colour_paths.rs::a_default_space_outranks_the_output_intent"]
-note = "`/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` are looked up in the resources whenever a device space is named, and the resolved space is used in its place — \"if such an entry is present, its value shall be used as the colour space for the operation currently being performed\". Because the lookup is inside `ColourSpace::by_name`, the clause's four indirect cases come free: a `Pattern`'s underlying space, an `Indexed` space's base and a `Separation` or `DeviceN`'s alternate all reach it by the same route, and a shading dictionary's `/ColorSpace` is parsed against the page's resources. **What is missing is the image half.** The clause says the remapping applies to \"a colour space given as an entry in an image XObject, inline image, or shading dictionary\", and `image.rs` parses an image's `/ColorSpace` against an empty resource dictionary, so a device space named there is never remapped. One corpus document names a default at all (`issue14821.pdf`, `/DefaultRGB`) and its images state their space directly, so no page changes — but the requirement is unconditional. Not implemented and not reported: `/DefaultCMYK` is honoured for fills, which is where ADR 0009 needed it."
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/image.rs", "crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_default_colour_space_replaces_the_device_space", "crates/pdf-model/tests/colour_paths.rs::a_default_colour_space_replaces_an_images_device_space", "crates/pdf-model/tests/colour_paths.rs::a_default_space_outranks_the_output_intent"]
+note = "`/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` are looked up in the resources whenever a device space is named, and the resolved space is used in its place — \"if such an entry is present, its value shall be used as the colour space for the operation currently being performed\". Because the lookup is inside `ColourSpace::by_name`, the clause's four indirect cases come free: a `Pattern`'s underlying space, an `Indexed` space's base and a `Separation` or `DeviceN`'s alternate all reach it by the same route. **The image half landed in the twenty-fifth session**: the clause requires the remapping of \"a colour space given as an entry in an image XObject, inline image, or shading dictionary\", and an image's space had been parsed against an *empty* resource dictionary. One corpus document names a default at all and its images state their space directly, so nothing in the corpus could have found it. Not implemented, and named here rather than left implicit: the clause's validity rules on what may *be* a default — not `Lab`, `Indexed` or `Pattern` — are not enforced, because a reader that honours a malformed one draws what the producer asked for and a reader that refuses draws nothing."
 
 [[clause]]
 clause = "8.6.5.7"
