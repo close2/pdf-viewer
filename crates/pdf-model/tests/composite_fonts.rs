@@ -328,6 +328,11 @@ fn a_predefined_cmap_is_refused_by_name() {
 /// all — so what places its glyphs is Table 122's default `/DW2` of `[880 -1000]`, one em
 /// down per glyph and a position vector of half the glyph's width across.
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "test code: every value compared is a constant of the clause's or a quotient of \
+              two, so the comparison is exact by construction"
+)]
 fn a_vertical_cmap_takes_the_second_set_of_metrics() {
     let Some(document) = corpus_document("vertical.pdf") else {
         println!("skipped: the doc/pdf.js submodule is not checked out");

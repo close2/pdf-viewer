@@ -193,6 +193,122 @@ pub fn transparency_group() -> DisplayList {
     list
 }
 
+/// All sixteen of §11.3.5's blend modes, each over the same backdrop.
+///
+/// # Why this scene exists, and what it can catch that nothing else could
+///
+/// The cross-backend scenes covered geometry, shadings, images, soft masks and a transparency
+/// group, and **not one of them selected a blend mode**: every `Command` in every other scene
+/// carries `BlendMode::Normal`. So the two backends' sixteen blend functions had never been
+/// held to each other at all, which the thirty-seventh session found by reading §11.3.5 rather
+/// than by any gate noticing.
+///
+/// The four in Table 136 are why that matters. Hue, Saturation, Color and Luminosity are
+/// *non-separable*: each is defined by the clause's `Lum`, `ClipColor`, `SetLum` and `SetSat`
+/// functions over all three components at once, so no per-component formula produces them and
+/// a backend that got one subtly wrong would still produce a plausible picture. Trap 2's rule
+/// in its sharpest form — a decision either backend can make alone is a decision neither has
+/// made.
+///
+/// The backdrop is a horizontal ramp through red, green and blue and the source is a vertical
+/// one, so every mode is exercised over a wide range of both operands rather than at one pair
+/// of colours. Sixteen tiles, four by four, in the order [`ALL_BLEND_MODES`] lists them.
+#[must_use]
+pub fn blend_modes() -> DisplayList {
+    /// Four by four tiles, of three bands each.
+    const ACROSS: f32 = 4.0;
+    /// A page whose tiles and bands both land on whole pixels at scale 1.
+    ///
+    /// Every other scene here is A4, and this one is not for a reason worth stating: a band
+    /// edge that falls between two pixels is anti-aliased, and two rasterisers antialias
+    /// differently. This scene is *about* what happens inside a region, so its edges are
+    /// placed where no edge rule can enter the measurement — 480 is four tiles of 120, each
+    /// of three bands of 40.
+    const SIDE: f32 = 480.0;
+    /// Each band is inset by this much, so that **no two rectangles share an edge**.
+    ///
+    /// Not tidiness: a shared edge is antialiased by both rasterisers and they antialias
+    /// differently, so a seam between two colours is a difference of tens of levels that has
+    /// nothing to do with the blend function. This scene is about what happens *inside* a
+    /// region.
+    const INSET: f32 = 2.0;
+
+    let mut list = DisplayList::new(Size::new(SIDE, SIDE));
+    let (width, height) = (SIDE / ACROSS, SIDE / ACROSS);
+
+    for (index, blend) in ALL_BLEND_MODES.into_iter().enumerate() {
+        // Laid out so that tile `index` is the `index`-th tile of the *raster*, reading
+        // left to right and top to bottom: a display list's y runs up and a raster's runs
+        // down, and a test that names which mode differs has to be able to find it.
+        let column = f32::from(u8::try_from(index % 4).unwrap_or(0));
+        let row = f32::from(u8::try_from(index / 4).unwrap_or(0));
+        let left = column * width;
+        let top = height.mul_add(-(row + 1.0), SIDE);
+
+        // Three vertical bands under three horizontal ones, so each mode meets every pair
+        // of primaries rather than one.
+        let band = width / 3.0;
+
+        for (index, colour) in [RED, GREEN, BLUE].into_iter().enumerate() {
+            let start = band.mul_add(f32::from(u8::try_from(index).unwrap_or(0)), left);
+            list.push(Command::Fill {
+                path: Arc::new(rect(
+                    start + INSET,
+                    top + INSET,
+                    start + band - INSET,
+                    top + height - INSET,
+                )),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(colour),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+
+        for (index, colour) in [BLUE, GREEN, RED].into_iter().enumerate() {
+            let start = (height / 3.0).mul_add(f32::from(u8::try_from(index).unwrap_or(0)), top);
+            list.push(Command::Fill {
+                path: Arc::new(rect(
+                    left + INSET,
+                    start + INSET,
+                    left + width - INSET,
+                    start + height / 3.0 - INSET,
+                )),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(colour),
+                clip: None,
+                mask: None,
+                blend,
+            });
+        }
+    }
+
+    list
+}
+
+/// §11.3.5's sixteen modes, in Table 134's order and then Table 136's.
+pub const ALL_BLEND_MODES: [BlendMode; 16] = [
+    BlendMode::Normal,
+    BlendMode::Multiply,
+    BlendMode::Screen,
+    BlendMode::Overlay,
+    BlendMode::Darken,
+    BlendMode::Lighten,
+    BlendMode::ColorDodge,
+    BlendMode::ColorBurn,
+    BlendMode::HardLight,
+    BlendMode::SoftLight,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+    BlendMode::Hue,
+    BlendMode::Saturation,
+    BlendMode::Color,
+    BlendMode::Luminosity,
+];
+
 /// A large object painted through a luminosity soft mask (ISO 32000-2 §11.5.3).
 ///
 /// Built to fail in the axis a soft-mask defect moves, and at a magnitude the tolerances can

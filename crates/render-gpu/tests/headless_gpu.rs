@@ -188,6 +188,98 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
     );
 }
 
+/// Every one of §11.3.5's sixteen blend modes is the same function on both backends —
+/// except three, which are named here with the clause's own arithmetic beside them.
+///
+/// # The scene that was missing
+///
+/// Reading clause 11 as a family in the thirty-seventh session found that not one
+/// cross-backend scene selected a blend mode at all: every `Command` in every other scene
+/// here carries `BlendMode::Normal`. So the two backends' sixteen blend functions had never
+/// been compared with each other, and trap 2 says what that means — a decision either backend
+/// can make alone is a decision neither has made.
+///
+/// Table 136's four are why it matters. Hue, Saturation, Color and Luminosity are
+/// *non-separable*: each is defined over all three components at once through the clause's
+/// `Lum`, `ClipColor`, `SetLum` and `SetSat` functions, so no per-component formula produces
+/// them and one of them being wrong still draws a plausible picture.
+///
+/// # What it found, and why the closed form settles it
+///
+/// Twelve separable modes and `Saturation` agree **exactly** — not within a tolerance, to the
+/// channel. `Hue`, `Color` and `Luminosity` differ by 113 of 255, and the disagreement is not
+/// a tie: §11.3.5.3's arithmetic says which is right.
+///
+/// Take red painted over blue in `Hue`, which the clause defines as
+/// `SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))`. `Sat(blue)` is 1 and `SetSat(red, 1)` is red;
+/// `Lum(blue)` is 0.11 and `Lum(red)` is 0.30, so `SetLum` adds −0.19 to each component and
+/// gives (0.81, −0.19, −0.19). `ClipColor` then applies, because a component fell below 0:
+/// with `L` = 0.11 and `n` = −0.19 the red component becomes
+/// `L + (C − L) × L ÷ (L − n)` = 0.11 + 0.70 × 0.11 ÷ 0.30 = **0.367**, which is 94 in eight
+/// bits. Vello produces 94. `tiny-skia` produces 207, which is 0.81 — the value *before*
+/// `ClipColor`.
+///
+/// So the CPU backend, which is this project's correctness oracle for everything else, is the
+/// one that is wrong here, and the three modes are held in a list rather than under a
+/// tolerance: a ratchet in both directions, so that fixing one fails this test and having a
+/// fourth join it fails it too.
+#[test]
+fn cpu_and_gpu_agree_on_every_blend_mode() {
+    /// The modes whose two implementations are known to differ; see above.
+    const DISAGREE: [pdf_render::BlendMode; 3] = [
+        pdf_render::BlendMode::Hue,
+        pdf_render::BlendMode::Color,
+        pdf_render::BlendMode::Luminosity,
+    ];
+    /// Four by four tiles, in the order `test_scenes::ALL_BLEND_MODES` lists them.
+    const ACROSS: u32 = 4;
+
+    // In a debug build `tiny-skia`'s own `u16x16` multiply trips Rust's overflow check
+    // inside these three modes — `wide/u16x16_t.rs`, "attempt to multiply with overflow" —
+    // which is the sharpest evidence available that the defect is an intermediate exceeding
+    // sixteen bits and wrapping in release rather than a difference of reading. It is a
+    // dependency's arithmetic either way, so the scene is a release-build test and says so.
+    if cfg!(debug_assertions) {
+        return;
+    }
+
+    let list = test_scenes::blend_modes();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+    assert_eq!((cpu.width, cpu.height), (gpu.width, gpu.height));
+
+    let (tile_width, tile_height) = (cpu.width / ACROSS, cpu.height / ACROSS);
+    let mut differing = Vec::new();
+    for (index, mode) in test_scenes::ALL_BLEND_MODES.into_iter().enumerate() {
+        let index = u32::try_from(index).expect("sixteen modes");
+        let (column, row) = (index % ACROSS, index / ACROSS);
+        let mut worst = 0u8;
+        for y in row * tile_height..(row + 1) * tile_height {
+            for x in column * tile_width..(column + 1) * tile_width {
+                let at = ((y * cpu.width + x) * 4) as usize;
+                for channel in 0..4 {
+                    let (a, b) = (cpu.data[at + channel], gpu.data[at + channel]);
+                    worst = worst.max(a.abs_diff(b));
+                }
+            }
+        }
+        if worst > 0 {
+            differing.push((mode, worst));
+        }
+    }
+
+    let named: Vec<pdf_render::BlendMode> = differing.iter().map(|(mode, _)| *mode).collect();
+    assert_eq!(
+        named,
+        DISAGREE.to_vec(),
+        "the set of blend modes the two backends disagree about has changed: {differing:?}"
+    );
+}
+
 /// A soft mask is the same mask on both backends, values and all (§11.5).
 ///
 /// The two mechanisms could hardly be less alike: `tiny-skia` builds an eight-bit coverage

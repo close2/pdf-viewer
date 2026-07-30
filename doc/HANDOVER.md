@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **thirty-sixth** working session. Read
+Written 2026-07-26, updated 2026-07-30 at the end of the **thirty-seventh** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,54 +12,62 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the thirty-sixth session changed
+## What the thirty-seventh session changed
 
-**A glyph has two sets of metrics and this tree read one.** §9.2.4 gives a composite font a
-second set for writing mode 1 — a displacement `w1` whose horizontal component is 0, and a
-position vector `v` "from the origin used for horizontal writing (origin 0) to the origin used
-for vertical writing (origin 1)" — and §9.7.4.3 puts them in `/W2` and `/DW2`. Both are read
-now, so `Identity-V` and a `CMap` declaring `/WMode 1` place their glyphs down a column instead
-of being refused. 3 corpus documents; ADR 0045.
+**Not one cross-backend scene selected a blend mode**, and reading clause 11 as a family is
+what found it. Fourteen scenes compared geometry, shadings, images, soft masks and a
+transparency group, and every `Command` in every one of them carried `BlendMode::Normal` — so
+the two backends' sixteen blend functions had never been held to each other. Trap 2's rule in
+its stated form: a decision either backend can make alone is a decision neither has made.
+ADR 0046.
 
-**Three things move with the writing mode, and §9.4.4 states all three.** The displacement goes
-into `ty` instead of `tx`; the horizontal scaling `Th` multiplies `tx` alone, because it scales
-the width of a line rather than the advance along it; and a `TJ` adjustment "shall be subtracted
-from the current horizontal or vertical coordinate, depending on the writing mode". The text
-readback swaps axes with them, so a new column is a newline.
+**Twelve separable modes and `Saturation` agree to the channel. `Hue`, `Color` and `Luminosity`
+differ by 113 of 255 — and the clause says which is right.** Red over blue in `Hue` is
+`SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))`, which after `ClipColor` is 0.367, or 94 in eight bits.
+Vello gives 94; `tiny-skia` gives 207, which is the value *before* the clip. **The CPU backend
+is this project's correctness oracle for everything else, and here it is the wrong one.**
 
-**`/DW2`'s default is `[880 -1000]` and `vertical.pdf` states no `/W2` at all** — so what places
-its glyphs is Table 122's default, one em down per glyph, with the position vector's horizontal
-component "half the glyph width", which is the clause's own rule and the reason
-`vertical_metrics` takes the horizontal width in rather than duplicating it.
+**A debug build names the cause.** Under Rust's overflow checks `tiny-skia`'s own
+`wide/u16x16_t.rs` panics with "attempt to multiply with overflow" inside these three modes, so
+the release answer is a sixteen-bit intermediate wrapping. The scene is therefore a
+release-build test and says so.
+
+**Two details of the scene are load-bearing and both keep an edge rule out of a colour
+measurement**: every coordinate lands on a whole pixel, and every band is inset so that no two
+rectangles share an edge. The first draft had neither and *all sixteen* modes "differed" — by
+the seam between two colours, which two rasterisers antialias differently.
+
+**Clause 11 is complete as a review**, 58 rows with none `unreviewed`.
 
 | | was | is |
 |---|---|---|
-| **`Identity-V` and `/WMode 1`** | refused: "needs `/W2` metrics" | drawn, in a column |
-| **`/W2` and `/DW2`** | read by nobody | both formats, with Table 122's default |
-| **`Th` in writing mode 1** | — | not applied, which is where §9.4.4 puts it |
+| **cross-backend blend-mode coverage** | none, in fourteen scenes | all sixteen, in one |
+| **`Hue`, `Color`, `Luminosity` on the CPU backend** | assumed right | wrong, with the closed form beside them |
+| **clause 11's 10 unread rows** | nobody had read them | 8 implemented, 1 partial, 1 inapplicable |
 
 **The numbers:**
 
 | | before | now |
 |---|---|---|
-| **corpus documents drawing with nothing reported** | 856 | **859** |
-| pages we claim to draw completely | 1653 | **1656** |
-| **pages agreeing with the reference consensus** | 808 | **811** |
-| pages contradicted by it | 88 | **88** |
-| ledger subclauses nobody has read | 348 | **344** |
-| `§` citations the checker verified | 1334 | **1358** |
-| rustdoc quotations checked verbatim | 136 | **139** |
-| tests | 589 | **589** |
+| corpus documents drawing with nothing reported | 859 | **859** |
+| pages agreeing with the reference consensus | 811 | **811** |
+| **ledger subclauses nobody has read** | 344 | **334** |
+| **cross-backend GPU scenes** | 14 | **15** |
+| `§` citations the checker verified | 1358 | **1365** |
+| tests | 589 | **590** |
 
 What it taught:
 
-- **A refusal that names what is missing is a to-do item with the answer written on it.** "A
-  `CMap` in vertical writing mode, which needs `/W2` metrics" named the two entries, the clause
-  that defines them and the four documents that wanted them, and sat there for sixteen sessions.
-  The refusals in this tree are its own best-specified backlog.
-- **Ask what a feature looks like in the axis nobody uses.** `Th`, `Tc`, `Tw` and `TJ` all have
-  a writing-mode-dependent form in §9.4.4's formula, and every one of them was implemented as
-  the horizontal case with the mode never asked about.
+- **A comparison is only worth what its scenes can express.** The sixteenth session learned the
+  magnitude version — a scene must be able to fail at the defect's *size* — and this is the
+  axis version: fourteen scenes existed and nobody had asked what they did not cover. The
+  question to ask of a scene set is not "does it pass" but "what parameter does every scene in
+  it leave at its default".
+- **When two backends disagree, write the clause's arithmetic down before deciding who is
+  wrong.** Trap 12 says it about the reference oracle and it is the same move here: 0.367 is a
+  number the clause produces, and it belongs to one of the two answers.
+- **The correctness oracle can be the wrong one.** `render-cpu` is the backend everything else
+  is checked against, and for three of Table 136's four modes it is a dependency's overflow.
 
 ## How the project got here
 
@@ -100,6 +108,7 @@ below rather than here.
 | 34 | §12.5.6.10's text markup appearances; §7.9 and §14.11 reviewed; `REVIEW_OWED` emptied | ADR 0043 |
 | 35 | §8.11.4.4's usage application dictionaries — the ledger's last original `silent` row | ADR 0044 |
 | 36 | Vertical writing: §9.2.4's second set of metrics, §9.7.4.3's `/W2` and `/DW2` | ADR 0045 |
+| 37 | The blend-mode scene nobody had written; clause 11 completed as a review | ADR 0046 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -120,7 +129,7 @@ revision and method §7.6 states, and **a form field's value laid out from its `
 is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
 person for a password — and the gap is measured below rather than guessed at.
 
-- **589 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **590 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -218,13 +227,16 @@ person for a password — and the gap is measured below rather than guessed at.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1358 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1365 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
-- Both backends draw everything the display list can express and agree on it: **fourteen**
-  headless GPU scenes hold `tiny-skia` and Vello to the same pixels at more than one scale and
-  along both axes (see trap 2), plus one single-pixel test, `vello_hands_back_straight_alpha`.
+- Both backends draw everything the display list can express and agree on **all but three
+  blend modes**: **fifteen** headless GPU scenes hold `tiny-skia` and Vello to the same pixels at
+  more than one scale and along both axes (see trap 2), plus one single-pixel test,
+  `vello_hands_back_straight_alpha`. The fifteenth is the one that found something —
+  `cpu_and_gpu_agree_on_every_blend_mode`, where `Hue`, `Color` and `Luminosity` differ by 113
+  of 255 and §11.3.5.3's closed form says the CPU backend is the wrong one (ADR 0046).
 
 ### Run it
 
@@ -244,7 +256,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1358 citations, 139 quotations, 79 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1365 citations, 139 quotations, 81 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -390,6 +402,12 @@ silence on the other — three different answers, none of them the standard's. `
 round cap's. `Clip::admits_nothing` is the same story for an empty clipping path, where Vello
 happens to be right and was *verified* to be right by convention rather than by the clause —
 which is exactly the position that reads as agreement and is not.
+
+**And a scene set is worth what its scenes can *express*.** Fourteen cross-backend scenes
+existed and every `Command` in every one of them carried `BlendMode::Normal`, so the two
+backends' sixteen blend functions had never been compared at all — and three of them disagree by
+113 of 255. The question to ask of a scene set is not "does it pass" but **"what parameter does
+every scene in it leave at its default"**. ADR 0046.
 
 **And a scene must be able to fail at the defect's *magnitude* as well as in its axis.** The
 sixteenth session's first reduced-image scene was in the right axis and **passed with the GPU's
@@ -684,8 +702,8 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **344
-of 823 subclauses are `unreviewed`**, and 479 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **334
+of 823 subclauses are `unreviewed`**, and 489 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
 project has measured 47% of its clause coverage. That number is meant to look bad; the alternative
 was not knowing.
@@ -803,7 +821,7 @@ where the two disagree the ledger is the one that had to name a code site.
 | 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 107 rows reviewed, with §8.4, §8.5, §8.6.4, §8.6.5, §8.6.6, §8.6.7, §8.7, §8.9 and §8.10 done as families. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). **All five of Table 87's bit depths** are unpacked, and §8.9.7's abbreviated keys beat their full names when a file writes both (ADR 0041). |
 | 9 Text | 65 | **Partial**, 61 rows reviewed — §9.2, §9.3, §9.4, §9.6, §9.8, §9.9 and the whole of §9.7 as families. Simple and composite fonts through **every font program Table 124 defines** — TrueType, CFF, OpenType and, from the thirty-first session, the bare Type 1 of `/FontFile`; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. An embedded program's own built-in encoding is the base encoding Table 112 says it is, and `/MissingWidth` defaults to Table 120's 0 (ADR 0039). Both writing modes, from §9.2.4's two sets of metrics (ADR 0045). Missing: Table 116's predefined `CMap`s, text knockout (§9.3.8, reported), and §9.8.3's `/Style` and `/FD`, which are the ledger's two new `silent` rows and reach nothing but a substitute's choice. |
 | 10 Rendering | 36 | **Complete as a review**, all 36 rows. 19 of them are `inapplicable`, because halftoning and transfer functions describe a marking device and `/TR` is deprecated in PDF 2.0 besides; 1 is `reported`, §10.8.3's separation simulation, which a *document* cannot ask for. **§10.4.2.5 defines the `DeviceCMYK` → RGB conversion this project spent thirty-two sessions saying the standard does not** — and §10.4.2.1 ranks it below §10.3's ICC route, which is the one this tree is on (ADR 0042). Colour management and rendering intents are done. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
-| 11 Transparency | 58 | **Partial**, 48 rows reviewed — everything from §11.4 onwards, leaving only §11.1–§11.3.5 and §11.3.8, which are the model rather than its PDF representation. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
+| 11 Transparency | 58 | **Complete as a review**, all 58 rows. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names — and **three of Table 136's four non-separable ones are wrong on the CPU backend**, which the thirty-seventh session found by writing the cross-backend scene clause 11 had never had (ADR 0046). `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
 | 12 Interactive features | 166 | **Appearances, constructed ones, and a field's own text**: 51 rows reviewed — the whole of §12.5, and the whole of §12.7.4 and §12.7.5 with §12.7 to §12.7.3 above them. An annotation is placed and drawn from `/AP` (§12.5.5) with §12.5.3's flags and §8.11.3.3's `/OC` honoured; one with no `/AP` is constructed from its subtype's clause or refused with the reason named (ADR 0030); and a field's value, caption or free text is laid out from its `/DA` by §12.7.4.3 (ADR 0032). What does not exist is *behaviour*: no actions (§12.7.6), no FDF (§12.7.8), no navigation, no signature validation (§12.8). |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. Its rows carry that exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
 | 14 Document interchange | 152 | **Output intents, and marked content as a bracket.** No tagged PDF, no metadata, no marked-content *semantics* — but §14.6.1's nesting rule is now read twice over: `BDC`/`EMC` maintain the optional-content stack, and §12.7.4.3's splice has to find the `EMC` matching a `/Tx BMC`, which is the same sentence as an algorithm. §14.3.2 is read only as far as Table 21's `/EncryptMetadata` needs. |
@@ -846,7 +864,7 @@ parts that make a document *interactive* are not started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name — 88 contradicted pages, 50 of them unexplained, and a
 feature list sized by how many documents want each item. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **344 of 823 subclauses are `unreviewed`**. A project running only the
+§6.3.2.2's ranking name: **334 of 823 subclauses are `unreviewed`**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -938,6 +956,13 @@ to it.**
   out what the clause asks *of this device*.
 
 Five small items, listed before the big lists because they are small:
+
+- **Fix `Hue`, `Color` and `Luminosity` on the CPU backend.** §11.3.5.3's three modes are a
+  `tiny-skia` intermediate overflowing sixteen bits — a debug build says so in as many words —
+  and the fix is to composite Table 136's four non-separable modes in `render-cpu` rather than
+  handing them to the library, which means a paint path that reads the destination. Held by
+  `cpu_and_gpu_agree_on_every_blend_mode` as a list rather than a tolerance, so fixing one
+  fails the test until the list is edited. ADR 0046, and it wants its own benchmark.
 
 - **Bound a group's buffer to the band its clip admits.** The CPU backend gives every transparency
   group a page-sized pixmap, because a group's elements resolve their clips against the *target*.

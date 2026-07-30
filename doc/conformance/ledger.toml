@@ -2642,37 +2642,56 @@ note = "Separation simulation — rendering a page as a press would, by making s
 [[clause]]
 clause = "11.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/render-cpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency.rs::an_object_drawn_without_a_constant_is_opaque"]
+note = "Introductory. Its one statement with a consequence here is that the transparent imaging model is an *extension* of the opaque one, so a page that uses none of clause 11 draws exactly as it did before — which is why alpha, blend mode and soft mask are graphics-state parameters with opaque defaults rather than a second pipeline."
 
 [[clause]]
 clause = "11.2"
 title = "Overview of transparency"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/lib.rs", "crates/render-cpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_group_is_composited_once_rather_than_object_by_object"]
+note = "The model's vocabulary — object, group, backdrop, shape, opacity, transparency stack — and this tree's display list is that stack: a flat sequence with `Command::Group` as the one nested command (ADR 0026). Alpha is one channel per pixel rather than shape and opacity separately, which §11.2.2 permits and ADR 0027 argues from `/AIS`: with one number, shape and opacity multiply to the same number."
 
 [[clause]]
 clause = "11.3"
 title = "Basic compositing computations"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows"]
+note = "The compositing arithmetic itself, which both rasterisers perform. See the subclauses; the load-bearing rows are §11.3.4's blending colour space and §11.3.5's sixteen modes."
 
 [[clause]]
 clause = "11.3.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/render-cpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency.rs::an_object_drawn_without_a_constant_is_opaque"]
+note = "Introductory to the formulas. Its framing — that compositing is defined for one object against one backdrop and then applied recursively — is why `Command::Group` needs no more than a nested command list."
 
 [[clause]]
 clause = "11.3.2"
 title = "Basic notation for compositing computations"
-status = "unreviewed"
+status = "inapplicable"
+note = "Notation: the names the clause's formulas use for the backdrop, source and result colours and alphas. Nothing to implement; the formulas that use it are §11.3.3 and §11.3.5."
 
 [[clause]]
 clause = "11.3.3"
 title = "Basic compositing formula"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency.rs::an_object_drawn_without_a_constant_is_opaque", "crates/render-cpu/tests/soft_mask.rs::a_constant_mask_interpolates_between_the_object_and_the_backdrop"]
+note = "The union of the backdrop and source alphas, and the weighted blend between the backdrop colour and the blend function's result. Performed by `tiny-skia` and by Vello rather than here, and held to the clause by the closed-form check in `render-cpu/tests/soft_mask.rs` — trap 12's lesson, that the way to judge a composite is to write the clause's arithmetic down rather than to compare with a renderer."
 
 [[clause]]
 clause = "11.3.4"
 title = "Blending colour space"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_group_resets_the_alpha_constants_and_the_blend_mode_for_its_elements"]
+note = "The blending colour space is the device's three components, always. §11.6.6's `/CS` may name another and four corpus documents name `/DeviceCMYK`; those are reported rather than blended in the wrong space, because a second raster format is what honouring them means (ADR 0026). The clause's own requirement that the space be \"a device or CIE-based colour space\" and not a special one is therefore satisfied by construction."
 
 [[clause]]
 clause = "11.3.5"
@@ -2685,7 +2704,10 @@ note = "All sixteen blend modes reach both backends, and §11.6.3's rule for cho
 [[clause]]
 clause = "11.3.5.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/lib.rs"]
+test = ["crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows"]
+note = "The two families and the rule for naming one. §11.6.3's array form is implemented — the first name this reader knows wins — and a name it does not know is `Normal`, which is what the clause requires of an unrecognised name."
 
 [[clause]]
 clause = "11.3.5.2"
@@ -2698,7 +2720,10 @@ note = "Table 134's twelve separable modes, each a function `B(cb, cs)` applied 
 [[clause]]
 clause = "11.3.5.3"
 title = "Non-separable blend modes"
-status = "unreviewed"
+status = "partial"
+code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/lib.rs"]
+test = ["crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode"]
+note = "Table 136's four non-separable modes — Hue, Saturation, Color, Luminosity — with the clause's `Lum`, `ClipColor`, `SetLum` and `SetSat` functions. **Three of the four are wrong on the CPU backend**, which the thirty-seventh session found by writing the cross-backend scene this clause had never had: twelve separable modes and `Saturation` agree between the backends to the channel, and `Hue`, `Color` and `Luminosity` differ by 113 of 255. The clause settles which is right rather than leaving a tie — red over blue in `Hue` is `SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))`, which after `ClipColor` is 0.367, and Vello produces that where `tiny-skia` produces 0.81, the value before the clip. `partial` because the modes reach both backends and three of them are not the clause's on one; the list is a ratchet in `render-gpu/tests/headless_gpu.rs`."
 
 [[clause]]
 clause = "11.3.6"
@@ -2743,7 +2768,10 @@ note = "The union formulas for the shape and opacity a compositing step leaves b
 [[clause]]
 clause = "11.3.8"
 title = "Summary of basic compositing computations"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/render-cpu/src/lib.rs"]
+test = ["crates/render-cpu/tests/soft_mask.rs::a_constant_mask_interpolates_between_the_object_and_the_backdrop"]
+note = "A summary of §11.3.3 through §11.3.7, restating them with the group cases folded in. Nothing new is required of a reader; the rows above are where each of its lines is answered."
 
 [[clause]]
 clause = "11.4"
