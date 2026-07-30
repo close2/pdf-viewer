@@ -318,67 +318,106 @@ note = "A pass-through here, and that is the whole of it: the filter \"allows th
 [[clause]]
 clause = "7.5"
 title = "File structure"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::junk_before_the_header_shifts_every_offset_in_the_file"]
+note = "The four elements of §7.5.1 and the two ways the last two of them may be written. `xref.rs` is all of it, and it is the crate's most defensive file for the clause's own reason: this is the structure real files corrupt. Linearized PDF (Annexes F and G) is read as what the clause makes it — an *access strategy*, not a different file — and this reader takes the clause's own advice, \"all PDF files should be read using the trailer and cross-reference table\"."
 
 [[clause]]
 clause = "7.5.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Header, body, cross-reference table, trailer — and the sentence that decides how they are read: \"Reading a non-linearized file in a serial manner is not reliable because of the way objects are to be processed after an incremental update.\" So the reader starts at the end and follows `startxref`; scanning for `N G obj` headers exists only for files whose table is unusable, and `XrefTable::recovered_by_scan` records when that happened rather than hiding it."
 
 [[clause]]
 clause = "7.5.2"
 title = "File header"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::junk_before_the_header_shifts_every_offset_in_the_file"]
+note = "\"The PDF file begins with the 5 characters '%PDF -' and byte offsets shall be calculated from the PERCENT SIGN (25h).\" The second half of that sentence was **not implemented before the thirty-ninth session**, and it is not a tolerance: a file with bytes before its header — NOTE 1 permits any number of them — has a *correct* table whose every offset is short by the junk's length, and this reader fell through to scanning the whole file for object headers instead. `read_from_startxref` now adds the header's position to `startxref`, to `/Prev`, to `/XRefStm` and to every entry, which is zero for a file whose header is at zero. One corpus document has junk before its header (`issue6069.pdf`, which says so in its own page text). The version *number* is deliberately not enforced: the clause lists nine acceptable headers and Annex I's compatibility rules mean a reader that refused a tenth would refuse files it can draw."
 
 [[clause]]
 clause = "7.5.3"
 title = "File body"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "\"The body of a PDF file shall consist of a sequence of indirect objects\", and since PDF 1.5 also of object streams (§7.5.7). Nothing here is a rule a reader applies: the body is reached through the cross-reference table, never sequentially, and `scan_for_objects` is the exception that proves it — it reads the body serially only when the table is gone."
 
 [[clause]]
 clause = "7.5.4"
 title = "Cross-reference table"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::a_subsection_counting_more_entries_than_it_has_still_finds_the_trailer"]
+note = "Classic tables: the `xref` keyword, one or more subsections each introduced by a first object number and a count, and 20-byte `n` and `f` entries. Two of the clause's rules are deliberately not enforced, both because enforcing them loses documents rather than protecting anything. The 20-byte fixed width is read as *tokens* rather than as a fixed stride, because producers write 19- and 21-byte entries and the token reading accepts all three; and a subsection whose count exceeds the entries written stops at the `trailer` keyword rather than reading past it, which `outline_goto_action.pdf` needs. The free list is read only for its `f` marker: an object marked free names no object, and the linked list through the next free object's number is a *writer's* structure — nothing a reader resolves consults it."
 
 [[clause]]
 clause = "7.5.5"
 title = "File trailer"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/xref.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::a_subsection_counting_more_entries_than_it_has_still_finds_the_trailer"]
+note = "`startxref`, `%%EOF` and the trailer dictionary, read from the end as \"PDF processors should read a PDF file from its end\" asks. Table 15: `/Root` is required and its absence is fatal (`SyntaxError::TrailerMissing`), `/Prev` chains the sections, `/Encrypt` is §7.6's, `/ID` is read as §7.6.4.3.2 step (e) needs it and never encrypted, `/Info` is unread because §14.3.3 deprecates it. **`/Size` is a documented departure and it is measured.** The clause says \"[a]ny object in a cross-reference section whose number is greater than this value shall be ignored and defined to be missing by a PDF reader\"; enforcing that takes the corpus gate's \"no page one\" count from **11 to 77**, so 66 documents would lose their page tree to a `/Size` their producer understated. 68 of 974 documents write at least one entry beyond `/Size`. The rule protects nothing here — a number beyond `/Size` is looked up like any other and fails like any other if the offset is wrong — and it costs 66 documents, so it is not applied. `partial` for exactly that."
 
 [[clause]]
 clause = "7.5.6"
 title = "Incremental updates"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "\"[T]he most recent copy of each object shall be the one accessed from the PDF file\", which is one line in `XrefTable::add`: sections are read newest first and an entry never overwrites one already present. That is the whole of incremental update from a reader's side — the clause's other paragraphs are instructions to a writer about what to append. The `/Prev` chain is bounded twice, by a visited set against cycles and by `MAX_XREF_SECTIONS` against a chain long enough to be an attack."
 
 [[clause]]
 clause = "7.5.7"
 title = "Object streams"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/document.rs", "crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Object streams: Table 16's `/N` and `/First`, the header of object-number and offset pairs, and each object parsed at `/First` plus its offset — the clause's own instruction, \"[a] PDF processor shall rely on the First entry in the stream dictionary to locate the first object\", rather than on the pairs ending where the first object begins. NOTE 7's 2020 correction is why the objects are parsed by offset rather than by scanning for white space between them. **One sentence is satisfied by construction and is worth naming**: \"strings occurring anywhere in an object stream shall not be separately encrypted\" — `expand_object_stream` parses out of the already-decrypted stream data with a plain parser and never calls `decrypt_object`, so a second decryption is not something that was suppressed, it is something there is no path to. `/Extends` is unread and that is the clause: it groups streams into a collection for a *writer*, while a reader reaches a compressed object through the cross-reference entry, which names its stream directly. A generation number other than zero on a compressed object is a rule on the file; the reader does not check it, because the cross-reference entry is what it looks the object up by."
 
 [[clause]]
 clause = "7.5.8"
 title = "Cross-reference streams"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Cross-reference streams, which most modern files use for everything. Read by the same function that reads a classic table, chosen by whether the `startxref` offset begins with the `xref` keyword — which is the only thing that distinguishes them, since a cross-reference stream is an ordinary indirect object."
 
 [[clause]]
 clause = "7.5.8.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "\"Each cross-reference stream contains the information equivalent to the cross-reference table … and trailer … for one cross-reference section\" — so the stream's own dictionary *is* the trailer, and `Section` carries one field for both cases rather than two. The value after `startxref` is the stream object's offset rather than an `xref` keyword's, which is what `read_section` tries second."
 
 [[clause]]
 clause = "7.5.8.2"
 title = "Cross-reference stream dictionary"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Table 17: `/W`, `/Index` with its `[0 Size]` default, `/Size`, `/Prev`, and `/Type /XRef` unchecked because the offset already said what this object is. The clause's restriction that all of these \"shall be direct objects; indirect references shall not be permitted\" is what makes reading them with `Dictionary::get` rather than `Document::get_key` correct rather than lazy — the document is not open yet, so there is nothing to resolve an indirect value against, and the clause says there cannot be one. The same paragraph forbids a `/Crypt` filter here and requires the stream to be unencrypted, which is why the xref reader runs before `Document::authenticate`."
 
 [[clause]]
 clause = "7.5.8.3"
 title = "Cross-reference stream data"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Table 18's three entry types, big-endian fields of the widths `/W` gives, with a zero width meaning the field is absent and takes its default — including the clause's special case that a zero first field defaults the *type* to 1. Type 0 is a free entry and names no object, type 1 is an offset, type 2 is an object stream and an index. \"Any other value shall be interpreted as a reference to the null object\", which here is simply not recording an entry: a number with no entry is null by §7.3.10, so the two sentences meet."
 
 [[clause]]
 clause = "7.5.8.4"
 title = "Compatibility with applications that do not support compressed reference streams"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Table 19's `/XRefStm`, and the clause states the order rather than leaving it to be inferred: \"if an entry is not found in any given standard cross-reference section, the search shall proceed to a cross-reference stream specified by the XRefStm entry before looking in the previous cross-reference section\". `read_from_startxref` reads the hybrid stream immediately after its own section and before following `/Prev`, and `XrefTable::add` keeps the first writer — so the precedence is the clause's, produced by the order of two loops rather than by a comparison."
 
 [[clause]]
 clause = "7.6"

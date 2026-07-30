@@ -11,10 +11,13 @@
 //! three are definitional and the last two are defined *by* a tint transform function,
 //! which this crate evaluates.
 //!
-//! `DeviceCMYK` uses the naive conversion, which is what the specification describes for a
-//! device with no calibration. `ICCBased` falls back to the device space with the same
-//! component count when the profile cannot be parsed — the specification explicitly permits
-//! that, and the alternative is refusing the document.
+//! `DeviceCMYK` is the one space with no exact answer, and this comment used to say it "uses
+//! the naive conversion" while the code interpolated the sixteen corners of the ink cube —
+//! see `CMYK_CORNERS`, and ADRs 0009 and 0042 for why that is a *documented choice* between
+//! two things §10.4.2.1 ranks rather than an approximation of something defined. `ICCBased`
+//! falls back to the device space with the same component count when the profile cannot be
+//! parsed — the specification explicitly permits that, and the alternative is refusing the
+//! document.
 //!
 //! `Lab`, `CalGray` and `CalRGB` are converted properly, through CIE XYZ. They are the
 //! three spaces the specification defines *in CIE terms*, so there is an answer to derive

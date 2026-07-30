@@ -127,13 +127,13 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     // The header may be preceded by junk — files served through mail gateways acquire it —
     // so the specification's "first line" is relaxed to "somewhere near the start".
     let header_window = input.len().min(1024);
-    let has_header = input
+    let header_at = input
         .get(..header_window)
         .unwrap_or_default()
         .windows(5)
-        .any(|window| window == b"%PDF-");
+        .position(|window| window == b"%PDF-");
 
-    if let Some(table) = read_from_startxref(input, limits)
+    if let Some(table) = read_from_startxref(input, header_at.unwrap_or(0), limits)
         && !table.is_empty()
     {
         return Ok(table);
@@ -150,7 +150,7 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     table.recovered_by_scan = true;
 
     if table.is_empty() {
-        if !has_header {
+        if header_at.is_none() {
             return Err(SyntaxError::NoHeader {
                 searched: header_window,
             });
@@ -182,9 +182,23 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
 
 /// Follows `startxref` and the `/Prev` chain.
 ///
+/// `base` is where ISO 32000-2 §7.5.2 says every offset in the file is measured from:
+///
+/// > byte offsets shall be calculated from the PERCENT SIGN (25h)
+///
+/// > NOTE 1 This provision allows for arbitrary bytes preceding the %PDF- without impacting
+/// > the viability of the PDF file and its byte offsets.
+///
+/// So a file with junk in front of its header has a *correct* cross-reference table whose
+/// numbers are all short by the junk's length, and adding the header's position back is the
+/// whole of the rule. Without it such a file falls through to `scan_for_objects`, which
+/// recovers it — differently, and by reading the entire file rather than four numbers. One
+/// corpus document has junk before its header, and no valid file can be harmed by this,
+/// because a file whose header is at zero adds zero.
+///
 /// Returns `None` when the chain cannot be read at all, leaving the caller to scan.
-fn read_from_startxref(input: &[u8], limits: Limits) -> Option<XrefTable> {
-    let mut next = find_startxref(input)?;
+fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<XrefTable> {
+    let mut next = find_startxref(input)?.saturating_add(base);
     let mut table = XrefTable::default();
     let mut visited = std::collections::BTreeSet::new();
 
@@ -198,7 +212,7 @@ fn read_from_startxref(input: &[u8], limits: Limits) -> Option<XrefTable> {
             break;
         }
 
-        let Some(section) = read_section(input, next, limits) else {
+        let Some(section) = read_section(input, next, base, limits) else {
             break;
         };
         for (number, location) in section.entries {
@@ -214,7 +228,7 @@ fn read_from_startxref(input: &[u8], limits: Limits) -> Option<XrefTable> {
             .get("XRefStm")
             .and_then(Object::as_integer)
             .and_then(|value| usize::try_from(value).ok())
-            && let Some(extra) = read_section(input, hybrid, limits)
+            && let Some(extra) = read_section(input, hybrid.saturating_add(base), base, limits)
         {
             for (number, location) in extra.entries {
                 table.add(number, location);
@@ -227,7 +241,7 @@ fn read_from_startxref(input: &[u8], limits: Limits) -> Option<XrefTable> {
             .and_then(Object::as_integer)
             .and_then(|value| usize::try_from(value).ok())
         {
-            Some(previous) => next = previous,
+            Some(previous) => next = previous.saturating_add(base),
             None => break,
         }
     }
@@ -242,24 +256,24 @@ struct Section {
 }
 
 /// Reads either a classic `xref` table or a cross-reference stream at `offset`.
-fn read_section(input: &[u8], offset: usize, limits: Limits) -> Option<Section> {
+fn read_section(input: &[u8], offset: usize, base: usize, limits: Limits) -> Option<Section> {
     let mut parser = Parser::at(input, offset, limits);
     let probe = parser.position();
 
     // A classic table begins with the `xref` keyword.
     let mut lexer = crate::lexer::Lexer::at(input, probe);
     if lexer.next_token() == Some(crate::Token::Keyword(b"xref".to_vec())) {
-        return read_classic_table(input, lexer.position(), limits);
+        return read_classic_table(input, lexer.position(), base, limits);
     }
 
     // Otherwise expect `N G obj` introducing a cross-reference stream.
     let (_, object) = parser.parse_indirect_object().ok()?;
     let stream = object.as_stream()?.clone();
-    read_xref_stream(&stream, limits)
+    read_xref_stream(&stream, base, limits)
 }
 
 /// Reads a classic `xref` table, positioned just after the keyword.
-fn read_classic_table(input: &[u8], offset: usize, limits: Limits) -> Option<Section> {
+fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) -> Option<Section> {
     let mut lexer = crate::lexer::Lexer::at(input, offset);
     let mut entries = Vec::new();
 
@@ -303,7 +317,7 @@ fn read_classic_table(input: &[u8], offset: usize, limits: Limits) -> Option<Sec
                             usize::try_from(position),
                         )
                     {
-                        entries.push((number, Location::Offset(position)));
+                        entries.push((number, Location::Offset(position.saturating_add(base))));
                     }
                 }
             }
@@ -344,7 +358,11 @@ fn finish(entries: Vec<(u32, Location)>, input: &[u8], offset: usize, limits: Li
 ///
 /// These streams are almost always `FlateDecode` with `/Predictor 12`, so this path is the
 /// normal one for any PDF written since 1.5 — not an edge case.
-fn read_xref_stream(stream: &crate::object::Stream, limits: Limits) -> Option<Section> {
+fn read_xref_stream(
+    stream: &crate::object::Stream,
+    base: usize,
+    limits: Limits,
+) -> Option<Section> {
     let data = decode_direct(stream, limits)?;
 
     let widths: Vec<usize> = stream
@@ -434,7 +452,7 @@ fn read_xref_stream(stream: &crate::object::Stream, limits: Limits) -> Option<Se
                 // Type 1: an object at a byte offset.
                 1 => {
                     if let Ok(position) = usize::try_from(fields[1]) {
-                        entries.push((number, Location::Offset(position)));
+                        entries.push((number, Location::Offset(position.saturating_add(base))));
                     }
                 }
                 // Type 2: an object inside an object stream.

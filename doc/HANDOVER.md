@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **thirty-ninth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **fortieth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,78 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the thirty-ninth session changed
+## What the fortieth session changed
+
+**Four of the fifty unexplained contradicted pages were not defects, and the way that was
+settled is worth more than the pages.** Comparing every render against every other before
+opening any of them showed two clusters: `ours` and `poppler` within 0.6 of a level,
+`mupdf`, `ghostscript` and `hayro` within 0.6 of each other, and the groups 3.6 to 10 levels
+apart. Two clusters of two is not one page's problem.
+
+All three documents reach `DeviceCMYK`, and `postscript_type4_many_outputs.pdf` is a
+controlled experiment somebody else wrote: one axial shading over a 200-pixel page whose
+colour is exactly `(t, 0, 0, 0)` for `t` linear across it. Every renderer agrees at both ends
+and differs only in between — the signature of an *interpolation*, not of a formula.
+
+**Trap 9 has a third shape, and this tree's own instrument proved it: they share data.**
+`/usr/share/ghostscript/iccprofiles/default_cmyk.icc`, evaluated by `pdf_model::icc` — the A2B
+evaluator written for `ICCBased` streams, pointed at another program's file — reproduces both
+`mupdf`'s and `ghostscript`'s renders to within five levels across the whole ramp. The two
+references that outvoted us are **one CMYK profile run twice**, so their agreement is not
+evidence about the clause, and its tightness is also what shrank the relative bound until ours
+fell outside it (trap 12).
+
+The pages are listed, not fixed: §8.6.4.4 states no destination for `DeviceCMYK`, §10.3.2
+licenses a processor to supply a profile, and adopting somebody else's press because it moves
+four pages is curve-fitting with a licence attached. ADR 0048.
+
+**On the specification track, §7.5 read as a family — thirteen rows, and clause 7 is now
+complete.**
+
+- **§7.5.2's second half was not implemented.** "[B]yte offsets shall be calculated from the
+  PERCENT SIGN (25h)", and NOTE 1 permits arbitrary bytes before the header — so a file with
+  junk in front of `%PDF-` has a *correct* table whose every offset is short by the junk's
+  length, and this reader scanned the whole file for object headers instead. The rule is now
+  four `saturating_add`s. One corpus document has junk before its header and says so in its
+  own page text.
+- **Table 15's `/Size` rule is a departure and now it has a number.** "Any object … whose
+  number is greater than this value shall be ignored and defined to be missing by a PDF
+  reader": enforced temporarily, the corpus gate's *no page one* count goes from **11 to 77**.
+  68 documents write an entry beyond `/Size`. The rule protects nothing here and costs 66
+  documents.
+- Three rows record a requirement satisfied *by construction*, which is worth as much as one
+  implemented: §7.5.7's rule that a string inside an object stream is not separately encrypted
+  is true because there is no path to a second decryption; §7.5.6's "most recent copy of each
+  object" is one line in `XrefTable::add`; §7.5.8.4's hybrid `/XRefStm` precedence is the order
+  of two loops.
+
+| | was | is |
+|---|---|---|
+| **contradicted pages with no explanation** | 50 | **46** |
+| a file with junk before its header | every offset wrong, recovered by scanning | read from its own table (§7.5.2) |
+| Table 15's `/Size` | unread, unmentioned | a departure with 11 → 77 measured against it |
+| **clauses with no `unreviewed` row** | 8, 10, 11, 13 | **7, 8, 10, 11, 13** |
+
+**The numbers:**
+
+| | before | now |
+|---|---|---|
+| corpus documents drawing with nothing reported | 859 | **859** |
+| pages agreeing with the reference consensus | 811 | **811** |
+| **ledger subclauses nobody has read** | 299 | **286** |
+| `§` citations the checker verified | 1399 | **1410** |
+| tests | 600 | **601** |
+
+What it taught:
+
+- **Compare the references with each other before opening a page.** Four of the fifty sorted
+  themselves into a group from a table of pairwise means, with no artefact opened and no clause
+  read. The oracle already renders all five; nothing was computing the other ten distances.
+- **Point your own instrument at their data.** "Do mupdf and ghostscript agree because they
+  share a profile" reads like a question about two other projects and is a question about one
+  file on this machine.
+
+### The thirty-ninth session, in brief
 
 **The correctness oracle was wrong about three blend modes, and now it is not.** ADR 0046 found
 `Hue`, `Color` and `Luminosity` 113 of 255 from Vello with §11.3.5.3's closed form saying the CPU
@@ -135,6 +206,7 @@ below rather than here.
 | 37 | The blend-mode scene nobody had written; clause 11 completed as a review | ADR 0046 |
 | 38 | Clause 8 completed as a review — the graphics clause, 20 rows | ADR 0046 |
 | 39 | §11.3.5.3's four modes taken back from `tiny-skia`; §7.2 and §7.3 reviewed | ADR 0047 |
+| 40 | Four unexplained pages are one shared ICC profile; §7.5 reviewed, and clause 7 is complete | ADR 0048 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -155,7 +227,7 @@ revision and method §7.6 states, and **a form field's value laid out from its `
 is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
 person for a password — and the gap is measured below rather than guessed at.
 
-- **600 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **601 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -553,8 +625,8 @@ nothing.
 ### 9. Two references can agree because they share code — or because they share a *gap*
 
 The oracle's authority rests on a premise from ADR 0005: two implementations sharing no code
-agreeing about a page is evidence. There are three ways for that to fail, and the second is the
-common one.
+agreeing about a page is evidence. There are four ways for that to fail, and the second and
+third are the common ones.
 
 **A shared gap.** An unimplemented feature almost always falls through to a *default*, so two
 unrelated programs that skipped the same clause produce the same picture and the gate reads it as
@@ -563,6 +635,14 @@ Calculate visibility from array */ return 0;` and `ghostscript`'s `pdf_optconten
 `WARNING: OCMD contains VE, which is not supported (ignoring)`, while `poppler` and pdf.js
 implement `/VE` and §8.11.2.2 is unambiguous. So the page stays contradicted, listed with the
 source citations beside it.
+
+**Shared data.** `mupdf` and `ghostscript` disagree with us about four pages whose colour
+reaches `DeviceCMYK`, and agree with each other to under a level — because they are running the
+same CMYK ICC profile. What settled it was *this tree's own* A2B evaluator, pointed at
+`/usr/share/ghostscript/iccprofiles/default_cmyk.icc`: it reproduces both of their ramps to
+within five levels while ours interpolates the sixteen corners. The general move is worth more
+than the finding — **when two references agree suspiciously closely, ask what data they are
+both reading, and evaluate it yourself.** ADR 0048.
 
 **Shared code.** `mupdf` and `ghostscript` both link `jbig2dec`, and on seven corpus pages it
 decodes nothing, renders noise, or prints `segment marks bitmap coding context as retained (NYI)`.
@@ -731,13 +811,13 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **299
-of 823 subclauses are `unreviewed`**, and 524 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **286
+of 823 subclauses are `unreviewed`**, and 537 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
-project has measured 64% of its clause coverage — up from 37% nine sessions ago, and the four
-clauses that decide whether a page is drawn correctly (8, 10, 11 and 13's exclusions) have no
-`unreviewed` row left at all. What remains is concentrated in clause 12's interactive half and
-clause 14, which are the parts this tree has not built.
+project has measured 65% of its clause coverage — up from 37% ten sessions ago, and **five clauses
+now have no `unreviewed` row at all**: 7, 8, 10, 11 and 13's exclusions — everything that decides
+whether a page is drawn correctly, plus the syntax it is read from. What remains is concentrated in
+clause 12's interactive half and clause 14, which are the parts this tree has not built.
 
 **The ledger has been wrong twice**, which is worth knowing before trusting a row: §8.9.5.3's note
 said reduction was something the standard does not address, and §10.7.4 addresses it in the
@@ -804,7 +884,8 @@ are not reading the clause differently** — 7 sharing a JBIG2 decoder, 1 sharin
 link borders where one reference has no such feature and the other is rendering for paper (trap 9
 has all three shapes) — 8 are a one-pixel page-rounding difference, 1 an image half a device pixel
 tall, 1 a `CalRGB` alternate two references do not convert, 1 a level of mask quantisation on a
-flat page (trap 12), 1 a symbolic font whose (3, 0) subtable reaches an empty glyph, and **50 have
+flat page (trap 12), 1 a symbolic font whose (3, 0) subtable reaches an empty glyph, **4 a `DeviceCMYK`
+conversion where the two agreeing references share one ICC profile** (ADR 0048), and **46 have
 nothing on them to explain it**.
 That last group is the most valuable list in the repository, and 21 of them are pages beyond the
 first, which a page-one comparison would never have seen. **One page left the `substituted fonts`
@@ -848,7 +929,7 @@ where the two disagree the ledger is the one that had to name a code site.
 
 | Clause | Subclauses | State |
 |---|---|---|
-| 7 Syntax | 138 | **Nearly complete**, 89 rows reviewed — §7.2 and §7.3 as families from the thirty-ninth session, which found §7.3.8.1's external stream being decoded where the clause says its bytes "shall be ignored", and §7.3.7's null-valued entry surviving `Dictionary::get` — the whole of §7.4, §7.6, §7.7 and §7.8 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler, a password prompt, and clause 7's remaining 42 unread rows, all of them §7.5's file structure. §7.8's content streams and resource dictionaries are read in full, including Table 33's `BX`/`EX` compatibility section, in which an unrecognised operator is ignored without error (ADR 0041). §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
+| 7 Syntax | 138 | **Complete as a review**, all 138 rows — §7.2 and §7.3 as families from the thirty-ninth session, which found §7.3.8.1's external stream being decoded where the clause says its bytes "shall be ignored", and §7.3.7's null-valued entry surviving `Dictionary::get` — the whole of §7.4, §7.6, §7.7 and §7.8 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left as *work* is a public-key handler and a password prompt. §7.5 went in the fortieth session and found two things: §7.5.2's rule that byte offsets are measured from the `%PDF-`, which was not implemented, and Table 15's `/Size`, whose enforcement is a departure costing 66 documents their page tree (measured, ADR 0048). §7.8's content streams and resource dictionaries are read in full, including Table 33's `BX`/`EX` compatibility section, in which an unrecognised operator is ignored without error (ADR 0041). §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
 | 8 Graphics | 128 | **Complete as a review**, all 128 rows, and the clause with the most ledger coverage. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). **All five of Table 87's bit depths** are unpacked, and §8.9.7's abbreviated keys beat their full names when a file writes both (ADR 0041). |
 | 9 Text | 65 | **Partial**, 61 rows reviewed — §9.2, §9.3, §9.4, §9.6, §9.8, §9.9 and the whole of §9.7 as families. Simple and composite fonts through **every font program Table 124 defines** — TrueType, CFF, OpenType and, from the thirty-first session, the bare Type 1 of `/FontFile`; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. An embedded program's own built-in encoding is the base encoding Table 112 says it is, and `/MissingWidth` defaults to Table 120's 0 (ADR 0039). Both writing modes, from §9.2.4's two sets of metrics (ADR 0045). Missing: Table 116's predefined `CMap`s, text knockout (§9.3.8, reported), and §9.8.3's `/Style` and `/FD`, which are the ledger's two new `silent` rows and reach nothing but a substitute's choice. |
 | 10 Rendering | 36 | **Complete as a review**, all 36 rows. 19 of them are `inapplicable`, because halftoning and transfer functions describe a marking device and `/TR` is deprecated in PDF 2.0 besides; 1 is `reported`, §10.8.3's separation simulation, which a *document* cannot ask for. **§10.4.2.5 defines the `DeviceCMYK` → RGB conversion this project spent thirty-two sessions saying the standard does not** — and §10.4.2.1 ranks it below §10.3's ICC route, which is the one this tree is on (ADR 0042). Colour management and rendering intents are done. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
@@ -893,7 +974,7 @@ parts that make a document *interactive* are not started.
 ## What to do next
 
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
-everything the corpus and the oracle name — 88 contradicted pages, 50 of them unexplained, and a
+everything the corpus and the oracle name — 88 contradicted pages, 46 of them unexplained, and a
 feature list sized by how many documents want each item. **The list is nearly empty of clause
 work**: nine sessions took `/FontFile`, all five bit depths, text markup appearances, `/AS`
 usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is left that any
@@ -935,7 +1016,7 @@ is not obviously wrong. The thirteenth session found the citation checker blind 
 and one wrong. The tree was also not `clippy` clean while this file said it was. **Whatever this
 file asserts about the tooling, run it once before believing it.**
 
-The one-line version of the demand track: **88 pages we claim to draw are contradicted, 50 of
+The one-line version of the demand track: **88 pages we claim to draw are contradicted, 46 of
 them for no reason visible on the page**, and the largest thing left that any corpus document
 names is §9.7.5.2's predefined `CMap`s at 12 — a licensing decision rather than code — followed
 by a password prompt at 8, which is `viewer-ui` work. **§12.5.6.10's text markup left this list
@@ -945,8 +1026,7 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **A shading's `/BBox`, `/UserUnit` and `/MissingWidth` are the three rendering
 items that came back onto it and off it again** in the twenty-eighth, twenty-ninth and
 thirtieth sessions, and none was announced by a document: all three were found by reading a
-clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty** for the first time, and
-**348 of 823 subclauses have never been read at all**.
+clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **286 of 823 subclauses have never been read at all**.
 
 **The corpus has gone quiet, and the nine sessions from the thirtieth to the thirty-eighth are
 what that looks like when the two-track rule is followed.** Everything that moved a gate number
@@ -972,10 +1052,10 @@ program fell through to substitution, and substitution says nothing.
   findings the demand item could not have reached — most recently §10.4.2.5.
 - **Prefer the family belonging to whatever else the session is doing.** **Clauses 8, 10, 11 and
   13 have no `unreviewed` row left at all**, and clause 9 has six. What is left is concentrated
-  where this tree has not built anything: **clause 7's 42 rows**, now all of them §7.5's file
-  structure — §7.2 and §7.3 went in the thirty-ninth session, were expected to be cheap, and
-  found two rules that no corpus document can reach — **clause 12's 115**, which is the
-  interactive half, and **clause 14's 148**, which is tagged PDF and metadata. Inside clause 12
+  where this tree has not built anything: **clause 12's 115 rows**, which is the interactive
+  half, and **clause 14's 148**, which is tagged PDF and metadata. Clause 7 finished in the
+  fortieth session; each of its three family reviews was expected to be cheap and each found a
+  rule no corpus document can reach. Inside clause 12
   the families are **§12.7.6 with §12.7.8** whenever anything about a form's *behaviour* is —
   those two and §12.8 are what is left outside §12.6's actions. Record every row, including the `inapplicable` ones —
   a clause read and dismissed is worth as much as one implemented, and costs a minute.
@@ -1029,7 +1109,7 @@ Five small items, listed before the big lists because they are small:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 50 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 46 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. **Read trap 9 before starting**, because an entry may be any of its three shapes, and
 checking costs a web search of the other project's source.
@@ -1211,7 +1291,7 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 | of the 1656 pages we call complete | count | |
 |---|---|---|
 | agree with the reference consensus | 811 | |
-| **contradicted** | **88** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 15 substituted fonts, **50 unexplained** |
+| **contradicted** | **88** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 4 a `DeviceCMYK` conversion (ADR 0048), 15 substituted fonts, **46 unexplained** |
 | ambiguous | 747 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
@@ -1247,6 +1327,19 @@ rather than failing — but the ratchets only mean anything where it is present,
 ## Habits these sessions earned
 
 Each of these was paid for once. The traps above are about code; these are about how to work.
+
+**Compare the references with each other before opening a page.** Four of the fifty unexplained
+contradicted pages sorted themselves into one group from a table of pairwise means — no artefact
+opened, no clause read: `ours` and `poppler` within 0.6 of a level, `mupdf`, `ghostscript` and
+`hayro` within 0.6 of each other, the groups ten apart. The oracle already renders all five and
+nothing was computing the other ten distances. **Two clusters of two is a fact about the
+question, not about the page.**
+
+**Point your own instrument at their data.** "Do `mupdf` and `ghostscript` agree because they
+share a colour profile" reads like a question about two other projects and is a question about
+one file on this machine — and `pdf_model::icc`, written for `ICCBased` streams, answers it in
+one run. Before reading somebody's source to explain their output, ask whether you can *evaluate*
+what they are reading.
 
 **A panic in a dependency is a symptom, not a diagnosis — especially where its arithmetic is
 modular.** ADR 0046 called `tiny-skia`'s debug-build "attempt to multiply with overflow" the

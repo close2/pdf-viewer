@@ -208,3 +208,55 @@ fn a_subsection_counting_more_entries_than_it_has_still_finds_the_trailer() {
         "and the page tree must be reachable through it"
     );
 }
+
+/// ISO 32000-2 §7.5.2: every byte offset in a file is measured from its `%PDF-`.
+///
+/// > This provision allows for arbitrary bytes preceding the %PDF- without impacting the
+/// > viability of the PDF file and its byte offsets.
+///
+/// So the file below is *valid*, not corrupt: its cross-reference table is exactly right and
+/// its numbers are all short by the length of what precedes the header. The test is written
+/// as a comparison rather than as an assertion about one file, because the property that
+/// matters is that the junk changes nothing — and because a reader that ignores the rule
+/// still opens this file by scanning for `N G obj` headers, which reads the whole file to
+/// reach the same catalog and would make a plain "it opens" assertion pass either way.
+/// `XrefTable::recovered_by_scan` is what separates the two, and it is what this asserts.
+#[test]
+fn junk_before_the_header_shifts_every_offset_in_the_file() {
+    let build = |junk: &str| {
+        let objects = [
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
+        ];
+        // Offsets are measured from the header, which is what the clause requires and what
+        // a writer producing this file would have done.
+        let mut body = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for object in objects {
+            offsets.push(body.len());
+            body.push_str(object);
+        }
+        let xref_at = body.len();
+        body.push_str("xref\n0 4\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(body, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            body,
+            "trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        format!("{junk}{body}").into_bytes()
+    };
+
+    for junk in ["", "Some junk before the header\n\n"] {
+        let document = Document::open(build(junk)).expect("a valid file, junk or not");
+        assert!(
+            !document.was_recovered(),
+            "with {} bytes of junk the table should still be read, not rebuilt",
+            junk.len()
+        );
+        let catalog = document.catalog().expect("/Root");
+        assert!(document.get_key(&catalog, "Pages").as_dict().is_some());
+    }
+}

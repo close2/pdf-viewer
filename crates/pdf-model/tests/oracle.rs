@@ -186,6 +186,64 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 8] = [
 /// space never reaches a device colourant, so it always reverts.
 const CONTRADICTED_CALIBRATED_COLOUR: [&str; 1] = ["issue9940.pdf page 1"];
 
+/// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.
+///
+/// 4 pages in 3 documents, and the group with the most evidence behind it of any here —
+/// none of which is anybody's rendering.
+///
+/// # What the pages are
+///
+/// All three reach `DeviceCMYK`: `type4psfunc.pdf` and `postscript_type4_many_outputs.pdf`
+/// through a `/DeviceN` whose alternate it is, `function_based_shading_cmyk.pdf` directly.
+/// `postscript_type4_many_outputs.pdf` is the one that settles the group, because it is a
+/// controlled experiment somebody else wrote: a 200-pixel page holding one axial shading
+/// whose function is `{ dup dup dup dup dup dup dup dup }` and whose tint transform is
+/// `{ pop pop pop pop pop pop pop pop 0 0 0 }`, so the colour is exactly `(t, 0, 0, 0)` for
+/// `t` running linearly from 0 at the left edge to 1 at the right. One CMYK axis, sampled
+/// two hundred times.
+///
+/// # What every renderer agrees about, and where they part
+///
+/// All five agree at both ends — white at `c` = 0, and (0, 174, 239) within a level at
+/// `c` = 1. They differ *only in the interior*, which is the signature of an interpolation
+/// rather than of a formula. Ours is exactly the multilinear interpolation of ADR 0009's
+/// sixteen corners: at `c` = 0.5 the red channel is 127, which is 255 × (1 − c), and green
+/// is 214, which is 255 − c × (255 − 173). `poppler` agrees with us to **one level over the
+/// whole page**; `mupdf`, `ghostscript` and `hayro` agree with each other to under one and
+/// sit 9 to 10 levels away from us on average and 80 at the worst pixel.
+///
+/// # Their agreement is one profile seen twice, and this tree's own evaluator proves it
+///
+/// Trap 9 says two references can agree because they share code or share a gap. This is a
+/// third way: **they share data.** `/usr/share/ghostscript/iccprofiles/default_cmyk.icc`,
+/// evaluated by `pdf_model::icc` — our own A2B evaluator, written for `ICCBased` streams and
+/// pointed at a file on this machine — produces 255/219/186/150/112/59/0/0/0 in red for the
+/// nine eighths of `c`. `mupdf` renders 255/220/186/150/110/54/0/0/0 and `ghostscript`
+/// 254/218/184/148/108/50/0/0/0. That is not two implementations agreeing; it is one CMYK
+/// profile, run twice, and the closeness of *their* agreement is also what tightens the
+/// relative bound until ours is outside it (trap 12).
+///
+/// # Why the pages stay listed rather than being fixed
+///
+/// Because principle 5 forbids the fix. ISO 32000-2 states no destination for `DeviceCMYK`:
+/// §8.6.4.4 says only "concentrations of process colourants", §10.4.2.1 ranks §10.3's ICC
+/// route above §10.4.2's "crude approximations", and §10.3.2 licenses a processor to supply
+/// a profile for a device space — which is what `default_cmyk.icc` is, somebody else's
+/// choice of press. Adopting it because it would move four pages into agreement is
+/// curve-fitting with a licence attached. ADRs 0009 and 0042 argue the sixteen corners, and
+/// the measurement that supports them is corpus-wide rather than four pages: §10.4.2.5's
+/// formula, tried, moved the gate from 802 agreeing to 800.
+///
+/// What would change this is a *document* asking for a profile — a `/DefaultCMYK`
+/// (§8.6.5.6) or an output intent's `/DestOutputProfile` (§14.11.5), both of which outrank
+/// the table and both of which are already honoured. None of these three files has one.
+const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 4] = [
+    "function_based_shading_cmyk.pdf page 1",
+    "function_based_shading_cmyk.pdf page 2",
+    "postscript_type4_many_outputs.pdf page 1",
+    "type4psfunc.pdf page 1",
+];
+
 /// Contradicted, where an image is thinner than a device pixel.
 ///
 /// 1 page. `issue4436r.pdf` is the whole test: a 1x1 image mask under
@@ -536,10 +594,16 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 50 pages carrying no undrawn annotation, no hidden optional content and no substituted
-/// font — so the difference is in something we believe we implement. One cause is identified
-/// and live; the rest are unexamined, and working through them is the highest-value use of
-/// this gate:
+/// 46 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// font — so the difference is in something we believe we implement. Two causes are
+/// identified; the rest are unexamined, and working through them is the highest-value use of
+/// this gate. **Four pages left in the thirty-ninth session and none of them was a defect**:
+/// `type4psfunc.pdf`, `postscript_type4_many_outputs.pdf` and both pages of
+/// `function_based_shading_cmyk.pdf` are `DeviceCMYK` conversion, and the way that was
+/// settled is worth as much as the pages —
+/// `CONTRADICTED_DEVICE_CMYK_CONVERSION` has it. The short version: the two references that
+/// agreed were running one ICC profile between them, and this tree's own evaluator, pointed
+/// at that profile on this machine, reproduced both of their renders.
 ///
 /// - `mesh_shading_empty.pdf` differs by the **subdivision lattice**, and the twenty-eighth
 ///   session measured it rather than repeating the guess this comment used to carry. It said
@@ -632,7 +696,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 50] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 46] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -646,8 +710,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 50] = [
     "freeculture.pdf page 339",
     "freeculture.pdf page 67",
     "freeculture.pdf page 76",
-    "function_based_shading_cmyk.pdf page 1",
-    "function_based_shading_cmyk.pdf page 2",
     "issue1002.pdf page 1",
     "issue10572.pdf page 1",
     "issue11549_reduced.pdf page 1",
@@ -679,10 +741,8 @@ const CONTRADICTED_UNEXPLAINED: [&str; 50] = [
     "mesh_shading_empty.pdf page 1",
     "openoffice.pdf page 1",
     "pattern_text_embedded_font.pdf page 1",
-    "postscript_type4_many_outputs.pdf page 1",
     "tiling-pattern-large-steps.pdf page 1",
     "transparent.pdf page 1",
-    "type4psfunc.pdf page 1",
 ];
 
 /// Documents where our page geometry differs from the references' by more than the one
@@ -1404,6 +1464,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_SHARED_JBIG2_DECODER)
         .chain(&CONTRADICTED_IMAGE_RESAMPLING)
         .chain(&CONTRADICTED_CALIBRATED_COLOUR)
+        .chain(&CONTRADICTED_DEVICE_CMYK_CONVERSION)
         .chain(&CONTRADICTED_SUBPIXEL_IMAGE)
         .chain(&CONTRADICTED_MASK_QUANTISATION)
         .chain(&CONTRADICTED_VISIBILITY_EXPRESSION)
