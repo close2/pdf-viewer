@@ -31,7 +31,7 @@ pub mod substitute;
 pub mod tounicode;
 
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -264,6 +264,12 @@ pub struct LoadedFont {
     /// Cached outlines: a page reuses the same few dozen glyphs constantly, and
     /// re-extracting each one would dominate the render.
     outlines: RefCell<BTreeMap<u16, Option<Arc<Path>>>>,
+    /// The inverse of the code-to-character mapping, built on first use by [`Self::code_for`].
+    ///
+    /// Lazy rather than built at load time because nothing on a page needs it: only a
+    /// constructed appearance (§12.7.4.3) writes a string this crate has to encode, and a
+    /// document may load hundreds of fonts without containing one form field.
+    codes_by_character: OnceCell<BTreeMap<char, u8>>,
 }
 
 impl std::fmt::Debug for LoadedFont {
@@ -406,6 +412,7 @@ impl LoadedFont {
             to_unicode: to_unicode(document, dict),
             glyph_names: names,
             outlines: RefCell::new(BTreeMap::new()),
+            codes_by_character: OnceCell::new(),
         })
     }
 
@@ -494,6 +501,7 @@ impl LoadedFont {
             default_width,
             units_per_em,
             outlines: RefCell::new(BTreeMap::new()),
+            codes_by_character: OnceCell::new(),
         })
     }
 
@@ -672,6 +680,67 @@ impl LoadedFont {
     #[must_use]
     pub fn glyph_index(&self, code: Code) -> Option<u16> {
         self.glyph_for(code)
+    }
+
+    /// Whether [`Self::code_for`] can answer for this font at all.
+    ///
+    /// A simple font's codes are one byte and the whole set can be walked; a composite font's
+    /// lengths come from its `CMap`'s codespace ranges (§9.7.6.2) and inverting that is a
+    /// different question. The distinction is public so a caller can report *which* of the two
+    /// refusals it hit — "this font lacks that character" and "this font cannot be addressed by
+    /// character" are not the same statement.
+    #[must_use]
+    pub const fn addresses_characters(&self) -> bool {
+        matches!(self.mapping, CodeMapping::Named(_))
+    }
+
+    /// The code that draws a character, for a font this crate can address that way.
+    ///
+    /// The inverse of [`Self::text`], and deliberately built *by running it*: every code the
+    /// font defines is asked what it means and what glyph it reaches, and a character is
+    /// answered with the first code that both means it and has a glyph. That construction is
+    /// what makes the answer trustworthy — a code this returns is a code that draws the
+    /// character asked for, because the two directions traverse the same tables.
+    ///
+    /// Needed by ISO 32000-2 §12.7.4.3, where a processor writes the content stream itself: a
+    /// field's value arrives as a §7.9.2.2 text string and has to leave as bytes in the
+    /// font's own encoding. Every other route through this crate starts from a code the
+    /// document already wrote.
+    ///
+    /// `None` for a composite font. A `CMap`'s codespace ranges decide how many bytes a code
+    /// occupies (§9.7.6.2), and inverting the code-to-CID mapping is a different question from
+    /// inverting a 256-entry table; a caller reports the refusal rather than guessing a length.
+    #[must_use]
+    pub fn code_for(&self, character: char) -> Option<Code> {
+        let CodeMapping::Named(_) = &self.mapping else {
+            return None;
+        };
+        self.codes_by_character
+            .get_or_init(|| {
+                let mut map = BTreeMap::new();
+                let mut meaning = String::new();
+                for byte in 0..=u8::MAX {
+                    let code = Code::single_byte(byte);
+                    if self.glyph_for(code).is_none() {
+                        continue;
+                    }
+                    meaning.clear();
+                    if !self.text(code, &mut meaning) {
+                        continue;
+                    }
+                    let mut characters = meaning.chars();
+                    // A code standing for more than one character — an `ffi` ligature's
+                    // `/ToUnicode` entry — cannot answer "which code draws this character",
+                    // because using it would draw the other characters too.
+                    if let (Some(single), None) = (characters.next(), characters.next()) {
+                        map.entry(single).or_insert(byte);
+                    }
+                }
+                map
+            })
+            .get(&character)
+            .copied()
+            .map(Code::single_byte)
     }
 
     /// The glyph a *character selector* reaches, skipping the code that selected it.
@@ -1953,6 +2022,64 @@ mod tests {
             }
         }
         found
+    }
+
+    /// A code `code_for` returns must mean the character it was asked for.
+    ///
+    /// The property that matters for §12.7.4.3, stated the only way it can be: the inverse
+    /// is not a bijection — two codes may draw the same character, and the first one wins —
+    /// so the round trip has to start and end at the *character*. Run over every simple font
+    /// on a first page of the specification corpus, so it is a statement about real encodings
+    /// rather than about one constructed table.
+    #[test]
+    fn a_code_for_a_character_means_that_character() {
+        let mut checked = 0usize;
+        for path in corpus() {
+            let bytes = std::fs::read(&path).expect("corpus file is readable");
+            let Ok(document) = Document::open(bytes) else {
+                continue;
+            };
+            for (name, dict) in first_page_fonts(&document) {
+                let Ok(font) = LoadedFont::load(&document, &dict, &name) else {
+                    continue;
+                };
+                if !matches!(font.mapping, CodeMapping::Named(_)) {
+                    assert!(
+                        font.code_for('A').is_none(),
+                        "{name} is composite and must refuse rather than guess a code length"
+                    );
+                    continue;
+                }
+                let mut meaning = String::new();
+                for byte in 0..=u8::MAX {
+                    meaning.clear();
+                    if !font.text(Code::single_byte(byte), &mut meaning) {
+                        continue;
+                    }
+                    let mut characters = meaning.chars();
+                    let (Some(character), None) = (characters.next(), characters.next()) else {
+                        continue;
+                    };
+                    let Some(code) = font.code_for(character) else {
+                        continue;
+                    };
+                    let mut back = String::new();
+                    assert!(
+                        font.text(code, &mut back),
+                        "{name}: code {code:?} means nothing"
+                    );
+                    assert_eq!(
+                        back, meaning,
+                        "{name}: code {code:?} does not draw {character:?}"
+                    );
+                    checked = checked.saturating_add(1);
+                }
+            }
+        }
+        assert!(
+            checked > 1000,
+            "only {checked} codes checked; the corpus is not present"
+        );
     }
 
     /// The corpus must actually exercise both routes, or the tests below prove nothing.

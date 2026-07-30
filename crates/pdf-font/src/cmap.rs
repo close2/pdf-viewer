@@ -71,9 +71,10 @@ impl Code {
     /// A simple font's code, which is one byte and always valid (§9.7.1: "each byte of a
     /// string to be shown selects one glyph").
     #[must_use]
-    pub fn single_byte(byte: u8) -> Self {
+    pub const fn single_byte(byte: u8) -> Self {
         Self {
-            value: u32::from(byte),
+            // `u32::from` is not a const function on this toolchain; the widening is exact.
+            value: byte as u32,
             length: 1,
             in_codespace: true,
         }
@@ -81,13 +82,13 @@ impl Code {
 
     /// The code's value.
     #[must_use]
-    pub fn value(self) -> u32 {
+    pub const fn value(self) -> u32 {
         self.value
     }
 
     /// How many bytes of the string the code occupied (§9.7.6.2), from 1 to 4.
     #[must_use]
-    pub fn length(self) -> u8 {
+    pub const fn length(self) -> u8 {
         self.length
     }
 
@@ -102,7 +103,7 @@ impl Code {
     /// here rather than answered per font: an embedded `CMap` may define codes of several
     /// lengths in one font, and four of the corpus's do.
     #[must_use]
-    pub fn takes_word_spacing(self) -> bool {
+    pub const fn takes_word_spacing(self) -> bool {
         self.length == 1 && self.value == 32
     }
 }

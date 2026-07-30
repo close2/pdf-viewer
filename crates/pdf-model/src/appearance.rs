@@ -38,9 +38,6 @@
 //!   of an underline, not where in the quadrilateral a strikeout crosses, not how a highlight
 //!   keeps the text under it visible. Table 182 does not even admit a `/BS` to take a width
 //!   from.
-//! - `FreeText` (§12.5.6.6), and a widget holding a value, need §12.7.4.3's variable text — a
-//!   font, a size and a quadding read out of a `/DA` string — which is form work this crate
-//!   does not do yet.
 //! - `Caret`, `Redact`, `Screen`, `Movie`, `PrinterMark`, `TrapNet` and `Watermark` state no
 //!   geometry of their own.
 //!
@@ -48,9 +45,20 @@
 //! the failure principle 5 exists to prevent — and the corpus says the guesses do differ: the
 //! three reference renderers draw three different pictures of
 //! `annotation-highlight-without-appearance.pdf`.
+//!
+//! # Text is a different kind of construction
+//!
+//! A `FreeText` (§12.5.6.6) and a field holding a value need §12.7.4.3's variable text, which
+//! is not a shape read off an entry but a layout: a font, a size and a colour parsed out of a
+//! `/DA` string, resolved against the interactive form dictionary's `/DR`, measured, wrapped
+//! and positioned. [`crate::variable_text`] is that, and this module is what decides *which*
+//! text each subtype and field type states — the two questions are separate and the clauses
+//! that answer them are in different subclauses.
 
 use pdf_syntax::{Dictionary, Document, Object};
 use std::fmt::Write as _;
+
+use crate::variable_text::{self, Owed, Quadding, Request, Shape};
 
 /// How many `/Parent` links a field's inheritable entry is followed through.
 ///
@@ -87,6 +95,13 @@ pub(crate) struct Constructed {
     pub content: Option<Vec<u8>>,
     /// What the clause asks for and this module cannot derive, for the report.
     pub report: Option<String>,
+    /// Table 224's `/DR`, which §12.7.4.3 makes the resource dictionary of an appearance a
+    /// processor constructs: "The resource dictionary (Resources) shall be created using
+    /// resources from the interactive form dictionary's DR entry."
+    ///
+    /// Empty for every construction that draws only paths, which is most of them — a
+    /// rectangle in a device colour names no resource.
+    pub resources: Dictionary,
 }
 
 /// A colour read from an appearance-characteristics array.
@@ -140,17 +155,20 @@ enum Refusal {
     Missing(&'static str),
     /// The clause names an appearance without stating what it looks like.
     NotDerivable(&'static str),
+    /// §12.7.4.3's variable text could not be laid out, or not entirely.
+    Text(Owed),
 }
 
 impl Refusal {
     /// The report's detail, which follows the subtype's name.
     fn detail(&self) -> String {
-        match *self {
+        match self {
             Self::ColourComponents(key, count) => {
                 format!("{key} has {count} components, which names no colour space")
             }
             Self::Missing(key) => format!("no appearance stream and no usable {key}"),
             Self::NotDerivable(why) => format!("no appearance stream, and {why}"),
+            Self::Text(owed) => owed.detail(),
         }
     }
 }
@@ -177,9 +195,7 @@ pub(crate) fn construct(
         b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => Err(Refusal::NotDerivable(
             "§12.5.6.10 states its /QuadPoints without stating what mark to make in them",
         )),
-        b"FreeText" => Err(Refusal::NotDerivable(
-            "its text needs §12.7.4.3's variable text",
-        )),
+        b"FreeText" => free_text(document, annotation, &mut stream),
         b"Text" | b"FileAttachment" | b"Sound" | b"Stamp" => Err(Refusal::NotDerivable(
             "its icon's artwork is the processor's own, and no clause states it",
         )),
@@ -196,7 +212,252 @@ pub(crate) fn construct(
     Constructed {
         content: painted.drawn.then(|| stream.text.into_bytes()),
         report: painted.report.map(|refusal| refusal.detail()),
+        resources: stream.resources.unwrap_or_default(),
     }
+}
+
+/// The document's interactive form dictionary (§12.7.3), if the catalog names one.
+fn interactive_form(document: &Document) -> Option<Dictionary> {
+    let catalog = document.catalog().ok()?;
+    document.get_key(&catalog, "AcroForm").as_dict().cloned()
+}
+
+/// Table 224's `/DR`, "a resource dictionary … containing default resources … that shall be
+/// used by form field appearance streams".
+///
+/// §12.7.4.3 makes it the whole of a constructed appearance's `/Resources`, and §12.5.6.6 sends
+/// a free text annotation to the same subclause, so it is where *any* `/DA`'s font is looked
+/// up — not only a field's. A document with no interactive form dictionary has none, and a
+/// `/DA` naming a font is then naming nothing, which is reported by name.
+fn default_resources(document: &Document) -> Dictionary {
+    interactive_form(document)
+        .map(|form| document.get_key(&form, "DR"))
+        .and_then(|resources| resources.as_dict().cloned())
+        .unwrap_or_default()
+}
+
+/// An existing appearance stream with §12.7.4.3's new marks spliced into it.
+pub(crate) struct Regenerated {
+    /// The stored stream's own bytes, with the `/Tx` marked-content region replaced.
+    pub content: Vec<u8>,
+    /// The stream's `/Resources` with `/DR`'s entries added under the clause's precedence.
+    pub resources: Dictionary,
+    /// What the clause asked for and did not get, for the report.
+    pub report: Option<String>,
+}
+
+/// Rewrites the variable-text region of an appearance stream the file already carries.
+///
+/// §12.7.4.3's closing paragraph states the operation, and it is a *splice* rather than a
+/// replacement — which is the whole reason this function exists beside [`construct`]:
+///
+/// > The interactive PDF processor shall then replace the existing contents of the appearance
+/// > stream from … BMC to the matching EMC with the corresponding new contents
+///
+/// > If the existing appearance stream contains no marked-content with tag … the new contents
+/// > shall be appended to the end of the original stream.
+///
+/// Everything outside that pair survives, so a widget's own background, border and artwork are
+/// kept and only the text is rewritten. `text_field_own_canvas_calc.pdf` is what makes the
+/// difference visible: its whole stream is inside the pair and its field holds no value, so
+/// the correct regeneration leaves the page blank — which `poppler` and `mupdf` also produce,
+/// and a wholesale reconstruction from `/MK` would not.
+///
+/// The resources follow the same paragraph's first sentence: `/DR`'s entries are copied in,
+/// and "If the DR and Resources dictionaries contain resources with the same name, the one
+/// already in the Resources dictionary shall be left intact".
+///
+/// Returns `None` where the stream cannot be read, which leaves the caller drawing it as it
+/// stands — the ordinary undecodable-appearance path reports that.
+pub(crate) fn regenerate(
+    document: &Document,
+    annotation: &Dictionary,
+    stored: &pdf_syntax::Stream,
+    bbox: [f32; 4],
+) -> Option<Regenerated> {
+    let data = document.decoded_stream_data(stored)?;
+    let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    let source = characteristics.as_ref().unwrap_or(annotation);
+    let width = Border::read(document, annotation, source, "BC")
+        .map(|border| border.width)
+        .unwrap_or_default();
+
+    // §12.7.4.3 puts the appearance stream's `/BBox` at the origin, so the text is laid out in
+    // the stream's own space rather than the page's.
+    let (marks, report) = match field_text(document, annotation, source, inset(bbox, width)) {
+        Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
+        // A field with no value has no marks, and an empty marked-content region is the
+        // "corresponding new contents" for it. This is the case the clause's own wording
+        // makes different from leaving the stream alone.
+        Ok(None) => ("/Tx BMC\nEMC\n".to_owned(), None),
+        // Nothing can be laid out, so the stored marks are the best the file offers and are
+        // left where they are — with the shortfall named.
+        Err(refusal) => {
+            return Some(Regenerated {
+                content: data.to_vec(),
+                resources: stream_resources(document, stored),
+                report: Some(refusal.detail()),
+            });
+        }
+    };
+
+    Some(Regenerated {
+        content: spliced(&data, marks.as_bytes()),
+        resources: with_default_resources(document, stream_resources(document, stored)),
+        report,
+    })
+}
+
+/// Replaces the `/Tx BMC` … `EMC` region of a content stream, or appends where there is none.
+///
+/// The clause's parenthesis is the whole of the second case: "If the existing appearance stream
+/// contains no marked-content with tag Tx, the new contents shall be appended to the end of the
+/// original stream."
+///
+/// *Matching* `EMC` is what makes this a scan rather than a search: §14.6.1 nests marked
+/// content, so the first `EMC` after the `/Tx BMC` may close something else. Depth is counted
+/// over `BMC`, `BDC` and `EMC` as whole tokens.
+fn spliced(stream: &[u8], marks: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(stream.len().saturating_add(marks.len()));
+    let Some(start) = find_tx_marked_content(stream) else {
+        out.extend_from_slice(stream);
+        out.push(b'\n');
+        out.extend_from_slice(marks);
+        return out;
+    };
+
+    let mut depth = 0i32;
+    let mut lexer = pdf_syntax::Lexer::new(stream.get(start..).unwrap_or_default());
+    let mut end = stream.len();
+    while let Some(token) = lexer.next_token() {
+        let pdf_syntax::Token::Keyword(word) = token else {
+            continue;
+        };
+        match word.as_slice() {
+            b"BMC" | b"BDC" => depth = depth.saturating_add(1),
+            b"EMC" => {
+                depth = depth.saturating_sub(1);
+                if depth <= 0 {
+                    end = start.saturating_add(lexer.position());
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    out.extend_from_slice(stream.get(..start).unwrap_or_default());
+    out.extend_from_slice(marks);
+    out.extend_from_slice(stream.get(end..).unwrap_or_default());
+    out
+}
+
+/// Finds where a `/Tx BMC` begins, as a byte offset into a content stream.
+///
+/// Lexed rather than searched for as a substring: `(/Tx BMC)` inside a string operand is not
+/// an operator, and a stream that shows one would otherwise be spliced in the middle of its
+/// own text.
+fn find_tx_marked_content(stream: &[u8]) -> Option<usize> {
+    let mut lexer = pdf_syntax::Lexer::new(stream);
+    let mut tag_at = None;
+    let mut tag = false;
+    loop {
+        let before = lexer.position();
+        let token = lexer.next_token()?;
+        match token {
+            pdf_syntax::Token::Name(name) if name == b"Tx" => {
+                tag = true;
+                tag_at = Some(before);
+            }
+            pdf_syntax::Token::Keyword(word) if word == b"BMC" && tag => return tag_at,
+            _ => tag = false,
+        }
+    }
+}
+
+/// A stream's own `/Resources`, which §12.7.4.3 has `/DR` added to rather than replaced.
+fn stream_resources(document: &Document, stream: &pdf_syntax::Stream) -> Dictionary {
+    document
+        .get_key(&stream.dict, "Resources")
+        .as_dict()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Copies `/DR`'s resources into a stream's own, keeping the stream's where both name one.
+///
+/// §12.7.4.3 states the precedence:
+///
+/// > If the DR and Resources dictionaries contain resources with the same name, the one
+/// > already in the Resources dictionary shall be left intact, not replaced with the
+/// > corresponding value from the DR dictionary.
+///
+/// "The same name" is the *resource's* name rather than the category's, so the merge is two
+/// levels deep: a stream that names a `/Font` of its own still gains `/DR`'s other fonts.
+fn with_default_resources(document: &Document, mut resources: Dictionary) -> Dictionary {
+    let defaults = default_resources(document);
+    for (category, entry) in defaults.iter() {
+        let Some(from_default) = entry.as_dict() else {
+            if resources.get_by_name(category).is_none() {
+                resources.insert(category.clone(), entry.clone());
+            }
+            continue;
+        };
+        let mut merged = resources
+            .get_by_name(category)
+            .and_then(Object::as_dict)
+            .cloned()
+            .unwrap_or_default();
+        for (name, resource) in from_default.iter() {
+            if merged.get_by_name(name).is_none() {
+                merged.insert(name.clone(), resource.clone());
+            }
+        }
+        resources.insert(category.clone(), Object::Dictionary(merged));
+    }
+    resources
+}
+
+/// Whether §12.7.4.3 has this annotation's appearance constructed rather than read from `/AP`.
+///
+/// Table 224's `/NeedAppearances` is "a flag specifying whether to construct appearance streams
+/// and appearance dictionaries for all widget annotations in the document", and §12.7.2 says
+/// what the writer is admitting by setting it: "If such an object defines an appearance stream,
+/// the appearance shall be consistent with the object's current value as a field" — so a stored
+/// stream under this flag may not be.
+///
+/// **It does not reach every widget, and the reason is in the field types rather than in this
+/// flag.** §12.7.4.3's subject is a field "that may contain text whose value is not known until
+/// viewing time", and three of the four field types have no such text:
+///
+/// - a push-button "retains no permanent value … it shall not use the V and DV entries"
+///   (§12.7.5.2.2);
+/// - a check box's and a radio button's states each "shall be defined by an appearance stream in
+///   the appearance dictionary of the field's widget annotation" (§12.7.5.2.3, §12.7.5.2.4), and
+///   the value selects among them rather than describing them;
+/// - a signature field's value is a signature dictionary, and signing "entails updating at
+///   least the V entry and usually also the AP entry" (§12.7.5.5).
+///
+/// Only a text field and a choice field hold text the clause has a processor lay out, so only
+/// those two have their stored appearance set aside. Regenerating the others would throw away
+/// artwork the file does state in exchange for nothing the clause asks for.
+pub(crate) fn regenerates(document: &Document, annotation: &Dictionary, subtype: &[u8]) -> bool {
+    if subtype != b"Widget" {
+        return false;
+    }
+    let Some(form) = interactive_form(document) else {
+        return false;
+    };
+    if !matches!(
+        document.get_key(&form, "NeedAppearances"),
+        Object::Boolean(true)
+    ) {
+        return false;
+    }
+    matches!(
+        Field::read(document, annotation).kind,
+        Some(FieldKind::Text | FieldKind::Choice { .. })
+    )
 }
 
 /// Draws a link's border: §12.5.4's rounded rectangle, in Table 166's `/C`.
@@ -382,16 +643,18 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     Ok(Painted::DRAWN)
 }
 
-/// Draws §12.5.6.19's widget: Table 192's background and border, and nothing else.
+/// Draws §12.5.6.19's widget: Table 192's background and border, then §12.7.4.3's text.
 ///
 /// Table 192's `/BG` is "the colour of the widget annotation's background" and `/BC` "the
 /// colour of the widget annotation's border"; the width and style are §12.5.4's, as for any
-/// annotation. A field's *value* is not here — §12.7.4.3's variable text needs a font read out
-/// of a `/DA` string — so a widget holding one draws its frame and says the rest out loud.
+/// annotation. Over that goes whatever the field type says the widget shows — a text field's
+/// value, a choice field's selection, a button's caption — laid out by
+/// [`crate::variable_text`].
 ///
-/// Table 192's `/R` is not read, and cannot matter yet: it rotates the widget's *contents*
-/// within `/Rect`, and a background filling that rectangle with a border inside it is unchanged
-/// by any multiple of 90 degrees. It becomes load-bearing with the first glyph.
+/// Table 192's `/R` is read nowhere yet and is the one entry a glyph makes load-bearing: it
+/// rotates the widget's *contents* inside `/Rect`, which a background filling that rectangle
+/// cannot see but a line of text can. It is reported where a widget both states one and has
+/// text to put in it.
 fn widget(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
     let rect = rectangle(document, annotation)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
@@ -413,30 +676,386 @@ fn widget(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> 
         }
     }
 
-    match has_value(document, annotation) {
-        Value::Present => {
+    // §12.5.4 has the border "drawn completely inside the annotation rectangle", so the part
+    // of the rectangle the border does not cover is it inset by the whole width — which is
+    // where text can go without being struck through by its own frame. Nothing states a
+    // further margin and none is added.
+    let inner = inset(rect, border.width);
+    let laid_out = match field_text(document, annotation, source, inner) {
+        Ok(laid_out) => laid_out,
+        Err(refusal) => {
             return Ok(Painted {
                 drawn: frame,
-                report: Some(Refusal::NotDerivable(
-                    "its field's value needs §12.7.4.3's variable text",
-                )),
+                report: Some(refusal),
             });
         }
-        Value::TooDeep => {
-            return Ok(Painted {
-                drawn: frame,
-                report: Some(Refusal::NotDerivable(
-                    "its field's /Parent chain is longer than this crate follows, so whether it \
-                     holds a value is unknown",
-                )),
-            });
-        }
-        Value::Absent => {}
+    };
+    let Some(laid_out) = laid_out else {
+        return Ok(if frame {
+            border.simulated()
+        } else {
+            Painted::EMPTY
+        });
+    };
+
+    stream.text.push_str(&laid_out.content);
+    stream.resources = Some(default_resources(document));
+    let rotated = document
+        .get_key(source, "R")
+        .as_integer()
+        .is_some_and(|degrees| degrees.rem_euclid(360) != 0);
+    let owed = laid_out.owed.map(Refusal::Text).or_else(|| {
+        rotated.then_some(Refusal::NotDerivable(
+            "Table 192's /R rotates a widget's contents, and this text is not rotated",
+        ))
+    });
+    Ok(Painted {
+        drawn: true,
+        report: owed.or(border.simulated().report),
+    })
+}
+
+/// Lays out whatever text the field behind a widget states, if any.
+///
+/// One function because the field types differ only in where the text comes from; §12.7.4.3
+/// does the same thing with all of them. `Ok(None)` is a field that states no text, which is
+/// the common case and not a gap: 147 widgets on the corpus's first pages are empty text
+/// fields waiting for a person.
+fn field_text(
+    document: &Document,
+    annotation: &Dictionary,
+    characteristics: &Dictionary,
+    box_: [f32; 4],
+) -> Result<Option<variable_text::LaidOut>, Refusal> {
+    let field = Field::read(document, annotation);
+    if field.too_deep {
+        return Err(Refusal::NotDerivable(
+            "its field's /Parent chain is longer than this crate follows, so what it holds is \
+             unknown",
+        ));
     }
-    if frame {
-        Ok(border.simulated())
-    } else {
-        Ok(Painted::EMPTY)
+    let Some(kind) = field.kind else {
+        // §12.7.4.2: "A field dictionary that does not have a partial field name (T entry) of
+        // its own shall not be considered a field but simply a Widget annotation." With no
+        // `/FT` anywhere up the chain there is no field type, so nothing states any text.
+        return Ok(None);
+    };
+
+    let (text, shape) = match kind {
+        // Table 192's `/CA`, "the widget annotation's normal caption, which shall be displayed
+        // when it is not interacting with the user" — the entry that "may be used with any
+        // type of button field, including check boxes and radio buttons". A check box or radio
+        // button shows it only in its on state, because §12.7.5.2.3 makes the value select an
+        // appearance rather than describe one, and an off box showing its tick would be wrong
+        // in the one way a check box can be wrong.
+        FieldKind::Button { toggling } => {
+            if toggling && !field.is_on(document, annotation) {
+                return Ok(None);
+            }
+            match variable_text::string(document, &[characteristics], "CA") {
+                Some(caption) => (caption, Shape::SingleLine),
+                // A check box or radio button the document says is *on*, with neither an
+                // appearance dictionary to select a state from nor a caption to draw, states
+                // that it is ticked and states nothing that shows it. That is worth saying: a
+                // box drawn empty is not a near miss, it is the opposite answer.
+                None if toggling => {
+                    return Err(Refusal::NotDerivable(
+                        "§12.7.5.2.3 puts a check box's on state in its /AP, and this one has \
+                         neither an /AP nor Table 192's /CA caption",
+                    ));
+                }
+                None => return Ok(None),
+            }
+        }
+        FieldKind::Text => {
+            let Some(value) = field
+                .value
+                .as_ref()
+                .and_then(|value| variable_text::value_text(document, value))
+                .filter(|value| !value.is_empty())
+            else {
+                return Ok(None);
+            };
+            // Table 231 bit 14: a password field's characters "shall instead be echoed in some
+            // unreadable form, such as asterisks or bullet characters". A value stored in the
+            // file at all breaks the same row's NOTE; echoing it as it stands would publish it.
+            let value = if field.flags & FLAG_PASSWORD == 0 {
+                value
+            } else {
+                "\u{2022}".repeat(value.chars().count())
+            };
+            (value, field.text_shape(document, annotation))
+        }
+        // §12.7.5.4: the value "identifies the item or items currently selected". A combo box
+        // shows the value in an edit box; a list box shows the whole `/Opt` array with the
+        // selected items marked, and the clause states nothing about what a marked item looks
+        // like — no highlight colour, no rule, nothing.
+        FieldKind::Choice { combo: false } => return Err(Refusal::Text(Owed::ListBoxSelection)),
+        FieldKind::Choice { combo: true } => {
+            let Some(value) = field
+                .value
+                .as_ref()
+                .and_then(|value| variable_text::value_text(document, value))
+                .filter(|value| !value.is_empty())
+            else {
+                return Ok(None);
+            };
+            (value, Shape::SingleLine)
+        }
+        // §12.7.5.5: a signature field's value is a signature dictionary and signing "entails
+        // updating at least the V entry and usually also the AP entry". With no `/AP` there is
+        // no appearance, and no clause states one to build.
+        FieldKind::Signature => return Ok(None),
+    };
+
+    let form = interactive_form(document).unwrap_or_default();
+    let sources: Vec<&Dictionary> = field
+        .ancestry
+        .iter()
+        .chain(std::iter::once(&form))
+        .collect();
+    // Table 228 marks `/DA` and `/Q` inheritable, and Table 224 gives the interactive form
+    // dictionary "a document-wide default value" for each — so the chain runs from the widget
+    // up its parents and ends at the form.
+    let Some(default_appearance) = variable_text::bytes(document, &sources, "DA") else {
+        return Err(Refusal::Text(Owed::NoFont));
+    };
+    let resources = default_resources(document);
+    let request = Request {
+        text: &text,
+        box_,
+        default_appearance: &default_appearance,
+        resources: &resources,
+        quadding: Quadding::read(document, &sources),
+        shape,
+    };
+    variable_text::lay_out(document, &request)
+        .map(Some)
+        .map_err(Refusal::Text)
+}
+
+/// Draws a free text annotation's `/Contents`, laid out by §12.7.4.3, as §12.5.6.6 states:
+///
+/// > A free text annotation ( PDF 1.3 ) displays text directly on the page.
+///
+/// The text *is* the annotation, so unlike a widget there is nothing else to draw and a
+/// failure to lay it out leaves the page unmarked. Table 177's `/DA` is Required for exactly
+/// that reason, and Table 177's `/RD` states where the text goes: "The inner rectangle is
+/// where the annotation's text should be displayed."
+///
+/// Nothing is drawn around it. Table 177's `/BS` gives "the line width and dash pattern that
+/// shall be used in drawing the annotation's border" and no clause states its *colour* — Table
+/// 166's `/C` is the icon background, the popup title bar and a link's border, none of which a
+/// free text annotation has. So a border is refused on the same grounds as §12.5.6.10's marks,
+/// and reported only where a width is stated for it.
+fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
+    let rect = rectangle(document, annotation)?;
+    let Some(text) = variable_text::string(document, &[annotation], "Contents") else {
+        return Ok(Painted::EMPTY);
+    };
+    if text.is_empty() {
+        return Ok(Painted::EMPTY);
+    }
+
+    let form = interactive_form(document).unwrap_or_default();
+    let sources = [annotation, &form];
+    let Some(default_appearance) = variable_text::bytes(document, &sources, "DA") else {
+        return Err(Refusal::Text(Owed::NoFont));
+    };
+    let resources = default_resources(document);
+    let request = Request {
+        text: &text,
+        // §12.5.6.6's `/RD` uses the same left, top, right, bottom order §12.5.6.8's does,
+        // which `differences` already reads.
+        box_: differences(document, annotation, rect),
+        default_appearance: &default_appearance,
+        resources: &resources,
+        quadding: Quadding::read(document, &sources),
+        // Table 177 states no single-line free text: the annotation is a box of prose.
+        shape: Shape::Multiline,
+    };
+    let laid_out = variable_text::lay_out(document, &request).map_err(Refusal::Text)?;
+    stream.text.push_str(&laid_out.content);
+    stream.resources = Some(resources);
+
+    let bordered =
+        Border::read(document, annotation, annotation, "C").is_ok_and(|border| border.width > 0.0);
+    Ok(Painted {
+        drawn: true,
+        report: laid_out.owed.map(Refusal::Text).or_else(|| {
+            bordered.then_some(Refusal::NotDerivable(
+                "Table 177's /BS gives its border a width, and no clause states the colour",
+            ))
+        }),
+    })
+}
+
+/// Shrinks a rectangle on all four sides, stopping at its centre line.
+fn inset(rect: [f32; 4], by: f32) -> [f32; 4] {
+    let x = by.min((rect[2] - rect[0]) * 0.5).max(0.0);
+    let y = by.min((rect[3] - rect[1]) * 0.5).max(0.0);
+    [rect[0] + x, rect[1] + y, rect[2] - x, rect[3] - y]
+}
+
+/// Table 227 bit 13: "the field may contain multiple lines of text".
+const FLAG_MULTILINE: i64 = 1 << 12;
+/// Table 231 bit 14: the field "is intended for entering a secure password".
+const FLAG_PASSWORD: i64 = 1 << 13;
+/// Table 229 bit 17: "If set, the field is a push-button that does not retain a permanent
+/// value."
+const FLAG_PUSHBUTTON: i64 = 1 << 16;
+/// Table 233 bit 18: "If set, the field is a combo box; if clear, the field is a list box."
+const FLAG_COMBO: i64 = 1 << 17;
+/// Table 231 bit 25: the field "shall be automatically divided into as many equally spaced
+/// positions, or combs, as the value of `MaxLen`".
+const FLAG_COMB: i64 = 1 << 24;
+
+/// The four field types §12.7.5.1 lists, with the flags that subdivide them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FieldKind {
+    /// `Btn` (§12.7.5.2). `toggling` separates the two kinds that have an on state — a check
+    /// box and a radio button — from a push-button, which has none.
+    Button { toggling: bool },
+    /// `Tx` (§12.7.5.3).
+    Text,
+    /// `Ch` (§12.7.5.4).
+    Choice { combo: bool },
+    /// `Sig` (§12.7.5.5).
+    Signature,
+}
+
+/// A widget's field, read through §12.7.4.1's inheritance.
+struct Field {
+    kind: Option<FieldKind>,
+    /// Table 227's `/Ff`.
+    flags: i64,
+    /// Table 226's `/V`.
+    value: Option<Object>,
+    /// The widget and its ancestors, nearest first, for the inheritable entries of Table 228
+    /// that are read later.
+    ancestry: Vec<Dictionary>,
+    /// Whether the `/Parent` chain ran past [`MAX_FIELD_ANCESTRY`].
+    too_deep: bool,
+}
+
+impl Field {
+    /// Walks §12.7.4.1's `/Parent` chain once, taking each inheritable entry from the nearest
+    /// dictionary that states it.
+    ///
+    /// > Many field attributes are inheritable , meaning that if they are not explicitly
+    /// > specified for a given field, their values are taken from those of its parent in the
+    /// > field hierarchy.
+    ///
+    /// One walk rather than one per entry, because the chain is the same for all of them and
+    /// [`MAX_FIELD_ANCESTRY`] should bound the work once rather than once per key.
+    fn read(document: &Document, annotation: &Dictionary) -> Self {
+        let mut field = Self {
+            kind: None,
+            flags: 0,
+            value: None,
+            ancestry: Vec::new(),
+            too_deep: false,
+        };
+        let mut current = annotation.clone();
+        let mut flags = None;
+        let mut kind: Option<Vec<u8>> = None;
+        for _ in 0..MAX_FIELD_ANCESTRY {
+            if kind.is_none() {
+                kind = document
+                    .get_key(&current, "FT")
+                    .as_name()
+                    .map(|name| name.as_bytes().to_vec());
+            }
+            if flags.is_none() {
+                flags = document.get_key(&current, "Ff").as_integer();
+            }
+            if field.value.is_none() {
+                let value = document.get_key(&current, "V");
+                if !value.is_null() {
+                    field.value = Some(value);
+                }
+            }
+            let parent = document.get_key(&current, "Parent").as_dict().cloned();
+            field.ancestry.push(current);
+            let Some(parent) = parent else {
+                field.flags = flags.unwrap_or_default();
+                field.kind = FieldKind::of(kind.as_deref(), field.flags);
+                return field;
+            };
+            current = parent;
+        }
+        field.too_deep = true;
+        field
+    }
+
+    /// Table 231's shape for a text field: comb, multiline, or one line.
+    ///
+    /// Table 231's own rule for bit 25 decides the order: Comb "may be set only if the `MaxLen`
+    /// entry is present … and if the Multiline, Password, and `FileSelect` flags are clear",
+    /// so
+    /// a field claiming both is not a comb field.
+    fn text_shape(&self, document: &Document, annotation: &Dictionary) -> Shape {
+        if self.flags & FLAG_MULTILINE != 0 {
+            return Shape::Multiline;
+        }
+        if self.flags & FLAG_COMB != 0 && self.flags & FLAG_PASSWORD == 0 {
+            let sources: Vec<&Dictionary> = self.ancestry.iter().collect();
+            let length = sources
+                .iter()
+                .find_map(|source| document.get_key(source, "MaxLen").as_integer())
+                .or_else(|| document.get_key(annotation, "MaxLen").as_integer())
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| *value > 0);
+            if let Some(length) = length {
+                return Shape::Comb(length);
+            }
+        }
+        Shape::SingleLine
+    }
+
+    /// Whether a check box or radio button is in its on state.
+    ///
+    /// §12.7.5.2.3 settles which entry decides, and it is not the value:
+    ///
+    /// > The value of the V key shall also be the value of the AS key. If they are not equal,
+    /// > then the value of the AS key shall be used instead of the V key to determine which
+    /// > appearance to use.
+    ///
+    /// So `/AS` wins wherever it is stated, and `/V` answers only for a widget that has none —
+    /// which is a widget with no appearance dictionary, since Table 166 requires `/AS` whenever
+    /// there is one. Either way `Off` is the off state, which §12.7.5.2.3 names and
+    /// §12.7.5.2.4 gives as the default.
+    fn is_on(&self, document: &Document, annotation: &Dictionary) -> bool {
+        let state = document.get_key(annotation, "AS");
+        let name = state
+            .as_name()
+            .map(|name| name.as_bytes().to_vec())
+            .or_else(|| {
+                self.value
+                    .as_ref()
+                    .and_then(Object::as_name)
+                    .map(|name| name.as_bytes().to_vec())
+            });
+        name.is_some_and(|name| name != b"Off")
+    }
+}
+
+impl FieldKind {
+    /// Table 226's `/FT`, subdivided by the flags each type's own table defines.
+    fn of(name: Option<&[u8]>, flags: i64) -> Option<Self> {
+        match name? {
+            b"Btn" => Some(Self::Button {
+                toggling: flags & FLAG_PUSHBUTTON == 0,
+            }),
+            b"Tx" => Some(Self::Text),
+            b"Ch" => Some(Self::Choice {
+                combo: flags & FLAG_COMBO != 0,
+            }),
+            b"Sig" => Some(Self::Signature),
+            // Table 226 lists four types. A fifth names no field this crate knows how to
+            // display, and inventing one would be the guess §12.5.6.10 is refused for.
+            _ => None,
+        }
     }
 }
 
@@ -618,12 +1237,20 @@ impl Border {
 /// reaches here because [`number`] refuses anything but a finite one.
 struct Stream {
     text: String,
+    /// Table 224's `/DR`, set by whichever routine laid text out.
+    ///
+    /// Read from the document only where a `/DA` string is, rather than for every
+    /// construction: reaching the catalog and resolving `/AcroForm` per annotation cost 0.8%
+    /// of the interpretation pass on a specification page full of link borders, none of which
+    /// names a resource. Measured by callgrind on `examples/callgrind_interpret`.
+    resources: Option<Dictionary>,
 }
 
 impl Stream {
     fn new() -> Self {
         Self {
             text: String::new(),
+            resources: None,
         }
     }
 
@@ -908,51 +1535,6 @@ fn line_endings(document: &Document, annotation: &Dictionary) -> bool {
             .as_name()
             .is_some_and(|name| name.as_bytes() != b"None")
     })
-}
-
-/// Whether a field holds text this module would have to lay out.
-enum Value {
-    /// It does: §12.7.4.3 is owed.
-    Present,
-    /// It does not, so the frame is the whole appearance.
-    Absent,
-    /// The `/Parent` chain ran past [`MAX_FIELD_ANCESTRY`], so the answer is unknown.
-    TooDeep,
-}
-
-/// Whether a field has a value to draw, following §12.7.4.1's inheritable entries.
-///
-/// A value that is present but *empty* is not a value: a text field whose `/V` is the empty
-/// string draws no text, so reporting §12.7.4.3 for it would name pages where there is nothing
-/// to lay out. A button's caption (Table 192's `/CA`) counts, because it is text this module
-/// cannot set either.
-fn has_value(document: &Document, annotation: &Dictionary) -> Value {
-    if let Some(characteristics) = document.get_key(annotation, "MK").as_dict()
-        && let Some(caption) = document.get_key(characteristics, "CA").as_string()
-        && !caption.is_empty()
-    {
-        return Value::Present;
-    }
-
-    let mut dict = annotation.clone();
-    for _ in 0..MAX_FIELD_ANCESTRY {
-        let value = document.get_key(&dict, "V");
-        if let Some(text) = value.as_string() {
-            return if text.is_empty() {
-                Value::Absent
-            } else {
-                Value::Present
-            };
-        }
-        if value.as_name().is_some() || value.as_array().is_some() {
-            return Value::Present;
-        }
-        let Some(parent) = document.get_key(&dict, "Parent").as_dict().cloned() else {
-            return Value::Absent;
-        };
-        dict = parent;
-    }
-    Value::TooDeep
 }
 
 /// Reads one of Table 166's colour arrays.

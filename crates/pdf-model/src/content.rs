@@ -2409,7 +2409,6 @@ impl Interpreter<'_> {
         let Some(entries) = annotations.as_array().map(<[Object]>::to_vec) else {
             return;
         };
-        let regenerate = needs_appearances(self.document);
 
         for entry in &entries {
             let resolved = self.document.resolve(entry);
@@ -2439,20 +2438,6 @@ impl Interpreter<'_> {
                     if let Some(detail) = owed {
                         self.note(Unsupported::Annotation { detail });
                     }
-                    // §12.7.4.3: a field whose value is not known until viewing time — one
-                    // filled in by the user, or calculated by an action — "cannot provide a
-                    // statically defined appearance stream", and "the PDF processor shall
-                    // construct an appearance stream dynamically at rendering time". The
-                    // `/NeedAppearances` flag is the writer saying that applies here.
-                    // Constructing one is form work this crate does not do, so the stored
-                    // appearance is drawn — it is the only thing the file offers — and the
-                    // fact that it may be stale is said out loud rather than assumed away.
-                    if regenerate && appearance.is_widget {
-                        self.note(Unsupported::Annotation {
-                            detail: "Widget: /NeedAppearances asks for a constructed appearance"
-                                .to_owned(),
-                        });
-                    }
                     self.draw_appearance(&appearance, base, &page.resources);
                 }
             }
@@ -2476,7 +2461,7 @@ impl Interpreter<'_> {
                 };
                 data
             }
-            crate::annotation::Content::Constructed(bytes) => Arc::from(bytes.as_slice()),
+            crate::annotation::Content::Constructed { bytes, .. } => Arc::from(bytes.as_slice()),
         };
 
         let transform = appearance.transform.then(base);
@@ -2523,9 +2508,10 @@ impl Interpreter<'_> {
                 .as_dict()
                 .cloned()
                 .unwrap_or_else(|| page_resources.clone()),
-            // A constructed stream names no resource: every colour in it is a device colour
-            // and every shape a path, which is what makes it self-contained.
-            crate::annotation::Content::Constructed(_) => Dictionary::new(),
+            // A constructed stream names at most the fonts §12.7.4.3's `/DA` string reaches,
+            // which `crate::appearance` took from Table 224's `/DR`. Everything else it draws
+            // is a path in a device colour and names nothing.
+            crate::annotation::Content::Constructed { resources, .. } => resources.clone(),
         };
 
         // Depth 1 rather than 0: an appearance is itself a form, so a chain of forms
@@ -3573,25 +3559,6 @@ fn convert(space: &ColourSpace, values: &[f32], black_point: BlackPoint) -> Colo
 ///
 /// Only a profile whose own space is one a PDF can name is useful here; an output intent
 /// for a device with some other colourant model says nothing about `DeviceCMYK`.
-/// Whether the document's interactive form asks for appearances to be constructed.
-///
-/// ISO 32000-2 Table 226: `/NeedAppearances` is set by "a PDF writer ... if it has not
-/// provided appearance streams for all visible widget annotations present in the document".
-/// Deprecated in PDF 2.0, and still common in files that predate it.
-fn needs_appearances(document: &Document) -> bool {
-    let Ok(catalog) = document.catalog() else {
-        return false;
-    };
-    let form = document.get_key(&catalog, "AcroForm");
-    let Some(form) = form.as_dict() else {
-        return false;
-    };
-    matches!(
-        document.get_key(form, "NeedAppearances"),
-        Object::Boolean(true)
-    )
-}
-
 fn output_intent_space(document: &Document) -> Option<ColourSpace> {
     let catalog = document.catalog().ok()?;
     let intents = document.get_key(&catalog, "OutputIntents");

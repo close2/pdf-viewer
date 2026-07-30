@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **twenty-second** working session. Read
+Written 2026-07-26, updated 2026-07-30 at the end of the **twenty-third** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,128 +12,111 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the twenty-second session changed
+## What the twenty-third session changed
 
-**Encrypted documents open.** ISO 32000-2 §7.6's standard security handler, at every revision
-Table 21 specifies — 2, 3, 4 and 6 — over `/V` 1, 2, 4 and 5, with Table 25's `V2`, `AESV2` and
-`AESV3` crypt filter methods and Table 26's `Identity`. That was the largest thing left on the
-demand list that is straightforwardly code, and §7.6 was 34 ledger rows, every one of them
-`unreviewed`: demand item and spec item are the same family again, the fourth time that has been
-available. ADR 0031.
+**A field's value is drawn.** ISO 32000-2 §12.7.4.3's variable text, which was the largest item
+left on the demand list at 13 documents and the one job that closes four separate refusals: a
+text field's `/V`, a check box's tick, a `FreeText`'s `/Contents` and a push-button's caption.
+§12.7.4 and §12.7.5 were 13 `unreviewed` rows and §12.7 through §12.7.3 four more, so demand item
+and spec item were the same family again — the fifth time that has been available. ADR 0032.
 
-**The corpus holds a better test set than anything that could be written here.** Twenty-six files
-carry an `/Encrypt` and between them they use every revision and every method the clause names;
-seven have passwords the pdf.js manifest records, from `test` to `SªSL­prep`. A fixture for this
-clause would have to *encrypt*, which means running the same algorithms the reader runs and
-comparing them with themselves — so `crates/pdf-syntax/tests/encryption.rs` is built on real files
-throughout, and what it asserts is that the plaintext **parses**: a content stream that came out
-wrong is not a subtly wrong picture, it is high-entropy bytes that cannot lex as operators.
+**A text string is a clause nothing here had read.** A `/V` and a `/Contents` are §7.9.2.2 text
+strings, and `crates/pdf-syntax/src/text_string.rs` is now that subclause: the two byte order
+markers, surrogate pairs paired as the clause requires, §7.9.2.2.2's language escape sequences
+removed, and **Annex D's Table D.3 compiled in**. The table is not ISO Latin 1 and the
+differences decide pages — 0xA0 is EURO SIGN, 0x18 to 0x1F are accents — so the obvious shortcut
+draws a space where a document states a currency symbol, silently.
 
-**The primitives are taken and the clause is written.** `aes`, `cbc`, `rc4`, `md-5` and `sha2` from
-RustCrypto, plus `stringprep` for §7.6.4.1's SASLprep — ADR 0014's precedent, and cryptography is
-where "a widely-reviewed implementation of a published algorithm beats a fresh one" is strongest.
-What a library cannot supply is the clause, so every algorithm §7.6 numbers is written out in
-`crates/pdf-syntax/src/crypt.rs` against its own subclause.
+**A font is addressed backwards by running the mapping forwards.** `LoadedFont::code_for` asks
+every code the font defines what it means and what glyph it reaches, and answers a character with
+the first code that does both. Every other route through `pdf-font` starts from a code the
+document wrote; writing a content stream needs the inverse, and building it out of the *same*
+traversal is what makes the code it returns one that actually draws the character asked for.
 
-**Decryption sits where §7.6.3.3 puts it** — "Stream data … shall be decrypted before applying any
-stream decoding filters" — so a `Document` decrypts an indirect object as it parses it and the
-filter chain above needs no change. §7.6.3.2 step (a) agrees from the other side: "If the string is
-a direct object, use the identifier of the indirect object containing it", which makes the unit of
-decryption a whole object walked from its own identifier. All four of §7.6.2's exceptions fall out
-of that placement, including the one no corpus file can reach.
+**The clause's last paragraph inverts its first, and the oracle is what found it.**
+`/NeedAppearances` looks like "rebuild the appearance from `/MK` and the value", and that reading
+shipped for an hour before `text_field_own_canvas_calc.pdf` page 3 came back contradicted. What
+§12.7.4.3 actually describes is a **splice**: replace the stream "from … BMC to the matching
+EMC", and where there is no such pair, append. Everything outside it is the file's own artwork
+and survives; a field with no value rewrites the region to nothing, which is the blank page
+`poppler` and `mupdf` also produce. Two fixtures differing in nothing but where the marks sit get
+opposite answers.
 
-**A failure to decrypt is loud, and that cost a field on `Stream`.** The first draft replaced an
-undecryptable stream's data with nothing, which is a page that draws blank reporting `unsupported:
-[]` — indistinguishable from a page that *is* blank. `Stream::decryption_failed` now says so and
-`decoded_stream_data` refuses, which every caller already treats as something to report.
+**The flag does not reach three of the four field types, and the field types say why.**
+§12.7.4.3's subject is text "not known until viewing time"; a push-button "shall not use the V
+and DV entries" (§12.7.5.2.2), a check box's and a radio button's states are each "defined by an
+appearance stream in the appearance dictionary" (§12.7.5.2.3), and a signature field's value is a
+signature dictionary (§12.7.5.5). So only a text field and a choice field have a stored stream
+spliced, which is a derivation rather than a caution.
 
-**A locked file is not an unreadable one, and the gate now counts three things where it counted
-one.** `Document::open` tries the empty password, as §7.6.4.1 requires, and returns
-`PasswordRequired` when that fails. Eight documents would have broken the corpus gate's
-`unopenable` ratchet — which is set at zero and means *every file yields something*. They should
-not: a file waiting for a person is not work owed. So: **unopenable 0, locked 8, encrypted beyond
-this reader 2**, and only the last is a debt.
-
-**One reading finding, and it turns two references into a minority.** `encrypted-attachment.pdf`
-and `auth-event-ef-open.pdf` write `/StmF /Identity /StrF /Identity` with a `StdCF` reached only
-through `/EFF`, and their `/U` authenticates against no password anybody has — checked with three
-independent implementations of Algorithm 2.A rather than assumed. `mupdf` and `ghostscript` refuse
-them; `poppler` opens them. §7.6.6 settles it twice: authorization is obtained "before the stream
-can be accessed", and a reader "shall treat any attempt to access a stream for which authorization
-has failed as an error". Both sentences bind the failure to a *stream*. So the page displays and
-the attachment refuses.
+**Three things the clause hands back are choices, and each is written down once.** Where a
+baseline sits (Table 122's `/Ascent` and `/Descent` where the document states them, else the em
+split three to one — a constant, so layout does not join substitution in being
+machine-dependent); how far apart two lines are (**13/12 of the size, which is §12.7.5.3's own
+EXAMPLE**: `/Ti 12 Tf` with `0 -13 Td`); and what auto-sizing picks. The clause says so itself —
+"positioning values it determines to be appropriate … and any layout rules it employs".
 
 | | was | is |
 |---|---|---|
-| **an encrypted document** | opened, then drew ciphertext or nothing | decrypted at every revision and method §7.6 states |
-| **a document with a password** | reported operator soup | says it needs a password |
-| **`/R 5`** | the same soup | refused by name: Table 21 states no algorithm for it |
-| **a public-key handler** | unrecognised | refused by name (§7.6.5) |
-| **an attachment-only encryption** | no page one | the page drawn, the attachment refused (§7.6.6) |
-| **a stream that will not decrypt** | — | reported, not silently empty |
-| **Table 22's permissions** | unread | read and carried; enforcing them is the application's |
-| **§7.6's thirty-four `unreviewed` rows** | nobody had read them | 20 implemented, 8 partial, 4 reported, 2 writer-side |
+| **a text field holding a value** | its frame, and a report | the value, quadded, at the size its `/DA` names |
+| **`/DA (/Helv 0 Tf)`** | — | auto-sized until the value fits its box |
+| **a multiline field** | — | wrapped at the last space that fits |
+| **a comb field** | — | one character per `/MaxLen` cell |
+| **a password field** | — | bullets, which Table 231 bit 14 asks for |
+| **a push-button** | its frame | Table 192's caption |
+| **a check box with no `/AP`** | a report about its value | its caption, or a report naming what states no mark |
+| **a `FreeText`** | nothing, and a report | its `/Contents`, laid out in its `/RD` |
+| **`/NeedAppearances`** | one blanket report per widget | the `/Tx` region spliced, the rest of the stream kept |
+| **a `/V` outside ASCII** | — | decoded by Table D.3, or UTF-16BE, or UTF-8 |
+| **§12.7's twenty-one `unreviewed` rows** | nobody had read them | 17 implemented or partial, 1 reported, 3 inapplicable |
 
 **The numbers:**
 
 | | before | now |
 |---|---|---|
-| corpus documents drawing with nothing reported | 808 | **816** |
-| corpus documents reporting something | 147 | **137** |
-| documents with no reachable page one | 19 | **11** |
-| documents needing a password | — | **8** |
-| documents encrypted beyond this reader | — | **2** |
-| pages we call complete, in the oracle | 1603 | **1611** |
-| of those, agreeing with the reference consensus | 742 | **747** |
+| corpus documents drawing with nothing reported | 816 | **824** |
+| corpus documents reporting something | 137 | **129** |
+| pages we call complete, in the oracle | 1611 | **1620** |
+| of those, agreeing with the reference consensus | 747 | **754** |
 | of those, contradicted | 102 | **102** |
-| ledger subclauses nobody has read | 561 | **524** |
-| `§` citations the checker verified | 891 | **1000** |
-| tests | 451 | **473** |
+| ledger subclauses nobody has read | 524 | **498** |
+| `§` citations the checker verified | 1000 | **1100** |
+| rustdoc quotations checked verbatim | 77 | **95** |
+| tests | 473 | **494** |
 
-**Eight pages joined the judged set, five agree outright, and nothing became contradicted** — the
-first session in five where that count did not move at all. Every document whose classification
-changed is an encrypted one, checked by running the gate at the previous commit and diffing the
-per-document output rather than by reading the totals.
+**Nine pages joined the judged set, seven agree outright, and nothing became contradicted** — the
+second consecutive session where that count did not move. Every document whose classification
+changed carries a form field or a free text annotation.
 
-**The corpus gate's `Content` row was 10 and is 1, and its `Operator` row 12 and is 9**, both for
-one reason: nine of those `Content` reports were a `/Contents` refusing to inflate because it was
-ciphertext, and three of the `Operator` reports were the same ciphertext lexing as operator names.
-`issue15893_reduced.pdf` was announcing an operator called `)` and two more of byte soup.
+**The annotation row of the corpus gate was 24 and is 17**, and nothing on it is a
+`/NeedAppearances` any longer: 13 are §12.5.6.10's text markup, 5 are a `/DA` naming a font the
+interactive form dictionary's `/DR` does not define, and 1 is a check box the file calls on with
+neither an `/AP` nor a caption.
 
-**Interpretation costs nothing measurable** — 1.9398 G instructions to 1.9340 G by callgrind on
-`examples/callgrind_interpret`, baseline measured on this machine at the previous commit. **An
-encrypted document pays what the standard designed it to pay**: revision 4 and earlier open in 74
-to 183 µs against 275 µs for an unencrypted document, and revision 6 in **1.5 to 2.9 ms**, because
-§7.6.4.3.4's Algorithm 2.B runs at least sixty-four rounds of AES over sixty-four repetitions of
-the password. Its NOTE 2 says why: "The reason for multiple rounds is to defeat the possibility of
-running all paths in parallel." That is the clause working, not a defect to optimise.
+**Interpretation costs 0.31%** — 1.9340 G instructions to 1.9400 G by callgrind on
+`examples/callgrind_interpret`, baseline measured on this machine at the previous commit. The
+first draft cost 0.83%, all of it reaching the catalog for `/AcroForm` once per *constructed
+annotation* rather than once per `/DA`.
 
 What it taught:
 
-- **A rule whose common case is the identity is a rule nobody tests.** §7.6.4.3.2 step (a) appends
-  "the first 32 − n bytes of the padding string"; the first implementation overlaid the password
-  onto the padding string in place. For the empty password — which §7.6.4.1 makes every reader try
-  *first* — the two are the same 32 bytes, so **all nineteen password-less documents opened
-  correctly and every document with a password was refused**. Worse: the unit test beside the code
-  asserted the wrong thing, because it was written from the code rather than from the clause. **A
-  test written after the implementation tests the implementation.**
-- **A bucket that means "we failed" must not also mean "you have not told us the password".** The
-  `unopenable` ratchet was right to fire and would have been wrong to widen. Splitting it kept an
-  invariant worth having and made two new ones, one of which — encryption we do not implement — is
-  the only row in that gate that is a *decision* rather than a debt.
-- **Two references agreeing can be two answers to the wrong question.** Trap 9's third shape again,
-  one session after it was first written down. Here §7.6.6's own words say the refusal belongs to
-  the stream and not to the file, and `poppler` reads it the same way.
-- **"The standard states no algorithm for this" and "we have not written it" are different
-  refusals, and the ledger has different words for them.** `/R 5` is a deprecated proprietary
-  extension Table 21 says "shall not be used"; implementing it would mean copying another reader,
-  which principle 5 forbids outright. §7.6.5's public-key handlers *are* specified and are simply
-  not built — `reported`, and still owed.
-- **The corpus cannot exercise §7.6.2's signature exception, and that is now a fact.** Eight corpus
-  documents carry a signature dictionary and twenty-six carry an `/Encrypt`, and **the two sets are
-  disjoint**. So the one rule here that had to be derived rather than read off is defended by a unit
-  test on the predicate and by nothing else. Third consecutive session to find a load-bearing rule
-  no real file reaches.
+- **A clause's last paragraph can invert its first.** The rebuild reading of `/NeedAppearances`
+  is defensible from §12.7.4.3's opening, agrees with the splice on every document that has a
+  value, and differs on exactly the one that has none. Read the whole subclause before believing
+  the sentence that answered your question.
+- **Two references agreeing is evidence — once you can say what they agree *about*.** Trap 9's
+  three shapes are all about agreement that means nothing. This is the converse and it is worth
+  keeping beside them: `poppler` and `mupdf` blanked a page we drew, the clause said why, and the
+  reading that explained their output was the one the clause states. Agreement is evidence
+  *after* the clause is read, never instead of reading it.
+- **An eager lookup on a cold path is a hot-path cost when the path runs per object.** Reading
+  `/AcroForm` to give every constructed appearance its `/Resources` is obviously cheap and was
+  2.7× the whole feature's cost, because a specification page is full of link borders and none of
+  them names a resource.
+- **The corpus cannot exercise a comb field, a right-quadded field, a password field or a list
+  box.** Nineteen comb fields on corpus first pages and not one holds a value. Fourth consecutive
+  session to find load-bearing rules no real file reaches, and the reason
+  `crates/pdf-model/tests/variable_text.rs` exists.
 
 ## How the project got here
 
@@ -160,10 +143,12 @@ below rather than here.
 | 20 | Embedded `CMap`s and `/CIDToGIDMap`; the whole of §9.7 reviewed | ADR 0029 |
 | 21 | Constructed annotation appearances; the whole of §12.5 reviewed; `/CA` belongs to the construction | ADR 0030 |
 | 22 | Encryption, every revision and method §7.6 states; the whole of §7.6 reviewed; a locked file is not an unreadable one | ADR 0031 |
+| 23 | §12.7.4.3's variable text; §12.7.4, §12.7.5 and §7.9.2 reviewed; regenerating an appearance is a splice | ADR 0032 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
-→ 93 → 96 → 96 → 98 → 102 → 102 across sessions 6 to 22, and the corpus's incomplete count 291 →
-368 → 250 → 290 → 283 → 263 → 251 → 235 → 232 → 231 → 231 → 237 → 220 → 220 → 189 → 147 → 137.
+→ 93 → 96 → 96 → 98 → 102 → 102 → 102 across sessions 6 to 23, and the corpus's incomplete count
+291 → 368 → 250 → 290 → 283 → 263 → 251 → 235 → 232 → 231 → 231 → 237 → 220 → 220 → 189 → 147 →
+137 → 129.
 Both move in both directions on purpose: a rise in the first can mean pages *joined* the
 comparison, and a rise in the second is honesty when a silence ends. The sections below say
 which.
@@ -173,12 +158,12 @@ which.
 A PDF **renderer** that opens real files and draws pages: geometry, colour, images, shadings,
 patterns, embedded text, transparency groups, soft masks, and annotations both from their stored
 appearance streams and constructed where the standard states one — on a CPU and a GPU backend,
-with JBIG2 and JPEG 2000 decoded in a confined worker, and **encrypted files decrypted at every
-revision and method §7.6 states**. It is not yet a PDF *viewer* in the full sense — no form field
-values, and nothing that asks a person for a password — and the gap is measured below rather than
-guessed at.
+with JBIG2 and JPEG 2000 decoded in a confined worker, encrypted files decrypted at every
+revision and method §7.6 states, and **a form field's value laid out from its `/DA` string**. It
+is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
+person for a password — and the gap is measured below rather than guessed at.
 
-- **473 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **494 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -188,15 +173,15 @@ guessed at.
   **100% of the words `pdftotext` finds**.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open except ten that are
   encrypted — 8 waiting for a password, 2 by something §7.6 does not specify or we do not
-  implement — 953 reach page one, **816 draw with nothing reported**, and everything the other 137
+  implement — 953 reach page one, **824 draw with nothing reported**, and everything the other 129
   cannot draw is named. 1501 of 1501 PDF functions parse; all 1793 shadings build, mesh types
   included. The whole gate runs in **~2 s** with no named slow document left. Counts are
   ratcheted.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1611 pages we claim to draw completely, **747 agree with the reference
-  consensus, 102 are contradicted and 749 are pages the references cannot agree about among
+  (ADR 0020). Of the 1620 pages we claim to draw completely, **754 agree with the reference
+  consensus, 102 are contradicted and 751 are pages the references cannot agree about among
   themselves**. The 102 are named, grouped and ratcheted in both directions. ADR 0011.
 - **JBIG2 and JPEG 2000 decode in a sandboxed worker.** `pdf-sandbox` confines it with resource
   limits, Landlock and a seccomp-BPF allow-list; `--no-sandbox` turns it off for trusted documents
@@ -248,6 +233,15 @@ guessed at.
 - **Annotations draw, and are constructed where they have to be.** `/AP /N` is placed by §12.5.5's
   algorithm; an annotation without one gets a content stream built from its subtype's clause, or a
   report naming what the clause does not state. ADRs 0013, 0030.
+- **A field's value is laid out from its `/DA` string** — §12.7.4.3 in full for the two field
+  types that hold text, with quadding, auto-sizing, wrapping, comb cells and a password field's
+  bullets. A stored appearance under `/NeedAppearances` is *spliced* rather than rebuilt: the
+  clause replaces the stream "from … BMC to the matching EMC" and everything outside that pair
+  survives. Refused by name: a `/DA` font `/DR` does not define, a composite `/DA` font, and
+  §12.7.5.4's list-box selection, for which the clause states no appearance. ADR 0032.
+- **A text string is decoded as §7.9.2.2 defines one** — UTF-16BE with surrogate pairs, UTF-8, or
+  Annex D Table D.3's `PDFDocEncoding`, with §7.9.2.2.2's language escapes removed. The table is
+  compiled in and is *not* ISO Latin 1.
 - **A layer the document turns off is not drawn** — §8.11 in full as far as it decides what is
   marked, including `/VE` visibility expressions. ADR 0017.
 - **One device pixel is the thinnest line, and both backends agree what that means.**
@@ -285,7 +279,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1000 citations, 77 quotations, 58 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1100 citations, 95 quotations, 68 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -313,6 +307,7 @@ cargo deny check
 cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
 cargo +nightly fuzz run cmap  -- -runs=50000     # §9.7's CMap parser and its decoder
 cargo +nightly fuzz run crypt -- -runs=50000     # §7.6's encryption dictionary and key algorithms
+cargo +nightly fuzz run variable_text -- -runs=50000  # §12.7.4.3's /DA parser and its layout
 ```
 
 Cargo prints one line about `proc-macro-error2` being rejected by a future compiler. It arrives
@@ -324,9 +319,9 @@ the exception with its reasoning. Nothing to chase.
 | Crate | Does | Notes |
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
-| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031) |
-| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, and where the refusals are argued (ADR 0030). `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused |
-| `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for CFF, §9.6.5.4 for `TrueType`, ADR 0015). `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree. `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
+| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings |
+| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused |
+| `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for CFF, §9.6.5.4 for `TrueType`, ADR 0015). `code_for` is the one *backwards* route — a character to the code that draws it — and it is built by running the forward mapping over every code the font defines, so the two cannot disagree. `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree. `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot make them differently: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `soft_mask.rs` turns rendered pixels into §11.5's mask values. `Command::Group` is the one nested command (ADR 0026) and `impose_on_medium` is §11.4.7. `Path::extend_transformed` is the one place geometry moves rather than travelling with a transform (§9.3.6, ADR 0022). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. `soft_mask.rs` renders each mask to a texture and reads it back, because Vello's own luminance mask is the SVG formula and no blend mode is a `/TR` |
@@ -653,11 +648,12 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 
 | Missing | Corpus | Size | Notes |
 |---|---|---|---|
-| Variable text (§12.7.4.3) | 13 | Medium | **The whole of what is left of the annotation row that a clause asks for**, and it is one job rather than several: a field's `/V`, a check box's tick, a push-button's `/CA` caption, a `FreeText`'s `/Contents` and a redaction's `/OverlayText` all need text laid out in the font, size and colour a `/DA` string names against `/DR`, with `/Q`'s quadding and a size of 0 meaning auto-fit. 7 documents say `/NeedAppearances` (their stored appearance may be stale, and is drawn anyway), 2 that a field holds a value we cannot set, 4 that a `FreeText` is text. ADR 0030. |
+| Variable text: a `/DA` font `/DR` does not define | 5 | Small | What is left of §12.7.4.3 (ADR 0032), and it is a *malformed file* rather than a clause gap: the clause requires the `/DA`'s font name to "match a resource name in the Font entry of the default resource dictionary" and states no recovery. Four are `FreeText` annotations in files with no interactive form dictionary at all, naming `/Helv`. Reported by name, exactly as a content stream naming an absent font already is; inventing Helvetica from the resource name would need a name-to-typeface table no clause states. |
+| Variable text: a composite `/DA` font, a list box, `/DS` and `/RV` | 0 | Medium | The rest of §12.7.4.3's edges, and none is reached by any corpus document. A composite font needs a `CMap`'s codespace ranges inverted (§9.7.6.2) to turn a character into a code; §12.7.5.4's list box states which items are selected and nothing about how a selection *looks*; `/DS` and `/RV` are XFA rich text, which principle 5 excludes. |
 | Text markup appearances (§12.5.6.10) | 8 | Medium | Highlight, Underline, StrikeOut and Squiggly with no `/AP`. **Refused because the standard states no mark**, not because the drawing is hard: `/QuadPoints` and the orientation edge are given, and nothing says an underline's thickness, where a strikeout crosses, a squiggle's period, or how a highlight leaves text legible. The three references draw three different pictures. Any implementation here is a documented choice, and it should be argued as one. |
 | Encryption: a password prompt | 8 | Small | §7.6 is implemented (ADR 0031); what is missing is the *interaction* §7.6.4.1 describes — "the interactive PDF processor should prompt for a password". `Document::open_with_password` takes one and nothing asks for it, so 8 corpus documents are refused at the gate that a viewer with a window would open. This is `viewer-ui` work, not clause work. |
 | Encryption: public-key handlers (§7.6.5) | 0 | Medium | Refused by name. Needs CMS enveloped data (RFC 5652), X.509 certificates and access to the user's private keys — a public-key infrastructure and a threat model rather than a cipher. No corpus document uses one. |
-| Encryption: `/R` 5, and a non-ASCII revision-4 password | 1 | Small | Two refusals that are *decisions*. Table 21 says `/R` 5 "shall not be used" and states no algorithm for it, so implementing it would mean copying another reader; `issue21579.pdf` writes it anyway. And §7.6.4.3.2 step (a) wants a password in PDFDocEncoding, which is Annex D data `pdf-syntax` does not hold — the ranges where it and Unicode provably agree are converted and the rest is refused by name. No corpus document needs the second. |
+| Encryption: `/R` 5, and a non-ASCII revision-4 password | 1 | Small | Two refusals, one of them now cheap to close. Table 21 says `/R` 5 "shall not be used" and states no algorithm for it, so implementing it would mean copying another reader; `issue21579.pdf` writes it anyway. §7.6.4.3.2 step (a) wants a password in `PDFDocEncoding`, which `crypt.rs` refuses outside the range where it and Unicode provably agree — **and `pdf-syntax` now holds Table D.3**, since §12.7.4.3 needed it, so inverting that table would close this refusal outright. Nobody has done it and no corpus document needs it. |
 | Annotation icons (§12.5.6.4, .12, .15, .16) | 2 | Small | A `Text`, `Stamp`, `FileAttachment` or `Sound` annotation with no `/AP` displays an icon whose artwork no clause states. Refused and named. Every stamp in the corpus carries an `/AP`, which is what a producer who cares has to do. |
 | Predefined `CMap`s (§9.7.5.2) | 12 | Medium | 15 fonts name one of Table 116's registered `CMap` files (`90ms-RKSJ-H`, `UniJIS-UTF16-H`, …), which are not in the tree. Vendoring them is a licensing decision; guessing draws plausible text that says something else. The machinery they would plug into exists. |
 | Text: a substitute that cannot be addressed | 42 | Medium | Counting *fonts*: 27 composite fonts with no `/ToUnicode`, so a CID cannot be taken to a character a substitute could draw, and 23 whose substitute draws none of the declared codes. Honest refusals rather than clause gaps; closing them means better substitution. |
@@ -679,7 +675,7 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 | JPEG 2000 at reduced resolution | 1 | Small | `issue19517.pdf` is a 12608x16806 scan whose full decode wants gigabytes for a page drawn at four megapixels. The format's answer is to decode a lower resolution level, which needs the intended scale to reach the decoder. |
 | Sampled shadings on the GPU | 2 | Small | Type 1 only; the CPU backend draws them. |
 | Rendering intents beyond `AbsoluteColorimetric` | — | Small | Read and recorded; `A2B0` is not yet selected for `Perceptual`. |
-| Forms, actions, the rest of clause 12 | — | Large | Field values, calculation order, navigation. In scope wherever it *displays*. **JavaScript and script-driven field behaviour are excluded** by principle 5; field appearance is not. |
+| Forms, actions, the rest of clause 12 | — | Large | A field's *appearance* is built (ADR 0032); its **behaviour** is not — §12.6's actions, §12.7.6's submit, reset and import, §12.7.8's FDF, calculation order, validation, navigation. In scope wherever it *displays*. **JavaScript and script-driven field behaviour are excluded** by principle 5. |
 | Tagged PDF, metadata | — | Large | Clause 14 beyond output intents. In scope as far as accessibility needs it. |
 | Sandboxing the *rest* of the renderer | — | Large | Spike D is done for the image codecs (ADR 0014). Interpreting and rasterising still happen in the main process. |
 
@@ -692,10 +688,10 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **524
-of 823 subclauses are `unreviewed`**, and 299 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **498
+of 823 subclauses are `unreviewed`**, and 325 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
-project has measured 26% of its clause coverage. That number is meant to look bad; the alternative
+project has measured 30% of its clause coverage. That number is meant to look bad; the alternative
 was not knowing.
 
 **The ledger has been wrong twice**, which is worth knowing before trusting a row: §8.9.5.3's note
@@ -715,12 +711,13 @@ Over the 974-document pdf.js corpus, page one:
 | of the 10 that do not, need a password | 8 | — |
 | of the 10 that do not, are encrypted beyond us | 2 | — |
 | reaches page one | 953 | 98% |
-| **draws with nothing reported** | **816** | **84%** |
-| draws, with something reported | 137 | 14% |
+| **draws with nothing reported** | **824** | **85%** |
+| draws, with something reported | 129 | 13% |
 
-That 84% is the number to quote for *reporting*, and it rose by eight documents in the
-twenty-second session while ten left the reporting column — six of them by saying they need a
-password instead of describing ciphertext as an operator. Before that it **rose by forty-two** in
+That 85% is the number to quote for *reporting*, and it rose by eight documents again in the
+twenty-third session, all of them form fields and free text annotations; by eight in the
+twenty-second, while ten left the reporting column — six of them by saying they need a password
+instead of describing ciphertext as an operator. Before that it **rose by forty-two** in
 the twenty-first, the largest movement it has ever had, all of it annotations that were refused
 rather than drawn wrongly; by thirty-one in the twentieth (embedded `CMap`s); by seventeen in the
 eighteenth (soft masks in an `/ExtGState`); and it *fell* by six in the seventeenth, when seven
@@ -739,14 +736,14 @@ ended.
 
 ### By what an independent renderer sees
 
-This is the number to worry about. Over all 1794 pages compared, of the 1611 we claim to draw
+This is the number to worry about. Over all 1794 pages compared, of the 1620 we claim to draw
 completely:
 
-| | count | share of the 1611 |
+| | count | share of the 1620 |
 |---|---|---|
-| agree with the reference consensus | 747 | 46% |
+| agree with the reference consensus | 754 | 47% |
 | **contradicted by it** | **102** | **6%** |
-| the references cannot agree among themselves | 749 | 47% |
+| the references cannot agree among themselves | 751 | 46% |
 | not comparable (geometry, or fewer than two renderers) | 13 | 1% |
 
 **One page in sixteen that we say we drew completely, two independent implementations say we did
@@ -763,8 +760,9 @@ first, which a page-one comparison would never have seen.
 
 **The pattern to read this table by**: a feature that makes pages drawable adds them to the set
 being judged, so the numerator and the denominator move together and only one of those is news.
-The twenty-second session added 8 pages, 5 of them agreeing and **none contradicted**, which is
-the first session in five where that count did not move; the twenty-first added 46 with 36
+The twenty-third session added 9 pages, 7 of them agreeing and **none contradicted**; the
+twenty-second added 8, 5 agreeing and none contradicted — two sessions in a row where that count
+did not move, after four in which it did. The twenty-first added 46 with 36
 agreeing; the twentieth added 32 with 18 agreeing; the eleventh's 42 new pages took the count from 104 to 108 with nothing getting
 worse. Conversely a *fall* is only a fix when the page stays in the comparison — the seventeenth
 session's 100 → 93 was one fix and six honest withdrawals, and the fifteenth's fixed
@@ -786,14 +784,14 @@ where the two disagree the ledger is the one that had to name a code site.
 
 | Clause | Subclauses | State |
 |---|---|---|
-| 7 Syntax | 138 | **Nearly complete**, 40 rows reviewed — the whole of §7.6 as a family. Objects, **every standard filter but `LZWDecode`**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. |
+| 7 Syntax | 138 | **Nearly complete**, 48 rows reviewed — the whole of §7.6 as a family. Objects, **every standard filter but `LZWDecode`**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
 | 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 52 rows reviewed, with §8.9, §8.10, §8.6.6 and §8.6.7 done as families. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. A general `/Decode` array is not applied and not reported; 2, 4 and 16 bits per component are refused. |
 | 9 Text | 65 | **Partial**, 38 rows reviewed — §9.3, §9.4 and the whole of §9.7 as families. Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. Missing: bare Type1, Table 116's predefined `CMap`s, vertical writing, and text knockout (§9.3.8, reported). |
 | 10 Rendering | 36 | **Partial**, 6 rows reviewed — the whole of §10.7. Colour management and rendering intents are done. Halftones and transfer functions describe a marking device. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
 | 11 Transparency | 58 | **Partial**, 46 rows reviewed — everything from §11.4 onwards, leaving only §11.1–§11.3.5 and §11.3.8, which are the model rather than its PDF representation. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
-| 12 Interactive features | 166 | **Appearances, and now constructed ones**: 35 rows reviewed, the whole of §12.5. An annotation is placed and drawn from `/AP` (§12.5.5) with §12.5.3's flags and §8.11.3.3's `/OC` honoured, and one with no `/AP` is constructed from its subtype's clause or refused with the reason named (ADR 0030). No forms, actions or navigation exist, and §12.7.4.3's variable text is the one clause a field's own appearance needs. |
+| 12 Interactive features | 166 | **Appearances, constructed ones, and a field's own text**: 51 rows reviewed — the whole of §12.5, and the whole of §12.7.4 and §12.7.5 with §12.7 to §12.7.3 above them. An annotation is placed and drawn from `/AP` (§12.5.5) with §12.5.3's flags and §8.11.3.3's `/OC` honoured; one with no `/AP` is constructed from its subtype's clause or refused with the reason named (ADR 0030); and a field's value, caption or free text is laid out from its `/DA` by §12.7.4.3 (ADR 0032). What does not exist is *behaviour*: no actions (§12.7.6), no FDF (§12.7.8), no navigation, no signature validation (§12.8). |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. Its rows carry that exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
-| 14 Document interchange | 152 | **Output intents only.** No tagged PDF, no metadata, no marked-content semantics — `BDC`/`EMC` are parsed and maintain the optional-content stack. §14.3.2 is read only as far as Table 21's `/EncryptMetadata` needs: a metadata stream a document leaves in the clear is not decrypted. |
+| 14 Document interchange | 152 | **Output intents, and marked content as a bracket.** No tagged PDF, no metadata, no marked-content *semantics* — but §14.6.1's nesting rule is now read twice over: `BDC`/`EMC` maintain the optional-content stack, and §12.7.4.3's splice has to find the `EMC` matching a `/Tx BMC`, which is the same sentence as an algorithm. §14.3.2 is read only as far as Table 21's `/EncryptMetadata` needs. |
 
 So: the parts of the standard that decide whether a page is drawn correctly are largely done; the
 parts that make a document *interactive* are not started.
@@ -812,7 +810,9 @@ parts that make a document *interactive* are not started.
 | Text rendering modes | **8 of 8** in §9.3.6 Table 104: fill, stroke in user space, both per glyph, invisible, and the four that add glyphs to the clipping path at `ET`. An operand outside 0..7 is reported. |
 | Text state parameters | 8 of Table 102's 9. Missing: `Tk` (§9.3.8), read from `/TK` and reported where it can show. |
 | Word spacing (§9.3.3) | A property of the *code's encoded length*, not of the font: an embedded `CMap` may define codes of several lengths in one font and four of the corpus's do. |
-| Annotations | Placed by §12.5.5, drawn from `/AP`, and **constructed** where there is none: a link's border, a square, a circle, a polygon, a polyline, an ink scribble, a line, and a widget's `/MK` frame. Icons, text markup, and anything needing §12.7.4.3's variable text are refused and named (ADR 0030). |
+| Annotations | Placed by §12.5.5, drawn from `/AP`, and **constructed** where there is none: a link's border, a square, a circle, a polygon, a polyline, an ink scribble, a line, a widget's `/MK` frame, and **its field's text** (ADRs 0030, 0032). Icons and text markup are refused and named. |
+| Form fields (§12.7.4.3) | A text field's `/V`, a choice field's selection, a button's Table 192 caption and a `FreeText`'s `/Contents`, laid out from a `/DA` string resolved in `/DR`: quadding, auto-sizing, wrapping, Table 232's comb cells, and a password field's bullets. `/NeedAppearances` splices the `/Tx` region of a stored stream and keeps the rest. |
+| Text strings (§7.9.2.2) | All three encodings, chosen by the clause's prefix, with surrogate pairs paired, §7.9.2.2.2's language escapes removed and Annex D Table D.3 compiled in. |
 | Image masking | All four mechanisms an image can carry plus the graphics state's own, combined on the finer of the two grids with a bound on the growth; a graphics-state mask is combined at *device* resolution. §11.6.4.3's precedence decides which wins. |
 | Transparency groups | §11.6.6's `/Group` with the blend mode and both alphas reset inside, and §11.4.7's page group, which is why a page is drawn onto transparency and imposed on the medium afterwards. |
 | Image resampling | Magnification is §8.9.5.3's `/Interpolate`; reduction is §10.7.4's, and is the one place this tree knowingly does what a clause forbids (ADR 0025). Both decisions live in `pdf-render`. |
@@ -827,7 +827,7 @@ parts that make a document *interactive* are not started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name — 102 contradicted pages, 60 of them unexplained, and a
 feature list sized by how many documents want each item. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **524 of 823 subclauses are `unreviewed`**. A project running only the
+§6.3.2.2's ranking name: **498 of 823 subclauses are `unreviewed`**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -836,7 +836,8 @@ per session**, with the spec item usually the smaller, because reviewing a claus
 code that exists is cheaper than writing a feature. Three shapes have worked:
 
 - **The same family for both**, which is the best when available: §8.11 in the ninth session, §9.7
-  in the twentieth, §12.5 in the twenty-first, §7.6 in the twenty-second.
+  in the twentieth, §12.5 in the twenty-first, §7.6 in the twenty-second, §12.7.4 with §12.7.5 in
+  the twenty-third.
 - **Take the demand item, then review the family the code you just wrote cites.** Sessions ten to
   eighteen. **Read the family before writing the feature, not only after** — the sixteenth session
   found that the clause governing its demand item *forbids what the demand item asked for*, which
@@ -845,11 +846,11 @@ code that exists is cheaper than writing a feature. Three shapes have worked:
   reading §8.6.6 with §8.6.7 found two unimplemented colourants and dissolved the demand item
   entirely.
 
-Every one of the seventeen family reviews so far has produced findings the demand item could not
-have reached — forty-seven of them, most recently three in §7.6: §7.6.6 binding a failed
-authorization to a stream rather than to the file, §7.6.4.3.3 making the encrypted `/Perms` block
-outrank the plaintext `/P` beside it, and Table 25's two readings of `/Length` being separable
-because its own bounds do not overlap. **A gap sized by a corpus is a hypothesis about a clause**, and the only instrument that
+Every one of the eighteen family reviews so far has produced findings the demand item could not
+have reached — fifty of them, most recently three in §12.7: §12.7.4.3's closing paragraph making
+regeneration a *splice* rather than a rebuild, the three field types whose own subclauses say the
+flag cannot reach them, and §12.7.5.2.3's `/AS`-over-`/V` rule, which `annotation.rs` already
+satisfied without anybody having written the sentence down. **A gap sized by a corpus is a hypothesis about a clause**, and the only instrument that
 can test it is the clause.
 
 **And a third thing, on neither track: the instrument.** 95% of the oracle's cost was three other
@@ -859,13 +860,15 @@ and one wrong. The tree was also not `clippy` clean while this file said it was.
 file asserts about the tooling, run it once before believing it.**
 
 The one-line version of the demand track: **102 pages we claim to draw are contradicted, 60 of
-them for no reason visible on the page. The largest remaining gap is §12.7.4.3's variable text at
-13 documents**, followed by §9.7.5.2's predefined `CMap`s at 12 — a licensing decision rather than
-code — and §12.5.6.10's text markup at 8, which is a decision about what a highlight looks like.
-**Encryption has left this list**, and what replaced it is not a clause at all: eight documents
-need a password prompt, which is `viewer-ui` work. The one-line version of the spec track: **16
-clauses the code already cites have never been read against it**, named in `REVIEW_OWED`. **No
-rendering feature that any corpus document announces is left on either list.**
+them for no reason visible on the page**, and the largest thing left that any corpus document
+names is §9.7.5.2's predefined `CMap`s at 12 — a licensing decision rather than code — followed by
+§12.5.6.10's text markup at 8, which is a decision about what a highlight looks like. **Variable
+text has left this list, as encryption did before it**, and what replaced both is not clause work:
+eight documents need a password prompt and five write a `/DA` naming a font their own `/DR` does
+not define. The one-line version of the spec track: **16 clauses the code already cites have never
+been read against it**, named in `REVIEW_OWED`. **No rendering feature that any corpus document
+announces is left on either list, and that has now been true for two sessions running** — which is
+the corpus going quiet, and exactly the condition `CLAUDE.md`'s two-track rule exists for.
 
 ### 0. The ledger, and the cheapest reviews available
 
@@ -873,15 +876,16 @@ rendering feature that any corpus document announces is left on either list.**
   the reading is against something that exists. Take them by family — §8.6.5 is five of them —
   because that is how the standard distributes its requirements, and because §9.6.5.4 was missed
   for the opposite reason: nobody had read §9.6.5 as a unit. **Expect findings.**
-- **Prefer the family belonging to whatever else the session is doing.** Done: §7.4.6, §8.6.4.2,
-  §8.6.6, §8.6.7, §8.6.8, all of §8.9, §8.10, §9.3, §9.4, §9.6.4, §9.6.5, §9.7, §10.7, §11.3.7,
-  §11.4, §11.5, §11.6, §11.7 — the whole of clause 11 — §12.5 with §12.7.4.1, and now the whole
-  of §7.6. So the families left are elsewhere: §12.7.4 with §12.7.5 if variable text is the demand
-  item, §8.5.3 whenever path painting is touched (it is cited nowhere yet, and its
-  degenerate-subpath rules are unread), §9.6.2 and §9.6.3 whenever a simple font's encoding is
-  (which `issue20232.pdf` asks for), §8.6.5's five rows whenever CIE-based colour is, §8.4.3's
-  four whenever a stroke is. Record every row, including the `inapplicable` ones — a clause read
-  and dismissed is worth as much as one implemented, and costs a minute.
+- **Prefer the family belonging to whatever else the session is doing.** Done: §7.4.6, §7.6,
+  §7.9.2, §8.6.4.2, §8.6.6, §8.6.7, §8.6.8, all of §8.9, §8.10, §9.3, §9.4, §9.6.4, §9.6.5, §9.7,
+  §10.7, §11.3.7, §11.4, §11.5, §11.6, §11.7 — the whole of clause 11 — §12.5, and now §12.7
+  through §12.7.5. So the families left are elsewhere: §8.5.3 whenever path painting is touched
+  (it is cited nowhere yet, and its degenerate-subpath rules are unread), §9.6.2 and §9.6.3
+  whenever a simple font's encoding is (which `issue20232.pdf` asks for), §8.6.5's five rows
+  whenever CIE-based colour is, §8.4.3's four whenever a stroke is, and **§12.7.6 with §12.7.8**
+  whenever anything about a form's *behaviour* is — those two and §12.8 are the whole of what is
+  left in clause 12 outside §12.6's actions. Record every row, including the `inapplicable` ones —
+  a clause read and dismissed is worth as much as one implemented, and costs a minute.
 - **One `silent` row is left**, §8.11.4.4's usage dictionaries: a layer that should switch itself
   off by zoom, language or print state is drawn with nothing said. It is last on purpose — it
   needs a layer panel to be worth more than a report — and it is the only silence where a report
@@ -957,11 +961,11 @@ specification, and "make it match mupdf" is exactly the failure this project for
   `Document::open_with_password` already takes one. It needs a dialogue, a retry loop and a
   decision about where a wrong password is reported — `viewer-ui` work that nothing else on this
   list depends on.
-- **§12.7.4.3's variable text** (13 documents) is the one job that closes four separate refusals:
-  a field's value, a check box's tick, a `FreeText`'s content and a redaction's overlay. It needs
-  a text layout routine — a `/DA` string parsed against `/DR`, a size of 0 meaning auto-fit, `/Q`
-  quadding, and the `/Tx BMC` … `EMC` wrapper the clause requires — which this crate has never
-  had. Take it with §12.7.4 and §12.7.5 as the spec item.
+- **§12.5.6.19's redaction overlay and a widget's `/R`** are the two edges §12.7.4.3's layout left
+  behind, and neither is reached by any corpus document. Table 193's `/OverlayText` is text drawn
+  over a redacted region and the layout routine now exists for it; Table 192's `/R` rotates a
+  widget's contents inside `/Rect`, which no background could see and one line of text can — it is
+  reported where a widget states one and has text to put in it.
 - **§12.5.6.10's text markup appearances** (8 documents) are *not* that job. The clause states no
   mark, and the three references draw three different pictures; anything built here is a
   documented choice about what a highlight looks like, and it should be argued as one rather than
@@ -980,16 +984,24 @@ with both, alternating, best of N.
 
 | | |
 |---|---|
-| total, ours | **5.4 s** against `hayro`'s 40.1 s, over 685 pages |
-| **median page** | **1.66× slower** |
-| worst page | 31× (was 34×, was 225×) |
+| total, ours | **7.1 s** against `hayro`'s 32–41 s, over 818 complete pages |
+| **median page** | **2.14× slower** |
+| worst page | 32× (was 34×, was 225×) |
 
 **The totals and the median answer different questions and only quoting both is honest.** In
-aggregate we are 7.4× faster because their distribution has a long tail and ours no longer does.
-On the median page we are still 1.66× slower and **that number has never moved** — 1.61×, then
-1.62×, then this. Recent sessions' interpretation costs, by callgrind on
+aggregate we are 4.5× to 5.8× faster — the range is `hayro`'s own run-to-run variance on this
+machine, which is a reminder that wall-clock numbers lie — because their distribution has a long
+tail and ours no longer does.
+
+**The median is 2.14× and the number an earlier version of this file quoted was 1.66×, and the
+denominator is the whole difference.** That measurement was over 685 pages; there are now 818,
+because four sessions of features moved 133 more pages into the "we draw this completely" set, and
+the ones that moved are annotation-heavy and text-heavy rather than typical. Measured at the
+previous commit on this machine in the same sitting, the median is **2.17×** — so the
+twenty-third session moved it by nothing, and neither did the growth of the set move *our* total,
+which was 7.01 s before and 7.07 s after. Recent sessions' interpretation costs, by callgrind on
 `examples/callgrind_interpret`: text rendering modes +0.46%, masking +0.12%, soft masks +0.05%,
-composite fonts +0.44%, constructed appearances +0.34%. `callgrind_rasterise.rs` exists because
+composite fonts +0.44%, constructed appearances +0.34%, variable text +0.31%. `callgrind_rasterise.rs` exists because
 the first example stops at the display list, so a backend change measures as exactly zero there;
 area averaging cost between −2.4% and +9.0% depending on the page, and the corpus gate could not
 see the difference.
@@ -1047,7 +1059,7 @@ rise is a new report and is written down as one.
 | needs a password | 8 | §7.6.4.1's prompt is the missing piece, not the clause |
 | encrypted beyond this reader | 2 | 1 is `/R` 5, which the standard states no algorithm for; 1 is a file whose `/Encrypt` does not resolve to a dictionary |
 | no page one | 11 | unrecoverable page trees; 2 of them are encrypted files that authenticate and then fail to inflate, which `poppler` reports of them too |
-| draws incompletely | 137 | Counted by each document's *first* report, so the column sums: 67 a font, 24 an annotation, 18 a transparency group or mask departure, 12 an image, 9 an operator, 4 an object composited in parts, 1 an undecodable content stream, 1 a text knockout, 1 a bound reached |
+| draws incompletely | 129 | Counted by each document's *first* report, so the column sums: 66 a font, 18 a transparency group or mask departure, 17 an annotation, 12 an image, 9 an operator, 4 an object composited in parts, 1 an undecodable content stream, 1 a text knockout, 1 a bound reached |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 - **The `Content` row was 10 and is 1, and the `Operator` row 12 and is 9** (ADR 0031). Nine of
@@ -1055,10 +1067,12 @@ rise is a new report and is written down as one.
   ciphertext, and three of the operator reports were the same ciphertext lexing as operator names.
   Six of those twelve documents now draw with nothing reported and six say they need a password.
   Nothing on either row is a feature.
-- **The annotation row was 67 and is 24**, the largest fall any row has had (ADR 0030): 7
-  `/NeedAppearances`, 8 text markup, 4 `FreeText`, 2 a field value, 1 an appearance stream with no
-  `/BBox`, 1 an unknown subtype, 1 a `Line` whose `/LL` moves the line. **Only 13 of those name a
-  clause this project owes work on**, and they name the same clause.
+- **The annotation row was 67, then 24, and is 17** (ADRs 0030, 0032): 13 text markup (§12.5.6.10,
+  counted per annotation rather than per document, which is why they outnumber the 8 documents),
+  5 a `/DA` naming a font the `/DR` does not define, 1 a check box the file calls on with no mark
+  stated for it, 1 an appearance stream with no `/BBox`, 1 an unknown subtype, 2 a `Line` whose
+  `/LL` or line endings state no geometry, 1 an `Ink` with no usable `/Rect`. **Nothing on it is a
+  `/NeedAppearances` and nothing is a field value.**
 - **The font row was 100 before ADR 0029 and is 67.** Counted as *fonts* rather than documents:
   27 with no `/ToUnicode`, 23 whose substitute draws none of their declared codes, 15 naming a
   predefined `CMap`, 4 asking for vertical writing, and the rest malformed programs. Nothing on it
@@ -1075,17 +1089,18 @@ rise is a new report and is written down as one.
 
 Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both directions.
 
-| of the 1611 pages we call complete | count | |
+| of the 1620 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 747 | |
+| agree with the reference consensus | 754 | |
 | **contradicted** | **102** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 4 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 2 glyphs judged as vector, 1 a symbolic font's contradictory flags, 16 substituted fonts, **60 unexplained** |
-| ambiguous | 749 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
+| ambiguous | 751 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 3 | 2 are `/UserUnit`, 1 unexamined |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
-The 183 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
-say we cannot draw is expected to differ. **The gated set grew by 8 in the twenty-second session,
-by 46 in the twenty-first** and by 32 in the twentieth, both as reports stopped firing; it *shrank* by 8 in the seventeenth as
+The 174 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
+say we cannot draw is expected to differ. **The gated set grew by 9 in the twenty-third session,
+by 8 in the twenty-second and by 46 in the twenty-first**, and by 32 in the twentieth, all as
+reports stopped firing; it *shrank* by 8 in the seventeenth as
 two silences ended, and by 43 in the eighth, which is the cost of honesty and the reason a report
 should never be reached for as a way of making a contradiction go away.
 
@@ -1110,6 +1125,24 @@ rather than failing — but the ratchets only mean anything where it is present,
 ## Habits these sessions earned
 
 Each of these was paid for once. The traps above are about code; these are about how to work.
+
+**A clause's last paragraph can invert its first.** §12.7.4.3 opens by describing a processor
+constructing an appearance stream and closes by describing it *splicing* one — "replace the
+existing contents of the appearance stream from … BMC to the matching EMC" — and only the closing
+sentence says what happens to a stored stream. The rebuild reading is defensible from the opening,
+agrees with the splice on every document that has a value, and differs on exactly the one that has
+none. Read the whole subclause before believing the sentence that answered your question.
+
+**Two references agreeing is evidence — once you can say what they agree *about*.** Trap 9's three
+shapes are all about agreement that means nothing, and this is the converse that belongs beside
+them: `poppler` and `mupdf` blanked a page we drew, the clause said why, and the reading that
+explained their output was the one the clause states. Agreement is evidence *after* the clause is
+read, never instead of reading it.
+
+**An eager lookup on a cold path is a hot-path cost when the path runs per object.** Reading the
+catalog's `/AcroForm` to give every constructed appearance its `/Resources` is obviously cheap and
+was 2.7× the whole feature's cost, because a specification page is full of link borders and none
+of them names a resource. Measure what runs per object, not what looks expensive.
 
 **Ask what a feature looks like when its parameters are not their defaults.** §9.7 gives a
 composite font two mappings and under `Identity-H` with `/CIDToGIDMap /Identity` both collapse to

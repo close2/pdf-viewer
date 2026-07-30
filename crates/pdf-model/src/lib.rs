@@ -37,6 +37,7 @@ pub mod page;
 pub mod shading;
 mod soft_mask;
 pub mod type3;
+mod variable_text;
 
 pub use content::{Interpretation, Unsupported, interpret};
 pub use page::{Page, Pages};

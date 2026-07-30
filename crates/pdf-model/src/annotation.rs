@@ -43,8 +43,15 @@ pub(crate) enum Content {
     /// `/AP /N`, a form `XObject` (§12.5.5).
     Stored(Arc<Stream>),
     /// A content stream constructed from the annotation's appearance characteristics
-    /// (§12.7.4.3, [`crate::appearance`]).
-    Constructed(Vec<u8>),
+    /// (§12.7.4.3, [`crate::appearance`]), with the resources it may name.
+    ///
+    /// The resources are Table 224's `/DR`, which §12.7.4.3 makes the `/Resources` of an
+    /// appearance a processor builds. They are empty for a construction that only draws
+    /// paths, and they carry the `/DA` string's font for one that draws text.
+    Constructed {
+        bytes: Vec<u8>,
+        resources: Dictionary,
+    },
 }
 
 /// An appearance stream, resolved and placed.
@@ -68,8 +75,6 @@ pub(crate) struct Appearance {
     /// The annotation's blend mode name, from `/BM`, if it names one and the appearance is
     /// constructed.
     pub blend: Option<String>,
-    /// Whether this is a `Widget`, whose appearance `/NeedAppearances` may declare stale.
-    pub is_widget: bool,
 }
 
 /// What an entry in `/Annots` asks the page to draw.
@@ -180,19 +185,37 @@ pub(crate) fn decide(document: &Document, annotation: &Dictionary) -> Decision {
     };
     let matrix = matrix(document, &stored.dict);
 
+    // §12.7.4.3 by way of Table 224's `/NeedAppearances`: for the field types whose text is
+    // "not known until viewing time", the writer has said the stored stream may not match the
+    // value, so the stream's `/Tx` marked-content region is rewritten in place. Everything
+    // outside it is the file's own artwork and stays, which is what makes this a splice rather
+    // than a second construction — see `crate::appearance::regenerate`.
+    let mut owed = None;
+    let mut content = Content::Stored(Arc::clone(&stored));
+    if crate::appearance::regenerates(document, annotation, &subtype)
+        && let Some(regenerated) =
+            crate::appearance::regenerate(document, annotation, &stored, bbox)
+    {
+        owed = regenerated.report.map(|detail| format!("{name}: {detail}"));
+        content = Content::Constructed {
+            bytes: regenerated.content,
+            resources: regenerated.resources,
+        };
+    }
+
     Decision::Draw {
         appearance: Box::new(Appearance {
             transform: placement(bbox, matrix, rect),
             bbox,
             // §12.5.2 and Table 166: a stored stream states its own transparency, so the
-            // annotation's `/ca`, `/CA` and `/BM` are not applied to it.
+            // annotation's `/ca`, `/CA` and `/BM` are not applied to it — and a regenerated
+            // one is still that stream, with one region of its marks rewritten.
             fill_alpha: 1.0,
             stroke_alpha: 1.0,
             blend: None,
-            is_widget: subtype == b"Widget",
-            content: Content::Stored(stored),
+            content,
         }),
-        owed: None,
+        owed,
     }
 }
 
@@ -244,8 +267,10 @@ fn construct(
                 .get_key(annotation, "BM")
                 .as_name()
                 .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
-            is_widget: subtype == b"Widget",
-            content: Content::Constructed(content),
+            content: Content::Constructed {
+                bytes: content,
+                resources: constructed.resources,
+            },
         }),
         owed,
     }

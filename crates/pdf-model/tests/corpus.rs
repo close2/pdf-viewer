@@ -326,7 +326,15 @@ const MAX_PAGELESS: usize = 11;
 /// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
 /// and it is the visible face of a gap this project already knows about: a font reports as a
 /// whole, so a glyph that fails to load draws nothing and says nothing.
-const MAX_INCOMPLETE: usize = 137;
+/// **137 to 129 in the twenty-third session**, and this one has a rise inside it. §12.7.4.3's
+/// variable text closed the whole annotation half of the list a clause was owed for: 9
+/// documents stopped saying `/NeedAppearances`, 3 stopped saying a widget holds a value, and 4
+/// `FreeText` annotations stopped saying their text needs laying out. What replaced them is 5
+/// documents whose `/DA` names a font the interactive form dictionary's `/DR` does not define,
+/// which is a sharper statement about the same files — and one document, `checkbox_no_appearance.pdf`,
+/// that had been silent and now says a check box it draws as empty is one the file calls
+/// checked. Nothing on this row is a `/NeedAppearances` any longer.
+const MAX_INCOMPLETE: usize = 129;
 
 /// How long one document may take before it counts as a failure.
 ///

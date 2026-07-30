@@ -31,6 +31,7 @@ pub mod filter;
 pub mod lexer;
 pub mod object;
 pub mod parser;
+pub mod text_string;
 pub mod xref;
 
 pub use crypt::Permissions;
@@ -39,4 +40,5 @@ pub use error::{SyntaxError, SyntaxResult};
 pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
 pub use parser::{Limits, Parser};
+pub use text_string::text_string;
 pub use xref::{Location, XrefTable};

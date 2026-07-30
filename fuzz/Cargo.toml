@@ -16,6 +16,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 pdf-syntax = { path = "../crates/pdf-syntax" }
 pdf-font = { path = "../crates/pdf-font" }
+pdf-model = { path = "../crates/pdf-model" }
 
 [profile.release]
 debug = true
@@ -54,6 +55,13 @@ bench = false
 [[bin]]
 name = "crypt"
 path = "fuzz_targets/crypt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "variable_text"
+path = "fuzz_targets/variable_text.rs"
 test = false
 doc = false
 bench = false

@@ -90,12 +90,18 @@ status = "unreviewed"
 [[clause]]
 clause = "7.3.4.2"
 title = "Literal strings"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs", "crates/pdf-model/src/variable_text.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::literal_strings_handle_nesting_and_escapes", "crates/pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box"]
+note = "Read in the lexer and, since §12.7.4.3's variable text, written as well: the appearance stream this tree constructs shows a field's value as a literal string, so the clause's escapes have to be produced rather than only consumed. `variable_text::show` escapes the two parentheses and the reverse solidus the clause names and writes every other non-printable byte as its three-digit octal escape, which is the same subclause's octal form. The reading side takes all eight escape sequences, the line continuation, and the rule that an unbalanced parenthesis is a lexical error."
 
 [[clause]]
 clause = "7.3.4.3"
 title = "Hexadecimal strings"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::hex_strings_ignore_junk_and_pad_an_odd_digit"]
+note = "Both of the clause's rules: every character outside `0`-`9`, `A`-`F` and `a`-`f` is ignored, and 'If the final digit of a hexadecimal string is missing … it shall behave as if a 0 (zero) followed the last digit.' Written as well as read, in one place — the §12.7.4.3 fuzz target puts its bytes into a `/DA` and a `/V` as hexadecimal strings so that no input can close the object around them."
 
 [[clause]]
 clause = "7.3.5"
@@ -627,37 +633,58 @@ status = "unreviewed"
 [[clause]]
 clause = "7.9.2"
 title = "String object types"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_string_with_no_prefix_is_pdfdocencoded"]
+note = "Three of the four string object types are read where they are used. §7.9.2.2's text string is `text_string`, compiled against Table D.3; §7.9.2.4's byte string is the lexer's own output, which is what every other reader of a `/String` takes; §7.9.2.3's PDFDocEncoded string shares Table D.3 with the text string type and differs only in admitting no Unicode prefix, which no entry this tree reads distinguishes. What is not here is the *typing*: the object model carries one string type and each reader decides which of the four it holds, so a text string read as bytes is a defect nothing in this crate can catch."
 
 [[clause]]
 clause = "7.9.2.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/object.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_string_with_no_prefix_is_pdfdocencoded"]
+note = "The clause's whole content is a statement about the object model: 'PDF supports one fundamental string object' and 'the string object shall be further qualified as a text string, ASCII string, or byte string'. This crate holds exactly that — one `Object::String` of bytes, qualified by whoever reads it. Figure 7's containment is why `text_string` can be applied to any string and why an ASCII string needs no decoder."
 
 [[clause]]
 clause = "7.9.2.2"
 title = "Text string type"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_string_with_no_prefix_is_pdfdocencoded", "crates/pdf-syntax/src/text_string.rs::a_utf16be_marker_selects_utf16be", "crates/pdf-syntax/src/text_string.rs::a_utf8_marker_selects_utf8"]
+note = "All three encodings the clause names, chosen by the prefix it states, with Annex D's Table D.3 compiled in. The reason it exists is §12.7.4.3: a field's `/V` and a free text annotation's `/Contents` are text strings and have to become characters before they can become glyphs. Table D.3 is not ISO Latin 1 and the differences decide pages — 0xA0 is EURO SIGN, 0x18 to 0x1F are accents, 0x80 to 0x9E are punctuation — so a Latin 1 decode would draw the wrong character with nothing reported."
 
 [[clause]]
 clause = "7.9.2.2.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_surrogate_pair_is_one_character", "crates/pdf-syntax/src/text_string.rs::the_table_is_not_latin_1", "crates/pdf-syntax/src/text_string.rs::an_undefined_code_point_is_the_replacement_character"]
+note = "The prefix rule and all three encodings, including the clause's requirement that a reader 'shall be prepared to handle supplementary characters' — UTF-16BE is decoded by pairing surrogates rather than by taking each code unit as a character, which its NOTE 5 is there to warn against. A code Table D.3 marks Undefined becomes U+FFFD, so it reaches the layout as a character no font encodes and is reported there rather than dropped."
 
 [[clause]]
 clause = "7.9.2.2.2"
 title = "Text string language escape sequences"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_language_escape_sequence_shows_nothing", "crates/pdf-syntax/src/text_string.rs::a_lone_escape_does_not_swallow_the_rest_of_the_string"]
+note = "Both shapes the clause states — U+001B, a two-letter language code, an optional two-letter country code, U+001B — are removed from a Unicode text string, because the sequence marks a language and carries no character to display. Only from the two Unicode forms: the clause states the byte sequences for UTF-16BE and UTF-8 and not for PDFDocEncoding. A U+001B with no closing one is left where it stands rather than swallowing the rest of the value. What is *not* done with it is anything: the language it names would matter to a text-to-speech engine and to §14.9.2's `/Lang`, and neither exists here."
 
 [[clause]]
 clause = "7.9.2.3"
 title = "PDFDocEncoded string type"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::the_table_is_not_latin_1"]
+note = "The same Table D.3 as §7.9.2.2, which is the whole of the type: 'a character string in which the characters shall be represented in a single byte using PDFDocEncoding'. No entry this tree reads is typed as one rather than as a text string, and the two differ only in whether a Unicode prefix is honoured, so the table has one reader."
 
 [[clause]]
 clause = "7.9.2.4"
 title = "Byte string type"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lexer.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::hex_strings_ignore_junk_and_pad_an_odd_digit"]
+note = "A byte string is what the lexer produces for every `/String`: 'binary data that shall be represented as a series of bytes, where each byte may be any value representable in 8 bits'. The two places the tree needs it as such are §7.6's `/O`, `/U`, `/OE`, `/UE` and `/Perms` and §14.4's file identifier, both of which take the bytes unchanged."
 
 [[clause]]
 clause = "7.9.3"
@@ -3121,96 +3148,141 @@ status = "unreviewed"
 [[clause]]
 clause = "12.7"
 title = "Forms"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/variable_text.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box"]
+note = "The display half of the clause is built and the behaviour half is not, which is the division principle 5's exclusions draw. A field's appearance is constructed where §12.7.4.3 states how — its value, its caption, its quadding, its font — and read from `/AP` otherwise. What a field *does* is absent: no actions, no calculation order, no validation, no submission, and ECMAScript is excluded outright."
 
 [[clause]]
 clause = "12.7.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "Two definitions and a NOTE warning that an interactive form is not a form XObject. No requirement on a processor."
 
 [[clause]]
 clause = "12.7.2"
 title = "Interactive Forms"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"]
+note = "The clause states the hierarchy — terminal and non-terminal fields, widgets as children, and the merged single-widget dictionary — and one requirement that reaches a page: 'If such an object defines an appearance stream, the appearance shall be consistent with the object's current value as a field.' That sentence is what Table 224's `/NeedAppearances` admits is false, and it is why `appearance::regenerates` sets a stored stream aside for the two field types whose text §12.7.4.3 has a processor lay out. The merged dictionary is handled by reading a widget and its field from the same dictionary, which is what `Field::read` does when the `/Parent` chain is empty. The hierarchy itself is walked upward only; `/Kids` is never followed downward, because nothing that draws needs to."
 
 [[clause]]
 clause = "12.7.3"
 title = "Interactive form dictionary"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"]
+note = "Three of Table 224's entries reach the page and the rest do not. `/DR` is the resource dictionary of every appearance constructed here (§12.7.4.3) and of every `/DA` string's font, including a free text annotation's; `/DA` and `/Q` are read as the document-wide defaults the table calls them, after the field's own and its ancestors'; `/NeedAppearances` decides whether a stored appearance is rewritten. Not read: `/Fields`, because drawing walks `/Annots` rather than the field tree; `/SigFlags` and `/CO`, which are signature and calculation behaviour; and `/XFA`, which principle 5 excludes by name."
 
 [[clause]]
 clause = "12.7.4"
 title = "Field dictionaries"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box"]
+note = "Family head. §12.7.4.1's inheritance and §12.7.4.3's variable text are implemented; §12.7.4.2's field names are read nowhere, because nothing that draws needs a field's name."
 
 [[clause]]
 clause = "12.7.4.1"
 title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/appearance.rs"]
-test = ["crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value"]
-note = "One requirement of this clause reaches the page today, and it is inheritance: Table 226 marks /FT, /Ff, /V and /DV inheritable, and a widget merged with its field may hold none of them, so /V is looked for up the /Parent chain when deciding whether a field has a value §12.7.4.3 would have to lay out. **The clause forbids the bound that walk carries** — 'An interactive PDF processor shall not limit the range of inheritance for field dictionaries' — and it is bounded at 32 anyway, because a /Parent chain in a hostile file can be a cycle and principle 3's resource budgets outrank a depth no legitimate form approaches. Reaching the bound is reported rather than read as 'no value', so the departure is visible on any page that hits it. Nothing else here is a rendering requirement: /T, /TU and /TM are names, /Kids is the hierarchy, /AA is a trigger, and Table 227's ReadOnly, Required and NoExport constrain interaction and submission."
+test = ["crates/pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box"]
+note = "Table 226's inheritance is implemented and is what makes a merged widget work: `/FT`, `/Ff` and `/V` are taken from the nearest ancestor that states them, in one walk of the `/Parent` chain rather than one per key. **The clause forbids the bound that walk carries** — 'An interactive PDF processor shall not limit the range of inheritance for field dictionaries' — and it is bounded at 32 anyway, because a `/Parent` chain in a hostile file can be a cycle and principle 3's resource budgets outrank a depth no legitimate form approaches; reaching it is reported rather than read as 'no value'. Table 227's three flags are behaviour: ReadOnly and Required constrain interaction, NoExport constrains submission, and none changes a mark. `/T`, `/TU` and `/TM` are names, `/Kids` is the hierarchy walked the other way, `/AA` is a trigger, and `/DV` matters only to §12.7.6.3's reset."
 
 [[clause]]
 clause = "12.7.4.2"
 title = "Field names"
-status = "unreviewed"
+status = "inapplicable"
+note = "A field's partial and fully qualified names, the PERIOD that separates them, and the rule that a dictionary with no `/T` 'shall not be considered a field but simply a Widget annotation'. Names identify a field for export, scripting and the user interface, none of which decides a mark; the widget rule is honoured by construction rather than by code, since drawing reads `/FT` up the `/Parent` chain and never asks whether a dictionary is a field. The requirement that two fields with the same fully qualified name share `/FT`, `/V` and `/DV` is on the writer."
 
 [[clause]]
 clause = "12.7.4.3"
 title = "Variable text"
-status = "reported"
-note = "The clause a field's own appearance needs, and none of it is implemented. Its subject is the appearance a processor builds when 'the value ... is not known until viewing time', which 'cannot provide a statically defined appearance stream': the field's /V laid out in the font, size and colour a /DA string names against the /DR resource dictionary, with a size of 0 meaning 'auto-size to fit', /Q's quadding choosing the alignment, and the whole thing wrapped in the /Tx BMC ... EMC marked-content pair the clause requires. /DS and /RV add a rich-text form of the same. This is reported from two places rather than skipped: an /AcroForm setting /NeedAppearances says the stored appearance streams may be stale and we draw them anyway because they are all the file offers (Table 226), and a widget with no appearance stream at all draws Table 192's background and border and reports the value it cannot lay out (§12.5.6.19). 13 corpus documents report one or the other. Closing this is the same work as §12.5.6.6's free text and §12.5.6.10's text markup: a text layout routine this crate does not have yet."
+status = "partial"
+code = ["crates/pdf-model/src/variable_text.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box", "crates/pdf-model/tests/variable_text.rs::a_zero_size_is_auto_sized_until_the_value_fits", "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"]
+note = "The clause's operation, both of its forms. Where there is no appearance stream one is written: Table 228's `/DA` is parsed for its `Tf`, its colour and its text state, the font is resolved in `/DR`, the value is measured and positioned by `/Q`, and the marks go inside the `/Tx BMC` … `EMC` pair the clause's EXAMPLE shows. Where there is one, the clause's closing paragraph is a *splice* rather than a rebuild — the region from `/Tx BMC` to the matching `EMC` is replaced and everything outside it survives, with `/DR`'s resources copied in behind the stream's own. A size of 0 is auto-sized and at most one `Tm` is honoured with its translation replaced. **Three things the clause hands back are choices and are recorded as such**: where a baseline sits, how far apart two lines are (13/12 of the size, which is §12.7.5.3's own EXAMPLE), and what auto-sizing picks. Not implemented: `/DS` and `/RV`, which are XFA rich text and excluded by principle 5; a composite `/DA` font, which needs a `CMap` inverted and is refused by name; and a `/DA` naming a font `/DR` does not define, which the clause requires the writer to avoid and which is reported rather than guessed at. 5 corpus documents report the last of those. ADR 0032."
 
 [[clause]]
 clause = "12.7.5"
 title = "Field types"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::a_check_box_shows_its_caption_only_when_it_is_on"]
+note = "Family head. All four field types are recognised and each is taken to whatever §12.7.4.3 can lay out for it: a button's caption, a text field's value, a combo box's selection. A list box and a signature field are the two that state no appearance this tree can build."
 
 [[clause]]
 clause = "12.7.5.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::a_check_box_shows_its_caption_only_when_it_is_on"]
+note = "The four field types the family defines, which `FieldKind::of` reads from Table 226's `/FT` and subdivides by each type's own flags. A fifth name is not a field type and is refused rather than guessed at."
 
 [[clause]]
 clause = "12.7.5.2"
 title = "Button fields"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::a_check_box_shows_its_caption_only_when_it_is_on"]
+note = "Family head. Bits 15, 16, 17 and 26 divide the type; three of them are read and RadiosInUnison is not, because it describes what happens when a button is clicked. What a button *shows* is its `/AP` state or Table 192's caption, and both are drawn."
 
 [[clause]]
 clause = "12.7.5.2.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::need_appearances_does_not_reach_a_button"]
+note = "The three kinds of button field, separated by Table 229's Pushbutton and Radio flags. The clause's requirement that 'an interactive PDF processor shall follow the intended behaviour' is about behaviour; what it decides here is whether a value has an on state at all, which is what `FieldKind::Button`'s `toggling` carries."
 
 [[clause]]
 clause = "12.7.5.2.2"
 title = "Push-buttons"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::need_appearances_does_not_reach_a_button"]
+note = "One sentence with a rendering consequence: a push-button 'retains no permanent value' and 'shall not use the V and DV entries'. So a push-button shows Table 192's caption unconditionally rather than a value, and §12.7.4.3's regeneration does not reach it — there is no text 'not known until viewing time' to regenerate. Table 192's `/RC` and `/AC` are the rollover and down captions, which need a pointer; `/I`, `/RI`, `/IX`, `/IF` and `/TP` are an icon and its fit, and are unread."
 
 [[clause]]
 clause = "12.7.5.2.3"
 title = "Check boxes"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::a_check_box_shows_its_caption_only_when_it_is_on", "crates/pdf-model/tests/variable_text.rs::a_check_box_with_nothing_to_draw_says_so"]
+note = "The clause locates a check box's appearance and settles which entry selects it, and both are implemented. Each state 'shall be defined by an appearance stream in the appearance dictionary', so `/AP` is where a box's tick comes from and §12.7.4.3's regeneration is not applied to one. Of `/V` and `/AS` the clause is explicit: 'If they are not equal, then the value of the AS key shall be used instead of the V key' — `annotation::normal_appearance` reads `/AS` and never `/V`, which is that rule and was already right before it was read. A box with no `/AP` shows Table 192's caption if it has one and is reported if it does not, because a document saying a box is on while stating no mark for it is worth naming. Not implemented: Table 230's `/Opt`, whose purpose is export values and non-Latin on-state names, and which changes no mark this tree makes."
 
 [[clause]]
 clause = "12.7.5.2.4"
 title = "Radio buttons"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::a_check_box_shows_its_caption_only_when_it_is_on"]
+note = "A radio button and a check box differ nowhere in what is drawn: both have two states, both take the on state's appearance from `/AP` by `/AS`, both may carry Table 192's caption, and this clause repeats §12.7.5.2.3's `/AS`-over-`/V` sentence verbatim. What is specific to a radio button is all behaviour — NoToggleToOff, the mutual exclusion, RadiosInUnison — and none of it reaches a page. `Off` as the default value is honoured by treating any state but `Off` as on."
 
 [[clause]]
 clause = "12.7.5.3"
 title = "Text fields"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/variable_text.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::a_multiline_value_wraps_into_lines_that_run_down_the_box", "crates/pdf-model/tests/variable_text.rs::a_comb_field_spreads_one_character_per_cell", "crates/pdf-model/tests/variable_text.rs::a_password_field_does_not_echo_its_value"]
+note = "The clause's own sentence is the implementation: the value 'shall be used to construct an appearance stream for displaying the field, as described under 12.7.4.3' and 'shall be presented in a single style'. Three of Table 231's flags change the layout and all three are read — Multiline wraps, Comb divides the box into Table 232's `/MaxLen` cells and puts one character in each, Password echoes bullets instead of the value. This clause's own EXAMPLE is where the line spacing this tree uses comes from: two lines at `/Ti 12 Tf` set `0 -13 Td` apart. Not read: DoNotScroll and DoNotSpellCheck, which constrain typing; FileSelect, which makes the value a pathname to submit; and RichText, which is XFA and excluded — a `RichText` field's `/V` is laid out as plain text, which the clause's own conventions paragraph says is not what `/RV` describes."
 
 [[clause]]
 clause = "12.7.5.4"
 title = "Choice fields"
-status = "unreviewed"
+status = "reported"
+code = ["crates/pdf-model/src/appearance.rs"]
+note = "Half the clause draws and half is refused. A combo box shows its value, which the clause makes a text string — or the first of an array where several are selected — and that goes through §12.7.4.3 like a text field's. A **list box** does not: the clause says which items are selected and states nothing about how a selection *looks*, no highlight colour and no rule, so it is refused and named rather than drawn as unmarked text. Table 234's `/Opt`, `/TI` and `/I` are read nowhere for the same reason — they order and index a list nothing draws. No corpus document reaches either path with no appearance stream, so the refusal is currently a statement about the clause rather than about any page."
 
 [[clause]]
 clause = "12.7.5.5"
 title = "Signature fields"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing"]
+note = "A signature field is drawn from its `/AP` and from nothing else, which is what the clause describes: its value is a signature dictionary rather than text, and signing 'entails updating at least the V entry and usually also the AP entry'. So §12.7.4.3's regeneration does not reach one and a signature field with no appearance stream states nothing to draw. The clause's two visibility rules are already satisfied elsewhere: a zero-size annotation rectangle draws nothing (`annotation::decide`), and Table 167's Hidden and NoView bits are honoured there too. Table 235's `/Lock` and `/SV` are signing behaviour, and validating a signature is §12.8's."
 
 [[clause]]
 clause = "12.7.6"
@@ -4112,7 +4184,10 @@ status = "unreviewed"
 [[clause]]
 clause = "14.6.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"]
+note = "Marked content is read for two things and interpreted for neither's semantics. `BDC`/`BMC`/`EMC` maintain the stack §8.11.3.2's optional content needs, which is where the nesting rule 'shall be properly (separately) nested' becomes load-bearing; and §12.7.4.3's splice has to find the `EMC` *matching* a `/Tx BMC`, which is the same rule read as an algorithm — `appearance::spliced` counts depth over `BMC`, `BDC` and `EMC` rather than taking the first `EMC` it meets. `MP` and `DP` are matched and ignored: a point of marked content carries no marks. Nothing here reads a tag's meaning, which is §14.7's structure and §14.8's tagged PDF."
 
 [[clause]]
 clause = "14.6.2"

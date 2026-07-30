@@ -1,0 +1,500 @@
+//! ISO 32000-2 §12.7.4.3's variable text, checked by where the ink lands.
+//!
+//! Every assertion here is about a *position* or an *absence*, never about a glyph's shape.
+//! The `/DA` strings below name `/Helv`, which no fixture embeds, so the glyphs come from
+//! whatever sans-serif face this machine has installed (`pdf-font`'s `substitute`) — their
+//! outlines differ from one machine to the next and their advances come from the font
+//! program. What does not differ is the clause: left-justified text starts at the left edge,
+//! right-justified text ends at the right one, a comb field puts one character per cell, and a
+//! password field shows something other than its value. So the fixtures are built to make the
+//! *rule* visible and the tolerances are wide enough that a different face cannot break them.
+//!
+//! Trap 8's converse applies and is the reason this file exists at all: the corpus contains no
+//! comb field with a value, no right-quadded field and no password field, so these rules are
+//! defended by nothing else.
+
+#![expect(
+    clippy::expect_used,
+    reason = "a test's failure is its purpose, and these helpers run outside #[test] bodies \
+              where `allow-panic-in-tests` does not reach"
+)]
+
+use std::fmt::Write as _;
+
+use pdf_render::{Rasterizer, TargetSpec};
+use pdf_syntax::Document;
+use render_cpu::CpuRasterizer;
+
+/// Pixel budget, far above the 200×100 pages these tests build.
+const GENEROUS: u64 = 1 << 30;
+
+/// The page every fixture draws on, in points.
+const PAGE: (u32, u32) = (200, 100);
+
+/// Assembles a one-page PDF with an interactive form, one widget, and a `/DR` naming `/Helv`.
+///
+/// `form` and `annotation` are written verbatim into the interactive form dictionary and the
+/// annotation, which is what lets one builder serve a text field, a comb field, a check box
+/// and a free text annotation.
+fn pdf_with(form: &str, annotation: &str) -> Vec<u8> {
+    pdf_with_appearance(form, annotation, "0 0 1 rg 0 0 10 10 re f")
+}
+
+/// The same, with the stored appearance stream's contents given.
+fn pdf_with_appearance(form: &str, annotation: &str, appearance: &str) -> Vec<u8> {
+    let (width, height) = PAGE;
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
+         << /Fields [5 0 R] /DR << /Font << /Helv 7 0 R >> >> {form} >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n{annotation}\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 160 30] /Length {} >>\n\
+         stream\n{appearance}\nendstream\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding /WinAnsiEncoding >>\nendobj\n",
+        appearance.len().saturating_add(1)
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Interprets a fixture, returning what it reported and the marks it made.
+fn draw(bytes: Vec<u8>) -> (Vec<String>, pdf_render::Raster) {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let reports = interpretation
+        .unsupported
+        .iter()
+        .map(|item| format!("{item:?}"))
+        .collect();
+
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .with_background(pdf_render::Color::TRANSPARENT)
+        .rasterize(&list, target)
+        .expect("supported");
+    (reports, raster)
+}
+
+/// Every column, in PDF x, that any glyph reached.
+fn inked_columns(raster: &pdf_render::Raster) -> Vec<u32> {
+    (0..raster.width)
+        .filter(|x| (0..raster.height).any(|y| opacity(raster, *x, y) > 0))
+        .collect()
+}
+
+/// A pixel's opacity, addressed in raster rows rather than PDF's upward y.
+fn opacity(raster: &pdf_render::Raster, x: u32, row: u32) -> u8 {
+    let index = (row.saturating_mul(raster.width).saturating_add(x) as usize).saturating_mul(4);
+    raster.data[index.saturating_add(3)]
+}
+
+/// Every row, in PDF y, that any glyph reached.
+fn inked_rows(raster: &pdf_render::Raster) -> Vec<u32> {
+    (0..raster.height)
+        .filter(|row| (0..raster.width).any(|x| opacity(raster, x, *row) > 0))
+        // The raster's rows run downward and PDF's y runs upward.
+        .map(|row| raster.height.saturating_sub(1).saturating_sub(row))
+        .collect()
+}
+
+/// The leftmost and rightmost inked column, which is what quadding moves.
+fn ink_span(raster: &pdf_render::Raster) -> (u32, u32) {
+    let columns = inked_columns(raster);
+    assert!(!columns.is_empty(), "nothing was drawn at all");
+    (
+        columns.first().copied().unwrap_or_default(),
+        columns.last().copied().unwrap_or_default(),
+    )
+}
+
+/// A text field filling most of the page, with the value, quadding and flags given.
+fn text_field(value: &str, quadding: &str, flags: &str) -> Vec<u8> {
+    pdf_with(
+        "",
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+             /T (field) /V ({value}) /DA (/Helv 12 Tf 0 g) {quadding} {flags} >>"
+        ),
+    )
+}
+
+/// Table 228's `/Q`: left starts at the left edge, right ends at the right one.
+///
+/// The rule the clause states in full — "0 Left-justified 1 Centred 2 Right-justified" — and
+/// the one place a measurement of the string's own width becomes visible on the page. A
+/// reader that ignores `/Q` draws all three identically, which is what this catches.
+#[test]
+fn quadding_moves_the_line_within_its_box() {
+    let (_, left) = draw(text_field("Hi", "/Q 0", ""));
+    let (_, centred) = draw(text_field("Hi", "/Q 1", ""));
+    let (_, right) = draw(text_field("Hi", "/Q 2", ""));
+
+    let (left_start, left_end) = ink_span(&left);
+    let (centre_start, centre_end) = ink_span(&centred);
+    let (right_start, right_end) = ink_span(&right);
+
+    // §12.5.4's default border is one point wide and drawn inside `/Rect`, so the text box
+    // runs from 21 to 179.
+    assert!(
+        (20..=24).contains(&left_start),
+        "left-justified text starts at the left edge, not {left_start}"
+    );
+    assert!(
+        (175..=179).contains(&right_end),
+        "right-justified text ends at the right edge, not {right_end}"
+    );
+    assert!(
+        centre_start > left_start && centre_end < right_end,
+        "centred text sits between the two: {centre_start}..{centre_end}"
+    );
+    // The three are the same string, so they must be the same width to within one pixel of
+    // rounding. A layout that measured differently per quadding would fail here.
+    let widths = [
+        left_end - left_start,
+        centre_end - centre_start,
+        right_end - right_start,
+    ];
+    assert!(
+        widths.iter().max().unwrap_or(&0) - widths.iter().min().unwrap_or(&0) <= 1,
+        "one string, three widths: {widths:?}"
+    );
+}
+
+/// A size of zero is auto-sized, and the result fits (§12.7.4.3).
+///
+/// > A zero value for size means that the font shall be auto-sized : its size shall be
+/// > computed as an implementation dependent function.
+///
+/// The function is ours, so what is asserted is the property the clause implies rather than
+/// any particular number: a value too long for its box at a stated size still fits when the
+/// size is left to the processor, and a *longer* value is set smaller than a shorter one.
+#[test]
+fn a_zero_size_is_auto_sized_until_the_value_fits() {
+    let long = "The quick brown fox jumps over the lazy dog again and again and again";
+    let (reports, raster) = draw(pdf_with(
+        "",
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+             /T (field) /V ({long}) /DA (/Helv 0 Tf 0 g) >>"
+        ),
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+    let (start, end) = ink_span(&raster);
+    assert!(
+        start >= 20 && end <= 180,
+        "auto-sized text escaped its box: {start}..{end}"
+    );
+
+    let (_, short) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V (Hi) /DA (/Helv 0 Tf 0 g) >>",
+    ));
+    assert!(
+        inked_rows(&short).len() > inked_rows(&raster).len(),
+        "a shorter value must be set larger, not smaller"
+    );
+}
+
+/// Table 231 bit 13: a multiline field wraps, and the lines run downward.
+#[test]
+fn a_multiline_value_wraps_into_lines_that_run_down_the_box() {
+    let value = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+    let (reports, raster) = draw(pdf_with(
+        "",
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 10 100 90] /F 4 /FT /Tx /Ff 4096 \
+             /T (field) /V ({value}) /DA (/Helv 10 Tf 0 g) >>"
+        ),
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+
+    // Wrapping is visible as height, not as gaps: at ten points the lines sit 10.83 apart
+    // (§12.7.5.3's own example spaces them at 13/12 of the size) and consecutive lines can
+    // touch, so what distinguishes three lines from one is that the ink is three lines tall.
+    let rows = inked_rows(&raster);
+    let top = rows.iter().max().copied().unwrap_or_default();
+    let bottom = rows.iter().min().copied().unwrap_or_default();
+    assert!(
+        top - bottom >= 25,
+        "three lines of ten-point text span at least 25 points, not {}",
+        top - bottom
+    );
+    // And the first line starts at the top of the box, which is what makes several lines run
+    // *down* rather than being centred as one line is.
+    assert!(
+        top >= 80,
+        "the first line should start near the top, not {top}"
+    );
+
+    let (start, end) = ink_span(&raster);
+    assert!(
+        start >= 20 && end <= 100,
+        "a wrapped line escaped its box: {start}..{end}"
+    );
+}
+
+/// §12.7.5.3's Table 231 bit 25: a comb field puts one character in each `/MaxLen` cell.
+///
+/// > If set, the field shall be automatically divided into as many equally spaced positions,
+/// > or combs , as the value of MaxLen , and the text is laid out into those combs.
+///
+/// Four characters in eight cells across 160 points is one character every 20 points, so the
+/// ink must reach past the middle of the box and stop well before its right edge — which
+/// plain left-justified text of four characters at this size would not do.
+#[test]
+fn a_comb_field_spreads_one_character_per_cell() {
+    let (reports, raster) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /Ff 16777216 \
+         /MaxLen 8 /T (field) /V (1234) /DA (/Helv 12 Tf 0 g) >>",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+
+    let (start, end) = ink_span(&raster);
+    assert!(
+        (20..=30).contains(&start),
+        "the first character belongs in the first cell, not at {start}"
+    );
+    assert!(
+        (85..=105).contains(&end),
+        "four of eight cells reach the middle of the box, not {end}"
+    );
+
+    // The proof that they are *spread*: four characters at 12 points run about 27 points
+    // when set normally, and four cells of 20 points run 80.
+    let (_, plain) = draw(text_field("1234", "", ""));
+    let (plain_start, plain_end) = ink_span(&plain);
+    assert!(
+        end - start > (plain_end - plain_start) * 2,
+        "the comb must be far wider than the same string set normally"
+    );
+}
+
+/// §12.7.5.3's Table 231 bit 14: a password field shows something other than what it holds.
+///
+/// > Characters typed from the keyboard shall instead be echoed in some unreadable form, such
+/// > as asterisks or bullet characters.
+///
+/// The same value with and without the flag must not produce the same marks. Asserting only
+/// the difference — rather than which substitute is used — keeps the test about the clause,
+/// which names two acceptable ones and requires neither.
+#[test]
+fn a_password_field_does_not_echo_its_value() {
+    let (_, plain) = draw(text_field("secret", "", ""));
+    let (reports, hidden) = draw(text_field("secret", "", "/Ff 8192"));
+    assert!(reports.is_empty(), "{reports:?}");
+    assert_ne!(
+        plain.data, hidden.data,
+        "a password field drew its value as it stands"
+    );
+    assert!(
+        !inked_columns(&hidden).is_empty(),
+        "a password field must still show that it holds something"
+    );
+}
+
+/// The `/DA` string's colour operators reach the text (§12.7.4.3, Table 228).
+///
+/// > The default appearance string ( DA ) contains any graphics state or text state operators
+/// > needed to establish the graphics state parameters, such as text size and colour
+#[test]
+fn the_default_appearance_strings_colour_is_the_texts_colour() {
+    let (reports, raster) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V (Hi) /DA (1 0 0 rg /Helv 12 Tf) >>",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+
+    let red = (0..raster.height)
+        .flat_map(|row| (0..raster.width).map(move |x| (x, row)))
+        .filter(|(x, row)| {
+            let index =
+                (row.saturating_mul(raster.width).saturating_add(*x) as usize).saturating_mul(4);
+            raster.data[index.saturating_add(3)] > 200
+                && raster.data[index] > 200
+                && raster.data[index.saturating_add(1)] < 60
+        })
+        .count();
+    assert!(
+        red > 10,
+        "the /DA's red never reached the glyphs: {red} pixels"
+    );
+}
+
+/// A `/DA` naming a font the `/DR` does not define is refused by name.
+///
+/// §12.7.4.3 makes the match a requirement — "The specified font value shall match a resource
+/// name in the Font entry of the default resource dictionary" — and states no recovery. This
+/// is the same answer a content stream naming an absent font already gets, and the reason it
+/// is a *report* rather than a substitution is that nothing maps a resource name to a typeface.
+#[test]
+fn a_font_the_default_resources_lack_is_reported_rather_than_invented() {
+    let (reports, _) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V (Hi) /DA (/Nope 12 Tf 0 g) >>",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("/Nope") && reports[0].contains("/DR"),
+        "the report must name the font and where it was looked for: {reports:?}"
+    );
+}
+
+/// A check box shows Table 192's caption only in its on state (§12.7.5.2.3).
+///
+/// The clause makes `/AS` decide, so the two fixtures differ in nothing but that name. An
+/// implementation that drew the caption unconditionally would tick every box on the page.
+#[test]
+fn a_check_box_shows_its_caption_only_when_it_is_on() {
+    let box_of = |state: &str| {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 60 70] /F 4 /FT /Btn \
+                 /T (box) /V /{state} /AS /{state} /MK << /CA (4) >> /DA (/Helv 12 Tf 0 g) >>"
+            ),
+        )
+    };
+    let (on_reports, on) = draw(box_of("Yes"));
+    let (off_reports, off) = draw(box_of("Off"));
+
+    assert!(on_reports.is_empty(), "{on_reports:?}");
+    assert!(off_reports.is_empty(), "{off_reports:?}");
+    assert!(
+        !inked_columns(&on).is_empty(),
+        "a box that is on must show its caption"
+    );
+    assert!(
+        inked_columns(&off).is_empty(),
+        "a box that is off must show nothing"
+    );
+}
+
+/// A check box that is on with no `/AP` and no caption states a tick and shows none.
+#[test]
+fn a_check_box_with_nothing_to_draw_says_so() {
+    let (reports, _) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 60 70] /F 4 /FT /Btn \
+         /T (box) /V /Yes /AS /Yes >>",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("12.7.5.2.3"), "{reports:?}");
+}
+
+/// §12.5.6.6: a free text annotation's `/Contents` is its appearance.
+#[test]
+fn a_free_text_annotation_draws_its_contents() {
+    let (reports, raster) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 \
+         /Contents (visible) /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+    let (start, end) = ink_span(&raster);
+    assert!(
+        start >= 20 && end <= 180,
+        "the text escaped the annotation: {start}..{end}"
+    );
+}
+
+/// Table 224's `/NeedAppearances` rewrites the `/Tx` region and leaves the rest (§12.7.4.3).
+///
+/// > The interactive PDF processor shall then replace the existing contents of the appearance
+/// > stream from … BMC to the matching EMC with the corresponding new contents
+///
+/// > If the existing appearance stream contains no marked-content with tag … the new contents
+/// > shall be appended to the end of the original stream.
+///
+/// Two fixtures differing in one thing — whether the blue square sits inside the marked-content
+/// pair — and the clause gives them opposite answers. A reader that rebuilt the appearance from
+/// `/MK` instead would erase the square in both, and one that ignored the flag would show the
+/// value in neither.
+#[test]
+fn need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest() {
+    let field = |appearance: &str| {
+        pdf_with_appearance(
+            "/NeedAppearances true",
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+             /T (field) /V (Hi) /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>",
+            appearance,
+        )
+    };
+
+    let (inside_reports, inside) = draw(field("/Tx BMC 0 0 1 rg 0 0 160 30 re f EMC"));
+    assert!(inside_reports.is_empty(), "{inside_reports:?}");
+    assert!(
+        !is_blue(&inside),
+        "marks inside /Tx BMC … EMC are replaced by the new value"
+    );
+    assert!(
+        !inked_columns(&inside).is_empty(),
+        "the value must be drawn"
+    );
+
+    let (outside_reports, outside) = draw(field("0 0 1 rg 0 0 160 30 re f"));
+    assert!(outside_reports.is_empty(), "{outside_reports:?}");
+    assert!(
+        is_blue(&outside),
+        "marks outside the pair survive; the new contents are appended"
+    );
+}
+
+/// The flag does not reach a button, because §12.7.5.2.3 puts its appearance in `/AP`.
+///
+/// §12.7.4.3's subject is a field whose text "is not known until viewing time". A check box
+/// has no such text — its value selects among stored appearance streams — so regenerating one
+/// would throw away artwork the file does state in exchange for nothing the clause asks for.
+#[test]
+fn need_appearances_does_not_reach_a_button() {
+    let (reports, raster) = draw(pdf_with_appearance(
+        "/NeedAppearances true",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Btn \
+         /T (field) /V /Hi /AS /Hi /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>",
+        "/Tx BMC 0 0 1 rg 0 0 160 30 re f EMC",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+    assert!(
+        is_blue(&raster),
+        "a button's appearance is its /AP, whatever /NeedAppearances says"
+    );
+}
+
+/// Whether anything on the page is the fixtures' blue.
+fn is_blue(raster: &pdf_render::Raster) -> bool {
+    (0..raster.height)
+        .flat_map(|row| (0..raster.width).map(move |x| (x, row)))
+        .any(|(x, row)| {
+            let index =
+                (row.saturating_mul(raster.width).saturating_add(x) as usize).saturating_mul(4);
+            raster.data[index.saturating_add(2)] > 200
+                && raster.data[index] < 60
+                && raster.data[index.saturating_add(3)] > 200
+        })
+}
