@@ -349,6 +349,17 @@ enum Font {
 }
 
 impl Font {
+    /// Whether this font is shown in §9.2.4's writing mode 1.
+    ///
+    /// A Type 3 font is a *simple* font and §9.2.4 confines a second set of metrics to
+    /// composite ones, so it is never vertical.
+    fn is_vertical(&self) -> bool {
+        match self {
+            Self::Program(font) => font.is_vertical(),
+            Self::Type3(_) => false,
+        }
+    }
+
     /// Splits a PDF string into character codes.
     ///
     /// A Type 3 font is a simple font — Table 110 gives it `/FirstChar` and `/LastChar`,
@@ -1398,14 +1409,23 @@ impl Interpreter<'_> {
                             }
                             other => {
                                 if let Some(adjust) = other.as_number() {
-                                    // A positive adjustment moves *left*: it is subtracted,
-                                    // in thousandths of an em, scaled by size and horizontal
-                                    // scaling.
-                                    let shift = -narrow(adjust) / 1000.0
-                                        * state.text.size
-                                        * state.text.horizontal_scale;
-                                    text_object.matrix =
-                                        Transform::translate(shift, 0.0).then(text_object.matrix);
+                                    // §9.4.3: the amount "shall be subtracted from the current
+                                    // horizontal or vertical coordinate, depending on the
+                                    // writing mode", in thousandths of an em scaled by the
+                                    // size — and by the horizontal scaling only in the
+                                    // horizontal mode, which is where §9.4.4's `Th` sits.
+                                    let shift = -narrow(adjust) / 1000.0 * state.text.size;
+                                    let vertical =
+                                        state.text.font.as_ref().is_some_and(Font::is_vertical);
+                                    let step = if vertical {
+                                        Transform::translate(0.0, shift)
+                                    } else {
+                                        Transform::translate(
+                                            shift * state.text.horizontal_scale,
+                                            0.0,
+                                        )
+                                    };
+                                    text_object.matrix = step.then(text_object.matrix);
                                 }
                             }
                         }
@@ -2815,43 +2835,18 @@ impl Interpreter<'_> {
         let size = state.text.size;
         let scale = state.text.horizontal_scale;
 
-        // How wide a gap has to be before it means a word break rather than kerning.
-        //
-        // Measured against the font's own space, because that is what a word break is made
-        // of. A fixed fraction of the font size cannot work: a title set with loose
-        // tracking moves each glyph further than a body-text space, and judging it by size
-        // alone spells "Clarification" as "Clar if ic at ion".
-        //
-        // Taken from the magnitude of the size because §9.3.1's NOTE says "Negative text
-        // font size is permitted", and a negative threshold is below every gap there is —
-        // which would have put a space between every pair of glyphs in the extracted text.
-        let space_em = font.advance(Code::single_byte(32));
-        let word_gap = if space_em > 0.0 {
-            space_em * size.abs() * 0.6
-        } else {
-            size.abs() * 0.25
-        };
-
+        let word_gap = Self::word_gap(&font, size);
+        let vertical = font.is_vertical();
         for code in font.decode(bytes) {
             let advance_em = font.advance(code);
+            // §9.7.4.3's second set of metrics, which decide where the glyph is drawn
+            // relative to the current text position and where that position goes next.
+            let program_metrics = match &font {
+                Font::Program(program) => program.vertical_metrics(code),
+                Font::Type3(_) => ([0.0, 0.0], [0.0, 0.0]),
+            };
 
-            // A content stream has no notion of words or lines; it has positions. A glyph
-            // placed left of, or well below, where the last one ended began a new line,
-            // and one placed a noticeable gap to the right of it began a new word. These
-            // are the only two separators reconstructed, because anything more is layout
-            // analysis and belongs to a consumer of this text rather than to the drawing
-            // pass. `pdftotext` does do that analysis, which is why the comparison
-            // normalises whitespace away.
-            // The text-space origin under the matrix is simply its translation.
-            let here = (text.matrix.e, text.matrix.f);
-            if let Some((last_x, last_y)) = self.text_cursor {
-                let gap = here.0 - last_x;
-                if (here.1 - last_y).abs() > size.abs() * 0.5 {
-                    self.text.push('\n');
-                } else if gap > word_gap {
-                    self.text.push(' ');
-                }
-            }
+            self.separate_text(text.matrix, size, word_gap, vertical);
             font.text(code, &mut self.text);
 
             // §9.3.8: with `Tk` true — its initial value — the whole text object behaves as
@@ -2871,7 +2866,7 @@ impl Interpreter<'_> {
                 // calls this the text rendering matrix, and both kinds of glyph are placed
                 // by it — the difference is only what is placed.
                 let glyph_to_text =
-                    Transform::new(size * scale, 0.0, 0.0, size, 0.0, state.text.rise);
+                    Self::glyph_to_text(size, scale, state.text.rise, program_metrics.1);
                 let glyph_to_user = glyph_to_text.then(text.matrix);
                 let transform = glyph_to_user.then(state.transform);
 
@@ -2957,9 +2952,107 @@ impl Interpreter<'_> {
             } else {
                 0.0
             };
-            let shift = (advance_em * size + state.text.char_spacing + word) * scale;
-            text.matrix = Transform::translate(shift, 0.0).then(text.matrix);
+            let displacement = if vertical {
+                program_metrics.0[1]
+            } else {
+                advance_em
+            };
+            text.matrix = Self::advance_step(
+                displacement,
+                size,
+                state.text.char_spacing + word,
+                scale,
+                vertical,
+            )
+            .then(text.matrix);
             self.text_cursor = Some((text.matrix.e, text.matrix.f));
+        }
+    }
+
+    /// How wide a gap has to be before it means a word break rather than kerning.
+    ///
+    /// Measured against the font's own space, because that is what a word break is made of.
+    /// A fixed fraction of the font size cannot work: a title set with loose tracking moves
+    /// each glyph further than a body-text space, and judging it by size alone spells
+    /// "Clarification" as "Clar if ic at ion".
+    ///
+    /// Taken from the magnitude of the size because §9.3.1's NOTE says "Negative text font
+    /// size is permitted", and a negative threshold is below every gap there is — which would
+    /// have put a space between every pair of glyphs in the extracted text.
+    fn word_gap(font: &Font, size: f32) -> f32 {
+        let space_em = font.advance(Code::single_byte(32));
+        if space_em > 0.0 {
+            space_em * size.abs() * 0.6
+        } else {
+            size.abs() * 0.25
+        }
+    }
+
+    /// Adds a space or a newline to the readback where the glyphs' positions imply one.
+    ///
+    /// A content stream has no notion of words or lines; it has positions. A glyph placed
+    /// against the writing direction, or well off the line, began a new line, and one placed
+    /// a noticeable gap along it began a new word. These are the only two separators
+    /// reconstructed, because anything more is layout analysis and belongs to a consumer of
+    /// this text rather than to the drawing pass. `pdftotext` does do that analysis, which is
+    /// why the comparison normalises whitespace away.
+    ///
+    /// The two axes swap in writing mode 1, where a column advances downward and a new column
+    /// is a new line.
+    fn separate_text(&mut self, matrix: Transform, size: f32, word_gap: f32, vertical: bool) {
+        // The text-space origin under the matrix is simply its translation.
+        let here = (matrix.e, matrix.f);
+        let Some((last_x, last_y)) = self.text_cursor else {
+            return;
+        };
+        let (along, across) = if vertical {
+            (last_y - here.1, here.0 - last_x)
+        } else {
+            (here.0 - last_x, here.1 - last_y)
+        };
+        if across.abs() > size.abs() * 0.5 {
+            self.text.push('\n');
+        } else if along > word_gap {
+            self.text.push(' ');
+        }
+    }
+
+    /// Glyph space to text space: the font size, the horizontal scaling, and the rise.
+    ///
+    /// §9.2.4 adds one term in writing mode 1: "the glyph position shall be described by a
+    /// position vector from the origin used for horizontal writing (origin 0) to the origin
+    /// used for vertical writing (origin 1)". The outline is stated relative to origin 0 and
+    /// the text position *is* origin 1, so the glyph moves back by `v`, which is zero for
+    /// every font in writing mode 0.
+    fn glyph_to_text(size: f32, scale: f32, rise: f32, position: [f32; 2]) -> Transform {
+        Transform::new(
+            size * scale,
+            0.0,
+            0.0,
+            size,
+            -position[0] * size * scale,
+            (-position[1]).mul_add(size, rise),
+        )
+    }
+
+    /// §9.4.4's combined displacement, as the translation it applies to the text matrix.
+    ///
+    /// The clause computes `tx` in horizontal writing mode and `ty` in vertical, "the
+    /// variable corresponding to the other writing mode shall be set to 0", and the two
+    /// differ in one term: the horizontal scaling multiplies `tx` alone, because `Th` scales
+    /// the *width* of a line rather than the advance along it. Character and word spacing are
+    /// added to whichever component applies.
+    fn advance_step(
+        displacement: f32,
+        size: f32,
+        spacing: f32,
+        scale: f32,
+        vertical: bool,
+    ) -> Transform {
+        if vertical {
+            Transform::translate(0.0, displacement.mul_add(size, spacing))
+        } else {
+            Transform::translate(displacement.mul_add(size, spacing) * scale, 0.0)
         }
     }
 

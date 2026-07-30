@@ -380,7 +380,11 @@ const MAX_PAGELESS: usize = 11;
 /// underlines"), the region and the orientation, and leaves a thickness — which is a choice
 /// to argue rather than a reason to draw nothing. Eight pages joined the oracle's judged set
 /// and six of them agree with the reference consensus; none is contradicted.
-const MAX_INCOMPLETE: usize = 97;
+///
+/// **97 to 94 in the thirty-sixth session**: §9.2.4's second set of glyph metrics, which
+/// §9.7.4.3 puts in `/W2` and `/DW2`, so a `CMap` in writing mode 1 places its glyphs down a
+/// column instead of being refused.
+const MAX_INCOMPLETE: usize = 94;
 
 /// How long one document may take before it counts as a failure.
 ///

@@ -273,6 +273,8 @@ pub struct LoadedFont {
     widths: BTreeMap<u32, f32>,
     /// Advance for a code with no entry.
     default_width: f32,
+    /// §9.7.4.3's second set of metrics, for a composite font in writing mode 1.
+    vertical: Option<Vertical>,
     units_per_em: f32,
     /// Whether the glyphs are a stand-in rather than the font the document named.
     substituted: bool,
@@ -455,6 +457,8 @@ impl LoadedFont {
             mapping,
             widths,
             default_width,
+            // §9.2.4: a second set of metrics "is available only for composite fonts".
+            vertical: None,
             units_per_em,
             substituted: substituted.is_some(),
             to_unicode: to_unicode(document, dict),
@@ -471,6 +475,10 @@ impl LoadedFont {
         name: &str,
     ) -> Result<Self, FontError> {
         let cmap = composite_cmap(document, dict, name)?;
+        // §9.7.5.1: "A CMap shall specify the writing mode … for any CIDFont with which the
+        // CMap is combined", and §9.2.4 makes the writing mode the choice between two sets of
+        // metrics rather than anything about the glyphs.
+        let vertical = cmap.wmode() == 1;
 
         let descendants = document.get_key(dict, "DescendantFonts");
         let descendant = descendants
@@ -559,6 +567,7 @@ impl LoadedFont {
             glyph_names: None,
             widths: composite_widths(document, &descendant),
             default_width,
+            vertical: vertical.then(|| Vertical::read(document, &descendant)),
             units_per_em,
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
@@ -645,6 +654,38 @@ impl LoadedFont {
             .copied()
             .unwrap_or(self.default_width)
             / 1000.0
+    }
+
+    /// Whether this font is shown in §9.2.4's writing mode 1, one glyph below the next.
+    ///
+    /// Set by the `CMap`'s `/WMode` (§9.7.5.1) and available only to a composite font, which
+    /// is the clause's own restriction: "this feature is available only for composite fonts".
+    #[must_use]
+    pub fn is_vertical(&self) -> bool {
+        self.vertical.is_some()
+    }
+
+    /// §9.7.4.3's vertical displacement `w1` and position vector `v`, in text-space units.
+    ///
+    /// `w1`'s horizontal component is 0 and `v` is the offset from the horizontal origin to
+    /// the vertical one — so a glyph drawn in writing mode 1 is placed at `-v` from the
+    /// current text position, and the position then moves by `w1`.
+    ///
+    /// Returns the horizontal metrics' degenerate form — no displacement, no offset — for a
+    /// font in writing mode 0, so a caller that asks without checking gets a glyph that does
+    /// not move rather than one that moves wrongly.
+    #[must_use]
+    pub fn vertical_metrics(&self, code: Code) -> ([f32; 2], [f32; 2]) {
+        let Some(vertical) = self.vertical.as_ref() else {
+            return ([0.0, 0.0], [0.0, 0.0]);
+        };
+        let cid = self.selector(code);
+        let width = self.widths.get(&cid).copied().unwrap_or(self.default_width);
+        let (displacement, position) = vertical.metrics(cid, width);
+        (
+            [displacement[0] / 1000.0, displacement[1] / 1000.0],
+            [position[0] / 1000.0, position[1] / 1000.0],
+        )
     }
 
     /// Returns the outline for a character code, with one em as one unit.
@@ -895,11 +936,9 @@ fn composite_cmap(document: &Document, dict: &Dictionary, name: &str) -> Result<
     let cmap = match &encoding {
         Object::Name(named) => match named.as_bytes() {
             b"Identity-H" => return Ok(CMap::identity()),
-            b"Identity-V" => {
-                return Err(unsupported(
-                    "Identity-V, whose vertical writing mode needs /W2 metrics",
-                ));
-            }
+            // §9.7.5.2: the two Identity `CMap`s differ only in their writing mode, and
+            // the vertical one carries `/WMode 1`, which `CMap::identity_vertical` states.
+            b"Identity-V" => return Ok(CMap::identity_vertical()),
             other => return Err(unsupported(&String::from_utf8_lossy(other))),
         },
         Object::Stream(_) => read_cmap(document, &encoding, name, 0)?,
@@ -914,9 +953,9 @@ fn composite_cmap(document: &Document, dict: &Dictionary, name: &str) -> Result<
         .map(|stream| document.get_key(&stream.dict, "WMode"))
         .and_then(|value| value.as_integer())
         .unwrap_or(0);
-    if cmap.wmode() != 0 || dictionary_wmode != 0 {
+    if i64::from(cmap.wmode()) != dictionary_wmode.clamp(0, 1) {
         return Err(unsupported(
-            "a CMap in vertical writing mode, which needs /W2 metrics",
+            "a CMap whose /WMode disagrees with the one in its own stream",
         ));
     }
 
@@ -2872,4 +2911,141 @@ mod missing_width_tests {
         assert_eq!(missing_width(&document, descriptor.as_dict()), 0.0);
         assert_eq!(missing_width(&document, None), 0.0);
     }
+}
+
+/// ISO 32000-2 §9.7.4.3's vertical metrics: `/DW2` and `/W2`, in glyph space.
+///
+/// > Glyphs from a CIDFont may be shown in vertical writing mode. This is selected by the
+/// > WMode entry in the associated CMap dictionary … To be used in this way, the CIDFont
+/// > shall define the vertical displacement for each glyph and the position vector that
+/// > relates the horizontal and vertical writing origins.
+///
+/// Two vectors per glyph, and only three of their four components are ever stated: the
+/// displacement `w1` has a horizontal component the clause fixes at 0, and the position
+/// vector `v`'s horizontal component defaults to "half the glyph width" — which is why this
+/// carries the *horizontal* width in as an argument rather than duplicating it.
+#[derive(Debug)]
+struct Vertical {
+    /// `/DW2`'s two numbers: the vertical component of `v`, then that of `w1`.
+    ///
+    /// Table 122's default is `[880 -1000]`, and the sign is the clause's own NOTE: "a
+    /// negative value for the vertical component places the origin of the next glyph below
+    /// the current glyph because vertical coordinates in a standard coordinate system
+    /// increase from bottom to top".
+    default: [f32; 2],
+    /// `/W2`, by CID: the vertical displacement `w1y`, then `v`'s two components.
+    metrics: BTreeMap<u32, [f32; 3]>,
+}
+
+impl Vertical {
+    /// Reads `/DW2` and `/W2` from a `CIDFont` dictionary.
+    fn read(document: &Document, descendant: &Dictionary) -> Self {
+        let default = document
+            .get_key(descendant, "DW2")
+            .as_array()
+            .and_then(|items| {
+                let read = |at: usize| {
+                    items
+                        .get(at)
+                        .map(|item| document.resolve(item))
+                        .and_then(|item| item.as_number())
+                        .map(narrow)
+                };
+                Some([read(0)?, read(1)?])
+            })
+            .unwrap_or([880.0, -1000.0]);
+
+        Self {
+            default,
+            metrics: composite_vertical_metrics(document, descendant),
+        }
+    }
+
+    /// The displacement `w1` and position vector `v` for one CID, in glyph space.
+    ///
+    /// `width` is the same glyph's horizontal displacement `w0`, because the clause defines
+    /// `v`'s horizontal component as half of it whenever `/W2` does not state one.
+    fn metrics(&self, cid: u32, width: f32) -> ([f32; 2], [f32; 2]) {
+        match self.metrics.get(&cid) {
+            Some([w1y, vx, vy]) => ([0.0, *w1y], [*vx, *vy]),
+            None => ([0.0, self.default[1]], [width / 2.0, self.default[0]]),
+        }
+    }
+}
+
+/// Reads §9.7.4.3's `/W2` array, whose two formats mirror `/W`'s with three numbers per CID.
+///
+/// > The elements of the array shall be organised in groups of two or five … In the first
+/// > format, c is a starting CID and shall be followed by an array containing numbers
+/// > interpreted in groups of three.
+fn composite_vertical_metrics(
+    document: &Document,
+    descendant: &Dictionary,
+) -> BTreeMap<u32, [f32; 3]> {
+    /// The same bound `/W` takes, and for the same reason.
+    const MAX_RANGE: u32 = 1 << 16;
+
+    let mut metrics = BTreeMap::new();
+    let array = document.get_key(descendant, "W2");
+    let Some(items) = array.as_array() else {
+        return metrics;
+    };
+    let resolved: Vec<Object> = items.iter().map(|item| document.resolve(item)).collect();
+    let number = |at: Option<&Object>| at.and_then(Object::as_number).map(narrow);
+
+    let mut index = 0usize;
+    while index < resolved.len() {
+        let Some(first) = resolved
+            .get(index)
+            .and_then(Object::as_integer)
+            .and_then(|value| u32::try_from(value).ok())
+        else {
+            break;
+        };
+        match resolved.get(index.saturating_add(1)) {
+            Some(Object::Array(list)) => {
+                let values: Vec<f32> = list
+                    .iter()
+                    .map(|item| document.resolve(item))
+                    .map_while(|item| item.as_number().map(narrow))
+                    .collect();
+                for (offset, group) in values.chunks_exact(3).enumerate() {
+                    let (Ok(offset), [w1y, vx, vy]) = (u32::try_from(offset), group) else {
+                        continue;
+                    };
+                    // "Specifying a given CID value more than once should not be done. In the
+                    // case where it is done, the first specification is the one that shall be
+                    // used" — §9.7.4.3, of `/W`, and `/W2` is the same array one field wider.
+                    metrics
+                        .entry(first.saturating_add(offset))
+                        .or_insert([*w1y, *vx, *vy]);
+                }
+                index = index.saturating_add(2);
+            }
+            Some(second) => {
+                let Some(last) = second
+                    .as_integer()
+                    .and_then(|value| u32::try_from(value).ok())
+                else {
+                    break;
+                };
+                let group = [
+                    number(resolved.get(index.saturating_add(2))),
+                    number(resolved.get(index.saturating_add(3))),
+                    number(resolved.get(index.saturating_add(4))),
+                ];
+                let (Some(w1y), Some(vx), Some(vy)) = (group[0], group[1], group[2]) else {
+                    break;
+                };
+                let end = last.min(first.saturating_add(MAX_RANGE));
+                for cid in first..=end {
+                    metrics.entry(cid).or_insert([w1y, vx, vy]);
+                }
+                index = index.saturating_add(5);
+            }
+            None => break,
+        }
+    }
+
+    metrics
 }

@@ -1899,30 +1899,42 @@ status = "unreviewed"
 [[clause]]
 clause = "9.2"
 title = "Organisation and use of fonts"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_vertical_cmap_takes_the_second_set_of_metrics"]
+note = "Organisation and metrics. See §9.2.2's font dictionaries, which are clause 9's other families, and §9.2.4's two sets of metrics, both of which this tree now reads."
 
 [[clause]]
 clause = "9.2.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_vertical_cmap_takes_the_second_set_of_metrics"]
+note = "Introductory. Its division — a font is \"a graphical description of a set of glyphs\" and the font *dictionary* is what a content stream names — is the boundary between `pdf-font`, which knows programs and encodings, and `pdf-model`, which knows where a glyph goes."
 
 [[clause]]
 clause = "9.2.2"
 title = "Basics of showing text"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_render_modes.rs::mode_3_paints_nothing_and_still_extracts_its_text"]
+note = "The four things the clause says showing text requires — the font, the size, the position and the other text state parameters — are §9.3's Table 102 and are all read. `Tf` selects the first two and §8.4.5's Table 57 `/Font` is the other route to them (ADR 0042)."
 
 [[clause]]
 clause = "9.2.3"
 title = "Achieving special graphical effects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_render_modes.rs::mode_7_clips_what_follows_and_paints_nothing"]
+note = "The two effects the clause names are both implemented and both belong to §9.3.6's rendering modes: glyphs painted with any colour or pattern the graphics state holds, and glyphs added to the clipping path so that other content shows through them. A Type 3 font, which the clause names as the third route, is §9.6.4."
 
 [[clause]]
 clause = "9.2.4"
 title = "Glyph positioning and metrics"
-status = "partial"
-code = ["crates/pdf-model/src/content.rs", "crates/pdf-font/src/lib.rs", "crates/pdf-model/src/type3.rs"]
-test = ["crates/pdf-model/tests/type3.rs::a_width_advances_through_the_font_matrix"]
-note = "Horizontal writing is implemented, including the clause's one exception: glyph space is a thousandth of text space for every font except a Type 3, whose /FontMatrix states its own. Writing mode 1 is not. The second set of metrics the clause describes — a displacement vector w1 and a position vector v — is nowhere in this tree, and an Identity-V font is now refused and reported rather than drawn horizontally."
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_vertical_cmap_takes_the_second_set_of_metrics", "crates/pdf-font/src/lib.rs::the_pdf_widths_agree_with_the_font_programs_own_advances"]
+note = "Both writing modes, from the thirty-sixth session. Mode 0's displacement is `/Widths` or `/W`; mode 1's is §9.7.4.3's `/W2` and `/DW2`, and the clause's two constraints on the vectors are stated where they are used — `w1`'s horizontal component is 0 and `v`'s horizontal component is half the glyph's width when `/W2` does not give one. \"Glyph space\" is one thousandth of text space for every font but a Type 3, whose `/FontMatrix` says otherwise, and both routes are in `show_text`. The glyph bounding box is read by nobody, which the clause permits: §9.6.4's Table 111 says a processor may make no assumptions from a Type 3 font's, and no other clause asks for one."
 
 [[clause]]
 clause = "9.3"
@@ -2176,10 +2188,10 @@ note = "`/CIDSystemInfo` identifies the character collection a CMap and a CIDFon
 [[clause]]
 clause = "9.7.4"
 title = "CIDFonts"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances"]
-note = "Aggregate of the three below. Table 115's entries are read except `/DW2` and `/W2`, which are vertical metrics and belong to §9.2.4's gap; both CIDFont subtypes work, with glyph selection decided by what the embedded program is rather than by `/Subtype`."
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_vertical_cmap_takes_the_second_set_of_metrics"]
+note = "Table 115's `CIDFont` in full for what it decides about a drawn page: both subtypes, both glyph-selection routes (§9.7.4.2), and both sets of metrics (§9.7.4.3). `/CIDSystemInfo` is read only to the extent §9.7.5.2's compatibility rule needs, since an embedded program's own charset is what actually selects the glyph."
 
 [[clause]]
 clause = "9.7.4.1"
@@ -2200,10 +2212,10 @@ note = "All four routes, in the twentieth session (ADR 0029). A CID-keyed CFF go
 [[clause]]
 clause = "9.7.4.3"
 title = "Glyph metrics in CIDFonts"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances"]
-note = "/W in both of its formats and /DW are implemented, including the clause's rule that the first specification of a repeated CID wins, and — since the twentieth session — they are indexed by CID rather than by character code, which is the same thing only under Identity-H. /W2 and /DW2 are not read at all: they are the vertical metrics, and a font asking for vertical writing is refused where its CMap is chosen (§9.2.4)."
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_vertical_cmap_takes_the_second_set_of_metrics"]
+note = "Both arrays and both defaults. `/W` and `/DW` in the twentieth session, `/W2` and `/DW2` in the thirty-sixth — the same two formats one field wider, with Table 122's default `/DW2` of `[880 -1000]` and the clause's rule that `v`'s horizontal component is half the glyph's width. \"Specifying a given CID value more than once should not be done. In the case where it is done, the first specification is the one that shall be used\" holds for both, by `or_insert`."
 
 [[clause]]
 clause = "9.7.5"
@@ -2218,7 +2230,7 @@ clause = "9.7.5.1"
 title = "General"
 status = "partial"
 code = ["crates/pdf-font/src/cmap.rs", "crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-model/tests/composite_fonts.rs::vertical_writing_is_refused_rather_than_drawn_horizontally"]
+test = ["crates/pdf-model/tests/composite_fonts.rs::a_vertical_cmap_takes_the_second_set_of_metrics"]
 note = "Both of the two forms the clause names are recognised — a predefined name and a stream — and a CMap yields \"CIDs in a CIDFont\", which is what `CMap::cid` returns. The writing mode is read from the file's own /WMode and from Table 118's, and mode 1 is refused rather than drawn horizontally, because the clause makes the mode decide \"which metrics shall be used\" and §9.7.4.3's /W2 is unread. That refusal is what keeps this `partial`: 4 corpus fonts ask for it."
 
 [[clause]]

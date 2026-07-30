@@ -317,14 +317,18 @@ fn a_predefined_cmap_is_refused_by_name() {
     );
 }
 
-/// A `CMap` in vertical writing mode is refused, because `/W2` and `/DW2` are not read.
+/// A `CMap` in vertical writing mode selects §9.7.4.3's second set of metrics.
 ///
 /// §9.7.5.1 makes the writing mode a property of the `CMap` and says it "determines which
-/// metrics shall be used"; §9.7.4.3 puts those metrics in `/W2` and `/DW2`. Drawing a vertical
-/// run horizontally is not a near miss — `vertical.pdf` should set two columns down the right
-/// edge of a page — so it stays loud.
+/// metrics shall be used"; §9.7.4.3 puts those metrics in `/W2` and `/DW2`, and §9.2.4 makes
+/// them a displacement `w1` whose horizontal component is 0 and a position vector `v` from
+/// the horizontal origin to the vertical one.
+///
+/// `vertical.pdf` sets two columns down the right edge of a page, and it states no `/W2` at
+/// all — so what places its glyphs is Table 122's default `/DW2` of `[880 -1000]`, one em
+/// down per glyph and a position vector of half the glyph's width across.
 #[test]
-fn vertical_writing_is_refused_rather_than_drawn_horizontally() {
+fn a_vertical_cmap_takes_the_second_set_of_metrics() {
     let Some(document) = corpus_document("vertical.pdf") else {
         println!("skipped: the doc/pdf.js submodule is not checked out");
         return;
@@ -334,11 +338,32 @@ fn vertical_writing_is_refused_rather_than_drawn_horizontally() {
         .iter()
         .find(|(key, _)| key == "F1")
         .expect("page one has /F1");
-    let error = pdf_font::LoadedFont::load(&document, dict, "F1")
-        .expect_err("Identity-V must be refused while /W2 is unread");
-    assert!(
-        error.to_string().contains("/W2"),
-        "the report must say what is missing: {error}"
+    let font = pdf_font::LoadedFont::load(&document, dict, "F1").expect("Identity-V loads");
+
+    assert!(font.is_vertical(), "Identity-V is writing mode 1");
+    // The first code of the page's own string, decoded the way the interpreter decodes it.
+    let code = *font
+        .decode(&[0x00, 0x01])
+        .first()
+        .expect("a two-byte code decodes");
+    let (displacement, position) = font.vertical_metrics(code);
+    assert_eq!(
+        displacement[0], 0.0,
+        "§9.2.4: w1's horizontal component shall be 0"
+    );
+    assert_eq!(
+        displacement[1], -1.0,
+        "and /DW2's default puts the next glyph one em below"
+    );
+    assert_eq!(
+        position[1], 0.88,
+        "and the position vector's vertical component is /DW2's first number"
+    );
+    assert_eq!(
+        position[0],
+        font.advance(code) / 2.0,
+        "§9.7.4.3: \"the horizontal component of the position vector shall be half the glyph \
+         width\""
     );
 }
 

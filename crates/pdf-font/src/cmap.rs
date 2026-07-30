@@ -270,6 +270,20 @@ impl CMap {
         }
     }
 
+    /// `Identity-V`, which §9.7.5.2's Table 116 makes `Identity-H`'s vertical twin.
+    ///
+    /// > Vertical version of Identity-H . The mapping is the same as for Identity-H .
+    ///
+    /// Same codespace and same mapping; the writing mode is the whole difference, and what it
+    /// changes is which of §9.7.4.3's two sets of metrics places the next glyph.
+    #[must_use]
+    pub fn identity_vertical() -> Self {
+        Self {
+            wmode: 1,
+            ..Self::identity()
+        }
+    }
+
     /// Parses an embedded `CMap` file (§9.7.5.3), optionally over the one it builds on.
     ///
     /// The `used` argument is §9.7.5.3's `/UseCMap`: "If this entry is present, the
