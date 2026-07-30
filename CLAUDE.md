@@ -107,10 +107,18 @@ In practice:
   say *from where*. "This is what poppler produces" is not a justification for anything.
 - When another implementation disagrees, find the clause. Either we misread it, or they
   did, or it is genuinely unspecified — and those three have different consequences.
-- Where the specification genuinely defines nothing (`DeviceCMYK` → RGB is the standing
-  example), say so plainly, make a deliberate choice, and document it *as a choice*.
-  Presenting a de-facto convention as though it were derived is the failure mode this rule
-  exists to prevent.
+- Where the specification genuinely defines nothing (a `Text` annotation's icon is the
+  standing example: §12.5.6.4 requires "predefined icon appearances for at least the
+  following standard names" and states not one line of their artwork), say so plainly, make
+  a deliberate choice, and document it *as a choice*. Presenting a de-facto convention as
+  though it were derived is the failure mode this rule exists to prevent.
+- **"The specification defines nothing here" is itself a claim about the specification, and
+  it decays.** The standing example used to be `DeviceCMYK` → RGB, on the evidence of
+  §8.6.4.4, which says only that the components are "concentrations of process colourants".
+  §10.4.2.5 defines that conversion outright, and §10.4.2.1 ranks it below §10.3's ICC route
+  — so the question is answered twice, in an order, and the code was right for a reason
+  nobody had found. Before recording a silence, read the *titles* around the subject in
+  `doc/md/`; it takes a minute, and this claim survived thirty-two sessions in this file.
 - Curve-fitting to another renderer's output is forbidden outright. An implementation is
   correct for all valid PDFs or it is not correct; tuning constants until a corpus matches
   produces neither correctness nor knowledge.
@@ -133,9 +141,12 @@ In scope, without exclusions:
 - **Clause 12, everything that displays** — every annotation subtype's appearance including
   synthesised ones, form field appearance construction, optional content, outlines,
   destinations, page labels.
-- **Clause 10 where it applies to a screen.** Halftones, transfer functions, flatness and
-  smoothness describe a marking device; those are *inapplicable*, which is not the same as
-  excluded, and the ledger keeps them apart.
+- **Clause 10 where it applies to a screen.** Halftones and transfer functions describe a
+  marking device; those are *inapplicable*, which is not the same as excluded, and the ledger
+  keeps them apart. Flatness and smoothness are **not** inapplicable, and the difference is
+  worth the words: §10.7.2 makes ignoring flatness an explicit permission, and §10.7.3 says
+  "each output device may have internal limits" on smoothness — a clause that permits is a
+  clause that has been read, and it is a stronger answer than one that does not apply.
 - **Clause 14** — output intents, and tagged PDF as far as accessibility needs it.
 
 The exclusions, closed, each with its reason:
@@ -149,9 +160,9 @@ The exclusions, closed, each with its reason:
 
 Revisit an exclusion by argument, never by attrition.
 
-One honest limit on "as its producer specified": where the standard defines nothing —
-`DeviceCMYK` → RGB, how a fractional page becomes a whole number of pixels — done means a
-documented choice, not a match with anyone.
+One honest limit on "as its producer specified": where the standard defines nothing — an
+annotation icon's artwork, how a fractional page becomes a whole number of pixels — done
+means a documented choice, not a match with anyone.
 
 **ISO's own conformance clause is the floor, not the goal.** §6.3.2.1 lets any processor
 choose which subsets it supports; that is what the standard owes a thumbnail generator, and
