@@ -638,16 +638,17 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// agreed were running one ICC profile between them, and this tree's own evaluator, pointed
 /// at that profile on this machine, reproduced both of their renders.
 ///
-/// - `mesh_shading_empty.pdf` differs by the **subdivision lattice**, and the twenty-eighth
-///   session measured it rather than repeating the guess this comment used to carry. It said
-///   the mesh was "displaced horizontally"; it is not — our coloured region begins and ends
-///   in the same pixel columns as all four references, and our colours are within a level of
-///   theirs everywhere except a one-pixel column at the mesh's right edge. What fails is
-///   *structural* similarity, 0.972 against a bound of 0.990, and what it is measuring is the
-///   faint lattice left by filling a Gouraud triangle as many flat sub-triangles (§8.7.4.5.5).
-///   Closing it needs a Gouraud rasteriser in **both** backends, because the cross-backend
-///   scenes hold them to identical pixels. **Five for five on this list's name failing to
-///   diagnose a member.**
+/// **The subdivision lattice is gone and it took three pages with it** (forty-third session,
+/// ADR 0051). `mesh_shading_empty.pdf` was the one identified live cause here: the
+/// twenty-eighth session measured it rather than repeating the guess this comment used to
+/// carry — it said the mesh was "displaced horizontally", and it was not; every reference put
+/// the coloured region in the same pixel columns, and what failed was *structural* similarity,
+/// 0.972 against 0.990, measuring the faint lattice left by filling a Gouraud triangle as many
+/// flat sub-triangles (§8.7.4.5.5). `issue2948.pdf` was the same thing an order of magnitude
+/// louder, a moiré grid across a whole rainbow page. `issue18816.pdf` came with them. All
+/// three now agree, and the entry that said closing it "needs a Gouraud rasteriser in **both**
+/// backends" was right about the requirement and wrong about the difficulty: one raster,
+/// shared.
 ///
 /// **Five pages left in the seventeenth session and only one of them was fixed.** Four
 /// `knockout_*.pdf` are knockout transparency groups (§11.4.6), which that session began to
@@ -742,7 +743,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 42] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 39] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -758,11 +759,9 @@ const CONTRADICTED_UNEXPLAINED: [&str; 42] = [
     "freeculture.pdf page 76",
     "issue1002.pdf page 1",
     "issue10572.pdf page 1",
-    "issue18816.pdf page 1",
     "issue19633.pdf page 1",
     "issue2017r.pdf page 1",
     "issue2537r.pdf page 1",
-    "issue2948.pdf page 1",
     "issue3207r.pdf page 1",
     "issue3405r.pdf page 1",
     "issue3694_reduced.pdf page 1",
@@ -780,7 +779,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 42] = [
     "issue8097_reduced.pdf page 1",
     "issue8570.pdf page 1",
     "issue9915_reduced.pdf page 1",
-    "mesh_shading_empty.pdf page 1",
     "openoffice.pdf page 1",
     "pattern_text_embedded_font.pdf page 1",
     "tiling-pattern-large-steps.pdf page 1",

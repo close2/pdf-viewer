@@ -322,6 +322,7 @@ fn encode_fill(
     rule: peniko::Fill,
     paint: &Paint,
     blend: BlendMode,
+    target: TargetSpec,
 ) -> Result<(), GpuRasterError> {
     let at = spaces.at;
 
@@ -331,7 +332,12 @@ fn encode_fill(
         && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
     {
         scene.push_layer(rule, blend_mode(blend), 1.0, at, shape);
-        crate::shading::fill_mesh(scene, triangles, shading.transform.then(spaces.to_device));
+        crate::shading::fill_mesh(
+            scene,
+            triangles,
+            shading.transform.then(spaces.to_device),
+            target,
+        );
         scene.pop_layer();
         return Ok(());
     }
@@ -504,6 +510,7 @@ fn encode(
                     fill_rule(*rule),
                     paint,
                     *blend,
+                    spec.target,
                 )?;
             }
             Command::Stroke {

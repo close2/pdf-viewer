@@ -267,6 +267,124 @@ impl Ramp {
     }
 }
 
+/// A mesh shading rasterised into device pixels, ISO 32000-2 §8.7.4.5.5.
+///
+/// # Why a raster rather than a pile of flat triangles
+///
+/// §8.7.4.5.5 states it in one sentence, of which the load-bearing half is:
+///
+/// > The colour at each vertex of the triangles is specified, and a technique known as
+/// > Gouraud interpolation is used to colour the interiors.
+///
+/// Neither `tiny-skia` nor Vello has a Gouraud primitive, so both backends used to subdivide
+/// a triangle until its corner colours agreed to within 1/512 and then fill the piece flat.
+/// That produced three defects at once, and `issue2948.pdf` showed all three: a visible
+/// lattice where the flat pieces meet, a *bias* — a piece takes the mean of its corners,
+/// which on a ramp is not the colour at any of its pixels — and, because two abutting
+/// antialiased edges do not sum to full coverage, seams that had to be closed by growing
+/// every piece by 0.8 pixels, which is itself a departure nobody could derive.
+///
+/// Rasterising the mesh once, at device resolution, removes all three. A pixel's colour is
+/// the clause's own interpolation at that pixel's centre; adjacent triangles tile exactly
+/// under point sampling, so there are no seams to repair; and the arithmetic is the same on
+/// both backends because it is this function.
+///
+/// # What is given up, and to what
+///
+/// The mesh's own outer boundary is point-sampled and therefore *not* antialiased. In every
+/// case that matters it does not show: a mesh is painted through the path being filled, and
+/// that path's edge is antialiased by the backend as it always was — so the hard edge appears
+/// only where a mesh ends *inside* its own shape, which is a mesh that does not cover the
+/// region its document asked it to fill. That is a real, small departure and it buys the
+/// removal of a larger one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeshRaster {
+    /// Device x of the raster's first column.
+    pub left: i32,
+    /// Device y of the raster's first row.
+    pub top: i32,
+    /// Straight-alpha RGBA8 samples, one per device pixel.
+    pub image: crate::Image,
+}
+
+impl MeshRaster {
+    /// Rasterises `triangles` into the part of a `width` by `height` target they cover.
+    ///
+    /// `to_device` carries the mesh's own coordinates onto the target. Returns `None` when
+    /// the mesh covers no pixel of it, which a clipped-away or degenerate mesh does.
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "every cast below is between a device pixel index and its coordinate, both                   bounded by the target's extent, which `MAX_EXTENT` keeps under 2^24"
+    )]
+    pub fn build(
+        triangles: &[Triangle],
+        to_device: Transform,
+        width: u32,
+        height: u32,
+    ) -> Option<Self> {
+        if triangles.is_empty() || width == 0 || height == 0 {
+            return None;
+        }
+        let device: Vec<Triangle> = triangles
+            .iter()
+            .map(|triangle| Triangle {
+                points: triangle.points.map(|point| to_device.apply(point)),
+                colours: triangle.colours,
+            })
+            .collect();
+
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for triangle in &device {
+            for point in triangle.points {
+                if !point.x.is_finite() || !point.y.is_finite() {
+                    return None;
+                }
+                x0 = x0.min(point.x);
+                y0 = y0.min(point.y);
+                x1 = x1.max(point.x);
+                y1 = y1.max(point.y);
+            }
+        }
+        // Half a pixel of margin on each side, because a pixel is sampled at its centre and a
+        // triangle ending at x = 10.0 still covers the sample at 9.5.
+        let left = (x0 - 0.5).floor().max(0.0) as u32;
+        let top = (y0 - 0.5).floor().max(0.0) as u32;
+        let right = (x1 + 0.5).ceil().max(0.0).min(width as f32) as u32;
+        let bottom = (y1 + 0.5).ceil().max(0.0).min(height as f32) as u32;
+        let (span, rows) = (right.checked_sub(left)?, bottom.checked_sub(top)?);
+        if span == 0 || rows == 0 {
+            return None;
+        }
+
+        let mut data = vec![
+            0u8;
+            (span as usize)
+                .saturating_mul(rows as usize)
+                .saturating_mul(4)
+        ];
+        for triangle in &device {
+            triangle.paint(&mut data, left, top, span, rows);
+        }
+
+        Some(Self {
+            left: i32::try_from(left).ok()?,
+            top: i32::try_from(top).ok()?,
+            image: crate::Image {
+                width: span,
+                height: rows,
+                data: data.into(),
+                // Nearest sampling: the raster is already at device resolution and is drawn
+                // at 1:1, so no filter can be reached — and asking for one would let a
+                // backend blur the mesh against the transparent pixels outside it.
+                interpolate: false,
+            },
+        })
+    }
+}
+
 /// One triangle of a mesh shading, with a colour at each corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Triangle {
@@ -329,6 +447,89 @@ impl Triangle {
         // length and its colour still varies across them, so a bounding box test has to
         // require smallness in each direction rather than in area.
         extent(|point| point.x) <= 1.0 && extent(|point| point.y) <= 1.0
+    }
+
+    /// Paints this triangle into a device-resolution buffer by §8.7.4.5.5's interpolation.
+    ///
+    /// The buffer's first pixel is device `(left, top)`. A pixel belongs to the triangle when
+    /// its *centre* does — no antialiasing and no partial coverage — which is what makes two
+    /// triangles sharing an edge tile exactly: every sample falls on one side or the other,
+    /// and a sample exactly on the edge is claimed by both, the later one winning. Gaps are
+    /// what a mesh cannot have; a one-pixel overlap between two nearly equal colours is
+    /// invisible, which is the same property the old subdivision relied on.
+    ///
+    /// The interpolation itself is barycentric, which is the linear interpolation the clause
+    /// asks for written in the coordinates that make it one expression per channel.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "indices and coordinates of device pixels, bounded by the caller's extent"
+    )]
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "the clause's own notation for a triangle and its barycentric weights"
+    )]
+    fn paint(&self, data: &mut [u8], left: u32, top: u32, span: u32, rows: u32) {
+        let [a, b, c] = self.points;
+        // Twice the signed area. Zero means the three corners are collinear, so the triangle
+        // covers nothing and has no interior to interpolate over.
+        let area = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+        if area == 0.0 || !area.is_finite() {
+            return;
+        }
+
+        let extent = |get: fn(&Point) -> f32| {
+            let (p, q, r) = (get(&a), get(&b), get(&c));
+            (p.min(q).min(r), p.max(q).max(r))
+        };
+        let (x0, x1) = extent(|point| point.x);
+        let (y0, y1) = extent(|point| point.y);
+        let first_x = ((x0 - 0.5).floor().max(0.0) as u32).saturating_sub(left);
+        let first_y = ((y0 - 0.5).floor().max(0.0) as u32).saturating_sub(top);
+        let last_x = (((x1 + 0.5).ceil().max(0.0) as u32).saturating_sub(left)).min(span);
+        let last_y = (((y1 + 0.5).ceil().max(0.0) as u32).saturating_sub(top)).min(rows);
+
+        for row in first_y..last_y {
+            let y = top.saturating_add(row) as f32 + 0.5;
+            for column in first_x..last_x {
+                let x = left.saturating_add(column) as f32 + 0.5;
+                // Barycentric coordinates, scaled by `area` so no division is needed to test
+                // the sign — and divided once each only for a pixel that is inside.
+                let w0 = (b.x - x) * (c.y - y) - (c.x - x) * (b.y - y);
+                let w1 = (c.x - x) * (a.y - y) - (a.x - x) * (c.y - y);
+                let w2 = (a.x - x) * (b.y - y) - (b.x - x) * (a.y - y);
+                let inside = if area > 0.0 {
+                    w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0
+                } else {
+                    w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0
+                };
+                if !inside {
+                    continue;
+                }
+                let (u, v, w) = (w0 / area, w1 / area, w2 / area);
+                let [ca, cb, cc] = self.colours;
+                let mix = |get: fn(&Color) -> f32| {
+                    (u * get(&ca) + v * get(&cb) + w * get(&cc)).clamp(0.0, 1.0)
+                };
+                let at = ((row as usize)
+                    .saturating_mul(span as usize)
+                    .saturating_add(column as usize))
+                .saturating_mul(4);
+                let Some(pixel) = data.get_mut(at..at.saturating_add(4)) else {
+                    continue;
+                };
+                for (slot, value) in pixel.iter_mut().zip([
+                    mix(|colour| colour.r),
+                    mix(|colour| colour.g),
+                    mix(|colour| colour.b),
+                    mix(|colour| colour.a),
+                ]) {
+                    // Rounded rather than truncated, so a corner's own colour round-trips.
+                    *slot = (value * 255.0 + 0.5) as u8;
+                }
+            }
+        }
     }
 
     /// Returns the average of the three corner colours.

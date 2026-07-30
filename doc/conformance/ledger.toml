@@ -3261,67 +3261,80 @@ status = "unreviewed"
 [[clause]]
 clause = "12.3"
 title = "Document-level navigation"
-status = "unreviewed"
+status = "silent"
+note = "Document-level navigation: an outline, thumbnails, destinations, collections and navigators. **Not one of them is implemented and nothing says so**, which is what `silent` records. `CLAUDE.md` puts \"outlines, destinations, page labels\" in scope by name, so this is debt rather than a boundary — and the debt is a *viewer* rather than a clause: none of these changes a rendered page, all of them change what a person can do with the document once it is on screen. The rows below say which is which, so that the count is not one number for six different things."
 
 [[clause]]
 clause = "12.3.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing: an outline and a set of thumbnails, each item associated with a destination. Both are surfaces this program does not have — `viewer-ui` shows one page at a time and turns pages with the arrow keys. Recorded rather than omitted, because §6.3.2.2's ranking and `CLAUDE.md`'s scope statement both make them owed."
 
 [[clause]]
 clause = "12.3.2"
 title = "Destinations"
-status = "unreviewed"
+status = "silent"
+note = "Destinations, in both of their forms. Nothing reads one. The parts of the tree that would consume one exist: `Pages` resolves a page tree and `page.rs` knows §7.7.3.3's boxes, so a destination is a page reference plus a rectangle in a coordinate system this crate already computes. What is missing is the thing that would act on it."
 
 [[clause]]
 clause = "12.3.2.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "What a destination *is*: a page, a location in it, and a magnification. The clause names the four places one may be reached from — an outline item, a link annotation (§12.5.6.5), a Go-To action (§12.6.4.2), and the catalog's `/OpenAction` — and this tree draws a link annotation's *appearance* while ignoring where it points, which is the honest summary of the whole family."
 
 [[clause]]
 clause = "12.3.2.2"
 title = "Explicit destinations"
-status = "unreviewed"
+status = "silent"
+note = "Table 149's eight explicit forms — `/XYZ`, `/Fit`, `/FitH`, `/FitV`, `/FitR`, `/FitB`, `/FitBH`, `/FitBV` — with coordinates \"expressed in the default user space coordinate system\" and a page's bounding box defined as \"the smallest rectangle enclosing all of its contents\", clipped to the crop box. That last is the only part of this family with a *rendering* question in it: this tree computes no content bounding box, though §14.11.2's crop box it does compute."
 
 [[clause]]
 clause = "12.3.2.3"
 title = "Structure destinations"
-status = "unreviewed"
+status = "silent"
+note = "A destination naming a *structure element* rather than a page, which needs §14.7's logical structure tree — unread, and the reason this row cannot be closed before clause 14's is."
 
 [[clause]]
 clause = "12.3.2.4"
 title = "Named destinations"
-status = "unreviewed"
+status = "silent"
+note = "A destination named indirectly, through a `/Dests` name tree in the catalog's `/Names` or the older `/Dests` dictionary. Name trees are a data structure this tree has never needed; nothing in it reads one."
 
 [[clause]]
 clause = "12.3.3"
 title = "Document outline"
-status = "unreviewed"
+status = "silent"
+note = "The document outline: `/Outlines` in the catalog, a doubly-linked tree of items each carrying a `/Title`, a destination or an action, and optional colour and style. In scope by name and unbuilt. Two things are worth leaving for whoever builds it: the title is a *text string* (§7.9.2.2), which this tree already decodes, and the sign of `/Count` is what says whether an item is open."
 
 [[clause]]
 clause = "12.3.4"
 title = "Thumbnail images"
-status = "unreviewed"
+status = "silent"
+note = "Thumbnail images: a page's `/Thumb`, an image XObject in `DeviceGray`, `DeviceRGB` or `Indexed`. Two things make this row unusual. The clause permits a processor to generate its own instead, and `CLAUDE.md` principle 2 **forbids doing so on the launch path** — so what is missing is a panel rather than a decoder, and the decoder it would need is `image.rs`, which exists. A `/Thumb` is also the only entry in this family that a *page* carries rather than the catalog."
 
 [[clause]]
 clause = "12.3.5"
 title = "Collections"
-status = "unreviewed"
+status = "silent"
+note = "Collections — the catalog's `/Collection`, presenting a document as a set of embedded files with a schema of columns to sort them by. A file browser rather than a page; the embedded files themselves are §7.11's."
 
 [[clause]]
 clause = "12.3.5.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Table 154's collection dictionary: the view, the schema, the initial document, the folders. All of it describes a user interface."
 
 [[clause]]
 clause = "12.3.5.2"
 title = "Collection hierarchical folders"
-status = "unreviewed"
+status = "silent"
+note = "Collection folders, a hierarchy over the embedded files. As above, and it inherits §7.11's file specifications, which this tree reads only far enough to refuse a stream whose data lives in an external file (§7.3.8.1)."
 
 [[clause]]
 clause = "12.3.6"
 title = "Navigators"
-status = "unreviewed"
+status = "silent"
+note = "Navigators: a collection's own presentation, supplied as SWF. The *format* is what principle 5's exclusion of clause 13 is about — a media engine rather than a rendering question — but this clause is in 12 and the exclusion list is closed, so it is recorded as debt rather than claimed as excluded. Anyone widening that list should start here, with an argument."
 
 [[clause]]
 clause = "12.4"

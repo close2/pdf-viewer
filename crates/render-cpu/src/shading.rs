@@ -186,26 +186,16 @@ fn sampled_shader<'a>(
     ))
 }
 
-/// How different two corner colours may be before a triangle is split.
+/// Draws a mesh shading's triangles, clipped to a path (ISO 32000-2 §8.7.4.5.5).
 ///
-/// Below one part in five hundred, which is finer than an eight-bit channel can represent,
-/// so the flat-filled result is indistinguishable from true interpolation once quantised.
-const FLAT_ENOUGH: f32 = 1.0 / 512.0;
-
-/// How many times a triangle may be split before it is drawn flat regardless.
+/// The mesh is rasterised once by [`pdf_render::MeshRaster`] — the clause's own linear
+/// interpolation, evaluated at each device pixel's centre — and the result is drawn as an
+/// image confined to the shape. So the *colour* is `pdf-render`'s, identically on both
+/// backends, and the *edge* is `tiny-skia`'s, antialiased as every other fill's is.
 ///
-/// Each level multiplies the triangle count by four, so this bounds one mesh triangle at
-/// 4^6 = 4096 draws. Reached only by a triangle whose corner colours are far apart *and*
-/// which covers a large area; the bound stops a pathological mesh from taking the renderer
-/// with it.
-const MAX_SUBDIVISION: u32 = 6;
-
-/// Draws a mesh shading's triangles, clipped to a path.
-///
-/// `tiny-skia` has no Gouraud shading, so each triangle is subdivided until its corner
-/// colours agree closely enough to fill flat. Subdivision is by quarters rather than
-/// halves, so the pieces stay well-shaped: repeatedly splitting one edge produces slivers,
-/// and slivers rasterise with visible seams between them.
+/// Until the forty-third session this subdivided each triangle until its corner colours
+/// agreed to within 1/512 and filled the piece flat, then grew every piece by 0.8 pixels to
+/// close the seams that left. `MeshRaster` has why that is gone.
 #[expect(
     clippy::too_many_arguments,
     reason = "these are the parameters `fill_path` itself takes, threaded through one \
@@ -222,117 +212,73 @@ pub(crate) fn fill_mesh(
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) {
-    // The mesh is confined to the shape being filled, which is what a clip is for. Building
-    // it once here rather than clipping each triangle keeps the edge of the shape
-    // antialiased rather than stepped.
-    let mut mask = tiny_skia::Mask::new(pixmap.width(), pixmap.height());
-    let Some(mask) = mask.as_mut() else {
+    let Some(raster) =
+        pdf_render::MeshRaster::build(triangles, to_device, pixmap.width(), pixmap.height())
+    else {
         return;
     };
-    mask.fill_path(shape, fill_rule, anti_alias, shape_transform);
-    if let Some(clip) = clip {
-        // `tiny-skia` intersects a mask with a *path*, not with another mask, so the two
-        // coverages are combined directly. Multiplying is what intersection means for
-        // coverage, and it keeps both edges antialiased rather than snapping either.
-        for (own, outer) in mask.data_mut().iter_mut().zip(clip.data().iter()) {
-            *own = u8::try_from(
-                (u16::from(*own).saturating_mul(u16::from(*outer))).saturating_add(127) / 255,
-            )
-            .unwrap_or(0);
-        }
-    }
-
-    // Triangles are carried into device space here rather than by `fill_path`, because the
-    // seam repair below is a fixed distance in *pixels* and has no meaning in the mesh's
-    // own coordinates.
-    for triangle in triangles {
-        let device = pdf_render::Triangle {
-            points: triangle.points.map(|point| to_device.apply(point)),
-            colours: triangle.colours,
-        };
-        draw_triangle(pixmap, device, Some(mask), blend, 0);
-    }
-    let _ = anti_alias;
-}
-
-/// How far each triangle is grown, in pixels, to close the seams between neighbours.
-///
-/// Two triangles sharing an edge do not tile exactly once rasterised: coverage along the
-/// shared edge does not sum to one, and the backdrop shows through. On the specification's
-/// own Coons test page that left nine white pinholes; on Vello, which antialiases every
-/// edge, it left a hairline along every shared edge instead.
-///
-/// Growing each triangle so neighbours overlap removes both. The overlap is invisible
-/// because subdivision has already made the colours across a shared edge nearly equal —
-/// the same property that lets them be filled flat at all.
-///
-/// The value is measured rather than chosen. Sweeping it against the CPU-versus-GPU
-/// agreement test gave mean errors of 12.2 at zero overlap, 4.2 at 0.35, 1.8 at 0.7, and
-/// within tolerance at 0.8. `render-gpu` uses the same number for the same reason; they
-/// have to, or the backends stop agreeing.
-const SEAM_OVERLAP: f32 = 0.8;
-
-/// Grows a triangle about its centroid by a fixed distance in device pixels.
-fn grow(triangle: &pdf_render::Triangle) -> [tiny_skia::Point; 3] {
-    let [a, b, c] = triangle.points;
-    let centre = pdf_render::Point::new((a.x + b.x + c.x) / 3.0, (a.y + b.y + c.y) / 3.0);
-    triangle.points.map(|point| {
-        let (dx, dy) = (point.x - centre.x, point.y - centre.y);
-        let length = dx.hypot(dy);
-        if length <= f32::EPSILON {
-            return tiny_skia::Point::from_xy(point.x, point.y);
-        }
-        tiny_skia::Point::from_xy(
-            point.x + dx / length * SEAM_OVERLAP,
-            point.y + dy / length * SEAM_OVERLAP,
+    let Some(mut samples) = tiny_skia::Pixmap::new(raster.image.width, raster.image.height) else {
+        return;
+    };
+    // `tiny-skia` pixmaps are premultiplied and `Image` is straight alpha, the same boundary
+    // conversion `CpuRasterizer::draw_image` makes.
+    for (target, source) in samples
+        .pixels_mut()
+        .iter_mut()
+        .zip(raster.image.data.chunks_exact(4))
+    {
+        let alpha = source[3];
+        *target = tiny_skia::PremultipliedColorU8::from_rgba(
+            crate::premultiply(source[0], alpha),
+            crate::premultiply(source[1], alpha),
+            crate::premultiply(source[2], alpha),
+            alpha,
         )
-    })
-}
-
-/// Fills one triangle, in device space, splitting it first if its colours vary across it.
-fn draw_triangle(
-    pixmap: &mut tiny_skia::PixmapMut<'_>,
-    triangle: pdf_render::Triangle,
-    mask: Option<&tiny_skia::Mask>,
-    blend: tiny_skia::BlendMode,
-    depth: u32,
-) {
-    // The size test is not an optimisation of the colour test but a separate stopping
-    // condition: see `Triangle::is_subpixel`. Both backends apply both, from the same
-    // function, because they are meant to agree pixel for pixel.
-    if depth < MAX_SUBDIVISION && !triangle.is_flat(FLAT_ENOUGH) && !triangle.is_subpixel() {
-        for piece in triangle.subdivide() {
-            draw_triangle(pixmap, piece, mask, blend, depth.saturating_add(1));
-        }
-        return;
+        .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
     }
-
-    let mut builder = tiny_skia::PathBuilder::new();
-    let [a, b, c] = grow(&triangle);
-    builder.move_to(a.x, a.y);
-    builder.line_to(b.x, b.y);
-    builder.line_to(c.x, c.y);
-    builder.close();
-    let Some(path) = builder.finish() else {
-        return;
-    };
 
     let paint = tiny_skia::Paint {
-        shader: tiny_skia::Shader::SolidColor(crate::convert::color(triangle.average_colour())),
+        shader: tiny_skia::Pattern::new(
+            samples.as_ref(),
+            tiny_skia::SpreadMode::Pad,
+            // The raster is already at device resolution and is placed at whole pixels, so
+            // no sample is ever interpolated and the filter cannot change a pixel.
+            tiny_skia::FilterQuality::Nearest,
+            1.0,
+            tiny_skia::Transform::from_translate(
+                // Both are device pixel indices, bounded by `MAX_EXTENT` at 2^24, so the
+                // conversion is exact.
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a device pixel index is far below f32's exact integer limit"
+                )]
+                {
+                    raster.left as f32
+                },
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a device pixel index is far below f32's exact integer limit"
+                )]
+                {
+                    raster.top as f32
+                },
+            ),
+        ),
         blend_mode: blend,
-        // Antialiased, and safe to be because the triangles overlap: two *abutting*
-        // antialiased edges would not sum to full coverage and would seam, but two
-        // overlapping ones do. Vello antialiases unconditionally, so this is also what
-        // keeps the two backends agreeing — measured, see `SEAM_OVERLAP`.
-        anti_alias: true,
+        anti_alias,
         ..tiny_skia::Paint::default()
     };
+    // The shape carries its own transform; the pattern's is in *device* space, which is what
+    // a paint is read in — see `shader` above, and trap 2.
+    let device_shape = shape.clone().transform(shape_transform);
+    let Some(device_shape) = device_shape else {
+        return;
+    };
     pixmap.fill_path(
-        &path,
+        &device_shape,
         &paint,
-        tiny_skia::FillRule::Winding,
-        // The points are already in device space.
+        fill_rule,
         tiny_skia::Transform::identity(),
-        mask,
+        clip,
     );
 }

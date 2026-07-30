@@ -15,7 +15,7 @@
 //! identical is deliberate: they are meant to agree pixel for pixel, and two different
 //! approximations of the same thing would not.
 
-use pdf_render::{Color, Ramp, Shading, ShadingKind, Transform};
+use pdf_render::{Color, Ramp, Shading, ShadingKind, TargetSpec, Transform};
 use vello::peniko;
 
 /// How wide the transparent transition at a non-extended end is, as a fraction of the
@@ -118,87 +118,41 @@ fn stop(offset: f32, colour: Color) -> peniko::ColorStop {
     }
 }
 
-/// How different two corner colours may be before a triangle is split.
+/// Draws a mesh shading's triangles into the current layer (ISO 32000-2 §8.7.4.5.5).
 ///
-/// The same threshold the CPU backend uses, because the two are meant to agree.
-const FLAT_ENOUGH: f32 = 1.0 / 512.0;
-
-/// How many times a triangle may be split before it is drawn flat regardless.
-const MAX_SUBDIVISION: u32 = 6;
-
-/// How far each triangle is grown, in pixels, to close the seams between neighbours.
+/// The caller has already pushed a layer clipped to the shape being filled, so this needs no
+/// clipping of its own. Vello has no Gouraud primitive and neither has `tiny-skia`, so the
+/// mesh is rasterised once by [`pdf_render::MeshRaster`] — the clause's own interpolation at
+/// each device pixel's centre — and the result is drawn as an image at 1:1.
 ///
-/// The same value `render-cpu` uses, and it must stay the same or the backends stop
-/// agreeing. Vello needs it more, not less: it antialiases every edge, so without the
-/// overlap a mesh showed a white hairline along every shared edge rather than the CPU
-/// backend's occasional dropped pixel. See `render-cpu`'s note for the measurements.
-const SEAM_OVERLAP: f32 = 0.8;
-
-/// Draws a mesh shading's triangles into the current layer.
-///
-/// The caller has already pushed a layer clipped to the shape being filled, so these need
-/// no clipping of their own. Vello has no Gouraud shading either, so the triangles are
-/// subdivided until their corner colours agree closely enough to fill flat — by quarters,
-/// which keeps the pieces well-shaped where halving would produce slivers.
-///
-/// Everything here mirrors `render-cpu` deliberately, down to the thresholds: the two
-/// backends are meant to agree pixel for pixel, and two different approximations of the
-/// same thing would not.
+/// Everything here mirrors `render-cpu` deliberately, and now mirrors it exactly rather than
+/// approximately: the two backends draw the *same bytes*, where before they drew two
+/// subdivisions of the same triangles that had to be tuned to agree.
 pub(crate) fn fill_mesh(
     scene: &mut vello::Scene,
     triangles: &[pdf_render::Triangle],
     to_device: Transform,
+    target: TargetSpec,
 ) {
-    // Carried into device space here rather than by the scene transform, because the seam
-    // repair is a fixed distance in *pixels* and has no meaning in the mesh's own space.
-    for triangle in triangles {
-        let device = pdf_render::Triangle {
-            points: triangle.points.map(|point| to_device.apply(point)),
-            colours: triangle.colours,
-        };
-        draw_triangle(scene, device, 0);
-    }
-}
-
-fn draw_triangle(scene: &mut vello::Scene, triangle: pdf_render::Triangle, depth: u32) {
-    // As `render-cpu`, deliberately: see `Triangle::is_subpixel`.
-    if depth < MAX_SUBDIVISION && !triangle.is_flat(FLAT_ENOUGH) && !triangle.is_subpixel() {
-        for piece in triangle.subdivide() {
-            draw_triangle(scene, piece, depth.saturating_add(1));
-        }
+    let Some(raster) =
+        pdf_render::MeshRaster::build(triangles, to_device, target.width, target.height)
+    else {
         return;
-    }
-
-    let [a, b, c] = grow(&triangle);
-    let mut path = vello::kurbo::BezPath::new();
-    path.move_to(a);
-    path.line_to(b);
-    path.line_to(c);
-    path.close_path();
-
-    scene.fill(
-        peniko::Fill::NonZero,
-        // The points are already in device space.
-        vello::kurbo::Affine::IDENTITY,
-        crate::scene::color(triangle.average_colour()),
-        None,
-        &path,
+    };
+    let data = peniko::ImageData {
+        data: peniko::Blob::new(std::sync::Arc::new(raster.image.data.to_vec())),
+        format: peniko::ImageFormat::Rgba8,
+        // Straight alpha, matching `pdf_render::Image`'s documented format.
+        alpha_type: peniko::ImageAlphaType::Alpha,
+        width: raster.image.width,
+        height: raster.image.height,
+    };
+    // `Low` is nearest-neighbour. The raster is at device resolution and placed at whole
+    // pixels, so no sample can be interpolated — and a filter would blur the mesh's edge
+    // against the transparent pixels outside it.
+    let brush = peniko::ImageBrush::new(data).with_quality(peniko::ImageQuality::Low);
+    scene.draw_image(
+        &brush,
+        vello::kurbo::Affine::translate((f64::from(raster.left), f64::from(raster.top))),
     );
-}
-
-/// Grows a triangle about its centroid by a fixed distance in device pixels.
-fn grow(triangle: &pdf_render::Triangle) -> [vello::kurbo::Point; 3] {
-    let [a, b, c] = triangle.points;
-    let centre = pdf_render::Point::new((a.x + b.x + c.x) / 3.0, (a.y + b.y + c.y) / 3.0);
-    triangle.points.map(|point| {
-        let (dx, dy) = (point.x - centre.x, point.y - centre.y);
-        let length = dx.hypot(dy);
-        if length <= f32::EPSILON {
-            return vello::kurbo::Point::new(f64::from(point.x), f64::from(point.y));
-        }
-        vello::kurbo::Point::new(
-            f64::from(point.x + dx / length * SEAM_OVERLAP),
-            f64::from(point.y + dy / length * SEAM_OVERLAP),
-        )
-    })
 }

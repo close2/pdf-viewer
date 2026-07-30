@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **forty-second** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **forty-third** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,76 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the forty-second session changed
+## What the forty-third session changed
+
+**The mesh subdivision lattice is gone, three contradicted pages went with it, and the page
+that showed the defect got 11.5× faster.**
+
+§8.7.4.5.5 asks for Gouraud interpolation across a triangle. Neither rasteriser has one, so
+both backends subdivided each triangle by quarters — up to 4096 pieces — and filled each piece
+with the *mean* of its corners. That produced three defects and only the first was ever written
+down: a visible lattice, a systematic *bias* (a mean is not the colour at any of the piece's
+pixels), and seams that had to be closed by growing every piece by `SEAM_OVERLAP = 0.8` pixels,
+a constant found by sweeping it until the backends agreed.
+
+`pdf_render::MeshRaster` now rasterises the mesh once at device resolution: a pixel's colour is
+the clause's interpolation at that pixel's *centre*, and a pixel belongs to the triangle whose
+interior contains its centre. **Adjacent triangles then tile exactly**, so there are no seams
+to repair — `SEAM_OVERLAP`, `FLAT_ENOUGH` and `MAX_SUBDIVISION` are all deleted. Each backend
+draws the raster as a nearest-sampled image at 1:1, so the colour is `pdf-render`'s, identically
+on both, and the edge is the backend's, antialiased as every other fill's is.
+
+| | before | after |
+|---|---|---|
+| `issue2948.pdf`, callgrind | **35.47 G** | **3.08 G** |
+| `tensor-allflags-withfunction.pdf` | did not finish in a 15-minute callgrind budget | **1.57 G** |
+| `personwithdog.pdf` | did not finish in that budget | **6.77 G** |
+| a page with no mesh | — | unchanged |
+
+The old cost was per *piece* — 4096 fills of a few pixels, each compiling a `tiny-skia`
+pipeline; the new one is per *pixel*, once. **The sixteenth session's lesson has an inverse: a
+change made for correctness that is also an order of magnitude faster means the old code was
+doing work that was worse than useless.** ADR 0051.
+
+**On the specification track, §12.3's twelve rows — and the ledger's `silent` count goes from
+2 to 15.** Document-level navigation: destinations, the outline, thumbnails, collections,
+navigators. Not one is implemented and nothing says so.
+
+**That number is the finding.** This project has been able to say "two `silent` rows are left"
+only because clause 12's interactive half was `unreviewed` — and `unreviewed` and `silent` are
+different admissions: one is *we have not asked*, the other is *we asked, and we owe it in
+silence*. `CLAUDE.md` names "outlines, destinations, page labels" in scope explicitly, so this
+is debt rather than a boundary, and the rows say what kind each is: a thumbnail panel, a name
+tree and a SWF navigator are not one problem.
+
+| | was | is |
+|---|---|---|
+| a Gouraud triangle | up to 4096 flat pieces, each grown 0.8 px | one raster, interpolated per pixel |
+| **pages agreeing with the reference consensus** | 812 | **815** |
+| **contradicted pages with no explanation** | 42 | **39** |
+| **ledger rows owing something in silence** | 2 | **15** |
+
+**The numbers:**
+
+| | before | now |
+|---|---|---|
+| corpus documents drawing with nothing reported | 858 | **858** |
+| **pages agreeing with the reference consensus** | 812 | **815** |
+| **pages contradicted** | 86 | **83** |
+| **ledger subclauses nobody has read** | 270 | **257** |
+| tests | 603 | **603** |
+
+What it taught:
+
+- **A count of `silent` rows is only as honest as the clauses that have been read.** Two was
+  never the number; it was the number of silences inside the parts of the standard this project
+  had looked at.
+- **"Needs a rasteriser in both backends" was right about the requirement and wrong about the
+  difficulty.** The entry had stood for fifteen sessions as a reason not to try. One shared
+  raster satisfies "both backends produce identical pixels" more completely than two
+  implementations could, and it is *less* code than what it replaced.
+
+### The forty-second session, in brief
 
 **One page in the unexplained list differed from *every* reference while the three of them
 agreed with each other, and that is the strongest signal the gate can produce.**
@@ -77,7 +146,20 @@ What it taught:
   found the shared ICC profile two sessions ago and found this page, both times *before* an
   artefact was opened. "We differ from all three while they agree" and "two clusters of two"
   are different diagnoses and one table separates them.
-- **A dependency can implement more of a specification than the clause cites.** The AGL has a
+- **Price the work before believing a reason not to do it.** `mesh_shading_empty.pdf`'s entry
+said, for fifteen sessions, that closing it "needs a Gouraud rasteriser in **both** backends,
+since the cross-backend scenes hold them to identical pixels" — true, and read as a reason to
+leave it. One shared raster satisfies that constraint *better* than two implementations could,
+is less code than what it replaced, and made the page that showed the defect 11.5× faster. A
+constraint is not a cost until somebody adds it up.
+
+**A count of what you owe in silence is only as honest as the clauses you have read.** This
+project said "two `silent` rows" for eight sessions. Reading §12.3 made it fifteen, and nothing
+about the code changed — `unreviewed` had been carrying thirteen admissions that had never been
+made. When a status count looks good, check what the `unreviewed` rows would say if they were
+read.
+
+**A dependency can implement more of a specification than the clause cites.** The AGL has a
   list and an algorithm, and `read_fonts` gives you both under one function name. Where a
   clause cites a *document*, check which part of it you are getting.
 
@@ -387,6 +469,7 @@ below rather than here.
 | 40 | Four unexplained pages are one shared ICC profile; §7.5 reviewed, and clause 7 is complete | ADR 0048 |
 | 41 | A CID into a bare Type 1 program; §9.10 reviewed, and clause 9 is complete | ADR 0049 |
 | 42 | A suffixed glyph name is the program's, not the AGL's; §14.1–§14.6 reviewed | ADR 0050 |
+| 43 | One mesh raster instead of 4096 flat triangles; §12.3 reviewed, and `silent` is 15 | ADR 0051 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -424,9 +507,9 @@ person for a password — and the gap is measured below rather than guessed at.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1656 pages we claim to draw completely, **811 agree with the reference
-  consensus, 88 are contradicted and 747 are pages the references cannot agree about among
-  themselves**. The 88 are named, grouped and ratcheted in both directions. Twenty-five pages
+  (ADR 0020). Of the 1656 pages we claim to draw completely, **815 agree with the reference
+  consensus, 83 are contradicted and 747 are pages the references cannot agree about among
+  themselves**. The 83 are named, grouped and ratcheted in both directions. Twenty-five pages
   do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
   target size is degenerate or past the pixel limit. **None is a page we decline to draw** —
   the last four of those left in the twenty-fourth session (ADR 0033). ADR 0011.
@@ -579,7 +662,7 @@ the exception with its reasoning. Nothing to chase.
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings. `object.rs` is §7.3.1's nine basic types plus the reference that labels any of them, and `parser.rs` is where §7.3.7 drops a null-valued entry and keeps the first of a duplicated key. `filter.rs` is §7.4's ten standard filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately answered `None` so a *content* stream naming one is visibly unsupported |
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused; its `Decode` is §8.9.5.2's map held as one table per component and its `Conversion` is an *exact* per-image memo, which is what makes converting every image through its real colour space affordable (ADRs 0034, 0035). `page.rs` is §7.7.3: the tree walk, the four inheritable entries and the twelve that are not, and `/UserUnit` (ADR 0038) |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for name-keyed programs, §9.6.5.4 for `TrueType`, ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code — glyph by name, glyph by built-in code, and that code's name — and `cff.rs` and `type1.rs` each produce one, because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is §9.9's `/FontFile` and is the one program kept *parsed*, measured: re-parsing per distinct glyph put 11 ms on `tracemonkey.pdf`. `simple_code_table` takes no font descriptor, which is the shape of ADR 0039's finding: Table 112 makes an *embedded* program's own built-in encoding the base, and the Symbolic flag decides only among the cases where nothing is embedded. `DEFAULT_WIDTH` is Table 120's 0 rather than a preference. `code_for` is the one *backwards* route — a character to the code that draws it — and it is built by running the forward mapping over every code the font defines, so the two cannot disagree. `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree. `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
-| `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot make them differently: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `soft_mask.rs` turns rendered pixels into §11.5's mask values. `Command::Group` is the one nested command (ADR 0026) and `impose_on_medium` is §11.4.7. `Path::extend_transformed` is the one place geometry moves rather than travelling with a transform (§9.3.6, ADR 0022). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
+| `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot make them differently: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `soft_mask.rs` turns rendered pixels into §11.5's mask values. `Command::Group` is the one nested command (ADR 0026) and `impose_on_medium` is §11.4.7. `Path::extend_transformed` is the one place geometry moves rather than travelling with a transform (§9.3.6, ADR 0022). `MeshRaster` is §8.7.4.5.5's Gouraud interpolation, evaluated per device pixel and shared by both backends because neither rasteriser has the primitive and a second copy would only drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes and §11.3.6's compositing formula, written here rather than in `pdf-render` on purpose: the clause states the arithmetic, Vello states it again in its own shader, and the cross-backend scene compares the two — sharing them would make it compare one implementation against itself (ADR 0047) |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. `soft_mask.rs` renders each mask to a texture and reads it back, because Vello's own luminance mask is the SVG formula and no blend mode is a `/TR` |
 | `raster-compare` | Tolerant image metrics | Worst-tile error is the load-bearing one |
@@ -1000,10 +1083,10 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **270
-of 823 subclauses are `unreviewed`**, and 553 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **257
+of 823 subclauses are `unreviewed`**, and 566 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
-project has measured 67% of its clause coverage — up from 37% twelve sessions ago, and **six
+project has measured 69% of its clause coverage — up from 37% thirteen sessions ago, and **six
 clauses now have no `unreviewed` row at all**: 7, 8, 9, 10, 11 and 13's exclusions — everything
 that decides whether a page is drawn correctly, plus the syntax it is read from. What remains is concentrated in
 clause 12's interactive half and clause 14, which are the parts this tree has not built.
@@ -1061,13 +1144,13 @@ completely:
 
 | | count | share of the 1620 |
 |---|---|---|
-| agree with the reference consensus | 812 | 49% |
-| **contradicted by it** | **86** | **5%** |
+| agree with the reference consensus | 815 | 49% |
+| **contradicted by it** | **83** | **5%** |
 | the references cannot agree among themselves | 747 | 45% |
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
 
-**One page in nineteen that we say we drew completely, two independent implementations say we did
-not.** The 86 are named in `oracle.rs` and grouped by what the page carries: 15 use a font nobody
+**One page in twenty that we say we drew completely, two independent implementations say we did
+not.** The 83 are named in `oracle.rs` and grouped by what the page carries: 15 use a font nobody
 embeds so every renderer substitutes differently, **11 are pages where the references that agree
 are not reading the clause differently** — 7 sharing a JBIG2 decoder, 1 sharing a `/VE` gap, 3
 link borders where one reference has no such feature and the other is rendering for paper (trap 9
@@ -1075,7 +1158,7 @@ has all three shapes) — 8 are a one-pixel page-rounding difference, 1 an image
 tall, 1 a `CalRGB` alternate two references do not convert, 1 a level of mask quantisation on a
 flat page (trap 12), 1 a symbolic font whose (3, 0) subtable reaches an empty glyph, **4 a `DeviceCMYK`
 conversion where the two agreeing references share one ICC profile** (ADR 0048), 2 where the
-agreeing references drew nothing at all, and **42 have nothing on them to explain it**.
+agreeing references drew nothing at all, and **39 have nothing on them to explain it**.
 That last group is the most valuable list in the repository, and 21 of them are pages beyond the
 first, which a page-one comparison would never have seen. **One page left the `substituted fonts`
 group in the twenty-eighth session by being fixed** — `issue8092.pdf`, whose difference was a
@@ -1163,7 +1246,7 @@ parts that make a document *interactive* are not started.
 ## What to do next
 
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
-everything the corpus and the oracle name — 86 contradicted pages, 42 of them unexplained, and a
+everything the corpus and the oracle name — 83 contradicted pages, 39 of them unexplained, and a
 feature list sized by how many documents want each item. **The list is nearly empty of clause
 work**: nine sessions took `/FontFile`, all five bit depths, text markup appearances, `/AS`
 usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is left that any
@@ -1248,7 +1331,13 @@ program fell through to substitution, and substitution says nothing.
   the families are **§12.7.6 with §12.7.8** whenever anything about a form's *behaviour* is —
   those two and §12.8 are what is left outside §12.6's actions. Record every row, including the `inapplicable` ones —
   a clause read and dismissed is worth as much as one implemented, and costs a minute.
-- **Two `silent` rows are left and neither is a decision not to build something.** §8.11.4.4's
+- **Fifteen `silent` rows, and thirteen of them arrived in the forty-third session by
+  *reading* §12.3.** The count was two only because clause 12's interactive half was
+  `unreviewed`; `unreviewed` and `silent` are different admissions, and the second is the one
+  that says we owe something without saying so. §12.3's twelve — destinations, the outline,
+  thumbnails, collections, navigators — are all a *viewer* rather than a clause, and
+  `CLAUDE.md` names three of them in scope by name. **Two `silent` rows predate that and
+  neither is a decision not to build something.** §8.11.4.4's
   usage dictionaries — the row that had been called the last silence since the ninth session —
   closed in the thirty-fifth (ADR 0044), and what is left is §9.8.3's `/Style /Panose` and
   `/FD`: read by nobody, unable to change an *embedded* CIDFont's glyph, and able to change
@@ -1298,19 +1387,19 @@ Five small items, listed before the big lists because they are small:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 42 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 39 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. **Read trap 9 before starting**, because an entry may be any of its three shapes, and
 checking costs a web search of the other project's source.
 
-One cause is identified, measured and live: **`mesh_shading_empty.pdf` differs by the
-subdivision lattice** — filling a Gouraud triangle as many flat sub-triangles rather than
-interpolating per pixel (§8.7.4.5.5). Its entry used to say "displaced horizontally", which the
-twenty-eighth session refuted in ten minutes with the two rasters: the edges are in the same
-columns to the pixel and only *structural* similarity fails, 0.972 against 0.990. Closing it
-needs a Gouraud rasteriser in **both** backends, since the cross-backend scenes hold them to
-identical pixels. **Measure an entry before believing its label, including a label written
-here.**
+The one cause that was identified, measured and live is **closed**: the subdivision lattice
+took `mesh_shading_empty.pdf`, `issue2948.pdf` and `issue18816.pdf` with it in the forty-third
+session (ADR 0051). Its entry had said, for fifteen sessions, that closing it "needs a Gouraud
+rasteriser in **both** backends, since the cross-backend scenes hold them to identical
+pixels" — right about the requirement, wrong about the difficulty. One shared raster satisfies
+that constraint better than two implementations could and is *less* code than what it replaced.
+**Measure an entry before believing its label, including a label written here** — and price the
+work before believing a reason not to do it.
 
 Three entries that used to be here are the argument for spending the hour, because none was one
 page's problem. `issue20504.pdf` was worth **15 of the 81**: it looked like one page's
@@ -1479,8 +1568,8 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 
 | of the 1656 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 812 | |
-| **contradicted** | **86** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 15 substituted fonts, **42 unexplained** |
+| agree with the reference consensus | 815 | |
+| **contradicted** | **83** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 15 substituted fonts, **39 unexplained** |
 | ambiguous | 747 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
