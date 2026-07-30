@@ -453,3 +453,50 @@ fn find_endstream(input: &[u8], from: usize) -> Option<usize> {
     }
     Some(end)
 }
+
+/// ISO 32000-2 §7.3.7's dictionary, on the two rules a reader can get wrong.
+#[cfg(test)]
+mod tests {
+    use super::Parser;
+    use crate::{Limits, Object};
+
+    fn dictionary(source: &str) -> crate::Dictionary {
+        let mut parser = Parser::at(source.as_bytes(), 0, Limits::default());
+        match parser.parse_object() {
+            Ok(Object::Dictionary(dict)) => dict,
+            other => panic!("expected a dictionary, got {other:?}"),
+        }
+    }
+
+    /// §7.3.7: "Multiple entries in the same dictionary shall not have the same key."
+    ///
+    /// A requirement on the *file*, with no recovery stated, so keeping the first is a
+    /// decision. It is pinned here because the alternative is equally defensible and a
+    /// silent change of mind would move pixels in files nobody would think to re-check.
+    #[test]
+    fn a_repeated_key_keeps_the_first_value() {
+        let dict = dictionary("<< /Type /Page /Type /Pages >>");
+
+        assert_eq!(
+            dict.get("Type"),
+            Some(&Object::Name(crate::Name::new(*b"Page")))
+        );
+    }
+
+    /// §7.3.7:
+    ///
+    /// > A dictionary entry whose value is null … shall be treated the same as if the entry
+    /// > does not exist.
+    ///
+    /// True here without a rule enforcing it, which is the better kind of true: a missing
+    /// key and a null one are the same `Object::Null` to every reader of the dictionary.
+    #[test]
+    fn a_null_value_reads_the_same_as_an_absent_key() {
+        let present = dictionary("<< /Mask null >>");
+        let absent = dictionary("<< >>");
+
+        let read = |dict: &crate::Dictionary| dict.get("Mask").cloned().unwrap_or(Object::Null);
+        assert_eq!(read(&present), read(&absent));
+        assert_eq!(read(&present), Object::Null);
+    }
+}

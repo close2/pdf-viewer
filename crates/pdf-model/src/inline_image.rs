@@ -150,6 +150,8 @@ fn read_dictionary(
     let content = lexer.input();
     let limits = document.limits();
     let mut dict = Dictionary::new();
+    // Which entries were filled from Table 91's abbreviated spelling.
+    let mut by_abbreviation: Vec<&'static str> = Vec::new();
 
     loop {
         let Some(token) = lexer.next_token() else {
@@ -183,7 +185,18 @@ fn read_dictionary(
         // image `XObject` could have had: `/SMask` is not on that list, so an inline image
         // has no soft mask however it spells one.
         if let Some(full) = expand_key(&key) {
-            dict.insert(Name::new(full.as_bytes().to_vec()), value);
+            let abbreviated = key.as_slice() != full.as_bytes();
+            // Two rules, and only the first is anybody's convention. A key stated *twice the
+            // same way* keeps the first, which is what `pdf-syntax`'s parser does for every
+            // other dictionary in a file. A key stated once each way keeps the abbreviated
+            // one whichever came first; see the note on `expand_key` for why.
+            let already = dict.get(full).is_some();
+            if !already || (abbreviated && !by_abbreviation.contains(&full)) {
+                dict.insert(Name::new(full.as_bytes().to_vec()), value);
+                if abbreviated {
+                    by_abbreviation.push(full);
+                }
+            }
         }
     }
 
@@ -194,6 +207,30 @@ fn read_dictionary(
 /// Expands Table 91's abbreviated key, or passes a full name through.
 ///
 /// Returns `None` for a key that is neither, which is what "shall be ignored" means.
+///
+/// # When a file writes both spellings, the abbreviation wins — and that is a choice
+///
+/// §8.9.7 says only that "the abbreviations shown in Table 91 … and Table 92 … may be used
+/// in place of the full names", so the two spellings are one entry and a file writing both
+/// with different values has written the same key twice. The standard states no rule for
+/// that, here or in §7.3.7, and this is therefore a decision rather than a reading.
+///
+/// It is decided by the one file that tests it, and by that file's *bytes* rather than by
+/// its comments. `issue14256.pdf` is a `SafeDocs` conformance document whose eight inline
+/// images are the same picture written eight ways, five of them pairing a correct
+/// abbreviation with a contradicting full name. Two of those five can be settled without
+/// anybody's opinion:
+///
+/// - `#4` writes `/F [/AHx] /Filter [/A85]` over data that is plainly ASCII hex. Under the
+///   full name the stream does not decode to an image at all.
+/// - `#8` writes `/DP [null << /Predictor 15 … >>] /DecodeParms [null null]` over a Flate
+///   stream that *was* PNG-predicted. Under the full name every row is off by its predictor.
+///
+/// So the only rule under which that file decodes at all is "the abbreviation wins", and the
+/// three cases it cannot settle — a colour space, a `/Decode` array, an `/Interpolate` flag —
+/// are then decided the same way for consistency rather than separately. The alternative,
+/// which this crate did before and `poppler` still does, is "the later spelling wins", and it
+/// is exactly as defensible from the clause: nothing.
 fn expand_key(key: &[u8]) -> Option<&'static str> {
     Some(match key {
         b"BPC" | b"BitsPerComponent" => "BitsPerComponent",

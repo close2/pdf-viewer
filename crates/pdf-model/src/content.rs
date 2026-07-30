@@ -1006,6 +1006,17 @@ impl Interpreter<'_> {
         // operator, and `MAX_OPERATIONS` bounds those at four million. A stream that nests
         // that deep has spent its whole budget doing so.
         let mut marked: Vec<bool> = Vec::new();
+        // §7.8.2's compatibility section, `BX` … `EX`, which is nesting depth rather than a
+        // flag because the clause says the pair "may be nested".
+        //
+        // > Ordinarily, when a PDF reader encounters an operator in a content stream that it
+        // > does not recognise, an error shall occur.
+        //
+        // — and inside the section, "unrecognised operators (along with their operands) shall
+        // be ignored without error". So this is the one place in the interpreter where an
+        // unsupported *input* is deliberately silent, and it is silent because the file said
+        // in advance that ignoring it is the appropriate thing to do.
+        let mut compatibility = 0usize;
 
         while let Some(token) = lexer.next_token() {
             self.operations = self.operations.saturating_add(1);
@@ -1468,7 +1479,9 @@ impl Interpreter<'_> {
                         self.hidden = self.hidden.saturating_sub(1);
                     }
                 }
-                b"MP" | b"DP" | b"BX" | b"EX" | b"i" => {}
+                b"BX" => compatibility = compatibility.saturating_add(1),
+                b"EX" => compatibility = compatibility.saturating_sub(1),
+                b"MP" | b"DP" | b"i" => {}
 
                 // --- Type 3 glyph metrics (§9.6.4 Table 111) ---
                 //
@@ -1507,9 +1520,11 @@ impl Interpreter<'_> {
                 }
 
                 other => {
-                    self.note(Unsupported::Operator {
-                        operator: String::from_utf8_lossy(other).into_owned(),
-                    });
+                    if compatibility == 0 {
+                        self.note(Unsupported::Operator {
+                            operator: String::from_utf8_lossy(other).into_owned(),
+                        });
+                    }
                 }
             }
 

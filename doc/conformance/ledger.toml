@@ -116,7 +116,10 @@ status = "unreviewed"
 [[clause]]
 clause = "7.3.7"
 title = "Dictionary objects"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/object.rs", "crates/pdf-syntax/src/parser.rs"]
+test = ["crates/pdf-syntax/src/parser.rs::a_repeated_key_keeps_the_first_value", "crates/pdf-syntax/src/parser.rs::a_null_value_reads_the_same_as_an_absent_key"]
+note = "Keys are names and only names — a token of any other kind where a key belongs is skipped rather than being fatal, which loses one entry instead of the dictionary. Entries are unordered, which a `BTreeMap` makes true rather than claimed. \"A dictionary entry whose value is null shall be treated the same as if the entry does not exist\" holds without a rule for it: `Document::get_key` answers `Object::Null` for a key that is absent, so the two are the same value at every reader. \"Multiple entries in the same dictionary shall not have the same key\" is a requirement on the *file* and the clause states no recovery; the parser keeps the first, and `inline_image.rs` documents the one place that is decided differently and why. Annex C's implementation limits are `Limits::max_dict_len`."
 
 [[clause]]
 clause = "7.3.8"
@@ -666,25 +669,34 @@ status = "unreviewed"
 [[clause]]
 clause = "7.8"
 title = "Content streams and resources"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/tests/content_streams.rs::a_compatibility_section_silences_an_unrecognised_operator"]
+note = "Both halves: a content stream is lexed and executed sequentially, and its resources are resolved by name against the dictionary the clause associates with it. See §7.8.2 and §7.8.3."
 
 [[clause]]
 clause = "7.8.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/render_real_pdf.rs::every_specification_pdf_interprets"]
+note = "Introductory. Its one claim — that a content stream and its resource dictionary \"in combination … form a self-contained entity\" — is the shape of `Interpreter::run`, which takes the two together and nothing else about the document except what a resource resolves to."
 
 [[clause]]
 clause = "7.8.2"
 title = "Content streams"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-syntax/src/lexer.rs"]
+test = ["crates/pdf-model/tests/content_streams.rs::the_silence_stops_at_the_matching_ex", "crates/pdf-model/tests/content_streams.rs::compatibility_sections_nest"]
+note = "Every clause of it. The stream is lexed by §7.2's rules and executed in order; the five places the clause names as also being content streams — pages, form XObjects, patterns, Type 3 glyph descriptions and annotation appearances — all reach the same interpreter. \"An operand is a direct object belonging to any of the basic PDF data types except a stream … Indirect objects and object references shall not be permitted at all\" holds by construction: the content lexer has no reference token, so a `1 0 R` in a content stream lexes as two integers and an unrecognised operator. Table 33's `BX` and `EX` were matched and ignored for thirty-one sessions and are now the compatibility *section* the clause defines, kept as a nesting depth because \"these operators shall occur in pairs and may be nested\" — and it is the one place in this interpreter where unsupported input is deliberately silent, because the file has said in advance that ignoring it is appropriate. No corpus document exercises it: all nine that report an unrecognised operator report one no producer meant."
 
 [[clause]]
 clause = "7.8.3"
 title = "Resource dictionaries"
-status = "implemented"
-code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/page.rs", "crates/pdf-model/src/type3.rs"]
-test = ["crates/pdf-model/tests/render_real_pdf.rs", "crates/pdf-model/tests/type3.rs"]
-note = "All four ways a resource dictionary reaches a content stream: a page's own or inherited `/Resources` (§7.7.3.4), a Type 3 font's, a form `XObject`'s or pattern's own, and the pre-1.2 fallback where a form omits `/Resources` and inherits the page's. The last was implemented for form `XObject`s and not for *annotation appearances*, which are form `XObject`s too (§12.5.5) — an appearance with no `/Resources` was run against an empty dictionary, so every font and image it named was lost. Found by reading this clause in the eleventh session, and fixed. A tiling pattern still falls back to an empty dictionary rather than to the page's: the clause's inheritance sentence names forms and Type 3 fonts, so this is the letter of it, and a pattern that relies on the page's resources is malformed."
+status = "partial"
+code = ["crates/pdf-model/src/page.rs", "crates/pdf-model/src/content.rs", "crates/pdf-model/src/type3.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_user_unit_on_an_ancestor_is_not_inherited"]
+note = "All four of the clause's ways a resource dictionary reaches a content stream: a page's `/Resources`, inherited through the page tree (§7.7.3.4); a Type 3 font's own; a form XObject's, a pattern's and an appearance stream's; and the fourth, for files \"written obeying earlier versions of PDF\" that omit it — \"All resources that are referenced from those forms and fonts shall be inherited from the resource dictionary of the page\", which is why every resource lookup falls back to the enclosing dictionary rather than failing. Of Table 34's eight resource types, seven are read; `/ProcSet` is deprecated in PDF 2.0 and §14.2 makes it advisory, so nothing looks at it. The partial is `/Properties`, which is read only for `/OC` (§8.11.3.3) and not for §14.6.2's marked-content property lists in general — which is clause 14's gap rather than this one's."
 
 [[clause]]
 clause = "7.9"

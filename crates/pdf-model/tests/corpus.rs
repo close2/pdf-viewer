@@ -354,13 +354,19 @@ const MAX_PAGELESS: usize = 11;
 /// feature that had a fallback.
 ///
 /// Nothing joined the row, and one thing nearly did. `issue5751.pdf` and
-/// `issue11740_reduced.pdf` are **CIDFonts** whose descendant descriptors embed a
+/// `issue11740_reduced.pdf` are **`CIDFonts`** whose descendant descriptors embed a
 /// `/FontFile`, which §9.9's Table 124 does not allow there — a Type 1 program is keyed by
-/// glyph name and a CIDFont selects by CID, so the clause states no route between them. The
+/// glyph name and a `CIDFont` selects by CID, so the clause states no route between them. The
 /// first draft read the program anyway and reported that it was not an sfnt, which named the
 /// wrong defect: the program is fine and its *placement* is what the clause forbids. They get
-/// what any CIDFont with no usable program gets, which is a substitute.
-const MAX_INCOMPLETE: usize = 110;
+/// what any `CIDFont` with no usable program gets, which is a substitute.
+///
+/// **110 to 106 in the thirty-second session**, and the feature was three lines of packing:
+/// §8.9.5.1's Table 87 permits five component widths and the unpacker read two, so 2, 4 and
+/// 16 bits were refused and named. Three documents were waiting on that; the fourth is
+/// `issue14256.pdf`, whose 4-bit image was one of eight inline images testing §8.9.7's
+/// abbreviations against their full names, and which now draws all eight alike.
+const MAX_INCOMPLETE: usize = 106;
 
 /// How long one document may take before it counts as a failure.
 ///

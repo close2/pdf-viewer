@@ -533,9 +533,9 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
         colour_key,
         fill: _,
     } = samples;
-    if !matches!(bits, 1 | 8) {
-        // 2, 4 and 16 are legal and do occur. Refusing them is honest; guessing would
-        // shift every sample.
+    // Table 87 names five, and a value it does not name says nothing about how the bytes are
+    // packed — so it is refused rather than rounded to a depth that would shift every sample.
+    if !matches!(bits, 1 | 2 | 4 | 8 | 16) {
         return Err(ImageError::UnsupportedDepth { bits });
     }
 
@@ -551,8 +551,11 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     // to 42 ms — because its images are `Indexed` over a `DeviceN` whose tint transform is a
     // PostScript calculator, which was being run once per sample rather than once per entry
     // of a 256-entry table.
+    // Only up to eight bits: a 16-bit table is 65 536 conversions, which is more work than
+    // the image itself for anything smaller than a quarter-megapixel, and the per-sample arm
+    // below already memoises exactly. No corpus image reaches that combination.
     let palette = match space {
-        ColourSpace::Resolved(resolved) if resolved.components() == 1 => {
+        ColourSpace::Resolved(resolved) if resolved.components() == 1 && bits <= 8 => {
             Some(palette(resolved, bits, decode))
         }
         _ => None,
@@ -566,8 +569,10 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     let row_bytes = row_bits.saturating_add(7) / 8;
 
     // Only the arm that converts per sample needs one, and only where a tuple fits a key.
+    // The memo's key packs eight bits per component, so it is exact only at or below that
+    // depth; see `resolved_sample`.
     let mut cache = matches!(space, ColourSpace::Resolved(_))
-        .then(|| palette.is_none() && components <= 4)
+        .then(|| palette.is_none() && components <= 4 && bits <= 8)
         .filter(|fits| *fits)
         .map(|_| Conversion::for_pixels(width_usize.saturating_mul(height_usize)));
 
@@ -616,11 +621,7 @@ fn colour_key_masks(
     let at = x.saturating_mul(components);
     ranges.iter().enumerate().all(|(offset, (low, high))| {
         let index = at.saturating_add(offset);
-        let raw = if bits == 1 {
-            u32::from(sample_bit(row, index))
-        } else {
-            u32::from(row.get(index).copied().unwrap_or(0))
-        };
+        let raw = raw_sample(row, index, bits);
         raw >= *low && raw <= *high
     })
 }
@@ -662,31 +663,21 @@ fn sample_rgba(
                 [0, 0, 0, 0]
             }
         }
-        (ColourSpace::Gray, 1) => {
-            let value = decode.channel(0, usize::from(sample_bit(row, x)));
-            [value, value, value, 255]
-        }
         (ColourSpace::Gray, _) => {
-            let value = decode.channel(0, usize::from(row.get(x).copied().unwrap_or(0)));
+            let value = decode.channel(0, index_of(row, x, bits));
             [value, value, value, 255]
         }
         (ColourSpace::Rgb, _) => {
             let at = x.saturating_mul(3);
             let read = |component: usize| {
-                decode.channel(
-                    component,
-                    usize::from(row.get(at.saturating_add(component)).copied().unwrap_or(0)),
-                )
+                decode.channel(component, index_of(row, at.saturating_add(component), bits))
             };
             [read(0), read(1), read(2), 255]
         }
         (ColourSpace::Cmyk, _) => {
             let at = x.saturating_mul(4);
             let read = |offset: usize| {
-                decode.value(
-                    offset,
-                    usize::from(row.get(at.saturating_add(offset)).copied().unwrap_or(0)),
-                )
+                decode.value(offset, index_of(row, at.saturating_add(offset), bits))
             };
             // The *same* conversion a `k` operator or an `scn` in DeviceCMYK gets. Having a
             // second one here is how the same colour came to render differently depending on
@@ -695,11 +686,7 @@ fn sample_rgba(
             opaque(crate::colour::ColourSpace::Cmyk.to_rgb(&[read(0), read(1), read(2), read(3)]))
         }
         (ColourSpace::Resolved(_), _) if palette.is_some() => {
-            let sample = if bits == 1 {
-                usize::from(sample_bit(row, x))
-            } else {
-                usize::from(row.get(x).copied().unwrap_or(0))
-            };
+            let sample = index_of(row, x, bits);
             // The table already carries `/Decode`'s map, so the sample is the index and
             // nothing else happens to it here.
             opaque(
@@ -730,18 +717,16 @@ fn resolved_sample(
     let count = space.components();
     let at = x.saturating_mul(count);
     // The raw samples, before `/Decode`, which is what makes them a key: the map from a
-    // tuple of samples to a colour is fixed for the whole image.
+    // tuple of samples to a colour is fixed for the whole image. Eight bits of key per
+    // component, and up to four components, is exactly the 64 bits available once the
+    // leading tag is there — so at sixteen bits per component the key cannot hold the
+    // samples and the caller supplies no cache at all rather than a lossy one.
     let mut key = 1u64 << 32;
     let values: Vec<f32> = (0..count)
         .map(|component| {
-            let index = at.saturating_add(component);
-            let raw = if bits == 1 {
-                // One bit per *component*, so the components of a pixel are adjacent bits
-                // rather than adjacent bytes.
-                usize::from(sample_bit(row, index))
-            } else {
-                usize::from(row.get(index).copied().unwrap_or(0))
-            };
+            // One sample per *component*, so at depths below eight the components of a
+            // pixel are adjacent groups of bits rather than adjacent bytes.
+            let raw = index_of(row, at.saturating_add(component), bits);
             key = (key << 8) | (raw as u64 & 0xFF);
             decode.value(component, raw)
         })
@@ -768,6 +753,7 @@ fn palette(
     decode: &Decode,
 ) -> Vec<pdf_render::Color> {
     let max = (1u32 << bits.min(8)).saturating_sub(1);
+    debug_assert!(bits <= 8, "the caller keeps a 16-bit image off this path");
     (0..=max)
         .map(|raw| space.to_rgb(&[decode.value(0, raw as usize)]))
         .collect()
@@ -859,6 +845,44 @@ fn sample_bit(row: &[u8], index: usize) -> bool {
     let byte = row.get(index / 8).copied().unwrap_or(0);
     let shift = 7u32.saturating_sub(u32::try_from(index % 8).unwrap_or(0));
     (byte >> shift) & 1 == 1
+}
+
+/// [`raw_sample`] as a `usize`, which is what `Decode`'s tables are indexed by.
+fn index_of(row: &[u8], index: usize, bits: u32) -> usize {
+    raw_sample(row, index, bits) as usize
+}
+
+/// The `index`-th component of a row, at any of §8.9.5.1 Table 87's five bit depths.
+///
+/// > The value shall be 1 , 2 , 4 , 8 , or (from PDF 1.5) 16 .
+///
+/// Samples are packed continuously across a row with no padding between them, and a row
+/// starts on a byte boundary — which is why the caller computes `row_bytes` and this reads
+/// only within one row. The three sub-byte depths divide a byte exactly, so a sample never
+/// straddles one; 16 bits is two bytes, most significant first, as every multi-byte integer
+/// in a PDF is.
+fn raw_sample(row: &[u8], index: usize, bits: u32) -> u32 {
+    let byte = |at: usize| u32::from(row.get(at).copied().unwrap_or(0));
+    match bits {
+        1 => u32::from(sample_bit(row, index)),
+        16 => {
+            let at = index.saturating_mul(2);
+            (byte(at) << 8) | byte(at.saturating_add(1))
+        }
+        8 => byte(index),
+        // 2 and 4: `per` samples to a byte, most significant first.
+        _ => {
+            let per = usize::try_from(8u32.checked_div(bits).unwrap_or(8))
+                .unwrap_or(8)
+                .max(1);
+            let at = index.checked_div(per).unwrap_or(0);
+            let within = u32::try_from(index.checked_rem(per).unwrap_or(0)).unwrap_or(0);
+            let shift = 8u32
+                .saturating_sub(bits)
+                .saturating_sub(within.saturating_mul(bits));
+            (byte(at) >> shift) & (1u32 << bits).saturating_sub(1)
+        }
+    }
 }
 
 fn channel(value: f32) -> u8 {
