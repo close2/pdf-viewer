@@ -2302,8 +2302,8 @@ clause = "9.6.5.4"
 title = "Encodings for TrueType fonts"
 status = "implemented"
 code = ["crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-font/src/lib.rs::a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range", "crates/pdf-font/src/lib.rs::a_unicode_subtable_is_reached_through_the_adobe_glyph_list"]
-note = "All five routes from a code to a glyph, implemented in the eighth session — see ADR 0015. The predecessor was one line that covered about one and a half of them and was worth 15 contradicted corpus pages."
+test = ["crates/pdf-font/src/lib.rs::a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range", "crates/pdf-font/src/lib.rs::a_unicode_subtable_is_reached_through_the_adobe_glyph_list", "crates/pdf-font/src/lib.rs::a_suffixed_glyph_name_reaches_the_program_rather_than_its_base_letter"]
+note = "All five routes from a code to a glyph, implemented in the eighth session — see ADR 0015. The predecessor was one line that covered about one and a half of them and was worth 15 contradicted corpus pages. **The last of the five was reached by nothing until the forty-second session**, and both halves of the reason are worth keeping. The clause maps a glyph name to Unicode \"by consulting the Adobe Glyph List and Adobe Glyph List for New Fonts\", which are *lists*, and no entry in either contains a FULL STOP — but `read_fonts` implements the wider Adobe Glyph List *Specification*, whose algorithm for an unlisted name strips everything after the first period, so `o.sc` answered `o` and hid the clause's next sentence behind a real letter. And that next sentence names \"the font program's `post` table (if one is present)\", which a CFF-based OpenType does not have in any useful sense: `issue215.pdf`'s `OTTO` carries a version 3.0 `post`, which by definition holds no names, and names every glyph in its `CFF ` charset instead — the same structure by another name, §9.6.2.1's NOTE 1 again. With both read, the page draws the small capitals its own `/ToUnicode` says it means (ADR 0050)."
 
 [[clause]]
 clause = "9.7"
@@ -4698,22 +4698,28 @@ exclusion = "clause-13-multimedia"
 [[clause]]
 clause = "14.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "The clause's own opening sentence is the one that decides how much of it this project owes: \"The features described in this clause do not affect the final appearance of a document.\" That is true of most of it and *false* of the two parts this tree implements, which is why they are implemented — §14.11.5's output intents supply a `DeviceCMYK` destination profile that changes every pixel a CMYK fill covers, and §14.11.2's page boundaries decide what is drawn at all. Everything else here is interchange: metadata, logical structure, tagged PDF, web capture, document parts and associated files. `CLAUDE.md` puts clause 14 in scope \"as far as accessibility needs it\", which is §14.7 and §14.8 rather than these rows."
 
 [[clause]]
 clause = "14.2"
 title = "Procedure sets"
-status = "unreviewed"
+status = "inapplicable"
+note = "Procedure sets, deprecated since PDF 1.4 and stated here only to say what `/ProcSet` was: names of PostScript language procedure sets that \"shall be used only when the content stream is printed to a PostScript language compatible output device\". This is a display, so the entry cannot decide anything — and §7.8.3's resource dictionary row already records that it is read past. Table 346's five names are not consulted; a content stream's operators are implemented by this program, not by a resource it names."
 
 [[clause]]
 clause = "14.3"
 title = "Metadata"
-status = "unreviewed"
+status = "inapplicable"
+note = "Metadata: information about the document as against its content. Nothing here reaches a page. §14.3.2's `/Metadata` streams are XMP and would be read by a viewer that showed document properties, which this is not yet; §14.3.3's information dictionary is deprecated in PDF 2.0 for everything but two dates. The one place metadata is not inapplicable is §14.3.2's `/EncryptMetadata`, which is Table 21's and belongs to §7.6."
 
 [[clause]]
 clause = "14.3.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "The distinction between document-level and object-level metadata, and nothing else. Both are interchange."
 
 [[clause]]
 clause = "14.3.2"
@@ -4726,27 +4732,36 @@ note = "The metadata stream is not parsed — no XMP reaches anything — but it
 [[clause]]
 clause = "14.3.3"
 title = "Document information dictionary"
-status = "unreviewed"
+status = "inapplicable"
+note = "Table 349's document information dictionary, reached from the trailer's `/Info`. Deprecated in PDF 2.0 for every entry except `/CreationDate` and `/ModDate`, and read by nothing here: the trailer is parsed and `/Info` is passed over, which §7.5.5's row records from the other side. A viewer with a document-properties panel would read it; this one has no panel."
 
 [[clause]]
 clause = "14.3.4"
 title = "Reconciling two sources of document metadata"
-status = "unreviewed"
+status = "inapplicable"
+note = "How a processor reconciles an XMP stream with the deprecated information dictionary when both are present. A question for a program that *writes* or *displays* metadata, and this one does neither."
 
 [[clause]]
 clause = "14.4"
 title = "File identifiers"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/document.rs", "crates/pdf-syntax/src/crypt.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs"]
+note = "The trailer's `/ID`, \"an array of two byte strings\" — a permanent identifier and a changing one. This tree reads exactly the half §7.6 makes load-bearing: §7.6.4.3.2 step (e) takes \"the first element of the file's file identifier array\" into the file encryption key, so `/ID[0]` decides whether an encrypted document opens at all. The clause's own purpose for the pair — telling whether a reference names the same file and the same version of it — needs a second document to compare against, which nothing here has. §7.5.5's Table 15 carries the rule that makes the encryption use safe: with an `/Encrypt` present the array and both strings \"shall be direct objects and shall be unencrypted\", which is what stops the circularity NOTE 4 describes."
 
 [[clause]]
 clause = "14.5"
 title = "Page-piece dictionaries"
-status = "unreviewed"
+status = "inapplicable"
+note = "Page-piece dictionaries: `/PieceInfo` on a page, a form XObject or the catalog, holding \"private PDF processor data\" keyed by the name of the processor that wrote it. Table 351's `/LastModified` and `/Private` are for the producer to recognise its own work; the clause says outright that such data \"can be ignored by general-purpose PDF processors\". Nothing here writes a PDF, so there is no private data to recognise."
 
 [[clause]]
 clause = "14.6"
 title = "Marked content"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "Marked content as a *bracket*, which is all this tree needs of it and is genuinely two things. §8.11.3.3's optional content rides on `BDC`/`EMC`, so the stack has to be maintained exactly; and §12.7.4.3's regeneration has to find the `EMC` matching a `/Tx BMC`, which is the same nesting rule read as an algorithm. What is *not* read is any tag's meaning — a marked-content sequence's `/Tag` is not rolemapped and, as NOTE 3 says, has \"no relationship to Tagged PDF\". `partial` for the semantics of §14.7 and §14.8 that a tag can carry."
 
 [[clause]]
 clause = "14.6.1"
@@ -4759,7 +4774,10 @@ note = "Marked content is read for two things and interpreted for neither's sema
 [[clause]]
 clause = "14.6.2"
 title = "Property lists"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs"]
+note = "A property list is \"either an inline dictionary representing the property list or a name object associated with it in the Properties subdictionary of the current resource dictionary\", and `content.rs` takes both forms — a name that `/Properties` does not define is *reported*, since it is the route an `/OC` membership dictionary arrives by and drawing hidden content silently is the failure §8.11 exists to prevent. NOTE 2's consequence is worth carrying because it explains the shape of the whole interpreter: \"indirect references of the form of 10 0 R can never occur within content streams\", which is why the content lexer resolves nothing and the resource dictionary is the only door out. `partial` because the property list's *contents* are read only for optional content; §14.3.2's object-level metadata in one is not."
 
 [[clause]]
 clause = "14.7"

@@ -627,7 +627,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 43 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// 42 pages carrying no undrawn annotation, no hidden optional content and no substituted
 /// font — so the difference is in something we believe we implement. Three causes are
 /// identified; the rest are unexamined, and working through them is the highest-value use of
 /// this gate. **Four pages left in the thirty-ninth session and none of them was a defect**:
@@ -695,6 +695,19 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// 1000/719, the ratio between §9.7.4.3's `/DW` default and the width that array states.
 /// Somebody is not reading `/W`; the clause says which of us should be.
 ///
+/// # One left in the forty-second session, and it is a fix
+///
+/// `issue215.pdf` drew `openmagazin` in lower case where all four references draw small
+/// capitals, and it is the only page in this list where we differed from *every* reference
+/// while they agreed among themselves — which is what the pairwise table is for. Its
+/// `/Differences` name eleven small-capital variants, `o.sc` through `n.sc`; its `post` table
+/// is version 3.0 and so holds no names at all; its `CFF ` charset names all eleven; and its
+/// `/ToUnicode` maps the codes to U+F76F and neighbours, the private-use block Adobe assigns
+/// to small capitals. Two readings of §9.6.5.4 had to change and ADR 0050 has both: the Adobe
+/// Glyph List is a *list*, which no `o.sc` is in, and the clause's fallback to "the font
+/// program's `post` table" means the program's names wherever a CFF-based OpenType keeps
+/// them. 812 agreeing, 86 contradicted.
+///
 /// # Two more left in the thirtieth session, and only one of them is a fix
 ///
 /// `issue7439.pdf` **is** one, and it is a width rather than a picture: its single line of
@@ -729,7 +742,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 43] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 42] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -748,7 +761,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 43] = [
     "issue18816.pdf page 1",
     "issue19633.pdf page 1",
     "issue2017r.pdf page 1",
-    "issue215.pdf page 1",
     "issue2537r.pdf page 1",
     "issue2948.pdf page 1",
     "issue3207r.pdf page 1",

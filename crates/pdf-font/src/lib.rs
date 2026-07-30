@@ -1791,6 +1791,19 @@ fn truetype_code_table(
         detail: e.to_string(),
     })?;
     let subtables = Subtables::read(&font);
+    // §9.6.5.4's last resort is "the font program's `post` table (if one is present)" — and a
+    // CFF-based OpenType keeps its glyph names somewhere else. `issue215.pdf` embeds an `OTTO`
+    // whose `post` is version 3.0, which by definition holds no names at all, while its `CFF `
+    // charset names every one of them; §9.6.2.1's NOTE 1 is the sentence that makes those the
+    // same structure, so the charset is read here as what the clause asks for. Built once per
+    // font rather than per code, because it inverts the whole charset.
+    let charset = font
+        .table_data(skrifa::Tag::new(b"CFF "))
+        .and_then(|table| CodeToGlyph::read(table.as_bytes()).ok())
+        .and_then(|read| match read {
+            CodeToGlyph::Named(named) => Some(named),
+            CodeToGlyph::Keyed { .. } => None,
+        });
     let symbolic = descriptor.is_some_and(|d| is_symbolic(document, d));
     // §9.6.5.4 fills undefined entries from StandardEncoding, which `encoding_names` does
     // by starting there — but only for a font whose names are Latin at all. A symbolic
@@ -1825,7 +1838,8 @@ fn truetype_code_table(
             continue;
         }
         let glyph_name = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty());
-        *slot = glyph_name.and_then(|glyph_name| named_glyph(&font, &subtables, glyph_name));
+        *slot = glyph_name
+            .and_then(|glyph_name| named_glyph(&font, &subtables, charset.as_ref(), glyph_name));
     }
 
     // The two tiers the specification leaves to the processor; see the note above.
@@ -1880,19 +1894,60 @@ fn symbol_glyph(subtables: &Subtables<'_>, code: u32) -> Option<u16> {
 }
 
 /// A glyph name's glyph: through the (3, 1) subtable, the (1, 0) subtable, or `post`.
-fn named_glyph(font: &FontRef<'_>, subtables: &Subtables<'_>, glyph_name: &str) -> Option<u16> {
-    let by_subtable = if let Some(unicode) = subtables.unicode.as_ref() {
-        read_fonts::ps::agl::name_to_char(glyph_name)
-            .and_then(|character| unicode.map_codepoint(character))
-    } else if let Some(macintosh) = subtables.macintosh.as_ref() {
-        encoding::mac_os_roman_code(glyph_name)
-            .and_then(|code| macintosh.map_codepoint(u32::from(code)))
-    } else {
-        None
+fn named_glyph(
+    font: &FontRef<'_>,
+    subtables: &Subtables<'_>,
+    charset: Option<&NameKeyed>,
+    glyph_name: &str,
+) -> Option<u16> {
+    let through_character = |name: &str| {
+        if let Some(unicode) = subtables.unicode.as_ref() {
+            read_fonts::ps::agl::name_to_char(name)
+                .and_then(|character| unicode.map_codepoint(character))
+        } else if let Some(macintosh) = subtables.macintosh.as_ref() {
+            encoding::mac_os_roman_code(name)
+                .and_then(|code| macintosh.map_codepoint(u32::from(code)))
+        } else {
+            None
+        }
     };
-    by_subtable
+
+    // §9.6.5.4 sends the glyph name "to a Unicode value by consulting the Adobe Glyph List
+    // and Adobe Glyph List for New Fonts", and then:
+    //
+    // > In any of these cases, if the glyph name cannot be mapped as specified, the glyph
+    // > name shall be looked up in the font program's "post" table (if one is present) and
+    // > the associated glyph description shall be used.
+    //
+    // Those are two *lists*, and **no entry in either contains a FULL STOP**. A name like
+    // `o.sc` is therefore one the lists do not map, and the sentence above is what applies
+    // to it. What `read_fonts::ps::agl::name_to_char` implements is the wider *Adobe Glyph
+    // List Specification*, whose algorithm for an unlisted name strips everything after the
+    // first period — so it answers `o` for `o.sc`, which is a real letter and hides the
+    // clause's own next step behind it.
+    //
+    // `issue215.pdf` is the witness and it settles the reading three times over: its
+    // `/Differences` name eleven small-capital variants, `o.sc` through `n.sc`; its `post`
+    // table names all eleven; its `/ToUnicode` maps them to U+F76F and neighbours, the
+    // private-use block Adobe assigns to small capitals — so the *producer* says small
+    // capitals. We drew `openmagazin` in lower case where four references draw small caps.
+    let unlisted = glyph_name.contains('.');
+    let listed_route = (!unlisted).then(|| through_character(glyph_name)).flatten();
+
+    listed_route
         .and_then(narrow_glyph)
         .or_else(|| post_glyph(font, glyph_name))
+        .or_else(|| charset.and_then(|charset| charset.by_name.get(glyph_name).copied()))
+        // Last, and only for a name the lists do not hold: the specification's algorithmic
+        // form. A font with no `post` entry for `o.sc` states nothing better than "an o",
+        // and drawing one beats drawing nothing — but it is a recovery rather than the
+        // clause's route, which is why it sits below `post` rather than above it.
+        .or_else(|| {
+            unlisted
+                .then(|| through_character(glyph_name))
+                .flatten()
+                .and_then(narrow_glyph)
+        })
 }
 
 /// A glyph name's glyph, from the font program's own `post` table.
@@ -2568,8 +2623,8 @@ mod truetype_encoding_tests {
         let font = FontRef::new(&data).expect("readable");
         let subtables = Subtables::read(&font);
 
-        assert_eq!(named_glyph(&font, &subtables, "eacute"), Some(GLYPH));
-        assert_eq!(named_glyph(&font, &subtables, "egrave"), None);
+        assert_eq!(named_glyph(&font, &subtables, None, "eacute"), Some(GLYPH));
+        assert_eq!(named_glyph(&font, &subtables, None, "egrave"), None);
     }
 
     /// "The glyph name shall then be mapped back to a character code according to the
@@ -2585,8 +2640,8 @@ mod truetype_encoding_tests {
         let font = FontRef::new(&data).expect("readable");
         let subtables = Subtables::read(&font);
 
-        assert_eq!(named_glyph(&font, &subtables, "eacute"), Some(GLYPH));
-        assert_eq!(named_glyph(&font, &subtables, "adieresis"), None);
+        assert_eq!(named_glyph(&font, &subtables, None, "eacute"), Some(GLYPH));
+        assert_eq!(named_glyph(&font, &subtables, None, "adieresis"), None);
     }
 
     /// "In any of these cases, if the glyph name cannot be mapped as specified, the glyph
@@ -2605,8 +2660,42 @@ mod truetype_encoding_tests {
         let subtables = Subtables::read(&font);
 
         assert_eq!(post_glyph(&font, "gid2436"), Some(GLYPH));
-        assert_eq!(named_glyph(&font, &subtables, "gid2436"), Some(GLYPH));
-        assert_eq!(named_glyph(&font, &subtables, "gid9999"), None);
+        assert_eq!(named_glyph(&font, &subtables, None, "gid2436"), Some(GLYPH));
+        assert_eq!(named_glyph(&font, &subtables, None, "gid9999"), None);
+    }
+
+    /// A suffixed name is not one the Adobe Glyph List holds, so the `post` table decides.
+    ///
+    /// §9.6.5.4 sends a glyph name "to a Unicode value by consulting the Adobe Glyph List and
+    /// Adobe Glyph List for New Fonts", and then to the `post` table "if the glyph name cannot
+    /// be mapped as specified". Those are two *lists*, and neither holds an entry containing a
+    /// FULL STOP — but the wider Adobe Glyph List *Specification* carries an algorithm for
+    /// unlisted names that strips everything after the first period, which `read_fonts`
+    /// implements and which answers `o` for `o.sc`. That answer is a real letter, so it hid
+    /// the clause's own next step behind it and `issue215.pdf` drew `openmagazin` in lower
+    /// case where four references draw small capitals — which the file itself confirms, by
+    /// mapping those codes to U+F76F and its neighbours, the private-use block Adobe assigns
+    /// to small capitals.
+    ///
+    /// The fixture puts both glyphs in reach so that a wrong order is a wrong answer rather
+    /// than a missing one: the (3, 1) subtable holds `o` at glyph 1 and the `post` table names
+    /// glyph 7 `o.sc`.
+    #[test]
+    fn a_suffixed_glyph_name_reaches_the_program_rather_than_its_base_letter() {
+        let data = sfnt(&[
+            (*b"cmap", cmap(3, 1, 0x006F, &[1])),
+            (*b"post", post(GLYPH, "o.sc")),
+        ]);
+        let font = FontRef::new(&data).expect("readable");
+        let subtables = Subtables::read(&font);
+
+        assert_eq!(named_glyph(&font, &subtables, None, "o.sc"), Some(GLYPH));
+        // And the unsuffixed name still takes the clause's first route.
+        assert_eq!(named_glyph(&font, &subtables, None, "o"), Some(1));
+        // A suffixed name the program does not carry falls back to the base letter, which
+        // is a recovery rather than the clause's route — better than drawing nothing, and
+        // last precisely because it is not what the subclause says.
+        assert_eq!(named_glyph(&font, &subtables, None, "o.alt"), Some(1));
     }
 
     /// The mapping of this processor's choosing reaches a subtable §9.6.5.4 never names.
