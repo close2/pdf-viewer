@@ -909,27 +909,40 @@ status = "unreviewed"
 [[clause]]
 clause = "8.4"
 title = "Graphics state"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::the_initial_values_are_table_51s"]
+note = "The parent row for the graphics state, reviewed with §8.4.1 to §8.4.5 in the twenty-fourth session. Every parameter Table 51 lists is carried in `GraphicsState` and every one is saved and restored by `q`/`Q`. Table 52's device-dependent set is where this device declines: black generation, undercolour removal, transfer functions and halftones describe a marking device (§10.4, §10.5, §10.6), flatness is ignored by §10.7.2's own permission, smoothness is the one silence inside a partial row (§10.7.3), and overprint is answered by §8.6.7 rather than skipped. See those rows."
 
 [[clause]]
 clause = "8.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::the_initial_values_are_table_51s", "crates/pdf-model/tests/line_parameters.rs::a_miter_limit_below_one_is_clipped_into_range"]
+note = "Table 51's initial values are `GraphicsState`'s and `Stroke`'s defaults, and are asserted rather than assumed. The clause's two general rules about parameter handling are both applied: a value must \\\"be of the correct type or have values that fall within a certain range\\\", which is why a line cap code outside Table 53's three is the initial value rather than a guess; and numeric values \\\"shall be clipped into valid range\\\" — the line width at 0, the miter limit at 1, the alpha constants at 0..1. The clause's own caution that a clipped value \\\"shall not be adjusted to reflect capabilities of the raster output device\\\" is why §8.4.3.2's one-device-pixel minimum lives in `Stroke::device_width`, applied at painting time, and is never stored back into the state. NOTE 1's \\\"either way\\\" is the sentence that found this session's silent gap: see §8.4.5."
 
 [[clause]]
 clause = "8.4.2"
 title = "Graphics state stack"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::the_stack_saves_and_restores_them"]
+note = "`q` pushes a clone of the whole `GraphicsState` and `Q` pops it, so every parameter — including the clip, the soft mask, the text state and the stroke's dash pattern — is saved and restored together, which is what \\\"a copy of the entire graphics state\\\" asks for. The clause's requirement that the two \\\"shall be balanced within a given content stream\\\" is a writer-side one: an unbalanced `Q` here pops nothing and an unbalanced `q` is discarded at the end of the stream, because a viewer that refused the file would show nothing. `MAX_STATE_DEPTH` bounds the stack against hostile input and *reports* on reaching it rather than truncating in silence."
 
 [[clause]]
 clause = "8.4.3"
 title = "Details of graphics state parameters"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::the_operators_set_all_three", "crates/pdf-model/tests/line_parameters.rs::an_ext_gstate_sets_all_three_too"]
+note = "A pointer row: the six parameters below are each in their own subclause, and all six are read. §8.4.3.1 is a sentence of introduction."
 
 [[clause]]
 clause = "8.4.3.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "One sentence introducing the subclauses below it, with no requirement of its own."
 
 [[clause]]
 clause = "8.4.3.2"
@@ -942,17 +955,26 @@ note = "The `w` operator sets the width, and a width of 0 is drawn as \"the thin
 [[clause]]
 clause = "8.4.3.3"
 title = "Line cap style"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/degenerate.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::the_operators_set_all_three", "crates/pdf-model/tests/line_parameters.rs::an_ext_gstate_sets_all_three_too", "crates/render-cpu/tests/degenerate_subpath.rs::a_single_point_closed_path_is_a_disc_under_round_caps"]
+note = "Table 53's three styles, set by `J` and — from the twenty-fourth session — by Table 57's `/LC`, which three corpus documents write and which reached nothing at all before. `line_cap` is the one place a code becomes a style, so the two routes cannot disagree. The clause's own scope is wider than an open subpath's ends: it says the style applies \\\"at both ends of open subpaths (and dashes 8.4.3.6)\\\", which is the sentence that makes a zero-length dash's cap a mark — see §8.5.3.2."
 
 [[clause]]
 clause = "8.4.3.4"
 title = "Line join style"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/degenerate.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::the_operators_set_all_three", "crates/pdf-model/tests/line_parameters.rs::an_ext_gstate_sets_all_three_too"]
+note = "Table 54's three styles, set by `j` and by Table 57's `/LJ`; the join geometry itself is each rasteriser's, and the cross-backend scenes hold them to the same pixels. Two sentences of this clause are not about joins at all and both are read elsewhere: \\\"[i]n a closed subpath that is dashed, if the first segment starts with an on-dash and the last segment ends within an on-dash, then they shall be joined\\\", which both dashers do; and the one that makes a zero-length dash on a zero-length subpath segment \\\"rendered in an implementation-dependent manner\\\" for a non-round cap, which is quoted in `degenerate.rs` as the licence for giving a square cap with no determinable direction the round cap's circle."
 
 [[clause]]
 clause = "8.4.3.5"
 title = "Miter limit"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::a_miter_limit_below_one_is_clipped_into_range"]
+note = "Set by `M` and by Table 57's `/ML`, clipped below at 1 because §8.4.3.5's own ratio `1 / sin(φ/2)` never goes below it. Both backends are told the limit explicitly rather than left to default, since `tiny-skia` and `kurbo` both default to 4.0 where Table 51's initial value is 10.0 — a difference that would have shown as differently bevelled corners on any document that never says `M`. \\\"When the line width is zero, the miter length is zero\\\" needs nothing: §8.4.3.2 substitutes a device pixel before any join is expanded."
 
 [[clause]]
 clause = "8.4.3.6"
@@ -965,77 +987,122 @@ note = "Implemented in the tenth session; before it, no dashed line in any docum
 [[clause]]
 clause = "8.4.4"
 title = "Graphics state operators"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::the_operators_set_all_three", "crates/pdf-model/tests/line_parameters.rs::the_stack_saves_and_restores_them", "crates/pdf-model/tests/line_dash.rs::a_dash_array_reaches_the_stroke"]
+note = "Table 56's ten operators. `q`, `Q`, `cm`, `w`, `J`, `j`, `M`, `d` and `gs` are executed. `ri` sets a rendering intent, which reaches colour conversion only through §8.6.5.9's black point compensation — `AbsoluteColorimetric` turns it off, and the other three intents select an ICC transform this tree does not yet choose between (see §8.6.5.8). `i` sets the flatness tolerance and is deliberately ignored: §10.7.2 says \\\"a PDF processor may ignore this parameter\\\", which is a permission rather than a gap."
 
 [[clause]]
 clause = "8.4.5"
 title = "Graphics state parameter dictionaries"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/line_parameters.rs::an_ext_gstate_sets_all_three_too", "crates/pdf-model/tests/line_parameters.rs::the_later_of_the_two_routes_wins"]
+note = "Table 57's entries, and the clause that says a parameter \\\"can be set either with individual graphics state operators or with gs\\\". Read: `/LW`, `/LC`, `/LJ`, `/ML`, `/D`, `/RI`, `/SA`, `/BM`, `/SMask`, `/CA`, `/ca`, `/TK` and `/UseBlackPtComp`. The middle three of those were added in the twenty-fourth session — the operator half had been implemented since the interpreter's first commit (`dd857ed`) and the dictionary half read nothing, which is exactly the gap-inside-a-feature this ledger exists to find. Not read, and each for its own reason: `/BG`, `/BG2`, `/UCR`, `/UCR2`, `/TR`, `/TR2`, `/HT` and `/HTO` describe a marking device (§10.4 to §10.6); `/OP`, `/op` and `/OPM` are answered by §8.6.7 rather than skipped; `/FL` is ignored by §10.7.2's permission; `/SM` is the silence recorded under §10.7.3; `/AIS` is argued in ADR 0027. **`/Font` is the one owed entry**: it selects a font by indirect reference rather than by resource name, which is the one thing this crate's font cache cannot do, and it is *reported* rather than passed over. One corpus document writes it, `extgstate.pdf`."
 
 [[clause]]
 clause = "8.5"
 title = "Path construction and painting"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/degenerate.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::a_move_overrides_the_move_before_it", "crates/render-cpu/tests/degenerate_subpath.rs::a_single_point_closed_path_is_a_disc_under_round_caps"]
+note = "The parent row for path construction and painting, reviewed as a family in the twenty-fourth session together with §8.4.3, because the two decide a stroke between them. The clause's own framing — construction operators, painting operators, clipping operators — is the shape of the interpreter's own dispatch. \\\"At the beginning of each page, the clipping path shall be initialised to the size of the MediaBox\\\" is where this renderer differs deliberately and says so under §14.11.2.1: it draws the *crop* box, which the oracle's third trap is about."
 
 [[clause]]
 clause = "8.5.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::a_segment_after_a_close_starts_where_the_close_returned_to"]
+note = "The definitions the rest of the clause rests on, and two of them decide code. \\\"A pair of segments shall be said to connect only if they are defined consecutively\\\", so a subpath is a run of consecutive segments and the walker in `degenerate.rs` is built on exactly that. And `h` \\\"explicitly shall connect the end of a subpath back to its starting point; such a subpath is said to be closed\\\" — the open/closed distinction §8.5.3.2 then gives opposite answers to for a single-point subpath."
 
 [[clause]]
 clause = "8.5.2"
 title = "Path construction operators"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::a_rectangle_is_the_five_operations_table_58_names"]
+note = "A pointer row for the two subclauses below."
 
 [[clause]]
 clause = "8.5.2.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::a_move_overrides_the_move_before_it", "crates/pdf-model/tests/path_construction.rs::a_rectangle_overrides_the_move_before_it", "crates/pdf-model/tests/path_construction.rs::closing_a_closed_subpath_does_nothing", "crates/pdf-model/tests/path_construction.rs::a_rectangle_is_the_five_operations_table_58_names"]
+note = "Table 58's seven operators, and three of its sentences that describe *removing* a command rather than adding one — all three implemented in the twenty-fourth session, none of which changed a pixel by itself. One `m` after another leaves \\\"no vestige of the previous m operation\\\", and because Table 58 states `re` as `x y m` and three `l`s and an `h`, an `re` overrides a preceding `m` too: six corpus documents write consecutive moves, `bug1743245.pdf` 205 of them on one page and `issue12810.pdf` 60 `m`/`re` pairs. `h` on an already-closed subpath \\\"shall do nothing\\\". They became load-bearing the moment §8.5.3.2's degenerate subpaths became marks, because each stray `m` would otherwise have been a dot the document never asked for. Not implemented, and reachable by no corpus first page: \\\"[m]ost operators that add a segment to the current path start at the current point; if the current point is undefined, an error shall be generated\\\" — such a path is passed to the rasteriser unclassified rather than refused."
 
 [[clause]]
 clause = "8.5.2.2"
 title = "Cubic Bézier curves"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::the_implied_control_points_are_the_ones_the_clause_names"]
+note = "`c`, `v` and `y`, whose difference is only which control point is implied — `v` takes the current point as the first, `y` the endpoint as the second. Cubic Béziers are the display list's only curve, so nothing is flattened or converted between here and either rasteriser; a TrueType quadratic is raised to the cubic through the same curve during glyph loading, and `render-cpu`'s `from_skia_path` raises one the same way where a dasher has produced it."
 
 [[clause]]
 clause = "8.5.3"
 title = "Path-painting operators"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::the_starred_operators_are_the_even_odd_ones"]
+note = "A pointer row for the three subclauses below."
 
 [[clause]]
 clause = "8.5.3.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::a_path_that_is_only_a_move_paints_nothing"]
+note = "Table 59's ten painting operators, all executed: `S`, `s`, `f`, `F`, `f*`, `B`, `B*`, `b`, `b*` and `n`. `s` is `h S` and `b`/`b*` are `h B`/`h B*`, stated by calling the same `close_subpath` a written `h` calls. `B`'s NOTE — the fill and the stroke \\\"consult different values of several graphics state parameters\\\" — is why the two commands carry separate paints; §11.6.2's rule that they are nonetheless one object is a reported departure, see its row. Not implemented: \\\"[a]ttempting to execute a painting operator when the current path is undefined … shall generate an error\\\"; here it paints nothing, which is the recovery a viewer owes a malformed file."
 
 [[clause]]
 clause = "8.5.3.2"
 title = "Stroking"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/degenerate.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/render-cpu/tests/degenerate_subpath.rs::a_single_point_closed_path_is_a_disc_under_round_caps", "crates/render-cpu/tests/degenerate_subpath.rs::a_single_point_closed_path_paints_nothing_under_butt_or_square_caps", "crates/render-cpu/tests/degenerate_subpath.rs::a_zero_length_dash_paints_a_cap_where_a_degenerate_subpath_paints_nothing", "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_stroke_with_no_length"]
+note = "Implemented in the twenty-fourth session, and it is the clause's *last paragraph* that had never been read. A degenerate subpath — \\\"a single-point closed path or … two or more points at the same coordinates\\\" — is a filled circle under round caps and \\\"no output\\\" under butt or projecting square ones, and a subpath that is only a trailing `m` is no output under any cap. Neither rasteriser answered that: `tiny-skia` painted a square where the clause asks for nothing, `kurbo` painted nothing where it asks for a circle, and a path of one `m` was an error on one backend and silence on the other. The rule is now `pdf-render`'s, stated once for both, with the circle this crate's own geometry rather than either round cap's. The paragraph's second half inverts the first for a *dash* of no length — \\\"the line caps shall always be painted, since their orientation is determined by the direction of the underlying path\\\" — so `[0 6] 0 d 1 J S` is a dotted line, which Vello drew as nothing at all, and a projecting square cap there faces along the path where Skia's dasher faces it upright. Four corpus first pages state marks with no length: 64 dots and 31 dotted strokes. The clause's remaining sentences are the rasterisers': what a stroke's sides are, which parameters it consults, and that \\\"[p]oints at which unconnected segments happen to meet or intersect receive no special treatment\\\"."
 
 [[clause]]
 clause = "8.5.3.3"
 title = "Filling"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::the_starred_operators_are_the_even_odd_ones", "crates/render-cpu/tests/fill_rules.rs::the_even_odd_rule_leaves_the_hole_regardless_of_direction"]
+note = "A pointer row for the three subclauses below."
 
 [[clause]]
 clause = "8.5.3.3.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::a_trailing_move_is_not_part_of_the_path"]
+note = "`f` fills \\\"the entire region enclosed by the current path\\\" with the nonstroking colour, and \\\"the insides of all subpaths, considered together\\\" — one command over one path, so subpaths cannot be filled separately by construction. Open subpaths are implicitly closed by both rasterisers' fill. The exception is implemented as of the twenty-fourth session: \\\"if the last subpath in the path is a single-point open subpath (specified by a trailing m operator), it shall be disregarded and not considered to be part of the path\\\" — eleven corpus first pages end a path that way, and a path that was *only* such a subpath used to reach `tiny-skia`, which refuses it, and failed the whole page — four corpus pages, `annotation-text-without-popup.pdf`, `issue12810.pdf`, `issue6342.pdf` and `issue9017_reduced.pdf`, which were the whole of that failure class and now all four render. Partial for the sentence after it: a degenerate subpath \\\"shall be considered to enclose the single device pixel lying under that point\\\", and neither backend paints anything there. The clause calls that result \\\"device-dependent and not generally useful\\\" in the same breath, so what is owed is a pixel nothing asks to be able to see; it is recorded here rather than reported because a report would name pages on which no reader could tell."
 
 [[clause]]
 clause = "8.5.3.3.2"
 title = "Non-zero winding number rule"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/paint.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/render-cpu/tests/fill_rules.rs::the_non_zero_rule_fills_a_nested_subpath_wound_the_same_way", "crates/render-cpu/tests/fill_rules.rs::the_non_zero_rule_leaves_a_hole_when_the_windings_oppose"]
+note = "`FillRule::NonZero`, which both rasterisers implement natively — `tiny_skia::FillRule::Winding` and `peniko::Fill::NonZero`. It is the rule `f`, `B`, `b` and `W` use, and the display list carries it explicitly rather than by default so that a backend cannot substitute its own."
 
 [[clause]]
 clause = "8.5.3.3.3"
 title = "Even-odd rule"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-render/src/paint.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
+test = ["crates/render-cpu/tests/fill_rules.rs::the_even_odd_rule_leaves_the_hole_regardless_of_direction"]
+note = "`FillRule::EvenOdd`, for `f*`, `B*`, `b*` and `W*`, likewise native in both rasterisers."
 
 [[clause]]
 clause = "8.5.4"
 title = "Clipping path operators"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/display_list.rs"]
+test = ["crates/pdf-model/tests/path_construction.rs::the_starred_operators_are_the_even_odd_ones", "crates/pdf-model/tests/path_construction.rs::a_clip_built_from_a_disregarded_path_admits_nothing", "crates/render-cpu/tests/empty_clip.rs::a_fill_inside_an_empty_clip_marks_nothing", "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_clip_that_admits_nothing"]
+note = "`W` and `W*` set a pending rule that the *following* painting operator applies, which is the clause's own timing: the operator \\\"shall not alter the clipping path at the point where it appears\\\" but modifies \\\"the effect of the succeeding painting operator\\\", and afterwards the clip is \\\"the intersection of the current clipping path and the newly constructed path\\\". A `Clip` is therefore a child of the current one rather than a replacement, and `q`/`Q` restore it with the rest of the state. \\\"[T]he same area that would be filled by the f operator is the area that would be used for a clip\\\" decides the edge this clause turned out to have: a path §8.5.3.3.1 has just disregarded down to nothing encloses no area, so the clip built from it **admits nothing**, and `Clip::admits_nothing` states that for both backends — `tiny-skia` refuses an empty path and `kurbo` clips to an empty region, two conventions where the clause has an answer. `issue9017_reduced.pdf` writes `568.938 673.022 m W n` around a shading; the page had never rendered at all, and the twenty-fourth session's own trailing-`m` rule is what made it visible enough to be found wrong. A `W` with *no* path in front of it is the other case — §8.5.3.1 calls it an error — and leaves the clip alone rather than blanking the rest of the stream. One edge is recorded rather than implemented: §8.11.3.1's hidden optional content still builds its clip, which is that clause's requirement rather than this one's."
 
 [[clause]]
 clause = "8.6"

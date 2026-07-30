@@ -1047,27 +1047,17 @@ impl Interpreter<'_> {
                 }
                 b"J" => {
                     if let Some(code) = integer_at(&operands, 0) {
-                        state.stroke.cap = match code {
-                            1 => LineCap::Round,
-                            2 => LineCap::Square,
-                            // The specification defines 0, 1 and 2; anything else is
-                            // malformed and butt caps are the initial value.
-                            _ => LineCap::Butt,
-                        };
+                        state.stroke.cap = line_cap(code);
                     }
                 }
                 b"j" => {
                     if let Some(code) = integer_at(&operands, 0) {
-                        state.stroke.join = match code {
-                            1 => LineJoin::Round,
-                            2 => LineJoin::Bevel,
-                            _ => LineJoin::Miter,
-                        };
+                        state.stroke.join = line_join(code);
                     }
                 }
                 b"M" => {
                     if let Some(limit) = number_at(&operands, 0) {
-                        state.stroke.miter_limit = limit.max(1.0);
+                        state.stroke.miter_limit = miter_limit(limit);
                     }
                 }
                 b"d" => set_dash(&operands, &mut state.stroke),
@@ -1077,7 +1067,7 @@ impl Interpreter<'_> {
                     if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
                         current = Point::new(x, y);
                         start = current;
-                        path.push(PathCommand::MoveTo(current));
+                        begin_subpath(&mut path, current);
                     }
                 }
                 b"l" => {
@@ -1107,13 +1097,16 @@ impl Interpreter<'_> {
                     }
                 }
                 b"h" => {
-                    path.push(PathCommand::Close);
+                    close_subpath(&mut path);
                     current = start;
                 }
                 b"re" => {
                     if let Some(values) = numbers_from(&operands, 4) {
                         let (x, y, w, h) = (values[0], values[1], values[2], values[3]);
-                        path.push(PathCommand::MoveTo(Point::new(x, y)));
+                        // Table 58 states `re` as `x y m` and three `l`s and an `h`, so the
+                        // `m` it begins with overrides a preceding one exactly as a written
+                        // `m` would: 60 paths on `issue12810.pdf`'s first page pair the two.
+                        begin_subpath(&mut path, Point::new(x, y));
                         path.push(PathCommand::LineTo(Point::new(x + w, y)));
                         path.push(PathCommand::LineTo(Point::new(x + w, y + h)));
                         path.push(PathCommand::LineTo(Point::new(x, y + h)));
@@ -1145,7 +1138,7 @@ impl Interpreter<'_> {
                 }
                 b"S" => self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(false)),
                 b"s" => {
-                    path.push(PathCommand::Close);
+                    close_subpath(&mut path);
                     self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(true));
                 }
                 b"B" => {
@@ -1167,7 +1160,7 @@ impl Interpreter<'_> {
                     );
                 }
                 b"b" | b"b*" => {
-                    path.push(PathCommand::Close);
+                    close_subpath(&mut path);
                     let rule = if operator.as_slice() == b"b*" {
                         FillRule::EvenOdd
                     } else {
@@ -1524,6 +1517,16 @@ impl Interpreter<'_> {
         fill: Option<FillRule>,
         stroke: Option<bool>,
     ) {
+        // Whether the content stream stated a path at all, which is asked *before* the
+        // trailing `m` goes: a path the clause disregards down to nothing is not the same
+        // thing as a painting operator with no path in front of it, and the two get
+        // different answers below.
+        let stated = !path.is_empty();
+
+        // §8.5.3.3.1's trailing `m`, removed before anything reads the path: filling,
+        // stroking and clipping all disregard it, and this is the one place all three meet.
+        drop_trailing_point(path);
+
         // Hidden optional content still builds its clip below — §8.11.3.1 puts clipping
         // among the graphics state operations that "shall still be applied" — but marks
         // nothing.
@@ -1593,8 +1596,17 @@ impl Interpreter<'_> {
         // the current path is painted, so the fill and stroke above used the old clip and
         // everything following uses the new one. The new clip becomes a child of the
         // current one, since clipping intersects rather than replaces.
+        //
+        // A path §8.5.3.3.1 has just disregarded down to nothing still becomes a clip, and
+        // that clip admits nothing: §8.5.4 defines the region as "the same area that would
+        // be filled by the f operator", and an empty path fills none. `issue9017_reduced.pdf`
+        // writes `568.938 673.022 m W n` around a shading, and all three reference renderers
+        // leave that shading undrawn. A painting operator with *no* path in front of it is
+        // the other case — §8.5.3.1 calls it an error — and leaves the clip alone rather
+        // than blanking everything after it, which is the recovery a viewer owes a
+        // malformed file.
         if let Some(rule) = pending_clip.take()
-            && !path.is_empty()
+            && stated
         {
             let clip = Clip {
                 path: path.clone(),
@@ -1654,6 +1666,28 @@ impl Interpreter<'_> {
                 .and_then(|item| item.as_number())
                 .map_or(0.0, narrow);
             apply_dash(array, phase, &mut state.stroke);
+        }
+        // Table 57's `/LC`, `/LJ` and `/ML`: the same three parameters `J`, `j` and `M` set,
+        // through the other of §8.4.1 NOTE 1's two routes. `issue16287.pdf`, `issue7878.pdf`
+        // and `extgstate.pdf` set all three this way, and none of them reached the stroke.
+        if let Some(code) = self.document.get_key(dict, "LC").as_integer() {
+            state.stroke.cap = line_cap(code);
+        }
+        if let Some(code) = self.document.get_key(dict, "LJ").as_integer() {
+            state.stroke.join = line_join(code);
+        }
+        if let Some(limit) = self.document.get_key(dict, "ML").as_number() {
+            state.stroke.miter_limit = miter_limit(narrow(limit));
+        }
+        // Table 57's `/Font`, which is `[font size]` with the font an *indirect reference*
+        // rather than a resource name — the one entry here that cannot go through the same
+        // route its operator does, since `Tf` and this crate's font cache are both keyed by
+        // the name. One corpus document writes it, `extgstate.pdf`, and what it would change
+        // is which glyphs the page draws, so it is named rather than passed over.
+        if !matches!(self.document.get_key(dict, "Font"), Object::Null) {
+            self.note(Unsupported::Font {
+                detail: "a font selected by Table 57's /Font entry".to_owned(),
+            });
         }
         if let Some(width) = self.document.get_key(dict, "LW").as_number() {
             #[expect(
@@ -3426,6 +3460,98 @@ fn set_dash(operands: &[Object], stroke: &mut Stroke) {
         .and_then(Object::as_number)
         .map_or(0.0, narrow);
     apply_dash(array, phase, stroke);
+}
+
+/// Table 53's line cap style, ISO 32000-2 §8.4.3.3.
+///
+/// One function rather than a `match` beside each of the two operators that set it — `J` and
+/// Table 57's `/LC` — because §8.4.1's NOTE 1 says a parameter "can be specified either way"
+/// and the two ways have to mean the same thing. Three corpus documents set the cap through
+/// `/LC` and it reached nothing at all until §8.4.3 was read as a family.
+///
+/// The clause defines 0, 1 and 2; §8.4.1 requires values "of the correct type or … within a
+/// certain range", and the initial value is the answer for anything outside it.
+fn line_cap(code: i64) -> LineCap {
+    match code {
+        1 => LineCap::Round,
+        2 => LineCap::Square,
+        _ => LineCap::Butt,
+    }
+}
+
+/// Table 54's line join style, ISO 32000-2 §8.4.3.4. Set by `j` and by Table 57's `/LJ`.
+fn line_join(code: i64) -> LineJoin {
+    match code {
+        1 => LineJoin::Round,
+        2 => LineJoin::Bevel,
+        _ => LineJoin::Miter,
+    }
+}
+
+/// The miter limit, ISO 32000-2 §8.4.3.5. Set by `M` and by Table 57's `/ML`.
+///
+/// Clamped below at 1, which §8.4.1 asks for — "[p]arameters that are numeric values, such
+/// as the current colour, line width, and miter limit, shall be clipped into valid range".
+/// The valid range starts at 1 because the ratio the limit bounds is a miter length over a
+/// line width, and §8.4.3.5's formula makes that ratio `1 / sin(φ/2)`, which is never below
+/// one. A smaller limit would convert every join to a bevel, including a straight one.
+fn miter_limit(limit: f32) -> f32 {
+    limit.max(1.0)
+}
+
+/// Begins a subpath at `at`, ISO 32000-2 §8.5.2.1 Table 58's `m`.
+///
+/// Table 58's `m` overrides an `m` immediately before it, leaving
+///
+/// > no vestige of the previous m operation remains in the path.
+///
+/// Six corpus documents write consecutive `m` operators and one of them, `bug1743245.pdf`,
+/// writes 205 of them on its first page. Keeping them would leave 205 single-point subpaths
+/// in the path, and §8.5.3.2 turns a single-point subpath under round caps into a *dot* — so
+/// the sentence above is what stands between that clause and 205 marks the file never asked
+/// for. It also makes the only single-point open subpath a path can hold a *trailing* one,
+/// which is exactly the shape §8.5.3.3.1 names.
+fn begin_subpath(path: &mut Path, at: Point) {
+    if matches!(path.commands().last(), Some(PathCommand::MoveTo(_))) {
+        path.replace_last(PathCommand::MoveTo(at));
+    } else {
+        path.push(PathCommand::MoveTo(at));
+    }
+}
+
+/// Closes the current subpath, ISO 32000-2 §8.5.2.1 Table 58's `h`.
+///
+/// > If the current subpath is already closed, h shall do nothing.
+///
+/// A subpath is already closed when the previous command closed it, and there is no current
+/// subpath to close before the first `m`. A lone `m` followed by `h` is neither: it is
+/// §8.5.3.2's single-point closed path, which is a mark rather than a no-op.
+fn close_subpath(path: &mut Path) {
+    match path.commands().last() {
+        None | Some(PathCommand::Close) => {}
+        Some(_) => path.push(PathCommand::Close),
+    }
+}
+
+/// Drops a path's trailing single-point open subpath, ISO 32000-2 §8.5.3.3.1.
+///
+/// > Any subpaths that are open shall be implicitly closed before being filled, except that
+/// > if the last subpath in the path is a single-point open subpath (specified by a trailing
+/// > m operator), it shall be disregarded and not considered to be part of the path.
+///
+/// §8.5.3.2 says the same of stroking — "a single-point open subpath (specified by a
+/// trailing m operator) shall produce no output" — and §8.5.4 defines a clip as the area
+/// `f` would fill, so all three painting routes want the same thing and it is done once,
+/// here, before any of them looks at the path.
+///
+/// Eleven corpus documents' first pages end a path this way. It changes no pixel by itself,
+/// since a point encloses nothing; what it changes is that the path handed to the backends
+/// no longer states a subpath the standard has just said is not part of it — and a path
+/// consisting only of `m` becomes an empty path rather than one `tiny-skia` refuses.
+fn drop_trailing_point(path: &mut Path) {
+    if matches!(path.commands().last(), Some(PathCommand::MoveTo(_))) {
+        path.pop();
+    }
 }
 
 /// Puts a dash array and phase into the graphics state, ISO 32000-2 §8.4.3.6.

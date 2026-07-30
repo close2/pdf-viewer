@@ -293,6 +293,30 @@ impl Path {
         self.commands.push(command);
     }
 
+    /// Removes the last command, if any.
+    ///
+    /// ISO 32000-2 §8.5.3.3.1 disregards a path's trailing single-point subpath, and Table
+    /// 58 has one `m` override the one before it: both are stated as the *removal* of a
+    /// command already appended, so a path has to be able to un-append one.
+    pub fn pop(&mut self) {
+        self.commands.pop();
+    }
+
+    /// Replaces the last command, leaving an empty path empty.
+    pub fn replace_last(&mut self, command: PathCommand) {
+        if let Some(last) = self.commands.last_mut() {
+            *last = command;
+        }
+    }
+
+    /// Appends a run of commands unchanged.
+    ///
+    /// Distinct from [`Self::extend_transformed`], which maps every point: this is for
+    /// copying part of one path into another in the space both already share.
+    pub fn extend(&mut self, commands: &[PathCommand]) {
+        self.commands.extend_from_slice(commands);
+    }
+
     /// Returns the path's commands in construction order.
     #[must_use]
     pub fn commands(&self) -> &[PathCommand] {

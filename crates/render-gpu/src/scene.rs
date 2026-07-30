@@ -20,7 +20,7 @@
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BackendError, BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin,
-    MAX_GROUP_DEPTH, Paint, Path, PathCommand, Stroke, TargetSpec, Transform,
+    MAX_GROUP_DEPTH, Paint, Path, PathCommand, Point, Stroke, TargetSpec, Transform,
 };
 use vello::kurbo;
 use vello::peniko;
@@ -133,6 +133,146 @@ fn stroke(s: &Stroke, to_device: Transform) -> kurbo::Stroke {
         );
     }
     out
+}
+
+/// Turns a dash pattern's zero-length dashes into marks, ISO 32000-2 §8.5.3.2.
+///
+/// The clause is explicit that a dash of no length is *not* the degenerate subpath of
+/// [`pdf_render::split_degenerate`], and gets the opposite answer under a projecting square
+/// cap:
+///
+/// > This rule shall apply only to zero-length subpaths of the path being stroked, and not
+/// > to zero-length dashes in a dash pattern of a non-degenerate subpath. In the latter
+/// > case, the line caps shall always be painted, since their orientation is determined by
+/// > the direction of the underlying path except in the case of a degenerate subpath.
+///
+/// So `[0 6] 0 d 1 J S` is a dotted line, and `kurbo` expands a dash of no length into an
+/// empty outline — the `0 w` hairline defect of the nineteenth session in a second place, a
+/// rasteriser convention standing in for a clause nobody had written down.
+///
+/// Returns `None` — leaving the caller to hand Vello the pattern as usual — unless it holds a
+/// zero-length dash whose cap would show. Where it does, the path is dashed here with the
+/// same `kurbo::dash` Vello uses internally, the marks go into `dots`, and what comes back is
+/// the remaining dashes, to be stroked solid.
+fn zero_length_dashes(
+    shape: &kurbo::BezPath,
+    s: &Stroke,
+    width: f32,
+    dots: &mut Path,
+) -> Option<kurbo::BezPath> {
+    let pattern = pdf_render::dashes_showing_direction(&s.dash_array, s.cap)?;
+    let pattern: Vec<f64> = pattern.iter().copied().map(f64::from).collect();
+    let dashed = kurbo::dash(shape.iter(), f64::from(s.dash_phase), &pattern);
+    let split = pdf_render::split_dash_marks(&from_bez_path(dashed), s.cap, width);
+    dots.extend(split.dots.commands());
+    Some(bez_path(&split.stroked))
+}
+
+/// Converts a `kurbo` path back to the display list's own, for [`zero_length_dashes`].
+///
+/// The one place geometry travels back out of the rasteriser's library, because the rule
+/// applied to a dashed path is stated in `pdf-render` so that both backends apply the same
+/// one. `kurbo` emits quadratics only for input that had them, and this pipeline never
+/// produces any, so a quadratic is elevated to the cubic through the same curve.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "every coordinate here originated as an f32 in this display list"
+)]
+fn from_bez_path(elements: impl Iterator<Item = kurbo::PathEl>) -> Path {
+    let mut out = Path::new();
+    let point = |p: kurbo::Point| Point::new(p.x as f32, p.y as f32);
+    let mut current = kurbo::Point::ZERO;
+    for element in elements {
+        match element {
+            kurbo::PathEl::MoveTo(p) => {
+                current = p;
+                out.push(PathCommand::MoveTo(point(p)));
+            }
+            kurbo::PathEl::LineTo(p) => {
+                current = p;
+                out.push(PathCommand::LineTo(point(p)));
+            }
+            kurbo::PathEl::QuadTo(c, p) => {
+                let quad = kurbo::QuadBez::new(current, c, p).raise();
+                current = p;
+                out.push(PathCommand::CurveTo(
+                    point(quad.p1),
+                    point(quad.p2),
+                    point(quad.p3),
+                ));
+            }
+            kurbo::PathEl::CurveTo(c1, c2, p) => {
+                current = p;
+                out.push(PathCommand::CurveTo(point(c1), point(c2), point(p)));
+            }
+            kurbo::PathEl::ClosePath => out.push(PathCommand::Close),
+        }
+    }
+    out
+}
+
+/// Encodes a stroked path, including the marks its own geometry has no length to make.
+///
+/// Split out of [`encode`] because ISO 32000-2 §8.5.3.2 turns one command into two draws —
+/// the subpaths that span a distance are stroked, and the ones that do not are *filled*, as
+/// circles this crate states rather than as whatever `kurbo`'s caps would have produced.
+fn encode_stroke(
+    scene: &mut vello::Scene,
+    path: &Path,
+    spaces: Spaces,
+    s: &Stroke,
+    to_path: Transform,
+    paint: &Paint,
+    blend: BlendMode,
+) -> Result<(), GpuRasterError> {
+    let at = spaces.at;
+    let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
+    let width = s.device_width(to_path);
+
+    // §8.5.3.2's two rules about a stroke with no length, neither of which `kurbo` answers:
+    // it drops a contour that expanded to nothing, so a dot and a dotted line both came out
+    // blank on this backend.
+    let split = pdf_render::split_degenerate(path, s.cap, width);
+    let geometry = split.as_ref().map_or(path, |d| &d.stroked);
+    let mut dots = split.as_ref().map_or_else(Path::new, |d| d.dots.clone());
+    let shape = bez_path(geometry);
+    let style = stroke(s, to_path);
+    let (shape, style) = match zero_length_dashes(&shape, s, width, &mut dots) {
+        // The dashes have already been dispensed, so what is left is stroked solid. The
+        // width is the resolved one either way.
+        Some(remainder) => {
+            let mut solid = style;
+            solid.dash_pattern = kurbo::Dashes::new();
+            (remainder, solid)
+        }
+        None => (shape, style),
+    };
+    let dots = bez_path(&dots);
+
+    // The stroke width is in the command's own coordinate space, and the transform scales it
+    // along with the geometry, as PDF specifies.
+    let draw = |scene: &mut vello::Scene| {
+        if !shape.is_empty() {
+            scene.stroke(&style, at, &brush, brush_at, &shape);
+        }
+        if !dots.is_empty() {
+            scene.fill(peniko::Fill::NonZero, at, &brush, brush_at, &dots);
+        }
+    };
+    if blend == BlendMode::Normal {
+        draw(scene);
+    } else {
+        // Clipping the layer to the *unstroked* path would cut the stroke in half, since a
+        // stroke straddles its path. The stroke outline is used as the layer's clip shape
+        // instead, with the dots — which are already outlines — beside it, so that one layer
+        // carries the whole object and §11.6.2 composites it once.
+        let mut outline = kurbo::stroke(shape.iter(), &style, &kurbo::StrokeOpts::default(), 0.1);
+        outline.extend(dots.iter());
+        scene.push_layer(peniko::Fill::NonZero, blend_mode(blend), 1.0, at, &outline);
+        draw(scene);
+        scene.pop_layer();
+    }
+    Ok(())
 }
 
 /// The three spaces a command's geometry and its paint are stated in.
@@ -319,6 +459,18 @@ fn encode(
 
     for command in commands {
         let wanted = resolve_chain(list, command.clip())?;
+        // §8.5.4 with §8.5.3.3.1: a clip whose path is empty admits nothing, so the command
+        // — a group included — marks no pixel and is not encoded at all. Vello would clip
+        // an empty path to an empty region and reach the same page, but by its own
+        // convention rather than by the clause; `Clip::admits_nothing` is where the two
+        // backends are held to one answer.
+        if wanted
+            .iter()
+            .filter_map(|&id| list.clip(id))
+            .any(Clip::admits_nothing)
+        {
+            continue;
+        }
         reconcile_layers(scene, list, &mut open, &wanted, to_device)?;
 
         // §11.6.4.3's soft mask applies to one object at a time, so the object is isolated
@@ -362,26 +514,15 @@ fn encode(
                 blend,
                 ..
             } => {
-                let shape = bez_path(path);
-                let spaces = Spaces::new(*transform, to_device)?;
-                let at = spaces.at;
-                let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
-                let style = stroke(s, transform.then(to_device));
-
-                // The stroke width is in the command's own coordinate space, and the
-                // transform scales it along with the geometry, as PDF specifies.
-                if *blend == BlendMode::Normal {
-                    scene.stroke(&style, at, &brush, brush_at, &shape);
-                } else {
-                    // Clipping the layer to the *unstroked* path would cut the stroke
-                    // in half, since a stroke straddles its path. The stroke outline
-                    // is used as the layer's clip shape instead.
-                    let outline =
-                        kurbo::stroke(shape.iter(), &style, &kurbo::StrokeOpts::default(), 0.1);
-                    scene.push_layer(peniko::Fill::NonZero, blend_mode(*blend), 1.0, at, &outline);
-                    scene.stroke(&style, at, &brush, brush_at, &shape);
-                    scene.pop_layer();
-                }
+                encode_stroke(
+                    scene,
+                    path,
+                    Spaces::new(*transform, to_device)?,
+                    s,
+                    transform.then(to_device),
+                    paint,
+                    *blend,
+                )?;
             }
             Command::Image {
                 image,

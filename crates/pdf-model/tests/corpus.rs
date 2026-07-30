@@ -334,7 +334,16 @@ const MAX_PAGELESS: usize = 11;
 /// which is a sharper statement about the same files — and one document, `checkbox_no_appearance.pdf`,
 /// that had been silent and now says a check box it draws as empty is one the file calls
 /// checked. Nothing on this row is a `/NeedAppearances` any longer.
-const MAX_INCOMPLETE: usize = 129;
+///
+/// **129 to 130 in the twenty-fourth session, and the one that joined is a silence ending.**
+/// Reading §8.4.5 against Table 57 found four entries of a graphics state parameter
+/// dictionary that reached nothing at all. Three of them — `/LC`, `/LJ` and `/ML` — are now
+/// implemented and report nothing, because the operators `J`, `j` and `M` set the same three
+/// parameters and always had. The fourth, `/Font`, selects a font by *indirect reference*
+/// rather than by the resource name this crate's font cache is keyed on, and one document
+/// writes it: `extgstate.pdf`, which now says so instead of drawing its text in whatever font
+/// was current. Trap 5's rule, and the price is one page leaving the oracle's judged set.
+const MAX_INCOMPLETE: usize = 130;
 
 /// How long one document may take before it counts as a failure.
 ///

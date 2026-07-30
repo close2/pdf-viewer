@@ -66,6 +66,16 @@ fn gpu() -> GpuRasterizer {
 }
 
 fn assert_within_tolerance(what: &str, c: Comparison) {
+    assert_within(what, c, MAX_DIFFERING_FRACTION);
+}
+
+/// The same gate with the differing-channel bound named by the caller.
+///
+/// Only the third of the three thresholds is ever loosened, and only for a scene that is
+/// mostly *boundary*: it counts channels that differ at all, so a page of large circles —
+/// where every mark is edge — trips it on antialiasing alone, while the two thresholds that
+/// catch a missing or misplaced mark stay where they are.
+fn assert_within(what: &str, c: Comparison, max_differing: f64) {
     assert!(
         c.mean_error < MAX_MEAN_ERROR,
         "{what}: mean error {:.4} exceeds {MAX_MEAN_ERROR}",
@@ -78,10 +88,10 @@ fn assert_within_tolerance(what: &str, c: Comparison) {
         c.worst_tile_at
     );
     assert!(
-        c.differing_fraction < MAX_DIFFERING_FRACTION,
+        c.differing_fraction < max_differing,
         "{what}: {:.4}% of channels differ, exceeding {:.4}%",
         c.differing_fraction * 100.0,
-        MAX_DIFFERING_FRACTION * 100.0
+        max_differing * 100.0
     );
 }
 
@@ -717,10 +727,188 @@ fn cpu_and_gpu_agree_on_the_thinnest_line_the_device_draws() {
                 .rasterize(&list, target)
                 .expect("supported");
             let gpu = gpu().rasterize(&list, target).expect("supported");
-            assert_within_tolerance(
+            // Three times the usual differing-channel bound, and nothing else loosened.
+            // Six discs 20 units across on a 200-unit page are almost entirely antialiased
+            // edge, where the two rasterisers legitimately differ by a level or two: this
+            // scene measures 1.36% where the basic scene measures 0.08%. The mean and the
+            // worst tile are what catch a mark that is missing or in the wrong place, and
+            // deleting either backend's handling of §8.5.3.2 fails this on the *mean*: 17.91
+            // against 0.5 for the dotted line, and 1.49 for a single dot.
+            assert_within(
                 &format!("{what} at scale {scale}"),
                 raster_compare::compare(&cpu, &gpu).expect("same size"),
+                MAX_DIFFERING_FRACTION * 3.0,
             );
         }
+    }
+}
+
+/// A stroke with no length draws the same on both backends: ISO 32000-2 §8.5.3.2.
+///
+/// The second instance of the defect the previous scene guards against, and the reason both
+/// live here. `tiny-skia` painted a projecting square cap where the clause asks for no
+/// output; `kurbo` dropped a contour that expanded to nothing, so a dot drew nothing at all
+/// and `[0 6] 0 d 1 J` — a dotted line — drew nothing at all either. Two rasterisers, two
+/// different wrong answers, and a cross-backend comparison that could not see either until a
+/// scene stroked a subpath with no length.
+///
+/// The four shapes are the four sentences: a single-point closed path is a disc under round
+/// caps and nothing under the others, a lone `m` is nothing under all three, and a
+/// zero-length *dash* is the opposite rule — every cap painted, including the square one.
+#[test]
+fn cpu_and_gpu_agree_on_a_stroke_with_no_length() {
+    use pdf_render::{
+        BlendMode, Color, Command, DisplayList, LineCap, Paint, Path, PathCommand, Point, Size,
+        Stroke, Transform,
+    };
+    use std::sync::Arc;
+
+    let scene = |commands: &[PathCommand], stroke: Stroke| {
+        let mut list = DisplayList::new(Size::new(200.0, 200.0));
+        let mut path = Path::new();
+        for command in commands {
+            path.push(*command);
+        }
+        list.push(Command::Stroke {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            stroke,
+            paint: Paint::Solid(Color::BLACK),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        list
+    };
+
+    let dot = [
+        PathCommand::MoveTo(Point::new(100.0, 100.0)),
+        PathCommand::Close,
+    ];
+    let stray = [PathCommand::MoveTo(Point::new(100.0, 100.0))];
+    // Diagonal, so that a square cap's orientation is visible: an axis-aligned square and a
+    // square turned to face the path cover different pixels, and a horizontal dotted line
+    // could not tell them apart.
+    let dashed_line = [
+        PathCommand::MoveTo(Point::new(20.0, 20.0)),
+        PathCommand::LineTo(Point::new(180.0, 180.0)),
+    ];
+
+    let mut cases = Vec::new();
+    for cap in [LineCap::Butt, LineCap::Round, LineCap::Square] {
+        let wide = Stroke {
+            width: 20.0,
+            cap,
+            ..Stroke::default()
+        };
+        cases.push((
+            format!("a single-point closed path, {cap:?}"),
+            &dot[..],
+            wide.clone(),
+        ));
+        cases.push((format!("a lone m, {cap:?}"), &stray[..], wide.clone()));
+        cases.push((
+            format!("a dotted line, {cap:?}"),
+            &dashed_line[..],
+            Stroke {
+                dash_array: vec![0.0, 20.0],
+                ..wide
+            },
+        ));
+    }
+
+    for (what, commands, stroke) in cases {
+        let list = scene(commands, stroke);
+        // Two scales: a dot's diameter is a width, and a width is resolved against the
+        // device, so one scale cannot tell a constant from something that tracks it.
+        for scale in [1.0, 2.5] {
+            let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+            let cpu = CpuRasterizer::new()
+                .rasterize(&list, target)
+                .expect("supported");
+            let gpu = gpu().rasterize(&list, target).expect("supported");
+            // Three times the usual differing-channel bound, and nothing else loosened.
+            // Six discs 20 units across on a 200-unit page are almost entirely antialiased
+            // edge, where the two rasterisers legitimately differ by a level or two: this
+            // scene measures 1.36% where the basic scene measures 0.08%. The mean and the
+            // worst tile are what catch a mark that is missing or in the wrong place, and
+            // deleting either backend's handling of §8.5.3.2 fails this on the *mean*: 17.91
+            // against 0.5 for the dotted line, and 1.49 for a single dot.
+            assert_within(
+                &format!("{what} at scale {scale}"),
+                raster_compare::compare(&cpu, &gpu).expect("same size"),
+                MAX_DIFFERING_FRACTION * 3.0,
+            );
+        }
+    }
+}
+
+/// A clip that admits nothing admits nothing on both backends: ISO 32000-2 §8.5.4.
+///
+/// The empty clipping path is the third shape in this file that each rasteriser answers for
+/// itself and answers differently: `tiny-skia` refuses an empty path outright, where `kurbo`
+/// clips to an empty region. Both are conventions, and only one of them is §8.5.4's answer —
+/// the region a clip admits is "the same area that would be filled by the f operator", which
+/// for a path §8.5.3.3.1 has disregarded down to nothing is no area at all.
+///
+/// The scene pairs the empty clip with an ordinary one covering a quarter of the page, so
+/// that a backend which dropped *every* clipped command would pass the first half and fail
+/// the second. `render-cpu/tests/empty_clip.rs` pins the absolute answer, ink 0 against 2500;
+/// this pins the two backends to the same one.
+#[test]
+fn cpu_and_gpu_agree_on_a_clip_that_admits_nothing() {
+    use pdf_render::{
+        BlendMode, Clip, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point,
+        Size, Transform,
+    };
+    use std::sync::Arc;
+
+    let page = 200.0_f32;
+    let rectangle = |from: Point, to: Point| {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(from));
+        path.push(PathCommand::LineTo(Point::new(to.x, from.y)));
+        path.push(PathCommand::LineTo(to));
+        path.push(PathCommand::LineTo(Point::new(from.x, to.y)));
+        path.push(PathCommand::Close);
+        path
+    };
+
+    let scene = |clip_path: Path| {
+        let mut list = DisplayList::new(Size::new(page, page));
+        let clip = list
+            .add_clip(Clip {
+                path: clip_path,
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("one clip is within the limit");
+        list.push(Command::Fill {
+            path: Arc::new(rectangle(Point::new(0.0, 0.0), Point::new(page, page))),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::BLACK),
+            clip: Some(clip),
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        list
+    };
+
+    let quarter = rectangle(Point::new(0.0, 0.0), Point::new(page / 2.0, page / 2.0));
+    for (what, list) in [
+        ("an empty clip", scene(Path::new())),
+        ("a clip that admits a quarter of the page", scene(quarter)),
+    ] {
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        let cpu = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let gpu = gpu().rasterize(&list, target).expect("supported");
+        assert_within_tolerance(
+            what,
+            raster_compare::compare(&cpu, &gpu).expect("same size"),
+        );
     }
 }

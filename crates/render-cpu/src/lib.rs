@@ -25,8 +25,8 @@ mod shading;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use pdf_render::{
-    BackendError, ClipId, Color, Command, DisplayList, MAX_EXTENT, MAX_GROUP_DEPTH, Paint, Raster,
-    RasterFormat, Rasterizer, SoftMaskId, TargetSpec, Transform, impose_on_medium,
+    BackendError, ClipId, Color, Command, DisplayList, MAX_EXTENT, MAX_GROUP_DEPTH, Paint, Path,
+    Raster, RasterFormat, Rasterizer, SoftMaskId, Stroke, TargetSpec, Transform, impose_on_medium,
 };
 
 /// Renders display lists on the CPU.
@@ -169,6 +169,121 @@ impl Rasterizer for CpuRasterizer {
 }
 
 impl CpuRasterizer {
+    /// Turns a dash pattern's zero-length dashes into marks, ISO 32000-2 §8.5.3.2.
+    ///
+    /// > This rule shall apply only to zero-length subpaths of the path being stroked, and
+    /// > not to zero-length dashes in a dash pattern of a non-degenerate subpath. In the
+    /// > latter case, the line caps shall always be painted, since their orientation is
+    /// > determined by the direction of the underlying path
+    ///
+    /// `tiny-skia` paints such a cap, so a dotted line is *drawn* here without this — but it
+    /// faces a square cap upright, because Skia's dasher loses the direction and its stroker
+    /// says so: "since the zero length segment has no direction, set the orientation to
+    /// upright as the default orientation". The clause says the direction is the path's, and
+    /// on a diagonal dotted line the two answers cover different pixels. Doing the dashing
+    /// here keeps the direction (see [`pdf_render::ZERO_DASH`]) and puts the answer in the
+    /// crate both backends share.
+    ///
+    /// Returns `None` when the pattern holds no zero-length dash whose cap would show, which
+    /// leaves the ordinary path untouched: `tiny-skia` does its own dashing and this
+    /// allocates nothing.
+    fn zero_length_dashes(
+        geometry: &Path,
+        stroke: &Stroke,
+        width: f32,
+        dots: &mut Path,
+    ) -> Option<Path> {
+        let pattern = pdf_render::dashes_showing_direction(&stroke.dash_array, stroke.cap)?;
+        let source = convert::path(geometry)?;
+        let dash = tiny_skia::StrokeDash::new(pattern, stroke.dash_phase)?;
+        // The resolution scale bounds how finely a curve is measured for arc length.
+        // `tiny-skia` derives it from the transform for stroking; one is what it uses for a
+        // path already in device-sized units, and a dash's *position* is what this needs
+        // rather than the smoothness of its ends.
+        let dashed = source.dash(&dash, 1.0)?;
+        let split =
+            pdf_render::split_dash_marks(&convert::from_skia_path(&dashed), stroke.cap, width);
+        dots.extend(split.dots.commands());
+        Some(split.stroked)
+    }
+
+    /// Draws a stroked path, including the marks its own geometry has no length to make.
+    ///
+    /// Split out of [`CpuRasterizer::draw`] because ISO 32000-2 §8.5.3.2 turns one command
+    /// into two draws — the subpaths that span a distance are stroked, and the ones that do
+    /// not are *filled*, as circles `pdf-render` states rather than as whatever `tiny-skia`'s
+    /// caps would have produced.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CpuRasterError`] for a path the rasteriser rejects or a paint this backend
+    /// does not implement.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the fields of one display list command, passed through rather than \
+                  regrouped: a struct here would be a second spelling of `Command::Stroke`"
+    )]
+    fn draw_stroke(
+        &self,
+        surface: &mut tiny_skia::PixmapMut<'_>,
+        path: &Path,
+        transform: Transform,
+        stroke: &Stroke,
+        paint: &Paint,
+        blend: pdf_render::BlendMode,
+        to_device: Transform,
+        clip: Option<&tiny_skia::Mask>,
+    ) -> Result<(), CpuRasterError> {
+        let at = transform.then(to_device);
+        let width = stroke.device_width(at);
+        // ISO 32000-2 §8.5.3.2's two rules about a stroke with no length. Neither is
+        // Skia's answer: it paints a projecting square cap where the clause asks for
+        // no output, it refuses a path that is only a `m` rather than drawing
+        // nothing, and it faces a zero-length dash's square cap upright rather than
+        // along the path. Both are decided in `pdf-render` so that the two backends
+        // cannot answer them differently.
+        let split = pdf_render::split_degenerate(path, stroke.cap, width);
+        let geometry = split.as_ref().map_or(path, |s| &s.stroked);
+        let mut dots = split.as_ref().map_or_else(Path::new, |s| s.dots.clone());
+        let (geometry, dashed) = match Self::zero_length_dashes(geometry, stroke, width, &mut dots)
+        {
+            Some(remainder) => (remainder, true),
+            None => (geometry.clone(), false),
+        };
+
+        let mut scratch = None;
+        if !geometry.is_empty() {
+            let converted = convert::path(&geometry).ok_or(CpuRasterError::InvalidPath)?;
+            let mut style = convert::stroke(stroke, at);
+            // The dashes have already been dispensed, so what is left is solid.
+            if dashed {
+                style.dash = None;
+            }
+            surface.stroke_path(
+                &converted,
+                &self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?,
+                &style,
+                convert::transform(at),
+                clip,
+            );
+        }
+        // The marks are *filled*, not stroked: §8.5.3.2 asks for "a filled circle
+        // centred at the single point", and the stroking paint is what fills it.
+        if !dots.is_empty()
+            && let Some(converted) = convert::path(&dots)
+        {
+            let mut scratch = None;
+            surface.fill_path(
+                &converted,
+                &self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?,
+                tiny_skia::FillRule::Winding,
+                convert::transform(at),
+                clip,
+            );
+        }
+        Ok(())
+    }
+
     /// Draws a sequence of commands onto a target-sized pixmap.
     ///
     /// Split out of [`CpuRasterizer::rasterize`] because a transparency group is the same
@@ -460,15 +575,9 @@ impl CpuRasterizer {
                 blend,
                 ..
             } => {
-                let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
-                let mut scratch = None;
-                surface.stroke_path(
-                    &path,
-                    &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
-                    &convert::stroke(stroke, transform.then(to_device)),
-                    convert::transform(transform.then(to_device)),
-                    clip,
-                );
+                self.draw_stroke(
+                    surface, path, *transform, stroke, paint, *blend, to_device, clip,
+                )?;
             }
             Command::Image {
                 image,
@@ -1059,6 +1168,13 @@ impl MaskCache {
 
         for &id in chain {
             let clip = list.clip(id).ok_or(CpuRasterError::UnknownClip(id))?;
+            // §8.5.4 with §8.5.3.3.1: an empty clipping path encloses nothing, so the
+            // chain admits no row. `tiny-skia` would refuse the path instead, which is why
+            // `Clip::admits_nothing` states the rule for both backends rather than either
+            // rasteriser's treatment of an empty path standing in for it.
+            if clip.admits_nothing() {
+                return Ok(None);
+            }
             let path = convert::path(&clip.path).ok_or(CpuRasterError::InvalidPath)?;
             // A bound that overflows to infinity is left out of the measurement rather
             // than reported. The band is an optimisation over which rows may be marked,

@@ -22,6 +22,7 @@
 #![forbid(unsafe_code)]
 
 pub mod backend;
+pub mod degenerate;
 pub mod display_list;
 pub mod geom;
 pub mod paint;
@@ -31,6 +32,10 @@ pub mod soft_mask;
 pub use backend::{
     BackendError, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer, TargetSpec,
     impose_on_medium,
+};
+pub use degenerate::{
+    DegenerateStroke, ZERO_DASH, dash_mark, dashes_showing_direction, split_dash_marks,
+    split_degenerate,
 };
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};

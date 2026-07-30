@@ -39,6 +39,53 @@ pub(crate) fn path(p: &Path) -> Option<tiny_skia::Path> {
     builder.finish()
 }
 
+/// Converts a `tiny-skia` path back to the display list's own.
+///
+/// The one place geometry travels back out of the rasteriser's library. It exists because
+/// ISO 32000-2 §8.5.3.2's rule about a dash with no length is stated in `pdf-render`, so
+/// that both backends apply the same one, and the path it is applied to is whatever
+/// `tiny-skia`'s dasher produced.
+///
+/// `tiny-skia` stores quadratics — its dasher emits them for a curve it has cut — so they
+/// are elevated to the cubic through the same curve, which is exact and is what glyph
+/// loading already does for TrueType outlines.
+pub(crate) fn from_skia_path(p: &tiny_skia::Path) -> Path {
+    let mut out = Path::new();
+    let mut current = Point::new(0.0, 0.0);
+    let point = |p: tiny_skia::Point| Point::new(p.x, p.y);
+    for segment in p.segments() {
+        match segment {
+            tiny_skia::PathSegment::MoveTo(p) => {
+                current = point(p);
+                out.push(PathCommand::MoveTo(current));
+            }
+            tiny_skia::PathSegment::LineTo(p) => {
+                current = point(p);
+                out.push(PathCommand::LineTo(current));
+            }
+            tiny_skia::PathSegment::QuadTo(c, p) => {
+                let (c, end) = (point(c), point(p));
+                // A quadratic's cubic control points are each a third of the way from an
+                // endpoint towards the quadratic's own control point.
+                let lift = |from: Point| {
+                    Point::new(
+                        from.x + 2.0 / 3.0 * (c.x - from.x),
+                        from.y + 2.0 / 3.0 * (c.y - from.y),
+                    )
+                };
+                out.push(PathCommand::CurveTo(lift(current), lift(end), end));
+                current = end;
+            }
+            tiny_skia::PathSegment::CubicTo(c1, c2, p) => {
+                current = point(p);
+                out.push(PathCommand::CurveTo(point(c1), point(c2), current));
+            }
+            tiny_skia::PathSegment::Close => out.push(PathCommand::Close),
+        }
+    }
+    out
+}
+
 /// Converts a fill rule.
 pub(crate) fn fill_rule(rule: FillRule) -> tiny_skia::FillRule {
     match rule {

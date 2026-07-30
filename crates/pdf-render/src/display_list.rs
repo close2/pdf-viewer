@@ -28,6 +28,9 @@ impl ClipId {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Clip {
     /// The clipping path, in the coordinate space given by `transform`.
+    ///
+    /// **An empty path is a region that admits nothing**, not an absent clip — see
+    /// [`Clip::admits_nothing`].
     pub path: Path,
     /// Transform mapping `path` into page space.
     pub transform: Transform,
@@ -35,6 +38,29 @@ pub struct Clip {
     pub fill_rule: FillRule,
     /// The enclosing clip, if any. Effective clip is the intersection of the chain.
     pub parent: Option<ClipId>,
+}
+
+impl Clip {
+    /// Whether this clip admits no pixel at all, ISO 32000-2 §8.5.4 with §8.5.3.3.1.
+    ///
+    /// §8.5.4 defines a clip by the area a fill would cover — "the same area that would be
+    /// filled by the `f` operator" — and §8.5.3.3.1 says a path whose last subpath is a
+    /// single-point open one "shall be disregarded and not considered to be part of the
+    /// path". A path that is *only* such a subpath therefore encloses nothing, and
+    /// intersecting the current clip with nothing leaves nothing: every command inside it
+    /// marks no pixel.
+    ///
+    /// It is stated here rather than in each backend because the two would answer it
+    /// differently and neither answer would be visible: `tiny-skia` refuses an empty path
+    /// outright, which failed the whole page, and `kurbo` clips to an empty region, which
+    /// happens to be right for a reason nobody wrote down. That is trap 2 exactly.
+    ///
+    /// `issue9017_reduced.pdf` is the corpus document that states one — `568.938 673.022 m
+    /// W n`, wrapped around a shading that all three reference renderers leave undrawn.
+    #[must_use]
+    pub fn admits_nothing(&self) -> bool {
+        self.path.is_empty()
+    }
 }
 
 /// One drawing operation, with all graphics state resolved.

@@ -243,8 +243,9 @@ This is what keeps the suite trustworthy enough to stay enabled.
 
 **Now running over the whole corpus, with the bound taken from the references themselves.**
 `crates/pdf-model/tests/oracle.rs` applies the rule to every page of the 974 pdf.js corpus
-documents and page one of the 14 specification PDFs — 1794 pages — in 79 seconds, of which
-some 1020 seconds of processor time is the three external renderers and about 48 is ours. Consensus is
+documents and page one of the 14 specification PDFs — 1794 pages — in about 34 seconds once
+the references' renders are remembered (ADR 0020): roughly 97 seconds of processor time is
+ours and 42 the three external renderers, where before the cache the latter was some 1020. Consensus is
 still decided by the fixed tolerance, but *our* deviation is judged
 against twice the disagreement the consensus references show among themselves on that page:
 a fixed number cannot serve both a page of flat fills, where they agree to a worst tile of
@@ -510,7 +511,9 @@ decided against. Where it stands on its first green run:
 Six sessions later, at the end of the fifteenth: 479 citations, 25 quotations, 33 distinct
 tables, 171 rows reviewed, **652** `unreviewed`, and 23 clauses still owing a review. At the end
 of the twenty-first: 891 citations, 68 quotations, 51 distinct tables, 262 rows reviewed,
-**561** `unreviewed`, and 16 clauses still owing a review.
+**561** `unreviewed`, and 16 clauses still owing a review. At the end of the twenty-fourth: 1210
+citations, 111 quotations, 72 distinct tables, 348 rows reviewed, **475** `unreviewed`, and the
+same 16 owing a review.
 
 The measurements that justified it were 146 citations over 36 distinct clause numbers, two of
 which named clauses that do not exist, and three of five sampled quotations that were
