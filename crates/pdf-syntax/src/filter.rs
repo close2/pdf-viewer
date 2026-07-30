@@ -3,8 +3,10 @@
 //! # Only what can be done safely
 //!
 //! `FlateDecode` covers the overwhelming majority of real streams and is implemented here
-//! via `flate2` with the pure-Rust `zlib-rs` backend. `ASCIIHexDecode`, `ASCII85Decode` and
-//! `RunLengthDecode` are simple enough to implement directly.
+//! via `flate2` with the pure-Rust `zlib-rs` backend. `ASCIIHexDecode`, `ASCII85Decode`,
+//! `RunLengthDecode` and `LZWDecode` are simple enough to implement directly — the last of
+//! them is §7.4.4.2, which states the whole algorithm and even supplies a worked example
+//! this module's tests decode.
 //!
 //! Everything else — `DCTDecode`, `JPXDecode`, `JBIG2Decode`, `CCITTFaxDecode` — returns
 //! `None`. Those are image codecs, they belong to the image pipeline rather than to stream
@@ -37,7 +39,7 @@ pub fn decode_with_parms(
     parms: Option<&Dictionary>,
     limits: Limits,
 ) -> Option<Arc<[u8]>> {
-    let decoded = decode(filter, data, limits)?;
+    let decoded = decode(filter, data, parms, limits)?;
 
     let Some(parms) = parms else {
         return Some(decoded);
@@ -206,11 +208,31 @@ pub fn is_image_codec(filter: &[u8]) -> bool {
 
 /// Decodes one filter stage.
 ///
+/// `parms` is the stage's own `/DecodeParms`, needed by exactly one filter: `LZWDecode`'s
+/// `/EarlyChange` changes where the code width grows and therefore what every byte after
+/// that point decodes to.
+///
 /// Returns `None` for an unsupported filter or corrupt data.
 #[must_use]
-pub fn decode(filter: &[u8], data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
+pub fn decode(
+    filter: &[u8],
+    data: &[u8],
+    parms: Option<&Dictionary>,
+    limits: Limits,
+) -> Option<Arc<[u8]>> {
     match filter {
         b"FlateDecode" | b"Fl" => flate(data, limits),
+        b"LZWDecode" | b"LZW" => {
+            // Table 8: "If the value of this entry is 0, code length increases shall be
+            // postponed as long as possible. If the value is 1, code length increases shall
+            // occur one code early." Default 1, which is the *incorrect* behaviour of a
+            // widely-copied encoder and is therefore what almost every file needs.
+            let early = parms
+                .and_then(|parms| parms.get("EarlyChange"))
+                .and_then(Object::as_integer)
+                .unwrap_or(1);
+            lzw(data, early != 0, limits)
+        }
         b"ASCIIHexDecode" | b"AHx" => Some(ascii_hex(data)),
         b"ASCII85Decode" | b"A85" => ascii85(data, limits),
         b"RunLengthDecode" | b"RL" => run_length(data, limits),
@@ -219,6 +241,144 @@ pub fn decode(filter: &[u8], data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
         b"Crypt" => Some(Arc::from(data)),
         _ => None,
     }
+}
+
+/// Decodes `LZWDecode`: ISO 32000-2 §7.4.4.2, whose four paragraphs are the whole algorithm.
+///
+/// > Data encoded using the LZW compression method shall consist of a sequence of codes that
+/// > are 9 to 12 bits long. Each code shall represent a single character of input data
+/// > (0 -255), a clear-table marker (256), an EOD marker (257), or a table entry representing
+/// > a multiple-character sequence that has been encountered previously in the input (258 or
+/// > greater).
+///
+/// The table is held as a prefix code and one byte per entry rather than as a growing
+/// sequence per entry, which is the standard construction and the reason the clause can say
+/// "the encoder and the decoder shall maintain identical copies of this table" without
+/// either of them copying anything: entry *n* is entry `prefix[n]` followed by `suffix[n]`,
+/// so appending one is two stores.
+///
+/// Three details decide whether a decoder is right, and each is a sentence of the clause:
+///
+/// - **The code width grows before the entry that needs it.** "The first output code that is
+///   10 bits long shall be the one following the creation of table entry 511", and Table 8's
+///   `/EarlyChange` moves that one code earlier, which is the default because a widely-copied
+///   encoder did it. Getting this wrong desynchronises the bit stream from that point on and
+///   produces plausible bytes for ever after.
+/// - **A code may name the entry about to be created.** The encoder emits the code for a
+///   sequence it has just added, so a decoder that has not added it yet must reconstruct it:
+///   it is the previous sequence followed by that sequence's own first byte. This is the case
+///   an input of one repeated character reaches immediately.
+/// - **Bits are packed high-order first**, across byte boundaries, "thus, codes may straddle
+///   byte boundaries arbitrarily".
+///
+/// A truncated or corrupt stream keeps what it decoded, for [`flate`]'s reason: a partial
+/// content stream still renders most of a page.
+fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Option<Arc<[u8]>> {
+    /// Restart with the initial table and a nine-bit code.
+    const CLEAR: u16 = 256;
+    /// End of data.
+    const EOD: u16 = 257;
+    /// The first code the table assigns; 0 to 255 are themselves and 256, 257 are markers.
+    const FIRST: u16 = 258;
+    /// "Codes shall never be longer than 12 bits; therefore, entry 4095 is the last entry."
+    const ENTRIES: usize = 4096;
+
+    let mut prefix = [0u16; ENTRIES];
+    let mut suffix = [0u8; ENTRIES];
+
+    let mut next = FIRST;
+    let mut width = 9u32;
+    let mut previous: Option<u16> = None;
+    let mut out: Vec<u8> = Vec::new();
+    // One entry's sequence, built backwards by walking the prefix chain. Bounded by the
+    // table's size, since a chain longer than that would be a cycle.
+    let mut scratch: Vec<u8> = Vec::with_capacity(ENTRIES);
+
+    let mut held: u32 = 0;
+    let mut bits: u32 = 0;
+    for &byte in data {
+        held = (held << 8) | u32::from(byte);
+        bits += 8;
+        while bits >= width {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "masked to `width` bits, and the clause caps a code at twelve"
+            )]
+            let code = ((held >> (bits - width)) & ((1u32 << width) - 1)) as u16;
+            bits -= width;
+
+            if code == EOD {
+                return Some(Arc::from(out.as_slice()));
+            }
+            if code == CLEAR {
+                next = FIRST;
+                width = 9;
+                previous = None;
+                continue;
+            }
+
+            // The sequence this code names, or — where it names the entry about to be
+            // created — the one the encoder just added.
+            scratch.clear();
+            let mut walk = if code < next {
+                code
+            } else if code == next && previous.is_some() {
+                // Reconstructed below from `previous`; start the walk there and append its
+                // own first byte afterwards.
+                previous.unwrap_or(0)
+            } else {
+                // A code past the end of the table is corrupt data, not a sequence.
+                return (!out.is_empty()).then(|| Arc::from(out.as_slice()));
+            };
+            let extends = code == next;
+            for _ in 0..ENTRIES {
+                let index = usize::from(walk);
+                if walk < 256 {
+                    scratch.push(u8::try_from(walk).unwrap_or(0));
+                    break;
+                }
+                scratch.push(suffix.get(index).copied().unwrap_or(0));
+                walk = prefix.get(index).copied().unwrap_or(0);
+            }
+            scratch.reverse();
+            if extends {
+                let first = scratch.first().copied().unwrap_or(0);
+                scratch.push(first);
+            }
+
+            if out.len().saturating_add(scratch.len()) > limits.max_stream_len {
+                // A bomb rather than a stream: LZW reaches about 1365:1 on long runs of one
+                // byte, so a small file can name a very large output.
+                return (!out.is_empty()).then(|| Arc::from(out.as_slice()));
+            }
+            out.extend_from_slice(&scratch);
+
+            // Step (d): "create a new table entry for the first unused code. Its value is
+            // the sequence found in step (a) followed by the next input character" — which
+            // the decoder sees as the previous code followed by this sequence's first byte.
+            if let Some(previous) = previous
+                && usize::from(next) < ENTRIES
+            {
+                let index = usize::from(next);
+                if let Some(slot) = prefix.get_mut(index) {
+                    *slot = previous;
+                }
+                if let Some(slot) = suffix.get_mut(index) {
+                    *slot = scratch.first().copied().unwrap_or(0);
+                }
+                next += 1;
+                let grown = u32::from(next) + u32::from(early_change);
+                if width < 12 && grown >= (1u32 << width) {
+                    width += 1;
+                }
+            }
+            previous = Some(code);
+        }
+    }
+
+    // No EOD marker: the encoder is required to emit one, and a file that does not is
+    // truncated rather than empty.
+    (!out.is_empty()).then(|| Arc::from(out.as_slice()))
 }
 
 /// Inflates a zlib or raw deflate stream.
@@ -385,18 +545,112 @@ fn run_length(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Limits, decode};
+    use super::{Dictionary, Limits, Object, decode};
+    use crate::object::Name;
 
     #[test]
     fn ascii_hex_decodes_and_stops_at_the_terminator() {
-        let out = decode(b"ASCIIHexDecode", b"48656C6C6F>ignored", Limits::DEFAULT).expect("valid");
+        let out = decode(
+            b"ASCIIHexDecode",
+            b"48656C6C6F>ignored",
+            None,
+            Limits::DEFAULT,
+        )
+        .expect("valid");
         assert_eq!(&*out, b"Hello");
     }
 
     #[test]
     fn ascii_hex_pads_an_odd_final_digit() {
-        let out = decode(b"ASCIIHexDecode", b"4A5>", Limits::DEFAULT).expect("valid");
+        let out = decode(b"ASCIIHexDecode", b"4A5>", None, Limits::DEFAULT).expect("valid");
         assert_eq!(&*out, &[0x4a, 0x50]);
+    }
+
+    /// §7.4.4.2's own worked example, decoded.
+    ///
+    /// The clause gives an input, the codes it encodes to, and the bytes those codes pack
+    /// into — which makes this the rarest kind of test in the tree: an expected value the
+    /// standard states outright rather than one derived from a rule. EXAMPLE 1's input is
+    ///
+    /// > 45 45 45 45 45 65 45 45 45 66
+    ///
+    /// and EXAMPLE 2 is what it packs to. Note what the sequence exercises: the third code
+    /// the encoder emits is 258, whose table entry the *decoder* has not created yet at the
+    /// point it reads it, so a decoder without the "code names the entry about to be
+    /// created" case fails on the standard's own example.
+    #[test]
+    fn lzw_decodes_the_clauses_own_example() {
+        let out = decode(
+            b"LZWDecode",
+            &[0x80, 0x0B, 0x60, 0x50, 0x22, 0x0C, 0x0C, 0x85, 0x01],
+            None,
+            Limits::DEFAULT,
+        )
+        .expect("the standard's example decodes");
+        assert_eq!(&*out, &[45, 45, 45, 45, 45, 65, 45, 45, 45, 66]);
+    }
+
+    /// The code width grows where the clause says, and `/EarlyChange` moves it.
+    ///
+    /// §7.4.4.2: "the first output code that is 10 bits long shall be the one following the
+    /// creation of table entry 511". Table 8's `/EarlyChange` makes that one code earlier and
+    /// **defaults to doing so**, so the two settings disagree about one code's width and
+    /// therefore about every bit after it.
+    ///
+    /// The fixture is built rather than quoted, and it is a stream of literal codes packed
+    /// at nine bits throughout. The 254th of them creates table entry 510 and leaves the next
+    /// free code at 511, which is where the two settings part: the default reads the 255th
+    /// code as ten bits and `/EarlyChange 0` reads it as nine. From there the two readings of
+    /// the *same bytes* diverge completely, which is the point — this parameter is not a
+    /// rounding difference, it is a different bit stream.
+    #[test]
+    fn early_change_moves_the_width_increase_by_one_code() {
+        let literals: Vec<u16> = (0..300u16).map(|index| index % 256).collect();
+        let packed = pack_codes(&literals, 9);
+
+        let early = decode(b"LZWDecode", &packed, None, Limits::DEFAULT).expect("decodes");
+        let mut parms = Dictionary::new();
+        parms.insert(Name::new(b"EarlyChange".as_slice()), Object::Integer(0));
+        let late = decode(b"LZWDecode", &packed, Some(&parms), Limits::DEFAULT).expect("decodes");
+
+        assert_eq!(
+            &early[..254],
+            &late[..254],
+            "the codes before the boundary are the same either way"
+        );
+        assert_ne!(
+            &*early, &*late,
+            "the two settings must disagree about where the tenth bit starts"
+        );
+    }
+
+    /// Packs codes high-order bit first, which is how §7.4.4.2 says they are written.
+    fn pack_codes(codes: &[u16], width: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut held: u32 = 0;
+        let mut bits: u32 = 0;
+        for code in codes {
+            held = (held << width) | (u32::from(*code) & ((1u32 << width) - 1));
+            bits += width;
+            while bits >= 8 {
+                out.push(((held >> (bits - 8)) & 0xFF) as u8);
+                bits -= 8;
+            }
+        }
+        if bits > 0 {
+            out.push(((held << (8 - bits)) & 0xFF) as u8);
+        }
+        out
+    }
+
+    /// A code past the end of the table keeps what was decoded rather than inventing bytes.
+    #[test]
+    fn a_code_the_table_does_not_have_stops_rather_than_guessing() {
+        // Two literals, then code 400, which is inside nine bits and past the table's end
+        // — after two literals the first unused code is 259.
+        let packed = pack_codes(&[65, 66, 400], 9);
+        let out = decode(b"LZWDecode", &packed, None, Limits::DEFAULT).expect("partial output");
+        assert_eq!(&*out, b"AB");
     }
 
     #[test]
@@ -405,6 +659,7 @@ mod tests {
         let out = decode(
             b"RunLengthDecode",
             &[2, b'a', b'b', b'c', 254, b'x', 128],
+            None,
             Limits::DEFAULT,
         )
         .expect("valid");
@@ -414,7 +669,7 @@ mod tests {
     #[test]
     fn ascii85_round_trips_a_known_value() {
         // "Man " encodes as "9jqo" in base 85 terms; use the canonical empty and 'z' cases.
-        let out = decode(b"ASCII85Decode", b"z~>", Limits::DEFAULT).expect("valid");
+        let out = decode(b"ASCII85Decode", b"z~>", None, Limits::DEFAULT).expect("valid");
         assert_eq!(&*out, &[0, 0, 0, 0], "'z' stands for four zero bytes");
     }
 
@@ -425,7 +680,7 @@ mod tests {
         encoder.write_all(b"round trip").expect("in-memory write");
         let compressed = encoder.finish().expect("finish");
 
-        let out = decode(b"FlateDecode", &compressed, Limits::DEFAULT).expect("valid");
+        let out = decode(b"FlateDecode", &compressed, None, Limits::DEFAULT).expect("valid");
         assert_eq!(&*out, b"round trip");
     }
 
@@ -440,7 +695,7 @@ mod tests {
             .expect("in-memory write");
         let compressed = encoder.finish().expect("finish");
 
-        let out = decode(b"FlateDecode", &compressed, Limits::DEFAULT).expect("valid");
+        let out = decode(b"FlateDecode", &compressed, None, Limits::DEFAULT).expect("valid");
         assert_eq!(&*out, b"no zlib header");
     }
 
@@ -454,7 +709,7 @@ mod tests {
             b"CCITTFaxDecode",
         ] {
             assert!(
-                decode(filter, b"whatever", Limits::DEFAULT).is_none(),
+                decode(filter, b"whatever", None, Limits::DEFAULT).is_none(),
                 "{} must not be treated as decoded",
                 String::from_utf8_lossy(filter)
             );

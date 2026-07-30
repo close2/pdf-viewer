@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **twenty-sixth** working session. Read
+Written 2026-07-26, updated 2026-07-30 at the end of the **twenty-seventh** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,46 +12,50 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the twenty-sixth session changed
+## What the twenty-seventh session changed
 
-**An image's colour space is now the one a fill gets.** ADR 0034 left two §8.6.5 requirements
-measured and open, both in one function. An `ICCBased` image was unpacked as a device space by
-its `/N` while a *fill* in the same space went through the profile — trap 6's defect with an
-image on one side of it, on 31 corpus documents carrying 1037 such images, 15 of them differing
-by 18 levels out of 255 for a mid grey. And an image's `/ColorSpace` was parsed against an
-*empty* resource dictionary, so §8.6.5.6's `/DefaultRGB` remapping — which the clause requires
-of "a colour space given as an entry in an image XObject, inline image, or shading dictionary" —
-never happened for one. ADR 0035.
+**`LZWDecode` is written, and all ten of Table 6's filters now decode.** It had been the one
+standard filter of any kind this reader did not implement, sized *Small / 0 corpus documents*
+for the project's whole life — no corpus page one reaches an LZW stream, so neither gate could
+rank it and neither could see it land. That is the condition the two-track rule exists for.
+ADR 0036.
 
-**The correctness fix was a performance problem first, and the gate said so in one run.**
-Shipping the conversion alone took **the corpus gate from 1.7 s to 11.4 s**. Callgrind put 36%
-of one photograph's page in `libm`: an ICC profile's tone curves are powers, the sRGB encode is
-a power, and there are six per pixel. Two exact changes fixed it — a per-image memo keyed on the
-raw sample tuple, and `channel` no longer calling `roundf` — and the gate is 1.8 s.
+**§7.4.4.2 supplies its own test vector, and it is a sharp one.** EXAMPLE 1's input and
+EXAMPLE 2's nine packed bytes make `lzw_decodes_the_clauses_own_example` the rarest kind of
+test here: an expected value the standard states outright. It is also the case that breaks a
+naive decoder — the example's *third* code names a table entry the decoder has not created yet.
 
-**The memo is exact and the table is sized from the image.** The key is the sample bytes
-themselves, so a hit returns what the conversion would have returned; a collision costs one
-conversion, which is what the code did before. Fixed sizes were measured and both ends cost: a
-2^18-entry table is 2.9 MB to allocate and zero, which a 16×16 icon should not pay, and 2^12
-collides constantly on a photograph. A quarter of the pixel count, clamped, takes both.
+**And the corpus stated an invariant about itself, which beat any reference decoder.** Three
+real LZW streams in two documents, checked against those same documents' dictionaries: a
+57×78 eight-bit image must decode to exactly 4446 bytes, an `[/Indexed /DeviceRGB 255 …]`
+lookup to exactly 768, and a `/ToUnicode` stream must begin `/CIDInit /ProcSet findresource
+begin`. A decoder one code out of step produces a *different length*, so matching to the byte
+across 4446 of them says more than agreement with another decoder would.
 
-**`channel` was calling a library function to round.** `.round()` on a clamped 0.0..=1.0 float
-is `roundf`: 205 M instructions on one page, 10.7% of it, 60 instructions per pixel to round
-three numbers. `+ 0.5` and a truncating cast is the same answer on that domain and is
-arithmetic. The JPEG unpacker's lesson, in its smallest form.
+**A test written to fail one day did, and the reason is a finding.**
+`a_content_stream_that_will_not_decode_is_reported` named `/LZWDecode` deliberately, with a
+note saying that implementing the filter should break it and that would be the moment to
+revisit. **There is now no standard filter left that this reader does not implement**, so no
+name can stand in for "a filter we do not have"; the test moved to `/JPXDecode`, which is real,
+implemented, and not a content-stream codec.
 
-**§8.6.4 read as the family beside it** is four rows. Three say what the code already does; the
-fourth is `partial` for the reason `CLAUDE.md` names as its standing example — §8.6.4.4 defines
-no `DeviceCMYK` conversion at all, so the row records a silence in the *standard*.
+**Reading §7.4 as a family found a clause whose one witness contradicts it.** Table 13's
+`/ColorTransform` is unread. Four corpus documents write it, all writing `0`; two are
+single-component, where the clause says to ignore it; one has a JFIF marker; and **one —
+`issue12841_reduced.pdf` — is three-component with no Adobe marker, which is exactly the case
+where the clause says the dictionary decides**. Obeying it means not transforming YCbCr to RGB,
+and all four references transform, and the photograph is plainly right transformed. So the
+entry stays unread and the ledger row records the measurement rather than the reflex. Two
+smaller findings beside it: §7.4.2's "any other characters shall cause an error" is departed
+from deliberately, and neither §7.4.7 nor §7.4.9's ban on inline images is enforced.
 
 | | was | is |
 |---|---|---|
-| **an `ICCBased` image** | unpacked as a device space by its `/N` | converted through the profile, as a fill is |
-| **the same, `DCTDecode`** | the same, and the route read no colour space at all | converted after decoding, on its channels |
-| **an image's `/DeviceCMYK` under `/DefaultCMYK`** | the device space | the default, as §8.6.5.6 requires |
-| **`channel`** | `roundf`, 60 instructions a pixel | `+ 0.5` and a cast, the same answer |
-| **the corpus gate** | 1.7 s | 1.8 s, with the conversion in it |
-| **§8.6.4's 3 `unreviewed` rows** | nobody had read them | 3 implemented, 1 partial |
+| **`/Filter /LZWDecode`** | reported as unimplemented | decoded, §7.4.4.2 in full |
+| **`/EarlyChange`** | — | read, and it moves the width increase by one code |
+| **`[/ASCII85Decode /LZWDecode]`** | reported | decoded in the order §7.4.1 states |
+| **the report for an undecodable content stream** | pointed at a standard filter | points at an image codec, because no standard filter is left |
+| **§7.4's 13 `unreviewed` rows** | nobody had read them | 9 implemented, 4 partial |
 
 **The numbers:**
 
@@ -61,34 +65,31 @@ no `DeviceCMYK` conversion at all, so the row records a silence in the *standard
 | corpus documents reporting something | 130 | **130** |
 | pages agreeing with the reference consensus | 814 | **814** |
 | pages contradicted by it | 116 | **116** |
-| pages we call complete, in the oracle | 1620 | **1620** |
-| of those, contradicted | 102 | **102** |
-| ledger subclauses nobody has read | 466 | **462** |
-| cited clauses still owing a review | 11 | **9** |
-| `§` citations the checker verified | 1221 | **1230** |
-| rustdoc quotations checked verbatim | 116 | **117** |
-| corpus gate | 1.7 s | **1.8 s** |
-| tests | 545 | **547** |
+| ledger subclauses nobody has read | 462 | **448** |
+| cited clauses still owing a review | 9 | **7** |
+| `§` citations the checker verified | 1230 | **1235** |
+| rustdoc quotations checked verbatim | 117 | **119** |
+| standard filters that decode | 9 of 10 | **10 of 10** |
+| tests | 547 | **553** |
 
-**Two sessions running with every gate count unchanged, and it is the same reason both times:**
-the thing that was wrong was invisible to a gate that ranks pages by how far they are from a
-reference consensus that already disagrees with itself. 18 levels of mid grey on a page whose
-references differ by more than that is not a verdict anything can move.
+**Three sessions running with every gate count unchanged**, and by now that is a statement
+about the gates rather than about the work: the corpus ranks what documents contain, and the
+last three sessions have closed things that either no document exercises or no bound can
+separate. The ledger is the instrument that moved — 475 unreviewed three sessions ago, 448 now.
 
 What it taught:
 
-- **A correctness fix has a cost, and the gate is where you find out.** The 6.7× regression was
-  one `cargo test` away and nothing else in the tree would have shown it. A perf gate earns its
-  place on the runs where it says *no*.
-- **The exact fix is often available and is usually better than the approximate one.** The
-  obvious answer to a per-pixel colour conversion is a lookup grid with interpolation, which is
-  what every colour engine does and would have been a documented approximation. A memo keyed on
-  the input is exact, simpler, and — measured — enough.
-- **A table's size is a measurement, not a constant.** Three fixed sizes each won on one
-  population and lost on the other; the number that wins on both is a function of the image.
-- **Look at what the safe idiom compiles to in a per-pixel loop.** `.round()` reads as free and
-  is a library call. This is the third time this project has found real money in a loop that
-  runs once per pixel, and each time the profile said so and the reading did not.
+- **A closed list can be finished, and finishing it removes an instrument.** The report for an
+  undecodable content stream had a standard filter to point at for the project's whole life,
+  and no longer does. The test noticed, because it had been written to.
+- **Read the clause before assuming an algorithm needs a reference.** §7.4.4.2 states LZW
+  completely and supplies a worked example; §7.4.6 hands its coding to ITU-T and says so. Two
+  filters in the same family, two different kinds of clause, and only one of them needs
+  anything outside the standard.
+- **When a clause has exactly one witness and the witness contradicts it, say so and stop.**
+  `/ColorTransform` is not "ignored because everyone ignores it" — it is unread because the one
+  corpus file where the sentence applies is a file whose producer wrote something it did not
+  mean. That is a measurement with a date on it, not a policy.
 
 ## How the project got here
 
@@ -119,11 +120,12 @@ below rather than here.
 | 24 | §8.5.3.2's degenerate strokes and zero-length dashes; the whole of §8.4 and §8.5 reviewed; an empty clipping path admits nothing | ADR 0033 |
 | 25 | §8.9.5.2's `/Decode` array in full, Table 88 included; the whole of §8.6.5 reviewed; a fast path inherits no clauses | ADR 0034 |
 | 26 | An image's colour space is a fill's; §8.6.4 reviewed; an exact memo where a lookup grid was the obvious answer | ADR 0035 |
+| 27 | `LZWDecode`, the last standard filter; the whole of §7.4 reviewed; a corpus stating an invariant about itself | ADR 0036 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
-→ 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 across sessions 6 to 26, and the
+→ 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 across sessions 6 to 27, and the
 corpus's incomplete count 291 → 368 → 250 → 290 → 283 → 263 → 251 → 235 → 232 → 231 → 231 → 237
-→ 220 → 220 → 189 → 147 → 137 → 129 → 130 → 130 → 130.
+→ 220 → 220 → 189 → 147 → 137 → 129 → 130 → 130 → 130 → 130.
 Both move in both directions on purpose: a rise in the first can mean pages *joined* the
 comparison, and a rise in the second is honesty when a silence ends. The sections below say
 which.
@@ -138,7 +140,7 @@ revision and method §7.6 states, and **a form field's value laid out from its `
 is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
 person for a password — and the gap is measured below rather than guessed at.
 
-- **547 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **553 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -187,9 +189,10 @@ person for a password — and the gap is measured below rather than guessed at.
   and Unicode provably agree. ADR 0031.
 - **A glyph may be a content stream** — Type 3 fonts (§9.6.4), read in `pdf-model` because drawing
   one means running the interpreter. ADR 0018.
-- **Every image codec a PDF may name decodes**, `CCITTFaxDecode` last (§7.4.6, ADR 0021).
-  `LZWDecode` is the only standard filter of any kind still missing, and no corpus first page
-  reaches it. An image may be written into the content stream (§8.9.7, ADR 0019).
+- **Every standard filter a PDF may name decodes** — all ten of Table 6's, `LZWDecode` last
+  (§7.4.4.2, ADR 0036) and `CCITTFaxDecode` before it (§7.4.6, ADR 0021). No corpus page one
+  reaches an LZW stream, which is why it took the specification track to get there. An image
+  may be written into the content stream (§8.9.7, ADR 0019).
 - **An image is masked every way §8.9.6 and §11.6.5.2 define**: its own stencil, an explicit
   `/Mask`, a colour-key `/Mask` (ADR 0023), and an `/SMask` of any size (ADR 0024), combined on
   the finer of the two grids — a documented choice, since the clause puts both on the unit square.
@@ -235,7 +238,7 @@ person for a password — and the gap is measured below rather than guessed at.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1230 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1235 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -261,7 +264,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1230 citations, 117 quotations, 72 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1235 citations, 119 quotations, 72 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -661,7 +664,6 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 | Predefined `CMap`s (§9.7.5.2) | 12 | Medium | 15 fonts name one of Table 116's registered `CMap` files (`90ms-RKSJ-H`, `UniJIS-UTF16-H`, …), which are not in the tree. Vendoring them is a licensing decision; guessing draws plausible text that says something else. The machinery they would plug into exists. |
 | Text: a substitute that cannot be addressed | 42 | Medium | Counting *fonts*: 27 composite fonts with no `/ToUnicode`, so a CID cannot be taken to a character a substitute could draw, and 23 whose substitute draws none of the declared codes. Honest refusals rather than clause gaps; closing them means better substitution. |
 | Optional content: the interactive half | — | Medium | §8.11 is honoured wherever it decides what is *drawn* (ADR 0017). Missing: a layer panel and what feeds it — `/Usage` and the `/AS` usage application dictionaries (§8.11.4.4), which switch groups by zoom, language or print state, plus `/Order`, `/ListMode`, `/RBGroups`, `/Locked` and alternate `/Configs`. §8.11.4.4 is **the ledger's only `silent` row**: a layer that should switch itself off is drawn with nothing said. |
-| `LZWDecode` | 0 | Small | The last standard filter absent of any kind. Nothing in the corpus exercises it on a first page (three documents contain the string and all three draw completely); `colour_paths.rs` pins the report on a synthetic file and will fail when the filter lands. |
 | Text knockout (`Tk`, §9.3.8) | 1 | Medium | Table 102's ninth text state parameter, and the only one absent. Its initial value is `true`, which makes a text object a non-isolated knockout group; we composite each glyph separately, which is indistinguishable while glyphs are opaque under Normal. Reported where both of the clause's conditions hold. Implementing it is §11.4.6's knockout groups seen from clause 9. |
 | Compositing an object in parts (§11.6.2) | 3 | Medium | "Portions of an object shall not be composited with one another", and `B` paints one object as a `Fill` and a `Stroke`, so the band they share composites twice. Reported where the paint composites and both parts mark the page. The fix is the same as `Tk`'s. |
 | Transparency group and mask departures (§11.4, §11.5.3) | 24 | Medium | Three answers a `/Group` may give that are drawn as the isolated, non-knockout group instead, each reported where it can change a pixel (ADR 0026): **knockout** (§11.4.6, 6 documents; for an isolated knockout group the implementation is a Porter-Duff Source composite modulated by coverage and nothing more), **non-isolated with a blend mode inside it** (§11.4.4, 9 documents; without one the two computations are provably identical), and **a blending colour space that is not the device's three components** (§11.6.6, 4 documents, all `/DeviceCMYK`, which means a second raster format). Plus **a soft mask's group with such a space** (§11.5.3, 7 documents). |
@@ -692,10 +694,10 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **462
-of 823 subclauses are `unreviewed`**, and 361 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **448
+of 823 subclauses are `unreviewed`**, and 375 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
-project has measured 33% of its clause coverage. That number is meant to look bad; the alternative
+project has measured 34% of its clause coverage. That number is meant to look bad; the alternative
 was not knowing.
 
 **The ledger has been wrong twice**, which is worth knowing before trusting a row: §8.9.5.3's note
@@ -793,7 +795,7 @@ where the two disagree the ledger is the one that had to name a code site.
 
 | Clause | Subclauses | State |
 |---|---|---|
-| 7 Syntax | 138 | **Nearly complete**, 48 rows reviewed — the whole of §7.6 as a family. Objects, **every standard filter but `LZWDecode`**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
+| 7 Syntax | 138 | **Nearly complete**, 62 rows reviewed — the whole of §7.4 and §7.6 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
 | 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 87 rows reviewed, with §8.4, §8.5, §8.6.4, §8.6.5, §8.9, §8.10, §8.6.6 and §8.6.7 done as families. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). 2, 4 and 16 bits per component are refused. |
 | 9 Text | 65 | **Partial**, 38 rows reviewed — §9.3, §9.4 and the whole of §9.7 as families. Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. Missing: bare Type1, Table 116's predefined `CMap`s, vertical writing, and text knockout (§9.3.8, reported). |
 | 10 Rendering | 36 | **Partial**, 6 rows reviewed — the whole of §10.7. Colour management and rendering intents are done. Halftones and transfer functions describe a marking device. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
@@ -810,7 +812,7 @@ parts that make a document *interactive* are not started.
 | | |
 |---|---|
 | Content-stream operators | **73 of 73** in Table 50 (`ID`/`EI` are consumed inside the `BI` handler). `MP`/`DP`/`BX`/`EX`/`i` are matched and deliberately ignored. |
-| Filters | **9 of 10** standard filters decode: `ASCIIHex`, `ASCII85`, `Flate`, `RunLength`, `Crypt` (pass-through, because §7.6.6's crypt filter is applied when the object is loaded), `DCTDecode`, `JBIG2Decode`, `JPXDecode`, `CCITTFaxDecode`. `LZWDecode` is absent. Table 92's abbreviations are expanded in `inline_image.rs`. |
+| Filters | **10 of 10** standard filters decode: `ASCIIHex`, `ASCII85`, `Flate`, `LZW`, `RunLength`, `Crypt` (pass-through, because §7.6.6's crypt filter is applied when the object is loaded), `DCTDecode`, `JBIG2Decode`, `JPXDecode`, `CCITTFaxDecode`. `LZWDecode` was the last one absent and landed in the twenty-seventh session, written from §7.4.4.2 including Table 8's `/EarlyChange`. Table 92's abbreviations are expanded in `inline_image.rs`. Not read: Table 13's `/ColorTransform`, whose one corpus witness contradicts the clause (§7.4.8's ledger row). |
 | Encryption (§7.6) | **Revisions 2, 3, 4 and 6**, `/V` 1, 2, 4 and 5, methods `V2`, `AESV2`, `AESV3` and `Identity`. Every numbered algorithm a *reader* runs — 1, 1.A, 2, 2.A, 2.B, 4, 5, 6, 7, 11, 12, 13, and 3's first four steps. All four of §7.6.2's exceptions, plus Table 20's two. Refused by name: `/R` 5, public-key handlers, `/CFM /None`, a non-ASCII revision-4 password. |
 | Colour spaces | **11 of 11** families, the three CIE-based ones converted rather than approximated, plus §8.6.5.1's withdrawn `CalCMYK`, which the clause redirects to `DeviceCMYK`. An *image* in an `ICCBased` space is still unpacked as a device space where a fill in it is not (§8.6.5.5). |
 | Function types | **4 of 4**. Shading types **7 of 7**, on both backends. Pattern types **2 of 2**. Blend modes **16 of 16**. |
@@ -837,7 +839,7 @@ parts that make a document *interactive* are not started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name — 102 contradicted pages, 60 of them unexplained, and a
 feature list sized by how many documents want each item. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **462 of 823 subclauses are `unreviewed`**. A project running only the
+§6.3.2.2's ranking name: **448 of 823 subclauses are `unreviewed`**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -878,14 +880,14 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **The twenty-fifth session put a rendering item back on it**: an image in an
 `ICCBased` space is not converted through its profile though a fill in the same space is, on 31
 documents and visibly on 15 — **closed in the twenty-sixth** (ADR 0035). The one-line version
-of the spec track: **9 clauses the code already cites have never been read against it**, named in `REVIEW_OWED`. For three sessions no
+of the spec track: **7 clauses the code already cites have never been read against it**, named in `REVIEW_OWED`. For three sessions no
 rendering feature any corpus document *announces* was left on either list — the corpus going
 quiet, and exactly the condition `CLAUDE.md`'s two-track rule exists for — and what ended that
 run came from the spec track rather than from any file saying so, which is the rule working.
 
 ### 0. The ledger, and the cheapest reviews available
 
-- **Work `REVIEW_OWED` down.** 9 clauses, each already cited by the code that implements it, so
+- **Work `REVIEW_OWED` down.** 7 clauses, each already cited by the code that implements it, so
   the reading is against something that exists. Take them by family — §8.6.4's two rows and
   §8.7's two are the pairs left — because that is how the standard distributes its requirements, and because §9.6.5.4 was missed
   for the opposite reason: nobody had read §9.6.5 as a unit. **Expect findings.**
@@ -1313,6 +1315,15 @@ replace the colour.** `ca` is not part of a colour; §11.6.4.4 makes it a proper
 state applied to painting. A shading replaces the current colour, so the one line that returns it
 dropped the alpha along with the colour it did not use — and the page that shows it says
 `Gradient: .5` on its own face.
+
+**A corpus document can check a decoder against itself, and it beats a second decoder.** An
+LZW-compressed image must decode to exactly `width × height` bytes; a colour table to
+`(hival + 1) × components`; a `/ToUnicode` stream must begin with a `CMap` preamble. All three
+are stated in the *same document*, by the same producer, in dictionaries compressed separately
+from the stream they describe. A decoder one code out of step produces a different length, so
+matching to the byte across four thousand of them settles the question with nobody else's code
+involved. Look for this shape before reaching for a reference: **what does this file already
+say about itself?**
 
 **The exact fix is often available, and it is usually better than the approximate one.** The
 obvious answer to a per-pixel ICC conversion is a lookup grid with interpolation — what every

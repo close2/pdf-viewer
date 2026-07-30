@@ -452,22 +452,29 @@ fn a_default_colour_space_replaces_an_images_device_space() {
 ///
 /// This is the failure mode the project's third principle exists to prevent, in its purest
 /// form: the page renders, it is simply not the page the document describes, and nothing
-/// anywhere says so. `LZWDecode` is not implemented, and before this was reported a page
-/// compressed with it drew nothing and returned `unsupported: []` — indistinguishable from
-/// a page the producer meant to leave empty.
+/// anywhere says so. Before this was reported, a page whose content stream used a filter
+/// this reader did not implement drew nothing and returned `unsupported: []` —
+/// indistinguishable from a page the producer meant to leave empty.
 ///
-/// The filter name is deliberately real rather than invented: implementing `LZWDecode`
-/// should make this test fail, and that is the right moment to revisit it.
+/// **The filter this test names had to change in the twenty-seventh session, and the reason
+/// is worth keeping.** It was `/LZWDecode`, chosen deliberately real rather than invented,
+/// with a note saying that implementing the filter should make the test fail and that would
+/// be the moment to revisit it. That moment came: with `LZWDecode` written, **there is no
+/// standard filter left that this reader does not implement**, so no name can stand in for
+/// "a filter we do not have". What is left is a filter that is real, is implemented, and is
+/// *not a content stream codec*: `/JPXDecode` produces an image raster, and `filter.rs`
+/// deliberately answers `None` for the image codecs so that a stream expecting bytes is
+/// visibly unsupported rather than silently empty.
 #[test]
 fn a_content_stream_that_will_not_decode_is_reported() {
-    let bytes = pdf_with_content_filter("/LZWDecode");
+    let bytes = pdf_with_content_filter("/JPXDecode");
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
 
     let reported = format!("{:?}", interpretation.unsupported);
     assert!(
-        reported.contains("LZWDecode"),
+        reported.contains("JPXDecode"),
         "an undecodable content stream must name its filter: {reported}"
     );
 }

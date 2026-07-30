@@ -152,52 +152,82 @@ note = "Indirect objects and references. `obj` … `endobj` with an object and g
 [[clause]]
 clause = "7.4"
 title = "Filters"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/src/filter.rs", "crates/pdf-model/tests/corpus.rs"]
+note = "Table 6's ten standard filters, reviewed as a family in the twenty-seventh session, and **all ten decode** — `LZWDecode` was the last one absent and landed in that session. Four of them are stream filters implemented here, one is a pass-through for §7.6.6's crypt filters, and four are image codecs that belong to the image pipeline and answer `None` here so that a *content* stream naming one is visibly unsupported rather than silently empty."
 
 [[clause]]
 clause = "7.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/document.rs", "crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "`/Filter` and `/DecodeParms` in both their forms — one name or an array — with the array \"cascaded to form a pipeline that passes the stream through two or more decoding transformations in sequence\", applied in order, each stage taking the matching entry of a `/DecodeParms` array. Table 92's abbreviations are expanded for inline images by `pdf_model::inline_image`. Not implemented and named rather than left implicit: `/FFilter` and `/FDecodeParms`, which belong to an *external* stream — this reader does not follow `/F` to another file at all, so the parameters that would describe how to decode it are not the missing piece."
 
 [[clause]]
 clause = "7.4.2"
 title = "ASCIIHexDecode filter"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/src/filter.rs::ascii_hex_decodes_and_stops_at_the_terminator", "crates/pdf-syntax/src/filter.rs::ascii_hex_pads_an_odd_final_digit"]
+note = "\"One byte of binary data for each pair of ASCII hexadecimal digits\", white space ignored, `>` the EOD marker, and an odd final digit treated \"as if a 0 (zero) followed the last digit\" — all four implemented. `partial` for one sentence, deliberately: \"any other characters shall cause an error\", and this decoder skips them instead. That is a recovery rather than an oversight — a hex stream with a stray byte in it decodes to what its producer meant everywhere except at that byte, and refusing loses the whole stream — but it is a departure and belongs in a row rather than only in a comment."
 
 [[clause]]
 clause = "7.4.3"
 title = "ASCII85Decode filter"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/src/filter.rs::ascii85_round_trips_a_known_value"]
+note = "The base-256 to base-85 relation, `!` to `u` plus `z` for four zero bytes, white space ignored, `~>` as EOD, and a partial final group of *n* characters yielding *n* − 1 bytes. All three of the clause's \"shall never occur\" conditions are refused rather than guessed at: a character outside the range fails the stream, a `z` inside a group fails it because `z` is outside `!`..=`u`, and a final group of one character yields nothing. An optional `<~` introduction is accepted, which the clause does not describe and PostScript does."
 
 [[clause]]
 clause = "7.4.4"
 title = "LZWDecode and FlateDecode filters"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/src/filter.rs::lzw_decodes_the_clauses_own_example"]
+note = "Both, as of the twenty-seventh session; `FlateDecode` since the first parser and `LZWDecode` written from §7.4.4.2, which states the whole algorithm."
 
 [[clause]]
 clause = "7.4.4.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/src/filter.rs::lzw_decodes_the_clauses_own_example"]
+note = "Descriptive apart from naming the two methods and their references: LZW is Adobe TIFF Revision 6.0's, Flate is RFC 1950 and 1951. Flate is `flate2` with the pure-Rust `zlib-rs` backend, and accepts a raw deflate stream as well as a zlib-framed one because streams missing the two-byte header occur. NOTE 2's worst cases are why both decoders are bounded by `Limits::max_stream_len`: LZW \"provides a compression approaching 1365:1 for long files\", which is a bomb written in nine bits."
 
 [[clause]]
 clause = "7.4.4.2"
 title = "Details of LZW encoding"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/src/filter.rs::lzw_decodes_the_clauses_own_example", "crates/pdf-syntax/src/filter.rs::early_change_moves_the_width_increase_by_one_code", "crates/pdf-syntax/src/filter.rs::a_code_the_table_does_not_have_stops_rather_than_guessing"]
+note = "The whole algorithm, and **the clause supplies its own test vector** — EXAMPLE 1's input, EXAMPLE 2's packed bytes — which is the rarest kind of expected value in this tree: one the standard states rather than one derived from a rule. Three details decide correctness and each is a sentence here: codes packed high-order bit first and straddling byte boundaries; the width growing \"following the creation of table entry 511\", moved one code earlier by Table 8's `/EarlyChange`; and a code naming the entry about to be created, which the standard's own example reaches on its third code. A code past the end of the table keeps what was decoded rather than inventing bytes, for the reason `flate` keeps a truncated inflate."
 
 [[clause]]
 clause = "7.4.4.3"
 title = "LZWDecode and FlateDecode parameters"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/src/filter.rs::early_change_moves_the_width_increase_by_one_code"]
+note = "Table 8's five entries with the defaults it states: `/Predictor` 1, `/Colors` 1, `/BitsPerComponent` 8, `/Columns` 1, and `/EarlyChange` 1. The last is `LZWDecode` only and is the one entry in this table that changes what a *byte* decodes to rather than how bytes are rearranged, because it moves where the code width grows and desynchronises the bit stream from that point on."
 
 [[clause]]
 clause = "7.4.4.4"
 title = "LZW and Flate predictor functions"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Both groups: TIFF Predictor 2, and the PNG group's five filter types with the per-row type byte ISO/IEC 15948 puts in front of each row. Predictors are applied *inside* the decode rather than beside it, which is trap 4 in `doc/HANDOVER.md`: the code once called this \"the caller's responsibility\" and then did not, so every cross-reference stream — which is compressed *and* PNG-predicted almost universally — failed with a misleading `/Root is not a dictionary`. A predictor code the clause does not define returns `None` rather than passing the data through, because unpredicted data read as predicted is silently wrong and for a cross-reference stream that means fabricated byte offsets."
 
 [[clause]]
 clause = "7.4.5"
 title = "RunLengthDecode filter"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs"]
+test = ["crates/pdf-syntax/src/filter.rs::run_length_expands_literal_and_repeated_runs"]
+note = "A length byte and its run: 0 to 127 copies the following length + 1 bytes literally, 129 to 255 repeats the next byte 257 − length times, and 128 is EOD. All three arms and the boundary."
 
 [[clause]]
 clause = "7.4.6"
@@ -210,22 +240,34 @@ note = "Group 3 and Group 4 decode through `hayro-ccitt` in the sandboxed worker
 [[clause]]
 clause = "7.4.7"
 title = "JBIG2Decode filter"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/image.rs", "crates/pdf-sandbox/src/decode.rs"]
+test = ["crates/pdf-model/tests/jbig2.rs"]
+note = "Decoded by `hayro-jbig2` in the confined worker (ADR 0014), with Table 12's `/JBIG2Globals` carrying the page-0 segments several images may share. The clause's own content beyond that is a set of *restrictions on the bit stream*, and they are worth listing because they are what a reader may assume: the embedded organisation of ISO/IEC 14492 Annex D.3, page 1 only, no colour palette segments (type 54) and `COLEXTFLAG` 0, and — the one this tree does not enforce — \"the JBIG2Decode filter shall not be used with inline images\". An inline image naming it is decoded rather than refused, which draws what the producer wrote; the strongest evidence the decode is right is not a reference renderer but the corpus's own invariant, 96 encodings of one image producing byte-identical pixels."
 
 [[clause]]
 clause = "7.4.8"
 title = "DCTDecode filter"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/corpus.rs"]
+note = "Baseline and progressive JPEG through `zune-jpeg`, in this process. **Table 13's `/ColorTransform` is not read**, and the twenty-seventh session sized that silence rather than guessing at it. The clause's rule has three cases: an Adobe APP14 marker wins outright; with no APP14 the dictionary entry governs; with neither, the default is 1 for three components and 0 otherwise. Four corpus documents write the entry and all four write 0. Two are single-component images, where the clause says the entry \"shall be ignored\". One is three-component with a JFIF marker. **One — `issue12841_reduced.pdf` — is three-component with neither marker, which is exactly the case where the clause says the dictionary decides, and obeying it would mean not transforming YCbCr to RGB.** All four reference renderers transform it, the photograph is plainly right when transformed, and the producer evidently did not mean what it wrote. So the entry stays unread and this row records *why*: implementing the sentence would break the only file that exercises it, which is a finding about the corpus and not a licence to ignore the clause. `/ColorTransform` on an image whose PDF colour space is `DeviceCMYK` cannot arise here, since `decode_jpeg` refuses a four-component codestream."
 
 [[clause]]
 clause = "7.4.9"
 title = "JPXDecode filter"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/image.rs", "crates/pdf-sandbox/src/decode.rs"]
+test = ["crates/pdf-model/tests/corpus.rs"]
+note = "Decoded by `hayro-jpeg2000` in the confined worker (ADR 0014). The clause inverts the usual relationship between an image dictionary and its data, and getting that backwards renders JPEG 2000 images in the wrong colours with nothing to say so: `/ColorSpace` is *optional* and where present overrides the codestream's, `/BitsPerComponent` is ignored either way, and `/Decode` is ignored unless `/ImageMask` is true. All three are implemented that way round. The channel types — ordinary, opacity, premultiplied opacity — reach §11.6.5.2 through `/SMaskInData`. `partial` for two things: the clause's restriction to JPX baseline plus colour spaces 12 and 19 is not checked, and **the decoder cannot be given a target resolution**, so `issue19517.pdf`'s 12608x16806 scan is refused for wanting gigabytes where NOTE 2's resolution progression is the format's own answer. \"This filter shall only be applied to image XObjects, and not to inline images\" is not enforced, as with §7.4.7."
 
 [[clause]]
 clause = "7.4.10"
 title = "Crypt filter"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/filter.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs"]
+note = "A pass-through here, and that is the whole of it: the filter \"allows the document-level security handler to determine which algorithms should be used to decrypt the input data\", so the decryption happens where an object's identity is known — `document.rs`, §7.6.2 — and by the time the filter chain runs the bytes are already plaintext. Table 14's `/Name` selects among §7.6.6's crypt filters and defaults to `Identity`; the clause's closing sentence, that a stream specifying a crypt filter is decrypted \"using the key as is\" rather than through Algorithm 1, is implemented in `crypt.rs` (ADR 0031). \"The Crypt filter shall be the first filter in the Filter array entry\" is a requirement on the writer that this reader does not need: a pass-through commutes with everything."
 
 [[clause]]
 clause = "7.5"
