@@ -399,6 +399,39 @@ const CONTRADICTED_MASK_QUANTISATION: [&str; 1] = ["smask_luminosity_oob_transfe
 /// about that reading rather than a target to move toward.
 const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.pdf page 1"];
 
+/// Contradicted, where the references that agree are two that did not draw the page.
+///
+/// 2 pages. Trap 9's second shape at its plainest: "[a]n unimplemented feature almost always
+/// falls through to a *default*", and the default here is to draw nothing at all — so two
+/// renderers that both gave up produce identical white and the gate reads it as consensus.
+/// The fixed tolerance decides whether the references agree, and two blank pages agree
+/// perfectly.
+///
+/// **`issue11549_reduced.pdf`** writes `/FontName /AASGAA+Arial,Unicode MS`. A SPACE is a
+/// delimiter (§7.2.3), so that lexes as the name `AASGAA+Arial,Unicode` followed by the
+/// keyword `MS` — sitting where §7.3.7 requires a key, since "[t]he key shall be a name".
+/// The clause states no recovery. `mupdf` discards the whole object ("ignoring broken object
+/// (70 0 R)") and `ghostscript` does the same; both then render a page that is 255 in every
+/// channel. `poppler` inserts a placeholder key and draws; this reader skips the stray token
+/// and draws — which is `parser.rs`'s documented choice, made so that one bad token costs one
+/// entry rather than the dictionary. §7.3.5 says what the file should have written:
+/// "[w]hitespace used as part of a name shall always be coded using the 2-digit hexadecimal
+/// notation".
+///
+/// **`issue11740_reduced.pdf`** is the fortieth session's fix and its consensus is two
+/// failures: `ghostscript` renders it blank and `poppler` renders one blob glyph, and the two
+/// are within the fixed tolerance of each other. We, `mupdf` and `hayro` draw *Оглавление*.
+/// The page was drawing mojibake until §9.7.4.2's rule for a non-CID-keyed CFF was read across
+/// to the bare Type 1 program its descriptor embeds — see ADR 0049.
+///
+/// Neither entry is a page to chase. What both are is an argument for reading a reference's
+/// *log* as well as its raster: `mupdf.log` and `ghostscript.log` both say, in words, that
+/// they threw the object away.
+const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 2] = [
+    "issue11549_reduced.pdf page 1",
+    "issue11740_reduced.pdf page 1",
+];
+
 /// Contradicted for drawing a link's border, where the two references that agree agree for two
 /// unrelated reasons — and neither of them is a reading of the clause.
 ///
@@ -594,8 +627,8 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 46 pages carrying no undrawn annotation, no hidden optional content and no substituted
-/// font — so the difference is in something we believe we implement. Two causes are
+/// 43 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// font — so the difference is in something we believe we implement. Three causes are
 /// identified; the rest are unexamined, and working through them is the highest-value use of
 /// this gate. **Four pages left in the thirty-ninth session and none of them was a defect**:
 /// `type4psfunc.pdf`, `postscript_type4_many_outputs.pdf` and both pages of
@@ -696,7 +729,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 46] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 43] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -712,8 +745,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 46] = [
     "freeculture.pdf page 76",
     "issue1002.pdf page 1",
     "issue10572.pdf page 1",
-    "issue11549_reduced.pdf page 1",
-    "issue11740_reduced.pdf page 1",
     "issue18816.pdf page 1",
     "issue19633.pdf page 1",
     "issue2017r.pdf page 1",
@@ -726,7 +757,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 46] = [
     "issue4061.pdf page 1",
     "issue4650.pdf page 1",
     "issue5010.pdf page 1",
-    "issue5751.pdf page 1",
     "issue6231_1.pdf page 1",
     "issue6889.pdf page 1",
     "issue6961.pdf page 1",
@@ -1468,6 +1498,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_SUBPIXEL_IMAGE)
         .chain(&CONTRADICTED_MASK_QUANTISATION)
         .chain(&CONTRADICTED_VISIBILITY_EXPRESSION)
+        .chain(&CONTRADICTED_REFERENCES_DREW_NOTHING)
         .chain(&CONTRADICTED_LINK_BORDER)
         .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
         .chain(&CONTRADICTED_SYMBOLIC_FONT_FLAGS)

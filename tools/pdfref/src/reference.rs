@@ -86,6 +86,21 @@ impl Reference {
     /// deflate implementation, the JPEG decoder, and both new image codecs — is not one
     /// format's decoder but the substrate of nearly every page, so there is no useful subset
     /// on which it votes.
+    ///
+    /// # And all three of them share `libfreetype`
+    ///
+    /// Found with one `ldd` in the fortieth session: `pdftoppm`, `mutool` and `gs` on this
+    /// machine all link the same `libfreetype.so.6`, while this tree rasterises glyphs with
+    /// `skrifa` and `tiny-skia`. So on a page whose difference is a letter's edges, the three
+    /// are one rasteriser and we are the only second opinion — the same shape as `jbig2dec`
+    /// above and far more widely reachable.
+    ///
+    /// It is recorded here and **not** acted on, for the same reason `jbig2dec` is not:
+    /// marking three references `Shared` for text would leave the gate with nothing to vote
+    /// on, when what they share is one component of a page and everything else about it —
+    /// colour, geometry, images, transparency, and *which* glyph was selected — is still
+    /// three independent readings. Where it bites is the bound rather than the vote, and
+    /// `Tolerance::widened_to` carries that half of the argument.
     #[must_use]
     pub fn independence(self) -> Independence {
         match self {

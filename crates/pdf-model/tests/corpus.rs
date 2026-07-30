@@ -384,7 +384,18 @@ const MAX_PAGELESS: usize = 11;
 /// **97 to 94 in the thirty-sixth session**: §9.2.4's second set of glyph metrics, which
 /// §9.7.4.3 puts in `/W2` and `/DW2`, so a `CMap` in writing mode 1 places its glyphs down a
 /// column instead of being refused.
-const MAX_INCOMPLETE: usize = 94;
+///
+/// **94 to 95 in the fortieth session, and it is a new report** — trap 5's rule, which this
+/// ratchet exists to allow rather than to forbid. A `CIDFont` whose descriptor embeds a bare
+/// Type 1 program is now *read*, by §9.7.4.2's rule for a non-CID-keyed CFF and §9.6.2.1's
+/// NOTE 1 that the two are one format (ADR 0049). Two corpus documents write one.
+/// `issue11740_reduced.pdf` had been drawing mojibake in silence and now draws its Russian
+/// correctly; `issue5751.pdf`'s program is one this tree's Type 1 reader refuses, and a
+/// malformed program is *reported* rather than quietly substituted — which is already what a
+/// simple font with the same defect gets. The document that joined this row left the oracle's
+/// contradicted list on the same change, which is the exchange trap 5 describes: a page we can
+/// no longer be judged on is a page we have stopped claiming to draw.
+const MAX_INCOMPLETE: usize = 95;
 
 /// How long one document may take before it counts as a failure.
 ///

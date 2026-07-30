@@ -502,16 +502,7 @@ impl LoadedFont {
         };
 
         let (data, program, substituted) = match embedded {
-            // §9.9's Table 124 gives a CIDFont `/FontFile2` and `/FontFile3` and never
-            // `/FontFile`: a Type 1 program is keyed by glyph *name*, and a CIDFont selects
-            // by CID, so the clause states no route from one to the other and neither does
-            // this crate invent one. `issue11740_reduced.pdf` embeds one anyway, and what it
-            // gets is what a CIDFont with no usable program gets — a substitute.
-            Ok(Embedded {
-                program: Program::Type1,
-                ..
-            })
-            | Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
+            Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
                 let request = substitute::Request::derive(document, &descendant, descriptor);
                 let data = substitute::find(request).ok_or_else(|| FontError::NoSubstitute {
                     name: name.to_owned(),
@@ -522,7 +513,17 @@ impl LoadedFont {
             Ok(Embedded { data, program }) => (data, program, false),
             Err(other) => return Err(other),
         };
-        let units_per_em = units_per_em(&data, program, name)?;
+        // Kept parsed for the same measured reason a simple font keeps it (`type1::Program`),
+        // and read for its scale the same way: a Type 1 program states it in a `/FontMatrix`
+        // rather than in an `sfnt` header, so `FontRef` cannot be asked.
+        let type1 = parsed_type1(program, &data, name)?;
+        let units_per_em = match &type1 {
+            Some(parsed) => parsed.units_per_em().map_err(|e| FontError::Malformed {
+                name: name.to_owned(),
+                detail: e.to_string(),
+            })?,
+            None => units_per_em(&data, program, name)?,
+        };
 
         let mapping = if substituted {
             // A CID is meaningless outside the font that defined it — it is an index into
@@ -559,8 +560,9 @@ impl LoadedFont {
             data,
             program,
             // §9.9's Table 124 gives a CIDFont `/FontFile2` and `/FontFile3` and never
-            // `/FontFile`, so a composite font has no Type 1 program to keep.
-            type1: None,
+            // `/FontFile` — but a descriptor writing one is read rather than refused; see
+            // the `mapping` above for the clause's own analogy that decides how.
+            type1,
             mapping,
             substituted,
             to_unicode: to_unicode(document, dict),
@@ -1088,9 +1090,26 @@ fn cid_to_glyph(
                 .map(|table| Cow::Owned(table.as_bytes().to_vec()))
         }),
         // §9.9's Table 124 gives a CIDFont two programs, `/FontFile2` and `/FontFile3`, and
-        // a bare Type 1 is neither. A descendant descriptor writing `/FontFile` has said
-        // something the clause does not define, so nothing is read out of it here and the
-        // `/CIDToGIDMap` route below decides — which for a CIDFontType0 is the identity.
+        // a bare Type 1 is neither — so nothing is read out of it *here*, and the
+        // `/CIDToGIDMap` route below decides, which for a CIDFontType0 is the identity.
+        //
+        // That identity is the clause's own answer rather than a guess, by two sentences
+        // read together. §9.7.4.2, on a CFF whose Top DICT does not use CIDFont operators:
+        //
+        // > The CIDs shall be used directly as GID values, and the glyph procedure shall be
+        // > retrieved using the CharStrings INDEX
+        //
+        // and §9.6.2.1's NOTE 1, on what a CFF *is*:
+        //
+        // > an alternative, more compact but functionally equivalent representation of a
+        // > Type 1 font program
+        //
+        // A bare Type 1 program is a name-keyed program whose charstrings are in an order,
+        // exactly as a non-CID-keyed CFF's are, so "used directly as GID values" transfers
+        // without inventing anything. `issue11740_reduced.pdf` is the witness, and before
+        // this it was substituted for and drawn through its own `/ToUnicode` — which
+        // records the Windows-1251 *bytes* of its Russian text as Latin-1 code points, so
+        // the page came out as mojibake with nothing reported.
         Program::Type1 => None,
     };
     if let Some(cff) = cff {

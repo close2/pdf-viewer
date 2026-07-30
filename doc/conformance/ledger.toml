@@ -2036,7 +2036,10 @@ note = "Steps a) and b) — the base state over every group, then the array oppo
 [[clause]]
 clause = "9.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs"]
+note = "The clause's own map of itself: a text object, a font, an encoding, a glyph, a position. Every subclause it names is reviewed, and the two families it separates are kept separate in code — `content.rs` owns §9.3's text state and §9.4's operators, `pdf-font` owns §9.6 and §9.7's route from a code to an outline, and neither knows the other's rules. That separation is the clause's rather than a convenience: it puts a glyph's *selection* and its *painting* on opposite sides, which is why §9.3.6's rendering modes belong to the interpreter and §9.6.5's encodings to the font."
 
 [[clause]]
 clause = "9.2"
@@ -2193,7 +2196,10 @@ note = "The text rendering matrix and the horizontal displacement are implemente
 [[clause]]
 clause = "9.5"
 title = "Introduction to font data structures"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/cff.rs", "crates/pdf-font/src/type1.rs"]
+test = ["crates/pdf-font/src/lib.rs::a_code_for_a_character_means_that_character"]
+note = "The introduction to font data structures, and the distinction it draws is the one `pdf-font` is built on: a *font dictionary* is PDF's and a *font program* is not. So Table 124's five program formats are read by `read-fonts` and by this crate's own Type 1 reader, and which reader applies is decided by the program's leading bytes rather than by the dictionary's `/Subtype` — the clause's own separation, taken literally, and the reason a `CIDFont` embedding a bare Type 1 program is read at all (ADR 0049). Every font type the clause lists exists here: Type 1, TrueType, Type 3, Type 0 and the CIDFonts under it."
 
 [[clause]]
 clause = "9.6"
@@ -2512,22 +2518,34 @@ note = "The subset tag is what a `/BaseFont` means to a substitution request, an
 [[clause]]
 clause = "9.10"
 title = "Extraction of text content"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/tounicode.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs"]
+note = "Text extraction, done here as a *readback of what was drawn*: `Interpretation::text` is accumulated by the same loop that places the glyphs, so it cannot describe a code the page did not show, and `text_extraction.rs` holds it to 100% of the words `pdftotext` finds over the fourteen specification PDFs. `partial` for the one of §9.10.2's three methods that needs Table 116's registered `CMap` data."
 
 [[clause]]
 clause = "9.10.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs"]
+note = "The information content of text as against its rendered appearance — two questions, and the clause's insistence that they are two is what `Interpretation` follows in carrying `text` and `glyphs` as separate facts. A page can draw perfectly and extract nothing, which is also why the oracle asks the second when choosing a tolerance and got worse answers for eight sessions when it asked the first. The clause names one route this tree does not take: `/ActualText` on a marked-content sequence, which is §14.9.4's and belongs to tagged PDF."
 
 [[clause]]
 clause = "9.10.2"
 title = "Mapping character codes to Unicode values"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs"]
+note = "Three methods \"in the priority given\", and `LoadedFont::text` is that list in that order. First `/ToUnicode`. Then, for a simple font, the glyph name the encoding selected, looked up in the Adobe Glyph List (`read_fonts::ps::agl`) — which is why `glyph_names` is kept after loading rather than discarded. The third is not implemented: it needs a predefined `CMap` from Table 116 *and* the matching `registry-ordering-UCS2` file, both registered third-party data, which is §9.7.5.2's licensing decision seen from the other end. **The priority is load-bearing and one page shows why.** `issue11740_reduced.pdf`'s `/ToUnicode` records the Windows-1251 *bytes* of its Russian text as Latin-1 code points, so method one returns mojibake where method two would have returned the characters — and the clause still puts the producer's own statement first. That is right for extraction and wrong for *drawing*, which is the distinction §9.10.1 draws and the reason a substitute addressed through `/ToUnicode` is now a last resort behind §9.7.4.2's own glyph route (ADR 0049). Where all three fail the clause says plainly that \"there is no way to determine what the character code represents\"."
 
 [[clause]]
 clause = "9.10.3"
 title = "ToUnicode CMaps"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-font/src/tounicode.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs"]
+note = "`/ToUnicode` as a `CMap`: `beginbfchar` and `beginbfrange` in both of the latter's forms — a consecutive span and an explicit array — with values decoded as UTF-16BE including surrogate pairs, and each code's length taken from the codespace ranges, which the clause requires to be \"consistent with the encoding that the font uses\". Table 118's `/UseCMap` is read, and the clause calls it \"[t]he only pertinent entry\" in the stream dictionary. A `bfrange` is kept **as a range** rather than expanded, deliberately: one `<0000> <FFFF>` line would otherwise allocate sixty-five thousand strings from a few bytes, which is a decompression bomb wearing a font's clothes. A malformed `CMap` yields what was read before the damage, so extraction degrades to missing characters rather than to silence."
 
 [[clause]]
 clause = "10.1"

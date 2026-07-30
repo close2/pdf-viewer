@@ -162,3 +162,83 @@ fn a_symbolic_type1_program_draws_what_no_substitute_could() {
         "the content stream shows six codes and every one of them has a glyph"
     );
 }
+
+/// A `CIDFont` whose descriptor embeds a Type 1 program reaches its glyphs by CID.
+///
+/// §9.9's Table 124 gives a `CIDFont` `/FontFile2` and `/FontFile3` and never `/FontFile`, so
+/// `issue11740_reduced.pdf` writes something the clause does not describe. What §9.7.4.2
+/// *does* describe is the analogous case, a CFF whose Top DICT does not use `CIDFont`
+/// operators:
+///
+/// > The CIDs shall be used directly as GID values, and the glyph procedure shall be
+/// > retrieved using the CharStrings INDEX
+///
+/// and §9.6.2.1's NOTE 1 makes a CFF "an alternative, more compact but functionally equivalent
+/// representation of a Type 1 font program". A bare Type 1 program is a name-keyed program
+/// whose charstrings are in an order, exactly as a non-CID-keyed CFF's are, so the sentence
+/// transfers without inventing anything.
+///
+/// # Why the page could not tell anyone it was wrong
+///
+/// Before this, the font was substituted for and the substitute addressed through
+/// `/ToUnicode`, which is the only thing that can address one (§9.7.4.2). This file's
+/// `/ToUnicode` maps CID 1 to U+00CE, CID 2 to U+00E3 and so on — the **Windows-1251 bytes**
+/// of its Russian text, recorded as Latin-1 code points. So the page drew `Î ãëàâëåíèå` where
+/// it says `Оглавление`, was faithful to the file's own `/ToUnicode` while doing it, and
+/// reported nothing at all. Trap 1, and the check that catches it is a person looking at four
+/// panels.
+#[test]
+fn a_cidfont_embedding_a_type1_program_indexes_it_by_cid() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/issue11740_reduced.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let document = Document::open(bytes).expect("the document opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    assert_eq!(
+        interpretation.unsupported,
+        Vec::new(),
+        "nothing about this page is unsupported"
+    );
+    assert_eq!(
+        interpretation.glyphs, 10,
+        "ten codes, and every one of them reaches a charstring by its CID"
+    );
+    // The count alone cannot tell the two readings apart — the substitute drew ten glyphs
+    // too, and both first glyphs happen to have two contours — so the assertion is about the
+    // *shape*. `Оглавление` begins with a capital O, which is nearly as wide as it is tall;
+    // `Î ãëàâëåíèå` begins with a capital I under a circumflex, which is tall and narrow. The
+    // two readings measure 0.94 and 0.34, so one ratio separates them by a factor of nearly
+    // three and needs no other renderer to say so. Confirmed by reverting the change.
+    let first = interpretation
+        .display_list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            pdf_render::Command::Fill { path, .. } => Some(std::sync::Arc::clone(path)),
+            _ => None,
+        })
+        .expect("the page fills at least one glyph");
+    let (mut left, mut bottom, mut right, mut top) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for point in first.commands().iter().flat_map(|command| match *command {
+        pdf_render::PathCommand::MoveTo(p) | pdf_render::PathCommand::LineTo(p) => vec![p],
+        pdf_render::PathCommand::CurveTo(a, b, p) => vec![a, b, p],
+        pdf_render::PathCommand::Close => Vec::new(),
+    }) {
+        left = left.min(point.x);
+        bottom = bottom.min(point.y);
+        right = right.max(point.x);
+        top = top.max(point.y);
+    }
+    let ratio = (right - left) / (top - bottom);
+    assert!(
+        ratio > 0.8,
+        "the first glyph should be a round capital O, and its width over its height is \
+         {ratio:.2} — a substitute addressed through this file's /ToUnicode draws a capital \
+         I with a circumflex there, at 0.34"
+    );
+}

@@ -159,12 +159,26 @@ impl Tolerance {
     /// one that passes the second silently forgives the first.
     ///
     /// The references' own spread *is* the noise floor on that page — measured on that
-    /// page, by implementations that share no code with ours or with each other. Judging
-    /// our deviation as a multiple of it asks the question that matters: are we further
-    /// from the consensus than the consensus is from itself? Surveyed over a spread sample
-    /// of the pdf.js corpus, that distinction is the difference between 15 pages outside
-    /// [`Self::TEXT_HEAVY`] and the 8 among them that two independent renderers genuinely
-    /// contradict.
+    /// page, by implementations that share no code with ours. Judging our deviation as a
+    /// multiple of it asks the question that matters: are we further from the consensus than
+    /// the consensus is from itself? Surveyed over a spread sample of the pdf.js corpus, that
+    /// distinction is the difference between 15 pages outside [`Self::TEXT_HEAVY`] and the 8
+    /// among them that two independent renderers genuinely contradict.
+    ///
+    /// **This comment used to add "or with each other", and that is false on any page whose
+    /// difference is a glyph.** `ldd` on this machine puts the same `libfreetype.so.6` under
+    /// `pdftoppm`, `mutool` and `gs` — so where two of them agree closely about a letter's
+    /// edges they are one rasteriser agreeing with itself, while this tree uses `skrifa` and
+    /// `tiny-skia` and is the only genuinely third opinion in the room. The consequence is
+    /// one-sided and worth stating plainly: on a text page their spread *understates* the
+    /// floor, so a bound derived from it is too tight rather than too loose. What limits the
+    /// damage is that widening only ever loosens — the fixed bounds are a floor and
+    /// [`Self::TEXT_HEAVY`] was itself measured against these same three programs — so such a
+    /// page ends up judged by the fixed bounds rather than by a tighter derived one. Nothing
+    /// has been changed on the strength of this: loosening a gate to make contradictions
+    /// disappear is the move this project forbids itself, and what would justify a change is a
+    /// measurement of how far a *fourth* independent rasteriser sits from the three, which
+    /// nobody has.
     ///
     /// The fixed bounds stay as a floor rather than being replaced, because a spread of
     /// zero — two references producing identical pixels, which happens on simple pages —
