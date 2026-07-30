@@ -449,3 +449,150 @@ fn a_visibility_expression_past_the_bound_is_reported_rather_than_recursed() {
         "a bound reached must be said out loud: {reported}"
     );
 }
+
+/// §8.11.4.4's `/AS` array switches a group off after the base configuration set it on.
+///
+/// > For each of the groups in OCGs , the entries in its usage dictionary … specified by
+/// > Category shall be examined to yield a recommended state for the group. If all the
+/// > entries yield a recommended state of ON , the group's state shall be set to ON ;
+/// > otherwise, its state shall be set to OFF .
+///
+/// The corpus cannot test this: eight of its documents carry an `/AS`, every one of them
+/// pairs a `View` event with the `View` category, and not one of their groups states a
+/// `/ViewState` of `OFF`. So the mechanism runs on every one of them and changes nothing,
+/// which is exactly the shape trap 8 describes.
+#[test]
+fn a_usage_application_dictionary_turns_a_group_off() {
+    let visible = render(pdf(
+        "/OCProperties << /OCGs [5 0 R] /D << /AS [<< /Event /View /Category [/View] \
+         /OCGs [5 0 R] >>] >> >>",
+        "/Properties << /oc 5 0 R >>",
+        MARKED_SQUARE,
+        "",
+        "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /View << /ViewState /ON >> >> >>\nendobj\n",
+    ));
+    let hidden = render(pdf(
+        "/OCProperties << /OCGs [5 0 R] /D << /AS [<< /Event /View /Category [/View] \
+         /OCGs [5 0 R] >>] >> >>",
+        "/Properties << /oc 5 0 R >>",
+        MARKED_SQUARE,
+        "",
+        "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /View << /ViewState /OFF >> >> >>\nendobj\n",
+    ));
+
+    assert!(drew(&visible), "an ON view state leaves the group on");
+    assert!(!drew(&hidden), "an OFF view state turns it off");
+}
+
+/// Only the `View` event applies here, because only viewing is what this is.
+///
+/// §8.11.4.5: an interactive processor "shall examine the AS array for usage application
+/// dictionaries that have an Event of type View", and a `Print` one applies "for the duration
+/// of the print operation". A viewer that applied `Print` would hide a watermark the document
+/// means to show on screen — or show one it means only to print.
+#[test]
+fn a_print_event_does_not_apply_to_a_screen() {
+    let raster = render(pdf(
+        "/OCProperties << /OCGs [5 0 R] /D << /AS [<< /Event /Print /Category [/Print] \
+         /OCGs [5 0 R] >>] >> >>",
+        "/Properties << /oc 5 0 R >>",
+        MARKED_SQUARE,
+        "",
+        "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /Print << /PrintState /OFF >> >> >>\n\
+         endobj\n",
+    ));
+
+    assert!(drew(&raster), "a Print event has no say over a screen");
+}
+
+/// The categories are an AND, and a group named twice is an AND across both dictionaries.
+///
+/// §8.11.4.4:
+///
+/// > If a given optional content group appears in more than one OCGs array, its state shall
+/// > be ON only if all categories in all the usage application dictionaries it appears in
+/// > have a state of ON .
+#[test]
+fn every_category_of_every_dictionary_has_to_agree() {
+    let both = "/OCProperties << /OCGs [5 0 R] /D << /AS [\
+        << /Event /View /Category [/View] /OCGs [5 0 R] >> \
+        << /Event /View /Category [/Export] /OCGs [5 0 R] >>] >> >>";
+    let raster = render(pdf(
+        both,
+        "/Properties << /oc 5 0 R >>",
+        MARKED_SQUARE,
+        "",
+        "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /View << /ViewState /ON >> \
+         /Export << /ExportState /OFF >> >> >>\nendobj\n",
+    ));
+
+    assert!(
+        !drew(&raster),
+        "the second dictionary's OFF has to survive the first's ON"
+    );
+}
+
+/// A category about *this machine* leaves the state alone and says so.
+///
+/// `User` matches "the user's identification" and `Language` "the language and locale of the
+/// application", and neither is a question about the document. The clause's "otherwise OFF"
+/// would hide content on the strength of a question nobody asked, so the configuration's own
+/// state stands and the page reports what it could not answer.
+#[test]
+fn a_category_about_this_machine_is_reported_rather_than_guessed() {
+    let bytes = pdf(
+        "/OCProperties << /OCGs [5 0 R] /D << /AS [<< /Event /View /Category [/Language] \
+         /OCGs [5 0 R] >>] >> >>",
+        "/Properties << /oc 5 0 R >>",
+        MARKED_SQUARE,
+        "",
+        "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /Language << /Lang (es-MX) >> >> >>\n\
+         endobj\n",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    assert!(
+        !interpretation.is_complete(),
+        "the Language category must be reported"
+    );
+    assert!(
+        !interpretation.display_list.commands().is_empty(),
+        "and the group's own state must stand, which here draws"
+    );
+}
+
+/// `Zoom` is answered at a magnification of 1.0, which is a choice this file records.
+///
+/// A display list carries no magnification — it is built once and rasterised at whatever
+/// scale the caller asks for — so the clause's "current magnification level of the document"
+/// has to be supplied from somewhere. It is 1.0, the magnification at which a page is its
+/// stated size. A group asking for more than that is off; a group asking for less is on.
+#[test]
+fn a_zoom_category_is_answered_at_the_pages_stated_size() {
+    let with = |zoom: &str| {
+        render(pdf(
+            "/OCProperties << /OCGs [5 0 R] /D << /AS [<< /Event /View /Category [/Zoom] \
+             /OCGs [5 0 R] >>] >> >>",
+            "/Properties << /oc 5 0 R >>",
+            MARKED_SQUARE,
+            "",
+            &format!(
+                "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /Zoom << {zoom} >> >> >>\nendobj\n"
+            ),
+        ))
+    };
+
+    assert!(drew(&with("/min 0.5 /max 2.0")), "1.0 is inside 0.5..2.0");
+    assert!(!drew(&with("/min 2.0")), "and below a minimum of 2.0");
+    // "greater than or equal to min and less than max", so the maximum is exclusive.
+    assert!(
+        !drew(&with("/max 1.0")),
+        "and not less than a maximum of 1.0"
+    );
+    assert!(
+        drew(&with("/min 1.0")),
+        "and not less than a minimum of 1.0"
+    );
+}

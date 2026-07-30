@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **thirty-fourth** working session. Read
+Written 2026-07-26, updated 2026-07-30 at the end of the **thirty-fifth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,67 +12,69 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the thirty-fourth session changed
+## What the thirty-fifth session changed
 
-**§12.5.6.10's four text markup annotations are constructed, and the refusal was reading the
-clause for the wrong thing.** It was refused because "the standard states no mark". It states
-the mark — the annotations "shall appear as highlights, underlines, strikeouts (all PDF 1.3),
-or jagged ("squiggly") underlines in the text of a document" — the region, `/QuadPoints`, the
-orientation, "with respect to the edge connecting points ( x 1 , y 1 ) and ( x 2 , y 2 )", and
-the colour, Table 166's `/C`. What it leaves is a *thickness*. ADR 0043.
+**The last silence is closed.** §8.11.4.4's usage application dictionaries — a layer that a
+document says should switch itself off, drawn with nothing said — were the ledger's original
+`silent` row and had been last on the §0 list for eleven sessions, deferred on the claim that
+"it needs a layer panel to be worth more than a report". That claim was about a feature's value
+and was never checked against what the clause asks, which is that content be drawn or not
+drawn. ADR 0044.
 
-**A clause that leaves a dimension is not a clause that states nothing.** The comparison worth
-keeping is a `Text` annotation's icon (§12.5.6.4), which names `/Comment`, `/Key` and `/Note`
-and states not one line of their artwork; that one is still refused, and the two refusals now
-mean different things.
+**§8.11.4.5 says what to do without a panel existing.** After the base state and the `/ON` and
+`/OFF` arrays give "the initial state used by all PDF processors", an interactive processor
+"shall examine the AS array for usage application dictionaries that have an Event of type View.
+For each one found, the groups listed in its OCGs array shall be adjusted". Both of the clause's
+ANDs are implemented — across the categories of one dictionary, and across every dictionary a
+group appears in.
 
-**Every dimension is a fraction of the quadrilateral's height**, because a quad "shall
-encompass a word" and so its height is the text's — the only length the annotation gives. A
-sixteenth for a thickness, a twelfth for a squiggle's amplitude, a third of the height for its
-wavelength. Fractions rather than points, so they are right at every font size.
+**`Print` and `Export` events are not applied**, because §8.11.4.5 gives each a *duration* —
+"for the duration of the print operation", and of the export — and a screen is neither. A viewer
+that applied `Print` would hide a watermark meant for the screen.
 
-**A highlight multiplies, and the imaging model is why.** The annotations appear "in the text"
-and §12.5 draws over the page, so a wash painted normally replaces the text rather than tinting
-it. §11.3.5.2 defines exactly one mode whose "result colour is always at least as dark as either
-of the two constituent colours". That is the first constructed appearance in this tree to need
-an `/ExtGState`.
+**Two categories are questions about this processor rather than about the document**, and they
+report instead of guessing: `User` matches "the user's identification" and `Language` "the
+language and locale of the application". Taking the clause's "otherwise OFF" would hide content
+on the strength of a question nobody asked. `Zoom` is answered at a magnification of **1.0** —
+the size a page is drawn at when nothing states otherwise — because a display list carries no
+magnification, and that is recorded as a choice.
 
-**`REVIEW_OWED` is empty for the first time**, cleared by two family reviews: §7.9's common
-data structures and §14.11's prepress support. It stays as an *empty ratchet* — a clause the
-code cites and nobody has read is the cheapest debt this project can accrue.
+**No gate number moved, and that is the finding.** All eight corpus documents that carry an
+`/AS` pair a `View` event with the `View` category over groups stating `ON`, so the mechanism
+runs on every one of them and changes nothing. Five synthetic tests are what defends it.
 
 | | was | is |
 |---|---|---|
-| **Highlight, Underline, StrikeOut, Squiggly** | refused: "the clause states no mark" | constructed, with the thickness argued as a fraction of the quad |
-| **a highlight's blend** | — | `Multiply`, because §11.3.5.2 is what keeps the text under it |
-| **`REVIEW_OWED`** | 2 clauses | **empty** |
-| **§7.9's and §14.11's 19 unread rows** | nobody had read them | 5 implemented, 3 partial, 3 reported, 8 inapplicable |
+| **§8.11.4.4's `/AS`** | `silent`: a layer that should switch itself off, drawn with nothing said | applied for the `View` event, with both of the clause's ANDs |
+| **`Zoom`** | — | answered at 1.0, recorded as a choice |
+| **`User` and `Language`** | — | the configuration's state stands, and the page says so |
+| **the ledger's `silent` rows** | 3 | **2**, both of them §9.8.3's inputs to *substitution* |
 
 **The numbers:**
 
 | | before | now |
 |---|---|---|
-| **corpus documents drawing with nothing reported** | 848 | **856** |
-| **pages we claim to draw completely** | 1645 | **1653** |
-| **pages agreeing with the reference consensus** | 802 | **808** |
+| corpus documents drawing with nothing reported | 856 | **856** |
+| pages agreeing with the reference consensus | 808 | **808** |
 | pages contradicted by it | 88 | **88** |
-| **ledger subclauses nobody has read** | 369 | **348** |
-| **cited clauses still owing a review** | 2 | **0** |
-| `§` citations the checker verified | 1314 | **1321** |
-| tests | 583 | **584** |
+| ledger subclauses nobody has read | 348 | **348** |
+| **ledger rows that are `silent`** | 3 | **2** |
+| `§` citations the checker verified | 1321 | **1334** |
+| rustdoc quotations checked verbatim | 133 | **136** |
+| tests | 584 | **589** |
 
 What it taught:
 
-- **"The clause states nothing" is a claim to re-read, not a status to inherit.** §12.5.6.10
-  states four marks, a region, an orientation and a colour, and leaves one dimension; the
-  refusal that stood for thirteen sessions described a clause that states none of them. Two
-  sessions running, a recorded silence has turned out to be a clause that speaks.
-- **Where a clause leaves a fraction, any sane fraction lands inside the tolerance.** Eight
-  pages joined the judged set on dimensions this project chose, six agree with the reference
-  consensus and none is contradicted. That is the evidence a documented choice can produce, and
-  it is worth taking before assuming a choice cannot be checked.
-- **An empty ratchet is worth keeping.** `REVIEW_OWED` is now a list of nothing that fails the
-  build the moment the tree cites a clause nobody has read.
+- **"It needs X first" is a claim about value, and it deserves the same scrutiny as a claim
+  about a clause.** This item was deferred behind a layer panel for eleven sessions; what it
+  actually needed was three dictionary lookups, and the clause asks for it in the same sentence
+  it asks for the base configuration.
+- **A feature that moves no gate number can still be the right one to build.** Nothing in the
+  corpus exercises the `/AS` path visibly, which is why it was a `silent` row rather than a
+  reported one — the two facts are the same fact.
+- **Measure the corpus before designing the report.** Trap 11's method said an `eprintln!`
+  first; it took ten minutes and showed that the categories a viewer meets are the four a
+  viewer can answer, which turned "report it" into "implement it".
 
 ## How the project got here
 
@@ -111,6 +113,7 @@ below rather than here.
 | 32 | All five bit depths; an inline image's abbreviated keys win; `BX`/`EX`; §7.8 and §7.3.7 reviewed | ADR 0041 |
 | 33 | §10.4.2.5 exists; Table 57's `/Font`; the whole of clause 10 reviewed | ADR 0042 |
 | 34 | §12.5.6.10's text markup appearances; §7.9 and §14.11 reviewed; `REVIEW_OWED` emptied | ADR 0043 |
+| 35 | §8.11.4.4's usage application dictionaries — the ledger's last original `silent` row | ADR 0044 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -131,7 +134,7 @@ revision and method §7.6 states, and **a form field's value laid out from its `
 is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
 person for a password — and the gap is measured below rather than guessed at.
 
-- **584 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **589 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -229,7 +232,7 @@ person for a password — and the gap is measured below rather than guessed at.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1321 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1334 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -255,7 +258,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1321 citations, 133 quotations, 79 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1334 citations, 136 quotations, 79 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -448,13 +451,16 @@ found the same shape one level up — Table 57's `/LC`, `/LJ` and `/ML` read not
 wrong caps and joins. **Where a clause gives a parameter two routes, implementing one of them is
 the failure mode that reports nothing.**
 
-There are now three places where a report accompanies drawing rather than replacing it, each
+There are now four places where a report accompanies drawing rather than replacing it, each
 deliberate. An `/AcroForm` setting `/NeedAppearances` says its stored appearances may be stale and
 we draw them anyway, because they are all the file offers (§12.7.4.3). §11.6.5.2's `/Matte` in a
 colour space whose pre-blending cannot be undone after conversion is applied, because refusing it
-would draw a rectangle of pure matte colour. And a constructed appearance draws what its clause
+would draw a rectangle of pure matte colour. A constructed appearance draws what its clause
 states while reporting what it does not — a widget's background with its field's value named
-(ADR 0030). Two different true statements; suppressing either loses information. Do not generalise
+(ADR 0030). And §8.11.4.4's `/User` and `/Language` categories leave a layer's state as the
+configuration set it and say so, because switching it off would answer a question about this
+machine that nobody asked (ADR 0044). Two different true statements; suppressing either loses
+information. Do not generalise
 it further without the same argument.
 
 ### 6. Colour: one conversion, and the specification often has no answer
@@ -665,7 +671,7 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 | Annotation icons (§12.5.6.4, .12, .15, .16) | 2 | Small | A `Text`, `Stamp`, `FileAttachment` or `Sound` annotation with no `/AP` displays an icon whose artwork no clause states. Refused and named. Every stamp in the corpus carries an `/AP`, which is what a producer who cares has to do. |
 | Predefined `CMap`s (§9.7.5.2) | 12 | Medium | 15 fonts name one of Table 116's registered `CMap` files (`90ms-RKSJ-H`, `UniJIS-UTF16-H`, …), which are not in the tree. Vendoring them is a licensing decision; guessing draws plausible text that says something else. The machinery they would plug into exists. |
 | Text: a substitute that cannot be addressed | 42 | Medium | Counting *fonts*: 27 composite fonts with no `/ToUnicode`, so a CID cannot be taken to a character a substitute could draw, and 23 whose substitute draws none of the declared codes. Honest refusals rather than clause gaps; closing them means better substitution. |
-| Optional content: the interactive half | — | Medium | §8.11 is honoured wherever it decides what is *drawn* (ADR 0017). Missing: a layer panel and what feeds it — `/Usage` and the `/AS` usage application dictionaries (§8.11.4.4), which switch groups by zoom, language or print state, plus `/Order`, `/ListMode`, `/RBGroups`, `/Locked` and alternate `/Configs`. §8.11.4.4 is **the ledger's only `silent` row**: a layer that should switch itself off is drawn with nothing said. |
+| Optional content: the interactive half | — | Medium | §8.11 is honoured wherever it decides what is *drawn*, and since the thirty-fifth session that includes §8.11.4.4's `/AS` usage application dictionaries for the `View` event (ADRs 0017, 0044). Missing: a layer panel and what feeds it — `/Order`, `/ListMode`, `/RBGroups`, `/Locked` and alternate `/Configs` — and the two usage categories that are questions about this processor rather than about the document, `/User` and `/Language`, which are reported. |
 | Text knockout (`Tk`, §9.3.8) | 1 | Medium | Table 102's ninth text state parameter, and the only one absent. Its initial value is `true`, which makes a text object a non-isolated knockout group; we composite each glyph separately, which is indistinguishable while glyphs are opaque under Normal. Reported where both of the clause's conditions hold. Implementing it is §11.4.6's knockout groups seen from clause 9. |
 | Compositing an object in parts (§11.6.2) | 3 | Medium | "Portions of an object shall not be composited with one another", and `B` paints one object as a `Fill` and a `Stroke`, so the band they share composites twice. Reported where the paint composites and both parts mark the page. The fix is the same as `Tk`'s. |
 | Transparency group and mask departures (§11.4, §11.5.3) | 24 | Medium | Three answers a `/Group` may give that are drawn as the isolated, non-knockout group instead, each reported where it can change a pixel (ADR 0026): **knockout** (§11.4.6, 6 documents; for an isolated knockout group the implementation is a Porter-Duff Source composite modulated by coverage and nothing more), **non-isolated with a blend mode inside it** (§11.4.4, 9 documents; without one the two computations are provably identical), and **a blending colour space that is not the device's three components** (§11.6.6, 4 documents, all `/DeviceCMYK`, which means a second raster format). Plus **a soft mask's group with such a space** (§11.5.3, 7 documents). |
@@ -812,7 +818,7 @@ where the two disagree the ledger is the one that had to name a code site.
 | 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 107 rows reviewed, with §8.4, §8.5, §8.6.4, §8.6.5, §8.6.6, §8.6.7, §8.7, §8.9 and §8.10 done as families. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). **All five of Table 87's bit depths** are unpacked, and §8.9.7's abbreviated keys beat their full names when a file writes both (ADR 0041). |
 | 9 Text | 65 | **Partial**, 55 rows reviewed — §9.3, §9.4, §9.6, §9.8, §9.9 and the whole of §9.7 as families. Simple and composite fonts through **every font program Table 124 defines** — TrueType, CFF, OpenType and, from the thirty-first session, the bare Type 1 of `/FontFile`; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. An embedded program's own built-in encoding is the base encoding Table 112 says it is, and `/MissingWidth` defaults to Table 120's 0 (ADR 0039). Missing: Table 116's predefined `CMap`s, vertical writing, text knockout (§9.3.8, reported), and §9.8.3's `/Style` and `/FD`, which are the ledger's two new `silent` rows and reach nothing but a substitute's choice. |
 | 10 Rendering | 36 | **Complete as a review**, all 36 rows. 19 of them are `inapplicable`, because halftoning and transfer functions describe a marking device and `/TR` is deprecated in PDF 2.0 besides; 1 is `reported`, §10.8.3's separation simulation, which a *document* cannot ask for. **§10.4.2.5 defines the `DeviceCMYK` → RGB conversion this project spent thirty-two sessions saying the standard does not** — and §10.4.2.1 ranks it below §10.3's ICC route, which is the one this tree is on (ADR 0042). Colour management and rendering intents are done. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
-| 11 Transparency | 58 | **Partial**, 46 rows reviewed — everything from §11.4 onwards, leaving only §11.1–§11.3.5 and §11.3.8, which are the model rather than its PDF representation. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
+| 11 Transparency | 58 | **Partial**, 48 rows reviewed — everything from §11.4 onwards, leaving only §11.1–§11.3.5 and §11.3.8, which are the model rather than its PDF representation. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
 | 12 Interactive features | 166 | **Appearances, constructed ones, and a field's own text**: 51 rows reviewed — the whole of §12.5, and the whole of §12.7.4 and §12.7.5 with §12.7 to §12.7.3 above them. An annotation is placed and drawn from `/AP` (§12.5.5) with §12.5.3's flags and §8.11.3.3's `/OC` honoured; one with no `/AP` is constructed from its subtype's clause or refused with the reason named (ADR 0030); and a field's value, caption or free text is laid out from its `/DA` by §12.7.4.3 (ADR 0032). What does not exist is *behaviour*: no actions (§12.7.6), no FDF (§12.7.8), no navigation, no signature validation (§12.8). |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. Its rows carry that exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
 | 14 Document interchange | 152 | **Output intents, and marked content as a bracket.** No tagged PDF, no metadata, no marked-content *semantics* — but §14.6.1's nesting rule is now read twice over: `BDC`/`EMC` maintain the optional-content stack, and §12.7.4.3's splice has to find the `EMC` matching a `/Tx BMC`, which is the same sentence as an algorithm. §14.3.2 is read only as far as Table 21's `/EncryptMetadata` needs. |
@@ -847,7 +853,7 @@ parts that make a document *interactive* are not started.
 | Font descriptors (§9.8) | Table 120's `/Flags`, `/MissingWidth` — default 0, not a guess — and the three `/FontFile` entries, plus `/FontWeight` and `/ItalicAngle` for choosing a substitute. Table 121's Symbolic bit decides §9.6.5.4's route, and §9.8.2's "historical accident" paragraph decides a descriptor that sets Symbolic and Nonsymbolic together. The dimensional metrics are unread because this tree selects an installed face rather than synthesising one. |
 | Simple font encodings (§9.6.5) | The base encoding, `/Differences` over it, and — for an *embedded* program — the program's own built-in encoding as the base Table 112 says it is, with the Symbolic flag deciding only among the cases where nothing is embedded (ADR 0039). |
 | Page geometry (§7.7.3.3) | Table 31's `/MediaBox`, `/CropBox` intersected with it, `/Rotate` clockwise as displayed — which in this y-up space is a negative rotation — and `/UserUnit`, "the size of default user space units, in multiples of 1/72 inch", which scales the page and everything on it. The four inheritable entries are inherited and the twelve that are not, are not (§7.7.3.4). |
-| Optional content | §8.11 wherever it decides what is drawn: configuration, membership, `/VE`, intent, and all three places `/OC` can appear. The interactive half — `/Usage`, `/AS`, `/Order` — is not read. |
+| Optional content | §8.11 wherever it decides what is drawn: configuration, membership, `/VE`, intent, all three places `/OC` can appear, and §8.11.4.4's `/AS` usage application dictionaries for the `View` event, at a magnification of 1.0 (ADR 0044). Not read: `/Order`, `/ListMode`, `/RBGroups`, and the `/User` and `/Language` categories, which are reported. |
 
 ## What to do next
 
@@ -926,14 +932,12 @@ to it.**
   §12.7.8** whenever anything about a form's *behaviour* is — those two and §12.8 are the whole of what is
   left in clause 12 outside §12.6's actions. Record every row, including the `inapplicable` ones —
   a clause read and dismissed is worth as much as one implemented, and costs a minute.
-- **Three `silent` rows are left, and two of them are new.** §8.11.4.4's usage dictionaries — a
-  layer that should switch itself off by zoom, language or print state, drawn with nothing said —
-  is last on purpose, because it needs a layer panel to be worth more than a report. The other
-  two arrived in the thirtieth session by reading §9.8.3: `/Style /Panose` and `/FD` are read by
-  nobody, and while neither can change an *embedded* CIDFont's glyph, both would change which
-  installed face stands in for one that is not. Their debt is substitution quality rather than a
-  clause gap, and it is written on the rows. Only §8.11.4.4 is a silence where a report is the
-  cheapest honest move. Its method is trap 11's, unchanged: an `eprintln!` naming the
+- **Two `silent` rows are left and neither is a decision not to build something.** §8.11.4.4's
+  usage dictionaries — the row that had been called the last silence since the ninth session —
+  closed in the thirty-fifth (ADR 0044), and what is left is §9.8.3's `/Style /Panose` and
+  `/FD`: read by nobody, unable to change an *embedded* CIDFont's glyph, and able to change
+  which installed face stands in for one that is not. Their debt is substitution quality rather
+  than a clause gap, and it is written on the rows. Its method is trap 11's, unchanged: an `eprintln!` naming the
   documents that carry an `/AS` array *and* a group whose `/Usage` would turn it off at the
   resolution we draw, before any condition and long before any code.
 - **One silence still hides *inside* a `partial` row** — §10.7.3's `/SM`. Three others were
@@ -949,7 +953,6 @@ to it.**
 
 Five small items, listed before the big lists because they are small:
 
-- **Give §8.11.4.4's usage dictionaries a condition, and then a report.** The last `silent` row.
 - **Bound a group's buffer to the band its clip admits.** The CPU backend gives every transparency
   group a page-sized pixmap, because a group's elements resolve their clips against the *target*.
   No corpus page pays for it, but a page with hundreds of groups would. Measure before building:

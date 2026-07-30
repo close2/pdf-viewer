@@ -759,6 +759,23 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
     for issue in issues {
         interpreter.note(Unsupported::Content { issue });
     }
+    // §8.11.4.4's automatic states, for the two categories that ask about this machine rather
+    // than about the document. Reported once per page rather than per group, because what a
+    // reader can do about it is the same either way.
+    let unresolved: Vec<&'static str> = interpreter
+        .optional_content
+        .as_ref()
+        .map(crate::optional_content::OptionalContent::unresolved_usage)
+        .unwrap_or_default()
+        .to_vec();
+    for category in unresolved {
+        interpreter.note(Unsupported::OptionalContent {
+            detail: format!(
+                "a /AS usage application dictionary asks for the {category} category, which is \
+                 a question about this processor rather than about the document"
+            ),
+        });
+    }
 
     let base = base_transform(page);
     interpreter.run(&content, &page.resources, &GraphicsState::initial(base), 0);

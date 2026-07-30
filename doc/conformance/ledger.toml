@@ -1878,8 +1878,10 @@ note = "/BaseState, /ON, /OFF and /Intent are honoured. Six entries are not read
 [[clause]]
 clause = "8.11.4.4"
 title = "Usage and usage application dictionaries"
-status = "silent"
-note = "Not implemented and not reported. A usage dictionary describes when a group should be on — by zoom level, by language, by whether the page is being printed — and §8.11.4.5 has an interactive processor apply the /AS array's View entries over the initial state. This viewer has a window, so those requirements do apply to it, and a layer that should switch itself off is drawn with nothing said. It is `silent` rather than `reported` because nothing in the tree looks at /Usage or /AS to have something to report."
+status = "partial"
+code = ["crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_usage_application_dictionary_turns_a_group_off", "crates/pdf-model/tests/optional_content.rs::every_category_of_every_dictionary_has_to_agree", "crates/pdf-model/tests/optional_content.rs::a_zoom_category_is_answered_at_the_pages_stated_size"]
+note = "**The ledger's last original `silent` row, closed in the thirty-fifth session.** Table 101's usage application dictionaries are applied for the `View` event, which §8.11.4.5 makes the only one a viewer runs — `Print` and `Export` apply \"for the duration of the print operation\" and of the export. Table 100's `View`, `Print`, `Export` and `Zoom` categories are answered, with both ANDs the clause states: across the categories of one dictionary and across every dictionary a group appears in. Partial for two categories that are questions about this *processor* rather than about the document — `User` matches \"the user's identification\" and `Language` \"the language and locale of the application\" — where the configuration's own state stands and the page reports what it could not answer, rather than taking the clause's \"otherwise OFF\" on a question nobody asked. `Zoom` is answered at a magnification of 1.0, the size a page is drawn at when nothing states otherwise, because a display list carries no magnification; that is a choice and it is recorded on `apply_auto_states`. Eight corpus documents carry an `/AS` and every one pairs a `View` event with the `View` category over groups that state `ON`, so the mechanism runs on all of them and changes nothing."
 
 [[clause]]
 clause = "8.11.4.5"
