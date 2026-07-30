@@ -119,6 +119,152 @@ impl ColourSpace {
             Self::Resolved(space) => space.components(),
         }
     }
+
+    /// Table 88's default `/Decode` pair for one component, at this bit depth.
+    ///
+    /// Every device space's components run from 0.0 to 1.0, so their default pair is that
+    /// range; the two spaces where it is not — `Lab`, whose lightness is a percentage and
+    /// whose chromatic axes take the space's own `/Range`, and `Indexed`, whose default
+    /// passes an index through unchanged — answer for themselves.
+    fn default_decode(&self, component: usize, bits: u32) -> (f32, f32) {
+        match self {
+            Self::Resolved(space) => space.default_decode(component, bits),
+            _ => (0.0, 1.0),
+        }
+    }
+
+    /// The range a decoded value of one component is permitted to take.
+    ///
+    /// §8.9.5.2's closing sentence: "If an output value is not permitted for a component, it
+    /// shall be adjusted to the nearest allowed value." A `/Decode` array may state any two
+    /// numbers — the clause says so one paragraph earlier — so the map's output is clamped
+    /// here rather than trusted.
+    fn permitted(&self, component: usize) -> (f32, f32) {
+        match self {
+            Self::Resolved(space) => space.component_range(component),
+            _ => (0.0, 1.0),
+        }
+    }
+}
+
+/// §8.9.5.2's `/Decode` array: what an integer sample means as a colour component.
+///
+/// > Samples with a value of 0 shall be mapped to D min … those with intermediate values
+/// > shall be mapped linearly between D min and D max
+///
+/// Held as one table per component rather than as the clause's formula. Every input the
+/// formula takes — the pair, the bit depth, the component's permitted range — is fixed by
+/// the image dictionary before a sample is read, and its domain has at most 2^n points,
+/// where n is 1 or 8 here. So the map is evaluated at most 256 times per component per
+/// image instead of once per component per *pixel*, and the unpacker's arms become a lookup
+/// that no longer has to know what a `/Decode` array is.
+struct Decode {
+    /// `values[component][sample]`, in the colour space's own component values.
+    values: Vec<Vec<f32>>,
+    /// [`Self::values`] quantised, because a device space's components *are* eight-bit
+    /// channels and the arms that produce one would otherwise clamp, scale and round per
+    /// pixel. 256 entries per component against a photograph's millions, and the benchmark
+    /// that says it earns its place: interpreting `issue19971.pdf`'s 2500x1364 `DeviceRGB`
+    /// photograph costs 162.40 G instructions with this table and 166.35 G by quantising per
+    /// pixel, against 161.54 G before `/Decode` was applied at all. So it takes the whole
+    /// clause's cost on the corpus's largest image from +2.98% to +0.54%, and to nothing
+    /// measurable on a page carrying no image.
+    channels: Vec<Vec<u8>>,
+}
+
+impl Decode {
+    /// Reads `/Decode`, or Table 88's default for `space` where the dictionary states none.
+    fn read(document: &Document, dict: &Dictionary, space: &ColourSpace, bits: u32) -> Self {
+        let stated: Vec<f32> = document
+            .get_key(dict, "Decode")
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| document.resolve(item))
+                    .filter_map(|item| item.as_number())
+                    .map(|value| {
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "a component value beyond f32 is clamped to its \
+                                      permitted range either way"
+                        )]
+                        {
+                            value as f32
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // 2^n − 1, the largest sample the depth can carry, and the formula's x max.
+        let max = (1u32 << bits.min(16)).saturating_sub(1);
+        let span = f32::from(u16::try_from(max.max(1)).unwrap_or(u16::MAX));
+
+        let mut values = Vec::with_capacity(space.components());
+        for component in 0..space.components() {
+            let at = component.saturating_mul(2);
+            // A `/Decode` array "shall contain one pair of numbers for each component"; one
+            // that does not is honoured as far as it goes, since the alternative is
+            // discarding a pair the producer did state.
+            let (low, high) = match (stated.get(at), stated.get(at.saturating_add(1))) {
+                (Some(low), Some(high)) => (*low, *high),
+                _ => space.default_decode(component, bits),
+            };
+            let (floor, ceiling) = space.permitted(component);
+            let table = (0..=max)
+                .map(|raw| {
+                    let sample = f32::from(u16::try_from(raw).unwrap_or(u16::MAX));
+                    // D min + x × (D max − D min) ÷ (2^n − 1), with the multiplication
+                    // before the division: an `Indexed` space's default pair is
+                    // `[0 2^n − 1]`, which the clause's NOTE 2 says "ensures that component
+                    // values … are passed through unchanged", and `raw ÷ 255 × 255` is
+                    // 253.99998 for a sample of 254 while `raw × 255 ÷ 255` is 254.
+                    let value = (high - low).mul_add(sample, low * span) / span;
+                    value.clamp(floor.min(ceiling), ceiling.max(floor))
+                })
+                .collect::<Vec<f32>>();
+            values.push(table);
+        }
+
+        let channels = values
+            .iter()
+            .map(|table| table.iter().copied().map(channel).collect())
+            .collect();
+        Self { values, channels }
+    }
+
+    /// What sample `raw` of component `component` means.
+    fn value(&self, component: usize, raw: usize) -> f32 {
+        self.values
+            .get(component)
+            .and_then(|table| table.get(raw))
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// The same, quantised to an eight-bit channel.
+    fn channel(&self, component: usize, raw: usize) -> u8 {
+        self.channels
+            .get(component)
+            .and_then(|table| table.get(raw))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Whether the map is the identity on eight-bit device channels.
+    ///
+    /// The one question the `DCTDecode` route asks, because that route has already turned
+    /// the codestream into eight-bit channels and only has to know whether to remap them.
+    fn is_identity(&self) -> bool {
+        self.channels.iter().all(|table| {
+            table.len() == 256
+                && table
+                    .iter()
+                    .enumerate()
+                    .all(|(raw, value)| u8::try_from(raw).is_ok_and(|raw| raw == *value))
+        })
+    }
 }
 
 /// Decodes an image `XObject`.
@@ -165,7 +311,11 @@ pub fn decode(
         })?;
 
     let (rgba, opacity_came_with_the_samples) = match source.codec.as_deref() {
-        Some(b"DCTDecode" | b"DCT") => (decode_jpeg(&source.data, width, height)?, false),
+        Some(b"DCTDecode" | b"DCT") => {
+            let mut rgba = decode_jpeg(&source.data, width, height)?;
+            apply_decode_to_channels(document, dict, &mut rgba);
+            (rgba, false)
+        }
         Some(b"JBIG2Decode") => (
             decode_jbig2(document, dict, &source, width, height, is_mask, fill)?,
             false,
@@ -197,6 +347,7 @@ pub fn decode(
             } else {
                 colour_space(document, dict)?
             };
+            let decode = Decode::read(document, dict, &space, bits);
             (
                 unpack(
                     &source.data,
@@ -205,7 +356,7 @@ pub fn decode(
                     &Samples {
                         bits,
                         space: &space,
-                        invert: decode_inverts(document, dict),
+                        decode: &decode,
                         colour_key,
                         fill,
                     },
@@ -326,24 +477,6 @@ fn colour_space(document: &Document, dict: &Dictionary) -> Result<ColourSpace, I
     }
 }
 
-/// Returns `true` if `/Decode` inverts the samples.
-///
-/// Only the fully-inverted case is recognised, which is the one that occurs: `[1 0]` on a
-/// mask or a greyscale image. An arbitrary decode array is a per-component linear map and
-/// is not applied.
-fn decode_inverts(document: &Document, dict: &Dictionary) -> bool {
-    let decode = document.get_key(dict, "Decode");
-    let Some(items) = decode.as_array() else {
-        return false;
-    };
-    let values: Vec<f64> = items
-        .iter()
-        .map(|item| document.resolve(item))
-        .filter_map(|item| item.as_number())
-        .collect();
-    matches!(values.first(), Some(first) if *first > 0.5)
-}
-
 /// How a row of raw bytes becomes colour: the layout, and what a value means.
 ///
 /// Grouped rather than passed one at a time because all five are settled by the image
@@ -354,8 +487,8 @@ struct Samples<'a> {
     bits: u32,
     /// What a component means.
     space: &'a ColourSpace,
-    /// Whether `/Decode` reverses the component range (§8.9.5.2).
-    invert: bool,
+    /// What a sample means, per component (§8.9.5.2).
+    decode: &'a Decode,
     /// §8.9.6.4's colour-key ranges, one per component, in raw sample values.
     ///
     /// The clause's test is on the samples "before decoding with the Decode array", which is
@@ -372,7 +505,7 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     let &Samples {
         bits,
         space,
-        invert,
+        decode,
         colour_key,
         fill: _,
     } = samples;
@@ -396,7 +529,7 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     // of a 256-entry table.
     let palette = match space {
         ColourSpace::Resolved(resolved) if resolved.components() == 1 => {
-            Some(palette(resolved, bits, invert))
+            Some(palette(resolved, bits, decode))
         }
         _ => None,
     };
@@ -469,7 +602,7 @@ fn sample_rgba(
     let &Samples {
         bits,
         space,
-        invert,
+        decode,
         colour_key: _,
         fill,
     } = samples;
@@ -477,9 +610,10 @@ fn sample_rgba(
         |colour: pdf_render::Color| [channel(colour.r), channel(colour.g), channel(colour.b), 255];
     match (space, bits) {
         (ColourSpace::Mask, _) => {
-            let bit = sample_bit(row, x);
-            // A set bit means "do not paint" unless `/Decode [1 0]` inverts it.
-            let paint = if invert { bit } else { !bit };
+            // §8.9.6.2: a sample decoding to 0 marks the page, so the default `[0 1]` paints
+            // through the *clear* bits and `[1 0]` reverses that. Both are the same lookup.
+            let bit = usize::from(sample_bit(row, x));
+            let paint = decode.value(0, bit) < 0.5;
             if paint {
                 [
                     channel(fill.r),
@@ -492,30 +626,30 @@ fn sample_rgba(
             }
         }
         (ColourSpace::Gray, 1) => {
-            // A set bit is white unless `/Decode [1 0]` inverts the range.
-            let value = if sample_bit(row, x) ^ invert { 255 } else { 0 };
+            let value = decode.channel(0, usize::from(sample_bit(row, x)));
             [value, value, value, 255]
         }
         (ColourSpace::Gray, _) => {
-            let value = maybe_invert(row.get(x).copied().unwrap_or(0), invert);
+            let value = decode.channel(0, usize::from(row.get(x).copied().unwrap_or(0)));
             [value, value, value, 255]
         }
         (ColourSpace::Rgb, _) => {
             let at = x.saturating_mul(3);
-            [
-                maybe_invert(row.get(at).copied().unwrap_or(0), invert),
-                maybe_invert(row.get(at.saturating_add(1)).copied().unwrap_or(0), invert),
-                maybe_invert(row.get(at.saturating_add(2)).copied().unwrap_or(0), invert),
-                255,
-            ]
+            let read = |component: usize| {
+                decode.channel(
+                    component,
+                    usize::from(row.get(at.saturating_add(component)).copied().unwrap_or(0)),
+                )
+            };
+            [read(0), read(1), read(2), 255]
         }
         (ColourSpace::Cmyk, _) => {
             let at = x.saturating_mul(4);
             let read = |offset: usize| {
-                f32::from(maybe_invert(
-                    row.get(at.saturating_add(offset)).copied().unwrap_or(0),
-                    invert,
-                )) / 255.0
+                decode.value(
+                    offset,
+                    usize::from(row.get(at.saturating_add(offset)).copied().unwrap_or(0)),
+                )
             };
             // The *same* conversion a `k` operator or an `scn` in DeviceCMYK gets. Having a
             // second one here is how the same colour came to render differently depending on
@@ -529,8 +663,8 @@ fn sample_rgba(
             } else {
                 usize::from(row.get(x).copied().unwrap_or(0))
             };
-            // The table already carries `/Decode`'s inversion, so the sample is the index
-            // and nothing else happens to it here.
+            // The table already carries `/Decode`'s map, so the sample is the index and
+            // nothing else happens to it here.
             opaque(
                 palette
                     .and_then(|table| table.get(sample))
@@ -539,7 +673,7 @@ fn sample_rgba(
             )
         }
         (ColourSpace::Resolved(resolved), _) => {
-            opaque(resolved_sample(resolved, row, x, bits, invert))
+            opaque(resolved_sample(resolved, row, x, bits, decode))
         }
     }
 }
@@ -553,22 +687,21 @@ fn resolved_sample(
     row: &[u8],
     x: usize,
     bits: u32,
-    invert: bool,
+    decode: &Decode,
 ) -> pdf_render::Color {
     let count = space.components();
     let at = x.saturating_mul(count);
-    // §8.9.5.2 Table 88: every space's default `/Decode` maps a sample onto the full range
-    // of its component, which is 0.0 to 1.0 for every space that gets here.
     let values: Vec<f32> = (0..count)
-        .map(|offset| {
-            let index = at.saturating_add(offset);
-            if bits == 1 {
+        .map(|component| {
+            let index = at.saturating_add(component);
+            let raw = if bits == 1 {
                 // One bit per *component*, so the components of a pixel are adjacent bits
                 // rather than adjacent bytes.
-                f32::from(sample_bit(row, index) ^ invert)
+                usize::from(sample_bit(row, index))
             } else {
-                f32::from(maybe_invert(row.get(index).copied().unwrap_or(0), invert)) / 255.0
-            }
+                usize::from(row.get(index).copied().unwrap_or(0))
+            };
+            decode.value(component, raw)
         })
         .collect();
     space.to_rgb(&values)
@@ -576,28 +709,16 @@ fn resolved_sample(
 
 /// Every colour a one-component space can produce at this bit depth, in sample order.
 ///
-/// `invert` is baked in, so the table is indexed by the raw sample. §8.9.5.2 Table 88 decides
-/// what a sample *means* before the space sees it: an `Indexed` space's default `/Decode` is
-/// `[0 2^n - 1]`, which passes an index through unchanged, and every other space's maps the
-/// sample onto 0.0 to 1.0.
-fn palette(space: &crate::colour::ColourSpace, bits: u32, invert: bool) -> Vec<pdf_render::Color> {
+/// The `/Decode` map is baked in, so the table is indexed by the raw sample and the
+/// per-pixel path does nothing but index it.
+fn palette(
+    space: &crate::colour::ColourSpace,
+    bits: u32,
+    decode: &Decode,
+) -> Vec<pdf_render::Color> {
     let max = (1u32 << bits.min(8)).saturating_sub(1);
-    let indexed = matches!(space, crate::colour::ColourSpace::Indexed { .. });
     (0..=max)
-        .map(|raw| {
-            let sample = if invert { max.saturating_sub(raw) } else { raw };
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "a sample is at most 255, which f32 represents exactly"
-            )]
-            let value = sample as f32;
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "the maximum is at most 255, which f32 represents exactly"
-            )]
-            let full = max.max(1) as f32;
-            space.to_rgb(&[if indexed { value } else { value / full }])
-        })
+        .map(|raw| space.to_rgb(&[decode.value(0, raw as usize)]))
         .collect()
 }
 
@@ -606,14 +727,6 @@ fn sample_bit(row: &[u8], index: usize) -> bool {
     let byte = row.get(index / 8).copied().unwrap_or(0);
     let shift = 7u32.saturating_sub(u32::try_from(index % 8).unwrap_or(0));
     (byte >> shift) & 1 == 1
-}
-
-fn maybe_invert(value: u8, invert: bool) -> u8 {
-    if invert {
-        255u8.saturating_sub(value)
-    } else {
-        value
-    }
 }
 
 fn channel(value: f32) -> u8 {
@@ -691,6 +804,7 @@ fn decode_jbig2(
     } else {
         colour_space(document, dict)?
     };
+    let decode = Decode::read(document, dict, &space, 1);
     unpack(
         &bilevel.rows,
         width,
@@ -698,7 +812,7 @@ fn decode_jbig2(
         &Samples {
             bits: 1,
             space: &space,
-            invert: decode_inverts(document, dict),
+            decode: &decode,
             // §8.9.6.4's ranges are refused for a JBIG2 or CCITT image rather than applied
             // here; `mask_entry` says why, and reports it.
             colour_key: None,
@@ -805,6 +919,7 @@ fn decode_ccitt(
     } else {
         colour_space(document, dict)?
     };
+    let decode = Decode::read(document, dict, &space, 1);
     unpack(
         &bilevel.rows,
         width,
@@ -812,7 +927,7 @@ fn decode_ccitt(
         &Samples {
             bits: 1,
             space: &space,
-            invert: decode_inverts(document, dict),
+            decode: &decode,
             // §8.9.6.4's ranges are refused for a JBIG2 or CCITT image rather than applied
             // here; `mask_entry` says why, and reports it.
             colour_key: None,
@@ -908,7 +1023,7 @@ fn decode_jpx(
                 &Samples {
                     bits: 1,
                     space: &ColourSpace::Mask,
-                    invert: decode_inverts(document, dict),
+                    decode: &Decode::read(document, dict, &ColourSpace::Mask, 1),
                     // A stencil has no colour components for §8.9.6.4 to range over.
                     colour_key: None,
                     fill,
@@ -1128,6 +1243,38 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageErr
     }
 
     Ok(out)
+}
+
+/// Applies §8.9.5.2's map to a raster that is already eight-bit RGB.
+///
+/// The `DCTDecode` route reaches this rather than [`unpack`], because `zune-jpeg` delivers
+/// components rather than packed samples and the decoder's own colour transform has already
+/// run. So the map is applied afterwards, over channels — which is the same arithmetic on
+/// the same domain, since a JPEG component *is* an integer in 0 to 255.
+///
+/// `/Decode [1 0 1 0 1 0]` on a `DCTDecode` image is the one form of this the corpus states
+/// (`issue7406.pdf`), and it was being dropped: this route never consulted the entry at all.
+/// A greyscale JPEG's single component is written to all three channels by [`decode_jpeg`],
+/// so the first pair governs each of them.
+fn apply_decode_to_channels(document: &Document, dict: &Dictionary, rgba: &mut [u8]) {
+    if document.get_key(dict, "Decode").as_array().is_none() {
+        return;
+    }
+    // The components a JPEG delivers are device channels whatever `/ColorSpace` names, which
+    // is the approximation this route already takes; `decode_jpeg` refuses anything but one
+    // or three of them, and both become RGB here.
+    let decode = Decode::read(document, dict, &ColourSpace::Rgb, 8);
+    if decode.is_identity() {
+        return;
+    }
+    let grey =
+        matches!(document.get_key(dict, "Decode").as_array(), Some(items) if items.len() < 6);
+    for pixel in rgba.chunks_exact_mut(4) {
+        for (component, channel) in pixel.iter_mut().take(3).enumerate() {
+            let pair = if grey { 0 } else { component };
+            *channel = decode.channel(pair, usize::from(*channel));
+        }
+    }
 }
 
 /// Largest grid a mask and its image are combined on, in samples, where that is larger than

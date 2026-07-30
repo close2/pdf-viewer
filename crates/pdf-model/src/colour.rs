@@ -175,6 +175,21 @@ impl ColourSpace {
             b"DeviceCMYK" | b"CMYK" => Some(Self::Cmyk),
             b"CalGray" => Some(Self::parse_cal_gray(document, items.get(1))),
             b"CalRGB" => Some(Self::parse_cal_rgb(document, items.get(1))),
+            // §8.6.5.1: "A PDF reader shall ignore CalCMYK colour space attributes and
+            // render colours specified in this family as if they had been specified using
+            // DeviceCMYK." The family was withdrawn before it was ever completed — NOTE 1
+            // says its definition "has been completely removed" — so there is nothing to
+            // calibrate against and the clause states the whole of what a reader does with
+            // one. No corpus document writes it; without this arm such a file would report
+            // an unsupported colour space, which is a *refusal* where the standard states
+            // an answer.
+            #[expect(
+                clippy::match_same_arms,
+                reason = "the same answer for a different reason: `DeviceCMYK` is a device \
+                          space and `CalCMYK` is a withdrawn family the clause redirects to \
+                          it, and merging the arms would put one comment over two rules"
+            )]
+            b"CalCMYK" => Some(Self::Cmyk),
             b"Pattern" => Some(Self::Pattern {
                 base: items
                     .get(1)
@@ -360,15 +375,48 @@ impl ColourSpace {
         })
     }
 
+    /// Table 88's default `/Decode` pair for one component of an image in this space.
+    ///
+    /// §8.9.5.2's table gives every family the full range of its components — which is
+    /// [`Self::component_range`] — with one exception the table's own NOTE 2 names: an
+    /// `Indexed` space's default is `[0 2^n − 1]`, so that "component values that index a
+    /// colour table are passed through unchanged" rather than being scaled to 0.0..=1.0.
+    pub(crate) fn default_decode(&self, component: usize, bits: u32) -> (f32, f32) {
+        match self {
+            Self::Indexed { .. } => {
+                let max = (1u32 << bits.min(16)).saturating_sub(1);
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "at most 65535, which f32 represents exactly"
+                )]
+                let high = max as f32;
+                (0.0, high)
+            }
+            _ => self.component_range(component),
+        }
+    }
+
     /// The range one component of a colour in this space may take.
     ///
-    /// Every family's components run from 0.0 to 1.0 except `Lab`, whose lightness is a
-    /// percentage and whose two chromatic axes take their bounds from the space's own
-    /// `/Range` (§8.6.5.4, Table 65). Only [`Self::parse_indexed`] needs this, because a
-    /// colour table's bytes are the one place the specification asks for a component's range
-    /// rather than its value.
-    fn component_range(&self, component: usize) -> (f32, f32) {
+    /// Every family's components run from 0.0 to 1.0 except two. `Lab`'s lightness is a
+    /// percentage and its two chromatic axes take their bounds from the space's own `/Range`
+    /// (§8.6.5.4, Table 65). An `Indexed` space's one component is an index, which §8.6.6.3
+    /// bounds by `hival`: "if the value is greater than hival, it shall be clipped".
+    ///
+    /// Two callers, both about a *range* rather than a value: [`Self::parse_indexed`] scales
+    /// a colour table's bytes onto the base space's components, and [`crate::image`] clamps
+    /// what a `/Decode` array produces.
+    pub(crate) fn component_range(&self, component: usize) -> (f32, f32) {
         match self {
+            Self::Indexed { high, .. } => {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "an index beyond f32's exact integers cannot address a table \
+                              this crate built"
+                )]
+                let top = *high as f32;
+                (0.0, top)
+            }
             Self::Lab { range } => match component {
                 0 => (0.0, 100.0),
                 other => {
@@ -997,6 +1045,8 @@ fn narrow(value: f64) -> f32 {
               comparison would hide the very drift the test exists to catch"
 )]
 mod tests {
+    use pdf_syntax::{Dictionary, Document, Object};
+
     use super::ColourSpace;
 
     /// A space's initial colour is the one ISO 32000-2 §8.6.8 gives it, which is often not
@@ -1028,6 +1078,41 @@ mod tests {
             ColourSpace::Pattern { base: None }
                 .initial_colour()
                 .is_empty()
+        );
+    }
+
+    /// §8.6.5.1's `CalCMYK`: a family the standard withdrew and still says what to do with.
+    ///
+    /// > A PDF reader shall ignore CalCMYK colour space attributes and render colours
+    /// > specified in this family as if they had been specified using DeviceCMYK
+    ///
+    /// So the dictionary beside the name is not a parse failure and not an approximation —
+    /// it is *ignored*, by the clause's own instruction, and what is left is `DeviceCMYK`.
+    /// No corpus document writes one, which is why this rule waited for a reading of the
+    /// family rather than for a page; without it such a file reported an unsupported colour
+    /// space, which is a refusal where the standard states an answer.
+    #[test]
+    fn a_calcmyk_space_is_device_cmyk_and_its_dictionary_is_ignored() {
+        let document = Document::open(
+            b"%PDF-1.7\n1 0 obj\n<< /WhitePoint [0.9505 1 1.089] >>\nendobj\n\
+              trailer\n<< /Size 2 /Root 1 0 R >>\n"
+                .to_vec(),
+        )
+        .expect("a document with one dictionary in it");
+        let space = ColourSpace::parse(
+            &document,
+            &Object::Array(vec![
+                Object::Name(pdf_syntax::Name::new(b"CalCMYK".as_slice())),
+                Object::Dictionary(Dictionary::new()),
+            ]),
+            &Dictionary::new(),
+        )
+        .expect("§8.6.5.1 states what a CalCMYK space is");
+        assert_eq!(space.components(), 4);
+        assert_eq!(
+            space.to_rgb(&[0.0, 0.0, 0.0, 1.0]),
+            ColourSpace::Cmyk.to_rgb(&[0.0, 0.0, 0.0, 1.0]),
+            "a CalCMYK colour is a DeviceCMYK colour"
         );
     }
 

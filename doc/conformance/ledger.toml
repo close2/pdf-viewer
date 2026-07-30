@@ -1155,22 +1155,34 @@ status = "unreviewed"
 [[clause]]
 clause = "8.6.5"
 title = "CIE-Based colour spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs"]
+note = "The family, reviewed as one in the twenty-fifth session. All four of its space families are read from the document and converted through CIE XYZ rather than approximated (ADR 0012), and there is exactly one route from XYZ to a pixel. The subclauses below carry what each one found."
 
 [[clause]]
 clause = "8.6.5.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/src/colour.rs::a_calcmyk_space_is_device_cmyk_and_its_dictionary_is_ignored", "crates/pdf-model/src/colour.rs::a_space_starts_at_the_colour_the_clause_gives_it"]
+note = "Three requirements, and one of them was a refusal until this review. **`CalCMYK`**: \"A PDF reader shall ignore CalCMYK colour space attributes and render colours specified in this family as if they had been specified using DeviceCMYK\" — the family was withdrawn before it was ever completed, so the clause states the whole of what a reader does with one. It now parses to `DeviceCMYK`; before, such a file reported an unsupported colour space, which is a refusal where the standard gives an answer. No corpus document writes one. **The initial colour**: \"setting the current stroking or nonstroking colour space to any CIE-based colour space shall initialise all components of the corresponding current colour to 0.0\", with the nearest valid value substituted where 0.0 is out of range — `ColourSpace::initial_colour`, which §8.6.8 also asks for. **The two-stage model**: `Decode ABC` then `Matrix ABC` then `Decode LMN` then `Matrix LMN`; PDF states only spaces whose second stage is the identity, which is why the code has one stage and no more."
 
 [[clause]]
 clause = "8.6.5.2"
 title = "CalGray colour spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs"]
+note = "Table 62 in full: `/WhitePoint` required with X_W and Z_W positive and Y_W equal to 1.0, `/BlackPoint` defaulting to black, `/Gamma` a positive number defaulting to 1. The clause's transformation is one stage — the A component decoded by the gamma function and multiplied by the white point to give L, M and N, which are X, Y and Z because there is no second stage — and that is what `to_rgb_at` computes. \"Component values falling outside that range shall be adjusted to the nearest valid value without error indication\" is `channel`, which clamps to 0.0..=1.0 and maps NaN to 0.0. `/BlackPoint` is read and *not* applied: ADR 0012 argues that a stretch built from it is undefined on input Table 62 permits, and §8.6.5.9 leaves black point compensation to the processor wherever `/UseBlackPtComp` is `Default`."
 
 [[clause]]
 clause = "8.6.5.3"
 title = "CalRGB colour spaces"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/colour.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs"]
+note = "Table 63 in full: `/WhitePoint` as in Table 62, `/BlackPoint` defaulting to black, `/Gamma` an array of three defaulting to `[1 1 1]`, `/Matrix` nine numbers defaulting to the identity. The table's order is `[X_A Y_A Z_A X_B Y_B Z_B X_C Y_C Z_C]`, which is one *column* per triple rather than one row — the code's field comment says so, because reading it the other way is a plausible transposition that no page announces. Each component is decoded by its own gamma and the vector multiplied by the matrix, with no second stage. Clamping and `/BlackPoint` are as §8.6.5.2. The subclause's closing half — deriving `/Matrix` and `/WhitePoint` from phosphor chromaticities — is a writer's calculation and reaches no reader."
 
 [[clause]]
 clause = "8.6.5.4"
@@ -1183,27 +1195,41 @@ note = "`/WhitePoint`, `/BlackPoint` and `/Range` are read, and a Lab colour is 
 [[clause]]
 clause = "8.6.5.5"
 title = "ICCBased colour spaces"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/icc.rs", "crates/pdf-model/src/colour.rs", "crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs"]
+note = "The profile is parsed and evaluated here — an A2B evaluator written in this tree — and it wins over `/Alternate` and `/N`, which is the clause's own order: the profile is the document's statement of what its numbers mean. `/Range` is read. **The gap this review found is not in the parsing but in who asks**: a *fill* in an `ICCBased` space is converted through the profile and an *image* in the same space is not — `image.rs` reduces the space to `DeviceGray`, `DeviceRGB` or `DeviceCMYK` by its `/N` and unpacks it as a device space. That is trap 6's defect one level up, and it is measured rather than suspected: 31 corpus documents carry 1037 `ICCBased` images, and on 15 of them the profile's answer for a mid grey differs from the device passthrough by 18 levels out of 255. It is silent, and closing it is a question about where a per-sample conversion is affordable rather than about the clause."
 
 [[clause]]
 clause = "8.6.5.6"
 title = "Default colour spaces"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::a_default_colour_space_replaces_the_device_space", "crates/pdf-model/tests/colour_paths.rs::a_default_space_outranks_the_output_intent"]
+note = "`/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` are looked up in the resources whenever a device space is named, and the resolved space is used in its place — \"if such an entry is present, its value shall be used as the colour space for the operation currently being performed\". Because the lookup is inside `ColourSpace::by_name`, the clause's four indirect cases come free: a `Pattern`'s underlying space, an `Indexed` space's base and a `Separation` or `DeviceN`'s alternate all reach it by the same route, and a shading dictionary's `/ColorSpace` is parsed against the page's resources. **What is missing is the image half.** The clause says the remapping applies to \"a colour space given as an entry in an image XObject, inline image, or shading dictionary\", and `image.rs` parses an image's `/ColorSpace` against an empty resource dictionary, so a device space named there is never remapped. One corpus document names a default at all (`issue14821.pdf`, `/DefaultRGB`) and its images state their space directly, so no page changes — but the requirement is unconditional. Not implemented and not reported: `/DefaultCMYK` is honoured for fills, which is where ADR 0009 needed it."
 
 [[clause]]
 clause = "8.6.5.7"
 title = "Implicit conversion of CIE-Based colour spaces"
-status = "unreviewed"
+status = "inapplicable"
+code = ["crates/pdf-model/src/colour.rs"]
+note = "The clause is a permission to *skip* a conversion: where a source CIE-based space \"accurately represents the particular output device being used\", a processor should use the values directly rather than converting to XYZ and back. Its own NOTE 3 says the conditions \"cannot be specified in PDF, since nothing in PDF describes the calibration of the output device\". This device is an sRGB screen and every colour is converted to it at the moment it is read, so there is no four-to-three-to-four round trip for the clause to save and no place the shortcut would apply. The paragraph that would bind us if it did — that all the semantics of the device space then apply, including overprint mode and a `Separation` selecting a component of the group space — is answered by §8.6.7 and §11.7.4 for this device's three additive colourants (ADR 0028)."
 
 [[clause]]
 clause = "8.6.5.8"
 title = "Rendering intents"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/icc.rs"]
+test = ["crates/pdf-model/src/icc.rs::black_point_compensation_aligns_the_darkest_colour_the_profile_reaches"]
+note = "Table 69's four names are recognised, and one of them changes what this renderer does: `AbsoluteColorimetric` turns black point compensation off, which §8.6.5.9 requires of it. `RelativeColorimetric`, `Saturation` and `Perceptual` are recorded and reach nothing further — selecting a profile's `A2B1` or `A2B2` table by intent is not done, so a perceptual intent renders colorimetrically. \"If a PDF processor does not recognise the specified name, it shall use the RelativeColorimetric intent by default\" is satisfied by construction rather than by a branch: everything that is not `AbsoluteColorimetric` takes the same path, which is what the clause asks a reader to do with a name it does not know. Both routes to the parameter are read, the `ri` operator and `/RI` in an `/ExtGState`; the third, an image dictionary's `/Intent`, is not."
 
 [[clause]]
 clause = "8.6.5.9"
 title = "Use of black point compensation"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/icc.rs"]
+test = ["crates/pdf-model/src/icc.rs::black_point_compensation_aligns_the_darkest_colour_the_profile_reaches"]
+note = "`/UseBlackPtComp` is read with its three values, and `BlackPoint::applies` decides. `ON` compensates, `OFF` does not, and `Default` — \"the behaviour is left to the PDF processor to determine\" — compensates, which is this processor's determination and is written down as one. \"If the current render intent of an object is AbsColorimetric then the value of UseBlackPtComp shall be treated as OFF\" is implemented for both routes to the intent, and note the spelling: this clause writes `AbsColorimetric` where Table 69 writes `AbsoluteColorimetric`, and the code tests for the name a file may actually contain. What is `partial` is the `ON` half: the clause defers to ISO 18619 for what compensation *is*, and this tree does not have that document — what it implements is the black point stretch ADR 0012 describes, applied to an ICC profile's own black point, which is undefined on input Table 63 permits and is why `/BlackPoint` on a Cal space is read and not applied."
 
 [[clause]]
 clause = "8.6.6"
@@ -1444,10 +1470,10 @@ note = "Table 87's entries, and which of them are read: `/Width`, `/Height`, `/C
 [[clause]]
 clause = "8.9.5.2"
 title = "Decode arrays"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/image.rs"]
-test = ["crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"]
-note = "Table 88's defaults are implemented, and the eleventh session found that the `Indexed` row is not the same rule as the others: every space's default maps a sample onto 0.0 to 1.0 except `Indexed`, whose `[0 2^n - 1]` passes an index through unchanged. An index divided by 255 is index 0 for every sample but the last. What is *not* implemented is a general decode array: only the fully-inverted form `[1 0]` is applied, which is what real files write, and an arbitrary linear map is silently ignored. That silence is this row's debt — the formula is two multiplications and the reason it has not been done is that the device fast paths unpack `u8` without touching floating point."
+test = ["crates/pdf-model/tests/decode_arrays.rs", "crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"]
+note = "The clause's linear map in full, as of the twenty-fifth session, with Table 88's defaults per space and its closing sentence's clamp: an output value not permitted for a component \"shall be adjusted to the nearest allowed value\". Held as one lookup table per component, built once per image, because every input the formula takes is fixed by the image dictionary and its domain has at most 2^n points. This row was `partial` for fourteen sessions with three silences under it, and each was larger than the note admitted. **The general map**: only `[1 0]` was applied and every other array ignored, which no corpus document can see — all 974 write Table 88's default or its exact reversal, measured by walking every image dictionary. **The `DCTDecode` route**: it never consulted the entry at all, so `issue7406.pdf` drew a JPEG in complementary colours against all four references. **Table 88's `Lab` row**: a `Lab` image's default decode is `[0 100 a_min a_max b_min b_max]`, and scaling its lightness onto 0.0 to 1.0 like every device space makes the brightest colour it can hold L = 1, which is black. The `Indexed` row is the one the eleventh session already had right, and the formula keeps it right by multiplying before dividing."
 
 [[clause]]
 clause = "8.9.5.3"
