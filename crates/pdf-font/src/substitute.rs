@@ -440,3 +440,33 @@ fn read_cached(path: &Path) -> Option<Arc<[u8]>> {
     }
     Some(bytes)
 }
+
+/// ISO 32000-2 §9.9.2's subset tag, which is a rule about six letters and a plus sign.
+#[cfg(test)]
+mod tests {
+    use super::strip_subset_prefix;
+
+    /// §9.9.2:
+    ///
+    /// > The tag shall consist of exactly six uppercase letters
+    ///
+    /// So the rule is not "split on the first plus": a face whose own name contains one, or
+    /// a producer whose tag is the wrong length, states a name rather than a subset tag.
+    #[test]
+    fn a_subset_prefix_is_removed_only_when_it_is_one() {
+        assert_eq!(strip_subset_prefix("ABCDEF+Times-Roman"), "Times-Roman");
+        assert_eq!(strip_subset_prefix("Times-Roman"), "Times-Roman");
+        assert_eq!(
+            strip_subset_prefix("ABCDE+Times-Roman"),
+            "ABCDE+Times-Roman"
+        );
+        assert_eq!(
+            strip_subset_prefix("ABCDEFG+Times-Roman"),
+            "ABCDEFG+Times-Roman"
+        );
+        assert_eq!(
+            strip_subset_prefix("abcdef+Times-Roman"),
+            "abcdef+Times-Roman"
+        );
+    }
+}

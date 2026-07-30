@@ -202,6 +202,20 @@ pub struct Interpretation {
     /// This is reading order as the producer wrote it, which is not always visual order.
     /// It carries no layout analysis and does not try to reconstruct columns.
     pub text: String,
+    /// How many glyphs *marked the page*.
+    ///
+    /// Deliberately not the length of [`Self::text`], which is a different question with a
+    /// different answer: a font with no `/ToUnicode` and no glyph names the Adobe Glyph
+    /// List knows draws perfectly good glyphs that nothing can name, so the readback is
+    /// empty for a page that is nothing but text. The reference comparison chooses a page's
+    /// tolerance from this, because what decides whether a difference is glyph hinting or a
+    /// misplaced shape is whether glyphs were drawn — not whether we could say which ones.
+    ///
+    /// Counts a glyph that was filled, stroked or run as a Type 3 description, so text in
+    /// rendering mode 3 or 7 (invisible, and clip-only) contributes nothing, and neither
+    /// does a glyph on a hidden optional-content layer. It is a count rather than a flag
+    /// because "a page with three glyphs on it" and "a page of text" are different pages.
+    pub glyphs: usize,
 }
 
 impl Interpretation {
@@ -727,6 +741,7 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         list: DisplayList::new(size),
         unsupported: BTreeMap::new(),
         text_operations: 0,
+        glyphs: 0,
         operations: 0,
         fonts: BTreeMap::new(),
         text: String::new(),
@@ -763,6 +778,7 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         display_list: interpreter.list,
         unsupported,
         text: interpreter.text,
+        glyphs: interpreter.glyphs,
     }
 }
 
@@ -841,6 +857,8 @@ struct Interpreter<'a> {
     /// once rather than flooding the diagnostics.
     unsupported: BTreeMap<Unsupported, Unsupported>,
     text_operations: usize,
+    /// Glyphs that marked the page; see [`Interpretation::glyphs`].
+    glyphs: usize,
     operations: usize,
     /// Fonts already loaded, keyed by resource name.
     ///
@@ -2778,6 +2796,13 @@ impl Interpreter<'_> {
                 match &font {
                     Font::Program(program) => {
                         if let Some(outline) = program.outline(code) {
+                            if fills || strokes {
+                                // Marked the page; see `Interpretation::glyphs`. An empty
+                                // outline — a space in a font that has one — is a glyph the
+                                // font drew and is counted, because the question this
+                                // answers is what *kind* of page this is.
+                                self.glyphs = self.glyphs.saturating_add(1);
+                            }
                             if fills {
                                 self.list.push(Command::Fill {
                                     // The font hands out shared outlines and the display
@@ -2820,6 +2845,7 @@ impl Interpreter<'_> {
                         // rendering mode is set to a value of 4, 5, 6 or 7, nothing shall be
                         // added to the clipping path."
                         if fills || strokes {
+                            self.glyphs = self.glyphs.saturating_add(1);
                             self.draw_type3_glyph(
                                 type3,
                                 code.value(),

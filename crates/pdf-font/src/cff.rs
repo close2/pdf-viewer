@@ -35,6 +35,8 @@ use skrifa::GlyphId;
 use skrifa::outline::OutlinePen;
 use skrifa::raw::ps::cff::CffFontRef;
 
+use crate::name_keyed::NameKeyed;
+
 /// Why a bare CFF font program could not be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -61,26 +63,10 @@ pub enum CffError {
 #[derive(Debug)]
 pub enum CodeToGlyph {
     /// A name-keyed font, which is what a PDF *simple* font embeds.
-    Named {
-        /// Glyph index by glyph name, taken from the font's charset.
-        by_name: BTreeMap<Box<str>, u16>,
-        /// Glyph index by character code, taken from the encoding the font itself carries.
-        ///
-        /// ISO 32000-2 §9.6.5.1 Table 112 makes this the *base* encoding whenever the font
-        /// program is embedded and the `/Encoding` dictionary names no `/BaseEncoding`, so
-        /// it is what a `/Differences` array describes differences from rather than only a
-        /// fallback for a code nothing else reached.
-        builtin: Box<[Option<u16>; 256]>,
-        /// The glyph name the built-in encoding gives each character code.
-        ///
-        /// The same mapping as `builtin`, carried through the charset instead of stopping
-        /// at the glyph index. Nothing about *drawing* needs it — `builtin` selects the
-        /// glyph directly — but a code's glyph name is what a document with no
-        /// `/ToUnicode` means by that code, so text extraction and
-        /// [`crate::LoadedFont::code_for`] would otherwise lose every code the PDF
-        /// encoding left to the font.
-        builtin_names: Box<[Option<Box<str>>; 256]>,
-    },
+    ///
+    /// The payload is the same one a bare Type 1 program produces, because §9.6.5.2 is one
+    /// algorithm for both formats — see [`crate::name_keyed`].
+    Named(NameKeyed),
     /// A CID-keyed font, which is what a PDF *composite* font embeds.
     Keyed {
         /// Glyph index by CID, inverting the charset.
@@ -112,7 +98,6 @@ impl CodeToGlyph {
             return Ok(Self::Keyed { by_cid });
         }
 
-        let mut by_name = BTreeMap::new();
         let mut by_glyph = BTreeMap::new();
         for (glyph, sid) in charset.iter() {
             let Ok(glyph) = u16::try_from(glyph.to_u32()) else {
@@ -124,10 +109,7 @@ impl CodeToGlyph {
             // Glyph names are ASCII by specification; a font that breaks that is
             // malformed, not a reason to give up on the glyphs that are well formed.
             let name = String::from_utf8_lossy(name).into_owned().into_boxed_str();
-            by_glyph.entry(glyph).or_insert_with(|| name.clone());
-            // A duplicated name keeps the lowest glyph index, matching the order a
-            // charset assigns them.
-            by_name.entry(name).or_insert(glyph);
+            by_glyph.entry(glyph).or_insert(name);
         }
 
         let mut builtin = Box::new([None; 256]);
@@ -141,19 +123,8 @@ impl CodeToGlyph {
                     .and_then(|glyph| u16::try_from(glyph.to_u32()).ok());
             }
         }
-        let builtin_names = Box::new(std::array::from_fn(|code| {
-            builtin
-                .get(code)
-                .copied()
-                .flatten()
-                .and_then(|glyph| by_glyph.get(&glyph).cloned())
-        }));
 
-        Ok(Self::Named {
-            by_name,
-            builtin,
-            builtin_names,
-        })
+        Ok(Self::Named(NameKeyed::new(&by_glyph, builtin)))
     }
 }
 

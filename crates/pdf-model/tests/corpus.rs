@@ -343,7 +343,24 @@ const MAX_PAGELESS: usize = 11;
 /// rather than by the resource name this crate's font cache is keyed on, and one document
 /// writes it: `extgstate.pdf`, which now says so instead of drawing its text in whatever font
 /// was current. Trap 5's rule, and the price is one page leaving the oracle's judged set.
-const MAX_INCOMPLETE: usize = 130;
+///
+/// **130 to 110 in the thirtieth session, the largest fall it has had since JBIG2**, and the
+/// feature that caused it was on the "not implemented" list with a corpus count of **zero**
+/// beside it. §9.9's `/FontFile` — a bare Type 1 font program — is now read, and 20 documents
+/// stopped reporting. The zero was measuring *reports*, not documents: an unreadable embedded
+/// program fell through to substitution, and substitution only speaks when it can address none
+/// of the declared codes, so a page set in a Type 1 font drew in some other typeface and said
+/// nothing. Trap 5's rule from the other side — the report that never fired was the one for a
+/// feature that had a fallback.
+///
+/// Nothing joined the row, and one thing nearly did. `issue5751.pdf` and
+/// `issue11740_reduced.pdf` are **CIDFonts** whose descendant descriptors embed a
+/// `/FontFile`, which §9.9's Table 124 does not allow there — a Type 1 program is keyed by
+/// glyph name and a CIDFont selects by CID, so the clause states no route between them. The
+/// first draft read the program anyway and reported that it was not an sfnt, which named the
+/// wrong defect: the program is fine and its *placement* is what the clause forbids. They get
+/// what any CIDFont with no usable program gets, which is a substitute.
+const MAX_INCOMPLETE: usize = 110;
 
 /// How long one document may take before it counts as a failure.
 ///

@@ -344,15 +344,18 @@ const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.p
 /// Contradicted for drawing a link's border, where the two references that agree agree for two
 /// unrelated reasons — and neither of them is a reading of the clause.
 ///
-/// 4 pages, all gated for the first time in the twenty-first session, when appearances began
+/// 3 pages, all gated for the first time in the twenty-first session, when appearances began
 /// being constructed (ADR 0030). Each carries `Link` annotations with a colour and a non-zero
 /// border width, and on each of them we and `poppler` draw the rectangles while `mupdf` and
 /// `ghostscript` draw nothing.
 ///
-/// Three arrived by becoming *comparable*. The fourth, `issue18823.pdf`, was contradicted
-/// before this session at mean 7.38 while not being gated — it reported its seven appearance-less
-/// links — and is 8.10 now, so its borders account for 0.7 of a difference that was already 2.2
-/// outside the bound and is spread across every glyph and both ellipses on the page.
+/// All three arrived by becoming *comparable*. A fourth, `issue18823.pdf`, was here because
+/// its links were only part of a larger difference — mean 8.10 against a bound of 5.00, spread
+/// across every glyph and both ellipses on the page. It left in the thirtieth session and now
+/// agrees, because those glyphs came from a bare Type 1 program this tree could not read and
+/// was substituting for. **Which says the entry was right to record that the borders were 0.7
+/// of it and wrong to keep the page under this label**, and is the eighth time a group's name
+/// has named a hypothesis rather than a diagnosis.
 ///
 /// # What the clause says
 ///
@@ -384,49 +387,39 @@ const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.p
 ///   appearance streams this flag shall be ignored."
 ///
 /// So one reference has a gap, one is answering a different question, and a viewer is a screen —
-/// where bit 6, `NoView`, is the flag with a say, and it is clear on all four pages. Listed
+/// where bit 6, `NoView`, is the flag with a say, and it is clear on all three pages. Listed
 /// rather than chased.
-const CONTRADICTED_LINK_BORDER: [&str; 4] = [
+const CONTRADICTED_LINK_BORDER: [&str; 3] = [
     "file_url_link.pdf page 1",
     "issue14802.pdf page 1",
-    "issue18823.pdf page 1",
     "issue7115.pdf page 1",
 ];
 
 /// Contradicted, drawing glyphs this gate is measuring with the *vector* tolerance.
 ///
-/// 1 page, and it is a measurement artefact rather than a rendering one — but a real one,
-/// so it is listed rather than excused.
+/// **Empty, and the emptying is the point.** The tolerance class came from `has_text`, which
+/// asked whether we read any *text* back from the page — so a page drawing glyphs from a
+/// subset with no `/ToUnicode` and no names the Adobe Glyph List knows was nothing but text
+/// and was judged by the bound measured on flat fills. The thirtieth session made `has_text`
+/// ask what it means to ask, `Interpretation::glyphs`, which counts glyphs that *marked the
+/// page*.
 ///
-/// The tolerance class comes from `has_text`, which asks whether we read any text back from
-/// the page. `issue5070.pdf` draws three CJK glyphs from an embedded subset with no
-/// `/ToUnicode` and no glyph names the Adobe Glyph List knows, so the readback is empty and
-/// a page that is nothing *but* text is judged by the bound measured on flat fills. It
-/// passes every absolute bound in that bound — mean 0.30 against 1.00, worst tile 1.61
-/// against 5.00, SSIM 0.9994 against 0.9900 — and is contradicted only by the relative
-/// test, because the two references that agree agree very closely indeed.
+/// It cost something and bought more. 25 pages left `ambiguous` — a looser bound is one two
+/// references can agree inside — of which 19 agree and 6 do not, so the gate now judges pages
+/// it used to shrug at. Both of this group's members left: `issue5070.pdf` agrees, and
+/// `issue7901.pdf` is still contradicted but under the bound that fits it, so it moved to
+/// `CONTRADICTED_UNEXPLAINED` where the reason for it is the honest label. Its numbers are
+/// worth keeping here as the archetype: 200 by 40 pixels holding nothing but the words "The
+/// Free Software Definition" at about eight pixels, every absolute bound met with room to
+/// spare, and 9.89% of pixels differing — which on a page that is entirely glyph edges is the
+/// anti-aliasing of every letter, against two references that share `FreeType`.
 ///
-/// Which is worth a second look, in the light of trap 9. `poppler` and `mupdf` both take
-/// their glyph outlines and hinting from **`FreeType`**; we take ours from `skrifa`. On a page
-/// whose entire content is glyph outlines, their agreement is partly `FreeType` agreeing with
-/// itself, so the relative bound is measuring a shared component rather than two independent
-/// readings. That is an argument about this page's *evidence*, not an excuse: the entry
-/// stays, and the way to settle it is to make `has_text` mean "we drew glyphs" rather than
-/// "we could name what we drew".
-/// # A second page joined in the twentieth session, and it arrived by becoming comparable
-///
-/// `issue7901.pdf` is 200 by 40 pixels and holds nothing but the words "The Free Software
-/// Definition" at about eight pixels. It reported an unreadable `CMap` until §9.7.5.3 landed
-/// (ADR 0029), and it now draws the sentence — the side-by-side is four panels of the same
-/// words. Every *absolute* bound is met with room to spare: mean 3.95 against 5.00, worst tile
-/// 9.95 against 40.00, SSIM 0.9683 against 0.9900's floor. What fails is the differing-fraction
-/// bound, at 9.89%, and on a page that is entirely glyph edges that fraction is the
-/// anti-aliasing of every letter. The heatmap shows the outline of each word and nothing else.
-/// Trap 12's shape from the other direction: the bound is derived from how close the two
-/// consensus references sit, and on a page of small text taken from the same `FreeType` they
-/// sit closer than two independent rasterisers can.
-const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 2] =
-    ["issue5070.pdf page 1", "issue7901.pdf page 1"];
+/// The reverse direction is real too and arrived with it: a page of *invisible* text over a
+/// scanned image reads back plenty of text and marks the page with no glyph at all, and it is
+/// an image page. `issue11150_reduced.pdf` was one, and it was drawing nothing where four
+/// references draw three thetas — a bare Type 1 program this tree could not read until the
+/// same session. The instrument found it by tightening, not by loosening.
+const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 0] = [];
 
 /// Contradicted, missing one glyph of a symbolic simple font whose `/Differences` misname it.
 ///
@@ -543,7 +536,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 58 pages carrying no undrawn annotation, no hidden optional content and no substituted
+/// 50 pages carrying no undrawn annotation, no hidden optional content and no substituted
 /// font — so the difference is in something we believe we implement. One cause is identified
 /// and live; the rest are unexamined, and working through them is the highest-value use of
 /// this gate:
@@ -582,6 +575,29 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// Two further causes have been found through this list and fixed: `CalGray` and `CalRGB`
 /// converted as their device equivalents, and now this. That is what the list is for.
 ///
+/// # Seventeen left in the thirtieth session and seven arrived, and both halves are one change
+///
+/// Reading §9.9 and implementing `/FontFile` — a bare Type 1 font program — took 19 corpus
+/// documents off the incomplete row, and with them **17 pages of this list**, every one of
+/// which now agrees with the reference consensus. `issue5751.pdf` is the one that stayed:
+/// it is a CIDFont whose descendant descriptor embeds a `/FontFile`, which §9.9's Table 124
+/// does not allow there, so it draws in a substitute face as it always did. They had been drawing in a substitute
+/// typeface, silently, because an unreadable embedded program falls through to substitution
+/// and substitution only speaks when it can address nothing. So the largest single fall this
+/// list has had came from a feature whose corpus count was recorded as zero.
+///
+/// The seven that arrived came from the *instrument*, and they are pages this gate used to
+/// call `ambiguous`. `has_text` decided a page's tolerance class by whether we read any text
+/// back; it now asks `Interpretation::glyphs`, which counts glyphs that marked the page.
+/// 25 pages left `ambiguous` because a bound wide enough for glyph hinting is one two
+/// references can agree inside — 19 of them agree with us and 7 do not. **A page that was
+/// unjudgeable and is now contradicted is not a regression; it is a page that was already
+/// wrong and could not be said to be.** `issue9915_reduced.pdf` is the one with a visible
+/// story: its `/OCRB` CIDFont writes `/W [32 [719] 0 180 719 181 [878] 182 65534 719]`, and
+/// our letters sit about 1.39× closer together than `poppler`'s and `mupdf`'s — which is
+/// 1000/719, the ratio between §9.7.4.3's `/DW` default and the width that array states.
+/// Somebody is not reading `/W`; the clause says which of us should be.
+///
 /// # Two more left in the thirtieth session, and only one of them is a fix
 ///
 /// `issue7439.pdf` **is** one, and it is a width rather than a picture: its single line of
@@ -616,13 +632,14 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 58] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 50] = [
     "bug1108301.pdf page 1",
+    "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
     "bug1252420.pdf page 1",
-    "bug1539074.1.pdf page 1",
-    "bug1997343.pdf page 2",
+    "bug1650302_reduced.pdf page 1",
+    "bug894572.pdf page 1",
     "colors.pdf page 1",
     "colors.pdf page 2",
     "freeculture.pdf page 313",
@@ -633,41 +650,32 @@ const CONTRADICTED_UNEXPLAINED: [&str; 58] = [
     "function_based_shading_cmyk.pdf page 2",
     "issue1002.pdf page 1",
     "issue10572.pdf page 1",
-    "issue7891_bc1.pdf page 1",
-    "issue11477_reduced.pdf page 1",
     "issue11549_reduced.pdf page 1",
     "issue11740_reduced.pdf page 1",
-    "issue14462_reduced.pdf page 1",
-    "issue1453.pdf page 1",
-    "issue1655r.pdf page 1",
-    "issue18548_reduced.pdf page 1",
     "issue18816.pdf page 1",
     "issue19633.pdf page 1",
+    "issue2017r.pdf page 1",
     "issue215.pdf page 1",
+    "issue2537r.pdf page 1",
     "issue2948.pdf page 1",
     "issue3207r.pdf page 1",
     "issue3405r.pdf page 1",
     "issue3694_reduced.pdf page 1",
-    "issue3928.pdf page 1",
-    "issue3928.pdf page 2",
     "issue4061.pdf page 1",
     "issue4650.pdf page 1",
-    "issue5686.pdf page 1",
+    "issue5010.pdf page 1",
     "issue5751.pdf page 1",
-    "issue5994.pdf page 1",
     "issue6231_1.pdf page 1",
-    "issue6721_reduced.pdf page 1",
     "issue6889.pdf page 1",
-    "issue6901.pdf page 1",
     "issue6961.pdf page 1",
     "issue6961.pdf page 2",
-    "issue7180.pdf page 1",
     "issue7492.pdf page 1",
     "issue7696.pdf page 1",
+    "issue7891_bc1.pdf page 1",
+    "issue7901.pdf page 1",
     "issue8097_reduced.pdf page 1",
-    "issue845r.pdf page 1",
     "issue8570.pdf page 1",
-    "issue8960_reduced.pdf page 1",
+    "issue9915_reduced.pdf page 1",
     "mesh_shading_empty.pdf page 1",
     "openoffice.pdf page 1",
     "pattern_text_embedded_font.pdf page 1",
@@ -961,9 +969,12 @@ fn render_ours(work: &Work) -> Result<OurRender, String> {
         .ok_or_else(|| format!("no page {}", work.page))?;
     let interpretation = pdf_model::interpret(&document, &page);
     let complete = interpretation.is_complete();
-    // The readback of the glyphs actually drawn, not a guess from the resources: a page
-    // listing a font it never uses is a vector page.
-    let has_text = !interpretation.text.trim().is_empty();
+    // Whether glyphs *marked the page*, not whether we could name them. A page listing a
+    // font it never uses is a vector page; a page of CJK from a subset with no `/ToUnicode`
+    // is a text page even though nothing here can say what it says. The thirtieth session
+    // changed this line, and the two entries below `CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR`
+    // are what it was costing.
+    let has_text = interpretation.glyphs > 0;
 
     let list = interpretation.display_list;
     let target =

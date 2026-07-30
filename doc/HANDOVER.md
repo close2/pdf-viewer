@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-30 at the end of the **thirtieth** working session. Read
+Written 2026-07-26, updated 2026-07-30 at the end of the **thirty-first** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,75 +12,68 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the thirtieth session changed
+## What the thirty-first session changed
 
-**A font program brings an encoding with it, and for an embedded program that encoding is
-the base.** §9.6.5.1's Table 112 answers `/BaseEncoding`'s absence three ways and only the
-last two turn on the Symbolic flag: "For a font program that is embedded in the PDF file,
-the default base encoding shall be the font program's built-in encoding". `simple_code_table`
-is reached *only* by an embedded bare CFF and asked the flag anyway, giving a nonsymbolic font
-`StandardEncoding` — the rule for a font it would be substituting. It no longer takes a
-descriptor at all. ADR 0039.
+**A font format nobody was reporting.** §9.9's `/FontFile` — a bare Type 1 program, Table 124's
+first row — sat on the "not implemented" list with a corpus count of **zero** and the note "no
+corpus page one reaches it". The zero was measuring *reports*: an unreadable embedded program
+falls through to substitution, and substitution only speaks when its face can address none of
+the declared codes, so 57 corpus documents were drawing in a stand-in typeface in silence. Now
+read, through `read_fonts::ps::type1` on ADR 0006's argument. **20 documents left the incomplete
+row and 17 pages left the oracle's unexplained list, every one of them by agreeing.** ADR 0040.
 
-**`/MissingWidth`'s default is 0 and this tree had it as half an em.** Table 120 states the
-default; Table 109 sends every code outside `/FirstChar`..`/LastChar` to it. `issue7439.pdf`
-shows code 2 six times against a `/FirstChar` of 3, so six half-ems of invented space opened
-between `Issue` and `7439`. The page was contradicted and now agrees.
+**The oracle asked whether we could *name* what we drew.** `has_text` decided a page's tolerance
+class from the text readback, so a page of CJK from a subset with no `/ToUnicode` was judged by
+the bound measured on flat fills. It now asks `Interpretation::glyphs`, which counts glyphs that
+marked the page. 25 pages left `ambiguous` — a bound wide enough for glyph hinting is one two
+references can agree inside — 19 agreeing and 6 not. **A page that was unjudgeable and is now
+contradicted is not a regression.**
 
-**The oracle entry blaming `issue20232.pdf`'s contradictory `/Flags` was wrong, and §9.8.2
-says why it had to be.** "The use of the two flags to represent a single binary choice is a
-historical accident. A PDF processor should always check the Symbolic flag" — which is what
-`is_symbolic` does. The page is blank there because the (3, 0) subtable's glyph 34 is one of
-the 158 glyphs that subset embeds with **no outline**; only 0 and 90 have a contour, and 90 is
-the `Ccedilla` the `/Differences` names, in the array §9.6.5.4 says to ignore. Seventh for
-seventh on a contradicted page's label being a hypothesis rather than a diagnosis.
+**And the tightening is what found the feature.** A page of invisible OCR text over a scan reads
+back text and marks nothing, so it is an image page; `issue11150_reduced.pdf` was one, and under
+the tighter bound it turned out we were drawing **nothing at all** where four references draw
+three thetas. Its font is a `/FontFile`.
 
-**One of the two pages that left the contradicted list is not a fix, and the digest proves
-it.** `issue3566.pdf`'s raster is byte-identical before and after; what moved is which *bound*
-judged it. Nothing could name what its symbolic bare CFF drew, so `has_text` was false and a
-page that is nothing but the word `different` was held to the tolerance measured on flat
-fills. Giving it the program's own glyph names made the readback work. **That is the second
-witness for a known defect in the instrument**: `has_text` asks whether we could name what we
-drew, and what it means to ask is whether we drew glyphs at all.
+**One algorithm, two formats, and the clause says so.** §9.6.2.1's NOTE 1 calls a CFF "an
+alternative, more compact but functionally equivalent representation of a Type 1 font program",
+and §9.6.5.2 states one encoding algorithm for both — so `name_keyed::NameKeyed` is what both
+readers produce and `simple_code_table` cannot tell them apart.
+
+**Reading a document's own font is now faster than substituting for it.** A `Type1Font` decrypts
+the whole `eexec` section per parse, 10–86 µs apiece, and `build_outline` runs once per distinct
+glyph: `tracemonkey.pdf`'s interpretation was 13.5 ms re-parsing per glyph, is **2.8 ms** with the
+parse kept in `LoadedFont`, and was 7.7 ms when it was substituting.
 
 | | was | is |
 |---|---|---|
-| **an embedded CFF's default base encoding** | `StandardEncoding` when the descriptor is nonsymbolic | the program's own, as Table 112 says for an embedded program |
-| **a code with no `/Widths` entry** | half an em, a preference | `/MissingWidth`, default 0, as Table 120 says |
-| **`issue20232.pdf`'s entry** | "a font that claims both flags leaves that route unreachable" | the route is taken and its glyph is empty; §9.8.2 chose the flag |
-| **§9.6 and §9.8's 14 `unreviewed` rows** | nobody had read them | 4 implemented, 8 partial, 2 silent |
+| **`/FontFile`** | refused, then substituted for in silence | read, on 57 corpus documents' page one |
+| **the oracle's tolerance class** | whether we could name what we drew | whether we drew glyphs |
+| **a CIDFont's `/FontFile`** | read as an sfnt and reported as malformed | substituted, because Table 124 puts no Type 1 program there |
+| **`CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR`** | 2 pages | **empty** |
 
 **The numbers:**
 
 | | before | now |
 |---|---|---|
-| corpus documents drawing with nothing reported | 823 | **823** |
-| **pages agreeing with the reference consensus** | 758 | **760** |
-| **pages contradicted by it** | 101 | **99** |
-| contradicted pages with nothing to explain them | 59 | **58** |
-| ledger subclauses nobody has read | 420 | **406** |
-| ledger rows that are `silent` | 1 | **3** |
-| cited clauses still owing a review | 4 | **4** |
-| `§` citations the checker verified | 1250 | **1267** |
-| rustdoc quotations checked verbatim | 124 | **127** |
-| tests | 558 | **566** |
+| **corpus documents drawing with nothing reported** | 823 | **843** |
+| pages we claim to draw completely | 1620 | **1640** |
+| **pages agreeing with the reference consensus** | 760 | **799** |
+| **pages contradicted by it** | 99 | **88** |
+| contradicted pages with nothing to explain them | 58 | **50** |
+| ledger subclauses nobody has read | 406 | **403** |
+| cited clauses still owing a review | 4 | **3** |
+| `§` citations the checker verified | 1267 | **1285** |
+| rustdoc quotations checked verbatim | 127 | **128** |
+| tests | 566 | **569** |
 
 What it taught:
 
-- **A default stated in a table is not a suggestion, and a comment arguing for a nicer one is
-  a preference wearing a reason.** "Spacing degrades gracefully rather than collapsing to
-  zero" is true and has nothing to do with what the clause says. A producer who wants half an
-  em can write half an em.
-- **When two subclauses each condition a branch on one of two flags, the clause that defines
-  the flags is where the tie is broken.** §9.6.5.4 cannot decide a font that sets both;
-  §9.8.2 says a processor "should always check the Symbolic flag" and calls the pair a
-  historical accident.
-- **A page can leave the contradicted list without a pixel moving.** Check the raster's digest
-  before writing "fixed" — the oracle picks a page's tolerance class from what we could *name*,
-  so a change to text extraction is a change to the bound.
-- **Read a rule for which of its cases you are actually in.** Table 112's sentence about
-  embedded programs and its sentence about the Symbolic flag are alternatives, and this code
-  can only ever be in the first.
+- **A "not implemented" count of zero can mean "nothing reports it".** See Habits; it is the
+  lesson this session cost the most to learn and the one most likely to recur.
+- **Fixing an instrument is worth a feature**, and here it *was* the feature: the tighter
+  tolerance class is what pointed at the page drawing nothing.
+- **The clause can tell you two readers are one algorithm.** NOTE 1 of §9.6.2.1 is why `cff.rs`
+  and `type1.rs` share a type instead of sharing a copy of the encoding rules.
 
 ## How the project got here
 
@@ -115,11 +108,13 @@ below rather than here.
 | 28 | A shading's `/BBox`; the whole of §8.7 reviewed; a contradicted page's diagnosis refuted by measuring it | ADR 0037 |
 | 29 | `/UserUnit`, and the geometry list emptied; the whole of §7.7 reviewed | ADR 0038 |
 | 30 | An embedded program's own encoding is the base; `/MissingWidth` is 0; §9.6 and §9.8 reviewed | ADR 0039 |
+| 31 | Bare Type 1 fonts (`/FontFile`); the oracle's tolerance class asks whether glyphs were drawn; §9.9 reviewed | ADR 0040 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
-→ 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 across sessions
-6 to 30, and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 → 263 → 251 → 235 → 232 →
-231 → 231 → 237 → 220 → 220 → 189 → 147 → 137 → 129 → 130 → 130 → 130 → 130 → 130 → 130 → 130.
+→ 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
+sessions 6 to 31, and the corpus's incomplete count 291 → 368 → 250 → 290 → 283 → 263 → 251 →
+235 → 232 → 231 → 231 → 237 → 220 → 220 → 189 → 147 → 137 → 129 → 130 → 130 → 130 → 130 → 130 →
+130 → 130 → 110.
 Both move in both directions on purpose: a rise in the first can mean pages *joined* the
 comparison, and a rise in the second is honesty when a silence ends. The sections below say
 which.
@@ -134,7 +129,7 @@ revision and method §7.6 states, and **a form field's value laid out from its `
 is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
 person for a password — and the gap is measured below rather than guessed at.
 
-- **566 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **569 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -144,16 +139,16 @@ person for a password — and the gap is measured below rather than guessed at.
   **100% of the words `pdftotext` finds**.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open except ten that are
   encrypted — 8 waiting for a password, 2 by something §7.6 does not specify or we do not
-  implement — 953 reach page one, **823 draw with nothing reported**, and everything the other 130
+  implement — 953 reach page one, **843 draw with nothing reported**, and everything the other 110
   cannot draw is named. 1501 of 1501 PDF functions parse; all 1793 shadings build, mesh types
   included. The whole gate runs in **~2 s** with no named slow document left. Counts are
   ratcheted.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1620 pages we claim to draw completely, **760 agree with the reference
-  consensus, 99 are contradicted and 751 are pages the references cannot agree about among
-  themselves**. The 99 are named, grouped and ratcheted in both directions. Twenty-five pages
+  (ADR 0020). Of the 1640 pages we claim to draw completely, **799 agree with the reference
+  consensus, 88 are contradicted and 743 are pages the references cannot agree about among
+  themselves**. The 88 are named, grouped and ratcheted in both directions. Twenty-five pages
   do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
   target size is degenerate or past the pixel limit. **None is a page we decline to draw** —
   the last four of those left in the twenty-fourth session (ADR 0033). ADR 0011.
@@ -232,7 +227,7 @@ person for a password — and the gap is measured below rather than guessed at.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1267 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1285 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -258,7 +253,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1267 citations, 127 quotations, 77 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1285 citations, 128 quotations, 79 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -300,7 +295,7 @@ the exception with its reasoning. Nothing to chase.
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings. `filter.rs` is §7.4's ten standard filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately answered `None` so a *content* stream naming one is visibly unsupported |
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused; its `Decode` is §8.9.5.2's map held as one table per component and its `Conversion` is an *exact* per-image memo, which is what makes converting every image through its real colour space affordable (ADRs 0034, 0035). `page.rs` is §7.7.3: the tree walk, the four inheritable entries and the twelve that are not, and `/UserUnit` (ADR 0038) |
-| `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for CFF, §9.6.5.4 for `TrueType`, ADR 0015). `simple_code_table` takes no font descriptor, which is the shape of ADR 0039's finding: Table 112 makes an *embedded* program's own built-in encoding the base, and the Symbolic flag decides only among the cases where nothing is embedded. `DEFAULT_WIDTH` is Table 120's 0 rather than a preference. `code_for` is the one *backwards* route — a character to the code that draws it — and it is built by running the forward mapping over every code the font defines, so the two cannot disagree. `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree. `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
+| `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for name-keyed programs, §9.6.5.4 for `TrueType`, ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code — glyph by name, glyph by built-in code, and that code's name — and `cff.rs` and `type1.rs` each produce one, because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is §9.9's `/FontFile` and is the one program kept *parsed*, measured: re-parsing per distinct glyph put 11 ms on `tracemonkey.pdf`. `simple_code_table` takes no font descriptor, which is the shape of ADR 0039's finding: Table 112 makes an *embedded* program's own built-in encoding the base, and the Symbolic flag decides only among the cases where nothing is embedded. `DEFAULT_WIDTH` is Table 120's 0 rather than a preference. `code_for` is the one *backwards* route — a character to the code that draws it — and it is built by running the forward mapping over every code the font defines, so the two cannot disagree. `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree. `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot make them differently: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `soft_mask.rs` turns rendered pixels into §11.5's mask values. `Command::Group` is the one nested command (ADR 0026) and `impose_on_medium` is §11.4.7. `Path::extend_transformed` is the one place geometry moves rather than travelling with a transform (§9.3.6, ADR 0022). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. `soft_mask.rs` renders each mask to a texture and reads it back, because Vello's own luminance mask is the SVG formula and no blend mode is a `/TR` |
@@ -675,7 +670,6 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 | A font selected by `/ExtGState` `/Font` (§8.4.5) | 1 | Small | Table 57's `/Font` is `[font size]` with the font an **indirect reference**, where `Tf` and this crate's font cache are both keyed by a resource *name*. `extgstate.pdf` writes one, and what it decides is which glyphs the page draws, so it is reported rather than passed over. Closing it means a font cache keyed by object identity as well as by name. |
 | A degenerate subpath's single device pixel (§8.5.3.3.1) | — | Small | "[A] degenerate subpath … shall be considered to enclose the single device pixel lying under that point" when *filled* — distinct from §8.5.3.2's stroking rule, which is implemented. Neither backend paints it, and the clause calls the result "device-dependent and not generally useful" in the same breath. Recorded in the ledger rather than reported, because a report would name pages on which no reader could tell. |
 | Annotation `NoZoom`, `NoRotate`, `/FixedPrint` | — | Small | Table 167 bits 4 and 5, and a watermark's `/FixedPrint`, make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. Rare. |
-| Type1 fonts (`/FontFile`) | 0 | Medium | No corpus page one reaches it. `read_fonts::ps::type1` exists — check before writing any. |
 | Bit depths 2, 4 and 16 | 3 | Small | §8.9.3 permits five component widths and the unpacker reads two. Refused and reported. |
 | Vertical writing (`Identity-V`, `/W2`) | 4 | Medium | §9.2.4 gives a glyph in writing mode 1 a second set of metrics — `w1` and `v`, from `/W2` and `/DW2` (§9.7.4.3). None is read. Refused and reported, including an embedded `CMap` declaring `/WMode 1`, because being drawn horizontally is not a near miss. |
 | Soft masks and `/Mask` at a grid the bound refuses | 1 | Small | `issue16263.pdf` gives a 2x2 image a 34862x4332 mask — 151 million samples, 604 MB — and that pair is refused and named. The answer the clause describes is compositing at *device* resolution, which means the display list carrying an image and its mask separately. |
@@ -695,10 +689,10 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **406
-of 823 subclauses are `unreviewed`**, and 417 have been read against this code — 82 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **403
+of 823 subclauses are `unreviewed`**, and 420 have been read against this code — 82 of those
 carrying principle 5's exclusions, almost all of them clause 13. So the honest summary is that the
-project has measured 39% of its clause coverage. That number is meant to look bad; the alternative
+project has measured 40% of its clause coverage. That number is meant to look bad; the alternative
 was not knowing.
 
 **The ledger has been wrong twice**, which is worth knowing before trusting a row: §8.9.5.3's note
@@ -718,10 +712,13 @@ Over the 974-document pdf.js corpus, page one:
 | of the 10 that do not, need a password | 8 | — |
 | of the 10 that do not, are encrypted beyond us | 2 | — |
 | reaches page one | 953 | 98% |
-| **draws with nothing reported** | **823** | **85%** |
-| draws, with something reported | 130 | 13% |
+| **draws with nothing reported** | **843** | **87%** |
+| draws, with something reported | 110 | 11% |
 
-That 85% is the number to quote for *reporting*. It **fell by one** in the twenty-fourth session,
+That 87% is the number to quote for *reporting*. It **rose by twenty in the thirty-first
+session**, all of them documents that embed a bare Type 1 font program: they had been drawing in
+a substitute face and saying nothing, which is the failure mode a fallback creates and no count
+can see (ADR 0040). It **fell by one** in the twenty-fourth session,
 which is the whole of trap 5 in one document: `extgstate.pdf` now says that Table 57's `/Font`
 selects a font this crate cannot address, where it used to draw the text in whatever font was
 current and say nothing. It rose by eight in the twenty-third, all of them form fields and free
@@ -746,25 +743,25 @@ ended.
 
 ### By what an independent renderer sees
 
-This is the number to worry about. Over all 1794 pages compared, of the 1620 we claim to draw
+This is the number to worry about. Over all 1794 pages compared, of the 1640 we claim to draw
 completely:
 
 | | count | share of the 1620 |
 |---|---|---|
-| agree with the reference consensus | 760 | 47% |
-| **contradicted by it** | **99** | **6%** |
-| the references cannot agree among themselves | 751 | 46% |
+| agree with the reference consensus | 799 | 49% |
+| **contradicted by it** | **88** | **5%** |
+| the references cannot agree among themselves | 743 | 45% |
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
 
-**One page in sixteen that we say we drew completely, two independent implementations say we did
-not.** The 99 are named in `oracle.rs` and grouped by what the page carries: 15 use a font nobody
-embeds so every renderer substitutes differently, **12 are pages where the references that agree
-are not reading the clause differently** — 7 sharing a JBIG2 decoder, 1 sharing a `/VE` gap, 4
+**One page in nineteen that we say we drew completely, two independent implementations say we did
+not.** The 88 are named in `oracle.rs` and grouped by what the page carries: 15 use a font nobody
+embeds so every renderer substitutes differently, **11 are pages where the references that agree
+are not reading the clause differently** — 7 sharing a JBIG2 decoder, 1 sharing a `/VE` gap, 3
 link borders where one reference has no such feature and the other is rendering for paper (trap 9
 has all three shapes) — 8 are a one-pixel page-rounding difference, 1 an image half a device pixel
-tall, 1 a `CalRGB` alternate two references do not convert, 2 pages of glyphs judged with the
-tolerance for flat fills, 1 a level of mask quantisation on a flat page (trap 12), 1 a symbolic
-font whose (3, 0) subtable reaches an empty glyph, and **58 have nothing on them to explain it**.
+tall, 1 a `CalRGB` alternate two references do not convert, 1 a level of mask quantisation on a
+flat page (trap 12), 1 a symbolic font whose (3, 0) subtable reaches an empty glyph, and **50 have
+nothing on them to explain it**.
 That last group is the most valuable list in the repository, and 21 of them are pages beyond the
 first, which a page-one comparison would never have seen. **One page left the `substituted fonts`
 group in the twenty-eighth session by being fixed** — `issue8092.pdf`, whose difference was a
@@ -772,12 +769,15 @@ shading's `/BBox` and had nothing to do with its fonts (ADR 0037).
 
 **The pattern to read this table by**: a feature that makes pages drawable adds them to the set
 being judged, so the numerator and the denominator move together and only one of those is news.
-The denominator has not moved for seven sessions, so the last six sessions' movements are all
-numerator: the twenty-eighth fixed one contradicted page (a shading's `/BBox`), the
-twenty-ninth moved three out of the geometry bucket into agreement (`/UserUnit`), and the
-thirtieth moved two — one a fix (`/MissingWidth`) and one a *bound*, `issue3566.pdf`, whose
-raster is byte-identical and which changed tolerance class when its glyph names became
-readable. **Only one of those two is news, and the other is news about the instrument.**
+The denominator moved in the thirty-first session for the first time in eight, by **20**, and
+every one of those pages is a document that embeds a bare Type 1 program and had been drawing in
+a substitute face without saying so. Before that: the twenty-eighth fixed one contradicted page
+(a shading's `/BBox`), the twenty-ninth moved three out of the geometry bucket into agreement
+(`/UserUnit`), and the thirtieth moved two — one a fix (`/MissingWidth`) and one a *bound*,
+`issue3566.pdf`, whose raster is byte-identical and which changed tolerance class when its glyph
+names became readable. **The thirty-first also moved 25 pages out of `ambiguous`** by making the
+tolerance class ask whether glyphs were drawn rather than whether they could be named, and 6 of
+those are newly contradicted — pages that were already wrong and could not be said to be.
 The twenty-fourth session exchanged one page for another — one joined by becoming drawable, one
 left by starting to report — and made four pages that had *never rasterised* draw, three of which
 agree; the twenty-third added 9 pages, 7 of them agreeing and **none contradicted**; the
@@ -806,7 +806,7 @@ where the two disagree the ledger is the one that had to name a code site.
 |---|---|---|
 | 7 Syntax | 138 | **Nearly complete**, 70 rows reviewed — the whole of §7.4, §7.6 and §7.7 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left is a public-key handler and a password prompt. §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
 | 8 Graphics | 128 | **Nearly complete**, and the clause with the most ledger coverage: 107 rows reviewed, with §8.4, §8.5, §8.6.4, §8.6.5, §8.6.6, §8.6.7, §8.7, §8.9 and §8.10 done as families. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). 2, 4 and 16 bits per component are refused. |
-| 9 Text | 65 | **Partial**, 52 rows reviewed — §9.3, §9.4, §9.6, §9.8 and the whole of §9.7 as families. Simple and composite fonts through embedded TrueType, CFF and OpenType programs; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. An embedded program's own built-in encoding is the base encoding Table 112 says it is, and `/MissingWidth` defaults to Table 120's 0 (ADR 0039). Missing: bare Type1, Table 116's predefined `CMap`s, vertical writing, text knockout (§9.3.8, reported), and §9.8.3's `/Style` and `/FD`, which are the ledger's two new `silent` rows and reach nothing but a substitute's choice. |
+| 9 Text | 65 | **Partial**, 55 rows reviewed — §9.3, §9.4, §9.6, §9.8, §9.9 and the whole of §9.7 as families. Simple and composite fonts through **every font program Table 124 defines** — TrueType, CFF, OpenType and, from the thirty-first session, the bare Type 1 of `/FontFile`; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. An embedded program's own built-in encoding is the base encoding Table 112 says it is, and `/MissingWidth` defaults to Table 120's 0 (ADR 0039). Missing: Table 116's predefined `CMap`s, vertical writing, text knockout (§9.3.8, reported), and §9.8.3's `/Style` and `/FD`, which are the ledger's two new `silent` rows and reach nothing but a substitute's choice. |
 | 10 Rendering | 36 | **Partial**, 6 rows reviewed — the whole of §10.7. Colour management and rendering intents are done. Halftones and transfer functions describe a marking device. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
 | 11 Transparency | 58 | **Partial**, 46 rows reviewed — everything from §11.4 onwards, leaving only §11.1–§11.3.5 and §11.3.8, which are the model rather than its PDF representation. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names; `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
 | 12 Interactive features | 166 | **Appearances, constructed ones, and a field's own text**: 51 rows reviewed — the whole of §12.5, and the whole of §12.7.4 and §12.7.5 with §12.7 to §12.7.3 above them. An annotation is placed and drawn from `/AP` (§12.5.5) with §12.5.3's flags and §8.11.3.3's `/OC` honoured; one with no `/AP` is constructed from its subtype's clause or refused with the reason named (ADR 0030); and a field's value, caption or free text is laid out from its `/DA` by §12.7.4.3 (ADR 0032). What does not exist is *behaviour*: no actions (§12.7.6), no FDF (§12.7.8), no navigation, no signature validation (§12.8). |
@@ -825,7 +825,7 @@ parts that make a document *interactive* are not started.
 | Encryption (§7.6) | **Revisions 2, 3, 4 and 6**, `/V` 1, 2, 4 and 5, methods `V2`, `AESV2`, `AESV3` and `Identity`. Every numbered algorithm a *reader* runs — 1, 1.A, 2, 2.A, 2.B, 4, 5, 6, 7, 11, 12, 13, and 3's first four steps. All four of §7.6.2's exceptions, plus Table 20's two. Refused by name: `/R` 5, public-key handlers, `/CFM /None`, a non-ASCII revision-4 password. |
 | Colour spaces | **11 of 11** families, the three CIE-based ones converted rather than approximated, plus §8.6.5.1's withdrawn `CalCMYK`, which the clause redirects to `DeviceCMYK`. An *image* in an `ICCBased` space is still unpacked as a device space where a fill in it is not (§8.6.5.5). |
 | Function types | **4 of 4**. Shading types **7 of 7**, on both backends. Pattern types **2 of 2**. Blend modes **16 of 16**. |
-| Font programs | TrueType, CFF, CFF-in-OpenType, CID-keyed CFF, and Type 3 — whose glyphs are content streams and are run by `pdf-model`. Bare Type1 is reported. |
+| Font programs | **All five of Table 124's**: bare Type 1 (`/FontFile`), TrueType, CFF, CFF-in-OpenType and CID-keyed CFF — plus Type 3, whose glyphs are content streams and are run by `pdf-model`. Which reader applies is decided by the program's leading bytes, not by the key or Table 125's `/Subtype`. A CIDFont writing `/FontFile` is substituted for, because Table 124 puts no Type 1 program there and a name-keyed program has no CID route. |
 | Composite fonts (§9.7) | **Both of the clause's mappings** (ADR 0029): codespace ranges matched byte by byte and deciding a code's length from 1 to 4, `cidrange`, `cidchar`, `notdefrange`, `notdefchar`, `bfchar`, `/WMode`, `usecmap`, Table 118's `/UseCMap`, §9.7.6.3's recovery; then a CID-keyed CFF's charset, a `/CIDToGIDMap` stream, or the identity, chosen by what the embedded program *is* rather than by `/Subtype`. `/W` and `/DW` are indexed by CID. |
 | Text rendering modes | **8 of 8** in §9.3.6 Table 104: fill, stroke in user space, both per glyph, invisible, and the four that add glyphs to the clipping path at `ET`. An operand outside 0..7 is reported. |
 | Text state parameters | 8 of Table 102's 9. Missing: `Tk` (§9.3.8), read from `/TK` and reported where it can show. |
@@ -848,9 +848,9 @@ parts that make a document *interactive* are not started.
 ## What to do next
 
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
-everything the corpus and the oracle name — 99 contradicted pages, 58 of them unexplained, and a
+everything the corpus and the oracle name — 88 contradicted pages, 50 of them unexplained, and a
 feature list sized by how many documents want each item. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **406 of 823 subclauses are `unreviewed`**. A project running only the
+§6.3.2.2's ranking name: **403 of 823 subclauses are `unreviewed`**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -885,7 +885,7 @@ is not obviously wrong. The thirteenth session found the citation checker blind 
 and one wrong. The tree was also not `clippy` clean while this file said it was. **Whatever this
 file asserts about the tooling, run it once before believing it.**
 
-The one-line version of the demand track: **99 pages we claim to draw are contradicted, 58 of
+The one-line version of the demand track: **88 pages we claim to draw are contradicted, 50 of
 them for no reason visible on the page**, and the largest thing left that any corpus document
 names is §9.7.5.2's predefined `CMap`s at 12 — a licensing decision rather than code — followed by
 §12.5.6.10's text markup at 8, which is a decision about what a highlight looks like. **Variable
@@ -894,8 +894,8 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **A shading's `/BBox`, `/UserUnit` and `/MissingWidth` are the three rendering
 items that came back onto it and off it again** in the twenty-eighth, twenty-ninth and
 thirtieth sessions, and none was announced by a document: all three were found by reading a
-clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **4 clauses
-the code already cites have never been read against it**, named in `REVIEW_OWED`, and **406 of
+clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **3 clauses
+the code already cites have never been read against it**, named in `REVIEW_OWED`, and **403 of
 823 subclauses have never been read at all**.
 
 Six sessions in a row now, no rendering feature that any corpus document *announces* has been
@@ -908,7 +908,7 @@ to it.**
 
 ### 0. The ledger, and the cheapest reviews available
 
-- **Work `REVIEW_OWED` down.** 4 clauses, each already cited by the code that implements it, so
+- **Work `REVIEW_OWED` down.** 3 clauses, each already cited by the code that implements it, so
   the reading is against something that exists. Take them by family — §8.6.4's two rows and
   §8.7's two are the pairs left — because that is how the standard distributes its requirements, and because §9.6.5.4 was missed
   for the opposite reason: nobody had read §9.6.5 as a unit. **Expect findings.**
@@ -973,7 +973,7 @@ Five small items, listed before the big lists because they are small:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 58 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 50 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. **Read trap 9 before starting**, because an entry may be any of its three shapes, and
 checking costs a web search of the other project's source.
@@ -1026,7 +1026,8 @@ specification, and "make it match mupdf" is exactly the failure this project for
   the sixteenth session's lesson about benchmarks that measure nothing applies.
 - **Predefined `CMap`s** (12 documents) are a decision about vendoring third-party data and its
   licence, not an algorithm. **Vertical writing** (4) is §9.2.4's `/W2` metrics rather than §9.7.
-  **Type1 fonts** are smaller than they look: no corpus page one reaches one.
+  **Type 1 fonts landed in the thirty-first session** and were the opposite of small: the entry
+  above them said "no corpus page one reaches one", and 57 do.
 
 ### 3. Where the time went, and where it still goes
 
@@ -1120,7 +1121,7 @@ rise is a new report and is written down as one.
 | needs a password | 8 | §7.6.4.1's prompt is the missing piece, not the clause |
 | encrypted beyond this reader | 2 | 1 is `/R` 5, which the standard states no algorithm for; 1 is a file whose `/Encrypt` does not resolve to a dictionary |
 | no page one | 11 | unrecoverable page trees; 2 of them are encrypted files that authenticate and then fail to inflate, which `poppler` reports of them too |
-| draws incompletely | 130 | Counted by each document's *first* report, so the column sums: 66 a font, 18 a transparency group or mask departure, 17 an annotation, 12 an image, 9 an operator, 4 an object composited in parts, 1 a font selected by an `/ExtGState`'s `/Font` (§8.4.5), 1 an undecodable content stream, 1 a text knockout, 1 a bound reached |
+| draws incompletely | 110 | Counted by each document's *first* report, so the column sums: 45 a font (44 of which also name the text operations it could not draw), 19 an annotation, 18 a transparency group or mask departure, 12 an image, 9 an operator, 4 an object composited in parts, 1 an undecodable content stream, 1 a text knockout, 1 a bound reached. **20 left it in the thirty-first session** when `/FontFile` began to be read |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 - **The `Content` row was 10 and is 1, and the `Operator` row 12 and is 9** (ADR 0031). Nine of
@@ -1134,10 +1135,11 @@ rise is a new report and is written down as one.
   stated for it, 1 an appearance stream with no `/BBox`, 1 an unknown subtype, 2 a `Line` whose
   `/LL` or line endings state no geometry, 1 an `Ink` with no usable `/Rect`. **Nothing on it is a
   `/NeedAppearances` and nothing is a field value.**
-- **The font row was 100 before ADR 0029 and is 67.** Counted as *fonts* rather than documents:
-  27 with no `/ToUnicode`, 23 whose substitute draws none of their declared codes, 15 naming a
-  predefined `CMap`, 4 asking for vertical writing, and the rest malformed programs. Nothing on it
-  is a `CMap` question any longer.
+- **The font row was 100 before ADR 0029, then 67, and is 45 documents.** Nothing on it is a
+  `CMap` question and nothing on it is a Type 1 program: what is left is fonts with no
+  `/ToUnicode` so a substitute cannot be addressed, substitutes that draw none of their declared
+  codes, the 15 naming a predefined `CMap`, the 4 asking for vertical writing, and malformed
+  programs.
 - **The operator row was 33** until the text rendering modes landed and is 15. Nothing on it is a
   feature: `BT` without `ET`, `BDC` without `EMC`, and the byte soup a fuzzed content stream lexes
   as operator names.
@@ -1150,18 +1152,18 @@ rise is a new report and is written down as one.
 
 Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both directions.
 
-| of the 1620 pages we call complete | count | |
+| of the 1640 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 760 | |
-| **contradicted** | **99** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 4 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 2 glyphs judged as vector, 1 a symbolic font reaching an empty glyph, 15 substituted fonts, **58 unexplained** |
-| ambiguous | 751 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
+| agree with the reference consensus | 799 | |
+| **contradicted** | **88** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 15 substituted fonts, **50 unexplained** |
+| ambiguous | 743 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
-The 174 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
-say we cannot draw is expected to differ. **The gated set has been the same 1620 pages for seven
-sessions**, which is why the last six moved `agrees` and `contradicted` without moving either
-denominator: every one of them fixed or clarified a page already in the comparison rather than
+The 154 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
+say we cannot draw is expected to differ. **The gated set was the same 1620 pages for seven sessions and is now
+1640**, which is why the six before the thirty-first moved `agrees` and `contradicted` without
+moving either denominator: every one of them fixed or clarified a page already in the comparison rather than
 adding one. Before that it **grew by 9 in the twenty-third,
 by 8 in the twenty-second and by 46 in the twenty-first**, and by 32 in the twentieth, all as
 reports stopped firing; it *shrank* by 8 in the seventeenth as
@@ -1189,6 +1191,23 @@ rather than failing — but the ratchets only mean anything where it is present,
 ## Habits these sessions earned
 
 Each of these was paid for once. The traps above are about code; these are about how to work.
+
+**A "not implemented" count of zero can mean "nothing reports it", and those are different
+facts.** Every count on the not-implemented table is a count of *reports*, and a gap with a
+fallback in front of it reports nothing: `/FontFile` was recorded at zero corpus documents while
+57 of them embedded one and drew in a substitute face in silence. Before writing a zero, ask what
+the code does when the feature is absent. If the answer is "something plausible", the count is
+measuring the fallback.
+
+**Fixing an instrument can be worth a feature, and the two can be the same afternoon's work.**
+One line — what `has_text` asks — moved 25 pages into the oracle's judged set and showed that one
+of them was drawing nothing at all. A gate that cannot judge a page is not neutral about it.
+
+**The clause can tell you two readers are one algorithm.** §9.6.2.1's NOTE 1 calls a CFF "an
+alternative, more compact but functionally equivalent representation of a Type 1 font program",
+and §9.6.5.2 states one encoding algorithm for both — which is why `cff.rs` and `type1.rs` share
+a *type* rather than a copy of the rules. Look for that sentence before writing the second
+implementation.
 
 **A default written in a table is not a suggestion, and a comment arguing for a nicer one is a
 preference wearing a reason.** `/MissingWidth` defaults to 0 (Table 120) and this tree used half
@@ -1573,9 +1592,12 @@ test's helper functions. Whatever this file asserts about the tooling, run it on
   image, four panels, ours leftmost, and it has explained every page it was pointed at. Pages that
   agree have theirs deleted, so what is on disk is exactly the set worth looking at.
 - **A page's tolerance class depends on what *we* drew.** The oracle picks a text or vector
-  tolerance from our own render's content, so a change that adds text to a page also loosens its
+  tolerance from our own render's content, so a change that adds glyphs to a page also loosens its
   bound — and can move it from "ambiguous" to "judged". When a page appears in the
   newly-contradicted list, check whether its bound changed before concluding the render got worse.
+  Since the thirty-first session the question it asks is `Interpretation::glyphs`, "did glyphs mark
+  the page", rather than "did we read any text back" — which had made a page of unnameable CJK a
+  vector page and a page of invisible OCR text a text page, both backwards.
 - **The sandbox is a flag, and the default is the safe one.** `--no-sandbox` decodes JBIG2 and
   JPEG 2000 in the viewer's process. It can be a flag only because both decoders are memory-safe
   either way: what it trades is panic containment and a memory ceiling. There is deliberately no

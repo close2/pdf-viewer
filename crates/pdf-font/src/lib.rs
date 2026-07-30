@@ -26,9 +26,11 @@
 pub mod cff;
 pub mod cmap;
 pub mod encoding;
+pub mod name_keyed;
 pub mod standard_metrics;
 pub mod substitute;
 pub mod tounicode;
+pub mod type1;
 
 use std::borrow::Cow;
 use std::cell::{OnceCell, RefCell};
@@ -46,6 +48,7 @@ use skrifa::{FontRef, GlyphId, MetadataProvider};
 use crate::cff::CodeToGlyph;
 use crate::cmap::CMap;
 use crate::encoding::BaseEncoding;
+use crate::name_keyed::NameKeyed;
 
 pub use crate::cmap::Code;
 
@@ -176,6 +179,10 @@ impl CidToGlyph {
 enum Program {
     /// An sfnt container — `TrueType` or `OpenType` — read through `skrifa`'s `FontRef`.
     Sfnt,
+    /// A bare Type 1 program — §9.9's `/FontFile` — read through `read-fonts`' Type 1
+    /// reader. Name-keyed exactly as a bare CFF is, which is why both reach
+    /// [`simple_code_table`] with the same value; see [`crate::name_keyed`].
+    Type1,
     /// A bare CFF program, read through `read-fonts`' CFF reader directly.
     ///
     /// Wrapping it in a synthesised sfnt so that `FontRef` would accept it is possible,
@@ -256,6 +263,11 @@ pub struct LoadedFont {
     /// The embedded font program, which the reader borrows from on each use.
     data: Arc<[u8]>,
     program: Program,
+    /// The parsed Type 1 program, when that is what was embedded.
+    ///
+    /// The one program kept in parsed form rather than re-read per glyph, because it is the
+    /// one whose parse is expensive; see [`type1::Program`].
+    type1: Option<type1::Program>,
     mapping: CodeMapping,
     /// Glyph advances by character code, in thousandths of an em.
     widths: BTreeMap<u32, f32>,
@@ -360,7 +372,14 @@ impl LoadedFont {
             }
             Err(other) => return Err(other),
         };
-        let units_per_em = units_per_em(&data, program, name)?;
+        let type1 = parsed_type1(program, &data, name)?;
+        let units_per_em = match &type1 {
+            Some(parsed) => parsed.units_per_em().map_err(|e| FontError::Malformed {
+                name: name.to_owned(),
+                detail: e.to_string(),
+            })?,
+            None => units_per_em(&data, program, name)?,
+        };
 
         // Kept for text extraction: a glyph name is what a code means when a font carries
         // no `/ToUnicode`, which is common in older documents.
@@ -385,7 +404,31 @@ impl LoadedFont {
                     name: name.to_owned(),
                     detail: e.to_string(),
                 })?;
-                let (table, resolved) = simple_code_table(document, dict, &cff, name)?;
+                // A CID-keyed program has no glyph names for `/Encoding` to address, and
+                // §9.7.4.2 puts one in a *composite* font, so a simple font naming one is
+                // malformed rather than unsupported.
+                let CodeToGlyph::Named(keyed) = cff else {
+                    return Err(FontError::UnsupportedEncoding {
+                        name: name.to_owned(),
+                        encoding: "CID-keyed CFF in a simple font".to_owned(),
+                    });
+                };
+                let (table, resolved) = simple_code_table(document, dict, &keyed, name)?;
+                names = Some(resolved);
+                CodeMapping::Named(Box::new(table))
+            }
+            (Program::Type1, None) => {
+                let keyed = type1
+                    .as_ref()
+                    .ok_or_else(|| FontError::NotEmbedded {
+                        name: name.to_owned(),
+                    })?
+                    .code_to_glyph()
+                    .map_err(|e| FontError::Malformed {
+                        name: name.to_owned(),
+                        detail: e.to_string(),
+                    })?;
+                let (table, resolved) = simple_code_table(document, dict, &keyed, name)?;
                 names = Some(resolved);
                 CodeMapping::Named(Box::new(table))
             }
@@ -408,6 +451,7 @@ impl LoadedFont {
         Ok(Self {
             data,
             program,
+            type1,
             mapping,
             widths,
             default_width,
@@ -450,8 +494,16 @@ impl LoadedFont {
         };
 
         let (data, program, substituted) = match embedded {
-            Ok(Embedded { data, program }) => (data, program, false),
-            Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
+            // §9.9's Table 124 gives a CIDFont `/FontFile2` and `/FontFile3` and never
+            // `/FontFile`: a Type 1 program is keyed by glyph *name*, and a CIDFont selects
+            // by CID, so the clause states no route from one to the other and neither does
+            // this crate invent one. `issue11740_reduced.pdf` embeds one anyway, and what it
+            // gets is what a CIDFont with no usable program gets — a substitute.
+            Ok(Embedded {
+                program: Program::Type1,
+                ..
+            })
+            | Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
                 let request = substitute::Request::derive(document, &descendant, descriptor);
                 let data = substitute::find(request).ok_or_else(|| FontError::NoSubstitute {
                     name: name.to_owned(),
@@ -459,6 +511,7 @@ impl LoadedFont {
                 })?;
                 (data, Program::Sfnt, true)
             }
+            Ok(Embedded { data, program }) => (data, program, false),
             Err(other) => return Err(other),
         };
         let units_per_em = units_per_em(&data, program, name)?;
@@ -497,6 +550,9 @@ impl LoadedFont {
         Ok(Self {
             data,
             program,
+            // §9.9's Table 124 gives a CIDFont `/FontFile2` and `/FontFile3` and never
+            // `/FontFile`, so a composite font has no Type 1 program to keep.
+            type1: None,
             mapping,
             substituted,
             to_unicode: to_unicode(document, dict),
@@ -774,6 +830,7 @@ impl LoadedFont {
 
         match self.program {
             Program::BareCff => cff::draw(&self.data, glyph, &mut pen).ok()?,
+            Program::Type1 => self.type1.as_ref()?.draw(glyph, &mut pen).ok()?,
             Program::Sfnt => {
                 let font = FontRef::new(&self.data).ok()?;
                 let outline = font.outline_glyphs().get(GlyphId::from(glyph))?;
@@ -991,6 +1048,11 @@ fn cid_to_glyph(
             font.table_data(skrifa::Tag::new(b"CFF "))
                 .map(|table| Cow::Owned(table.as_bytes().to_vec()))
         }),
+        // §9.9's Table 124 gives a CIDFont two programs, `/FontFile2` and `/FontFile3`, and
+        // a bare Type 1 is neither. A descendant descriptor writing `/FontFile` has said
+        // something the clause does not define, so nothing is read out of it here and the
+        // `/CIDToGIDMap` route below decides — which for a CIDFontType0 is the identity.
+        Program::Type1 => None,
     };
     if let Some(cff) = cff {
         // A bare CFF has already been read once, to decide it was one; a wrapped one is read
@@ -1506,21 +1568,14 @@ fn program_widths(data: &[u8], mapping: &CodeMapping, units_per_em: f32) -> BTre
 fn simple_code_table(
     document: &Document,
     dict: &Dictionary,
-    cff: &CodeToGlyph,
+    program: &NameKeyed,
     name: &str,
 ) -> Result<(CodeTable, GlyphNames), FontError> {
-    let CodeToGlyph::Named {
+    let NameKeyed {
         by_name,
         builtin,
         builtin_names,
-    } = cff
-    else {
-        // A CID-keyed program has no glyph names for `/Encoding` to address.
-        return Err(FontError::UnsupportedEncoding {
-            name: name.to_owned(),
-            encoding: "CID-keyed CFF in a simple font".to_owned(),
-        });
-    };
+    } = program;
 
     // No fall-back to StandardEncoding: an unnamed code belongs to the program's own
     // encoding, which is what Table 112 makes the base here.
@@ -1871,14 +1926,20 @@ fn embedded_program(
         return Ok(Embedded { data, program });
     }
 
-    if document
-        .get_key(descriptor, "FontFile")
-        .as_stream()
-        .is_some()
-    {
-        return Err(FontError::UnsupportedProgram {
-            name: name.to_owned(),
-            kind: "Type1",
+    // `/FontFile` is a bare Type 1 program. Read last, because Table 120 says "At most,
+    // only one of the FontFile , FontFile2 , and FontFile3 entries shall be present" and a
+    // file writing two has said nothing about which it means — preferring the formats with
+    // a self-identifying signature keeps that choice from turning on the key's spelling.
+    if let Some(stream) = document.get_key(descriptor, "FontFile").as_stream() {
+        let data = document
+            .decoded_stream_data(stream)
+            .ok_or_else(|| FontError::Malformed {
+                name: name.to_owned(),
+                detail: "/FontFile did not decode".to_owned(),
+            })?;
+        return Ok(Embedded {
+            data,
+            program: Program::Type1,
         });
     }
     Err(FontError::NotEmbedded {
@@ -1898,6 +1959,27 @@ fn is_bare_cff(data: &[u8]) -> bool {
         // A CFF header begins with its major and minor version.
         Some([1, 0, ..]) => true,
         _ => false,
+    }
+}
+
+/// Parses a bare Type 1 program, for the one kind of program that is kept parsed.
+///
+/// Done once at load rather than in `build_outline`, because the units per em, the code
+/// mapping and every outline come out of the same parse and that parse is the expensive
+/// one; see [`type1::Program`].
+fn parsed_type1(
+    program: Program,
+    data: &[u8],
+    name: &str,
+) -> Result<Option<type1::Program>, FontError> {
+    match program {
+        Program::Type1 => type1::Program::parse(data)
+            .map(Some)
+            .map_err(|e| FontError::Malformed {
+                name: name.to_owned(),
+                detail: e.to_string(),
+            }),
+        Program::Sfnt | Program::BareCff => Ok(None),
     }
 }
 
@@ -2524,7 +2606,7 @@ mod cff_encoding_tests {
     use std::collections::BTreeMap;
 
     use super::fixture::font_dictionary;
-    use super::{CodeToGlyph, simple_code_table};
+    use super::{NameKeyed, simple_code_table};
 
     /// The glyphs the fixture font holds, by the names its charset gives them.
     const ALPHA: u16 = 11;
@@ -2538,7 +2620,7 @@ mod cff_encoding_tests {
     /// the charset does not have at all, and `beta` in this font. So each code distinguishes
     /// the two bases, and in opposite ways: one would draw the wrong glyph and the other
     /// would draw nothing.
-    fn fixture() -> CodeToGlyph {
+    fn fixture() -> NameKeyed {
         let by_name: BTreeMap<Box<str>, u16> = [
             ("alpha".into(), ALPHA),
             ("beta".into(), BETA),
@@ -2554,7 +2636,7 @@ mod cff_encoding_tests {
             66 => Some("beta".into()),
             _ => None,
         }));
-        CodeToGlyph::Named {
+        NameKeyed {
             by_name,
             builtin,
             builtin_names,
