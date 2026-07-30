@@ -255,13 +255,13 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1365 citations, 139 quotations, 81 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1365 citations, 139 quotations, 82 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
 cargo build --release -p pdf-sandbox --bins
 cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~2 s
-cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 1794 pages, ~30 s
+cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 1794 pages, ~35 s
 # The first oracle run on a fresh build directory is ~95 s and writes 319 MB of remembered
 # reference renders; every run after it is the ~30 s above. Read the printed hit rate rather than
 # the clock. Two environment variables matter:
@@ -864,7 +864,12 @@ parts that make a document *interactive* are not started.
 
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name — 88 contradicted pages, 50 of them unexplained, and a
-feature list sized by how many documents want each item. *Spec-driven* is what the ledger and
+feature list sized by how many documents want each item. **The list is nearly empty of clause
+work**: nine sessions took `/FontFile`, all five bit depths, text markup appearances, `/AS`
+usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is left that any
+corpus document names is a licensing decision (predefined `CMap`s, 12), `viewer-ui` work (a
+password prompt, 8), substitution quality (24 fonts), and three transparency-group departures
+that need a second raster format or a backdrop. *Spec-driven* is what the ledger and
 §6.3.2.2's ranking name: **314 of 823 subclauses are `unreviewed`**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
@@ -913,13 +918,21 @@ thirtieth sessions, and none was announced by a document: all three were found b
 clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty** for the first time, and
 **348 of 823 subclauses have never been read at all**.
 
-Six sessions in a row now, no rendering feature that any corpus document *announces* has been
-left on either list — the corpus going quiet, and exactly the condition `CLAUDE.md`'s two-track
-rule exists for. Everything that moved a gate number in those five sessions came from the
-specification track: `/Decode`'s general map, an image's colour space, `LZWDecode`, a shading's
-`/BBox`, `/UserUnit`, and now Table 112's base encoding with Table 120's `/MissingWidth`. **A
-demand curve cannot rank a requirement no file exercises, and five of those six were invisible
-to it.**
+**The corpus has gone quiet, and the nine sessions from the thirtieth to the thirty-eighth are
+what that looks like when the two-track rule is followed.** Everything that moved a gate number
+in them came from the *specification* track and every one was invisible to the demand curve
+until a clause family was read: Table 112's base encoding and Table 120's `/MissingWidth`;
+§9.9's `/FontFile`, whose corpus count was recorded as zero while 57 documents embedded one;
+all five of Table 87's bit depths; §8.9.7's abbreviated keys; §7.8.2's compatibility section;
+§10.4.2.5, which defines a conversion this project had asserted for thirty-two sessions did not
+exist; §8.4.5's Table 57 `/Font`; §12.5.6.10's text markup, refused for thirteen sessions on a
+reading of the clause that was wrong; §8.11.4.4's usage dictionaries; §9.2.4's second set of
+glyph metrics; and — found by reading §11.3.5 rather than by any gate — the fact that no
+cross-backend scene had ever selected a blend mode, and that three of them differ.
+
+**A demand curve cannot rank a requirement no file exercises**, and it cannot notice a
+requirement a *fallback* hides: `/FontFile` sat at a corpus count of zero because an unreadable
+program fell through to substitution, and substitution says nothing.
 
 ### 0. The ledger, and the cheapest reviews available
 
@@ -927,15 +940,14 @@ to it.**
   clause the code cites and nobody has read is the cheapest debt this project can accrue, and
   the list now fails the build the moment one appears. Every clearing of it has produced
   findings the demand item could not have reached — most recently §10.4.2.5.
-- **Prefer the family belonging to whatever else the session is doing.** Done: §7.4.6, §7.6,
-  §7.9.2, §8.6.4.2, §8.6.6, §8.6.7, §8.6.8, all of §8.9, §8.10, §9.3, §9.4, §9.6.4, §9.6.5, §9.7,
-  §10.7, §11.3.7, §11.4, §11.5, §11.6, §11.7 — the whole of clause 11 — §12.5, §12.7 through
-  §12.7.5, the whole of §8.4, §8.5 and §8.6.5, §8.6.4, §9.6, §9.8, §9.9, and now **§7.8 with
-  §7.3.7**.
-  So the families left are
-  elsewhere: **§12.7.6 with
-  §12.7.8** whenever anything about a form's *behaviour* is — those two and §12.8 are the whole of what is
-  left in clause 12 outside §12.6's actions. Record every row, including the `inapplicable` ones —
+- **Prefer the family belonging to whatever else the session is doing.** **Clauses 8, 10, 11 and
+  13 have no `unreviewed` row left at all**, and clause 9 has six. What is left is concentrated
+  where this tree has not built anything: **clause 7's 57 rows** — §7.2's lexical conventions,
+  §7.3's objects and §7.5's file structure, all of which are implemented and unread, so expect
+  the review to be cheap and to find something anyway — **clause 12's 115**, which is the
+  interactive half, and **clause 14's 148**, which is tagged PDF and metadata. Inside clause 12
+  the families are **§12.7.6 with §12.7.8** whenever anything about a form's *behaviour* is —
+  those two and §12.8 are what is left outside §12.6's actions. Record every row, including the `inapplicable` ones —
   a clause read and dismissed is worth as much as one implemented, and costs a minute.
 - **Two `silent` rows are left and neither is a decision not to build something.** §8.11.4.4's
   usage dictionaries — the row that had been called the last silence since the ninth session —
@@ -945,7 +957,10 @@ to it.**
   than a clause gap, and it is written on the rows. Its method is trap 11's, unchanged: an `eprintln!` naming the
   documents that carry an `/AS` array *and* a group whose `/Usage` would turn it off at the
   resolution we draw, before any condition and long before any code.
-- **One silence still hides *inside* a `partial` row** — §10.7.3's `/SM`. Three others were
+- **§11.3.5.3 is the `partial` row worth opening next**, and it is not a silence: `Hue`, `Color`
+  and `Luminosity` are wrong on the CPU backend by 113 of 255, with the clause's closed form and
+  a debug-build overflow both saying so (ADR 0046). Also **one silence still hides inside a
+  `partial` row** — §10.7.3's `/SM`. Three others were
   there a session ago: §8.9.5.2's general `/Decode` array, and §8.6.5.5's and §8.6.5.6's
   treatment of an image's colour space, all closed by ADRs 0034 and 0035. Worth remembering when
   reading the ledger by status: a clause can be half implemented and quiet about the other half,
