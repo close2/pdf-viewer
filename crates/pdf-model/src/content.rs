@@ -268,6 +268,20 @@ enum PatternPaint {
     Tiling(Rc<Tiling>),
 }
 
+/// One open marked-content section, `BMC`/`BDC` to `EMC`.
+///
+/// Two independent things hang off the same nesting, which is why this is a struct rather than
+/// a counter: §8.11.3.2's optional content decides whether what follows *marks the page*, and
+/// §14.9.4's replacement text decides what a reader *reads back* from it. A section may be
+/// either, both or neither.
+#[derive(Debug, Clone, Default)]
+struct Marked {
+    /// Whether this section's optional content is turned off.
+    hides: bool,
+    /// §14.9.4's `/ActualText`: where the section's text began, and what replaces it.
+    actual_text: Option<(usize, String)>,
+}
+
 /// A tiling pattern: a cell of content, and how to repeat it.
 #[derive(Debug)]
 struct Tiling {
@@ -1060,7 +1074,7 @@ impl Interpreter<'_> {
         // It carries no bound of its own because it already has one: a section costs an
         // operator, and `MAX_OPERATIONS` bounds those at four million. A stream that nests
         // that deep has spent its whole budget doing so.
-        let mut marked: Vec<bool> = Vec::new();
+        let mut marked: Vec<Marked> = Vec::new();
         // §7.8.2's compatibility section, `BX` … `EX`, which is nesting depth rather than a
         // flag because the clause says the pair "may be nested".
         //
@@ -1087,7 +1101,21 @@ impl Interpreter<'_> {
                 pdf_syntax::Token::Keyword(word) => word,
                 other => {
                     if operands.len() < MAX_OPERANDS {
-                        operands.push(token_to_object(other));
+                        // An inline dictionary is one operand, assembled here because the
+                        // content lexer yields tokens rather than objects. §14.6.2: "[i]f all
+                        // of the values in a property list dictionary are direct objects, the
+                        // dictionary may be written inline in the content stream as a direct
+                        // object" — the form real documents use for §14.9.4's `/ActualText`,
+                        // and the form that reached the operator dispatch one token at a time
+                        // until the fifty-fifth session. Arrays are deliberately left
+                        // flattened: `TJ` and `d` read their elements as separate operands and
+                        // have since the beginning.
+                        let object = if matches!(other, pdf_syntax::Token::DictOpen) {
+                            Object::Dictionary(inline_dictionary(&mut lexer, 0))
+                        } else {
+                            token_to_object(other)
+                        };
+                        operands.push(object);
                     } else {
                         // Dropping operands silently truncates the page: a `TJ` array is
                         // one operand per run *and* per kerning adjustment, so a single
@@ -1539,15 +1567,38 @@ impl Interpreter<'_> {
                             self.unresolved_resource(resources, "Properties", &name)
                                 .is_some_and(|oc| !self.shows_optional_content(&oc))
                         });
-                    marked.push(hides);
+                    marked.push(Marked {
+                        hides,
+                        // §14.9.4's replacement text, which belongs to *extraction* and not to
+                        // drawing: the marks are unchanged and what a reader copies is not.
+                        actual_text: self.property_list(resources, operands.get(1)).and_then(
+                            |list| match self.document.get_key(&list, "ActualText") {
+                                Object::String(bytes) => {
+                                    Some((self.text.len(), pdf_syntax::text_string(&bytes)))
+                                }
+                                _ => None,
+                            },
+                        ),
+                    });
                     if hides {
                         self.hidden = self.hidden.saturating_add(1);
                     }
                 }
-                b"BMC" => marked.push(false),
+                b"BMC" => marked.push(Marked::default()),
                 b"EMC" => {
-                    if marked.pop() == Some(true) {
-                        self.hidden = self.hidden.saturating_sub(1);
+                    if let Some(section) = marked.pop() {
+                        if section.hides {
+                            self.hidden = self.hidden.saturating_sub(1);
+                        }
+                        // "The ActualText value shall be used as a replacement, not a
+                        // description, for the content" — so whatever the enclosed operators
+                        // read back is discarded and the stated text stands in its place.
+                        if let Some((from, replacement)) = section.actual_text
+                            && from <= self.text.len()
+                        {
+                            self.text.truncate(from);
+                            self.text.push_str(&replacement);
+                        }
                     }
                 }
                 b"BX" => compatibility = compatibility.saturating_add(1),
@@ -1615,7 +1666,7 @@ impl Interpreter<'_> {
         // A marked-content section left open by a malformed stream must not leave this
         // stream's hidden layers hiding the next one. The annotation pass runs after the
         // page's content, and a leaked counter would silently blank every annotation.
-        let unclosed = marked.iter().filter(|hides| **hides).count();
+        let unclosed = marked.iter().filter(|section| section.hides).count();
         if unclosed > 0 {
             self.hidden = self.hidden.saturating_sub(unclosed);
             self.note(Unsupported::Operator {
@@ -3653,6 +3704,29 @@ impl Interpreter<'_> {
         Some(self.document.resolve(value))
     }
 
+    /// The property list a `BDC` operand names, inline or through `/Properties`.
+    ///
+    /// §14.6.2 gives the operand two forms, and which one a producer may use is decided by the
+    /// values: a list of direct objects "may be written inline in the content stream as a
+    /// direct object", and one holding an indirect reference "shall be defined as a named
+    /// resource in the Properties subdictionary". Both are read here, which is what lets
+    /// §14.9.4's `/ActualText` be found wherever a producer put it —
+    /// §8.11.3.2's optional content is the one caller that cannot use this, because it needs
+    /// the group's *identity* rather than its value.
+    fn property_list(
+        &self,
+        resources: &Dictionary,
+        operand: Option<&Object>,
+    ) -> Option<Dictionary> {
+        match operand? {
+            Object::Dictionary(list) => Some(list.clone()),
+            Object::Name(name) => self
+                .resource(resources, "Properties", name.as_str()?)
+                .and_then(|list| list.as_dict().cloned()),
+            _ => None,
+        }
+    }
+
     /// A resource entry exactly as the file writes it, reference and all.
     ///
     /// Optional content is the one place where a resource's *identity* matters rather than
@@ -3712,6 +3786,83 @@ fn token_to_object(token: pdf_syntax::Token) -> Object {
         // the brackets is enough for the operators this interpreter implements; a full
         // re-parse would duplicate the object parser for no present gain.
         _ => Object::Null,
+    }
+}
+
+/// Assembles an inline dictionary from a content stream's tokens, after its `<<`.
+///
+/// The content lexer yields tokens and not objects, so a dictionary written inside a content
+/// stream — which only `BDC` and the inline-image operators use — has to be put together here.
+/// Values that are themselves arrays are read as far as their brackets and discarded: no
+/// property list entry this tree reads is an array, and keeping the *keys* aligned matters
+/// more than keeping a value nothing looks at.
+///
+/// An unterminated dictionary ends with the stream, which is what a truncated content stream
+/// leaves behind; the entries read before it are still the ones the file stated.
+fn inline_dictionary(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Dictionary {
+    /// How deep a dictionary may nest inside a content stream.
+    ///
+    /// A property list is one level in every use the standard defines; this bounds a hostile
+    /// stream that opens dictionaries and never closes them.
+    const MAX_DEPTH: usize = 8;
+
+    let mut dict = Dictionary::new();
+    if depth > MAX_DEPTH {
+        return dict;
+    }
+    while let Some(token) = lexer.next_token() {
+        let key = match token {
+            pdf_syntax::Token::DictClose => break,
+            pdf_syntax::Token::Name(bytes) => Name::new(bytes),
+            // Anything that is not a name where a key belongs is a malformed dictionary;
+            // skipping the token keeps the rest of the entries readable.
+            _ => continue,
+        };
+        let Some(value) = lexer.next_token() else {
+            break;
+        };
+        let value = match value {
+            pdf_syntax::Token::DictOpen => {
+                Object::Dictionary(inline_dictionary(lexer, depth.saturating_add(1)))
+            }
+            pdf_syntax::Token::ArrayOpen => {
+                skip_array(lexer, 0);
+                Object::Null
+            }
+            pdf_syntax::Token::DictClose => break,
+            // `true`, `false` and `null` lex as keywords in a content stream, which is why
+            // two corpus documents used to report them as unknown *operators*: an inline
+            // property list's booleans were reaching the operator dispatch one token at a
+            // time. §7.3.2 makes them objects wherever an object belongs.
+            pdf_syntax::Token::Keyword(word) => match word.as_slice() {
+                b"true" => Object::Boolean(true),
+                b"false" => Object::Boolean(false),
+                _ => Object::Null,
+            },
+            other => token_to_object(other),
+        };
+        dict.insert(key, value);
+    }
+    dict
+}
+
+/// Consumes tokens to the end of an array opened in a content stream.
+fn skip_array(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) {
+    /// The same bound as [`inline_dictionary`]'s, and for the same reason.
+    const MAX_DEPTH: usize = 8;
+
+    if depth > MAX_DEPTH {
+        return;
+    }
+    while let Some(token) = lexer.next_token() {
+        match token {
+            pdf_syntax::Token::ArrayClose => return,
+            pdf_syntax::Token::ArrayOpen => skip_array(lexer, depth.saturating_add(1)),
+            pdf_syntax::Token::DictOpen => {
+                let _ = inline_dictionary(lexer, depth.saturating_add(1));
+            }
+            _ => {}
+        }
     }
 }
 

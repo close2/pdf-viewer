@@ -411,7 +411,14 @@ const MAX_PAGELESS: usize = 11;
 /// font whose glyph the pattern is filling. Entering the cycle is what tiling a glyph means;
 /// stopping at a bounded depth and saying so is what the bound is for. Before this change the
 /// cycle was never entered because the pattern was ignored, and the page was quietly wrong.
-const MAX_INCOMPLETE: usize = 97;
+/// **97 to 96 in the fifty-fifth session, without anything being drawn differently.** An inline
+/// `BDC` property list is now assembled into a dictionary — §14.6.2 allows "either an inline
+/// dictionary containing the property list or a name object associated with it in the
+/// Properties subdictionary", and only the second form had ever been read. Its *booleans* were
+/// reaching the operator dispatch one token at a time, so `issue7821.pdf` and `issue17069.pdf`
+/// were reporting `true` and `false` as unknown operators. `/ActualText` arrived on the same
+/// change; see §14.9.4's ledger row.
+const MAX_INCOMPLETE: usize = 96;
 
 /// How long one document may take before it counts as a failure.
 ///

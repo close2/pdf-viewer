@@ -409,3 +409,54 @@ fn no_defined_rendering_mode_reports_anything() {
         );
     }
 }
+
+/// §14.9.4's `/ActualText` replaces the text a marked-content sequence reads back.
+///
+/// > The ActualText value shall be used as a replacement, not a description, for the content,
+/// > providing text that is equivalent to what a person would see when viewing the content.
+///
+/// The fixture is `issue13226.pdf`'s shape: a space glyph whose `/ActualText` is a soft hyphen
+/// (U+00AD), which is what a producer writes for §14.8.2.3's "visible hyphen that is introduced
+/// through the incidental division of a word". Two things are asserted because two things are
+/// true at once — the *marks* are unchanged, so the space is still drawn, and the *text* is the
+/// replacement rather than the space.
+///
+/// The property list is inline, which is the form real documents use and the form the content
+/// lexer could not assemble until the fifty-fifth session: a content stream yields tokens, so a
+/// dictionary written inside one has to be put back together.
+#[test]
+fn actual_text_replaces_what_a_sequence_reads_back() {
+    let page = page(
+        "BT /F1 24 Tf 10 10 Td (Mit) Tj \
+         /Span << /ActualText <FEFF00AD> >> BDC ( ) Tj EMC \
+         (arbeiter) Tj ET",
+    );
+    assert_eq!(page.text.trim_end(), "Mit\u{ad}arbeiter");
+
+    // Without the entry the same stream reads back the space it drew, which is the other half
+    // of the claim: this is a statement about extraction and not about painting.
+    let plain = page.text.len();
+    let bare = self::page("BT /F1 24 Tf 10 10 Td (Mit) Tj ( ) Tj (arbeiter) Tj ET");
+    assert_eq!(bare.text.trim_end(), "Mit arbeiter");
+    assert!(plain > 0);
+}
+
+/// An inline property list's booleans are values, not operators.
+///
+/// `true`, `false` and `null` lex as keywords in a content stream, so a property list written
+/// inline used to send them to the operator dispatch one token at a time — which is why two
+/// corpus documents reported `true` and `false` as unknown operators. §7.3.2 makes them objects
+/// wherever an object belongs, and inside `<< … >>` an object belongs.
+#[test]
+fn an_inline_property_lists_booleans_are_not_operators() {
+    let page = page(
+        "BT /F1 24 Tf 10 10 Td \
+         /Span << /Flag true /Other false /Nothing null /ActualText (X) >> BDC (abc) Tj EMC ET",
+    );
+    assert_eq!(page.text.trim_end(), "X");
+    assert!(
+        page.unsupported.is_empty(),
+        "nothing in that stream is unsupported: {:?}",
+        page.unsupported
+    );
+}

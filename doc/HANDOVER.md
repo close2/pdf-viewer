@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-fourth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-fifth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,81 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the fifty-fourth session changed
+## What the fifty-fifth session changed
+
+**§14.9.4's `/ActualText`, and the reason it could not be read: the property list it lives in
+was never a dictionary.** ADR 0060.
+
+`/ActualText` is "a replacement, not a description, for the content" — a character substitution
+a reader applies when *extracting* text, and the one row of §14.9 whose consequence this project
+can already measure. `issue13226.pdf` shows `Mit`, a space glyph wrapped in
+`/Span <</ActualText <FEFF00AD>>> BDC … EMC`, `arbei`, another such space, then `terinnen`: the
+document is saying that the spaces are §14.8.2.3's hyphenation artefacts and the word is
+`Mitarbeiterinnen`. We read back `Mit arbei terinnen`.
+
+**The obvious implementation does nothing, and finding out why is the session.** The content
+lexer yields tokens, not objects: `<<` and `>>` became `Object::Null`, so an inline property list
+reached the operator dispatch as *five loose operands* and there was no dictionary to look in.
+Optional content never noticed, because §8.11.3.2's list must be a **named** resource — a group
+is an indirect object and §14.6.2 forbids indirect references inside a content stream — so the
+one form that was implemented was the only form that one caller could use.
+
+**And the ledger's row for §14.6.2 said "content.rs takes both forms". That is the third such
+row in four sessions**, after §8.7.3.1's `/BBox` and §8.7.2's pattern space, and all three were
+written from the clause during a review. This file carried the same claim in its own words —
+"content.rs already parses that property list because §8.11.3.3's `/OC` arrives the same way" —
+which is exactly the reasoning that produces the mistake: the two *do* arrive the same way, and
+only one of the two ways was read.
+
+`inline_dictionary` assembles the dictionary from the tokens, bounded in depth, leaving arrays
+flattened because `TJ` and `d` have read their elements as separate operands since the
+beginning. `true`, `false` and `null` are handled inside it — they lex as **keywords**, which is
+how two corpus documents came to report `true` and `false` as *unknown operators*.
+`/ActualText` is then applied at `EMC` by truncation, so nesting falls out for free.
+
+| | before | now |
+|---|---|---|
+| `issue13226.pdf` reads back | `Mit arbei terinnen` | the soft hyphens the file states |
+| **corpus documents drawing incompletely** | 97 | **96** — and nothing is drawn differently |
+| pages agreeing with the reference consensus | 821 | **821**, over one *more* judged page |
+| words found against `pdftotext` | 100% | **100%** |
+
+**On the specification track, §14.8.4's twenty rows — the vocabulary of standard structure
+types, which is most of what tagged PDF is.** All `silent`, all behind §14.7's tree, and **none
+of it changes a mark**: a `H1` and a `P` are drawn by the same operators and differ only in what
+they mean. Four things worth keeping:
+
+- **The category is a property of the position, not of the name.** A type usable as either is
+  inline "if the structure element is used inside a block level element" and block otherwise —
+  the sort of rule an implementation gets wrong by building a table.
+- **§14.8.4.8.3's header search is an algorithm, which is rare here**: where `/Headers` is
+  absent, a cell's headers are found by searching towards the first cell in `/WritingMode`'s
+  direction, stopping at the table's edge, at a data cell after a header cell, or at a header
+  cell that states its own. Its NOTE says why no right-to-left special case is needed — "the
+  structure always reflects the logical content order of the table" — which is §14.8.2.5.1
+  doing the work it was defined for.
+- **`Span` is the one type this tree already meets**, as the tag §14.9's four entries arrive
+  under; one of the four is now read.
+- **Ruby and warichu change nothing about drawing.** The glyphs are positioned by the content
+  stream like any others; what the structure adds is knowing that the small text is a gloss.
+
+| | before | now |
+|---|---|---|
+| **ledger subclauses nobody has read** | 40 | **20** — §14.8.5's attributes and §14.8.6's namespaces |
+| `§` citations the checker verified | 1527 | **1542** |
+| **tests** | 638 | **640** |
+
+What it taught:
+
+- **Two callers of one clause can use disjoint halves of it, and the half nobody uses is not
+  implemented.** §14.6.2 has two forms; §8.11's optional content *cannot* use the inline one, so
+  fifteen sessions of optional-content work proved nothing about it. When a row says "both
+  forms", ask which caller exercises which.
+- **A parser that recognises a delimiter without parsing it will be read as parsing it.** The
+  comment saying only the brackets were recognised was accurate, present, and read by three
+  people — including this file — as meaning the dictionary was available.
+
+### The fifty-fourth session, in brief
 
 **A page of twenty-four hard stripes was drawn with twenty-four seven-pixel gradients, and the
 seven is arithmetic rather than coincidence.** ADR 0059.
@@ -1338,7 +1412,7 @@ full sense — nothing edits a field, follows a link or asks a person for a pass
 is now measured *by clause* as well as by corpus: 153 of the ledger's rows are `silent`, and
 almost every one of them is a viewer rather than a renderer.
 
-- **638 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **640 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -1355,7 +1429,7 @@ almost every one of them is a viewer rather than a renderer.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1653 pages we claim to draw completely, **821 agree with the reference
+  (ADR 0020). Of the 1654 pages we claim to draw completely, **821 agree with the reference
   consensus, 76 are contradicted and 746 are pages the references cannot agree about among
   themselves**. The 76 are named, grouped and ratcheted in both directions. Twenty-five pages
   do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
@@ -1436,7 +1510,7 @@ almost every one of them is a viewer rather than a renderer.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1527 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1542 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -1467,7 +1541,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1527 citations, 158 quotations, 85 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1542 citations, 159 quotations, 85 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -2106,7 +2180,7 @@ usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is 
 corpus document names is a licensing decision (predefined `CMap`s, 12), `viewer-ui` work (a
 password prompt, 8), substitution quality (24 fonts), and three transparency-group departures
 that need a second raster format or a backdrop. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **40 of 823 subclauses are `unreviewed`, every one of them §14.8's**. A project running only the
+§6.3.2.2's ranking name: **20 of 823 subclauses are `unreviewed`** — §14.8.5's attributes and §14.8.6's namespaces, and nothing else in the standard. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -2163,7 +2237,7 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **A shading's `/BBox`, `/UserUnit` and `/MissingWidth` are the three rendering
 items that came back onto it and off it again** in the twenty-eighth, twenty-ninth and
 thirtieth sessions, and none was announced by a document: all three were found by reading a
-clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **40 of 823 subclauses have never been read at all, every one of them in §14.8's second half**.
+clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **20 of 823 subclauses have never been read at all** — §14.8.5 and §14.8.6, and nothing else.
 
 **The corpus has gone quiet, and the nine sessions from the thirtieth to the thirty-eighth are
 what that looks like when the two-track rule is followed.** Everything that moved a gate number
@@ -2187,7 +2261,7 @@ program fell through to substitution, and substitution says nothing.
   clause the code cites and nobody has read is the cheapest debt this project can accrue, and
   the list now fails the build the moment one appears. Every clearing of it has produced
   findings the demand item could not have reached — most recently §10.4.2.5.
-- **Only §14.8's second half is left, and it is 40 rows** — §14.8.4's standard structure types, §14.8.5's attributes and §14.8.6's namespaces. Every other technical clause — 7, 8, 9, 10, 11,
+- **Twenty rows are left in the whole standard**: §14.8.5's structure attributes and §14.8.6's namespaces. One session finishes the ledger. Every other technical clause — 7, 8, 9, 10, 11,
   12 and 13 — has no `unreviewed` row, and clause 7 became true rather than claimed in the
   forty-ninth session (§7.11 and §7.12; the count is taken by grouping the ledger's `unreviewed`
   rows by leading clause number, never by what a session touched). What remains is **§14.8's
@@ -2446,7 +2520,7 @@ rise is a new report and is written down as one.
 | needs a password | 8 | §7.6.4.1's prompt is the missing piece, not the clause |
 | encrypted beyond this reader | 2 | 1 is `/R` 5, which the standard states no algorithm for; 1 is a file whose `/Encrypt` does not resolve to a dictionary |
 | no page one | 11 | unrecoverable page trees; 2 of them are encrypted files that authenticate and then fail to inflate, which `poppler` reports of them too |
-| draws incompletely | 97 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, and 4 in the thirty-second when the last three bit depths did |
+| draws incompletely | 96 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, and 4 in the thirty-second when the last three bit depths did |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 - **The `Content` row was 10 and is 1, and the `Operator` row 12 and is 9** (ADR 0031). Nine of
