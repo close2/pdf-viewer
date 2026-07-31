@@ -1315,7 +1315,7 @@ rise is a new report and is written down as one.
 | draws incompletely | 89 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, 4 in the thirty-second when the last three bit depths did, 2 in the seventy-first when §11.4.6's knockout was drawn, 5 in the seventy-second when §9.3.8 and §11.6.2 followed it, and 1 in the eighty-fifth when §12.5.6.7's leader lines stopped being refused |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
-- **The `Content` row was 10 and is 1, and the `Operator` row 12 and is 9** (ADR 0031). Nine of
+- **The `Content` row was 10 and is 1** (ADR 0031). Nine of
   those ten content reports were an encrypted `/Contents` refusing to inflate because it was
   ciphertext, and three of the operator reports were the same ciphertext lexing as operator names.
   Six of those twelve documents now draw with nothing reported and six say they need a password.
@@ -1328,18 +1328,19 @@ rise is a new report and is written down as one.
   `Line` whose line endings state no size (Table 179), 1 an `Ink` with no usable `/Rect`.
   **Nothing on it is a `/NeedAppearances`, nothing is a field value, and nothing is text markup
   any more.**
-- **The font row was 100 before ADR 0029, then 67, and is 45 documents.** Nothing on it is a
+- **The font row was 100 before ADR 0029, then 67, and is 42 documents** — recounted from the gate's own output in the eighty-ninth session. Nothing on it is a
   `CMap` question and nothing on it is a Type 1 program: what is left is fonts with no
   `/ToUnicode` so a substitute cannot be addressed, substitutes that draw none of their declared
   codes, the 15 naming a predefined `CMap`, the 4 asking for vertical writing, and malformed
   programs.
-- **The operator row was 33** until the text rendering modes landed and is 15. Nothing on it is a
+- **The operator row was 33** until the text rendering modes landed, and is 8. Nothing on it is a
   feature: `BT` without `ET`, `BDC` without `EMC`, and the byte soup a fuzzed content stream lexes
   as operator names.
-- **The image row was 161 before JBIG2 and JPEG 2000, and is 11** — one image apiece, and nothing
-  on it is a feature: 4 malformed streams, 3 bit depths the unpacker refuses, one `/Mask` that is
-  not an image mask, one JBIG2 segment type ISO/IEC 14492 does not define, one 212-megapixel JPEG
-  2000 scan, and one `/SMask` of 34862x4332 against a 2x2 image.
+- **The image row was 161 before JBIG2 and JPEG 2000, and is 8** — one image apiece, recounted in
+  the eighty-ninth session, and nothing on it is a feature: 4 malformed streams (three JPEGs whose
+  dimensions contradict their dictionary or whose headers do not parse, one with no `/Width`), one
+  `/Mask` that is not an image mask, one JBIG2 segment type ISO/IEC 14492 does not define, one
+  212-megapixel JPEG 2000 scan, and one `/SMask` of 34862x4332 against a 2x2 image.
 - **The shading row is gone.** It held 28 documents and every one was a soft mask in an
   `/ExtGState`, filed under shading because nothing else fitted.
 
@@ -1366,7 +1367,7 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
-The 134 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
+The 133 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
 say we cannot draw is expected to differ. **The denominator moves in both directions on purpose**:
 it grows when reports stop firing (46 pages in the twenty-first session) and shrinks when a
 silence ends (8 in the seventeenth, 43 in the eighth). A report should never be reached for as a
