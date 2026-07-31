@@ -32,6 +32,7 @@ pub mod lexer;
 pub mod object;
 pub mod parser;
 pub mod text_string;
+pub mod tree;
 pub mod xref;
 
 pub use crypt::Permissions;

@@ -5,7 +5,8 @@
 //! ```
 //!
 //! Left and right arrows or Page Up and Down change page, Escape quits. The window title
-//! shows the page number and reports anything on the page that could not be drawn.
+//! shows the page's own label where the document states one (§12.4.2), the page number, and
+//! anything on the page that could not be drawn.
 //!
 //! # Reporting incomplete pages
 //!
@@ -123,6 +124,11 @@ struct App {
     context: RenderContext,
     document: Document,
     title: String,
+    /// §12.4.2's labelling ranges, read once when the document opens.
+    ///
+    /// Once rather than per page turn: the tree is a handful of ranges and reading it costs
+    /// one walk, where doing it per page would put a number-tree walk on every arrow key.
+    labels: pdf_model::page_label::PageLabels,
     page_count: usize,
     page_index: usize,
     state: Option<State>,
@@ -136,10 +142,12 @@ struct State {
 
 impl App {
     fn new(document: Document, title: String, page_count: usize) -> Self {
+        let labels = pdf_model::page_label::PageLabels::read(&document);
         Self {
             context: RenderContext::new(),
             document,
             title,
+            labels,
             page_count,
             page_index: 0,
             state: None,
@@ -261,7 +269,14 @@ impl ApplicationHandler for App {
                 let Some(state) = self.state.as_mut() else {
                     return;
                 };
-                let report = render(&self.context, state, &self.document, index, count);
+                let report = render(
+                    &self.context,
+                    state,
+                    &self.document,
+                    index,
+                    count,
+                    &self.labels,
+                );
                 state
                     .window
                     .set_title(&format!("{} — {report}", self.title));
@@ -279,6 +294,7 @@ fn render(
     document: &Document,
     page_index: usize,
     page_count: usize,
+    labels: &pdf_model::page_label::PageLabels,
 ) -> String {
     let width = state.surface.config.width;
     let height = state.surface.config.height;
@@ -360,10 +376,10 @@ fn render(
         CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
             context.configure_surface(&state.surface);
             state.window.request_redraw();
-            return describe(page_index, page_count, &interpretation);
+            return describe(page_index, page_count, labels, &interpretation);
         }
         CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => {
-            return describe(page_index, page_count, &interpretation);
+            return describe(page_index, page_count, labels, &interpretation);
         }
         CurrentSurfaceTexture::Validation => return "swapchain validation failed".to_owned(),
     };
@@ -384,16 +400,27 @@ fn render(
     handle.queue.submit(Some(encoder.finish()));
     frame.present();
 
-    describe(page_index, page_count, &interpretation)
+    describe(page_index, page_count, labels, &interpretation)
 }
 
 /// Builds the title-bar status, naming what could not be drawn.
 fn describe(
     page_index: usize,
     page_count: usize,
+    labels: &pdf_model::page_label::PageLabels,
     interpretation: &pdf_model::Interpretation,
 ) -> String {
-    let page = format!("page {} of {page_count}", page_index.saturating_add(1));
+    // ISO 32000-2 §12.4.2: "Page labels and page indices need not coincide". Where the
+    // document states a label, it is what a reader is meant to see — a page of front matter
+    // is *iv*, not page four — so the index is shown beside it rather than instead of it,
+    // because a viewer whose title says only `iv` cannot say `of 320`.
+    let page = match labels.label(page_index) {
+        Some(label) if !label.is_empty() => format!(
+            "{label} — page {} of {page_count}",
+            page_index.saturating_add(1)
+        ),
+        _ => format!("page {} of {page_count}", page_index.saturating_add(1)),
+    };
     if interpretation.is_complete() {
         return page;
     }

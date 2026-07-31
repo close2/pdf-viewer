@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **forty-seventh** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **forty-eighth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,72 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the forty-seventh session changed
+## What the forty-eighth session changed
+
+**The ledger found a missing *component* rather than a missing feature, and this session built
+it.** Four `silent` rows in two clauses named the same absent thing: §12.3.2.4's named
+destinations, §12.4.2's page labels, §12.7.7's named pages and §14.7.5.4's `/ParentTree` all
+need a **name or number tree**, and nothing in this project read one. No single clause review
+would have shown that and no corpus document would ever have asked for it — a demand curve ranks
+features, and this is not a feature.
+
+`pdf-syntax::tree` is §7.9.6 and §7.9.7 as one module, because §7.9.7 defines itself by
+difference: "similar to a name tree … except that its keys shall be integers instead of
+strings", with `/Nums` for `/Names`. `TreeKey` is that difference and nothing else. Two entry
+points for two shapes of question — `lookup` descends, which is the clause's own reason for the
+structure ("looked up efficiently without requiring the entire data structure to be read"), and
+`number_pairs` walks the whole tree, which §12.4.2 needs because a labelling range runs to the
+*next* key and no lookup produces a neighbour. **`/Limits` are a hint, not a gate**: real files
+get them wrong, and a reader that trusted them would lose entries that are there.
+
+**Then the first thing built on it: §12.4.2's page labels, in full.** Chosen because it is the
+only row in clause 12's navigation half with no user-interface question in it — a label is a
+string computed from the document — and because `CLAUDE.md` names it in scope. Four things the
+clause states that a first implementation gets wrong, each now in the code with its sentence:
+
+- **There is no default numbering style.** A range with a `/P` and no `/S` gives every one of
+  its pages the *same* label, which the clause's own NOTE spells out with `Contents`.
+- **`/A` is not base 26.** "A to Z for the first 26 pages, AA to ZZ for the next 26" — the
+  twenty-eighth page is `BB`, where base 26 says `AB`.
+- **The Roman form is subtractive**, which the clause fixes not by stating an algorithm but by
+  its example running `i, ii, iii, iv` rather than `iiii`.
+- **`/St` "shall be greater than or equal to 1"**, so a file writing zero gets the default.
+
+**The clause's worked example is the test** — three ranges and the nine labels the standard
+prints beside them, `i ii iii iv 1 2 3 A-8 A-9` — because no corpus document exercises all three
+forms, which is trap 8. The corpus test is the other half: **22 of the 974 documents state page
+labels** and every one labels its first page, as §12.4.2 requires. `viewer-ui` shows the label
+beside the index rather than instead of it, since a title reading `iv` cannot also say `of 320`.
+ADR 0053.
+
+| | was | is |
+|---|---|---|
+| name and number trees (§7.9.6, §7.9.7) | `reported` | **`implemented`** |
+| page labels (§12.4.2) | `silent` | **`implemented`**, and shown in the title bar |
+| rows whose missing piece was a tree | 4 | **3**, and each now needs only its own semantics |
+
+**The numbers:**
+
+| | before | now |
+|---|---|---|
+| corpus documents drawing with nothing reported | 858 | **858** |
+| pages agreeing with the reference consensus | 816 | **816** |
+| ledger subclauses nobody has read | 136 | **136** |
+| **tests** | 606 | **615** |
+
+What it taught:
+
+- **A ledger with a status per subclause can find a missing component, not only a missing
+  feature** — but only if the rows are written well enough to be read *across* clauses. That is
+  an argument for the prose the notes carry rather than against it, and it is the first time
+  this instrument has produced a work item that no gate, no corpus and no single clause could
+  have.
+- **The standard sometimes states answers rather than rules, and those are the tests to write.**
+  §12.4.2 gives no algorithm for Roman numerals and no formula for its letters; what it gives is
+  nine labels beside a tree, and every one of the four mistakes above fails at least one of
+  them.
+
+### The forty-seventh session, in brief
 
 **A `.max(0.0)` was answering a question nobody had asked, and one contradicted page is where
 the three possible answers pull apart.** `issue19633.pdf` strokes one diagonal under
@@ -750,6 +815,7 @@ below rather than here.
 | 45 | A contradicted page's label measured and replaced; §12.6's actions reviewed | — |
 | 46 | Clause 12 completed as a review; the median page profiled at last | — |
 | 47 | A negative line width is a choice, written down; §14.7 reviewed | — |
+| 48 | Name and number trees, and §12.4.2's page labels on top of them | ADR 0053 |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -766,11 +832,13 @@ A PDF **renderer** that opens real files and draws pages: geometry, colour, imag
 patterns, embedded text, transparency groups, soft masks, and annotations both from their stored
 appearance streams and constructed where the standard states one — on a CPU and a GPU backend,
 with JBIG2 and JPEG 2000 decoded in a confined worker, encrypted files decrypted at every
-revision and method §7.6 states, and **a form field's value laid out from its `/DA` string**. It
-is not yet a PDF *viewer* in the full sense — nothing edits a field, follows a link or asks a
-person for a password — and the gap is measured below rather than guessed at.
+revision and method §7.6 states, **a form field's value laid out from its `/DA` string**, and — since the forty-eighth session —
+**a page's own label from §12.4.2**, shown in the title bar. It is not yet a PDF *viewer* in the
+full sense — nothing edits a field, follows a link or asks a person for a password — and the gap
+is now measured *by clause* as well as by corpus: 131 of the ledger's rows are `silent`, and
+almost every one of them is a viewer rather than a renderer.
 
-- **606 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **615 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -939,8 +1007,8 @@ the exception with its reasoning. Nothing to chase.
 | Crate | Does | Notes |
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
-| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings. `object.rs` is §7.3.1's nine basic types plus the reference that labels any of them, and `parser.rs` is where §7.3.7 drops a null-valued entry and keeps the first of a duplicated key. `filter.rs` is §7.4's ten standard filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately answered `None` so a *content* stream naming one is visibly unsupported |
-| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused; its `Decode` is §8.9.5.2's map held as one table per component and its `Conversion` is an *exact* per-image memo, which is what makes converting every image through its real colour space affordable (ADRs 0034, 0035). `page.rs` is §7.7.3: the tree walk, the four inheritable entries and the twelve that are not, and `/UserUnit` (ADR 0038) |
+| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees, one module because the second clause defines itself as the first with integer keys — the component the conformance ledger found by four `silent` rows in two clauses naming it (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings. `object.rs` is §7.3.1's nine basic types plus the reference that labels any of them, and `parser.rs` is where §7.3.7 drops a null-valued entry and keeps the first of a duplicated key. `filter.rs` is §7.4's ten standard filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately answered `None` so a *content* stream naming one is visibly unsupported |
+| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused; its `Decode` is §8.9.5.2's map held as one table per component and its `Conversion` is an *exact* per-image memo, which is what makes converting every image through its real colour space affordable (ADRs 0034, 0035). `page.rs` is §7.7.3: the tree walk, the four inheritable entries and the twelve that are not, and `/UserUnit` (ADR 0038). `page_label.rs` is §12.4.2 in full over `pdf-syntax`'s number tree — the clause's four traps are no default numbering style, letters that repeat rather than carry, subtractive Roman numerals and a `/St` floor of 1, and its own worked example is the test |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for name-keyed programs, §9.6.5.4 for `TrueType`, ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code — glyph by name, glyph by built-in code, and that code's name — and `cff.rs` and `type1.rs` each produce one, because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is §9.9's `/FontFile` and is the one program kept *parsed*, measured: re-parsing per distinct glyph put 11 ms on `tracemonkey.pdf`. `simple_code_table` takes no font descriptor, which is the shape of ADR 0039's finding: Table 112 makes an *embedded* program's own built-in encoding the base, and the Symbolic flag decides only among the cases where nothing is embedded. `DEFAULT_WIDTH` is Table 120's 0 rather than a preference. `code_for` is the one *backwards* route — a character to the code that draws it — and it is built by running the forward mapping over every code the font defines, so the two cannot disagree. `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree. `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot make them differently: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `soft_mask.rs` turns rendered pixels into §11.5's mask values. `Command::Group` is the one nested command (ADR 0026) and `impose_on_medium` is §11.4.7. `Path::extend_transformed` is the one place geometry moves rather than travelling with a transform (§9.3.6, ADR 0022). `MeshRaster` is §8.7.4.5.5's Gouraud interpolation, evaluated per device pixel and shared by both backends because neither rasteriser has the primitive and a second copy would only drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes and §11.3.6's compositing formula, written here rather than in `pdf-render` on purpose: the clause states the arithmetic, Vello states it again in its own shader, and the cross-backend scene compares the two — sharing them would make it compare one implementation against itself (ADR 0047) |
@@ -1565,6 +1633,12 @@ regeneration a *splice* rather than a rebuild, the three field types whose own s
 flag cannot reach them, and §12.7.5.2.3's `/AS`-over-`/V` rule, which `annotation.rs` already
 satisfied without anybody having written the sentence down. **A gap sized by a corpus is a hypothesis about a clause**, and the only instrument that
 can test it is the clause.
+
+**The ledger's own first work item.** Four `silent` rows named one absent data structure and the
+forty-eighth session built it (ADR 0053), which leaves three — §12.3.2.4's named destinations,
+§12.7.7's named pages and §14.7.5.4's `/ParentTree` — each now needing only its own semantics on
+top of `pdf_syntax::tree`. That is what a conformance ledger can produce and a demand curve
+cannot: a component nobody would have asked for.
 
 **And a third thing, on neither track: the instrument.** 95% of the oracle's cost was three other
 programs answering a question they had already answered, and nobody had looked because 85 seconds

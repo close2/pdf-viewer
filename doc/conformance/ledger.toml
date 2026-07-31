@@ -875,14 +875,18 @@ note = "\"Although rectangles are conventionally specified by their lower-left a
 [[clause]]
 clause = "7.9.6"
 title = "Name trees"
-status = "reported"
-note = "A name tree maps strings to objects, sorted, with `/Kids`, `/Names` and `/Limits`. Nothing here walks one: the catalog's `/Names` reaches destinations, embedded files, JavaScript and page labels, all of which are navigation or interchange rather than marks on a page. §12.3.2.3's named destinations are the first thing that will need it."
+status = "implemented"
+code = ["crates/pdf-syntax/src/tree.rs"]
+test = ["crates/pdf-syntax/src/tree.rs::a_key_is_found_through_intermediate_nodes"]
+note = "Name trees: a root with `/Names` or `/Kids`, intermediate and leaf nodes with `/Limits`, keys that are *strings* and are ordered. `tree.rs` answers this clause and §7.9.7 with one walk, because the two differ only in the key type and in whether the pairs are called `/Names` or `/Nums`. **The `/Limits` are read as a hint rather than as a gate**: a node whose limits exclude the key is skipped and a node with none is searched, so a producer that got them wrong loses speed rather than entries. The clause's own reason for the structure is `CLAUDE.md` principle 2 written by ISO — the pairs \"can be looked up efficiently without requiring the entire data structure to be read from the PDF file\" — which is why the lookup descends rather than flattening."
 
 [[clause]]
 clause = "7.9.7"
 title = "Number trees"
-status = "reported"
-note = "A number tree, the same structure keyed by integers, with `/Nums` in place of `/Names`. Its two users are §14.7's structure-tree `/ParentTree` and §12.4.2's `/PageLabels`, neither of which decides a pixel today."
+status = "implemented"
+code = ["crates/pdf-syntax/src/tree.rs"]
+test = ["crates/pdf-syntax/src/tree.rs::a_number_trees_pairs_come_back_in_order"]
+note = "Number trees, which §7.9.7 defines by difference: \"similar to a name tree … except that its keys shall be integers instead of strings and shall be sorted in ascending numerical order\", with `/Nums` in place of `/Names`. `TreeKey` is that difference and nothing else. Two entry points, for two shapes of question: `lookup` descends for one key, and `number_pairs` walks the whole tree — which §12.4.2 needs, because a labelling range runs from its own key to the *next* one and no single lookup produces a neighbour."
 
 [[clause]]
 clause = "7.10"
@@ -3353,8 +3357,10 @@ note = "The framing. Page-level navigation is what a reader does *within* a docu
 [[clause]]
 clause = "12.4.2"
 title = "Page labels"
-status = "silent"
-note = "Page labels: the catalog's `/PageLabels`, a **number tree** whose keys are the page indices that begin a labelling range, and Table 161's `/S`, `/P` and `/St`. In scope by name and unbuilt, and the *only* row in this family with no user-interface question in it — a label is a string, computed from the document, that a viewer prints beside a page number. Two details are worth leaving here: there is no default numbering style, so a range with a `/P` and no `/S` labels every one of its pages identically; and `/A` and `/a` run `A` to `Z` and then `AA` to `ZZ`, which is not base-26. A number tree is the same structure §12.3.2.4's named destinations need, so the two rows share their missing piece."
+status = "implemented"
+code = ["crates/pdf-model/src/page_label.rs"]
+test = ["crates/pdf-model/tests/page_labels.rs::the_clauses_own_example_produces_the_labels_it_states", "crates/pdf-model/tests/page_labels.rs::every_document_stating_labels_labels_its_first_page"]
+note = "Page labels, in full: the catalog's `/PageLabels` number tree, Table 161's `/S`, `/P` and `/St`, and the rule that a range runs to the start of the next. Four things the clause states and a first implementation gets wrong: **there is no default numbering style**, so a range with a `/P` and no `/S` labels every one of its pages identically — the clause's own NOTE spells that out with `Contents`; **`/A` is not base 26**, it is \"A to Z for the first 26 pages, AA to ZZ for the next 26\", so the twenty-eighth page is `BB` and not `AB`; the Roman form is subtractive, which the clause's example fixes by running `i, ii, iii, iv` rather than `iiii`; and `/St` \"shall be greater than or equal to 1\", so a file writing zero gets the stated default. The prefix is a *text string*, decoded by §7.9.2.2's own function. **The clause's worked example is the test** — nine labels, `i ii iii iv 1 2 3 A-8 A-9` — because no corpus document exercises all three of its ranges, which is trap 8; 22 of the 974 do state labels and every one of them labels its first page. `viewer-ui` shows the label beside the index rather than instead of it, since a title reading `iv` cannot also say `of 320`."
 
 [[clause]]
 clause = "12.4.3"
