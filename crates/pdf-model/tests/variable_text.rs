@@ -498,3 +498,70 @@ fn is_blue(raster: &pdf_render::Raster) -> bool {
                 && raster.data[index.saturating_add(3)] > 200
         })
 }
+
+/// §12.7.6.3: a reset-form action draws the field's *default* value instead of its value.
+///
+/// The clause is a display change, not only a data one: it "shall set the value of the V entry
+/// in the field dictionary to that of the DV entry", and §12.7.4.3 lays out whatever that entry
+/// holds. So the same page, drawn twice from the same file, differs by exactly one action —
+/// which is the property `ViewState` exists for, and the reason nothing is written back to the
+/// document.
+///
+/// Two fields, because the clause states two outcomes: one with a `/DV`, whose text changes, and
+/// one without, whose "V entry shall be removed" and which then draws nothing at all.
+#[test]
+fn a_reset_form_action_draws_the_default_value_instead_of_the_value() {
+    let with_default = pdf_with(
+        "/NeedAppearances false",
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (f) /V (typed) /DV (default) \
+         /Rect [20 40 180 70] /DA (/Helv 12 Tf 0 g) >>",
+    );
+    let document = Document::open(with_default).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+
+    let before = pdf_model::interpret(&document, &page);
+    let mut state = pdf_model::view::ViewState::of(&document);
+    let action = pdf_model::action::read(
+        &document,
+        &pdf_syntax::Object::Dictionary({
+            let mut dict = pdf_syntax::Dictionary::new();
+            dict.insert(
+                pdf_syntax::Name::new(b"S".to_vec()),
+                pdf_syntax::Object::Name(pdf_syntax::Name::new(b"ResetForm".to_vec())),
+            );
+            dict
+        }),
+    );
+    state.perform_all(&document, &action);
+    let after = pdf_model::content::interpret_with(&document, &page, &state);
+
+    assert!(
+        before.glyphs > 0 && after.glyphs > 0,
+        "both draw text, or this machine has no sans-serif face and the test is vacuous"
+    );
+    assert_ne!(
+        before.glyphs, after.glyphs,
+        "\"typed\" and \"default\" are different numbers of glyphs, so the marks differ"
+    );
+
+    // The other outcome: no `/DV` anywhere, so the value is *removed* and nothing is laid out.
+    let without_default = pdf_with(
+        "/NeedAppearances false",
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (f) /V (typed) \
+         /Rect [20 40 180 70] /DA (/Helv 12 Tf 0 g) >>",
+    );
+    let document = Document::open(without_default).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    state.perform_all(&document, &action);
+    let after = pdf_model::content::interpret_with(&document, &page, &state);
+    assert!(
+        pdf_model::interpret(&document, &page).glyphs > 0,
+        "the field draws its value before the reset"
+    );
+    assert_eq!(
+        after.glyphs, 0,
+        "and after it draws nothing, which is what \"its V entry shall be removed\" means \
+         for a program that does not write to the file"
+    );
+}

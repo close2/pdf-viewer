@@ -276,6 +276,15 @@ impl App {
         // flag (§12.6.4.11) — and a link may do both and then jump. `ViewState` keeps them;
         // redrawing is this function's answer either way.
         let before = self.view.clone();
+        // Trap 5, on the one path where an action can be declined: every type Table 201 lists
+        // and this program does not perform arrives as `Action::Refused` carrying its own
+        // reason, and dropping it silently would make a click that does nothing
+        // indistinguishable from a click on nothing.
+        for action in &link.actions {
+            if let pdf_model::action::Action::Refused(why) = action {
+                println!("link: declined — {why}");
+            }
+        }
         let requests = self.view.perform_all(&self.document, &link.actions);
         let changed_here = self.view != before;
 

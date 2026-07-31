@@ -15,14 +15,14 @@
 //! | `Named` | §12.6.4.12 | yes — Table 215's four page commands |
 //! | `URI` | §12.6.4.8 | yes — the URI, resolved; opening it is the caller's |
 //! | `Thread` | §12.6.4.7 | yes — a bead on §12.4.3's article thread, in this file |
+//! | `ResetForm` | §12.7.6.3 | yes — a field's value becomes its `/DV`, which changes what is drawn |
 //! | everything else | | [`Action::Refused`], by name |
 //!
 //! The refusals are not laziness and they are not uniform. `GoToR`, `GoToE`, `Launch`,
 //! `ImportData` and `SubmitForm` want a file system or a network, which principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
-//! same list; `Trans`, `ResetForm` and `GoToDp` are viewer behaviour this program
-//! has not built yet. A `Thread` action naming *another file* joins the first group, for the
+//! same list; `Trans` and `GoToDp` are viewer behaviour this program has not built yet. A `Thread` action naming *another file* joins the first group, for the
 //! same reason `GoToR` is in it. Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
 //!
@@ -78,6 +78,8 @@ pub enum Action {
     Uri(Uri),
     /// §12.6.4.7: jump to a bead on one of §12.4.3's article threads.
     Thread(ThreadJump),
+    /// §12.7.6.3: reset form fields to the values the document says they start at.
+    ResetForm(ResetForm),
     /// An action type this program recognises and does not perform, named.
     ///
     /// A `&'static str` rather than the file's own bytes: the name is one of Table 201's
@@ -193,6 +195,46 @@ impl Named {
             Self::LastPage => last,
         })
     }
+}
+
+/// §12.7.6.3's reset-form action. Table 241.
+///
+/// The clause states exactly what resetting *is*, and it is a document's own statement rather
+/// than an empty value:
+///
+/// > an interactive PDF processor shall reset selected interactive form fields to their default
+/// > values; that is, it shall set the value of the V entry in the field dictionary to that of
+/// > the DV entry … If no default value is defined for a field, its V entry shall be removed.
+///
+/// So this is performable *as a display change*: a field's appearance is built from its value
+/// (§12.7.4.3, ADR 0032), and a reset changes which entry that value comes from. Nothing is
+/// written to the file — [`crate::view::ViewState`] holds the set of widgets that have been
+/// reset, exactly as it holds the annotations a hide action touched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResetForm {
+    /// Table 241's `/Fields`, in whichever of its two forms each element takes.
+    ///
+    /// Empty means the entry was absent, which the table makes decisive: "[i]f this entry is
+    /// omitted, the Include/Exclude flag shall be ignored; all fields in the document's
+    /// interactive form are reset."
+    pub fields: Vec<ResetTarget>,
+    /// Table 242's bit 1: whether `/Fields` says which to reset or which to *spare*.
+    ///
+    /// §12.7.6.3's Table 242 gives it both readings: clear, and the array "specifies which
+    /// fields to reset"; set, and it "indicates which fields to exclude from resetting".
+    pub exclude: bool,
+}
+
+/// One entry of Table 241's `/Fields`.
+///
+/// The table permits both spellings in one array — "[e]lements of both kinds may be mixed in the
+/// same array" — which is why this is an enum rather than two entries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResetTarget {
+    /// "[A]n indirect reference to a field dictionary".
+    Field(ObjectId),
+    /// "[A] text string representing the fully qualified name of a field" (PDF 1.3).
+    Name(String),
 }
 
 /// §12.6.4.7's thread action. Table 209.
@@ -505,8 +547,41 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         b"Named" => Action::Named(Named::read(document.get_key(dict, "N").as_name()?)?),
         b"URI" => Action::Uri(uri(document, dict)?),
         b"Thread" => thread(document, dict)?,
+        b"ResetForm" => Action::ResetForm(reset_form(document, dict)),
         other => Action::Refused(refused(other)?),
     })
+}
+
+/// Table 241's `/Fields` and Table 242's one flag.
+///
+/// No `None` case: `/Fields` and `/Flags` are both optional, and an action stating neither is the
+/// one the table describes — every field in the document reset.
+fn reset_form(document: &Document, dict: &Dictionary) -> ResetForm {
+    let fields = match document.get_key(dict, "Fields") {
+        Object::Array(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                // A reference is the field itself, so it is *not* resolved: what identifies a
+                // field here is its object identity, as it is for §12.6.4.11's annotations.
+                Object::Reference(id) => Some(ResetTarget::Field(*id)),
+                other => match document.resolve(other) {
+                    Object::String(bytes) => {
+                        Some(ResetTarget::Name(pdf_syntax::text_string(&bytes)))
+                    }
+                    _ => None,
+                },
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    ResetForm {
+        fields,
+        // Table 242 numbers "from 1 (low-order)", so bit 1 is the value 1.
+        exclude: document
+            .get_key(dict, "Flags")
+            .as_integer()
+            .is_some_and(|flags| flags & 1 != 0),
+    }
 }
 
 /// Table 209's `/D` and `/B`, with `/F` deciding that this is another file's thread.
@@ -722,7 +797,6 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
             "RichMediaExecute: clause 13's multimedia, excluded by CLAUDE.md principle 5"
         }
         b"SubmitForm" => "SubmitForm: §12.7.6.2's submission, which needs a network",
-        b"ResetForm" => "ResetForm: §12.7.6.3's reset, which needs a field to be editable first",
         b"ImportData" => "ImportData: §12.7.6.4's FDF import, which needs a filesystem",
         _ => return None,
     })

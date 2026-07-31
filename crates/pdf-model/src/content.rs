@@ -3257,8 +3257,18 @@ impl Interpreter<'_> {
                 .map_or(crate::view::Appearance::Normal, |id| {
                     self.view.appearance_for(id)
                 });
-            match crate::annotation::decide(self.document, dict, by_action == Some(false), showing)
-            {
+            // §12.7.6.3: a reset-form action performed on this widget makes its value the
+            // one the file states as the *default*, which changes what §12.7.4.3 lays out.
+            let reset = entry
+                .as_reference()
+                .is_some_and(|id| self.view.is_reset(id));
+            match crate::annotation::decide(
+                self.document,
+                dict,
+                by_action == Some(false),
+                showing,
+                reset,
+            ) {
                 crate::annotation::Decision::Nothing => {}
                 crate::annotation::Decision::Unsupported(detail) => {
                     self.note(Unsupported::Annotation { detail });

@@ -3802,26 +3802,34 @@ note = "Go-To: \"a destination that shall be displayed\" in this document, which
 [[clause]]
 clause = "12.6.4.3"
 title = "Remote Go-To actions"
-status = "silent"
-note = "Remote Go-To: a destination in *another* file, whose `page` is an integer index rather than a page object. Opening a second document is a `viewer-ui` question and a security one — §7.11's file specification can name any path."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "Remote Go-To: a destination in *another* file, whose `page` is an integer index rather than a page object. Opening a second document is a `viewer-ui` question and a security one — §7.11's file specification can name any path. **Refused by name and said out loud**: `action.rs` answers \"GoToR: a destination in another file, which this reader has no filesystem to open\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
 
 [[clause]]
 clause = "12.6.4.4"
 title = "Embedded Go-To actions"
-status = "silent"
-note = "Embedded Go-To: a destination inside an embedded file, reached through a `/T` target chain of parent and child relationships. Needs §7.11.4's embedded file streams, which nothing here reads."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "Embedded Go-To: a destination inside an embedded file, reached through a `/T` target chain of parent and child relationships. Needs §7.11.4's embedded file streams, which nothing here reads. **Refused by name and said out loud**: `action.rs` answers \"GoToE: a destination in an embedded file\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
 
 [[clause]]
 clause = "12.6.4.5"
 title = "GoToDp action"
-status = "silent"
-note = "GoToDp: navigate to a document part (§14.12), which is `unreviewed` in clause 14 and unbuilt."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "GoToDp: navigate to a document part (§14.12), which is `unreviewed` in clause 14 and unbuilt. **Refused by name and said out loud**: `action.rs` answers \"GoToDp: a document part, which needs §14.12's part hierarchy\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
 
 [[clause]]
 clause = "12.6.4.6"
 title = "Launch actions"
-status = "silent"
-note = "Launch: run an application or open a file. **The one action in this family whose absence is a security property rather than a gap**, and it should stay absent until somebody writes the argument — principle 3's sandbox exists so that a document cannot reach the machine, and this action is a document asking to."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "Launch: run an application or open a file. **The one action in this family whose absence is a security property rather than a gap**, and it should stay absent until somebody writes the argument — principle 3's sandbox exists so that a document cannot reach the machine, and this action is a document asking to. **Refused by name and said out loud**: `action.rs` answers \"Launch: running an application, which the sandbox withholds\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
 
 [[clause]]
 clause = "12.6.4.7"
@@ -3842,14 +3850,18 @@ note = "Table 210's `/URI` and `/IsMap` and Table 211's `/Base`, which is the wh
 [[clause]]
 clause = "12.6.4.9"
 title = "Sound actions"
-status = "silent"
-note = "Sound: play a sound object. Adjacent to clause 13's exclusion and not covered by it, because §12.6.4.9 is in clause 12; recorded as debt, like §12.3.6's navigators."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "Sound: play a sound object. Adjacent to clause 13's exclusion and not covered by it, because §12.6.4.9 is in clause 12; recorded as debt, like §12.3.6's navigators. **Refused by name and said out loud**: `action.rs` answers \"Sound: clause 13's multimedia, excluded by CLAUDE.md principle 5\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
 
 [[clause]]
 clause = "12.6.4.10"
 title = "Movie actions"
-status = "silent"
-note = "Movie: play a movie annotation. Deprecated in PDF 2.0 in favour of §13.2's screen annotations and rendition actions, which principle 5 *does* exclude — so this row is one deprecation away from being out of scope, and saying so is cheaper than arguing it."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "Movie: play a movie annotation. Deprecated in PDF 2.0 in favour of §13.2's screen annotations and rendition actions, which principle 5 *does* exclude — so this row is one deprecation away from being out of scope, and saying so is cheaper than arguing it. **Refused by name and said out loud**: `action.rs` answers \"Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
 
 [[clause]]
 clause = "12.6.4.11"
@@ -3883,8 +3895,10 @@ note = "Rendition actions control a media player — a rendition, a screen annot
 [[clause]]
 clause = "12.6.4.15"
 title = "Transition actions"
-status = "silent"
-note = "Transition: run a page transition (§12.4.4) in the middle of a presentation. Debt, with §12.4.4."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "Transition: run a page transition (§12.4.4) in the middle of a presentation. Debt, with §12.4.4. **Refused by name and said out loud**: `action.rs` answers \"Trans: §12.4.4's page transition, which this viewer does not animate\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
 
 [[clause]]
 clause = "12.6.4.16"
@@ -4050,32 +4064,42 @@ note = "A signature field is drawn from its `/AP` and from nothing else, which i
 [[clause]]
 clause = "12.7.6"
 title = "Form actions"
-status = "silent"
-note = "Form actions: submit, reset and import. `CLAUDE.md` puts field *behaviour* outside what this tree builds while keeping field *appearance* inside it, and these three are behaviour in its purest form — they move a field's value somewhere or replace it. Unimplemented and unreported, which is what `silent` records; nothing here reads an `/A` on a widget at all (§12.6)."
+status = "partial"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/src/view.rs::a_reset_form_action_names_fields_to_reset_or_fields_to_spare", "crates/pdf-model/tests/variable_text.rs::a_reset_form_action_draws_the_default_value_instead_of_the_value"]
+note = "Submit, reset and import. **Reset is performed**, because it is the one of the three whose whole effect is a display change: §12.7.6.3 sets a field's value to its `/DV`, and §12.7.4.3 draws whatever that value is. The other two are refused by name at runtime — a submission is a network request a document initiated, an import wants a filesystem — which is `reported` rather than `silent` on their own rows. `partial` for that split."
 
 [[clause]]
 clause = "12.7.6.1"
 title = "General"
-status = "silent"
-note = "The framing: these actions are triggered from a widget and act on the interactive form as a whole."
+status = "partial"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs"]
+test = ["crates/pdf-model/src/view.rs::a_reset_form_action_names_fields_to_reset_or_fields_to_spare"]
+note = "The framing: these actions are triggered from a widget and act on the interactive form as a whole. One of the three acts on what is drawn and is performed; the other two are refused by name."
 
 [[clause]]
 clause = "12.7.6.2"
 title = "Submit-form action"
-status = "silent"
-note = "Submit-form: Table 239's `/F` file specification and Table 240's flags, sending field values as FDF, HTML, XFDF or the whole PDF. A network request initiated by a document, so it belongs with `/Launch` and `/URI` — the missing feature is also a refusal, and principle 3's sandbox is the argument for keeping it one."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "Refused by name, and named at runtime: `Action::Refused` carries \"SubmitForm: §12.7.6.2's submission, which needs a network\", and `viewer-ui` prints it when a click reaches one. Table 239's `/F` file specification and Table 240's flags describe a network request *a document* initiated, which belongs with `/Launch` and `/URI` on the far side of principle 3's boundary — the decision is about this machine, not about the file."
 
 [[clause]]
 clause = "12.7.6.3"
 title = "Reset-form action"
-status = "silent"
-note = "Reset-form: set the named fields back to their `/DV` default values. **The one action in this family whose effect is entirely local and entirely visible**, and everything under it exists: §12.7.4.3's layout builds a field's appearance from its value, and `/NeedAppearances` already makes this tree rebuild one. What is missing is the value changing."
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/src/view.rs::a_reset_form_action_names_fields_to_reset_or_fields_to_spare", "crates/pdf-model/tests/variable_text.rs::a_reset_form_action_draws_the_default_value_instead_of_the_value"]
+note = "Table 241 and Table 242 whole, and **performed**. The clause states the effect exactly — a processor \"shall set the value of the V entry in the field dictionary to that of the DV entry … If no default value is defined for a field, its V entry shall be removed\" — so `Field::read` reads `/DV` instead of `/V` up the same `/Parent` chain for a widget the action touched, and a field with no `/DV` anywhere draws nothing at all, which is what \"removed\" means for a program that does not write to the file. A check box answers from its `/DV` rather than its `/AS`, because the `/AS` in the file describes the state the action just replaced. `/Fields` is read in both of its forms and all three of the table's shapes: absent means \"all fields in the document's interactive form are reset\"; present with the flag clear means those fields and \"[a]ll descendants of the specified fields in the field hierarchy\", which §12.7.4.2's naming makes a prefix test; present with the flag set means everything except them. The reset set lives in `ViewState` beside §12.6.4.11's hidden annotations, for the same reason: nothing is written to the document. 3 corpus actions in 2 documents."
 
 [[clause]]
 clause = "12.7.6.4"
 title = "Import-data action"
-status = "silent"
-note = "Import-data: fill the form from an FDF file (§12.7.8), which is `silent` with it."
+status = "reported"
+code = ["crates/pdf-model/src/action.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "Refused by name and named at runtime, like §12.7.6.2. Table 243's `/F` is an FDF or XFDF file to fill the form from, which needs both a filesystem and §12.7.8's format."
 
 [[clause]]
 clause = "12.7.7"
@@ -4158,8 +4182,10 @@ note = "FDF annotations: annotation dictionaries carried in the data file, with 
 [[clause]]
 clause = "12.7.9"
 title = "Non-interactive forms"
-status = "silent"
-note = "Non-interactive forms: a document that looks like a form and carries no `/AcroForm`, so its fields are ordinary page content. **Nothing is missing here at all** — such a document is drawn correctly by this tree because there is nothing interactive in it — but the clause states a *recommendation* to producers and a note about how a processor should treat one, and neither is implemented as a decision. Recorded rather than claimed."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_flattened_form_field_says_what_it_was"]
+note = "The clause is two sentences and both are now answered. Non-interactive forms \"do not use widget annotations but are represented with page content\", which this tree draws as page content because that is all it is; and they \"are defined by the PrintField attribute (14.8.5.6) for repurposing and accessibility purposes\", which is read as of the ninety-fifth session. So what was recorded as a gap was the *accessibility* half, and closing §14.8.5.6 closed this row with it."
 
 [[clause]]
 clause = "12.8"

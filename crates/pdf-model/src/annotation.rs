@@ -150,6 +150,7 @@ pub(crate) fn decide(
     annotation: &Dictionary,
     shown_by_action: bool,
     showing: crate::view::Appearance,
+    reset: bool,
 ) -> Decision {
     let subtype = document
         .get_key(annotation, "Subtype")
@@ -187,7 +188,7 @@ pub(crate) fn decide(
 
     let stored = match stored_appearance(document, annotation, showing) {
         Normal::Stream(stream) => stream,
-        Normal::Absent => return construct(document, annotation, &subtype, &name, rect),
+        Normal::Absent => return construct(document, annotation, &subtype, &name, rect, reset),
         Normal::StateNotDefined => return Decision::Nothing,
     };
 
@@ -207,7 +208,7 @@ pub(crate) fn decide(
     let mut content = Content::Stored(Arc::clone(&stored));
     if crate::appearance::regenerates(document, annotation, &subtype)
         && let Some(regenerated) =
-            crate::appearance::regenerate(document, annotation, &stored, bbox)
+            crate::appearance::regenerate(document, annotation, &stored, bbox, reset)
     {
         owed = regenerated.report.map(|detail| format!("{name}: {detail}"));
         content = Content::Constructed {
@@ -245,6 +246,7 @@ fn construct(
     subtype: &[u8],
     name: &str,
     rect: [f32; 4],
+    reset: bool,
 ) -> Decision {
     // §12.5.6.14: a popup is the window belonging to some *other* annotation, and §12.5.6.24's
     // projection is a measurement inside an activated 3D model — clause 13, which principle 5
@@ -254,7 +256,7 @@ fn construct(
         return Decision::Nothing;
     }
 
-    let constructed = crate::appearance::construct(document, annotation, subtype);
+    let constructed = crate::appearance::construct(document, annotation, subtype, reset);
     let owed = constructed.report.map(|detail| format!("{name}: {detail}"));
     let Some(content) = constructed.content else {
         return match owed {

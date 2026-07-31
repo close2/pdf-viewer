@@ -183,6 +183,7 @@ pub(crate) fn construct(
     document: &Document,
     annotation: &Dictionary,
     subtype: &[u8],
+    reset: bool,
 ) -> Constructed {
     let mut stream = Stream::new();
     let outcome = match subtype {
@@ -191,7 +192,7 @@ pub(crate) fn construct(
         b"Polygon" | b"PolyLine" => polygon(document, annotation, &mut stream, subtype),
         b"Ink" => ink(document, annotation, &mut stream),
         b"Line" => line(document, annotation, &mut stream),
-        b"Widget" => widget(document, annotation, &mut stream),
+        b"Widget" => widget(document, annotation, &mut stream, reset),
         b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => {
             text_markup(document, annotation, &mut stream, subtype)
         }
@@ -274,6 +275,7 @@ pub(crate) fn regenerate(
     annotation: &Dictionary,
     stored: &pdf_syntax::Stream,
     bbox: [f32; 4],
+    reset: bool,
 ) -> Option<Regenerated> {
     let data = document.decoded_stream_data(stored)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
@@ -284,7 +286,8 @@ pub(crate) fn regenerate(
 
     // §12.7.4.3 puts the appearance stream's `/BBox` at the origin, so the text is laid out in
     // the stream's own space rather than the page's.
-    let (marks, report) = match field_text(document, annotation, source, inset(bbox, width)) {
+    let (marks, report) = match field_text(document, annotation, source, inset(bbox, width), reset)
+    {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
         // A field with no value has no marks, and an empty marked-content region is the
         // "corresponding new contents" for it. This is the case the clause's own wording
@@ -455,7 +458,7 @@ pub(crate) fn regenerates(document: &Document, annotation: &Dictionary, subtype:
         return false;
     }
     matches!(
-        Field::read(document, annotation).kind,
+        Field::read(document, annotation, false).kind,
         Some(FieldKind::Text | FieldKind::Choice { .. })
     )
 }
@@ -914,7 +917,12 @@ fn perpendicular(start: [f32; 2], end: [f32; 2]) -> Option<[f32; 2]> {
 /// rotates the widget's *contents* inside `/Rect`, which a background filling that rectangle
 /// cannot see but a line of text can. It is reported where a widget both states one and has
 /// text to put in it.
-fn widget(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
+fn widget(
+    document: &Document,
+    annotation: &Dictionary,
+    stream: &mut Stream,
+    reset: bool,
+) -> Outcome {
     let rect = rectangle(document, annotation)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
@@ -940,7 +948,7 @@ fn widget(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> 
     // where text can go without being struck through by its own frame. Nothing states a
     // further margin and none is added.
     let inner = inset(rect, border.width);
-    let laid_out = match field_text(document, annotation, source, inner) {
+    let laid_out = match field_text(document, annotation, source, inner, reset) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
             return Ok(Painted {
@@ -985,8 +993,9 @@ fn field_text(
     annotation: &Dictionary,
     characteristics: &Dictionary,
     box_: [f32; 4],
+    reset: bool,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
-    let field = Field::read(document, annotation);
+    let field = Field::read(document, annotation, reset);
     if field.too_deep {
         return Err(Refusal::NotDerivable(
             "its field's /Parent chain is longer than this crate follows, so what it holds is \
@@ -1195,6 +1204,8 @@ struct Field {
     ancestry: Vec<Dictionary>,
     /// Whether the `/Parent` chain ran past [`MAX_FIELD_ANCESTRY`].
     too_deep: bool,
+    /// Whether §12.7.6.3's reset-form action has been performed on this widget.
+    reset: bool,
 }
 
 impl Field {
@@ -1207,13 +1218,14 @@ impl Field {
     ///
     /// One walk rather than one per entry, because the chain is the same for all of them and
     /// [`MAX_FIELD_ANCESTRY`] should bound the work once rather than once per key.
-    fn read(document: &Document, annotation: &Dictionary) -> Self {
+    fn read(document: &Document, annotation: &Dictionary, reset: bool) -> Self {
         let mut field = Self {
             kind: None,
             flags: 0,
             value: None,
             ancestry: Vec::new(),
             too_deep: false,
+            reset,
         };
         let mut current = annotation.clone();
         let mut flags = None;
@@ -1229,7 +1241,13 @@ impl Field {
                 flags = document.get_key(&current, "Ff").as_integer();
             }
             if field.value.is_none() {
-                let value = document.get_key(&current, "V");
+                // §12.7.6.3, where a reset-form action has touched this widget: the action
+                // "shall set the value of the V entry in the field dictionary to that of the DV
+                // entry … If no default value is defined for a field, its V entry shall be
+                // removed". So the *same* walk reads a different entry, and a field with no
+                // `/DV` anywhere in its ancestry ends with no value at all — which is what the
+                // clause's "removed" means for a program that does not write to the file.
+                let value = document.get_key(&current, if reset { "DV" } else { "V" });
                 if !value.is_null() {
                     field.value = Some(value);
                 }
@@ -1285,6 +1303,17 @@ impl Field {
     /// there is one. Either way `Off` is the off state, which §12.7.5.2.3 names and
     /// §12.7.5.2.4 gives as the default.
     fn is_on(&self, document: &Document, annotation: &Dictionary) -> bool {
+        // §12.7.6.3 again: after a reset the file's `/AS` describes the state the widget was
+        // *saved* in, which is exactly the value the action replaced. So a reset widget answers
+        // from its `/DV` alone, and a check box whose default is unstated is off — which
+        // §12.7.5.2.4 gives as the default anyway.
+        if self.reset {
+            return self
+                .value
+                .as_ref()
+                .and_then(Object::as_name)
+                .is_some_and(|name| name.as_bytes() != b"Off");
+        }
         let state = document.get_key(annotation, "AS");
         let name = state
             .as_name()

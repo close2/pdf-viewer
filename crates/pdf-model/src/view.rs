@@ -24,7 +24,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
-use crate::action::{Action, Change, Hide, HideTarget, Named, ThreadJump, Uri};
+use crate::action::{
+    Action, Change, Hide, HideTarget, Named, ResetForm, ResetTarget, ThreadJump, Uri,
+};
 use crate::destination::Destination;
 use crate::optional_content::OptionalContent;
 
@@ -58,6 +60,12 @@ pub struct ViewState {
     /// for this session. Two sets rather than a map from identity to boolean because the
     /// common case is that both are empty and neither allocates.
     shown: BTreeSet<ObjectId>,
+    /// Widgets §12.7.6.3's reset-form action has reset, by object identity.
+    ///
+    /// Empty until a reset is performed, which is every document until somebody clicks. A set
+    /// rather than a map of new values, because the clause makes the new value a property of
+    /// the *field* — its `/DV`, or nothing — rather than of the action.
+    reset: BTreeSet<ObjectId>,
     /// Which annotation the pointer is over or pressing, if any (§12.5.5).
     ///
     /// One annotation rather than a set, because a pointer is in one place. `None` is what
@@ -130,6 +138,7 @@ impl ViewState {
             optional_content: OptionalContent::read(document),
             hidden: BTreeSet::new(),
             shown: BTreeSet::new(),
+            reset: BTreeSet::new(),
             pointer: None,
         }
     }
@@ -234,6 +243,7 @@ impl ViewState {
                 }
             }
             Action::Hide(hide) => self.hide(document, hide),
+            Action::ResetForm(reset) => self.reset_form(document, reset),
             Action::Refused(_) => {}
         }
         None
@@ -275,6 +285,64 @@ impl ViewState {
                 }
             }
         }
+    }
+
+    /// Performs §12.7.6.3's reset over the widgets the action names.
+    ///
+    /// The clause resets *fields*; what this program draws is *widgets*, and one field may have
+    /// several — §12.7.4.1's field tree ends in the annotations that show it. So the set kept
+    /// here is of widget annotations, resolved once through the same table §12.6.4.11's hide
+    /// action uses.
+    ///
+    /// Three shapes, all Table 241's and Table 242's:
+    ///
+    /// - no `/Fields` at all: "all fields in the document's interactive form are reset";
+    /// - `/Fields` with the flag clear: those fields, "[a]ll descendants of the specified fields
+    ///   in the field hierarchy" included — which §12.7.4.2's naming makes a prefix test, since
+    ///   a descendant's fully qualified name is its ancestor's with `.` and more appended;
+    /// - `/Fields` with the flag set: everything *except* those.
+    fn reset_form(&mut self, document: &Document, action: &ResetForm) {
+        let table = widgets_by_field_name(document);
+        if action.fields.is_empty() {
+            self.reset.extend(table.values().flatten().copied());
+            return;
+        }
+        let named: BTreeSet<ObjectId> = action
+            .fields
+            .iter()
+            .flat_map(|target| match target {
+                ResetTarget::Field(id) => vec![*id],
+                ResetTarget::Name(name) => table
+                    .iter()
+                    .filter(|(candidate, _)| {
+                        *candidate == name
+                            || candidate
+                                .strip_prefix(name.as_str())
+                                .is_some_and(|rest| rest.starts_with('.'))
+                    })
+                    .flat_map(|(_, widgets)| widgets.iter().copied())
+                    .collect(),
+            })
+            .collect();
+        if action.exclude {
+            for widget in table.values().flatten() {
+                if !named.contains(widget) {
+                    self.reset.insert(*widget);
+                }
+            }
+        } else {
+            self.reset.extend(named);
+        }
+    }
+
+    /// Whether this widget's value has been reset to its default (§12.7.6.3).
+    ///
+    /// A widget rather than a field, for [`Self::reset_form`]'s reason. `false` for every
+    /// annotation in every document that has performed no reset, which is all of them until a
+    /// person clicks a button.
+    #[must_use]
+    pub fn is_reset(&self, annotation: ObjectId) -> bool {
+        self.reset.contains(&annotation)
     }
 
     /// Records one annotation's new state, keeping the two sets disjoint.
@@ -687,6 +755,54 @@ mod tests {
             !table.keys().any(|name| name.matches('a').count() > 1),
             "the cycle produced no repeated name: {:?}",
             table.keys().collect::<Vec<_>>()
+        );
+    }
+
+    /// §12.7.6.3's three shapes of `/Fields`, over one field tree.
+    ///
+    /// Table 241 makes the absent entry decisive — "all fields in the document's interactive
+    /// form are reset" — Table 242's clear flag names what to reset "[a]ll descendants … as
+    /// well", and its set flag names what to spare. The tree here has a named subtree so that
+    /// the descendant rule is what passes rather than an exact-name match.
+    #[test]
+    fn a_reset_form_action_names_fields_to_reset_or_fields_to_spare() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [7 0 R 9 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /S /ResetForm >>",
+            "<< /S /ResetForm /Fields [(PersonalData)] >>",
+            "<< /S /ResetForm /Fields [(PersonalData)] /Flags 1 >>",
+            "<< /S /ResetForm /Fields [8 0 R] >>",
+            "<< /T (PersonalData) /Kids [8 0 R] >>",
+            "<< /T (ZipCode) /Parent 7 0 R /FT /Tx /Subtype /Widget >>",
+            "<< /T (Signature) /FT /Sig /Subtype /Widget >>",
+        ]);
+
+        let all = |action: u32| {
+            let mut state = ViewState::of(&doc);
+            state.perform_all(&doc, &read(&doc, &Object::Reference(id(action))));
+            (state.is_reset(id(8)), state.is_reset(id(9)))
+        };
+
+        assert_eq!(
+            all(3),
+            (true, true),
+            "no /Fields resets every field there is"
+        );
+        assert_eq!(
+            all(4),
+            (true, false),
+            "naming the parent resets its descendants and nothing else"
+        );
+        assert_eq!(
+            all(5),
+            (false, true),
+            "the Include/Exclude flag turns the same array into what to spare"
+        );
+        assert_eq!(
+            all(6),
+            (true, false),
+            "a field named by reference rather than by name"
         );
     }
 }
