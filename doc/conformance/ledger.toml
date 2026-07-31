@@ -5914,62 +5914,92 @@ note = "Document part metadata: \"application-specific information communicated 
 [[clause]]
 clause = "14.13"
 title = "Associated files"
-status = "silent"
-note = "Aggregate of the ten below. **Associated files never change a pixel** — they are \"content in other formats\" carried alongside PDF objects, connected by an `/AF` array of file specification dictionaries and labelled by `/AFRelationship`. Nothing in this tree reads one, and 6 of the 974 corpus documents state `/AF` on their catalog. §14.1's opening sentence covers the family exactly: \"[t]he features described in this clause do not affect the final appearance of a document.\" What keeps this `silent` rather than `inapplicable` is that a *reader* can still owe something — an attachments list, and an accessibility path that §14.9 may yet want — and §7.11.4's embedded file streams are the same debt seen from the other end."
+status = "partial"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "Associated files: a file specification carrying an `/AFRelationship`, named by an `/AF` array on the object it belongs to. `attachment::associated` reads such an array from any dictionary, which is what the clause's own shape asks for — it lists seven objects that may carry one and says the same sentence about every one. What is not done is *using* the relationship, and the clause says a processor need not: \"[t]he value of AFRelationship does not explicitly provide any processing instructions for a PDF processor. It is provided for information and semantic purposes\". 7 corpus documents state an `/AF`: 6 on catalogs, 30 on structure elements, with `Supplement` 33, `Source` 4 and `Unspecified` 2."
+
 
 [[clause]]
 clause = "14.13.1"
 title = "General"
-status = "silent"
-note = "What an associated file is and the eight object types that may carry `/AF`: the catalog, a page, a marked-content property list, a structure element, an XObject, a `/DPart`, an annotation and a metadata stream. Five of those eight are objects this tree already parses, so the entry is one array lookup away wherever it matters; what does not exist is anything to *do* with the result."
+status = "implemented"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "The framing and the list of objects that may carry an `/AF`. All eight of Table 43's relationship values are read, plus Annex E's second-class names, which are kept rather than flattened to `Unspecified` — the table's NOTE 2 says `Unspecified` \"is to be used only when no other value correctly reflects the relationship\", so a producer that registered a name has said something a reader should not throw away."
+
 
 [[clause]]
 clause = "14.13.2"
 title = "Embedded associated files"
-status = "silent"
-note = "An associated file may be external or embedded, and the clause recommends embedded. Two requirements worth carrying to whoever builds this: the embedded stream's `/Params` \"shall contain at least a ModDate key\", and \"[t]he embedded file stream dictionary shall include a valid MIME type value for the Subtype key. If the MIME type is not known, the value `application/octet-stream` shall be used.\" A `/Subtype` is a name, so its MIME solidus arrives as `#2F` — §7.3.5's escape, which the lexer already resolves."
+status = "partial"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "The two forms an associated file may take, and this reader takes the recommended one: \"[b]oth types are allowed for associated files but the embedded form is recommended\", and an external one is §7.11.1's refusal, which no filesystem here can lift. §7.11.4's stream is read with its `/Params` and `/Subtype`; the clause's requirements *on a producer* — a `/ModDate` and a valid MIME type, `application/octet-stream` where it is unknown — are checked by nobody, because this reader does not validate files."
+
 
 [[clause]]
 clause = "14.13.3"
 title = "Associated files linked to the PDF document's catalog"
-status = "silent"
-note = "`/AF` on the document catalog, for files associated with the document as a whole. 6 corpus documents state one. Nothing reads it."
+status = "implemented"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "`/AF` on the document catalog, read by `attachment::associated` against the catalog dictionary. 6 corpus documents state one."
+
 
 [[clause]]
 clause = "14.13.4"
 title = "Associated files linked to a page dictionary"
-status = "silent"
-note = "`/AF` on a page dictionary. `page.rs` reads that dictionary and §7.7.3.4's inheritance does not reach this entry — Table 31 does not list it — so a page's associated files are its own. Nothing reads it."
+status = "implemented"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "`/AF` on a page dictionary, which is the same function against `Page::dict`. No corpus document states one; the entry's own NOTE says why a producer would — associated files \"serve not only as alternative to PieceInfo (which is vendor specific) but also enable richer semantic content when doing page/document merging\"."
+
 
 [[clause]]
 clause = "14.13.5"
 title = "Associated files linked to graphics objects"
-status = "silent"
-note = "The one subclause of this family that touches the rendering path, and it touches it without changing it. Content is associated with a file by bracketing it in `BDC`/`EMC` with the tag `/AF` and a property list naming an array of file specification dictionaries — the same mechanism §8.11.3.3's `/OC` and §14.7.5.2's `/MCID` arrive by, and `content.rs` already parses that property list. An `/AF` bracket that this tree ignores draws exactly what the clause says it should, because the association changes nothing about the marks. Two prohibitions are worth recording: \"the DP or MP marked-content operators shall not be used with the AF tag\", since a point cannot bracket a sequence, and NOTE 2's observation that `BMC` \"does not take properties and therefore cannot be used with the AF key\"."
+status = "implemented"
+code = ["crates/pdf-model/src/attachment.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::an_af_tagged_section_associates_a_file_with_what_it_draws"]
+note = "`/AF` as a marked-content tag, which is the one place in this clause that is not a dictionary entry: a `BDC` whose tag is `AF` and whose property list carries the array associates those files with the graphics objects the section encloses. `Interpretation::associated_files` records it over the same readback range §14.8.2.2's artifacts use. On `BDC` alone, which is the clause's own NOTE 2 — \"[t]he BMC operator does not take properties and therefore cannot be used with the AF key\" — and the property list has to be a *named resource*, since §14.6.2 forbids an inline list from holding the indirect references an `/AF` array is made of."
+
 
 [[clause]]
 clause = "14.13.6"
 title = "Associated files linked to structure elements"
-status = "silent"
-note = "`/AF` on a structure element, \"to accommodate content that spans pages such as in an article, section or table\". Behind §14.7's structure tree, which is `silent` in full — so this row cannot close before those do, and unlike §12.3.2.3's structure destinations it genuinely needs the tree rather than one element's own entries."
+status = "implemented"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "`/AF` on a structure element, read by the same function against the element dictionary — which is where the corpus actually puts them: 30 of the 37 `/AF` arrays in the corpus are on a `/StructElem`, all of them `Supplement`, and all of them MathML from one LaTeX producer. That is the clause's own example: a MathML version of an equation \"associated using a structure element or a form XObject depending on how the equation is rendered\"."
+
 
 [[clause]]
 clause = "14.13.7"
 title = "Associated files linked to XObjects"
-status = "silent"
-note = "`/AF` on a Type 1 form XObject or an image XObject, in the stream dictionary. Both are objects this tree resolves and draws; neither has its `/AF` read."
+status = "implemented"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "`/AF` on a form or image `XObject`'s stream dictionary, read by the same function against that dictionary. No corpus document states one."
+
 
 [[clause]]
 clause = "14.13.8"
 title = "Associated files linked to DParts"
-status = "silent"
-note = "`/AF` on a `/DPart` dictionary, which is §14.12's document parts — `unreviewed` beside it, and the only one of this family's eight attachment points whose *host* structure this tree does not read at all."
+status = "partial"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "`/AF` on a `DPart` dictionary. The array reads like any other, and what is missing is §14.12's document part hierarchy to hang it on — which is a `silent` row of its own and is what `DPartInteract` in §12.11's requirement table names."
+
 
 [[clause]]
 clause = "14.13.9"
 title = "Associated files linked to an annotation dictionary"
-status = "silent"
-note = "`/AF` on an annotation dictionary. `annotation.rs` reads every annotation on a page and none of their `/AF` entries. The clause's NOTE names §13.7.2's RichMedia annotations as the motivating case, and those are `out-of-scope` by `CLAUDE.md`'s multimedia exclusion — but the entry is not, since any annotation may carry one."
+status = "implemented"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_associated_file_carries_its_relationship"]
+note = "`/AF` on an annotation dictionary, read by the same function against the annotation. Its NOTE names the case that motivates it — a rich media annotation whose data a reader should be able to identify — which is clause 13 and excluded, and the entry is read anyway because the array is the same in every one of the clause's seven places."
+
 
 [[clause]]
 clause = "14.13.10"

@@ -29,6 +29,16 @@
 //! module reads the second and provides the reader for the first, which is what §12.5.6.15's
 //! file attachment annotations need.
 //!
+//! # §14.13's associated files are the same specifications, reached from elsewhere
+//!
+//! An associated file is a file specification carrying an `/AFRelationship`, named by an `/AF`
+//! array on the object it belongs to — the catalog, a page, an annotation, an `XObject`, a
+//! structure element, a `DPart`, or a marked-content sequence tagged `/AF`. [`associated`] reads
+//! such an array from any of them, because the clause says the same sentence about every one:
+//! "[t]he relationship that the associated files have to the … is supplied by the
+//! `AFRelationship` key in each file specification dictionary". 7 corpus documents state one, 6
+//! on the catalog and 30 on structure elements.
+//!
 //! 10 of the 974 corpus documents carry a `/Names /EmbeddedFiles` tree, holding 23 files
 //! between them — mostly `application/mathml+xml` fragments from a LaTeX producer, one
 //! `foo.txt`, and two attached PDFs. Two of the 23 refuse to decode, and correctly: they are in
@@ -88,8 +98,102 @@ pub struct Attachment {
     /// checking this would mean inflating every attachment — and the clause is explicit that
     /// "[t]his is strictly a checksum, and is not used for security purposes".
     pub checksum: Option<Vec<u8>>,
+    /// Table 43's `/AFRelationship`, **default `Unspecified`**, which is §14.13's whole point.
+    pub relationship: Relationship,
     /// The stream the bytes are in, for a caller that has decided to extract them.
     pub stream: Arc<Stream>,
+}
+
+/// Table 43's `/AFRelationship`: what an associated file is *to* the object that names it.
+///
+/// The clause is careful about what this is for, and it is not processing: "[t]he value of
+/// `AFRelationship` does not explicitly provide any processing instructions for a PDF processor.
+/// It is provided for information and semantic purposes for those processors that are able to
+/// use such additional information."
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Relationship {
+    /// `Source`: "the original source material for the associated content".
+    Source,
+    /// `Data`: "information used to derive a visual presentation — such as for a table or a
+    /// graph".
+    Data,
+    /// `Alternative`: "an alternative representation of content, for example audio".
+    Alternative,
+    /// `Supplement`: "a supplemental representation of the original source or data that may be
+    /// more easily consumable (e.g., A `MathML` version of an equation)". The corpus's commonest.
+    Supplement,
+    /// `EncryptedPayload`: an encrypted payload document, which §7.6.7's unencrypted wrapper
+    /// names and which this reader has no cryptographic filter for.
+    EncryptedPayload,
+    /// `FormData`: "the data associated with the `AcroForm` … of this PDF".
+    FormData,
+    /// `Schema`: "a schema definition for the associated object".
+    Schema,
+    /// `Unspecified`, the default, "used when the relationship is not known or cannot be
+    /// described using one of the other values".
+    #[default]
+    Unspecified,
+    /// A second-class name a producer registered for a relationship the table does not define,
+    /// which is what Annex E asks it to do rather than reusing `Unspecified`.
+    Other(String),
+}
+
+impl Relationship {
+    /// Reads Table 43's name, defaulting as the table states.
+    fn read(document: &Document, specification: &Dictionary) -> Self {
+        let stated = document.get_key(specification, "AFRelationship");
+        let Some(name) = stated.as_name() else {
+            return Self::Unspecified;
+        };
+        match name.as_bytes() {
+            b"Source" => Self::Source,
+            b"Data" => Self::Data,
+            b"Alternative" => Self::Alternative,
+            b"Supplement" => Self::Supplement,
+            b"EncryptedPayload" => Self::EncryptedPayload,
+            b"FormData" => Self::FormData,
+            b"Schema" => Self::Schema,
+            b"Unspecified" => Self::Unspecified,
+            other => Self::Other(String::from_utf8_lossy(other).into_owned()),
+        }
+    }
+}
+
+/// §14.13's `/AF` array on any object that may carry one.
+///
+/// One function for all seven places the clause lists, because it states the same sentence about
+/// each of them and the entry has the same shape in every one: an array of file specification
+/// dictionaries. The name each attachment gets is its own `/UF` or `/F`, since an `/AF` array —
+/// unlike §7.7.4's tree — files nothing under a key.
+///
+/// Empty where the object states no `/AF`, and a specification with no `/EF` is skipped: §14.13.2
+/// permits an external associated file — "[b]oth types are allowed for associated files but the
+/// embedded form is recommended" — and an external one is §7.11.1's refusal, which this program
+/// has no filesystem to lift.
+#[must_use]
+pub fn associated(document: &Document, dict: &Dictionary) -> Vec<Attachment> {
+    let array = document.get_key(dict, "AF");
+    let Some(items) = array.as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in items.iter().take(MAX_ATTACHMENTS) {
+        let resolved = document.resolve(item);
+        let Some(specification) = resolved.as_dict() else {
+            continue;
+        };
+        let name = match document.get_key(specification, "UF") {
+            Object::String(bytes) => pdf_syntax::text_string(&bytes),
+            _ => match document.get_key(specification, "F") {
+                Object::String(bytes) => pdf_syntax::text_string(&bytes),
+                _ => String::new(),
+            },
+        };
+        if let Some(attachment) = read(document, specification, name) {
+            out.push(attachment);
+        }
+    }
+    out
 }
 
 /// Every attachment §7.7.4's `/EmbeddedFiles` tree names, in the tree's own order.
@@ -156,6 +260,7 @@ pub fn read(document: &Document, specification: &Dictionary, name: String) -> Op
 
     Some(Attachment {
         name,
+        relationship: Relationship::read(document, specification),
         file_name: text(specification, "UF").or_else(|| text(specification, "F")),
         description: text(specification, "Desc"),
         media_type: document
@@ -270,5 +375,76 @@ mod tests {
             "<< /Type /Filespec /F (/etc/passwd) >>",
         ]);
         assert!(attachments(&doc).is_empty());
+    }
+
+    /// §14.13's `/AF`, read from the two places the corpus puts it.
+    ///
+    /// The clause lists seven objects that may carry the array and says the same sentence about
+    /// each; the corpus states 6 on catalogs and 30 on structure elements, and the fixture is
+    /// §14.13.10's own EXAMPLE 1 shape — a catalog `/AF` naming a file specification with an
+    /// `/AFRelationship` and an `/EF`. The second half is what a structure element carries, which
+    /// is the same function against a different dictionary.
+    #[test]
+    fn an_associated_file_carries_its_relationship() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AF [4 0 R] /StructTreeRoot 6 0 R >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /Type /Filespec /F (My Presentation.ppt) /AFRelationship /Source \
+             /EF << /F 5 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /application#2Fvnd.ms-powerpoint /Length 3 >>\nstream\nabc\nendstream",
+            "<< /Type /StructTreeRoot /K 7 0 R >>",
+            "<< /Type /StructElem /S /Formula /AF [8 0 R] >>",
+            "<< /Type /Filespec /F (mathml-1.xml) /AFRelationship /Supplement \
+             /EF << /F 9 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /application#2Fmathml+xml /Length 3 >>\nstream\nxyz\nendstream",
+        ]);
+        let catalog = doc.catalog().expect("a catalog");
+        let files = super::associated(&doc, &catalog);
+        let [presentation] = files.as_slice() else {
+            panic!("one associated file, got {files:?}");
+        };
+        assert_eq!(presentation.relationship, super::Relationship::Source);
+        assert_eq!(presentation.name, "My Presentation.ppt");
+        assert_eq!(
+            presentation.media_type.as_deref(),
+            Some("application/vnd.ms-powerpoint")
+        );
+
+        let element = doc.get(pdf_syntax::ObjectId {
+            number: 7,
+            generation: 0,
+        });
+        let element = element.as_dict().expect("the structure element");
+        let supplements = super::associated(&doc, element);
+        assert_eq!(
+            supplements.first().map(|file| file.relationship.clone()),
+            Some(super::Relationship::Supplement),
+            "the commonest relationship in the corpus, and what a MathML equation is"
+        );
+    }
+
+    /// An `/AFRelationship` outside Table 43's eight is kept, not flattened to `Unspecified`.
+    ///
+    /// The table's NOTE 2 is why: `Unspecified` "is to be used only when no other value correctly
+    /// reflects the relationship", and "[s]econd-class names … should be used to represent other
+    /// types of relationships" — so a producer that registered one has said something, and a
+    /// reader that answered `Unspecified` would be throwing it away.
+    #[test]
+    fn a_second_class_relationship_keeps_its_name() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AF [4 0 R] >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /Type /Filespec /F (x.bin) /AFRelationship /ACME_Ledger /EF << /F 5 0 R >> >>",
+            "<< /Type /EmbeddedFile /Length 1 >>\nstream\nx\nendstream",
+        ]);
+        let catalog = doc.catalog().expect("a catalog");
+        assert_eq!(
+            super::associated(&doc, &catalog)
+                .first()
+                .map(|file| file.relationship.clone()),
+            Some(super::Relationship::Other("ACME_Ledger".to_owned()))
+        );
     }
 }

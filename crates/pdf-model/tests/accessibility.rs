@@ -38,7 +38,8 @@ fn fixture(content: &str, catalog: &str, structure: &str, page_extra: &str) -> V
          /AcroForm << /Fields [22 0 R] /DR << /Font << /Helv 20 0 R >> >> >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
-         /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R {page_extra} >>\nendobj\n\
+         /Resources << /Font << /F1 5 0 R >> /Properties << /AFile 30 0 R >> >> \
+         /Contents 4 0 R {page_extra} >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
          20 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
@@ -483,6 +484,48 @@ fn an_artifact_is_recorded_over_its_own_range_and_left_in_the_text() {
     assert!(
         drawn.text.contains("Real content."),
         "nothing was removed: {:?}",
+        drawn.text
+    );
+}
+
+/// §14.13.5's `/AF` tag associates a file with the graphics objects a section encloses.
+///
+/// > One or more files may be associated with sections of content in a content stream by
+/// > enclosing those sections between the marked-content operators BDC and EMC … with a
+/// > marked-content tag of AF
+///
+/// The clause's own example is a `MathML` version of an equation associated with what draws it, so
+/// the fixture is that shape: a run of text inside `/AF … BDC` whose property list names a file
+/// specification with the relationship `Supplement`. The property list is a **named resource**
+/// rather than an inline dictionary, which §14.6.2 requires of any list holding an indirect
+/// reference — and an `/AF` array is nothing but indirect references. The range is over the readback, like an artifact's,
+/// because what the file is associated with is *this* content and not the document.
+#[test]
+fn an_af_tagged_section_associates_a_file_with_what_it_draws() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 50 Td (x squared) Tj ET \
+         /AF /AFile BDC BT /F1 12 Tf 10 20 Td (equation) Tj ET EMC",
+        "",
+        "30 0 obj\n<< /AF [32 0 R] >>\nendobj\n\
+         32 0 obj\n<< /Type /Filespec /F (equation.xml) /AFRelationship /Supplement \
+         /EF << /F 31 0 R >> >>\nendobj\n\
+         31 0 obj\n<< /Type /EmbeddedFile /Subtype /application#2Fmathml+xml /Length 7 >>\n\
+         stream\n<math/>\nendstream\nendobj\n",
+        "",
+    );
+
+    let [(range, file)] = drawn.associated_files.as_slice() else {
+        panic!("one associated file, got {:?}", drawn.associated_files);
+    };
+    assert_eq!(file.name, "equation.xml");
+    assert_eq!(
+        file.relationship,
+        pdf_model::attachment::Relationship::Supplement
+    );
+    assert_eq!(
+        drawn.text.get(range.clone()).map(str::trim),
+        Some("equation"),
+        "the range covers the section's own content, not the page: {:?}",
         drawn.text
     );
 }

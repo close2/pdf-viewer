@@ -237,6 +237,13 @@ pub struct Interpretation {
     ///
     /// 30 of the 953 corpus first pages mark at least one.
     pub artifacts: Vec<ArtifactSpan>,
+    /// §14.13.5's associated files, each with the range of [`Self::text`] its section covered.
+    ///
+    /// One entry per file per `/AF`-tagged marked-content sequence. The clause's own example is
+    /// a `MathML` version of an equation associated with the form `XObject` that draws it, which
+    /// is a statement about *this* content and not about the document — the document-wide ones
+    /// are `attachment::associated` on the catalog, and the page's on the page.
+    pub associated_files: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
     /// The document catalog's `/Lang`, §14.9.2.3's default for everything in the file.
     pub language: Option<String>,
 }
@@ -336,6 +343,10 @@ struct Marked {
     described: Option<Accessible>,
     /// §14.8.2.2's `/Artifact` tag, with Table 363's property list where the section has one.
     artifact: Option<crate::structure::Artifact>,
+    /// §14.13.5's `/AF` tag: the files associated with the graphics objects it encloses.
+    ///
+    /// Empty for every other section, which is all of them in 967 of the 974 corpus documents.
+    associated: Vec<crate::attachment::Attachment>,
     /// Whether this section's tag is §14.8.2.5.3's `ReversedChars`.
     ///
     /// A flag per section rather than one on the interpreter, because the sections nest and
@@ -955,6 +966,7 @@ pub fn interpret_with(
         text: String::new(),
         described: Vec::new(),
         artifacts: Vec::new(),
+        associated: Vec::new(),
         reversed_chars: 0,
         text_cursor: None,
         base: base_transform(page),
@@ -1028,6 +1040,7 @@ pub fn interpret_with(
         glyphs: interpreter.glyphs,
         described: interpreter.described,
         artifacts: interpreter.artifacts,
+        associated_files: interpreter.associated,
         language,
     }
 }
@@ -1180,6 +1193,8 @@ struct Interpreter<'a> {
     described: Vec<crate::accessibility::Described>,
     /// §14.8.2.2's artifact spans, in the order their sections closed.
     artifacts: Vec<ArtifactSpan>,
+    /// §14.13.5's associated files, with the range of the readback their section covered.
+    associated: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
     /// How many §14.8.2.5.3 `ReversedChars` sections are open.
     ///
     /// A counter because marked content nests and the clause states no limit on it; a show
@@ -1857,6 +1872,18 @@ impl Interpreter<'_> {
                             .unwrap_or_default()
                     });
                     let reversed = tag.as_deref() == Some("ReversedChars");
+                    // §14.13.5: "One or more files may be associated with sections of content in
+                    // a content stream by enclosing those sections between the marked-content
+                    // operators BDC and EMC … with a marked-content tag of AF." NOTE 2 is why
+                    // this is on `BDC` alone: "[t]he BMC operator does not take properties and
+                    // therefore cannot be used with the AF key."
+                    let associated = if tag.as_deref() == Some("AF") {
+                        self.property_list(resources, operands.get(1))
+                            .map(|list| crate::attachment::associated(self.document, &list))
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
                     marked.push(Marked {
                         hides,
                         starts_at: self.text.len(),
@@ -1866,6 +1893,7 @@ impl Interpreter<'_> {
                         described,
                         artifact,
                         reversed,
+                        associated,
                     });
                     if hides {
                         self.hidden = self.hidden.saturating_add(1);
@@ -1948,6 +1976,13 @@ impl Interpreter<'_> {
                                 range: section.starts_at..self.text.len(),
                                 artifact,
                             });
+                        }
+                        // §14.13.5's files belong to the graphics objects the section enclosed,
+                        // so like an artifact they are recorded over the range rather than
+                        // changing anything drawn.
+                        for attachment in section.associated {
+                            self.associated
+                                .push((section.starts_at..self.text.len(), attachment));
                         }
                     }
                 }
