@@ -36,6 +36,20 @@ use conformance::quote;
 /// exercises.
 const UNREVIEWED_CEILING: usize = 314;
 
+/// How many `implemented` rows name a whole test *file* rather than a test.
+///
+/// **This number may only fall**, and it exists because of two rows found wrong in two
+/// sessions in exactly the same way. §8.7.3.1's said "`/BBox` clips the cell" and §8.7.2's said
+/// the pattern base "is what `base` holds while a form is being run"; both were written from
+/// the clause, both were true of no code, and neither could have been caught here — a row that
+/// names `tests/tiling.rs` names a file that passes whatever it contains.
+///
+/// A row naming `file.rs::a_test` is a claim something would fail if it stopped being true. A
+/// row naming `file.rs` is a claim nothing checks. The gate cannot tell whether a named test
+/// *covers* the clause, so this is a count rather than a rule; what it does is keep the
+/// population where a false claim can hide from growing, and say how large it is.
+const FILE_ONLY_EVIDENCE_CEILING: usize = 59;
+
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///
 /// **The rule is that a clause the code cites may not be `unreviewed`** — code that names a
@@ -261,6 +275,27 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
         }
     }
     println!("{}", by_clause(&ledger));
+
+    // Evidence that is a whole file cannot fail when a claim stops being true; see
+    // `FILE_ONLY_EVIDENCE_CEILING` for the two rows that taught this.
+    let file_only: Vec<String> = ledger
+        .rows
+        .iter()
+        .filter(|row| row.status == Status::Implemented)
+        .filter(|row| !row.test.iter().any(|test| test.contains("::")))
+        .map(|row| row.clause.to_string())
+        .collect();
+    println!(
+        "  {} of the implemented rows name a test file rather than a test",
+        file_only.len()
+    );
+    assert!(
+        file_only.len() <= FILE_ONLY_EVIDENCE_CEILING,
+        "{} implemented rows name a whole file as their evidence, above the ratchet of \
+         {FILE_ONLY_EVIDENCE_CEILING}: {file_only:?}. A row that names a file names something \
+         that passes whatever it contains. This number may only fall.",
+        file_only.len()
+    );
 
     assert!(
         unreviewed <= UNREVIEWED_CEILING,

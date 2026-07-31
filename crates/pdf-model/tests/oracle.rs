@@ -756,6 +756,21 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// any other reader: `loca`'s last entry equals `glyf`'s length under exactly one of the two
 /// readings, and `loca`'s own length is `4 × (n + 1)` rather than `2 × (n + 1)`. ADR 0052.
 ///
+/// # Three left in the fifty-second session, on one clause and one page's evidence
+///
+/// `issue6231_1.pdf` is a TeX plot: three references draw a coloured surface over its axes and
+/// **we drew the axes alone, reporting nothing**. The display list held the mesh all along —
+/// 79 commands, one of them a `Fill` with a type 5 shading — positioned about 180 points below
+/// and 140 to the left of where it belonged, so every triangle fell outside the clip and
+/// nothing was drawn.
+///
+/// §8.7.2 is what decides it, and the sentence is about *forms* rather than about shadings:
+/// "if a pattern is used within a form XObject …, the pattern matrix maps pattern space to the
+/// form's default user space (that is, the form coordinate space at the time the form is
+/// painted with the Do operator)". This tree mapped every pattern to the *page's* default
+/// space, which is the rule for a pattern used on a page and the sentence immediately before
+/// it. `issue6961.pdf`'s two pages left on the same change. ADR 0057.
+///
 /// # One left in the fifty-first session, and it is a rule nobody had read
 ///
 /// `tiling-pattern-large-steps.pdf` is 4000 points wide and holds one tiling pattern whose
@@ -818,7 +833,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 35] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 32] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -841,10 +856,7 @@ const CONTRADICTED_UNEXPLAINED: [&str; 35] = [
     "issue4061.pdf page 1",
     "issue4650.pdf page 1",
     "issue5010.pdf page 1",
-    "issue6231_1.pdf page 1",
     "issue6889.pdf page 1",
-    "issue6961.pdf page 1",
-    "issue6961.pdf page 2",
     "issue7492.pdf page 1",
     "issue7696.pdf page 1",
     "issue7891_bc1.pdf page 1",

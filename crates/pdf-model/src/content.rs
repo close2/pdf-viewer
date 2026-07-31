@@ -2234,11 +2234,27 @@ impl Interpreter<'_> {
             .cloned()
             .unwrap_or_else(|| resources.clone());
 
+        // §8.7.2: a pattern's matrix maps pattern space to "the default coordinate system of
+        // the pattern's parent content stream", and the clause says what that means here:
+        //
+        // > Similarly, if a pattern is used within a form XObject (see 8.10, "Form XObjects"
+        // > ), the pattern matrix maps pattern space to the form's default user space (that
+        // > is, the form coordinate space at the time the form is painted with the Do
+        // > operator).
+        //
+        // Which is `inner.transform`: §8.10.1's step b) concatenates the form's `/Matrix`
+        // with the CTM before its content stream runs, so the form's default user space is
+        // the space that content starts in. Restored afterwards, because the *page's*
+        // default space is what a pattern used on the page maps to and the two are different
+        // spaces with the same name.
+        let outer_base = std::mem::replace(&mut self.base, inner.transform);
         let Some(group) = self.transparency_group(&stream.dict) else {
             self.run(&data, &form_resources, &inner, form_depth.saturating_add(1));
+            self.base = outer_base;
             return;
         };
         self.run_transparency_group(&group, &data, &form_resources, &inner, state, form_depth);
+        self.base = outer_base;
     }
 
     /// Runs a transparency group `XObject`'s content and composites it as one object.

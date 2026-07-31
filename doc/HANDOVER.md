@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-first** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-second** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,91 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the fifty-first session changed
+## What the fifty-second session changed
+
+**A page drew its axes and not the surface inside them, with `unsupported: []` beside it, and
+the clause that fixes it is the sentence *after* the one this tree implemented.** ADR 0057.
+
+`issue6231_1.pdf` was second on the ratio-ranked unexplained list. Three references draw a
+blue-to-red plot; we drew the frame. **The display list held the surface all along** — 79
+commands, one a `Fill` whose paint is a type 5 mesh with every triangle and colour in it —
+positioned about 180 points below and 140 to the left of where it belonged, so every triangle
+fell outside the clip and the rasteriser drew nothing. Nothing failed, so nothing reported.
+
+The surface is painted inside a form XObject. §8.7.2 has two consecutive sentences about what a
+pattern's matrix maps *to*, and this tree had the first:
+
+> If a pattern is used on a page … the pattern matrix maps pattern space to the default
+> (initial) coordinate space of the page.
+
+> Similarly, if a pattern is used within a form XObject …, the pattern matrix maps pattern space
+> to the form's default user space (that is, the form coordinate space at the time the form is
+> painted with the Do operator).
+
+`base` is now saved, replaced with the form's own space while the form runs, and restored.
+**Three pages left the contradicted list** — `issue6231_1.pdf` and both pages of
+`issue6961.pdf`.
+
+**And the finding behind the finding, for the second session running: the ledger's row for
+§8.7.2 already said this**, in as many words, with status `implemented`, since the twentieth
+session. ADR 0056 found §8.7.3.1's "`/BBox` clips the cell" in the same condition a session ago.
+Two is a pattern, and its shape is: **a row written while *reading* a clause describes what the
+code should do, and nothing in the gate can tell that from what it does.**
+
+Both wrong rows named a whole test *file* as their evidence, which passes whatever it contains.
+The conformance gate now counts and ratchets that:
+
+```
+59 of the implemented rows name a test file rather than a test
+```
+
+`FILE_ONLY_EVIDENCE_CEILING` may only fall. Deliberately a count and not a rule — the gate
+cannot tell whether a named test *covers* its clause, and making it a rule today would mean
+writing fifty-nine tests against the clock, which is the rubber stamp the ledger exists to
+prevent. What it does is bound the population in which a false claim can hide.
+
+**On the specification track, §14.9's accessibility support — eleven rows, and this is the
+family that says how much of §14.8 is in scope.** `CLAUDE.md` puts "tagged PDF as far as
+accessibility needs it" in scope; §14.9 is the definition of *as far as*, because everything it
+asks for hangs off §14.7's structure tree or a `Span` property list. Four findings:
+
+- **One piece is already implemented and it is the smallest.** §7.9.2.2.2's language escape
+  sequences are recognised inside every text string this tree decodes — and *removed*, with the
+  language discarded. Three rows are `partial` for exactly that.
+- **§14.9.4's `/ActualText` is a text-extraction requirement, not a rendering one**, and it is
+  the one row here with a consequence this project can already measure: it is "a replacement,
+  not a description, for the content", and `text_extraction.rs` does not read it. The clause's
+  example is a hyphenated German `Druk-`/`ker` whose `/ActualText` is `c`. 5 corpus documents
+  write one; 95 write a `/Lang` and 87 a `/StructTreeRoot`.
+- **§14.9.6 states its own obligation and it is none**: "A PDF processor is not required to
+  process pronunciation hints" — `inapplicable`, the same reading §10.7.2's flatness permission
+  gets.
+- **§14.9.2.4 is the first `out-of-scope` row outside clauses 12 and 13.** A multi-language text
+  array is defined in exactly two places, Table 285's and Table 288's media clip dictionaries,
+  and both are clause 13's.
+
+| | before | now |
+|---|---|---|
+| **pages agreeing with the reference consensus** | 817 | **820** |
+| **pages contradicted** | 81 | **78** |
+| **contradicted pages with no explanation** | 35 | **32** |
+| corpus documents drawing with nothing reported | 858 | **858** |
+| **ledger subclauses nobody has read** | 89 | **78** — all of them clause 14 |
+| `§` citations the checker verified | 1510 | **1514** |
+| **tests** | 633 | **634** |
+
+What it taught:
+
+- **A display list that holds the right commands can still draw nothing, and no report will
+  say so.** The mesh was complete, correct and 180 points away. Between "we could not build it"
+  and "we drew it" there is a third state — *built and placed wrongly* — which every gate this
+  project has is blind to except the oracle, and which the oracle only catches because another
+  implementation drew it.
+- **Two false `implemented` rows in two sessions is an instrument problem, not two mistakes.**
+  Both were written from the clause during a review, both named a test file rather than a test,
+  and the fix is to count that population rather than to promise to be careful.
+
+### The fifty-first session, in brief
 
 **A page in the unexplained list differed from three references by 128 levels of 255 in one
 tile, and the rule that fixes it is one sentence this project's own ledger claimed to have
@@ -1110,10 +1194,10 @@ own label from §12.4.2 shown in the title bar, **§12.3.2's destinations**, whi
 document opens at, and — since the fiftieth session — **§12.3.3's outline**, which names the
 section the page being shown is in. It is not yet a PDF *viewer* in the
 full sense — nothing edits a field, follows a link or asks a person for a password — and the gap
-is now measured *by clause* as well as by corpus: 147 of the ledger's rows are `silent`, and
+is now measured *by clause* as well as by corpus: 153 of the ledger's rows are `silent`, and
 almost every one of them is a viewer rather than a renderer.
 
-- **633 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **634 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -1130,9 +1214,9 @@ almost every one of them is a viewer rather than a renderer.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1655 pages we claim to draw completely, **817 agree with the reference
-  consensus, 81 are contradicted and 747 are pages the references cannot agree about among
-  themselves**. The 81 are named, grouped and ratcheted in both directions. Twenty-five pages
+  (ADR 0020). Of the 1655 pages we claim to draw completely, **820 agree with the reference
+  consensus, 78 are contradicted and 747 are pages the references cannot agree about among
+  themselves**. The 78 are named, grouped and ratcheted in both directions. Twenty-five pages
   do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
   target size is degenerate or past the pixel limit. **None is a page we decline to draw** —
   the last four of those left in the twenty-fourth session (ADR 0033). ADR 0011.
@@ -1211,7 +1295,7 @@ almost every one of them is a viewer rather than a renderer.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1510 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1514 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -1242,7 +1326,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1510 citations, 157 quotations, 85 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1514 citations, 158 quotations, 85 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -1770,8 +1854,8 @@ completely:
 
 | | count | share of the 1620 |
 |---|---|---|
-| agree with the reference consensus | 817 | 49% |
-| **contradicted by it** | **81** | **5%** |
+| agree with the reference consensus | 820 | 49% |
+| **contradicted by it** | **78** | **5%** |
 | the references cannot agree among themselves | 747 | 45% |
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
 
@@ -1874,14 +1958,14 @@ parts that make a document *interactive* are not started.
 ## What to do next
 
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
-everything the corpus and the oracle name — 81 contradicted pages, 35 of them unexplained, and a
+everything the corpus and the oracle name — 78 contradicted pages, 32 of them unexplained, and a
 feature list sized by how many documents want each item. **The list is nearly empty of clause
 work**: nine sessions took `/FontFile`, all five bit depths, text markup appearances, `/AS`
 usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is left that any
 corpus document names is a licensing decision (predefined `CMap`s, 12), `viewer-ui` work (a
 password prompt, 8), substitution quality (24 fonts), and three transparency-group departures
 that need a second raster format or a backdrop. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **89 of 823 subclauses are `unreviewed`, every one of them clause
+§6.3.2.2's ranking name: **78 of 823 subclauses are `unreviewed`, every one of them clause
 14's**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
@@ -1939,7 +2023,7 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **A shading's `/BBox`, `/UserUnit` and `/MissingWidth` are the three rendering
 items that came back onto it and off it again** in the twenty-eighth, twenty-ninth and
 thirtieth sessions, and none was announced by a document: all three were found by reading a
-clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **89 of 823 subclauses have never been read at all, every one of them in clause 14**.
+clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **78 of 823 subclauses have never been read at all, every one of them in clause 14**.
 
 **The corpus has gone quiet, and the nine sessions from the thirtieth to the thirty-eighth are
 what that looks like when the two-track rule is followed.** Everything that moved a gate number
@@ -1963,13 +2047,15 @@ program fell through to substitution, and substitution says nothing.
   clause the code cites and nobody has read is the cheapest debt this project can accrue, and
   the list now fails the build the moment one appears. Every clearing of it has produced
   findings the demand item could not have reached — most recently §10.4.2.5.
-- **Only clause 14 is left, and it is 89 rows.** Every other technical clause — 7, 8, 9, 10, 11,
+- **Only clause 14 is left, and it is 78 rows.** Every other technical clause — 7, 8, 9, 10, 11,
   12 and 13 — has no `unreviewed` row, and clause 7 became true rather than claimed in the
   forty-ninth session (§7.11 and §7.12; the count is taken by grouping the ledger's `unreviewed`
   rows by leading clause number, never by what a session touched). What remains is **§14.8's
   tagged PDF at 60 rows**, §14.9's accessibility support at 11, §14.10's web capture at 18 and
-  §14.13's associated files went in the fiftieth session and §14.12's document parts in the
-  fifty-first. `CLAUDE.md` puts
+  §14.13's associated files went in the fiftieth session, §14.12's document parts in the
+  fifty-first and §14.9's accessibility support in the fifty-second — and that last is the one
+  that says how much of §14.8's sixty rows is in scope, because `CLAUDE.md`'s "as far as
+  accessibility needs it" is defined by §14.9 and by nothing else. `CLAUDE.md` puts
   "tagged PDF as far as accessibility needs it" in scope and nothing in clause 14 on the
   exclusion list, so these are reviews owed rather than a boundary. Record every row, including
   the `inapplicable` ones — a clause read and dismissed is worth as much as one implemented, and
@@ -2036,7 +2122,7 @@ Five small items, listed before the big lists because they are small:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 35 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 32 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. **Read trap 9 before starting**, because an entry may be any of its three shapes, and
 checking costs a web search of the other project's source.
@@ -2049,13 +2135,14 @@ needing a careful eye (ADR 0056). The ranking as it stands after that page left:
 
 | | ratio | |
 |---|---|---|
-| `issue6231_1.pdf` page 1 | 3.17 | worst tile 126.61 against 40.00, all three references agreeing |
 | `issue10572.pdf` page 1 | 2.55 | tile 19.22 against 9.41 |
 | `pattern_text_embedded_font.pdf` page 1 | 2.39 | tile 95.52 against 40.00 |
 | `issue3694_reduced.pdf` page 1 | 1.81 | 12.47% of pixels differing, the largest share on the list |
-| the remaining 31 | 1.8 down to 0.22 | mostly text pages against two references that share `FreeType` |
+| the remaining 28 | 1.8 down to 0.22 | mostly text pages against two references that share `FreeType` |
 
-**A worst tile far above its bound with a small mean is the signature worth chasing**: it is a
+`issue6231_1.pdf` was the 3.17 at the top of this list until the fifty-second session; it was a
+whole surface drawn 180 points from where it belonged (ADR 0057). **A worst tile far above its
+bound with a small mean is the signature worth chasing**: it is a
 region drawn by one implementation and not by another, and on a large page the mean hides it.
 
 The one cause that was identified, measured and live is **closed**: the subdivision lattice
@@ -2252,8 +2339,8 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 
 | of the 1655 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 817 | |
-| **contradicted** | **81** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 15 substituted fonts, **35 unexplained** |
+| agree with the reference consensus | 820 | |
+| **contradicted** | **78** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 15 substituted fonts, **32 unexplained** |
 | ambiguous | 747 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |

@@ -1606,8 +1606,8 @@ clause = "8.7.2"
 title = "General properties of patterns"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/tiling.rs", "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"]
-note = "The sentence that decides where every gradient on a page lands: \"changes to the page's transformation matrix that occur within the page's content stream, such as rotation and scaling, have no effect on the pattern; it maintains its original relationship to the page no matter where on the page it is used\". So a pattern is positioned by its `/Matrix` composed with the *parent content stream's default* space, which the interpreter carries as `base`, and never with the transform in force at the fill. Inside a form XObject the parent is the form, \"that is, the form coordinate space at the time the form is painted with the Do operator\", and that is what `base` holds while a form is being run. `/PatternType` selects between the two kinds; the NOTE says PDF does not support PostScript's define-here-use-there, and neither does this."
+test = ["crates/pdf-model/tests/tiling.rs::a_pattern_inside_a_form_is_anchored_to_the_forms_space", "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"]
+note = "The sentence that decides where every gradient on a page lands: \"changes to the page's transformation matrix that occur within the page's content stream, such as rotation and scaling, have no effect on the pattern; it maintains its original relationship to the page no matter where on the page it is used\". So a pattern is positioned by its `/Matrix` composed with the *parent content stream's default* space, which the interpreter carries as `base`, and never with the transform in force at the fill. Inside a form XObject the parent is the form, \"that is, the form coordinate space at the time the form is painted with the Do operator\", and that is what `base` holds while a form is being run — **since the fifty-second session; this row claimed it for twenty sessions while `base` stayed the page's throughout**. `issue6231_1.pdf` is what found it: a TeX plot whose surface is a type 5 shading pattern inside a form, positioned 180 points below and 140 to the left of where it belonged, so every triangle fell outside the clip and the page drew its axes and nothing else, silently. The row now names a test that fails if the claim stops being true, which is what `FILE_ONLY_EVIDENCE_CEILING` is counting. `/PatternType` selects between the two kinds; the NOTE says PDF does not support PostScript's define-here-use-there, and neither does this."
 
 [[clause]]
 clause = "8.7.3"
@@ -5382,57 +5382,75 @@ status = "unreviewed"
 [[clause]]
 clause = "14.9"
 title = "Repurposing and accessibility support"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the ten below. Accessibility support: a natural language, an alternate description, a replacement text, an expansion and a pronunciation hint. **None of it is read**, and the omission is visible in the stack rather than only in the ledger — `CLAUDE.md` names AccessKit as this project's accessibility layer and there is nothing yet to hand it. `CLAUDE.md` also puts \"tagged PDF as far as accessibility needs it\" in scope, and this family is the definition of *how far*: everything §14.9 asks for hangs off §14.7's structure tree or off a `Span` marked-content property list, and this is the clause that says which parts of §14.8's sixty rows a screen reader actually needs. The corpus carries the data — **95 of the 974 documents write a `/Lang`, 87 a `/StructTreeRoot`, 5 an `/ActualText`**."
 
 [[clause]]
 clause = "14.9.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The four facilities, and the reason they exist: \"many computer users with visual impairments use screen readers to read documents aloud\". Nothing here reaches a pixel, which is why every row below is `silent` rather than `partial` — a page draws identically whether or not any of it is read."
 
 [[clause]]
 clause = "14.9.2"
 title = "Natural language specification"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_language_escape_sequence_shows_nothing"]
+note = "Aggregate of the four below. One piece of this is implemented and it is the smallest: §7.9.2.2.2's language escape sequences are recognised inside a text string and **removed**, which `text_string.rs` does for every text string this tree decodes. What is discarded is the language itself, and every `/Lang` entry in every location is unread."
 
 [[clause]]
 clause = "14.9.2.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_language_escape_sequence_shows_nothing"]
+note = "The hierarchy's inventory: `/Lang` in the catalog, in a structure element, in a `Span` property list, and the escape sequence inside a Unicode text string that overrides all of them. The last is read and dropped (§7.9.2.2.2); the first three are not read at all. NOTE 2 names the one place a language decides what is *drawn* — an optional content usage dictionary's `/Language`, whose row in §8.11.4.4 records it as a departure this tree measured and declined."
 
 [[clause]]
 clause = "14.9.2.2"
 title = "Language identifiers"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_language_escape_sequence_shows_nothing"]
+note = "What a language identifier is: \"either be the empty text string, to indicate that the language is unknown, or a Language-Tag as defined in BCP 47\", compared case-insensitively, with \"zxx\" for non-linguistic content. Three of the four places one may appear are ordinary text strings this tree can already decode. The fourth is the one that could change a *glyph*: Table 122 gives a CIDFont's descriptor a `/Lang`, and where a composite font is not embedded that is evidence about which installed face should stand in — the same debt §9.8.3's `/Style` and `/FD` carry, and the same answer: substitution quality, recorded rather than built."
 
 [[clause]]
 clause = "14.9.2.3"
 title = "Language specification hierarchy"
-status = "unreviewed"
+status = "silent"
+note = "The precedence: catalog, then structure element (inherited from an ancestor element that has one), then a nested element or marked-content sequence, with the structure element winning over surrounding unstructured content. A complete algorithm over structures this tree does not read. Worth noting for whoever does: it is the same shape as §7.7.3.4's page-attribute inheritance, which `page.rs` already implements for four keys."
 
 [[clause]]
 clause = "14.9.2.4"
 title = "Multi-language text arrays"
-status = "unreviewed"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+note = "Multi-language text arrays — `[(en-US) (My vacation) (fr) (mes vacances) () (default text)]`, matched exactly and then by prefix, with an empty identifier as the default. The clause names exactly two places one may appear, Table 285's media clip data dictionary and Table 288's media clip section dictionary, and both are clause 13 objects — `CLAUDE.md`'s closed exclusion of multimedia and 3D. The matching rule is general and nothing in scope carries an array to match."
 
 [[clause]]
 clause = "14.9.3"
 title = "Alternate descriptions"
-status = "unreviewed"
+status = "silent"
+note = "`/Alt`, \"human-readable text that could, for example, be vocalised by a text-to-speech engine\", on a structure element, on a `Span` property list, or — for an annotation with no text of its own — its `/Contents`. That last is the one entry of the three this tree already resolves: `annotation.rs` reads `/Contents` when it constructs an appearance, and never as a description of the annotation. Nothing is spoken because nothing speaks."
 
 [[clause]]
 clause = "14.9.4"
 title = "Replacement text"
-status = "unreviewed"
+status = "silent"
+note = "`/ActualText`, and this is the row with a consequence this project can already measure. It is \"a replacement, not a description, for the content\" — a character substitution — so it belongs to **text extraction** rather than to drawing, and `text_extraction.rs` does not read it. The clause's example is a hyphenated German `Druk-`/`ker` whose `/ActualText` is `c`; a reader that ignores it extracts the ligature or the broken spelling instead. Two more rules come with it: consecutive sequences that both carry one \"shall be treated as if no word break is present between them\", and the value may carry §7.9.2.2.2's language escape. 5 corpus documents write one."
 
 [[clause]]
 clause = "14.9.5"
 title = "Expansion of abbreviations and acronyms"
-status = "unreviewed"
+status = "silent"
+note = "`/E`, an abbreviation's expansion, on a structure element or a `Span` property list. \"[A] word or phrase substitution for the tagged text and therefore shall be treated as if a word break separates it from any surrounding text\" — the opposite of §14.9.4's rule, and the distinction is the whole difference between the two entries. Nothing reads it."
 
 [[clause]]
 clause = "14.9.6"
 title = "Pronunciation hints"
-status = "unreviewed"
+status = "inapplicable"
+note = "Pronunciation hints — `/PhoneticAlphabet` and `/Phoneme` on a structure element, `/PronunciationLexicons` on the structure tree root — and the clause states its own obligation: \"A PDF processor is not required to process pronunciation hints.\" So nothing is owed and nothing is silent, which is the same reading §10.7.2's flatness permission gets. The NOTE says why the omission is usually harmless: a text-to-speech function does well enough \"based on text provided in Unicode encoding combined with an indication of the language that applies to that text\", which is §14.9.2's job and not this one's."
 
 [[clause]]
 clause = "14.10"

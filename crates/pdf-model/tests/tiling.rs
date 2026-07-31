@@ -288,3 +288,71 @@ fn a_cell_is_clipped_to_its_bounding_box() {
     // And the same in the horizontal gap alone, where the unclipped square would still reach.
     assert_eq!(pixel(&raster, 15, 99 - 5).3, 0, "clipped in x as well as y");
 }
+
+/// A pattern used inside a form `XObject` is anchored to the *form's* space, not the page's.
+///
+/// §8.7.2 says a pattern matrix maps pattern space to "the default coordinate system of the
+/// pattern's parent content stream", and then says what that is here:
+///
+/// > Similarly, if a pattern is used within a form XObject (see 8.10, "Form XObjects" ), the
+/// > pattern matrix maps pattern space to the form's default user space (that is, the form
+/// > coordinate space at the time the form is painted with the Do operator).
+///
+/// The fixture makes the two readings land in different pixels: the form's `/Matrix` shifts it
+/// 10 units right, and the cell paints a 5-unit square every 20. Anchored to the form, the
+/// squares start at x = 10; anchored to the page, at x = 0 — and 10 is where the clause and
+/// three reference renderers put them.
+#[test]
+fn a_pattern_inside_a_form_is_anchored_to_the_forms_space() {
+    let cell = "1 0 0 rg 0 0 5 5 re f";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] \
+         /XStep 20 /YStep 20 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream",
+        cell.len().saturating_add(1)
+    );
+    let form_content = "/Pattern cs /P0 scn 0 0 100 100 re f";
+    let form = format!(
+        "<< /Type /XObject /Subtype /Form /FormType 1 /BBox [0 0 100 100] \
+         /Matrix [1 0 0 1 10 0] /Resources << /Pattern << /P0 5 0 R >> >> /Length {} >>\
+         \nstream\n{form_content}\nendstream",
+        form_content.len().saturating_add(1)
+    );
+
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /Fm0 6 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 8 >>\nstream\n/Fm0 Do\nendstream\nendobj\n\
+         5 0 obj\n{pattern}\nendobj\n\
+         6 0 obj\n{form}\nendobj\n"
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len() + 1;
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+
+    let raster = render(out.into_bytes());
+    // Two pixels, and they disagree under the two readings: (12, ·) is inside the square the
+    // form's space puts at x = 10..15, and (2, ·) is inside the one the page's space would
+    // put at x = 0..5.
+    assert_eq!(pixel(&raster, 12, 99 - 2).3, 255, "anchored to the form");
+    assert_eq!(
+        pixel(&raster, 2, 99 - 2).3,
+        0,
+        "and not to the page, which would start the cells 10 units to the left"
+    );
+}
