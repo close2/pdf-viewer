@@ -749,8 +749,11 @@ note = "The four entries Table 31 marks inheritable — `/Resources`, `/MediaBox
 [[clause]]
 clause = "7.7.4"
 title = "Name dictionary"
-status = "silent"
-note = "The catalog's `/Names` name dictionary — `/Dests`, `/EmbeddedFiles`, `/JavaScript`, `/Pages`, `/AP` and the rest, each a name tree (§7.9.6). The *tree* is implemented as of the forty-eighth session; this dictionary, which says which tree is which, is not read, so the three rows waiting on it (§12.3.2.4, §12.7.7, §14.7.5.4) reach their data through here and nothing opens the door. The smallest missing piece in the whole navigation family."
+status = "partial"
+code = ["crates/pdf-model/src/attachment.rs", "crates/pdf-syntax/src/tree.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_embedded_file_is_read_with_its_parameters"]
+note = "The catalog's `/Names` name dictionary — Table 32's ten trees, each a §7.9.6 name tree. Two are read: `/Dests` (§12.3.2.4's named destinations, since the forty-ninth session) and `/EmbeddedFiles` (§7.11.4's attachments, since the eighty-sixth). The other eight are each owed to a feature rather than to this row: `/AP` to §12.7.4.3's appearance streams by name, `/JavaScript` to a clause principle 5 excludes, `/Pages` and `/Templates` to §12.7.7's named pages, `/IDS` and `/URLS` to web capture, `/AlternatePresentations` to a deprecated feature, and `/Renditions` to clause 13. `tree::name_pairs` is what a caller with no key to look up needs, and is the walk `number_pairs` already was for §7.9.7."
+
 
 [[clause]]
 clause = "7.8"
@@ -1003,14 +1006,20 @@ note = "Table 43's dictionary — `/FS`, `/F`, `/UF`, the three deprecated platf
 [[clause]]
 clause = "7.11.4"
 title = "Embedded file streams"
-status = "silent"
-note = "Aggregate of the two below. Embedded file streams are the one part of this family that needs no filesystem at all — the bytes are inside the document — and 10 of the 974 corpus documents carry a `/Names /EmbeddedFiles` tree, which §7.9.6's reader now walks. Nothing reads them and nothing says so, which is what `silent` is for; what it costs is an attachments list a viewer would show, not a page drawn wrong."
+status = "partial"
+code = ["crates/pdf-model/src/attachment.rs", "crates/pdf-syntax/src/tree.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_embedded_file_is_read_with_its_parameters"]
+note = "Embedded file streams, which are the one part of §7.11 that needs no filesystem: the bytes are inside the document. `attachment::attachments` lists what the `/EmbeddedFiles` tree names — the tree's key, Table 43's `/UF` or `/F` and `/Desc`, Table 44's `/Subtype`, and Table 45's `/Size`, dates and `/CheckSum` — and hands the stream on without decoding it. Nothing is written anywhere: extracting an attachment is a person's decision, and this program has no dialogue to ask with. `/RF`'s related files (§7.11.4.2) are unread. 10 of the 974 corpus documents carry such a tree, 23 files between them; two of the 23 are in encrypted documents and refuse to decode, which §7.6.6 makes the stream's answer rather than the file's."
+
 
 [[clause]]
 clause = "7.11.4.1"
 title = "General"
-status = "silent"
-note = "The two ways an embedded file arrives: a file specification's `/EF`, which §12.5.6.15's file attachment annotations use, and the name dictionary's `/EmbeddedFiles` tree for the document as a whole. Table 44's `/Subtype` is a MIME media type and Table 45's `/Params` carries `/Size`, `/CreationDate`, `/ModDate` and an MD5 `/CheckSum` — the clause's own NOTE says that checksum \"is strictly a checksum, and is not used for security purposes\", which is worth having read before anybody treats a match as authentication."
+status = "partial"
+code = ["crates/pdf-model/src/attachment.rs", "crates/pdf-syntax/src/tree.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_embedded_file_is_read_with_its_parameters"]
+note = "Both of the clause's routes are readable and one is walked: the name dictionary's `/EmbeddedFiles` tree for the document as a whole, which `attachment::attachments` lists, and a file specification's own `/EF`, which `attachment::read` reads for whoever holds the specification — §12.5.6.15's file attachment annotations being the caller the clause names, and not yet built. Table 44 and Table 45 are read in full, with two entries deliberately not acted on: the `/CheckSum` is not verified, which would mean inflating every attachment for a value the clause says is \"strictly a checksum, and is not used for security purposes\", and the `/Size` is the document's claim rather than a measurement."
+
 
 [[clause]]
 clause = "7.11.4.2"

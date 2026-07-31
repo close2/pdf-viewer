@@ -233,7 +233,10 @@ impl Kind {
                  and nothing edits the value"
             }
             Self::Markup => "no annotation editing: markup annotations are drawn, not created",
-            Self::Attachment => "no attachment list: §7.11.4's embedded file streams are unread",
+            Self::Attachment => {
+                "an attachment list is read but not shown, and nothing extracts \
+                                 a file: §7.11.4's streams are listed and left where they are"
+            }
             Self::AttachmentEditing => "no attachment editing, and no attachment list",
             Self::Collection => "no collection view: §12.3.5's collections are unread",
             Self::CollectionEditing => "no collection editing, and no collection view",

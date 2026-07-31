@@ -121,6 +121,27 @@ fn main() {
         );
     }
 
+    // §7.11.4's embedded files, listed and not extracted: the bytes are inside the document,
+    // and writing one out is a person's decision taken in a program that can ask. Saying they
+    // exist is the half a viewer with no attachment panel can still do honestly.
+    let attachments = pdf_model::attachment::attachments(&document);
+    for attachment in &attachments {
+        let size = attachment
+            .size
+            .map_or_else(String::new, |size| format!(", {size} bytes"));
+        println!(
+            "note: this document carries an embedded file: {}{size}{}",
+            attachment
+                .file_name
+                .as_deref()
+                .unwrap_or(attachment.name.as_str()),
+            attachment
+                .media_type
+                .as_deref()
+                .map_or_else(String::new, |media| format!(" ({media})"))
+        );
+    }
+
     let page_count = Pages::new(&document).len();
     println!("{}: {page_count} page(s)", path.to_string_lossy());
     if page_count == 0 {

@@ -181,29 +181,80 @@ fn admits(node: &Dictionary, key: &TreeKey<'_>, resolve: &dyn Fn(&Object) -> Obj
 pub fn number_pairs(root: &Dictionary, resolve: &dyn Fn(&Object) -> Object) -> Vec<(i64, Object)> {
     let mut out = Vec::new();
     let mut visited = std::collections::BTreeSet::new();
-    collect(root, resolve, 0, &mut visited, &mut out);
+    collect(
+        root,
+        "Nums",
+        resolve,
+        0,
+        &mut visited,
+        &mut |key, value, out: &mut Vec<(i64, Object)>| {
+            if let Some(key) = key.as_integer() {
+                out.push((key, value));
+            }
+        },
+        &mut out,
+    );
     out
 }
 
-/// One level of [`number_pairs`]'s walk.
-fn collect(
+/// Every key-value pair in a *name* tree, in the order the tree holds them.
+///
+/// The same walk as [`number_pairs`] over §7.9.6's `/Names` array rather than §7.9.7's `/Nums`,
+/// because the two clauses define one structure twice — "[a] name tree serves a similar purpose
+/// to a dictionary … but by different means", and §7.9.7 opens by saying a number tree "shall
+/// serve a similar purpose to a name tree … except that its keys shall be integers".
+///
+/// A whole-tree walk rather than a lookup for the reason §7.11.4's attachments need: a caller
+/// listing a document's embedded files has no key to look up. Keys come back as the bytes the
+/// file wrote, since §7.9.6 sorts them "by unsigned character code" and what they *mean* is
+/// §7.9.2's question.
+#[must_use]
+pub fn name_pairs(
+    root: &Dictionary,
+    resolve: &dyn Fn(&Object) -> Object,
+) -> Vec<(Vec<u8>, Object)> {
+    let mut out = Vec::new();
+    let mut visited = std::collections::BTreeSet::new();
+    collect(
+        root,
+        "Names",
+        resolve,
+        0,
+        &mut visited,
+        &mut |key, value, out: &mut Vec<(Vec<u8>, Object)>| {
+            if let Object::String(bytes) = key {
+                out.push((bytes.to_vec(), value));
+            }
+        },
+        &mut out,
+    );
+    out
+}
+
+/// One level of the walk [`number_pairs`] and [`name_pairs`] share.
+///
+/// `entry` is the leaf array's key — `/Nums` or `/Names` — and `push` is what a pair means to
+/// the caller. The two trees differ in exactly those two places, which is why this is one
+/// function: §7.9.7 defines a number tree as a name tree with integer keys, and a second copy
+/// of the descent would be a second place for the cycle guard to be got wrong.
+fn collect<T>(
     node: &Dictionary,
+    entry: &str,
     resolve: &dyn Fn(&Object) -> Object,
     depth: usize,
     visited: &mut std::collections::BTreeSet<u32>,
-    out: &mut Vec<(i64, Object)>,
+    push: &mut dyn FnMut(Object, Object, &mut Vec<T>),
+    out: &mut Vec<T>,
 ) {
     if depth > MAX_DEPTH {
         return;
     }
-    if let Object::Array(pairs) = resolve(node.get("Nums").unwrap_or(&Object::Null)) {
+    if let Object::Array(pairs) = resolve(node.get(entry).unwrap_or(&Object::Null)) {
         for pair in pairs.chunks_exact(2) {
             let (Some(key), Some(value)) = (pair.first(), pair.get(1)) else {
                 continue;
             };
-            if let Some(key) = resolve(key).as_integer() {
-                out.push((key, resolve(value)));
-            }
+            push(resolve(key), resolve(value), out);
         }
     }
     let Object::Array(kids) = resolve(node.get("Kids").unwrap_or(&Object::Null)) else {
@@ -216,7 +267,15 @@ fn collect(
             continue;
         }
         if let Some(child) = resolve(kid).as_dict() {
-            collect(child, resolve, depth.saturating_add(1), visited, out);
+            collect(
+                child,
+                entry,
+                resolve,
+                depth.saturating_add(1),
+                visited,
+                push,
+                out,
+            );
         }
     }
 }
