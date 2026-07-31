@@ -237,6 +237,32 @@ pub struct Interpretation {
     ///
     /// 30 of the 953 corpus first pages mark at least one.
     pub artifacts: Vec<ArtifactSpan>,
+    /// How many word or line separators in [`Self::text`] were inferred from glyph positions.
+    ///
+    /// §14.8.2.6.2 requires a *tagged* document to state them: "any white-space characters that
+    /// would be present to separate words in a pure text representation shall be present in the
+    /// tagged PDF representation of the text", and its NOTE 1 draws the consequence — "the PDF
+    /// processor can determine word breaks without having to rely on heuristics based on
+    /// information such as glyph positioning on the page".
+    ///
+    /// This reader infers them anyway, because the clause binds documents and most documents are
+    /// not tagged. The count is what makes that a measurement rather than an assumption: a
+    /// conforming tagged page should need none, and `tests/logical_order.rs` says how many
+    /// actually do.
+    pub inferred_separators: usize,
+    /// §14.7.5.2's marked-content sequences over [`Self::text`], in the order they closed.
+    ///
+    /// One entry per `BDC` … `EMC` whose property list stated an `/MCID`, which is the
+    /// identifier §14.7.5.2 uses to tie page content to a structure element: "[t]he marked-content
+    /// sequence … shall be identified by an integer marked-content identifier". Recorded because
+    /// §14.8.2.5.1 defines a *second* order over the same content — the logical one, which is a
+    /// depth-first walk of the structure tree — and turning one into the other needs to know
+    /// which bytes of the readback belong to which sequence.
+    ///
+    /// Nothing is reordered here. [`crate::structure::Tree::logical_text`] is what puts the
+    /// spans in the structure's order, and it is a *different* string from [`Self::text`] on
+    /// exactly the pages where the two orders do not coincide.
+    pub marked: Vec<MarkedSpan>,
     /// §14.13.5's associated files, each with the range of [`Self::text`] its section covered.
     ///
     /// One entry per file per `/AF`-tagged marked-content sequence. The clause's own example is
@@ -259,6 +285,19 @@ pub struct ArtifactSpan {
     pub range: std::ops::Range<usize>,
     /// What Table 363 said about it.
     pub artifact: crate::structure::Artifact,
+}
+
+/// One §14.7.5.2 marked-content sequence's extent in a page's readback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkedSpan {
+    /// The `/MCID` the sequence's property list stated.
+    pub mcid: i64,
+    /// Where its text sits in [`Interpretation::text`], in bytes.
+    ///
+    /// Empty for a sequence that showed no text, which is most of them on a page of graphics —
+    /// and an empty range is still recorded, because "this element's content drew nothing
+    /// readable" and "this element has no content" are different statements.
+    pub range: std::ops::Range<usize>,
 }
 
 impl Interpretation {
@@ -347,6 +386,12 @@ struct Marked {
     ///
     /// Empty for every other section, which is all of them in 967 of the 974 corpus documents.
     associated: Vec<crate::attachment::Attachment>,
+    /// §14.7.5.2's `/MCID`, where this section's property list states one.
+    ///
+    /// The identifier is what ties a run of page content to a structure element, and therefore
+    /// to §14.8.2.5.1's logical content order — which is a different order from the one this
+    /// interpreter reads the stream in, and the only reason it is recorded.
+    mcid: Option<i64>,
     /// Whether this section's tag is §14.8.2.5.3's `ReversedChars`.
     ///
     /// A flag per section rather than one on the interpreter, because the sections nest and
@@ -966,6 +1011,8 @@ pub fn interpret_with(
         text: String::new(),
         described: Vec::new(),
         artifacts: Vec::new(),
+        marked: Vec::new(),
+        inferred_separators: 0,
         associated: Vec::new(),
         reversed_chars: 0,
         text_cursor: None,
@@ -1040,6 +1087,8 @@ pub fn interpret_with(
         glyphs: interpreter.glyphs,
         described: interpreter.described,
         artifacts: interpreter.artifacts,
+        marked: interpreter.marked,
+        inferred_separators: interpreter.inferred_separators,
         associated_files: interpreter.associated,
         language,
     }
@@ -1193,6 +1242,8 @@ struct Interpreter<'a> {
     described: Vec<crate::accessibility::Described>,
     /// §14.8.2.2's artifact spans, in the order their sections closed.
     artifacts: Vec<ArtifactSpan>,
+    /// §14.7.5.2's marked-content spans, in the order their sections closed.
+    marked: Vec<MarkedSpan>,
     /// §14.13.5's associated files, with the range of the readback their section covered.
     associated: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
     /// How many §14.8.2.5.3 `ReversedChars` sections are open.
@@ -1202,6 +1253,8 @@ struct Interpreter<'a> {
     reversed_chars: usize,
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
+    /// How many separators [`Interpreter::separate_text`] inferred from position.
+    inferred_separators: usize,
     /// The document's optional content configuration, if it has one (§8.11).
     ///
     /// Cloned from the viewer state rather than borrowed, because §12.6.4.13's action may
@@ -1884,9 +1937,13 @@ impl Interpreter<'_> {
                     } else {
                         Vec::new()
                     };
+                    let mcid = self
+                        .property_list(resources, operands.get(1))
+                        .and_then(|list| self.document.get_key(&list, "MCID").as_integer());
                     marked.push(Marked {
                         hides,
                         starts_at: self.text.len(),
+                        mcid,
                         // §14.9.4's replacement text, which belongs to *extraction* and not to
                         // drawing: the marks are unchanged and what a reader copies is not.
                         actual_text,
@@ -1975,6 +2032,15 @@ impl Interpreter<'_> {
                             self.artifacts.push(ArtifactSpan {
                                 range: section.starts_at..self.text.len(),
                                 artifact,
+                            });
+                        }
+                        // §14.7.5.2's identifier over the same range, for the same reason and
+                        // after the same replacements: this is where a structure element's
+                        // content actually is in the readback.
+                        if let Some(mcid) = section.mcid {
+                            self.marked.push(MarkedSpan {
+                                mcid,
+                                range: section.starts_at..self.text.len(),
                             });
                         }
                         // §14.13.5's files belong to the graphics objects the section enclosed,
@@ -3691,8 +3757,10 @@ impl Interpreter<'_> {
         };
         if across.abs() > size.abs() * 0.5 {
             self.text.push('\n');
+            self.inferred_separators = self.inferred_separators.saturating_add(1);
         } else if along > word_gap {
             self.text.push(' ');
+            self.inferred_separators = self.inferred_separators.saturating_add(1);
         }
     }
 

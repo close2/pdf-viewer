@@ -5329,20 +5329,26 @@ note = "One rule, and this tree already satisfies it: \"page content shall be co
 [[clause]]
 clause = "14.8.2.5"
 title = "Page content order and logical content order"
-status = "silent"
-note = "Aggregate of the three below: page content order against logical content order."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/logical_order.rs::the_logical_order_reorders_what_the_stream_showed", "crates/pdf-model/tests/logical_order.rs::the_two_orders_of_a_tagged_page_mostly_coincide"]
+note = "Both orders, and the mapping between them. Page content order is the interpreter's own — \"the sequencing of graphics objects within a page's content stream\" — and `Interpretation::marked` records, per `BDC` … `EMC` carrying an `/MCID`, the range of the readback that sequence covered. `Tree::logical_order` is the other one: \"a depth-first traversal of the document's logical structure hierarchy\", filtered to one page, and `Tree::logical_text` is the page's text put through it. Measured over the corpus: 89 documents have a structure tree, 77 mark content on page one, and the two orders coincide on 72 of those 77 — the clause says they \"should\", and five producers disagree, among them a tax form whose logical order starts with its title and whose stream starts with a margin note."
 
 [[clause]]
 clause = "14.8.2.5.1"
 title = "General"
-status = "silent"
-note = "The two orders defined: page content order \"by the sequencing of graphics objects within a page's content stream\", logical content order \"by a depth-first traversal of the document's logical structure hierarchy\". This tree extracts text in page content order, which the clause says *should* coincide and lists three cases where it cannot — a headline spanning two pages, two articles beginning on one page, and objects that must overlap in a particular order."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/logical_order.rs::the_logical_order_reorders_what_the_stream_showed", "crates/pdf-model/tests/logical_order.rs::the_two_orders_of_a_tagged_page_mostly_coincide"]
+note = "The two definitions, both executed, and the clause's own exclusion applied: only structure elements are part of the logical content order, so `Tree::logical_text` leaves out every marked-content sequence the tree does not reach — 3 across the corpus — and NOTE 3 states the case that would otherwise be tempting, that \"[a]rtifacts not contained within an Artifact structure element are not considered part of the logical content order\". Nothing reorders what is *drawn*: the two orders are two readings of one page, and the display list is the stream's."
 
 [[clause]]
 clause = "14.8.2.5.2"
 title = "Sequencing of annotations"
-status = "silent"
-note = "Where an annotation sits in the logical order, which is not where it sits in the file: annotations \"are not interleaved within the page's content stream but are listed in the Annots array\", and their position \"is determined from the document's logical structure\" through an `Annot`, `Link` or `Form` element's object reference. `annotation.rs` draws every annotation after the page content, which is the correct *painting* order (§12.5.5) and says nothing about the reading order."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/tests/logical_order.rs::the_two_orders_of_a_tagged_page_mostly_coincide"]
+note = "An annotation \"is not interleaved within the page's content stream but [is] listed in the Annots array\", and \"[t]he position of an annotation in the logical content order is determined from the document's logical structure\" — which is §14.7.5.3's object reference, already read as `Child::Object`. `Tree::logical_order` therefore returns annotations *in place* among the marked-content sequences, which is the whole of what this subclause asks a reader to do; 295 annotations across the corpus's tagged first pages are placed that way. `Tree::logical_text` deliberately leaves them out of the string, because an annotation's text is its own `/Contents` or its field's value rather than a range of the page's readback."
 
 [[clause]]
 clause = "14.8.2.5.3"
@@ -5356,8 +5362,10 @@ note = "`/ReversedChars`, a marked-content tag saying that the show strings insi
 [[clause]]
 clause = "14.8.2.6"
 title = "Unicode mapping in tagged PDF"
-status = "silent"
-note = "Aggregate of the two below: how a tagged document guarantees that its character codes have Unicode values."
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/logical_order.rs::the_two_orders_of_a_tagged_page_mostly_coincide"]
+note = "The family: every character code in a tagged document should map to Unicode, and word breaks should be in the character stream. The first is §9.10.2's machinery, which this tree implements in full and which its own row records; the second is §14.8.2.6.2's, where the requirement is on the *document* and this reader infers what a document did not state. `partial` for that inference, which is measured rather than assumed."
 
 [[clause]]
 clause = "14.8.2.6.1"
@@ -5370,8 +5378,10 @@ note = "\"Every character code that belongs to a structure element in the struct
 [[clause]]
 clause = "14.8.2.6.2"
 title = "Identifying word breaks"
-status = "silent"
-note = "How a word break is identified when no character encodes one: a `Tj` gap, a positioning operator, or the end of a marked-content sequence may all be one, and a tagged document is required to make it unambiguous. `text_extraction.rs` infers word breaks from glyph positions, which is the same *evidence* the clause describes and not the clause's own rule; the difference matters for a document that marks them and for no other."
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/logical_order.rs::the_two_orders_of_a_tagged_page_mostly_coincide"]
+note = "What the clause asks of a *reader* is done, and what it asks of a *document* is measured. A reader \"may find words by sequentially examining the Unicode character stream\", and the division into show strings \"shall have no semantic significance\" — so nothing here treats a `Tj` boundary as a word boundary, and the readback is one string. What a conforming tagged document owes is the white space itself: \"any white-space characters that would be present to separate words in a pure text representation shall be present in the tagged PDF representation of the text\", whose NOTE 1 then says a processor \"can determine word breaks without having to rely on heuristics based on information such as glyph positioning on the page\". **This reader relies on them anyway, and now counts how often**: `Interpretation::inferred_separators` is the number of separators reconstructed from position, and over the corpus's 77 tagged first pages it is 2392 — only 20 of the 77 need none. So the heuristic is not a departure from the clause but a defence against documents that claim to follow it and do not; removing it would empty the readback of most of its word breaks on 57 of 77 tagged pages."
 
 [[clause]]
 clause = "14.8.3"

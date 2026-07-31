@@ -508,6 +508,81 @@ impl Tree {
         out
     }
 
+    /// §14.8.2.5.1's logical content order, for one page.
+    ///
+    /// > Logical content order -the ordering for semantic purposes -shall be defined by a
+    /// > depth-first traversal of the document's logical structure hierarch y.
+    ///
+    /// against which the other order is the stream's: "[p]age content order shall be defined by
+    /// the sequencing of graphics objects within a page's content stream". The clause says the
+    /// two "should coincide" and then spends a NOTE explaining when they cannot — overlapping
+    /// objects, a headline spanning two pages, two articles beginning on one page — so a
+    /// consumer that wants meaning has to walk the tree and a consumer that wants pixels has to
+    /// walk the stream.
+    ///
+    /// The items are this page's only, in the tree's order, and **annotations are among them**:
+    /// §14.8.2.5.2 says an annotation "is not interleaved within the page's content stream" and
+    /// that "[t]he position of an annotation in the logical content order is determined from the
+    /// document's logical structure", which is exactly the object references this walk already
+    /// returns.
+    ///
+    /// A content item whose `/Pg` is absent is included: Table 355 makes the entry required only
+    /// where an element has content items of the integer form, and an element that states none
+    /// anywhere in its ancestry has left the page unstated rather than said "not this page".
+    #[must_use]
+    pub fn logical_order(&self, document: &Document, page: ObjectId) -> Vec<Child> {
+        self.walk(document)
+            .into_iter()
+            .filter_map(|(_, child)| match child {
+                // An element is not a content item; the walk returns both and only the leaves
+                // are ordered content.
+                Child::MarkedContent { page: at, .. } | Child::Object { page: at, .. } => {
+                    at.is_none_or(|at| at == page).then_some(child)
+                }
+                Child::Element(_) => None,
+            })
+            .collect()
+    }
+
+    /// A page's readback, rearranged into §14.8.2.5.1's logical content order.
+    ///
+    /// Every marked-content sequence the structure tree reaches, in the tree's order, with the
+    /// text each one covered in [`crate::Interpretation::text`]. Sequences the tree does not
+    /// reach are **left out**, which is the clause's own position twice over: only structure
+    /// elements are part of the logical content order, and §14.8.2.5.1 NOTE 3 says of the one
+    /// case a reader might expect otherwise that "[a]rtifacts not contained within an Artifact
+    /// structure element are not considered part of the logical content order".
+    ///
+    /// Annotations are in [`Self::logical_order`] and not here: an annotation's text is its own
+    /// (§12.5.6's `/Contents`, a field's value) rather than a range of the page's readback, and
+    /// splicing it into this string would make the result neither the page's text nor the
+    /// document's.
+    ///
+    /// Equal to `interpretation.text` on a page whose two orders coincide, which the clause
+    /// says they *should* — and `tests/logical_order.rs` measures how often they do.
+    #[must_use]
+    pub fn logical_text(
+        &self,
+        document: &Document,
+        page: ObjectId,
+        interpretation: &crate::Interpretation,
+    ) -> String {
+        let mut out = String::new();
+        for item in self.logical_order(document, page) {
+            let Child::MarkedContent { mcid, .. } = item else {
+                continue;
+            };
+            for span in &interpretation.marked {
+                if span.mcid == mcid
+                    && let Some(text) = interpretation.text.get(span.range.clone())
+                {
+                    out.push_str(text);
+                }
+            }
+        }
+        out
+    }
+
     /// One level of [`Self::walk`].
     fn descend(
         &self,
