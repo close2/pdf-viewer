@@ -3437,14 +3437,18 @@ note = "Navigators: a collection's own presentation, supplied as SWF. The *forma
 [[clause]]
 clause = "12.4"
 title = "Page-level navigation"
-status = "silent"
-note = "Page-level navigation: page labels, articles and presentations. None implemented, none reported. §12.4.2's page labels are named in `CLAUDE.md`'s scope statement; the other two are a reading order and a slideshow."
+status = "partial"
+code = ["crates/pdf-model/src/page_label.rs", "crates/pdf-model/src/article.rs", "crates/pdf-model/src/navigation.rs"]
+test = ["crates/pdf-model/tests/page_labels.rs::the_clauses_own_example_produces_the_labels_it_states", "crates/pdf-model/src/article.rs::the_clauses_own_example_is_three_beads_on_two_pages", "crates/pdf-model/src/navigation.rs::a_page_of_bullets_walks_its_states"]
+note = "Page-level navigation: page labels, articles and presentations, and all three are now read. §12.4.2's labels are `implemented` and shown in the title bar; §12.4.3's articles are read as threads of beads and `partial` for the zoom a bead's `/R` asks for; §12.4.4's presentation is read entire and played by nobody. So the clause is `partial` for what a *window* would do with any of the three, which is the same sentence three subclauses say in three ways — this row was `silent` for eighty-eight sessions while two of its children were not, which is the understated-parent shape §14.8.5.1 taught."
 
 [[clause]]
 clause = "12.4.1"
 title = "General"
-status = "silent"
-note = "The framing. Page-level navigation is what a reader does *within* a document once it is open, as against §12.3's overview of the whole of it."
+status = "implemented"
+code = ["crates/pdf-model/src/page_label.rs", "crates/pdf-model/src/article.rs", "crates/pdf-model/src/navigation.rs"]
+test = ["crates/pdf-model/tests/page_labels.rs::the_clauses_own_example_produces_the_labels_it_states", "crates/pdf-model/src/article.rs::the_clauses_own_example_is_three_beads_on_two_pages", "crates/pdf-model/src/navigation.rs::a_page_of_bullets_walks_its_states"]
+note = "The framing: page-level navigation is what a reader does *within* a document once it is open, as against §12.3's overview of the whole of it. The clause names its three mechanisms — page labels, articles, presentations — and each has its own row; the framing itself states no requirement beyond naming them, and all three are read."
 
 [[clause]]
 clause = "12.4.2"
@@ -3457,8 +3461,10 @@ note = "Page labels, in full: the catalog's `/PageLabels` number tree, Table 161
 [[clause]]
 clause = "12.4.3"
 title = "Articles"
-status = "silent"
-note = "Articles: `/Threads` in the catalog, each a chain of beads tying regions of pages into a reading order. A navigation aid, and the one part of it that touches geometry is a bead's `/R` rectangle, which this tree could compute and has nothing to do with."
+status = "partial"
+code = ["crates/pdf-model/src/article.rs"]
+test = ["crates/pdf-model/src/article.rs::the_clauses_own_example_is_three_beads_on_two_pages", "crates/pdf-model/src/article.rs::the_ring_closes_and_following_it_wraps", "crates/pdf-model/tests/articles.rs::the_corpus_states_no_article"]
+note = "The catalog's `/Threads`, Table 162's thread dictionaries with their `/I` information title, and Table 163's beads walked from `/F` along `/N`. **The chain is a ring**, which is what distinguishes this walk from §12.3.3's outline: `/N` \"[i]n the last bead … shall refer to the first bead\", so termination is a visited set rather than an absent entry, and following past the end wraps — which is what \"follow a thread from one bead to the next\" means at a thread's end. `/V` is deliberately unread, for the outline's reason: it is redundant with `/N` and could only disagree. Table 31's page `/B` is read *only* to be checked against the threads, since NOTE 2 says it \"can be created or recreated\" from them — and the two clauses disagree about its order (\"natural reading order\" in Table 31, \"in drawing order\" here), so the comparison is on the set, which is a documented choice and the only comparison both sentences license. `partial` for the one thing a viewer would do with a bead and this one cannot: `/R` is \"[a] rectangle specifying the location of this bead on the page\", which is a region to zoom to, and `viewer-ui` fits whole pages. **No corpus document states an article**: 2 catalogs carry a `/Threads` entry, one an empty array and one a null, and no page carries a `/B` — measured, and the clause's own EXAMPLE 2 is the test."
 
 [[clause]]
 clause = "12.4.4"
@@ -3800,8 +3806,10 @@ note = "Launch: run an application or open a file. **The one action in this fami
 [[clause]]
 clause = "12.6.4.7"
 title = "Thread actions"
-status = "silent"
-note = "Thread: jump to an article bead (§12.4.3), which is `silent` for the same reason."
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs"]
+test = ["crates/pdf-model/src/action.rs::a_thread_action_names_its_thread_in_all_three_forms", "crates/pdf-model/src/action.rs::a_thread_in_another_file_is_refused_by_name"]
+note = "Table 209 whole: `/D` in all three of its forms — a reference to a thread dictionary, an index into the catalog's `/Threads`, or a title from the thread information dictionary — with the clause's own tie-break for a repeated title, \"the one appearing first in the document catalog's Threads array shall be used\"; and `/B` in both of its forms, a reference or an index within the thread, defaulting to the thread's first bead where the optional entry is absent. Resolution is `ThreadJump::bead_in` against §12.4.3's articles, and the answer is a bead whose `/P` names a page, which is what a viewer turns to. A `/F` makes the thread another file's and is refused by name, for `GoToR`'s reason: Table 209 says \"[i]f this entry is absent, the thread is in the current file\", so the entry's presence is the whole test. No corpus document states a thread action, which follows from no corpus document stating a thread."
 
 [[clause]]
 clause = "12.6.4.8"

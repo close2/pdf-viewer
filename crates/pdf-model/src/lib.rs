@@ -27,6 +27,7 @@ pub mod accessibility;
 pub mod action;
 mod annotation;
 mod appearance;
+pub mod article;
 pub mod attachment;
 pub mod colour;
 pub mod content;

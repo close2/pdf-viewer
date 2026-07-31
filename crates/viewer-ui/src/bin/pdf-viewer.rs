@@ -295,6 +295,17 @@ impl App {
                 Request::Resolve(uri) => {
                     println!("link: {}", uri.at_position((x, y), link.rect));
                 }
+                Request::Thread(jump) => {
+                    // §12.4.3's threads are read *here* rather than when the document opens:
+                    // an article is a list nothing else in this program consults, and
+                    // `CLAUDE.md` principle 2's "nothing eager" applies to the two documents
+                    // in a thousand that would pay for it at launch.
+                    let articles = pdf_model::article::Articles::read(&self.document);
+                    target = target.or_else(|| {
+                        jump.bead_in(&articles)
+                            .and_then(|bead| bead.page_index(&pages))
+                    });
+                }
             }
         }
         let target =

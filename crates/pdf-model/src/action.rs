@@ -14,14 +14,16 @@
 //! | `Hide` | §12.6.4.11 | yes — §12.5.3's Hidden flag, which decides what is drawn |
 //! | `Named` | §12.6.4.12 | yes — Table 215's four page commands |
 //! | `URI` | §12.6.4.8 | yes — the URI, resolved; opening it is the caller's |
+//! | `Thread` | §12.6.4.7 | yes — a bead on §12.4.3's article thread, in this file |
 //! | everything else | | [`Action::Refused`], by name |
 //!
 //! The refusals are not laziness and they are not uniform. `GoToR`, `GoToE`, `Launch`,
 //! `ImportData` and `SubmitForm` want a file system or a network, which principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
-//! same list; `Trans`, `Thread`, `ResetForm` and `GoToDp` are viewer behaviour this program
-//! has not built yet. Each keeps its own name in the refusal so that a caller can say which,
+//! same list; `Trans`, `ResetForm` and `GoToDp` are viewer behaviour this program
+//! has not built yet. A `Thread` action naming *another file* joins the first group, for the
+//! same reason `GoToR` is in it. Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
 //!
 //! # A URI action is read here and performed nowhere
@@ -49,6 +51,7 @@ use std::collections::BTreeSet;
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
+use crate::article::Bead;
 use crate::destination::Destination;
 
 /// Most actions one activation may perform.
@@ -73,6 +76,8 @@ pub enum Action {
     Named(Named),
     /// §12.6.4.8: a URI to resolve, already resolved as far as the document states it.
     Uri(Uri),
+    /// §12.6.4.7: jump to a bead on one of §12.4.3's article threads.
+    Thread(ThreadJump),
     /// An action type this program recognises and does not perform, named.
     ///
     /// A `&'static str` rather than the file's own bytes: the name is one of Table 201's
@@ -187,6 +192,74 @@ impl Named {
             Self::FirstPage => 0,
             Self::LastPage => last,
         })
+    }
+}
+
+/// §12.6.4.7's thread action. Table 209.
+///
+/// The clause is one sentence — a thread action "jumps to a specified bead on an article
+/// thread … in either the current document or a different one" — and the interesting half is
+/// Table 209's three spellings of *which* thread, which are the reason this is two enums
+/// rather than two references. Resolving them needs the document's articles, so
+/// [`ThreadJump::bead_in`] takes them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadJump {
+    /// Table 209's `/D`, "[t]he destination thread", in whichever form the file states it.
+    pub thread: ThreadTarget,
+    /// Table 209's `/B`, "[t]he bead in the destination thread", where the file names one.
+    ///
+    /// Absent means the thread's first bead: the entry is optional, and a thread action with
+    /// no bead can only mean the place a thread starts.
+    pub bead: Option<BeadTarget>,
+}
+
+/// Which thread a [`ThreadJump`] names. Table 209's `/D`, all three forms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThreadTarget {
+    /// "An indirect reference to a thread dictionary … the thread shall be in the current file."
+    Object(ObjectId),
+    /// "The index of the thread within the Threads array … The first thread in the array has
+    /// index 0."
+    Index(usize),
+    /// "The title of the thread as specified in its thread information dictionary."
+    ///
+    /// The clause states the tie-break itself: "[i]f two or more threads have the same title,
+    /// the one appearing first in the document catalog's Threads array shall be used."
+    Title(String),
+}
+
+/// Which bead a [`ThreadJump`] names. Table 209's `/B`, both forms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BeadTarget {
+    /// "An indirect reference to a bead dictionary."
+    Object(ObjectId),
+    /// "The index of the bead within its thread. The first bead in a thread has index 0."
+    Index(usize),
+}
+
+impl ThreadJump {
+    /// The bead this action jumps to, resolved against a document's articles.
+    ///
+    /// `None` where the document states no such thread or no such bead — which is a file
+    /// naming something it does not contain, and is why this is an `Option` rather than a
+    /// page. A caller with a bead turns to [`crate::article::Bead::page_index`].
+    #[must_use]
+    pub fn bead_in<'a>(&self, articles: &'a crate::article::Articles) -> Option<&'a Bead> {
+        let thread = match &self.thread {
+            ThreadTarget::Object(id) => articles.threads.iter().find(|thread| thread.id == *id)?,
+            ThreadTarget::Index(index) => articles.threads.get(*index)?,
+            // "[T]he one appearing first" is `find`'s own answer, since `threads` is in the
+            // `/Threads` array's order.
+            ThreadTarget::Title(title) => articles
+                .threads
+                .iter()
+                .find(|thread| thread.title.as_deref() == Some(title.as_str()))?,
+        };
+        match &self.bead {
+            None => thread.beads.first(),
+            Some(BeadTarget::Index(index)) => thread.beads.get(*index),
+            Some(BeadTarget::Object(id)) => thread.beads.iter().find(|bead| bead.id == *id),
+        }
     }
 }
 
@@ -431,8 +504,40 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         b"Hide" => Action::Hide(hide(document, dict)),
         b"Named" => Action::Named(Named::read(document.get_key(dict, "N").as_name()?)?),
         b"URI" => Action::Uri(uri(document, dict)?),
+        b"Thread" => thread(document, dict)?,
         other => Action::Refused(refused(other)?),
     })
+}
+
+/// Table 209's `/D` and `/B`, with `/F` deciding that this is another file's thread.
+///
+/// `None` where `/D` is absent or is none of its three types: the entry is required, and an
+/// action naming no thread has stated nothing to jump to. A `/F` produces the refusal instead
+/// of a jump, for `GoToR`'s reason — the thread is in a file this reader has no filesystem to
+/// open — and it is a *refusal* rather than a silence because the file said where it was.
+fn thread(document: &Document, dict: &Dictionary) -> Option<Action> {
+    if dict.get("F").is_some() {
+        return Some(Action::Refused(refused(b"Thread")?));
+    }
+    let thread = match dict.get("D")? {
+        // A reference is the thread itself; `document.get_key` would resolve it away, and the
+        // clause names the *object*.
+        Object::Reference(id) => ThreadTarget::Object(*id),
+        stated => match document.resolve(stated) {
+            Object::Integer(index) => ThreadTarget::Index(usize::try_from(index).ok()?),
+            Object::String(bytes) => ThreadTarget::Title(pdf_syntax::text_string(&bytes)),
+            _ => return None,
+        },
+    };
+    let bead = match dict.get("B") {
+        Some(Object::Reference(id)) => Some(BeadTarget::Object(*id)),
+        Some(stated) => match document.resolve(stated) {
+            Object::Integer(index) => Some(BeadTarget::Index(usize::try_from(index).ok()?)),
+            _ => None,
+        },
+        None => None,
+    };
+    Some(Action::Thread(ThreadJump { thread, bead }))
 }
 
 /// Table 210's `/URI` and `/IsMap`, with Table 211's `/Base` applied.
@@ -604,7 +709,9 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"GoToE" => "GoToE: a destination in an embedded file",
         b"GoToDp" => "GoToDp: a document part, which needs §14.12's part hierarchy",
         b"Launch" => "Launch: running an application, which the sandbox withholds",
-        b"Thread" => "Thread: an article thread, which needs a reading-order view",
+        b"Thread" => {
+            "Thread: a thread in another file, which this reader has no filesystem to open"
+        }
         b"Sound" => "Sound: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Movie" => "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Rendition" => "Rendition: clause 13's multimedia, excluded by CLAUDE.md principle 5",
@@ -623,7 +730,7 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Action, Change, HideTarget, Named, read};
+    use super::{Action, BeadTarget, Change, HideTarget, Named, ThreadTarget, read};
     use pdf_syntax::{Document, Object, ObjectId};
 
     /// Builds a document from object bodies numbered from 1.
@@ -928,5 +1035,104 @@ mod tests {
     fn a_name_the_table_does_not_hold_is_not_an_action() {
         let doc = document(&["<< /Type /Catalog >>", "<< /S /Teleport >>"]);
         assert!(read(&doc, &Object::Reference(id(2))).is_empty());
+    }
+
+    /// Table 209's three spellings of a thread, and both spellings of a bead.
+    ///
+    /// A reference, an index into `/Threads` and a title all name the same thread here, so a
+    /// form dropped from the reader fails this rather than falling through to `None` in a
+    /// document nobody has. The title form is the one with a rule attached: "[i]f two or more
+    /// threads have the same title, the one appearing first in the document catalog's Threads
+    /// array shall be used", which the second thread below exists to check.
+    #[test]
+    fn a_thread_action_names_its_thread_in_all_three_forms() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 5 0 R /Threads [2 0 R 3 0 R] >>",
+            "<< /F 7 0 R /I << /Title (Man Bites Dog) >> >>",
+            "<< /F 9 0 R /I << /Title (Man Bites Dog) >> >>",
+            "<< /S /Thread /D 3 0 R /B 1 >>",
+            "<< /Type /Pages /Kids [6 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 5 0 R >>",
+            "<< /N 8 0 R /P 6 0 R /R [0 0 10 10] >>",
+            "<< /N 7 0 R /P 6 0 R /R [0 0 10 10] >>",
+            "<< /N 9 0 R /P 6 0 R /R [0 0 10 10] >>",
+        ]);
+        let articles = crate::article::Articles::read(&doc);
+
+        let jump = |body: &str| {
+            let object = pdf_syntax::Parser::new(body.as_bytes())
+                .parse_object()
+                .expect("a dictionary");
+            match read(&doc, &object).as_slice() {
+                [Action::Thread(jump)] => Some(jump.clone()),
+                _ => None,
+            }
+        };
+
+        let by_reference = jump("<< /S /Thread /D 2 0 R >>").expect("a thread action");
+        assert_eq!(by_reference.thread, ThreadTarget::Object(id(2)));
+        assert_eq!(
+            by_reference.bead_in(&articles).map(|bead| bead.id),
+            Some(id(7))
+        );
+
+        let by_index = jump("<< /S /Thread /D 1 >>").expect("a thread action");
+        assert_eq!(by_index.thread, ThreadTarget::Index(1));
+        assert_eq!(
+            by_index.bead_in(&articles).map(|bead| bead.id),
+            Some(id(9)),
+            "index 1 is the second thread, whose only bead is 9"
+        );
+
+        let by_title = jump("<< /S /Thread /D (Man Bites Dog) >>").expect("a thread action");
+        assert_eq!(
+            by_title.thread,
+            ThreadTarget::Title("Man Bites Dog".to_owned())
+        );
+        assert_eq!(
+            by_title.bead_in(&articles).map(|bead| bead.id),
+            Some(id(7)),
+            "two threads share the title and the first in /Threads wins"
+        );
+
+        let bead_by_index = jump("<< /S /Thread /D 0 /B 1 >>").expect("a thread action");
+        assert_eq!(bead_by_index.bead, Some(BeadTarget::Index(1)));
+        assert_eq!(
+            bead_by_index.bead_in(&articles).map(|bead| bead.id),
+            Some(id(8))
+        );
+
+        let bead_by_reference = jump("<< /S /Thread /D 0 /B 8 0 R >>").expect("a thread action");
+        assert_eq!(bead_by_reference.bead, Some(BeadTarget::Object(id(8))));
+        assert_eq!(
+            bead_by_reference.bead_in(&articles).map(|bead| bead.id),
+            Some(id(8))
+        );
+
+        assert_eq!(
+            jump("<< /S /Thread /D 4 >>")
+                .expect("a thread action")
+                .bead_in(&articles),
+            None,
+            "a thread index the document does not have names no bead"
+        );
+    }
+
+    /// A thread action with an `/F` is another file's, and is refused by name.
+    ///
+    /// Table 209: "[t]he file containing the thread. If this entry is absent, the thread is in
+    /// the current file." So the entry's presence is the whole test, and the refusal is
+    /// `GoToR`'s — a filesystem this reader deliberately does not have.
+    #[test]
+    fn a_thread_in_another_file_is_refused_by_name() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /S /Thread /F (other.pdf) /D 0 >>",
+        ]);
+        let actions = read(&doc, &Object::Reference(id(2)));
+        let [Action::Refused(why)] = actions.as_slice() else {
+            panic!("one refusal, got {actions:?}");
+        };
+        assert!(why.starts_with("Thread:"), "{why}");
     }
 }

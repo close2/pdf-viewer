@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
-use crate::action::{Action, Change, Hide, HideTarget, Named, Uri};
+use crate::action::{Action, Change, Hide, HideTarget, Named, ThreadJump, Uri};
 use crate::destination::Destination;
 use crate::optional_content::OptionalContent;
 
@@ -99,6 +99,12 @@ pub enum Request {
     Page(Named),
     /// §12.6.4.8: resolve this URI, which means opening it somewhere this program is not.
     Resolve(Uri),
+    /// §12.6.4.7: jump to a bead on an article thread.
+    ///
+    /// Unresolved for [`Self::Display`]'s reason one level further out: a destination needs the
+    /// page tree and this needs [`crate::article::Articles`], and neither is part of the state a
+    /// click changes. [`crate::action::ThreadJump::bead_in`] turns it into a bead.
+    Thread(ThreadJump),
 }
 
 /// Which of Table 170's appearances an annotation shows.
@@ -221,6 +227,7 @@ impl ViewState {
             Action::GoTo(destination) => return Some(Request::Display(*destination)),
             Action::Named(named) => return Some(Request::Page(*named)),
             Action::Uri(uri) => return Some(Request::Resolve(uri.clone())),
+            Action::Thread(jump) => return Some(Request::Thread(jump.clone())),
             Action::SetOcgState(state) => {
                 if let Some(content) = self.optional_content.as_mut() {
                     content.apply(&state.changes, state.preserve_radio_buttons);
