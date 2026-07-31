@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **eighty-second** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **eighty-third** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -20,30 +20,6 @@ and the lesson belongs in Traps or Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Eightieth — §12.6.4.8's URI and §12.6.4.12's four page commands, and the citation that pointed
-somewhere else.** The two largest actions the corpus writes that nobody had implemented — `URI`
-at 217 actions in 8 documents, `Named` at 9 in 3 — were refused with reasons that were each half
-true. ADR 0070.
-
-- **"A URI needs a network" describes the last of three steps.** §12.6.4.8 says the action
-  "causes a URI to be resolved", and deciding *what* the URI is — Table 210's `/URI` against
-  Table 211's `/Base` — is this crate's, as is `/IsMap`'s cursor position. Only opening it is the
-  caller's, and `viewer-ui` prints it rather than handing a document-controlled string to a
-  browser.
-- **Where the standard defers, the deferral is a citation.** `uri.rs` is RFC 3986 section 5.2's
-  reference transformation, and that RFC's own section 5.4 examples are its tests — the
-  concatenation a reader reaches for first is wrong on four of the twenty-four. One corpus
-  document needs it: `issue14802.pdf` states a `/Base` and a partial reference.
-- **A `§` in this tree means ISO 32000-2, and nothing checked that.** The first draft wrote
-  `RFC 3986 §5.2`, which is correct writing about the RFC and *checks* as this standard's §5.2,
-  which exists. The citation gate now fails on a `§` preceded by another document's name.
-- **`perform` answers a request rather than a destination**, because the three actions a
-  `ViewState` cannot perform — a destination, a page command, a URI — are exactly the three that
-  change something the document does not hold.
-
-`silent` falls 174 → 172. No gate moves: no corpus document states `/IsMap`, and no URI changes a
-pixel.
 
 **Eighty-first — §12.2's viewer preferences, four of which name a page boundary.** The row said
 Table 147 "[m]ost describe a window this program does not have", which is true of eleven entries
@@ -85,6 +61,27 @@ tree the seventy-eighth session built. ADR 0072.
   clauses and 203 tables, all of which exist.
 
 `silent` falls 171 → 153, the largest fall since the ledger reached zero `unreviewed` rows.
+
+**Eighty-third — what a page is *not* saying, and an array nobody was reading.** §14.8.2's two
+rows that change what `Interpretation::text` produces: §14.8.2.2's artifacts and §14.8.2.5.3's
+`ReversedChars`. ADR 0073.
+
+- **An artifact is recorded and nothing is dropped.** §14.8.2.2.1 makes the choice the
+  consumer's — a text-to-speech engine "may decide not to speak running heads or page numbers" —
+  so `Interpretation::artifacts` names the ranges and removes none of them. 30 of the 953
+  openable first pages mark one.
+- **`ReversedChars` reverses per show string and per *code***, because what the clause reverses
+  are "the characters as found in the show string operator" and a ligature's `/ToUnicode` saying
+  `fi` would come back as `if` from a character-wise reversal.
+- **The hypothesis it was written to test was wrong, and the measurement came first**: no corpus
+  document writes the tag, so the text gate's seven right-to-left documents are painted in
+  visual order and are a different problem.
+- **An inline property list's array values were being discarded** — recognised as brackets and
+  stored as null, under a comment saying no entry this tree reads is an array. Table 363's
+  `/BBox` and `/Attached` both are. Trap 8, met from the inside; `inline_array` is the fix, and
+  the same parser serves inline images.
+
+`silent` falls 153 → 146.
 
 ## How the project got here
 
@@ -171,6 +168,7 @@ below rather than here.
 | 80 | §12.6.4.8's URI resolved by RFC 3986, and §12.6.4.12's four page commands | ADR 0070 |
 | 81 | §12.2's viewer preferences, and the two that decide which boundary is displayed | ADR 0071 |
 | 82 | §14.7.6's attributes and §14.7.4's namespaces; the ledger's own prose checked | ADR 0072 |
+| 83 | §14.8.2's artifacts and reversed show strings; an inline array nobody parsed | ADR 0073 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -200,11 +198,11 @@ a page *says* rather than what it shows**, and which reads §12.4.4's whole pres
 page's transition, its advance timing and its own sub-page states — for a caller that has a
 presentation mode to play. It is not yet a
 PDF *viewer* in the full sense — nothing edits a field, asks a person for a password, speaks a
-page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: 153 of
+page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: 146 of
 the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **735 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **738 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all four fuzz targets
   clean at 50 000 runs apiece** — every one of those re-run in the seventy-ninth session rather
   than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -304,7 +302,7 @@ the ledger's rows are
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1996 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 2019 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -335,7 +333,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1996 citations, 193 quotations, 114 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2019 citations, 197 quotations, 115 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -378,7 +376,7 @@ the exception with its reasoning. Nothing to chase.
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees, one module because the second clause defines itself as the first with integer keys — the component the conformance ledger found by four `silent` rows in two clauses naming it (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings. `object.rs` is §7.3.1's nine basic types plus the reference that labels any of them, and `parser.rs` is where §7.3.7 drops a null-valued entry and keeps the first of a duplicated key. `filter.rs` is §7.4's ten standard filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately answered `None` so a *content* stream naming one is visibly unsupported |
-| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `action.rs` is §12.6's twenty action types, five of which are performed, with `uri.rs` beside it holding RFC 3986's reference resolution and no PDF at all (ADR 0070), `navigation.rs` is §12.4.4's whole presentation — Table 164's transition, `/Dur` and the `/PresSteps` list — read as data because a slide show is a window's job and its input is the document's, and `view.rs` is the `ViewState` that performs them — the one thing in this crate that is neither the document nor the page, because a layer a click switched off is not in the file (ADR 0065). `structure.rs` is §14.7 whole — the parent tree upwards, `Tree` downwards, §14.7.6's attributes with both of their precedence rules and PDF 2.0's namespaces with §14.8.6.2's role mapping (ADR 0072). `accessibility.rs` is §14.9 and holds no PDF at all — it is the three substitution rules and §14.9.2.3's language hierarchy over spans, which is where they belong because the clause states them over *adjacency* and a concatenated string has thrown that away (ADR 0063). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused; its `Decode` is §8.9.5.2's map held as one table per component and its `Conversion` is an *exact* per-image memo, which is what makes converting every image through its real colour space affordable (ADRs 0034, 0035). `page.rs` is §7.7.3: the tree walk, the four inheritable entries and the twelve that are not, `/UserUnit` (ADR 0038), and §14.11.2's five boundaries — of which `display_box` and `clip_box` are the two §12.2's `/ViewArea` and `/ViewClip` name, read by `viewer_preferences.rs` (ADR 0071). `page_label.rs` is §12.4.2 in full over `pdf-syntax`'s number tree — the clause's four traps are no default numbering style, letters that repeat rather than carry, subtractive Roman numerals and a `/St` floor of 1, and its own worked example is the test |
+| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `action.rs` is §12.6's twenty action types, five of which are performed, with `uri.rs` beside it holding RFC 3986's reference resolution and no PDF at all (ADR 0070), `navigation.rs` is §12.4.4's whole presentation — Table 164's transition, `/Dur` and the `/PresSteps` list — read as data because a slide show is a window's job and its input is the document's, and `view.rs` is the `ViewState` that performs them — the one thing in this crate that is neither the document nor the page, because a layer a click switched off is not in the file (ADR 0065). `structure.rs` is §14.7 whole — the parent tree upwards, `Tree` downwards, §14.7.6's attributes with both of their precedence rules, PDF 2.0's namespaces with §14.8.6.2's role mapping, and §14.8.2.2's artifacts (ADRs 0072, 0073). `accessibility.rs` is §14.9 and holds no PDF at all — it is the three substitution rules and §14.9.2.3's language hierarchy over spans, which is where they belong because the clause states them over *adjacency* and a concatenated string has thrown that away (ADR 0063). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused; its `Decode` is §8.9.5.2's map held as one table per component and its `Conversion` is an *exact* per-image memo, which is what makes converting every image through its real colour space affordable (ADRs 0034, 0035). `page.rs` is §7.7.3: the tree walk, the four inheritable entries and the twelve that are not, `/UserUnit` (ADR 0038), and §14.11.2's five boundaries — of which `display_box` and `clip_box` are the two §12.2's `/ViewArea` and `/ViewClip` name, read by `viewer_preferences.rs` (ADR 0071). `page_label.rs` is §12.4.2 in full over `pdf-syntax`'s number tree — the clause's four traps are no default numbering style, letters that repeat rather than carry, subtractive Roman numerals and a `/St` floor of 1, and its own worked example is the test |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for name-keyed programs, §9.6.5.4 for `TrueType`, ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code — glyph by name, glyph by built-in code, and that code's name — and `cff.rs` and `type1.rs` each produce one, because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is §9.9's `/FontFile` and is the one program kept *parsed*, measured: re-parsing per distinct glyph put 11 ms on `tracemonkey.pdf`. `simple_code_table` takes no font descriptor, which is the shape of ADR 0039's finding: Table 112 makes an *embedded* program's own built-in encoding the base, and the Symbolic flag decides only among the cases where nothing is embedded. `DEFAULT_WIDTH` is Table 120's 0 rather than a preference. `code_for` is the one *backwards* route — a character to the code that draws it — and it is built by running the forward mapping over every code the font defines, so the two cannot disagree. `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree. `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot make them differently: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `soft_mask.rs` turns rendered pixels into §11.5's mask values. `Command::Group` is the one nested command (ADR 0026) and `impose_on_medium` is §11.4.7. `Path::extend_transformed` is the one place geometry moves rather than travelling with a transform (§9.3.6, ADR 0022). `MeshRaster` is §8.7.4.5.5's Gouraud interpolation, evaluated per device pixel and shared by both backends because neither rasteriser has the primitive and a second copy would only drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes and §11.3.6's compositing formula, written here rather than in `pdf-render` on purpose: the clause states the arithmetic, Vello states it again in its own shader, and the cross-backend scene compares the two — sharing them would make it compare one implementation against itself (ADR 0047) |
@@ -819,16 +817,16 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 288 | every normative requirement in the clause is executed |
-| `partial` | 173 | some are; the note says which are not |
-| **`silent`** | **153** | not implemented, and nothing says so |
+| `implemented` | 290 | every normative requirement in the clause is executed |
+| `partial` | 178 | some are; the note says which are not |
+| **`silent`** | **146** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 27 | not implemented, detected and named at runtime |
 | `writer-side` | 7 | addresses a PDF writer; we do not create files |
 
-**153 silences is the shape of the project**: it renders pages correctly and does very little
-when a person clicks on one. **89** of them are clause 12's interactive half and **50** are clause
+**146 silences is the shape of the project**: it renders pages correctly and does very little
+when a person clicks on one. **89** of them are clause 12's interactive half and **43** are clause
 14's structure, neither of which changes a mark on a page. (This file said 112 and 76 for four
 sessions; both were counted before the rows that closed them, and one line of `grep` over the
 ledger grouped by leading clause number is what says so — the same check the fifty-third session
@@ -897,7 +895,7 @@ all. The ledger's own notes are the detail; this is the shape.
 | 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group, and **§11.4.6's knockout wherever an element's shape is the coverage it is drawn with**. Left and reported: a knockout element whose shape is not, a non-isolated group whose elements blend, a blending space that is not the device's. |
 | 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, and the five §12.6.4 actions a viewer can perform** — a go-to, a set-OCG-state, a hide, §12.6.4.12's four page commands and §12.6.4.8's URI, resolved against Table 211's `/Base` and printed rather than opened (ADR 0070) — and the whole of §12.4.4's presentation read and none of it played, and §12.6.3's trigger events with the appearance each one asks for. 90 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events, and the presentation mode §12.4.4 asks for. |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. The rows carry the exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
-| 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7's structure tree in both directions **with its attributes, classes and namespaces** (ADR 0072) and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. 50 rows `silent`: what the tree *says* — §14.8's types and attributes, 39 of them — §14.13's associated files, and a consumer for the tree itself. |
+| 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7's structure tree in both directions **with its attributes, classes and namespaces** (ADR 0072) and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. 43 rows `silent`: what the tree *says* — §14.8's types and attributes, 32 of them — §14.13's associated files, and a consumer for the tree itself. |
 
 So: the parts of the standard that decide whether a page is drawn correctly are largely done; the
 parts that make a document *interactive* have just started.
@@ -937,7 +935,7 @@ parts that make a document *interactive* have just started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
-rows in the fifty-sixth session, so the specification track is now its **153 `silent` rows and 27
+rows in the fifty-sixth session, so the specification track is now its **146 `silent` rows and 27
 `reported` ones**, each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -963,10 +961,10 @@ file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
   session — `URI`, resolved but not opened, and `Named`'s four page commands (ADR 0070) — which
   leaves `GoToE` at 31 actions in 2 documents as the largest, and it needs §7.11.4's embedded
   file streams before it needs an action.
-- **Clause 14's structure, 50 rows.** §14.7 is read: the tree in both directions, its content
+- **Clause 14's structure, 43 rows.** §14.7 is read: the tree in both directions, its content
   items, its attributes and classes, and PDF 2.0's namespaces with the role mapping §14.8.6.2
   puts on them (ADR 0072). What is left is **§14.8's vocabulary** — what a `/Table` or a
-  `/BackgroundColor` *means*, as against which element states one, which is 39 of the 50 — and
+  `/BackgroundColor` *means*, as against which element states one, which is 32 of the 43 — and
   **a consumer**, which §14.7 and §14.9 both owe: `Interpretation::speech()` returns runs of text
   with languages and nothing hands them to AccessKit. §14.13's associated files are ten more,
   and §14.7.7's worked example is the last.
@@ -1320,7 +1318,9 @@ session (ADR 0066): `Interpretation::text` against `pdftotext` over the same 974
 below the 0.90 floor — counted from the gate's own output in the eightieth session, where this
 file had said 43 in one place and 46 in another and the breakdown below summed to 45. About 31
 of them are fonts where all three of §9.10.2's methods fail *and* whose program names nothing
-either, 7 are right-to-left text read back in painting order, 1 is a Symbol
+either, 7 are right-to-left text read back in painting order — **not §14.8.2.5.3's
+`ReversedChars`, which no corpus document writes**, measured in the eighty-third session — 1 is
+a Symbol
 font naming Greek glyphs, and 6 are undiagnosed — **all six of which agree with the reference
 consensus on pixels**, so the whole of what is left on this list is naming and none of it is a
 drawing defect. The 14 specification PDFs keep their own 0.99 floor and still score 100%.

@@ -389,3 +389,100 @@ fn an_annotation_that_reads_as_text_is_not_replaced() {
         drawn.speech()
     );
 }
+
+/// §14.8.2.5.3's own EXAMPLE, run as the clause writes it.
+///
+/// > /ReversedChars BMC ( olleH) Tj -200 0 Td ( .dlrow) Tj EMC
+///
+/// > represents the text
+///
+/// > Hello world.
+///
+/// Two show strings, each reversed on its own — "[i]f the sequence encompasses multiple show
+/// strings, only the individual characters within each string shall be reversed" — so reversing
+/// the pair together would give `world. Hello` and reversing the whole readback `.dlrow olleH`
+/// backwards. The leading spaces are the file's own word breaks and end up between the words,
+/// which is the clause's point: in such a block a break is stated rather than inferred.
+#[test]
+fn a_reversed_chars_sequence_is_read_back_forwards() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 190 50 Td /ReversedChars BMC ( olleH) Tj -200 0 Td ( .dlrow) Tj EMC ET",
+        "",
+        "",
+        "",
+    );
+    assert_eq!(drawn.text.trim(), "Hello world.");
+}
+
+/// Without the tag, the same stream reads back exactly as it was written.
+///
+/// The point of the pair: §14.8.2.5.3 is a *marked-content* rule, not a property of the glyphs
+/// or of the writing direction, and a reader that reversed by looking at the geometry would
+/// pass the test above and fail this one.
+#[test]
+fn the_same_strings_outside_the_tag_are_not_reversed() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 190 50 Td ( olleH) Tj -200 0 Td ( .dlrow) Tj ET",
+        "",
+        "",
+        "",
+    );
+    assert!(
+        drawn.text.contains("olleH"),
+        "read back as painted: {:?}",
+        drawn.text
+    );
+}
+
+/// §14.8.2.2's artifacts, in both of the forms §14.8.2.2.2 states.
+///
+/// > For artifacts defined using the marked-content sequence method, the form indicated in
+/// > EXAMPLE 1 shall be used to identify a generic artifact; the form indicated in EXAMPLE 2
+/// > shall be used for those artifacts that have an associated property list.
+///
+/// The first artifact here is a running head with Table 363's `/Type /Pagination`, a
+/// `/Subtype /Header` and an `/Attached [/Top]`; the second is the generic `BMC` form. **Both
+/// stay in the text**: the clause leaves what to do with an artifact to the consumer, so this
+/// crate says which ranges are artifacts and removes none of them.
+#[test]
+fn an_artifact_is_recorded_over_its_own_range_and_left_in_the_text() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 80 Td /Artifact << /Type /Pagination /Subtype /Header \
+         /Attached [/Top] /BBox [0 90 200 100] >> BDC (Chapter One) Tj EMC \
+         0 -30 Td (Real content.) Tj /Artifact BMC ( 7) Tj EMC ET",
+        "",
+        "",
+        "",
+    );
+    assert_eq!(drawn.artifacts.len(), 2, "{:?}", drawn.artifacts);
+
+    let head = drawn.artifacts.first().expect("the running head");
+    assert_eq!(
+        head.artifact.kind,
+        Some(pdf_model::structure::ArtifactKind::Pagination)
+    );
+    assert_eq!(head.artifact.subtype.as_deref(), Some("Header"));
+    assert_eq!(head.artifact.attached, [true, false, false, false]);
+    assert_eq!(head.artifact.bbox, Some([0.0, 90.0, 200.0, 100.0]));
+    assert_eq!(
+        drawn.text.get(head.range.clone()).map(str::trim),
+        Some("Chapter One"),
+        "the range covers what the section drew: {:?}",
+        drawn.text
+    );
+
+    let folio = drawn.artifacts.get(1).expect("the page number");
+    assert_eq!(
+        folio.artifact.kind, None,
+        "the generic BMC form states no type"
+    );
+    assert_eq!(
+        drawn.text.get(folio.range.clone()).map(str::trim),
+        Some("7")
+    );
+    assert!(
+        drawn.text.contains("Real content."),
+        "nothing was removed: {:?}",
+        drawn.text
+    );
+}

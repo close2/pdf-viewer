@@ -5165,38 +5165,56 @@ note = "What a tagged PDF is and the one requirement stated here rather than in 
 [[clause]]
 clause = "14.8.2"
 title = "Tagged PDF and page content"
-status = "silent"
-note = "Aggregate of the twelve below: what tagged PDF adds to a *page*, as opposed to what §14.7 adds to a document. Two of the twelve would change what `text_extraction.rs` produces and neither is read."
+status = "partial"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::an_artifact_is_recorded_over_its_own_range_and_left_in_the_text"]
+note = "What tagged PDF adds to a *page*, as opposed to what §14.7 adds to a document. Of the twelve rows below, the two that decide what `text_extraction.rs` produces are read as of the eighty-third session: §14.8.2.2's artifacts, recorded as spans over the readback, and §14.8.2.5.3's `ReversedChars`, which reverses a show string before it is extracted. What is left is the reading-order half, which needs a consumer of the structure tree rather than a change here."
+
 
 [[clause]]
 clause = "14.8.2.1"
 title = "General"
-status = "silent"
-note = "The six rules the rest of the family states, listed. Three are about extraction — artifacts against real content, logical content order, and an unambiguous Unicode mapping — and the last sends the reader to §14.9, which is where `CLAUDE.md`'s scope for this clause is defined."
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::a_reversed_chars_sequence_is_read_back_forwards"]
+note = "The six rules the rest of the family states, listed. Four are read: artifacts against real content (§14.8.2.2), an unambiguous Unicode mapping (§14.8.2.6.1, through §9.10.2's three methods), word breaks as characters rather than as gaps where a file states them (§14.8.2.6.2), and §14.9's four accessibility entries, which are done (ADR 0063). The two that are not are about *order* — that page content order should coincide with logical content order, and that the logical order be derivable — and both are questions for a consumer that walks the structure tree, which nothing in this program does yet."
+
 
 [[clause]]
 clause = "14.8.2.2"
 title = "Real content and Artifacts"
-status = "silent"
-note = "Aggregate of the two below: the division of a page into real content and artifacts."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::an_artifact_is_recorded_over_its_own_range_and_left_in_the_text"]
+note = "The division of a page into real content and artifacts, in both of the forms §14.8.2.2.2 gives it. See the two below."
+
 
 [[clause]]
 clause = "14.8.2.2.1"
 title = "General"
-status = "silent"
-note = "The definition, and the sentence that makes it decidable without any tagging: \"Any content that is not included in the structure tree is an artifact even when not enclosed in a marked-content sequence using the tag Artifact\" — so in a tagged document the structure tree is the *whole* answer, and the `/Artifact` tag is a convenience. NOTE 3 in §14.8.2.5.1 completes it: artifacts are not part of the logical content order at all."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::an_artifact_is_recorded_over_its_own_range_and_left_in_the_text"]
+note = "The definition, and what a reader is *permitted* rather than required to do with it: \"[a] text-to-speech engine, for instance, may decide not to speak running heads or page numbers\", and NOTE 3 says the purpose of tagged PDF \"is not to prescribe what the PDF processor does, but to provide sufficient declarative and descriptive information to allow it to make appropriate choices\". So `Interpretation::artifacts` names the ranges and **removes none of them**: dropping an artifact from the text would be this crate making the consumer's choice. What is not implemented is the clause's other test — \"[a]ny content that is not included in the structure tree is an artifact even when not enclosed in a marked-content sequence using the tag Artifact\" — which needs the whole structure tree walked per page and a consumer that would use the answer."
+
 
 [[clause]]
 clause = "14.8.2.2.2"
 title = "Specification of Artifacts"
-status = "silent"
-note = "How an artifact is marked: `/Artifact BMC … EMC`, or with a property list, or through an `Artifact` structure element. Table 363 names four kinds — `Pagination`, `Layout`, `Page` and `Background` — and gives an artifact a `/BBox` and an `/Attached` edge list. **10 corpus documents write one.** `content.rs` already brackets `BDC`/`BMC` pairs and ignores tags it does not know, which draws exactly what the clause intends; what is missing is any *use* of the distinction, which is a text-extraction question rather than a rendering one."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::an_artifact_is_recorded_over_its_own_range_and_left_in_the_text"]
+note = "Both marked-content forms are read — EXAMPLE 1's `/Artifact BMC` generic artifact and EXAMPLE 2's `/Artifact <<propertyList>> BDC` — with the whole of Table 363: `/Type`'s four kinds, `/Subtype`, `/BBox` and `/Attached`'s four edges. **Reading it found a parser gap**: an inline property list's *array* values were recognised as brackets and discarded, on a comment saying no entry this tree reads is an array, and `/BBox` and `/Attached` both are. 30 of the 953 corpus first pages mark at least one artifact. What is left is the third form, the `Artifact` structure element type (§14.8.4.8.7), which is a type in §14.8.4's vocabulary rather than a mark in a content stream."
+
 
 [[clause]]
 clause = "14.8.2.3"
 title = "Soft hyphens"
-status = "silent"
-note = "A soft hyphen — the one a line break introduced — \"may be represented as a soft hyphen, mapped to the Unicode value U+00AD\", and a writer \"shall distinguish explicitly between soft and hard hyphens\". A reader extracting text should drop a soft hyphen and keep U+002D; `text_extraction.rs` treats both as whatever the font's `/ToUnicode` says, which is right for a hard hyphen and wrong for a soft one in a document that marks them."
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor"]
+note = "A soft hyphen — the one a line break introduced — \"may be represented as a soft hyphen, mapped to the Unicode value U+00AD\", and a writer \"shall distinguish explicitly between soft and hard hyphens\". The reader's half is that a character mapping to U+00AD arrives in the readback as U+00AD and is not turned into a hyphen-minus: §9.10.2's mapping is what produces it and nothing here rewrites it. What is *not* done is the repurposing decision the distinction exists for — removing a soft hyphen when text is rejoined into a line — which belongs to a consumer, and the clause's NOTE 2 warns that in some languages \"hyphenation can change the spelling of words\", where the answer is §14.9.4's `/ActualText` and not a rule about the character."
+
 
 [[clause]]
 clause = "14.8.2.4"
@@ -5227,8 +5245,11 @@ note = "Where an annotation sits in the logical order, which is not where it sit
 [[clause]]
 clause = "14.8.2.5.3"
 title = "Reverse-order show strings"
-status = "silent"
-note = "`/ReversedChars`, a marked-content tag saying that the show strings inside it hold their characters in reverse — for right-to-left text set with a font whose glyphs run left to right. \"[T]he sequence of the characters as found in the show string operator shall be reversed before using them\", per string rather than across the sequence. It changes *extraction* and nothing else: the glyphs are already positioned, so the page draws correctly either way. No corpus document writes one, and `text_extraction.rs` would return the text backwards if one did."
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::a_reversed_chars_sequence_is_read_back_forwards", "crates/pdf-model/tests/accessibility.rs::the_same_strings_outside_the_tag_are_not_reversed"]
+note = "`/ReversedChars`, a marked-content tag saying that the show strings inside it hold their characters in reverse — for right-to-left text set with a font whose glyphs run left to right. \"[T]he sequence of the characters as found in the show string operator shall be reversed before using them. If the sequence encompasses multiple show strings, only the individual characters within each string shall be reversed\", so the readback is reversed per string and per *code* rather than per `char`: a ligature whose `/ToUnicode` says `fi` would come back as `if` from a character-wise reversal. The inferred word breaks are suppressed inside such a string, because the clause states that a break there is a SPACE the file wrote \"at the beginning or end\" rather than a gap a reader measures. **No corpus document writes the tag** — measured over all 953 openable first pages — so the seven right-to-left documents on the text gate's list are painted in visual order and are not this clause. The clause's own EXAMPLE is the test."
+
 
 [[clause]]
 clause = "14.8.2.6"

@@ -227,8 +227,31 @@ pub struct Interpretation {
     /// from [`Self::text`]: that is what a person copying the page gets, and this is what a
     /// text-to-speech engine gets. [`Self::speech`] combines the two.
     pub described: Vec<crate::accessibility::Described>,
+    /// §14.8.2.2's artifact spans over [`Self::text`], in the order they closed.
+    ///
+    /// One entry per marked-content sequence tagged `/Artifact`, with whatever Table 363's
+    /// property list stated about it. **Nothing is removed from the text**: the clause leaves
+    /// what to do with an artifact to the consumer — "[a] text-to-speech engine, for instance,
+    /// may decide not to speak running heads or page numbers" — so this says which ranges a
+    /// consumer *may* drop and drops none of them itself.
+    ///
+    /// 30 of the 953 corpus first pages mark at least one.
+    pub artifacts: Vec<ArtifactSpan>,
     /// The document catalog's `/Lang`, §14.9.2.3's default for everything in the file.
     pub language: Option<String>,
+}
+
+/// One §14.8.2.2 artifact, and the range of [`Interpretation::text`] it covers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArtifactSpan {
+    /// Where the artifact's own readback sits in [`Interpretation::text`].
+    ///
+    /// Empty for the common artifact, which is a rule or a background block and reads back
+    /// nothing at all — the span is still recorded, because "this page has a decorative
+    /// artifact" is a different statement from "this page has none".
+    pub range: std::ops::Range<usize>,
+    /// What Table 363 said about it.
+    pub artifact: crate::structure::Artifact,
 }
 
 impl Interpretation {
@@ -311,6 +334,13 @@ struct Marked {
     /// `None` where the section states none of the three, which is what keeps an untagged page
     /// from allocating anything.
     described: Option<Accessible>,
+    /// §14.8.2.2's `/Artifact` tag, with Table 363's property list where the section has one.
+    artifact: Option<crate::structure::Artifact>,
+    /// Whether this section's tag is §14.8.2.5.3's `ReversedChars`.
+    ///
+    /// A flag per section rather than one on the interpreter, because the sections nest and
+    /// what has to be undone at `EMC` is this one's contribution.
+    reversed: bool,
 }
 
 /// §14.9's three spoken-form entries as one section states them.
@@ -924,6 +954,8 @@ pub fn interpret_with(
         fonts: BTreeMap::new(),
         text: String::new(),
         described: Vec::new(),
+        artifacts: Vec::new(),
+        reversed_chars: 0,
         text_cursor: None,
         base: base_transform(page),
         page: size,
@@ -995,6 +1027,7 @@ pub fn interpret_with(
         text: interpreter.text,
         glyphs: interpreter.glyphs,
         described: interpreter.described,
+        artifacts: interpreter.artifacts,
         language,
     }
 }
@@ -1145,6 +1178,13 @@ struct Interpreter<'a> {
     text: String,
     /// §14.9's accessibility spans over [`Self::text`], pushed as each section closes.
     described: Vec<crate::accessibility::Described>,
+    /// §14.8.2.2's artifact spans, in the order their sections closed.
+    artifacts: Vec<ArtifactSpan>,
+    /// How many §14.8.2.5.3 `ReversedChars` sections are open.
+    ///
+    /// A counter because marked content nests and the clause states no limit on it; a show
+    /// string is reversed whenever at least one is open.
+    reversed_chars: usize,
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
     /// The document's optional content configuration, if it has one (§8.11).
@@ -1799,7 +1839,8 @@ impl Interpreter<'_> {
                 // resource dictionary's `/Properties`; an inline dictionary cannot carry
                 // one, so it governs nothing.
                 b"BDC" => {
-                    let hides = name_at(&operands, 0).is_some_and(|tag| tag == "OC")
+                    let tag = name_at(&operands, 0);
+                    let hides = tag.as_deref() == Some("OC")
                         && name_at(&operands, 1).is_some_and(|name| {
                             self.unresolved_resource(resources, "Properties", &name)
                                 .is_some_and(|oc| !self.shows_optional_content(&oc))
@@ -1807,6 +1848,15 @@ impl Interpreter<'_> {
                     // §14.9's four entries, all from the one property list this section
                     // names, so that a tagged page reads it once rather than four times.
                     let (actual_text, described) = self.accessibility(resources, operands.get(1));
+                    // §14.8.2.2.2's two forms of an artifact are `/Artifact BMC` and
+                    // `/Artifact <<propertyList>> BDC`; this is the second, and the property
+                    // list is Table 363's.
+                    let artifact = (tag.as_deref() == Some("Artifact")).then(|| {
+                        self.property_list(resources, operands.get(1))
+                            .map(|list| crate::structure::Artifact::read(self.document, &list))
+                            .unwrap_or_default()
+                    });
+                    let reversed = tag.as_deref() == Some("ReversedChars");
                     marked.push(Marked {
                         hides,
                         starts_at: self.text.len(),
@@ -1814,19 +1864,39 @@ impl Interpreter<'_> {
                         // drawing: the marks are unchanged and what a reader copies is not.
                         actual_text,
                         described,
+                        artifact,
+                        reversed,
                     });
                     if hides {
                         self.hidden = self.hidden.saturating_add(1);
                     }
+                    if reversed {
+                        self.reversed_chars = self.reversed_chars.saturating_add(1);
+                    }
                 }
-                b"BMC" => marked.push(Marked {
-                    starts_at: self.text.len(),
-                    ..Marked::default()
-                }),
+                b"BMC" => {
+                    let tag = name_at(&operands, 0);
+                    // The generic forms: `/Artifact BMC` states an artifact with no property
+                    // list, and `/ReversedChars BMC` is the form §14.8.2.5.3's own EXAMPLE uses.
+                    let reversed = tag.as_deref() == Some("ReversedChars");
+                    marked.push(Marked {
+                        starts_at: self.text.len(),
+                        artifact: (tag.as_deref() == Some("Artifact"))
+                            .then(crate::structure::Artifact::default),
+                        reversed,
+                        ..Marked::default()
+                    });
+                    if reversed {
+                        self.reversed_chars = self.reversed_chars.saturating_add(1);
+                    }
+                }
                 b"EMC" => {
                     if let Some(section) = marked.pop() {
                         if section.hides {
                             self.hidden = self.hidden.saturating_sub(1);
+                        }
+                        if section.reversed {
+                            self.reversed_chars = self.reversed_chars.saturating_sub(1);
                         }
                         // "The ActualText value shall be used as a replacement, not a
                         // description, for the content" — so whatever the enclosed operators
@@ -1867,6 +1937,16 @@ impl Interpreter<'_> {
                                 alt: described.alt,
                                 expansion: described.expansion,
                                 language: described.language,
+                            });
+                        }
+                        // Last, because the range is over the readback *as it now stands*:
+                        // an artifact whose section also states an `/ActualText` has had its
+                        // text replaced by the block above, and a range taken before that
+                        // would name the text the replacement removed.
+                        if let Some(artifact) = section.artifact {
+                            self.artifacts.push(ArtifactSpan {
+                                range: section.starts_at..self.text.len(),
+                                artifact,
                             });
                         }
                     }
@@ -3367,6 +3447,26 @@ impl Interpreter<'_> {
 
         let word_gap = Self::word_gap(&font, size);
         let vertical = font.is_vertical();
+
+        // §14.8.2.5.3: inside a `ReversedChars` sequence, "the sequence of the characters as
+        // found in the show string operator shall be reversed before using them. If the
+        // sequence encompasses multiple show strings, only the individual characters within
+        // each string shall be reversed." So the readback of *this* string is collected per
+        // code and appended backwards, and the reversal is per code rather than per `char`:
+        // what the clause reverses are the characters the show string states, and one code
+        // may map to several — a ligature's `/ToUnicode` says `fi`, which reversing by `char`
+        // would spell `if`.
+        //
+        // The inferred word breaks `separate_text` adds are suppressed inside the string for
+        // the same clause: such a block "may have a SPACE (U+0020) character or other
+        // whitespace characters at the beginning or end to indicate a word break … but shall
+        // not contain interior SPACE characters", so a break is something the file states
+        // rather than something a gap implies — and the glyphs of a reversed string run
+        // against the writing direction, where a gap means nothing.
+        let reversing = self.reversed_chars > 0;
+        let mut pieces: Vec<String> = Vec::new();
+        let mut first = true;
+
         for code in font.decode(bytes) {
             let advance_em = font.advance(code);
             // §9.7.4.3's second set of metrics, which decide where the glyph is drawn
@@ -3376,8 +3476,11 @@ impl Interpreter<'_> {
                 Font::Type3(_) => ([0.0, 0.0], [0.0, 0.0]),
             };
 
-            self.separate_text(text.matrix, size, word_gap, vertical);
-            font.text(code, &mut self.text);
+            if !reversing || first {
+                self.separate_text(text.matrix, size, word_gap, vertical);
+            }
+            first = false;
+            self.read_back(&font, code, reversing.then_some(&mut pieces));
 
             // §9.3.8: with `Tk` true — its initial value — the whole text object behaves as
             // a non-isolated knockout group, so "later glyphs shall overwrite ('knock out')
@@ -3481,6 +3584,32 @@ impl Interpreter<'_> {
             )
             .then(text.matrix);
             self.text_cursor = Some((text.matrix.e, text.matrix.f));
+        }
+
+        // The string's own readback, backwards. Nothing about the *drawing* changed: the
+        // glyphs were placed where their positions put them, and what §14.8.2.5.3 reverses
+        // is what a reader extracts or hears.
+        for piece in pieces.iter().rev() {
+            self.text.push_str(piece);
+        }
+    }
+
+    /// Appends one code's text to the readback, or to the string being reversed.
+    ///
+    /// The two destinations are §14.8.2.5.3's whole difference, and the reversal is per *code*
+    /// rather than per `char` because what the clause reverses are the characters "as found in
+    /// the show string operator" — one code may map to several, and a ligature's `/ToUnicode`
+    /// saying `fi` would come back as `if` from a reversal that worked on characters.
+    fn read_back(&mut self, font: &Font, code: Code, reversed: Option<&mut Vec<String>>) {
+        match reversed {
+            Some(pieces) => {
+                let mut piece = String::new();
+                font.text(code, &mut piece);
+                pieces.push(piece);
+            }
+            None => {
+                font.text(code, &mut self.text);
+            }
         }
     }
 
@@ -4339,9 +4468,13 @@ fn token_to_object(token: pdf_syntax::Token) -> Object {
 ///
 /// The content lexer yields tokens and not objects, so a dictionary written inside a content
 /// stream — which only `BDC` and the inline-image operators use — has to be put together here.
-/// Values that are themselves arrays are read as far as their brackets and discarded: no
-/// property list entry this tree reads is an array, and keeping the *keys* aligned matters
-/// more than keeping a value nothing looks at.
+///
+/// Array values were read as far as their brackets and discarded until the eighty-third
+/// session, on the reasoning that "no property list entry this tree reads is an array". That
+/// stopped being true the moment §14.8.2.2's artifacts were read: Table 363's `/BBox` and
+/// `/Attached` are both arrays, and both came back empty from a parser that was recognising
+/// the brackets without reading between them — which is this project's own trap 8 in
+/// `doc/HANDOVER.md`, met from the inside.
 ///
 /// An unterminated dictionary ends with the stream, which is what a truncated content stream
 /// leaves behind; the entries read before it are still the ones the file stated.
@@ -4371,10 +4504,7 @@ fn inline_dictionary(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Diction
             pdf_syntax::Token::DictOpen => {
                 Object::Dictionary(inline_dictionary(lexer, depth.saturating_add(1)))
             }
-            pdf_syntax::Token::ArrayOpen => {
-                skip_array(lexer, 0);
-                Object::Null
-            }
+            pdf_syntax::Token::ArrayOpen => Object::Array(inline_array(lexer, 0)),
             pdf_syntax::Token::DictClose => break,
             // `true`, `false` and `null` lex as keywords in a content stream, which is why
             // two corpus documents used to report them as unknown *operators*: an inline
@@ -4392,24 +4522,51 @@ fn inline_dictionary(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Diction
     dict
 }
 
-/// Consumes tokens to the end of an array opened in a content stream.
-fn skip_array(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) {
+/// Assembles an array from a content stream's tokens, after its `[`.
+///
+/// Bounded in both directions a hostile stream can grow: the nesting, by the same constant
+/// [`inline_dictionary`] uses, and the number of elements — a property list is a handful of
+/// numbers or names, and an array of a million of them is a file making a reader work.
+fn inline_array(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Vec<Object> {
     /// The same bound as [`inline_dictionary`]'s, and for the same reason.
     const MAX_DEPTH: usize = 8;
+    /// Most elements read from one array written inside a content stream.
+    const MAX_ELEMENTS: usize = 65_536;
 
+    let mut out = Vec::new();
     if depth > MAX_DEPTH {
-        return;
+        // Consumed rather than left, so the caller resumes at the right token: an array this
+        // deep is nothing this reader will use, and the stream after it still has to parse.
+        while let Some(token) = lexer.next_token() {
+            if matches!(token, pdf_syntax::Token::ArrayClose) {
+                break;
+            }
+        }
+        return out;
     }
     while let Some(token) = lexer.next_token() {
-        match token {
-            pdf_syntax::Token::ArrayClose => return,
-            pdf_syntax::Token::ArrayOpen => skip_array(lexer, depth.saturating_add(1)),
-            pdf_syntax::Token::DictOpen => {
-                let _ = inline_dictionary(lexer, depth.saturating_add(1));
+        let value = match token {
+            pdf_syntax::Token::ArrayClose => break,
+            pdf_syntax::Token::ArrayOpen => {
+                Object::Array(inline_array(lexer, depth.saturating_add(1)))
             }
-            _ => {}
+            pdf_syntax::Token::DictOpen => {
+                Object::Dictionary(inline_dictionary(lexer, depth.saturating_add(1)))
+            }
+            // As in a dictionary's values: §7.3.2's booleans and §7.3.9's null lex as
+            // keywords inside a content stream.
+            pdf_syntax::Token::Keyword(word) => match word.as_slice() {
+                b"true" => Object::Boolean(true),
+                b"false" => Object::Boolean(false),
+                _ => Object::Null,
+            },
+            other => token_to_object(other),
+        };
+        if out.len() < MAX_ELEMENTS {
+            out.push(value);
         }
     }
+    out
 }
 
 /// Reads operand `index` as an integer code.
