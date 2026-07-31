@@ -354,12 +354,18 @@ fn a_named_action_asks_the_viewer_to_turn_the_page() {
     let before = state.clone();
     let actions = pdf_model::action::read(&doc, &Object::Reference(id(5)));
     let requests = state.perform_all(&doc, &actions);
-    assert_eq!(state, before, "a page command changes nothing in the document");
+    assert_eq!(
+        state, before,
+        "a page command changes nothing in the document"
+    );
 
     let [pdf_model::view::Request::Page(named)] = requests.as_slice() else {
         panic!("one page request, got {requests:?}");
     };
-    assert_eq!(named.page_from(0, pdf_model::Pages::new(&doc).len()), Some(1));
+    assert_eq!(
+        named.page_from(0, pdf_model::Pages::new(&doc).len()),
+        Some(1)
+    );
 }
 
 /// §12.6.4.8's URI reaches the viewer resolved, and nothing here opens it.

@@ -960,10 +960,17 @@ pub fn interpret_with(
     }
 
     let base = base_transform(page);
-    interpreter.run(&content, &page.resources, &GraphicsState::initial(base), 0);
+    // §12.2's `/ViewClip`: "the page boundary to which the contents of a page shall be
+    // clipped when viewing the document on the screen". Where it names the same region the
+    // page is displayed at — which it does for every document that states no preference, and
+    // for all 974 corpus documents — there is nothing to clip and no clip is built.
+    let view_clip = interpreter.view_clip(page, base);
+    let mut initial = GraphicsState::initial(base);
+    initial.clip = view_clip;
+    interpreter.run(&content, &page.resources, &initial, 0);
     // §12.5: an annotation is drawn *over* the page content, and in `/Annots` order, so
     // this pass follows the content stream rather than being folded into it.
-    interpreter.draw_annotations(page, base);
+    interpreter.draw_annotations(page, base, view_clip);
 
     let mut unsupported: Vec<Unsupported> = interpreter.unsupported.into_values().collect();
     if interpreter.text_operations > 0 {
@@ -1068,7 +1075,7 @@ pub fn user_space_at(page: &Page, x: f32, y: f32) -> Option<(f32, f32)> {
 /// still has the right ink in the right *quantity*, so no metric in this tree could see it.
 /// `rotation_turns_the_page_clockwise_as_displayed` pins all four angles.
 fn base_transform(page: &Page) -> Transform {
-    let shift = Transform::translate(-page.crop_box[0], -page.crop_box[1]);
+    let shift = Transform::translate(-page.display_box[0], -page.display_box[1]);
     let (width, height) = (page.width(), page.height());
 
     let rotation = match page.rotate {
@@ -2989,7 +2996,46 @@ impl Interpreter<'_> {
     /// goes — `crate::annotation` does that — and then hands it to the same machinery that
     /// runs any other form. The only reason it is a separate pass rather than a `Do` is
     /// that nothing in the content stream refers to it.
-    fn draw_annotations(&mut self, page: &Page, base: Transform) {
+    /// §12.2's `/ViewClip` as a clipping path, or `None` where it clips nothing.
+    ///
+    /// The entry names one of §14.11.2's boundaries and the page has already resolved it to a
+    /// rectangle, so the only question left is whether that rectangle is narrower than the
+    /// region being displayed. It is not for any document that states no `/ViewClip`, since
+    /// Table 147 defaults both entries to `CropBox` — so this allocates nothing on the path
+    /// every real document takes.
+    ///
+    /// The rectangle is stated in default user space and carried into page space by `base`,
+    /// which is what [`Clip::transform`] is for: the same rectangle under `/Rotate` and
+    /// `/UserUnit` without this function knowing about either.
+    fn view_clip(&mut self, page: &Page, base: Transform) -> Option<ClipId> {
+        let clip = page.clip_box;
+        let display = page.display_box;
+        if clip[0] <= display[0]
+            && clip[1] <= display[1]
+            && clip[2] >= display[2]
+            && clip[3] >= display[3]
+        {
+            return None;
+        }
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(clip[0], clip[1])));
+        path.push(PathCommand::LineTo(Point::new(clip[2], clip[1])));
+        path.push(PathCommand::LineTo(Point::new(clip[2], clip[3])));
+        path.push(PathCommand::LineTo(Point::new(clip[0], clip[3])));
+        path.push(PathCommand::Close);
+        let Ok(clip) = self.list.add_clip(Clip {
+            path,
+            transform: base,
+            fill_rule: FillRule::NonZero,
+            parent: None,
+        }) else {
+            self.note(Unsupported::LimitReached { limit: "max_clips" });
+            return None;
+        };
+        Some(clip)
+    }
+
+    fn draw_annotations(&mut self, page: &Page, base: Transform, view_clip: Option<ClipId>) {
         let annotations = self.document.get_key(&page.dict, "Annots");
         let Some(entries) = annotations.as_array().map(<[Object]>::to_vec) else {
             return;
@@ -3044,7 +3090,7 @@ impl Interpreter<'_> {
                         self.note(Unsupported::Annotation { detail });
                     }
                     let before = self.text.len();
-                    self.draw_appearance(&appearance, base, &page.resources);
+                    self.draw_appearance(&appearance, base, &page.resources, view_clip);
                     self.describe_annotation(dict, before);
                 }
             }
@@ -3091,6 +3137,7 @@ impl Interpreter<'_> {
         appearance: &crate::annotation::Appearance,
         base: Transform,
         page_resources: &Dictionary,
+        view_clip: Option<ClipId>,
     ) {
         let data = match &appearance.content {
             crate::annotation::Content::Stored(stream) => {
@@ -3129,8 +3176,11 @@ impl Interpreter<'_> {
         let Ok(clip) = self.list.add_clip(Clip {
             path,
             transform,
+            // §12.2's `/ViewClip`, where the document narrowed what the screen shows: an
+            // annotation is drawn over the page and is not exempt from what the page is
+            // clipped to. `None` for every document that states no preference.
+            parent: view_clip,
             fill_rule: FillRule::NonZero,
-            parent: None,
         }) else {
             self.note(Unsupported::LimitReached { limit: "max_clips" });
             return;
@@ -4821,6 +4871,11 @@ mod tests {
             resources: pdf_syntax::Dictionary::default(),
             media_box: [0.0, 0.0, 400.0, 200.0],
             crop_box: [0.0, 0.0, 400.0, 200.0],
+            bleed_box: [0.0, 0.0, 400.0, 200.0],
+            trim_box: [0.0, 0.0, 400.0, 200.0],
+            art_box: [0.0, 0.0, 400.0, 200.0],
+            display_box: [0.0, 0.0, 400.0, 200.0],
+            clip_box: [0.0, 0.0, 400.0, 200.0],
             rotate,
             user_unit: 1.0,
         }

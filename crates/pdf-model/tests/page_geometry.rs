@@ -16,8 +16,10 @@
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
-    reason = "test code: a malformed fixture should fail loudly, and the fixtures are small \
-              pages where no index can overflow"
+    clippy::float_cmp,
+    reason = "test code: a malformed fixture should fail loudly, the fixtures are small pages \
+              where no index can overflow, and a page boundary is read from the file's own \
+              decimal literals and arrives exactly"
 )]
 
 use std::fmt::Write as _;
@@ -217,4 +219,110 @@ fn assemble(body: &str) -> Vec<u8> {
         "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
+}
+
+/// A one-page PDF with a catalog entry as well as page entries, filling the whole medium.
+///
+/// The content is a 100×50 black rectangle covering the media box, so what any test of a
+/// boundary asks is *where the ink stops* — which is the only observable difference between
+/// displaying one boundary and clipping to another.
+fn page_and_catalog(catalog: &str, entries: &str) -> Vec<u8> {
+    let content = "0 g 0 0 100 50 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {catalog} >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 50] {entries} \
+         /Resources << >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+        content.len().saturating_add(1)
+    );
+    assemble(&body)
+}
+
+/// §14.11.2.1's five boundaries, with the clause's defaults and its intersection rule.
+///
+/// The three production boxes default to the crop box, are read from the page object alone
+/// (§7.7.3.4 makes only four entries inheritable, and none of these is one), and are clipped
+/// to the medium: "[i]f the bounds of the crop, trim, bleed or art box extends outside of the
+/// bounds of the media box, a processor shall treat the box as its intersection with the
+/// media box."
+#[test]
+fn the_five_page_boundaries_default_and_are_clipped_to_the_medium() {
+    use pdf_model::page::Boundary;
+
+    let bytes = page_and_catalog(
+        "",
+        "/CropBox [10 5 90 45] /BleedBox [0 0 200 200] /TrimBox [20 10 80 40]",
+    );
+    let document = Document::open(bytes).expect("a valid fixture");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+
+    assert_eq!(page.boundary(Boundary::Media), [0.0, 0.0, 100.0, 50.0]);
+    assert_eq!(page.boundary(Boundary::Crop), [10.0, 5.0, 90.0, 45.0]);
+    assert_eq!(
+        page.boundary(Boundary::Bleed),
+        [0.0, 0.0, 100.0, 50.0],
+        "a bleed box past the medium is its intersection with it"
+    );
+    assert_eq!(page.boundary(Boundary::Trim), [20.0, 10.0, 80.0, 40.0]);
+    assert_eq!(
+        page.boundary(Boundary::Art),
+        page.boundary(Boundary::Crop),
+        "an absent art box is the crop box"
+    );
+    assert_eq!(
+        page.display_box, page.crop_box,
+        "with no /ViewArea, the displayed region is the crop box"
+    );
+}
+
+/// §12.2's `/ViewArea` decides which boundary is displayed, and `/ViewClip` what is clipped.
+///
+/// Table 147 states them as two questions: `/ViewArea` is "the name of the page boundary
+/// representing the area of a page that shall be displayed when viewing the document on the
+/// screen", `/ViewClip` "the name of the page boundary to which the contents of a page shall
+/// be clipped". So a document may show the medium and still clip the ink to its trim box, and
+/// the margin between the two is blank rather than absent — which is what this measures: the
+/// raster is the media box's 100×50, and the ink stops at the trim box.
+///
+/// Both entries are deprecated in PDF 2.0 and both are read, for the reason §8.6.5.1's
+/// withdrawn `CalCMYK` is: deprecation tells a *writer* what to stop doing.
+#[test]
+fn view_area_and_view_clip_choose_what_is_displayed_and_what_is_clipped() {
+    let bytes = page_and_catalog(
+        "/ViewerPreferences << /ViewArea /MediaBox /ViewClip /TrimBox >>",
+        "/CropBox [10 5 90 45] /TrimBox [20 10 80 40]",
+    );
+    let raster = render(bytes);
+    assert_eq!(
+        (raster.width, raster.height),
+        (100, 50),
+        "the media box is displayed, not the crop box"
+    );
+    assert!(
+        marked(&raster, 50, 25),
+        "the trim box's interior is painted"
+    );
+    assert!(
+        !marked(&raster, 5, 25),
+        "and a point inside the medium but outside the trim box is not"
+    );
+    assert!(
+        !marked(&raster, 50, 45),
+        "which holds on the other axis too"
+    );
+}
+
+/// With no preference, the crop box is both, which is Table 147's own default.
+///
+/// The point of the assertion is that the feature costs nothing when it is not asked for:
+/// every corpus document takes this path, and a display list with a clip in it would be a
+/// different display list.
+#[test]
+fn no_view_preference_displays_the_crop_box_and_clips_to_nothing_else() {
+    let bytes = page_and_catalog("", "/CropBox [10 5 90 45] /TrimBox [20 10 80 40]");
+    let raster = render(bytes);
+    assert_eq!((raster.width, raster.height), (80, 40));
+    assert!(marked(&raster, 5, 20), "the crop box's interior is painted");
+    assert!(marked(&raster, 75, 20), "all of it, trim box or no");
 }

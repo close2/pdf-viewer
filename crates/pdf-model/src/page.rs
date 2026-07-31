@@ -94,6 +94,47 @@ fn rectangle(document: &Document, dict: &Dictionary, key: &str) -> Option<[f32; 
     ])
 }
 
+/// One of §14.11.2's five page boundaries.
+///
+/// The vocabulary is shared by two clauses that name a boundary rather than stating one:
+/// §12.2's `/ViewArea`, `/ViewClip`, `/PrintArea` and `/PrintClip` each hold "the key
+/// designating the relevant page boundary in the page object", and §14.11.2.2's box colour
+/// information dictionary has an entry per boundary. So this is the key, and [`Page::boundary`]
+/// is the rectangle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Boundary {
+    /// `/MediaBox`: "the boundaries of the physical medium on which the page is to be
+    /// printed".
+    Media,
+    /// `/CropBox`: "the region to which the contents of the page shall be clipped (cropped)
+    /// when displayed or printed". The default everywhere a boundary is named.
+    #[default]
+    Crop,
+    /// `/BleedBox`: "the region to which the contents of the page shall be clipped when
+    /// output in a production environment".
+    Bleed,
+    /// `/TrimBox`: "the intended dimensions of the finished page after trimming".
+    Trim,
+    /// `/ArtBox`: "the extent of the page's meaningful content (including potential
+    /// white-space) as intended by the page's creator".
+    Art,
+}
+
+impl Boundary {
+    /// One of Table 31's five box keys, or `None` for a name that is not one.
+    #[must_use]
+    pub fn read(name: &pdf_syntax::Name) -> Option<Self> {
+        match name.as_bytes() {
+            b"MediaBox" => Some(Self::Media),
+            b"CropBox" => Some(Self::Crop),
+            b"BleedBox" => Some(Self::Bleed),
+            b"TrimBox" => Some(Self::Trim),
+            b"ArtBox" => Some(Self::Art),
+            _ => None,
+        }
+    }
+}
+
 /// One page of a document.
 #[derive(Debug, Clone)]
 pub struct Page {
@@ -105,6 +146,28 @@ pub struct Page {
     pub media_box: [f32; 4],
     /// The crop box, after inheritance, defaulting to the media box.
     pub crop_box: [f32; 4],
+    /// §14.11.2.1's bleed box, defaulting to the crop box. Not inheritable (§7.7.3.4).
+    pub bleed_box: [f32; 4],
+    /// §14.11.2.1's trim box, defaulting to the crop box. Not inheritable (§7.7.3.4).
+    pub trim_box: [f32; 4],
+    /// §14.11.2.1's art box, defaulting to the crop box. Not inheritable (§7.7.3.4).
+    pub art_box: [f32; 4],
+    /// The region actually displayed: §12.2's `/ViewArea` boundary, the crop box by default.
+    ///
+    /// This is what the rasteriser draws and what [`Self::width`] and [`Self::height`]
+    /// measure, and for every document that states no `/ViewArea` it *is* `crop_box` —
+    /// Table 147's default for the entry is `CropBox`, and 0 of the 974 corpus documents
+    /// state anything else. Kept as its own field rather than overwriting `crop_box`, because
+    /// the crop box is what the file says and this is what a preference did with it.
+    pub display_box: [f32; 4],
+    /// The region the contents are clipped to: §12.2's `/ViewClip` boundary.
+    ///
+    /// Distinct from [`Self::display_box`] because the clause makes them distinct entries:
+    /// one is "the area of a page that shall be displayed", the other "the page boundary to
+    /// which the contents of a page shall be clipped when viewing the document on the
+    /// screen". A document may display the media box while clipping to the trim box, and the
+    /// margin between them is then blank rather than absent.
+    pub clip_box: [f32; 4],
     /// Clockwise rotation in degrees, normalised to 0, 90, 180 or 270.
     pub rotate: u16,
     /// §7.7.3.3 Table 31's `/UserUnit`: how big a default user space unit is.
@@ -131,16 +194,33 @@ impl Page {
     /// rather than buried at a call site.
     pub const DEFAULT_MEDIA_BOX: [f32; 4] = [0.0, 0.0, 595.276, 841.89];
 
-    /// Returns the visible width in PDF units, after cropping.
+    /// Returns the visible width in PDF units: the width of [`Self::display_box`].
     #[must_use]
     pub fn width(&self) -> f32 {
-        self.crop_box[2] - self.crop_box[0]
+        self.display_box[2] - self.display_box[0]
     }
 
-    /// Returns the visible height in PDF units, after cropping.
+    /// Returns the visible height in PDF units: the height of [`Self::display_box`].
     #[must_use]
     pub fn height(&self) -> f32 {
-        self.crop_box[3] - self.crop_box[1]
+        self.display_box[3] - self.display_box[1]
+    }
+
+    /// The rectangle one of §14.11.2's five boundaries names on this page.
+    ///
+    /// Every one of them has been defaulted and intersected with the media box already, which
+    /// is §14.11.2.1's own rule for all four of the others: "[i]f the bounds of the crop,
+    /// trim, bleed or art box extends outside of the bounds of the media box, a processor
+    /// shall treat the box as its intersection with the media box."
+    #[must_use]
+    pub fn boundary(&self, boundary: Boundary) -> [f32; 4] {
+        match boundary {
+            Boundary::Media => self.media_box,
+            Boundary::Crop => self.crop_box,
+            Boundary::Bleed => self.bleed_box,
+            Boundary::Trim => self.trim_box,
+            Boundary::Art => self.art_box,
+        }
     }
 
     /// Returns the content streams for this page, concatenated and decoded.
@@ -210,6 +290,13 @@ pub struct Pages<'a> {
     document: &'a Document,
     root: Option<Dictionary>,
     count: usize,
+    /// §12.2's `/ViewArea` and `/ViewClip`, read once with the catalog.
+    ///
+    /// Here rather than per page because they are a property of the *document*, and read at
+    /// all because a page cannot say which boundary is displayed without them. The cost is
+    /// one dictionary lookup in a catalog this function already holds — 58 of the 974 corpus
+    /// documents state a `/ViewerPreferences` at all and none of them states either entry.
+    view: (Boundary, Boundary),
 }
 
 impl<'a> Pages<'a> {
@@ -219,10 +306,10 @@ impl<'a> Pages<'a> {
     /// when asked for.
     #[must_use]
     pub fn new(document: &'a Document) -> Self {
-        let root = document
-            .catalog()
-            .ok()
-            .map(|catalog| document.get_key(&catalog, "Pages"))
+        let catalog = document.catalog().ok();
+        let root = catalog
+            .as_ref()
+            .map(|catalog| document.get_key(catalog, "Pages"))
             .and_then(|pages| pages.as_dict().cloned());
 
         // `/Count` is authoritative when present and plausible, and the tree is counted
@@ -237,10 +324,16 @@ impl<'a> Pages<'a> {
             _ => root.as_ref().map_or(0, |node| count_leaves(document, node)),
         };
 
+        let preferences = catalog.as_ref().map_or_else(
+            crate::viewer_preferences::ViewerPreferences::default,
+            |catalog| crate::viewer_preferences::ViewerPreferences::in_catalog(document, catalog),
+        );
+
         Self {
             document,
             root,
             count,
+            view: (preferences.view_area, preferences.view_clip),
         }
     }
 
@@ -269,6 +362,7 @@ impl<'a> Pages<'a> {
             &mut remaining,
             &mut visited,
             0,
+            self.view,
         )
     }
 
@@ -369,6 +463,7 @@ fn find_leaf(
     remaining: &mut usize,
     visited: &mut usize,
     depth: usize,
+    view: (Boundary, Boundary),
 ) -> Option<Page> {
     if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
         return None;
@@ -381,7 +476,7 @@ fn find_leaf(
     let Some(kids) = kids.as_array() else {
         // A leaf. Take it if this is the one asked for.
         if *remaining == 0 {
-            return Some(build_page(document, node, &inherited));
+            return Some(build_page(document, node, &inherited, view));
         }
         *remaining = remaining.saturating_sub(1);
         return None;
@@ -412,6 +507,7 @@ fn find_leaf(
             remaining,
             visited,
             depth.saturating_add(1),
+            view,
         ) {
             return Some(page);
         }
@@ -421,7 +517,12 @@ fn find_leaf(
 }
 
 /// Assembles a page from its dictionary and the attributes it inherited.
-fn build_page(document: &Document, dict: &Dictionary, inherited: &Inherited) -> Page {
+fn build_page(
+    document: &Document,
+    dict: &Dictionary,
+    inherited: &Inherited,
+    view: (Boundary, Boundary),
+) -> Page {
     let media_box = inherited.media_box.unwrap_or(Page::DEFAULT_MEDIA_BOX);
 
     // The crop box is intersected with the media box, as the specification requires: a
@@ -441,6 +542,42 @@ fn build_page(document: &Document, dict: &Dictionary, inherited: &Inherited) -> 
     } else {
         media_box
     };
+
+    // §14.11.2.1's other three boxes, each defaulting to the crop box and each intersected
+    // with the medium by the clause's own rule. None of the three is inheritable — Table 31
+    // marks only `/Resources`, `/MediaBox`, `/CropBox` and `/Rotate`, and §7.7.3.4 says
+    // "attributes that are not explicitly identified in the table as inheritable shall not
+    // be inherited" — so they are read from the page object alone.
+    let production_box = |key: &str| {
+        rectangle(document, dict, key).map_or(crop_box, |stated| {
+            let clipped = [
+                stated[0].max(media_box[0]),
+                stated[1].max(media_box[1]),
+                stated[2].min(media_box[2]),
+                stated[3].min(media_box[3]),
+            ];
+            if clipped[2] > clipped[0] && clipped[3] > clipped[1] {
+                clipped
+            } else {
+                crop_box
+            }
+        })
+    };
+    let bleed_box = production_box("BleedBox");
+    let trim_box = production_box("TrimBox");
+    let art_box = production_box("ArtBox");
+
+    // §12.2's `/ViewArea` and `/ViewClip`, which name boundaries rather than stating them.
+    // Both are `CropBox` for every document that says nothing, so this is the crop box in
+    // every corpus document and the rest of this crate reads `display_box` regardless.
+    let pick = |boundary| match boundary {
+        Boundary::Media => media_box,
+        Boundary::Crop => crop_box,
+        Boundary::Bleed => bleed_box,
+        Boundary::Trim => trim_box,
+        Boundary::Art => art_box,
+    };
+    let (display_box, clip_box) = (pick(view.0), pick(view.1));
 
     // Rotation must be a multiple of 90. Negative and out-of-range values occur, so the
     // value is normalised rather than trusted.
@@ -465,6 +602,11 @@ fn build_page(document: &Document, dict: &Dictionary, inherited: &Inherited) -> 
         resources: inherited.resources.clone().unwrap_or_default(),
         media_box,
         crop_box,
+        bleed_box,
+        trim_box,
+        art_box,
+        display_box,
+        clip_box,
         rotate,
         user_unit,
     }

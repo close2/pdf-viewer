@@ -3309,8 +3309,10 @@ note = "Clause 12's own map: annotations, forms, actions, navigation, digital si
 [[clause]]
 clause = "12.2"
 title = "Viewer preferences"
-status = "silent"
-note = "Table 147's viewer preferences: `/PageMode`, `/PageLayout`, `/HideToolbar`, `/FitWindow`, `/Duplex`, `/PrintScaling` and the rest. Nothing reads them. Most describe a window this program does not have — it shows one page, with no panels and no chrome to hide — but three would change what a *reader* sees and are owed: `/PageLayout` (one page against two-up against continuous), `/PageMode` (whether the outline or the attachments panel opens with the document), and `/Direction`, which decides whether a two-up spread reads left to right. The clause's own fallback is what this program does by accident rather than by decision: \"[i]f no such dictionary is specified, PDF processors should behave in accordance with their own current user preference settings.\""
+status = "partial"
+code = ["crates/pdf-model/src/viewer_preferences.rs", "crates/pdf-model/src/page.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/src/viewer_preferences.rs::table_147s_entries_are_read", "crates/pdf-model/tests/page_geometry.rs::view_area_and_view_clip_choose_what_is_displayed_and_what_is_clipped"]
+note = "Every entry of Table 147 is read, and the two that decide pixels are applied. `/ViewArea` and `/ViewClip` name §14.11.2 boundaries — which of the five is displayed, and which the contents are clipped to — so a document may show the media box while clipping the ink to the trim box, and `Page::display_box` and `Page::clip_box` are those two answers. Both are deprecated in PDF 2.0 and both are read, for the reason §8.6.5.1's withdrawn `CalCMYK` is: deprecation tells a *writer* what to stop doing. The rest is data for a window this program does not have — hiding a tool bar, centring a window, a print dialogue's copy count — and `/PrintArea` and `/PrintClip` are read and unused for the same reason as `/Duplex`: nothing here prints. Two entries have conditions applied rather than stored: an unrecognised `/PrintScaling` \"shall\" be `AppDefault`, and Table 148 then forbids `/Enforce` naming it. **What is owed is `/DisplayDocTitle`**, which 22 corpus documents set and which needs §14.3.2's XMP `dc:title` — the entry is read and the title it names is not. 58 of 974 documents state a `/ViewerPreferences`; **none states any of the four boundary entries**, so the half of the clause that can change a pixel has no corpus witness and was written from the clause."
 
 [[clause]]
 clause = "12.3"
@@ -5673,8 +5675,8 @@ clause = "14.11.2"
 title = "Page boundaries"
 status = "partial"
 code = ["crates/pdf-model/src/page.rs"]
-test = ["crates/pdf-model/tests/page_geometry.rs::a_user_unit_scales_the_page_and_its_contents"]
-note = "`/MediaBox` and `/CropBox` decide what this viewer draws and are implemented; `/BleedBox`, `/TrimBox` and `/ArtBox` describe where a press cuts and are read by nobody. See §14.11.2.1 and §14.11.2.2."
+test = ["crates/pdf-model/tests/page_geometry.rs::the_five_page_boundaries_default_and_are_clipped_to_the_medium"]
+note = "All five boundaries are read, defaulted and intersected with the medium, and `Page::boundary` is the rectangle one of them names — which is what §12.2's `/ViewArea` and `/ViewClip` need, since those entries name a boundary rather than stating one. What is still owed is §14.11.2.2's guidelines, which are `inapplicable` on their own row. See §14.11.2.1."
 
 [[clause]]
 clause = "14.11.2.1"
@@ -5682,7 +5684,7 @@ title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/page.rs"]
 test = ["crates/pdf-model/tests/render_real_pdf.rs::the_fixture_page_is_modelled_correctly"]
-note = "The crop box is honoured: it is inherited down the page tree, defaults to the media box, is refused and replaced when degenerate, and gives the rendered page both its size and its origin — which is also what every reference renderer is asked for, see tools/pdfref. The media box is read as the crop box's default. The bleed, trim and art boxes are read by nothing: they bound a production process rather than a display, and a viewer's use for them would be to draw guides. **This row said `/UserUnit` was \"neither applied nor reported\" for thirty-two sessions after the twenty-ninth applied it** — §7.7.3.3's own row records it landing, and this one, four clauses away, was never revisited. Where the crop box's *origin* lands in a raster whose size had to be rounded up is §10.7.4's row, and was a defect until the sixty-first session (ADR 0064)."
+note = "The crop box is honoured: it is inherited down the page tree, defaults to the media box, is refused and replaced when degenerate, and gives the rendered page both its size and its origin — which is also what every reference renderer is asked for, see tools/pdfref. The media box is read as the crop box's default. **The bleed, trim and art boxes are read since the eighty-first session**: each defaults to the crop box, none is inheritable (§7.7.3.4 leaves the four Table 31 marks alone), and each is treated as \"its intersection with the media box\" as this clause requires of all four. They bound a production process rather than a display, so nothing here draws with them — what reaches a screen is §12.2's `/ViewArea` and `/ViewClip`, which may name any of the five. **This row said `/UserUnit` was \"neither applied nor reported\" for thirty-two sessions after the twenty-ninth applied it** — §7.7.3.3's own row records it landing, and this one, four clauses away, was never revisited. Where the crop box's *origin* lands in a raster whose size had to be rounded up is §10.7.4's row, and was a defect until the sixty-first session (ADR 0064)."
 
 [[clause]]
 clause = "14.11.2.2"
