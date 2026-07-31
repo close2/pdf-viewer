@@ -90,17 +90,58 @@ const MAX_UNREADABLE_ENCRYPTION: usize = 2;
 ///
 /// Eleven, and it was nineteen until the twenty-second session: the eight that were
 /// "encrypted, which is unimplemented" now decrypt (ADR 0031), and what is left is eleven
-/// files whose page tree genuinely cannot be recovered. Two of those eleven,
-/// `issue19484_1.pdf` and `issue19484_2.pdf`, *are* encrypted and authenticate correctly —
-/// their object streams then fail to inflate whether decrypted or not, which is what
-/// `poppler` reports of them too ("Unknown compression method in flate stream", ten times).
-/// A damaged file, not a clause.
+/// files whose page tree cannot be recovered.
+///
+/// # Two of the eleven are not damaged, and this entry said they were
+///
+/// `issue19484_1.pdf` and `issue19484_2.pdf` authenticate correctly and then fail to inflate,
+/// which `poppler` reports of them too ("Unknown compression method in flate stream", ten
+/// times) — and this note concluded from that: "A damaged file, not a clause." **That was
+/// wrong**, and pdf.js issue #19484, which the files are named after, is what says so: they are
+/// RC4 documents whose `/Length` is **40 and 48 bits** under `/V 4`, and Acrobat "extends the
+/// shorter key to 16 bytes (appending 0x00 bytes) in this situation before the steps described
+/// in Algorithm 1". A wrong file encryption key produces exactly the symptom above — plaintext
+/// that is not deflate data — so the inflate failure was evidence about the *key*, and every
+/// reader that gets the key wrong reports the stream.
+///
+/// Measured rather than argued: padding the key to 16 bytes before §7.6.3.2's Algorithm 1
+/// makes both files open, and page one yields 38 bytes of content stream. The change is **not**
+/// made, because the clause does not support it yet and this project does not implement what
+/// Acrobat does: both files omit `/CF` entirely, which Table 20 makes "(Required if V is 4 or
+/// 5)", so the standard defines nothing for the `/StdCF` they name. What makes it decidable is
+/// the file rather than Acrobat — **it states the key twice**, and the two statements disagree
+/// by design: `/U` validates under the 5-byte key the file declares, while its streams need the
+/// padded 16-byte one. That is the same shape as ADR 0052's byte-swapped `indexToLocFormat`,
+/// and whoever takes it should write the argument down before the code.
 ///
 /// This number is worth more than it looks. It was twenty until running this gate for the
 /// first time: `outline_goto_action.pdf` declares twelve cross-reference entries and writes
 /// eleven, so the twelfth read the `trailer` keyword, and resuming after that keyword
 /// stepped over the only thing naming `/Root`. A document with every object intact produced
 /// no catalogue and no pages. `pdf-syntax`'s robustness suite now pins it.
+///
+/// # What the other nine are, from the trackers they are named after
+///
+/// Looked up in the fifty-ninth session, because a file's own issue says why it exists better
+/// than any measurement of it:
+///
+/// - **`Brotli-Prototype-FileA.pdf` is not broken at all.** It is a prototype of the
+///   `/BrotliDecode` filter the PDF Association is standardising (pdf.js issue #20290), so its
+///   object streams are compressed with a filter ISO 32000-2 does not define. The catalog reads
+///   — five keys — and the page tree is inside a stream we cannot inflate. `poppler` says
+///   "Unknown filter" and names it. Nothing is owed until the filter is published.
+/// - **Three are recovered by at least one reference and not by us**, which is a robustness gap
+///   rather than a clause: `issue18986.pdf` (`poppler` and `ghostscript` draw it; the reporter
+///   hand-edited a `/ModDate` and broke the offsets with it), `issue9418.pdf` and
+///   `operator_list_cycle.pdf` (`ghostscript` draws both). All three fail here with `/Root`
+///   missing or not a dictionary, and two of them **without the cross-reference table having
+///   been rebuilt at all** — `was_recovered()` is false, so the scan that exists was never
+///   reached. That is the cheapest of these to take on.
+/// - **Four are refused by every reference too** — `poppler-395-0-fuzzed.pdf`,
+///   `poppler-742-0-fuzzed.pdf`, `poppler-85140-0.pdf` and `REDHAT-1531897-0.pdf` are fuzzer
+///   and bug-tracker crashers from other projects, kept as regression fixtures rather than as
+///   renderable documents. `bug1020226.pdf` is not even a PDF defect: the Mozilla bug is a
+///   null-dereference in Firefox's *worker* shutdown that a pdf.js promise exposed.
 const MAX_PAGELESS: usize = 11;
 
 /// Documents whose first page interprets with something reported as unsupported.

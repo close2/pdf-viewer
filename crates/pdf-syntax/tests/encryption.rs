@@ -170,6 +170,14 @@ fn each_revision_and_method_decrypts_to_a_readable_content_stream() {
 /// load-bearing: the first is a non-ASCII password that has to reach the hash as UTF-8, and
 /// the second is one `SASLprep` *changes* — U+00AA becomes `a` under the Normalize option and
 /// U+00AD, a soft hyphen, is mapped to nothing.
+///
+/// Where the passwords come from: each is published in the pdf.js issue or pull request the
+/// file is named after, which is worth saying because it is the only reason this test can
+/// exist. `pr6531_1.pdf`'s is in pull request #6531's discussion, and the file is the one that
+/// request was about — a document with a user password and **no** owner password, which pdf.js
+/// was opening without asking for either. Of the corpus's eight password-protected documents
+/// this covers seven; `print_protection.pdf`'s password is published nowhere, and `poppler`
+/// refuses it too.
 #[test]
 fn a_document_with_a_password_opens_with_it_and_not_without() {
     let cases = [
@@ -179,6 +187,7 @@ fn a_document_with_a_password_opens_with_it_and_not_without() {
         ("issue6010_1.pdf", "abc"),
         ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
         ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
+        ("pr6531_1.pdf", "asdfasdf"),
     ];
 
     let mut checked = 0;
@@ -206,7 +215,7 @@ fn a_document_with_a_password_opens_with_it_and_not_without() {
     }
 
     if corpus_bytes("issue3371.pdf").is_some() {
-        assert_eq!(checked, 6, "every listed document should have been checked");
+        assert_eq!(checked, 7, "every listed document should have been checked");
     }
 }
 

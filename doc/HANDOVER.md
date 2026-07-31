@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-eighth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-ninth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,86 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the fifty-eighth session changed
+## What the fifty-ninth session changed
+
+**Nothing was built. The corpus's own bug trackers were read**, because every file in it is
+named after a pdf.js issue or a Mozilla bug, and what a file was collected *for* is written
+there. Four things came back, and one of them corrects a conclusion this tree had written down.
+
+**1. The unexplained contradicted list is a list of hard fonts.** Eleven of the twenty-six
+documents were looked up and the answer is nearly uniform — Chinese characters (`issue4061`),
+missing hiragana (`issue8570`), a CMap regression (`issue5010`), `Adobe-Japan1-UCS2` 8.001
+against 5.001 (`issue7696`), `uniXXXX` names from Scribus (`issue6889`), a Type 1 conversion
+(`issue8097_reduced`), a Garamond CFF the OpenType Sanitiser rejects (`bug1252420`), a Unicode
+chart (`bug1175962`), Czech diacritics (`bug1650302_reduced`). Every one is labelled
+`font-conversion` by pdf.js.
+
+That is **outside corroboration** for what this project's own instruments had only hinted: the
+residue of `CONTRADICTED_UNEXPLAINED` is glyph rasterisation, on files chosen because their
+fonts are hard, judged against three renderers that share `libfreetype` while this tree uses
+`skrifa`. On an eight-point Chinese character almost every pixel is an edge, and a pixel
+comparison cannot separate *the wrong glyph* from *the same glyph, antialiased differently*.
+**The instrument to reach for is a different question, not a tighter tolerance** — which glyphs
+were drawn and where.
+
+**2. The one entry on that list which is not a font comes with a clause and a picture.**
+`issue7891_bc1.pdf` is a soft mask's **backdrop colour**: its issue says `_bc0` and `_bc1` are
+identical but for `/BC`, that the mask is deliberately smaller than the group it applies to, and
+that Adobe draws the group's boundary as a red line where pdf.js drew black. Our numbers fit a
+thin line — mean 0.22 of a level against a bound of 1.00, one tile at 10.76 against 6.04.
+`soft_mask.rs` does read Table 142's `/BC`, so the question is what fills the area the mask's
+group does not cover.
+
+**3. `issue19484_1.pdf` and `issue19484_2.pdf` are not damaged, and this tree said they were.**
+`corpus.rs` concluded, from their streams failing to inflate and `poppler` reporting the same,
+"A damaged file, not a clause." pdf.js issue #19484 says otherwise: they are RC4 documents whose
+`/Length` is **40 and 48 bits** under `/V 4`, and Acrobat "extends the shorter key to 16 bytes
+(appending 0x00 bytes) … before the steps described in Algorithm 1". **A wrong file encryption
+key produces exactly that symptom**, so the inflate failure was evidence about the key.
+
+Measured, not argued: padding the key to 16 bytes before §7.6.3.2's Algorithm 1 makes both files
+open and page one yield 38 bytes of content. **The change was not made.** Both files omit `/CF`
+entirely, which Table 20 makes "(Required if V is 4 or 5)", so the standard defines nothing for
+the `/StdCF` they name — and this project does not implement what Acrobat does. What makes it
+decidable is the file: **it states its key twice and the two disagree by design**, `/U`
+validating under the 5-byte key it declares while its streams need the padded 16-byte one. Same
+shape as ADR 0052's byte-swapped `indexToLocFormat`. Whoever takes it writes the argument first.
+
+**4. The files we cannot open are three different things, and only one is ours.**
+
+| | |
+|---|---|
+| `Brotli-Prototype-FileA.pdf` | **not broken**: a prototype of the `/BrotliDecode` filter the PDF Association is standardising (pdf.js #20290). Its object streams use a filter ISO 32000-2 does not define; `poppler` says so too. Nothing is owed until the filter is published |
+| `issue18986`, `issue9418`, `operator_list_cycle` | **recovered by at least one reference and not by us** — `ghostscript` draws all three, `poppler` draws the first. All three fail here with `/Root` missing or not a dictionary, and two of them *without the cross-reference table having been rebuilt at all*: `was_recovered()` is false, so the scan that exists was never reached. The cheapest item on this list |
+| four `poppler-*`/`REDHAT-*` crashers | refused by every reference too — fuzzer and bug-tracker fixtures, kept as regression material rather than as documents |
+| `bug1020226.pdf` | not a PDF defect at all: a null-dereference in Firefox's *worker* shutdown that a pdf.js promise exposed |
+
+**And a correction to my own summary of the locked files.** Seven of the eight passwords are
+published in the issues the files are named after — and six were **already** recorded and tested
+in `encryption.rs` by an earlier session, which the research rediscovered rather than found. The
+one genuinely new is `pr6531_1.pdf`'s `asdfasdf`, from pull request #6531, now in that test; it
+is the file that request was about, a document with a user password and no owner password.
+`print_protection.pdf`'s password is published nowhere and `poppler` refuses it too, so
+"needs a password" is the right answer for it.
+
+| | before | now |
+|---|---|---|
+| corpus documents whose password we hold and test | 6 | **7 of 8** |
+| the claim "a damaged file, not a clause" | in the tree | **corrected, with the measurement that falsifies it** |
+| unexplained contradicted pages | 30 | **30**, now classified from outside |
+| **tests** | 647 | **647** |
+
+What it taught:
+
+- **A test corpus has a bibliography, and nobody had read it.** Every file here is named after
+  an issue that says what is wrong with it, in the words of whoever hit it. That is a source
+  this project had never used, it costs a web fetch per file, and it corrected a written
+  conclusion on the first afternoon of using it.
+- **"Both readers fail the same way" is agreement about a symptom, not about a cause.** poppler
+  reporting the same broken flate stream was taken as confirmation that the file was broken.
+  Both readers were deriving the same wrong key.
+
+### The fifty-eighth session, in brief
 
 **Ten sessions of rendering changes, measured.** Nothing new was built; what this session
 produced is numbers, one of which is a regression this project's rules say has to be attributed
@@ -1580,6 +1659,7 @@ below rather than here.
 | 56 | **The ledger reaches zero unreviewed rows**; §14.7.5.4's parent tree closes the last one | ADR 0061 |
 | 57 | A click follows a link | ADR 0062 |
 | 58 | Everything re-measured, and one feature's cost attributed | — |
+| 59 | The corpus's own bug trackers read; a written conclusion corrected | — |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across

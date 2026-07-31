@@ -756,6 +756,45 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// any other reader: `loca`'s last entry equals `glyf`'s length under exactly one of the two
 /// readings, and `loca`'s own length is `4 × (n + 1)` rather than `2 × (n + 1)`. ADR 0052.
 ///
+/// # What these files are, looked up in the fifty-ninth session
+///
+/// Every one of them is a pdf.js test file named after an issue or a Mozilla bug, and reading
+/// those says what the file was collected *for*. Eleven were checked and the answer is nearly
+/// uniform: **this is a list of hard fonts.**
+///
+/// | file | what its issue is about |
+/// |---|---|
+/// | `issue4061.pdf` | Chinese characters rendered wrongly — `font-conversion` |
+/// | `issue8570.pdf` | hiragana, katakana and punctuation missing — CJK `cmap` |
+/// | `issue5010.pdf` | "buildin cmap parameters are not provided" — CMap regression |
+/// | `issue7696.pdf` | `Adobe-Japan1-UCS2` version 8.001 fails where 5.001 works |
+/// | `issue6889.pdf` | `/Differences` names of the form `uniXXXX` from Scribus |
+/// | `issue8097_reduced.pdf` | a Type 1 font, `AdvTT7b515deb`, converted wrongly |
+/// | `issue3694_reduced.pdf` | missing glyphs — `font-conversion` |
+/// | `bug1252420.pdf` | an embedded Garamond CFF rejected by the OpenType Sanitiser |
+/// | `bug1175962.pdf` | a Unicode chart — `pdfjs-d-font-conversion` |
+/// | `bug1650302_reduced.pdf` | Czech diacritics — duplicate of the long-standing bug 844092 |
+///
+/// That is corroboration from outside this project for what its own instruments had only
+/// hinted: the residue of this list is **glyph rasterisation**, on files chosen because their
+/// fonts are hard, judged against a consensus of three renderers that share `libfreetype` while
+/// this tree uses `skrifa`. A pixel comparison cannot separate "the wrong glyph" from "the same
+/// glyph, antialiased differently", and on an eight-point Chinese character almost every pixel
+/// is an edge. **The instrument to reach for is not a tighter tolerance but a different
+/// question** — which glyphs were drawn, and where — and `has_text` already asks half of it.
+///
+/// # The one that is not a font, and it comes with a clause
+///
+/// `issue7891_bc1.pdf` is a **soft mask's backdrop colour**. Its issue says the two files
+/// `_bc0` and `_bc1` are identical but for `/BC`, that the mask is deliberately smaller than
+/// the group it applies to, and that Adobe draws the transparency group's boundary as a red
+/// line where pdf.js drew a black one. Our own numbers fit a thin line: mean 0.22 of a level
+/// against a bound of 1.00, one tile at 10.76 against 6.04, 0.52% of pixels differing, with
+/// `mupdf` and `ghostscript` the pair that agree. `soft_mask.rs` does read Table 142's `/BC`,
+/// so the question is not whether the entry is read but what fills the area the mask's group
+/// does not cover — which is the next thing to measure here, and the only entry on this list
+/// with a clause and an expected picture attached.
+///
 /// # One left in the fifty-fourth session, and it is a step drawn as a gradient
 ///
 /// `issue10572.pdf` is twenty-four hard stripes of green and blue, and we drew each boundary as
