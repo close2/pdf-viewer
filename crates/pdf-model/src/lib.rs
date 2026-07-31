@@ -47,6 +47,7 @@ pub mod page;
 pub mod page_label;
 pub mod requirements;
 pub mod shading;
+pub mod signature;
 mod soft_mask;
 pub mod structure;
 pub mod thumbnail;

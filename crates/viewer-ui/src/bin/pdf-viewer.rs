@@ -46,6 +46,11 @@ use winit::window::{Window, WindowId};
 /// for all available memory.
 const MAX_PIXELS: u64 = 1 << 28;
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "opening a document is a sequence of things said out loud about it, and each is \
+              one clause's — splitting them would separate a note from the reason it exists"
+)]
 fn main() {
     // Parsed before anything opens a document, because it decides where that document's
     // images are decoded and a policy applied halfway through is not a policy.
@@ -139,6 +144,46 @@ fn main() {
                 .media_type
                 .as_deref()
                 .map_or_else(String::new, |media| format!(" ({media})"))
+        );
+    }
+
+    // §12.8's signatures, said once and out loud, because a signature is a claim about the
+    // *file* and a person deciding whether to trust what they are looking at has no other way to
+    // hear it. Three things are said and a fourth is refused: who signed, why, whether the range
+    // they signed runs to the end of the file (§12.8.1) — and that this program does not verify
+    // anything, because verification needs a certificate chain and a trust store, which is
+    // §7.6.5's refusal one clause over (ADR 0031).
+    let signatures = pdf_model::signature::signatures(&document);
+    if !signatures.is_empty() {
+        let length = document.bytes().len() as u64;
+        for signature in &signatures {
+            let who = signature.name.as_deref().unwrap_or("an unnamed signer");
+            let why = signature
+                .reason
+                .as_deref()
+                .map_or_else(String::new, |reason| format!(", reason: {reason}"));
+            println!(
+                "note: this document is signed by {who}{why}{}",
+                if signature.certification {
+                    " (a certification signature)"
+                } else {
+                    ""
+                }
+            );
+            match signature.coverage(length) {
+                pdf_model::signature::Coverage::WholeFile => {}
+                pdf_model::signature::Coverage::Unsigned { tail } => println!(
+                    "note: {tail} bytes were appended after that signature and are not covered \
+                     by it"
+                ),
+                pdf_model::signature::Coverage::Malformed => {
+                    println!("note: that signature's /ByteRange does not describe this file");
+                }
+            }
+        }
+        println!(
+            "note: signatures are not verified — this program has no certificate store, so it \
+             says what a signature claims and never whether it is valid"
         );
     }
 
