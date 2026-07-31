@@ -50,8 +50,24 @@ labels** and every one labels its first page, as §12.4.2 requires. `viewer-ui` 
 beside the index rather than instead of it, since a title reading `iv` cannot also say `of 320`.
 ADR 0053.
 
+**And this file has been wrong for six sessions about which clauses are complete.** The
+fortieth session's summary said "clauses with no `unreviewed` row: 7, 8, 10, 11, 13" after
+reviewing §7.5, and every session since repeated it — up to "seven of the standard's eight
+technical clauses" and "what remains is clause 14 alone". **Clause 7 was never complete.**
+§7.10's functions, §7.11's file specifications and §7.12's extensions dictionary were all
+unread, and nothing checked, because the count was taken over the families a session had
+*touched* rather than over the clause.
+
+The checking took one line — `unreviewed` rows grouped by their leading clause number — and it
+is now the last thing this file's numbers are taken from. §7.10 went in with the correction and
+was the cheap review the mistake had hidden: eleven rows, all `implemented`, for the four
+function types that §8.7's shadings, §8.6.6's tint transforms and §11.5's `/TR` all run through.
+§7.7.4's name dictionary is `silent` and is the **smallest missing piece in the navigation
+family** — the three rows still waiting on a name tree reach their data through it.
+
 | | was | is |
 |---|---|---|
+| **clauses actually complete** | claimed 7–13 | **8–13**, and clause 7 is 120 of 138 |
 | name and number trees (§7.9.6, §7.9.7) | `reported` | **`implemented`** |
 | page labels (§12.4.2) | `silent` | **`implemented`**, and shown in the title bar |
 | rows whose missing piece was a tree | 4 | **3**, and each now needs only its own semantics |
@@ -62,7 +78,8 @@ ADR 0053.
 |---|---|---|
 | corpus documents drawing with nothing reported | 858 | **858** |
 | pages agreeing with the reference consensus | 816 | **816** |
-| ledger subclauses nobody has read | 136 | **136** |
+| ledger subclauses nobody has read | 136 | **125** — 107 of clause 14 and 18 of clause 7 |
+| `§` citations the checker verified | 1444 | **1465** |
 | **tests** | 606 | **615** |
 
 What it taught:
@@ -123,7 +140,16 @@ it is read, so all nineteen are `silent`, and two things came out of writing the
 
 What it taught:
 
-- **A clamp is a decision.** `width.max(0.0)` reads as defensive hygiene and is in fact this
+- **A count taken over what you touched is not a count.** This file said clause 7 had no
+`unreviewed` row left, because the session that reviewed §7.5 had listed clause 7's remaining
+rows as "all of them §7.5's file structure" — which was true of the rows that session had
+looked at and false of §7.10, §7.11 and §7.12, which nobody had. Six sessions repeated it and
+grew it into "seven of eight technical clauses complete". The check is one line, grouping the
+ledger's `unreviewed` rows by their leading clause number, and it now runs before any claim
+about coverage is written. **Whatever this file asserts, run it once** — including the
+arithmetic it did about itself.
+
+**A clamp is a decision.** `width.max(0.0)` reads as defensive hygiene and is in fact this
   program's whole answer to a value the standard forbids — chosen once, by nobody, and visible
   on a page. Look at what a `max`, a `clamp` or an `unwrap_or` decides before calling it a
   guard.
@@ -133,9 +159,9 @@ What it taught:
 
 ### The forty-sixth session, in brief
 
-**Clause 12 is complete as a review — 166 rows, none `unreviewed`.** Seven of the standard's
-eight technical clauses now have no unread row: 7, 8, 9, 10, 11, 12 and 13's exclusions. Only
-clause 14 is left, and it is 152 rows of tagged PDF, metadata and web capture.
+**Clause 12 is complete as a review — 166 rows, none `unreviewed`.** With 8, 9, 10, 11 and 13's
+exclusions, that is six of the standard's eight technical clauses. *(This paragraph said seven
+and named clause 7; see the forty-eighth session for why that was wrong.)*
 
 The seventy rows this session added are form actions, FDF, digital signatures, measurement
 properties, geospatial features and document requirements — and **the shape of the answer
@@ -178,7 +204,7 @@ already once per font.
 
 | | before | now |
 |---|---|---|
-| **clauses with no `unreviewed` row** | 7–11, 13 | **7–13** |
+| **clauses with no `unreviewed` row** | 8–11, 13 | **8–13** — and see below: this file said 7 for six sessions and was wrong |
 | **ledger subclauses nobody has read** | 225 | **155** |
 | interpreting the specification's page | 2 013.8 M | **1 989.1 M** |
 | median page against `hayro` | 2.14× (818 pages) | **2.12× (853 pages)** |
@@ -554,7 +580,7 @@ forbids itself.
 |---|---|---|
 | a `CIDFont` embedding `/FontFile` | substituted, addressed by a `/ToUnicode` that lies | its charstrings indexed by CID (§9.7.4.2, §9.6.2.1) |
 | **contradicted pages with no explanation** | 46 | **43** |
-| **clauses with no `unreviewed` row** | 7, 8, 10, 11, 13 | **7, 8, 9, 10, 11, 13** |
+| **clauses with no `unreviewed` row** | 8, 10, 11, 13 | **8, 9, 10, 11, 13** (this file said 7 as well; it was wrong) |
 | the three references' independence | asserted | measured with `ldd`, and they share `libfreetype` |
 
 **The numbers:**
@@ -636,7 +662,7 @@ complete.**
 | **contradicted pages with no explanation** | 50 | **46** |
 | a file with junk before its header | every offset wrong, recovered by scanning | read from its own table (§7.5.2) |
 | Table 15's `/Size` | unread, unmentioned | a departure with 11 → 77 measured against it |
-| **clauses with no `unreviewed` row** | 8, 10, 11, 13 | **7, 8, 10, 11, 13** |
+| **clauses with no `unreviewed` row** | 8, 10, 11, 13 | 8, 10, 11, 13 — *this row claimed 7 as well and was wrong; §7.10, §7.11 and §7.12 were still unread* |
 
 **The numbers:**
 
@@ -1431,17 +1457,18 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **136
-of 823 subclauses are `unreviewed`**, and 687 have been read against this code — 86 of those
-carrying principle 5's exclusions, all but four of them clause 13, and **113 of them `silent`**,
-which is a fact about this project's shape: it renders pages correctly and does nothing when a
-person clicks on one. So the honest summary is that the
-project has measured 83% of its clause coverage — up from 37% seventeen sessions ago, and **six
-clauses now have no `unreviewed` row at all**: 7, 8, 9, 10, 11 and 13's exclusions — everything
-that decides whether a page is drawn correctly, plus the syntax it is read from. What remains is concentrated in
-clause 12's interactive half and clause 14, which are the parts this tree has not built.
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **125
+of 823 subclauses are `unreviewed`** — 107 of clause 14 and 18 of clause 7 — and 698 have been
+read against this code. 86 of those carry principle 5's exclusions, all but four of them clause
+13, and **131 are `silent`**, which is a fact about this project's shape: it renders pages
+correctly and does nothing when a person clicks on one. So the honest summary is that the project
+has measured 85% of its clause coverage — up from 37% eighteen sessions ago, and **six clauses
+have no `unreviewed` row at all**: 8, 9, 10, 11, 12 and 13's exclusions. **Clause 7 is 120 of
+138** and this file claimed it complete for six sessions; see the forty-eighth session. What
+remains unread is clause 14's tagged PDF, metadata and web capture, and §7.11 and §7.12.
 
-**The ledger has been wrong twice**, which is worth knowing before trusting a row: §8.9.5.3's note
+**The ledger has been wrong twice and this file's arithmetic about it once**, which is worth
+knowing before trusting a row or a summary: §8.9.5.3's note
 said reduction was something the standard does not address, and §10.7.4 addresses it in the
 opposite direction; and §8.4.3.2's row said a zero width "reaches the rasteriser as the thinnest
 line it draws", which was true of `tiny-skia` and false of Vello. **A row that names a rasteriser's
@@ -1553,7 +1580,7 @@ where the two disagree the ledger is the one that had to name a code site.
 
 | Clause | Subclauses | State |
 |---|---|---|
-| 7 Syntax | 138 | **Complete as a review**, all 138 rows — §7.2 and §7.3 as families from the thirty-ninth session, which found §7.3.8.1's external stream being decoded where the clause says its bytes "shall be ignored", and §7.3.7's null-valued entry surviving `Dictionary::get` — the whole of §7.4, §7.6, §7.7 and §7.8 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left as *work* is a public-key handler and a password prompt. §7.5 went in the fortieth session and found two things: §7.5.2's rule that byte offsets are measured from the `%PDF-`, which was not implemented, and Table 15's `/Size`, whose enforcement is a departure costing 66 documents their page tree (measured, ADR 0048). §7.8's content streams and resource dictionaries are read in full, including Table 33's `BX`/`EX` compatibility section, in which an unrecognised operator is ignored without error (ADR 0041). §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
+| 7 Syntax | 138 | **120 of 138 rows reviewed**, and this row said *complete* for six sessions while §7.10, §7.11 and §7.12 sat unread — the count was taken over the families a session had touched rather than over the clause. §7.10's functions went in the forty-eighth session and were the cheap review the mistake had hidden: all four types, 1501 of 1501 corpus functions parsing. What is left is §7.11's file specifications and §7.12's extensions dictionary, neither of which this tree reads. — §7.2 and §7.3 as families from the thirty-ninth session, which found §7.3.8.1's external stream being decoded where the clause says its bytes "shall be ignored", and §7.3.7's null-valued entry surviving `Dictionary::get` — the whole of §7.4, §7.6, §7.7 and §7.8 as families. Objects, **every standard filter**, classic and stream xrefs, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. What is left as *work* is a public-key handler and a password prompt. §7.5 went in the fortieth session and found two things: §7.5.2's rule that byte offsets are measured from the `%PDF-`, which was not implemented, and Table 15's `/Size`, whose enforcement is a departure costing 66 documents their page tree (measured, ADR 0048). §7.8's content streams and resource dictionaries are read in full, including Table 33's `BX`/`EX` compatibility section, in which an unrecognised operator is ignored without error (ADR 0041). §7.9.2's string object types are read, including Annex D Table D.3's `PDFDocEncoding`. |
 | 8 Graphics | 128 | **Complete as a review**, all 128 rows, and the clause with the most ledger coverage. The whole of the graphics state and of path construction and painting, including §8.5.3.2's strokes with no length and §8.5.4's empty clipping path. Paths, clipping, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, `/Interpolate`, an image's `/Mask` in both forms, ICC colour management, optional content (§8.11) wherever it decides what is drawn, a form clipped by its `/BBox` (§8.10.1), and §8.6.6.4's `/All` and `/None` colourants. §8.9.5.2's `/Decode` array in full, Table 88's per-space defaults included, and an image's colour space is the one a fill gets — `ICCBased` profiles and §8.6.5.6's default spaces both (ADRs 0034, 0035). **All five of Table 87's bit depths** are unpacked, and §8.9.7's abbreviated keys beat their full names when a file writes both (ADR 0041). |
 | 9 Text | 65 | **Complete as a review**, all 65 rows — §9.2, §9.3, §9.4, §9.6, §9.8, §9.9 and the whole of §9.7 as families. Simple and composite fonts through **every font program Table 124 defines** — TrueType, CFF, OpenType and, from the thirty-first session, the bare Type 1 of `/FontFile`; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. An embedded program's own built-in encoding is the base encoding Table 112 says it is, and `/MissingWidth` defaults to Table 120's 0 (ADR 0039). Both writing modes, from §9.2.4's two sets of metrics (ADR 0045). A `CIDFont` embedding a bare Type 1 program indexes its charstrings by CID, which §9.7.4.2 states of a non-CID-keyed CFF and §9.6.2.1's NOTE 1 makes the same format (ADR 0049). §9.10's extraction is read: `/ToUnicode` then the Adobe Glyph List, in the priority the clause gives. Missing: Table 116's predefined `CMap`s and the `registry-ordering-UCS2` files §9.10.2's third method needs, text knockout (§9.3.8, reported), and §9.8.3's `/Style` and `/FD`, which are the ledger's two `silent` rows and reach nothing but a substitute's choice. |
 | 10 Rendering | 36 | **Complete as a review**, all 36 rows. 19 of them are `inapplicable`, because halftoning and transfer functions describe a marking device and `/TR` is deprecated in PDF 2.0 besides; 1 is `reported`, §10.8.3's separation simulation, which a *document* cannot ask for. **§10.4.2.5 defines the `DeviceCMYK` → RGB conversion this project spent thirty-two sessions saying the standard does not** — and §10.4.2.1 ranks it below §10.3's ICC route, which is the one this tree is on (ADR 0042). Colour management and rendering intents are done. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |

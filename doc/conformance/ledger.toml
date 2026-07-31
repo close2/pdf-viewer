@@ -27,7 +27,10 @@
 [[clause]]
 clause = "7.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-syntax/src/lib.rs", "crates/pdf-model/src/lib.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs"]
+note = "Clause 7's own map, and the sentence that decides the crate boundary this project is built on: \"[a] PDF file is a data structure\", read here by `pdf-syntax`, whose meaning is clause 8's onward and lives in `pdf-model`. Every subclause of 7 is reviewed except §7.11's file specifications and §7.12's extensions dictionary, which are the two this tree does not read."
 
 [[clause]]
 clause = "7.2"
@@ -746,7 +749,8 @@ note = "The four entries Table 31 marks inheritable — `/Resources`, `/MediaBox
 [[clause]]
 clause = "7.7.4"
 title = "Name dictionary"
-status = "unreviewed"
+status = "silent"
+note = "The catalog's `/Names` name dictionary — `/Dests`, `/EmbeddedFiles`, `/JavaScript`, `/Pages`, `/AP` and the rest, each a name tree (§7.9.6). The *tree* is implemented as of the forty-eighth session; this dictionary, which says which tree is which, is not read, so the three rows waiting on it (§12.3.2.4, §12.7.7, §14.7.5.4) reach their data through here and nothing opens the door. The smallest missing piece in the whole navigation family."
 
 [[clause]]
 clause = "7.8"
@@ -891,47 +895,74 @@ note = "Number trees, which §7.9.7 defines by difference: \"similar to a name t
 [[clause]]
 clause = "7.10"
 title = "Functions"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "All four function types, which this tree needs more than most readers do: §8.7's shadings evaluate one per sample, §8.6.6's `Separation` and `DeviceN` tint transforms are functions, and §10.5's transfer functions and §11.5's `/TR` are too. **1501 of 1501 functions in the corpus parse**, which the corpus gate asserts by name. The clause's own framing is what makes them cacheable: \"[f]unctions in PDF represent static, self-contained numerical transformations\" — no state, so `Ramp` can sample one 256 times and keep the answers."
 
 [[clause]]
 clause = "7.10.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "The framing, `/Domain` and `/Range`, and the clipping rule they carry: an input outside `/Domain` is clipped to it before evaluation and an output outside `/Range` is clipped after. Both are applied to every type here, which is where a first implementation loses a shading's end colours."
 
 [[clause]]
 clause = "7.10.2"
 title = "Type 0 (sampled) functions"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Type 0, sampled: `/Size`, `/BitsPerSample`, `/Encode`, `/Decode` and the samples themselves, with multilinear interpolation between them. All five of Table 39's sample widths are read, as §8.9.5.1's Table 87 widths are for an image, and for the same reason — a bit depth nobody writes is still a bit depth the clause permits."
 
 [[clause]]
 clause = "7.10.3"
 title = "Type 2 (exponential interpolation) functions"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Type 2, exponential interpolation: `/C0`, `/C1` and `/N`, which is the two-colour ramp most axial and radial shadings are made of. One line of arithmetic and the most frequently evaluated function in the corpus."
 
 [[clause]]
 clause = "7.10.4"
 title = "Type 3 (stitching) functions"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Type 3, stitching: `/Functions`, `/Bounds` and `/Encode`, a one-input function assembled from a row of others. The subclause's own edge — a subdomain of zero width, where two bounds coincide — is what a naive implementation divides by."
 
 [[clause]]
 clause = "7.10.5"
 title = "Type 4 (PostScript calculator) functions"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Type 4, the PostScript calculator: a small language, evaluated here rather than approximated. It is what `Separation` and `DeviceN` tint transforms are usually written in, and `postscript_type4_many_outputs.pdf` is the corpus's controlled experiment on it (see `oracle.rs`'s `CONTRADICTED_DEVICE_CMYK_CONVERSION`, which used it to prove something about `DeviceCMYK` instead)."
 
 [[clause]]
 clause = "7.10.5.1"
 title = "General"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "The framing: a program in braces, with the input on the stack and the output taken from the top."
 
 [[clause]]
 clause = "7.10.5.2"
 title = "Operators and operands"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "Table 42's operators, which is the whole language: arithmetic, the relational and boolean set, `if` and `ifelse`, and the stack operators `dup`, `exch`, `pop`, `copy`, `index` and `roll`. The clause bounds the stack at 100 entries, which is a bound this tree applies rather than a suggestion — a program that pushes without limit is a decompression bomb written in another notation."
 
 [[clause]]
 clause = "7.10.5.3"
 title = "Type 4 function dictionary"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-model/tests/shadings.rs"]
+note = "The type 4 function's own dictionary, which is a stream: `/Domain`, `/Range` and the program as the stream's data. `/Range` is *required* here and is not for every type, and it is what says how many of the stack's values are outputs — which `postscript_type4_many_outputs.pdf` is named after, since its program leaves more values than its `/Range` takes."
 
 [[clause]]
 clause = "7.11"
