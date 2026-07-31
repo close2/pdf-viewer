@@ -39,6 +39,7 @@ pub mod page;
 pub mod page_label;
 pub mod shading;
 mod soft_mask;
+pub mod structure;
 pub mod type3;
 mod variable_text;
 

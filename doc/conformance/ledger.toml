@@ -5040,8 +5040,10 @@ note = "PDF objects as content items: an object reference dictionary naming an a
 [[clause]]
 clause = "14.7.5.4"
 title = "Finding structure elements from content items"
-status = "silent"
-note = "Finding structure elements from content items: the page's `/StructParents` and the `/ParentTree` number tree, which is the inverse of the previous two subclauses. A **number tree** again, which §12.3.2.4, §12.4.2 and §12.7.7 also need — four rows in two clauses waiting on one data structure, which is the clearest argument in the ledger for building it."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_marked_content_identifier_finds_its_element", "crates/pdf-model/tests/structure.rs::a_page_that_states_a_structural_parent_key_resolves_it"]
+note = "The last of the four rows the ledger found waiting on one data structure, and the fourth to close on it (ADR 0053). Both hops the clause states are read: the page's `/StructParents` is the key into the structure tree root's `/ParentTree` number tree, and the marked-content identifier is \"a zero-based index into the array\" that comes back — with §14.7.5.3's single-element form accepted too, since an *object* content item's entry is one reference rather than an array. The consumer is §14.9.4's replacement text on a structure element, which 8 corpus documents state on page one. 89 documents have a `/StructTreeRoot`, 76 key the parent tree from page one and 75 name an element; the one that names none states an empty array for its key, which is a document saying its first page belongs to no element and is asserted as that rather than counted."
 
 [[clause]]
 clause = "14.7.6"
@@ -5326,102 +5328,122 @@ note = "Table 375's `Artifact` structure element, the tree-side counterpart of �
 [[clause]]
 clause = "14.8.5"
 title = "Standard structure attributes"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the sixteen below: the attributes a structure element may carry, which are how a tagged document says *how its content looked* to a processor that intends to lay it out again. All of it is behind §14.7.6's attribute objects and §14.7's tree, and none of it changes a mark — the appearance the attributes describe is already on the page, drawn by the operators that produced it."
 
 [[clause]]
 clause = "14.8.5.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Where an attribute lives: a structure element's `/A`, naming an attribute object or an array of them, or its `/C`, naming a class looked up in the structure tree root's `/ClassMap`. The clause also names the four entries that are *not* attribute objects and says why they are worth a reader's attention — `/Lang`, `/Alt`, `/ActualText` and `/E` are \"described in 14.9 … but are useful to other PDF consumers as well\", and they appear on the element itself or on a `Span` property list. One of the four is read (§14.9.4)."
 
 [[clause]]
 clause = "14.8.5.2"
 title = "Standard attribute owners"
-status = "unreviewed"
+status = "silent"
+note = "Table 376's owners: `Layout`, `List`, `PrintField`, `Table`, `Artifact`, `XML-1.00`, `HTML-3.20`, `HTML-4.01`, `OEB-1.00`, `RTF-1.05`, `CSS-1.00`, `CSS-2.00`, `CSS-3.00` and `NSO`. The rule with teeth is the precedence: an attribute owned by an export format \"shall be applied only when processing PDF content based on that format\" and then \"shall override any corresponding attributes owned by Layout, List, PrintField, Table or Artifact\". A reader that ignores the owner and merges the dictionaries would take a CSS attribute for a layout one."
 
 [[clause]]
 clause = "14.8.5.3"
 title = "Attribute values and inheritance"
-status = "unreviewed"
+status = "silent"
+note = "A five-step priority for an attribute's value — format-specific `/A`, then `Layout`-family `/A`, then the class map, then an inheritable value from the parent, then the default — and the sentence that makes the fourth step necessary: \"an attribute that is specified for an element shall apply to all the descendants of the element in the structure tree unless a descendent element specifies an explicit value\". Structurally the same rule as §7.7.3.4's page-attribute inheritance, over a different tree."
 
 [[clause]]
 clause = "14.8.5.4"
 title = "Layout attributes"
-status = "unreviewed"
+status = "inapplicable"
+note = "Aggregate of the seven below. Layout attributes \"specify parameters of the layout process used to produce the appearance described by a document's PDF content\", and the NOTE states the intent outright: \"[t]he intent is that these parameters can be used to repurpose the content or export it to some other document format with at least basic styling preserved.\" The appearance is already drawn; nothing here can change it, and nothing in this program exports."
 
 [[clause]]
 clause = "14.8.5.4.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "Which attribute objects are layout ones — owner `Layout`, or any owner other than `List`, `Table`, `PrintField` and `Artifact` — and Table 377's map from attribute to the element types it applies to."
 
 [[clause]]
 clause = "14.8.5.4.2"
 title = "General layout attributes"
-status = "unreviewed"
+status = "inapplicable"
+note = "Table 378's attributes common to every structure type: `/Placement`, `/WritingMode`, `/BackgroundColor`, `/BorderColor`, `/BorderStyle`, `/BorderThickness`, `/Padding`, `/Color`. Every one describes what the page already shows; a reader that drew from them would draw the page twice."
 
 [[clause]]
 clause = "14.8.5.4.3"
 title = "Layout Attributes for BLSEs"
-status = "unreviewed"
+status = "inapplicable"
+note = "Table 379's block-level attributes: `/SpaceBefore`, `/SpaceAfter`, `/StartIndent`, `/EndIndent`, `/TextIndent`, `/TextAlign`, `/BBox`, `/Width`, `/Height`, `/BlockAlign`, `/InlineAlign`, `/TBorderStyle`, `/TPadding`. The `/BBox` here is a *description* of where the element was laid out and not a clip — unlike §8.10's form `/BBox` and §8.7.3.1's pattern `/BBox`, which are, and the three should not be confused."
 
 [[clause]]
 clause = "14.8.5.4.4"
 title = "Layout Attributes for ILSEs"
-status = "unreviewed"
+status = "inapplicable"
+note = "Table 380's inline-level attributes: `/BaselineShift`, `/LineHeight`, `/TextDecorationColor`, `/TextDecorationThickness`, `/TextDecorationType`, `/RubyAlign`, `/RubyPosition`, `/GlyphOrientationVertical`, `/TextPosition`. A text decoration described here is one the content stream already drew as a rule or a stroke."
 
 [[clause]]
 clause = "14.8.5.4.5"
 title = "Content and allocation rectangles"
-status = "unreviewed"
+status = "inapplicable"
+note = "How a content rectangle and an allocation rectangle are derived, by structure type: from the bounding box of a cell's graphics objects, from the sum of contained block heights, from `/LineHeight` for text. This is the arithmetic of a layout engine, stated so that two processors reflowing the same file agree."
 
 [[clause]]
 clause = "14.8.5.4.6"
 title = "Figure, Form and Formula attributes"
-status = "unreviewed"
+status = "inapplicable"
+note = "`/BBox`, `/Width` and `/Height` on a `Figure`, `Form` or `Formula`. The same description-not-clip caution as §14.8.5.4.3's."
 
 [[clause]]
 clause = "14.8.5.4.7"
 title = "Column attributes"
-status = "unreviewed"
+status = "inapplicable"
+note = "`/ColumnCount`, `/ColumnGap` and `/ColumnWidths` on a grouping element laid out in columns. A processor reflowing the content needs them; a processor drawing it has the columns already."
 
 [[clause]]
 clause = "14.8.5.5"
 title = "List attributes"
-status = "unreviewed"
+status = "inapplicable"
+note = "Table 381's `/ListNumbering`, which says how a list's labels were numbered — `Decimal`, `UpperRoman`, `Disc` and the rest. The labels themselves are `Lbl` elements holding the marks the page shows; this names the scheme for a processor that intends to renumber. Worth noticing that §12.4.2's page labels use the same vocabulary for a question this tree *does* answer."
 
 [[clause]]
 clause = "14.8.5.6"
 title = "PrintField attributes"
-status = "unreviewed"
+status = "silent"
+note = "Table 382's `/Role`, `/checked` and `/Desc` on a `Form` element — what kind of field the content depicts, and whether the check box shown is on. **This is the one attribute family with a rendering-adjacent question in it**, and the answer is that it has none: §12.7.4's appearance is what a widget draws, and `/checked` here is a *description* of that appearance for a processor exporting the form. If the two disagree the appearance wins, because the appearance is the page."
 
 [[clause]]
 clause = "14.8.5.7"
 title = "Table attributes"
-status = "unreviewed"
+status = "inapplicable"
+note = "Table 383's `/RowSpan`, `/ColSpan`, `/Headers`, `/Scope` and `/Summary` — the table semantics §14.8.4.8.3's header-search algorithm consumes. Nothing here is drawn; a spanned cell was drawn as whatever marks the content stream made."
 
 [[clause]]
 clause = "14.8.5.8"
 title = "Artifact attributes"
-status = "unreviewed"
+status = "inapplicable"
+note = "Table 384's `/Type`, `/BBox` and `/Subtype` on an `Artifact` element, the same four kinds §14.8.2.2.2's property list names. Read and dismissed for the same reason as the rest of §14.8.5: it describes rather than draws."
 
 [[clause]]
 clause = "14.8.6"
 title = "Standard structure namespaces"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the three below: which namespace a structure type's name belongs to, which is what makes two documents' tagsets comparable."
 
 [[clause]]
 clause = "14.8.6.1"
 title = "Namespaces for standard structure types and attributes"
-status = "unreviewed"
+status = "silent"
+note = "Two namespaces, named by URI: PDF 2.0's `http://iso.org/pdf2/ssn` and PDF 1.7's `http://iso.org/pdf/ssn`, with the **default being the older one** — \"[w]hen a namespace is not explicitly specified for a given structure element or attribute, it shall be assumed to be within this default standard structure namespace\". A reader that assumed the newest would misread every untagged-namespace element in every file written before 2020."
 
 [[clause]]
 clause = "14.8.6.2"
 title = "Role maps and namespaces"
-status = "unreviewed"
+status = "silent"
+note = "Role maps, and the rule §14.8.4.1 depends on: every structure element must reach a standard type, directly or through a mapping that \"can be applied transitively to allow a structure element to be mapped through multiple steps\". Transitive means a reader needs a cycle guard, which is the same shape as the guards `tree.rs` and `outline.rs` already carry. An element with no `/NS` uses the structure tree root's `/RoleMap`; one with a namespace uses that namespace's own."
 
 [[clause]]
 clause = "14.8.6.3"
 title = "Other namespaces"
-status = "unreviewed"
+status = "silent"
+note = "The namespaces beyond the two standard ones — MathML and the PDF/UA and PDF/A schemas — which a document may use for elements that have no standard equivalent. The list is open, and the requirement is only that an element be in *one* of the recognised namespaces or role-mapped into one."
 
 [[clause]]
 clause = "14.9"

@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-fifth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-sixth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,76 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the fifty-fifth session changed
+## What the fifty-sixth session changed
+
+**Every one of ISO 32000-2's 823 technical subclauses has been read against this code.**
+`UNREVIEWED_CEILING` is **0**, and the assertion that guarded it is now an equality: a row that
+arrives `unreviewed` — a future edition gaining a subclause, or `bin/ledger` finding one this
+file lacks — fails the build until somebody reads it. ADR 0061.
+
+| status | rows | |
+|---|---|---|
+| `implemented` | 256 | every normative requirement in the clause is executed |
+| `partial` | 159 | some are, and the note says which are not |
+| **`silent`** | **195** | not implemented, and nothing says so |
+| `inapplicable` | 89 | a marking device, a layout engine or a production workflow |
+| `out-of-scope` | 87 | on principle 5's closed exclusion list, which the row names |
+| `reported` | 30 | not implemented, detected and named at runtime |
+| `writer-side` | 7 | addresses a PDF writer; we do not create files |
+
+**195 silences is the finding, and the number was 2 as recently as the forty-second session.**
+Every one of the 193 that arrived since came from *reading* rather than from any change to the
+code. `unreviewed` and `silent` are different admissions — *we have not asked* against *we
+asked, and we owe it without saying so* — and the whole exercise has been converting the first
+into the second, third or fourth. Where the silence is: clause 12's interactive half, where
+almost every row is a *viewer* rather than a clause, and clause 14's structure, where none of it
+changes a mark.
+
+**And the fourth and last row waiting on the name-and-number-tree component closed on the way
+in.** §14.7.5.4's structural parent tree is read: a page's `/StructParents` is the key into the
+structure tree root's `/ParentTree`, and the marked-content identifier is "a zero-based index
+into the array" that comes back. The clause states its own reason and it is worth keeping —
+"[b]ecause a stream cannot contain object references, there is no way for content items that are
+marked-content sequences to refer directly back to their parent structure elements".
+
+The consumer is §14.9.4's replacement text on a *structure element*, which is the half the
+previous session left `partial`. **8 corpus documents state one on page one**; 89 have a
+`/StructTreeRoot`, 76 key the parent tree from page one, and 75 name an element. The one that
+names none states an **empty array** for its key — a document saying its first page belongs to no
+structure element — and the test asserts that rather than counting it as a failure.
+
+`structure.rs` deliberately does *not* walk `/K` from the root. No consumer in this program needs
+an ordering of elements: §12.3.2.3's structure destinations read one element's own entries, and
+extraction asks about the element covering a sequence it is already inside. Building the tree
+top-down would be a data structure with no user.
+
+| | before | now |
+|---|---|---|
+| **ledger subclauses nobody has read** | 20 | **0**, out of 823 |
+| ledger rows owing something in silence | 186 | **195** |
+| pages agreeing with the reference consensus | 821 | **821** |
+| corpus documents drawing with nothing reported | 858 | **858** |
+| `§` citations the checker verified | 1542 | **1553** |
+| **tests** | 640 | **643** |
+
+What it taught:
+
+- **The instrument produced work no other instrument could, and three kinds of it.** A missing
+  *component* — four rows in two clauses naming one absent data structure, which no clause
+  review and no corpus document would have surfaced. Three *false claims* — §8.7.3.1's `/BBox`,
+  §8.7.2's pattern space, §14.6.2's "both forms" — each written from the clause during a review,
+  each true of no code, and each found by the oracle rather than by the ledger. And a *ranking*
+  a demand curve cannot give, because a demand curve cannot rank a requirement no file
+  exercises.
+- **A ledger note is a hypothesis the gates test, not a conclusion they inherit.** That is the
+  right way round and it took three wrong rows to see it. `FILE_ONLY_EVIDENCE_CEILING` is the
+  standing answer: 58 `implemented` rows still name a whole test *file*, which passes whatever
+  it contains, and that number may only fall.
+- **Reading every clause is not implementing every clause**, and the vocabulary says so: 195
+  silences and 30 reports are the distance left. What changed is that the distance is itemised,
+  and there is no longer anywhere for a requirement nobody has thought about to hide.
+
+### The fifty-fifth session, in brief
 
 **§14.9.4's `/ActualText`, and the reason it could not be read: the property list it lives in
 was never a dictionary.** ADR 0060.
@@ -1409,10 +1478,10 @@ own label from §12.4.2 shown in the title bar, **§12.3.2's destinations**, whi
 document opens at, and — since the fiftieth session — **§12.3.3's outline**, which names the
 section the page being shown is in. It is not yet a PDF *viewer* in the
 full sense — nothing edits a field, follows a link or asks a person for a password — and the gap
-is now measured *by clause* as well as by corpus: 153 of the ledger's rows are `silent`, and
+is now measured *by clause* as well as by corpus: 195 of the ledger's rows are `silent`, and
 almost every one of them is a viewer rather than a renderer.
 
-- **640 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **643 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -1510,7 +1579,7 @@ almost every one of them is a viewer rather than a renderer.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1542 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1553 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -1541,7 +1610,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1542 citations, 159 quotations, 85 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1553 citations, 159 quotations, 85 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -2180,7 +2249,7 @@ usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is 
 corpus document names is a licensing decision (predefined `CMap`s, 12), `viewer-ui` work (a
 password prompt, 8), substitution quality (24 fonts), and three transparency-group departures
 that need a second raster format or a backdrop. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **20 of 823 subclauses are `unreviewed`** — §14.8.5's attributes and §14.8.6's namespaces, and nothing else in the standard. A project running only the
+§6.3.2.2's ranking name — and as of the fifty-sixth session **that track has no unread clause left: 0 of 823 subclauses are `unreviewed`, and what remains is 195 `silent` rows and 30 `reported` ones, each naming what it owes**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -2237,7 +2306,7 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **A shading's `/BBox`, `/UserUnit` and `/MissingWidth` are the three rendering
 items that came back onto it and off it again** in the twenty-eighth, twenty-ninth and
 thirtieth sessions, and none was announced by a document: all three were found by reading a
-clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **20 of 823 subclauses have never been read at all** — §14.8.5 and §14.8.6, and nothing else.
+clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **0 of 823 subclauses remain unread**; the debt is now 195 `silent` rows and 30 `reported` ones, each of which names what it owes.
 
 **The corpus has gone quiet, and the nine sessions from the thirtieth to the thirty-eighth are
 what that looks like when the two-track rule is followed.** Everything that moved a gate number
@@ -2261,7 +2330,7 @@ program fell through to substitution, and substitution says nothing.
   clause the code cites and nobody has read is the cheapest debt this project can accrue, and
   the list now fails the build the moment one appears. Every clearing of it has produced
   findings the demand item could not have reached — most recently §10.4.2.5.
-- **Twenty rows are left in the whole standard**: §14.8.5's structure attributes and §14.8.6's namespaces. One session finishes the ledger. Every other technical clause — 7, 8, 9, 10, 11,
+- **The ledger is complete: no `unreviewed` row anywhere in the standard** (ADR 0061). What replaces "read the next family" is **the 195 `silent` rows**, which say what is owed and where; and `FILE_ONLY_EVIDENCE_CEILING`, 58 `implemented` rows whose evidence is a whole test file rather than a test, which is where a false claim can still hide. Every other technical clause — 7, 8, 9, 10, 11,
   12 and 13 — has no `unreviewed` row, and clause 7 became true rather than claimed in the
   forty-ninth session (§7.11 and §7.12; the count is taken by grouping the ledger's `unreviewed`
   rows by leading clause number, never by what a session touched). What remains is **§14.8's

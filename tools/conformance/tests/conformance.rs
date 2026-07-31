@@ -34,7 +34,12 @@ use conformance::quote;
 /// requirement nobody has thought about. Neither gate that renders a page can: a corpus
 /// ranks what documents ask for, and a demand curve cannot rank a requirement no file
 /// exercises.
-const UNREVIEWED_CEILING: usize = 314;
+/// **Zero since the fifty-sixth session**, which is what it was written to reach: every one of
+/// the standard's 823 technical subclauses has been read against this code and carries a status
+/// and a note. The ratchet stays because the ledger grows — a row added by a future edition of
+/// the standard, or by `bin/ledger` finding a subclause this file lacks, arrives `unreviewed`
+/// and fails here immediately.
+const UNREVIEWED_CEILING: usize = 0;
 
 /// How many `implemented` rows name a whole test *file* rather than a test.
 ///
@@ -297,14 +302,13 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
         file_only.len()
     );
 
-    assert!(
-        unreviewed <= UNREVIEWED_CEILING,
-        "{unreviewed} subclauses are unreviewed, above the ratchet of {UNREVIEWED_CEILING}. \
-         This number may only fall."
+    assert_eq!(
+        unreviewed, UNREVIEWED_CEILING,
+        "{unreviewed} subclauses are unreviewed, against the ratchet of \
+         {UNREVIEWED_CEILING}. This number may only fall, and it has reached zero: a row that \
+         arrives `unreviewed` — because the standard gained a subclause, or because `bin/ledger` \
+         found one this file lacks — has to be read before the build is green again."
     );
-    if unreviewed < UNREVIEWED_CEILING {
-        println!("UNREVIEWED_CEILING can come down from {UNREVIEWED_CEILING} to {unreviewed}.");
-    }
 }
 
 /// The per-clause breakdown, which is what says where the debt is rather than how much.

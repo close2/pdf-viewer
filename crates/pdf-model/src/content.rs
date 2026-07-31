@@ -784,6 +784,7 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         text_cursor: None,
         base: base_transform(page),
         page: size,
+        structure: crate::structure::ParentTree::for_page(document, &page.dict),
         output_intent: output_intent_space(document),
         optional_content: crate::optional_content::OptionalContent::read(document),
         hidden: 0,
@@ -942,6 +943,12 @@ struct Interpreter<'a> {
     base: Transform,
     /// The page's extent, used to bound a shading painted by `sh`.
     page: Size,
+    /// §14.7.5.4's structural parent tree for this page, empty for most documents.
+    ///
+    /// Read once when the page is interpreted, because the lookup it answers — a
+    /// marked-content identifier to its structure element — happens per `BDC` and the tree is
+    /// a number tree walk. 87 of the 974 corpus documents have a structure tree at all.
+    structure: crate::structure::ParentTree,
     /// The colour space the document's output intent describes, if it has one.
     ///
     /// ISO 32000-2 §14.11.5: an output intent's `/DestOutputProfile` is "an ICC profile
@@ -1571,14 +1578,9 @@ impl Interpreter<'_> {
                         hides,
                         // §14.9.4's replacement text, which belongs to *extraction* and not to
                         // drawing: the marks are unchanged and what a reader copies is not.
-                        actual_text: self.property_list(resources, operands.get(1)).and_then(
-                            |list| match self.document.get_key(&list, "ActualText") {
-                                Object::String(bytes) => {
-                                    Some((self.text.len(), pdf_syntax::text_string(&bytes)))
-                                }
-                                _ => None,
-                            },
-                        ),
+                        actual_text: self
+                            .replacement_text(resources, operands.get(1))
+                            .map(|text| (self.text.len(), text)),
                     });
                     if hides {
                         self.hidden = self.hidden.saturating_add(1);
@@ -3702,6 +3704,24 @@ impl Interpreter<'_> {
         let table = table.as_dict()?;
         let value = table.get(name)?;
         Some(self.document.resolve(value))
+    }
+
+    /// §14.9.4's replacement text for a marked-content sequence, from either place it lives.
+    ///
+    /// The clause puts `/ActualText` on a `Span` property list *and* on a structure element,
+    /// and says the same thing of both — it "shall be used as a replacement, not a
+    /// description, for the content". A sequence carrying an `/MCID` names its element through
+    /// §14.7.5.4's parent tree, so both are reachable from a `BDC`; the property list is asked
+    /// first because it is the more specific statement, attached to this sequence rather than
+    /// to the element the sequence belongs to.
+    fn replacement_text(&self, resources: &Dictionary, operand: Option<&Object>) -> Option<String> {
+        let list = self.property_list(resources, operand)?;
+        if let Object::String(bytes) = self.document.get_key(&list, "ActualText") {
+            return Some(pdf_syntax::text_string(&bytes));
+        }
+        let mcid = self.document.get_key(&list, "MCID").as_integer()?;
+        let element = self.structure.element(mcid)?;
+        crate::structure::actual_text(self.document, element)
     }
 
     /// The property list a `BDC` operand names, inline or through `/Properties`.
