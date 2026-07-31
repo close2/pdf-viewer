@@ -58,6 +58,44 @@ pub struct ViewState {
     /// for this session. Two sets rather than a map from identity to boolean because the
     /// common case is that both are empty and neither allocates.
     shown: BTreeSet<ObjectId>,
+    /// Which annotation the pointer is over or pressing, if any (§12.5.5).
+    ///
+    /// One annotation rather than a set, because a pointer is in one place. `None` is what
+    /// every render before the seventy-sixth session assumed: nothing is interacting with the
+    /// user, so every annotation shows its normal appearance.
+    pointer: Option<(ObjectId, Pointer)>,
+}
+
+/// What the pointer is doing to an annotation, in §12.5.5's terms.
+///
+/// The clause states the three appearances as three situations rather than as a mode:
+///
+/// > The normal appearance shall be used when the annotation is not interacting with the
+/// > user. … The rollover appearance shall be used when the user moves the cursor into the
+/// > annotation's active area without pressing the mouse button. … The down appearance shall
+/// > be used when the mouse button is pressed or held down within the annotation's active
+/// > area.
+///
+/// NOTE 2 is worth carrying: "the term mouse denotes a generic pointing device that controls
+/// the location of a cursor on the screen and has at least one button".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Pointer {
+    /// The cursor is inside the annotation's active area with no button pressed.
+    Over,
+    /// A button is pressed or held down inside it.
+    Down,
+}
+
+/// Which of Table 170's appearances an annotation shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Appearance {
+    /// `/N`, the only entry Table 170 requires, and the one a printer uses.
+    #[default]
+    Normal,
+    /// `/R`, the rollover appearance.
+    Rollover,
+    /// `/D`, the down appearance.
+    Down,
 }
 
 impl ViewState {
@@ -71,6 +109,7 @@ impl ViewState {
             optional_content: OptionalContent::read(document),
             hidden: BTreeSet::new(),
             shown: BTreeSet::new(),
+            pointer: None,
         }
     }
 
@@ -78,6 +117,31 @@ impl ViewState {
     #[must_use]
     pub fn optional_content(&self) -> Option<&OptionalContent> {
         self.optional_content.as_ref()
+    }
+
+    /// Puts the pointer on an annotation, or takes it off every annotation.
+    ///
+    /// A viewer calls this from its own hit testing: §12.5.5 speaks of the cursor being "into
+    /// the annotation's active area", which is a question about a window's coordinates and a
+    /// `/Rect` that this crate has no events to answer. What it decides here is which of
+    /// Table 170's appearances [`Self::appearance_for`] chooses, and therefore what the next
+    /// render draws.
+    pub fn set_pointer(&mut self, at: Option<(ObjectId, Pointer)>) {
+        self.pointer = at;
+    }
+
+    /// Which of Table 170's appearances this annotation shows now.
+    ///
+    /// [`Appearance::Normal`] for every annotation the pointer is not on, which §12.5.5 makes
+    /// the case rather than a default: the normal appearance "shall be used when the
+    /// annotation is not interacting with the user".
+    #[must_use]
+    pub fn appearance_for(&self, annotation: ObjectId) -> Appearance {
+        match self.pointer {
+            Some((id, Pointer::Over)) if id == annotation => Appearance::Rollover,
+            Some((id, Pointer::Down)) if id == annotation => Appearance::Down,
+            _ => Appearance::Normal,
+        }
     }
 
     /// Whether §12.6.4.11 has hidden this annotation, shown it, or said nothing about it.

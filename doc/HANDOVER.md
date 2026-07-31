@@ -222,6 +222,25 @@ structural similarity 0.904–0.946 against 0.900.
   Nothing on the list is above its bound any more except `issue7891_bc1.pdf` and the eight now
   named, all of which are measured.
 
+**Seventy-sixth — Table 170's other two appearances, and the third input again.** §12.5.5 states
+three appearances as three *situations*: normal "when the annotation is not interacting with the
+user", rollover when the cursor is in the active area, down "when the mouse button is pressed or
+held down within" it. This tree drew `/N` and nothing else, and the ledger's row said the other
+two were "for a cursor this viewer has not got yet".
+
+- **A cursor is not in the document**, so which appearance applies is `view::ViewState`'s —
+  exactly where §12.6.4's actions and §8.11's layer switches already live.
+  `ViewState::set_pointer` takes an annotation and whether a button is down;
+  `ViewState::appearance_for` answers Table 170's key, and every annotation the pointer is not
+  on answers `Normal`, which is the clause's own wording rather than a default.
+- **Hit testing stays with the caller.** "[I]nto the annotation's active area" is a question
+  about a window's coordinates and a `/Rect`, and this crate has no events.
+- **Table 170 requires only `/N`**, so an annotation with no entry for the state it is in shows
+  its normal appearance — which is also what printing asks for, in the same sentence.
+- **The test is a pixel**, because nothing about the display list distinguishes "we chose `/N`"
+  from "we chose `/D` and it looks the same". 5 corpus documents state a `/D`; no gate moves,
+  because nothing presses a button during a gate run.
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -300,6 +319,7 @@ below rather than here.
 | 73 | One shading object, built once: a fifth of the corpus's worst page | ADR 0069 |
 | 74 | §10.7.3's `/SM`, the silence that was hiding inside a `partial` row | — |
 | 75 | Eight "unexplained" contradicted pages are one population, measured | — |
+| 76 | Table 170's rollover and down appearances, on the pointer | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -331,7 +351,7 @@ page or runs a slide show — and the gap is now measured *by clause* as well as
 the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **703 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **704 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -1043,7 +1063,7 @@ parts that make a document *interactive* have just started.
 | Text rendering modes | **8 of 8** in §9.3.6 Table 104: fill, stroke in user space, both per glyph, invisible, and the four that add glyphs to the clipping path at `ET`. An operand outside 0..7 is reported. |
 | Text state parameters | **9 of Table 102's 9**. `Tk` (§9.3.8) was the last, and it is a text object becoming §11.4.6's knockout group where the two models can differ. |
 | Word spacing (§9.3.3) | A property of the *code's encoded length*, not of the font: an embedded `CMap` may define codes of several lengths in one font and four of the corpus's do. |
-| Annotations | Placed by §12.5.5, drawn from `/AP`, and **constructed** where there is none: a link's border, a square, a circle, a polygon, a polyline, an ink scribble, a line, a widget's `/MK` frame, and **its field's text** (ADRs 0030, 0032). Icons and text markup are refused and named. |
+| Annotations | Placed by §12.5.5, drawn from `/AP` — **the one of Table 170's three the pointer asks for** — and **constructed** where there is none: a link's border, a square, a circle, a polygon, a polyline, an ink scribble, a line, a widget's `/MK` frame, and **its field's text** (ADRs 0030, 0032). Icons and text markup are refused and named. |
 | Form fields (§12.7.4.3) | A text field's `/V`, a choice field's selection, a button's Table 192 caption and a `FreeText`'s `/Contents`, laid out from a `/DA` string resolved in `/DR`: quadding, auto-sizing, wrapping, Table 232's comb cells, and a password field's bullets. `/NeedAppearances` splices the `/Tx` region of a stored stream and keeps the rest. |
 | Text strings (§7.9.2.2) | All three encodings, chosen by the clause's prefix, with surrogate pairs paired, §7.9.2.2.2's language escapes removed and Annex D Table D.3 compiled in. |
 | Image masking | All four mechanisms an image can carry plus the graphics state's own, combined on the finer of the two grids with a bound on the growth; a graphics-state mask is combined at *device* resolution. §11.6.4.3's precedence decides which wins. |
@@ -1076,8 +1096,8 @@ file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
   `view::ViewState`, the per-document state a viewer holds (ADR 0065). What is nearest:
   **a presentation mode**, whose whole data model is read as of the seventieth session and which
   needs a full-screen window, a clock and an animation nothing here can express; **a layer panel** — whose whole data model is read as of the
-  sixty-seventh session, so what is left is `viewer-ui` — and **§12.6.3's `/AA` trigger events**, which are what make a widget's `/AP /D` down-appearance reachable — the
-  appearance is already placed by §12.5.5 and nothing can ask for it. **The corpus's own action
+  sixty-seventh session, so what is left is `viewer-ui` — and **§12.6.3's `/AA` trigger events** — the appearance the pointer asks for is chosen as of the
+  seventy-sixth session, and what is still missing is the *actions* a press performs. **The corpus's own action
   census, taken in the sixty-second session by walking every object of all 964 openable
   documents:** `GoTo` 269 actions in 138 documents, `JavaScript` 234 in 55 (excluded by principle
   5), `URI` 217 in 8, `GoToE` 31 in 2, `Named` 9 in 3, `ResetForm` 3 in 2, `Rendition` 2 in 1,

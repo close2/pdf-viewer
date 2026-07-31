@@ -699,3 +699,105 @@ fn an_annotation_draws_over_the_page_content() {
         "the annotation's blue must cover the page's red"
     );
 }
+
+/// §12.5.5's three appearances: the pointer decides which one is drawn.
+///
+/// > The normal appearance shall be used when the annotation is not interacting with the
+/// > user. … The down appearance shall be used when the mouse button is pressed or held down
+/// > within the annotation's active area.
+///
+/// The appearance streams here paint different colours, so the assertion is a pixel: nothing
+/// about the display list distinguishes "we picked `/N`" from "we picked `/D` and it happens
+/// to look the same". Which one is asked for is `ViewState`'s, because the cursor is not in
+/// the document — the same division §12.6.4's actions are read under.
+///
+/// The last case is the one Table 170 decides: `/R` is optional, so an annotation with the
+/// pointer over it and no rollover appearance shows its normal one rather than nothing.
+#[test]
+fn the_pointer_chooses_between_an_annotations_appearances() {
+    let bytes = pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 \
+         /AP << /N 6 0 R /D 7 0 R >> >>",
+        "/BBox [0 0 80 80]",
+        "1 0 0 rg 0 0 80 80 re f",
+    );
+    // Object 7 is the down appearance, appended to the fixture: blue where /N is red.
+    let bytes = with_down_appearance(bytes);
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let annotation = pdf_syntax::ObjectId {
+        number: 5,
+        generation: 0,
+    };
+
+    let colour = |state: &pdf_model::view::ViewState| {
+        let list = pdf_model::content::interpret_with(&document, &page, state).display_list;
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("target");
+        let raster = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let at = ((50 * raster.width) + 50) as usize * 4;
+        (raster.data[at], raster.data[at + 1], raster.data[at + 2])
+    };
+
+    let mut state = pdf_model::view::ViewState::of(&document);
+    assert_eq!(colour(&state), (255, 0, 0), "nothing is interacting: /N");
+
+    state.set_pointer(Some((annotation, pdf_model::view::Pointer::Down)));
+    assert_eq!(colour(&state), (0, 0, 255), "a button pressed on it: /D");
+
+    state.set_pointer(Some((annotation, pdf_model::view::Pointer::Over)));
+    assert_eq!(
+        colour(&state),
+        (255, 0, 0),
+        "the cursor over it with no /R stated: /N, which Table 170 makes the only required one"
+    );
+
+    let elsewhere = pdf_syntax::ObjectId {
+        number: 9,
+        generation: 0,
+    };
+    state.set_pointer(Some((elsewhere, pdf_model::view::Pointer::Down)));
+    assert_eq!(
+        colour(&state),
+        (255, 0, 0),
+        "pressed on some other annotation"
+    );
+}
+
+/// Appends object 7, a blue appearance stream, to a fixture built by [`pdf_with`].
+///
+/// Written as a rebuild rather than a splice because the cross-reference table's offsets are
+/// what a `Document` reads, and an appended object nothing points at is not in it.
+fn with_down_appearance(bytes: Vec<u8>) -> Vec<u8> {
+    let text = String::from_utf8(bytes).expect("the fixture is ASCII");
+    let body: String = text
+        .split_inclusive("endobj\n")
+        .filter(|part| part.contains(" 0 obj"))
+        .collect();
+    let down = "0 0 1 rg 0 0 80 80 re f";
+    let body = format!(
+        "{body}7 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length {} >>\n\
+         stream\n{down}\nendstream\nendobj\n",
+        down.len().saturating_add(1)
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}

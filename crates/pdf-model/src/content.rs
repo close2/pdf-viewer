@@ -3022,7 +3022,16 @@ impl Interpreter<'_> {
             if by_action == Some(true) {
                 continue;
             }
-            match crate::annotation::decide(self.document, dict, by_action == Some(false)) {
+            // §12.5.5's three appearances: which one this annotation is showing is a
+            // property of the pointer, which is a `ViewState` question rather than a document
+            // one. Every annotation the pointer is not on answers `Normal`.
+            let showing = entry
+                .as_reference()
+                .map_or(crate::view::Appearance::Normal, |id| {
+                    self.view.appearance_for(id)
+                });
+            match crate::annotation::decide(self.document, dict, by_action == Some(false), showing)
+            {
                 crate::annotation::Decision::Nothing => {}
                 crate::annotation::Decision::Unsupported(detail) => {
                     self.note(Unsupported::Annotation { detail });

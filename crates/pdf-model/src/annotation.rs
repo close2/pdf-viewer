@@ -35,7 +35,7 @@
 use pdf_render::{Transform, geom::Point};
 use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document, Stream};
+use pdf_syntax::{Dictionary, Document, Object, Stream};
 
 /// What an appearance's content is: a stream the file stored, or one this crate wrote.
 #[derive(Debug, Clone)]
@@ -149,6 +149,7 @@ pub(crate) fn decide(
     document: &Document,
     annotation: &Dictionary,
     shown_by_action: bool,
+    showing: crate::view::Appearance,
 ) -> Decision {
     let subtype = document
         .get_key(annotation, "Subtype")
@@ -184,7 +185,7 @@ pub(crate) fn decide(
         return Decision::Nothing;
     }
 
-    let stored = match normal_appearance(document, annotation) {
+    let stored = match stored_appearance(document, annotation, showing) {
         Normal::Stream(stream) => stream,
         Normal::Absent => return construct(document, annotation, &subtype, &name, rect),
         Normal::StateNotDefined => return Decision::Nothing,
@@ -311,20 +312,39 @@ enum Normal {
     StateNotDefined,
 }
 
-/// Resolves `/AP /N` to a single stream, following `/AS` where it names a state.
+/// Resolves the appearance the annotation is showing to a single stream.
 ///
-/// §12.5.5: `/N` is "a single appearance stream or an appearance subdictionary", and where
-/// it is a subdictionary the `/AS` entry chooses among the states. The clause also names the
-/// behaviour when that choice fails — "PDF processors shall also attempt to provide
-/// reasonable behaviour (such as displaying nothing) if an annotation's AS entry designates
-/// an appearance state for which no appearance is defined in the appearance dictionary" —
-/// so displaying nothing there is the specified answer rather than a shortfall.
-fn normal_appearance(document: &Document, annotation: &Dictionary) -> Normal {
+/// §12.5.5: an entry of Table 170's appearance dictionary is "a single appearance stream or
+/// an appearance subdictionary", and where it is a subdictionary the `/AS` entry chooses
+/// among the states. The clause also names the behaviour when that choice fails — "PDF
+/// processors shall also attempt to provide reasonable behaviour (such as displaying nothing)
+/// if an annotation's AS entry designates an appearance state for which no appearance is
+/// defined in the appearance dictionary" — so displaying nothing there is the specified
+/// answer rather than a shortfall.
+///
+/// `showing` is which of the three the pointer's position asks for (`crate::view::Appearance`).
+/// Table 170 requires only `/N` and makes `/R` and `/D` optional, so an annotation with no
+/// entry for the state it is in has stated no special appearance for it and shows its normal
+/// one — which is also what §12.5.3's *printing* path asks for, since "this appearance is
+/// also used for printing the annotation".
+fn stored_appearance(
+    document: &Document,
+    annotation: &Dictionary,
+    showing: crate::view::Appearance,
+) -> Normal {
     let appearances = document.get_key(annotation, "AP");
     let Some(appearances) = appearances.as_dict() else {
         return Normal::Absent;
     };
-    let normal = document.get_key(appearances, "N");
+    let key = match showing {
+        crate::view::Appearance::Normal => "N",
+        crate::view::Appearance::Rollover => "R",
+        crate::view::Appearance::Down => "D",
+    };
+    let normal = match document.get_key(appearances, key) {
+        Object::Null => document.get_key(appearances, "N"),
+        stated => stated,
+    };
 
     if let Some(stream) = normal.as_stream() {
         return Normal::Stream(Arc::clone(stream));
