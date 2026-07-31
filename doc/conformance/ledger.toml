@@ -4368,56 +4368,74 @@ note = "Digital signatures — legal content attestations, `/Legal`, which lists
 [[clause]]
 clause = "12.9"
 title = "Measurement properties"
-status = "silent"
-note = "Measurement properties: `/Measure` on a viewport, saying how many real-world units a PDF user-space unit stands for. Read by nothing. A reading rather than a rendering feature — no mark on the page depends on it — and it belongs to the same family as §12.10's geospatial dictionaries, which are the same idea for a map."
+status = "partial"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::the_last_viewport_containing_a_point_is_the_one_that_applies", "crates/pdf-model/src/measurement.rs::the_clauses_own_example_formats_the_string_it_states", "crates/pdf-model/tests/measurement.rs::the_corpus_states_one_viewport_and_it_reads"]
+note = "Table 265's viewports and Table 266's measure dictionaries, read whole: a page's `/VP` array, each viewport's `/BBox`, `/Name` and `/Measure`, Table 267's rectilinear entries with their number format arrays, and Table 268's ten entries with the defaults the table states. The rule worth naming is the *selection*: viewports may overlap, the array is \"in drawing order\", and the clause searches it backwards — \"starting with the last one and iterating in reverse, and the first one whose `BBox` entry contains the point shall be chosen\" — so `Viewports::at` iterates in reverse, and a forward search would answer with the background scale inside every inset. A `/BBox` is kept exactly as stated rather than normalised, because Table 265 makes the corner order mean something: it \"shall determine the orientation of the measuring coordinate system\". `partial` because nothing *measures*: the clause exists for a person dragging between two points, and this viewer has no tools — what it can do is the arithmetic, which §12.9.2's row holds."
 
 [[clause]]
 clause = "12.9.1"
 title = "General"
-status = "silent"
-note = "The framing, and the one sentence worth keeping: this exists so \"users of interactive PDF processors [can] perform measurements that yield results in the units intended by the creator\". A viewer with a measuring tool; this one has no tools."
+status = "partial"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::the_last_viewport_containing_a_point_is_the_one_that_applies", "crates/pdf-model/tests/measurement.rs::the_corpus_states_one_viewport_and_it_reads"]
+note = "The framing, and its load-bearing sentence is about a viewer rather than a page: users of such documents \"require information about the scale and units of measurement of the corresponding real-world objects and their relationship to units in PDF user space\". The data a measurement needs is read; the tool that would take two points from a person is not built, which is what keeps this `partial`."
 
 [[clause]]
 clause = "12.9.2"
 title = "Algorithm: Use of a number format array to create a formatted text string"
-status = "silent"
-note = "The number format array and the algorithm that turns a value into a string with units, a precision and a rounding rule. Self-contained arithmetic that would be straightforward to write and has nothing to call it."
+status = "implemented"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::the_clauses_own_example_formats_the_string_it_states"]
+note = "The five steps, in `measurement::format`. A number format array is units in descending granularity and the algorithm carries the *fractional remainder* from each into the next — step e), \"Multiply its C entry by the fractional result from the previous step\" — stopping at step c) when nothing is left over or at step d) when the units run out. Table 268's formatting entries all take part: `/RT` between orders of thousands, `/RD` as the decimal point, `/F` choosing decimal, fraction, round or truncate, `/D` as precision or denominator with its two different defaults, `/FD` keeping a denominator unreduced, and `/PS`, `/SS` and `/O` placing the label. **The clause's own worked example is the test**: 1.4505 miles through the example's own three dictionaries is `1 mi 2,378 ft 7 5/8 in`, and every part of the algorithm is load-bearing in that one string. No corpus document exercises it, which is trap 8 and is why the example matters."
 
 [[clause]]
 clause = "12.10"
 title = "Geospatial features"
-status = "silent"
-note = "Geospatial features — the family. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
+status = "partial"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::a_geospatial_measure_carries_the_earth_model_and_not_a_scale", "crates/pdf-model/tests/measurement.rs::the_corpus_states_one_viewport_and_it_reads"]
+note = "Geospatial features, read as data. Table 269's geospatial measure dictionary, Tables 270 and 271's coordinate systems and Table 272's point data are all read; what is not done is the *transformation*, and the reason is that the standard states it by reference to two things outside itself — an EPSG reference code, whose database is \"administered by the International Association of Oil and Gas Producers (OGP)\", and a Well Known Text string, whose format \"is specified in ISO 19162\". Turning a page coordinate into a latitude means a geodesy library and that registry; guessing would produce coordinates that look right and are somewhere else. The one corpus witness — `bug1146106.pdf` — is a `GEO` viewport with a geographic system stated as 145 characters of WKT and four `/GPTS`–`/LPTS` registration points."
 
 [[clause]]
 clause = "12.10.1"
 title = "General"
-status = "silent"
-note = "Geospatial features — the framing. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
+status = "partial"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::a_geospatial_measure_carries_the_earth_model_and_not_a_scale"]
+note = "The framing: PDF \"is a common delivery mechanism for map and satellite imagery data\", and PDF 2.0 adds a geospatial coordinate system to carry it. Every dictionary the clause introduces is read; the projection is not, for the reason §12.10's row gives."
 
 [[clause]]
 clause = "12.10.2"
 title = "Geospatial measure dictionary"
-status = "silent"
-note = "Geospatial features — Table 269's geospatial measure dictionary. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
+status = "partial"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::a_geospatial_measure_carries_the_earth_model_and_not_a_scale"]
+note = "Table 269 entire: `/Bounds` with the table's stated default of the whole unit square, `/GCS`, `/DCS`, `/PDU`, `/GPTS`, `/LPTS` and `/PCSM`. Two of the table's sentences are answered rather than stored: `Geospatial::registration` pairs `/GPTS` with `/LPTS`, which the table requires to hold \"the same number of number pairs as the GPTS array\", and `Geospatial::matrix_has_priority` is the table's own precedence — `/PCSM` \"has priority over GPTS\" where it is present, but \"should be ignored\" when `/GCS` is geographic, so the answer needs both entries. `partial` because a registration is not a projection: with a projected `/GCS` the points are eastings and northings, and converting them needs §12.10.3's external references."
 
 [[clause]]
 clause = "12.10.3"
 title = "Geographic coordinate system dictionary"
-status = "silent"
-note = "Geospatial features — the geographic coordinate system dictionary, an EPSG code or a WKT string. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
+status = "implemented"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::a_geospatial_measure_carries_the_earth_model_and_not_a_scale"]
+note = "Table 270's three entries. `/EPSG` and `/WKT` exclude each other — each \"shall not be present if\" the other is — and §12.10.3's closing sentence requires one of them, which is `CoordinateSystem::is_stated`. The `/Type` is what tells a geographic system from §12.10.4's projected one, and both are one Rust type because the two tables hold the same entries and differ in meaning. The WKT string is kept and not parsed: its format is ISO 19162's, which is a different standard."
 
 [[clause]]
 clause = "12.10.4"
 title = "Projected coordinate system dictionary"
-status = "silent"
-note = "Geospatial features — the projected coordinate system dictionary. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
+status = "implemented"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::a_geospatial_measure_carries_the_earth_model_and_not_a_scale"]
+note = "Table 271's three entries, read by the same code as Table 270's for the reason §12.10.3's row gives — the tables are identical in shape. What a projected system *means* is different and is recorded: its `/GPTS` \"contains values in a planar projected coordinate space as eastings and northings\" rather than degrees, and `CoordinateSystem::projected` is what a caller asks to find out which."
 
 [[clause]]
 clause = "12.10.5"
 title = "Point data dictionary"
-status = "silent"
-note = "Geospatial features — the point data dictionary. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
+status = "implemented"
+code = ["crates/pdf-model/src/measurement.rs"]
+test = ["crates/pdf-model/src/measurement.rs::a_geospatial_measure_carries_the_earth_model_and_not_a_scale"]
+note = "Table 272's point data, from either spelling of `/PtData` — \"a point data dictionary or an array of point data dictionaries\". `/Names` are, in the clause's words, \"in effect, column headers for the array of XPTS values\", so this is read as a table of named columns and tuples. The values are kept as objects rather than as numbers: only `LAT`, `LON` and `ALT` are predefined, and a name the standard does not define carries a type it does not define either."
 
 [[clause]]
 clause = "12.11"
