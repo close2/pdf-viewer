@@ -1033,44 +1033,65 @@ note = "A collection item dictionary carries one file's data for the columns §1
 [[clause]]
 clause = "7.12"
 title = "Extensions dictionary"
-status = "silent"
-note = "Aggregate of the six below. The catalog's `/Extensions` names the developer extensions a document uses, and **9 of the 974 corpus documents state one, every one of them Adobe's `ADBE` prefix**. Nothing reads it. The finding is what it is next to: §7.12 and §12.11's `/Requirements` are the same idea twice — a document declaring what a processor needs to be able to do — and this tree reads neither while reporting, per feature, exactly what it cannot draw. Putting the document's own claim beside our report is cheap and nobody has."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "The catalog's `/Extensions`: which developer extensions a document was written against. Read into `requirements::Extensions`, keyed by the registered prefix name the clause makes the key, with §7.12.3's whole dictionary under it. Nothing *acts* on it, and nothing should: an extension level is a statement about which developer's additions a file uses, and this reader implements the standard rather than anybody's additions. 9 of the 974 corpus documents state one, all `/ADBE` at level 3 or 8 over a base version of 1.7."
+
 
 [[clause]]
 clause = "7.12.1"
 title = "General"
-status = "silent"
-note = "Where the dictionary lives and what shape it has: an optional `/Extensions` in the catalog, keyed by Annex E's registered developer prefixes, whose values are developer extensions dictionaries. One structural rule, and it is the sort a reader can check for free: the extensions dictionary, the developer dictionaries \"as well as their entries, shall be direct objects\" — no indirect references anywhere inside it."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "The framing, and the two rules that decide how it is read: the keys other than `/Type` \"shall be names consisting of registered prefix names\", and the whole structure \"shall be direct objects\". The first is why `Extensions::by_prefix` is keyed by name; the second is a rule a file may break, so every part is resolved anyway — surviving it costs a reader nothing."
+
 
 [[clause]]
 clause = "7.12.2"
 title = "Extensions dictionary"
-status = "silent"
-note = "Table 48: `/Type`, and one entry per registered prefix name whose value is a developer extensions dictionary *or*, since PDF 2.0, an array of them — the NOTE says arrays \"were introduced in this document (2020)\", so a reader written against PDF 1.7 will find a type it does not expect under a prefix it does."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "Table 48: `/Type`, and one entry per registered prefix whose value is a developer extensions dictionary **or, since PDF 2.0, an array of them**. Both forms are read; the array is why one prefix maps to a list."
+
 
 [[clause]]
 clause = "7.12.3"
 title = "Developer extensions dictionary"
-status = "silent"
-note = "Table 49: `/BaseVersion`, `/ExtensionLevel`, `/URL` and PDF 2.0's `/ExtensionRevision`, the first two required. Nothing reads them; the three rows below are what they mean."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "Table 49: `/BaseVersion` and `/ExtensionLevel`, both required and both read, with PDF 2.0's optional `/URL` and `/ExtensionRevision`. A dictionary missing either required entry names no extension and is dropped rather than half-read — inventing a level would claim to know which of a developer's extensions this is."
+
 
 [[clause]]
 clause = "7.12.4"
 title = "BaseVersion"
-status = "silent"
-note = "`/BaseVersion` is the PDF version an extension applies to, and it \"shall be less than or equal to the PDF version, both in the document header … and the catalog dictionary Version key value, if present\" — a consistency check a reader could make and this one does not. The NOTE is the trap: the value \"is not to be interpreted as a real number but as two integers with a PERIOD (2Eh) between them\", so 1.10 is not 1.1."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "`/BaseVersion` is \"the name of the PDF version to which this extension applies\", kept as the name the file wrote. The clause's NOTE is the reason: \"[t]he value of BaseVersion is not to be interpreted as a real number but as two integers with a PERIOD (2Eh) between them\" — a reader that parsed it as a number would make 1.10 smaller than 1.7. The rule that it be no greater than the file's own version is a *writer's*, and this reader does not validate files."
+
 
 [[clause]]
 clause = "7.12.5"
 title = "ExtensionLevel"
-status = "silent"
-note = "`/ExtensionLevel`, an integer \"interpreted with respect to the BaseVersion value\", monotonically increasing per developer over time. Unread. It is the number that would say *which* extension a document expects, and therefore the number a report about an unimplemented extension would have to carry."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "`/ExtensionLevel`, \"an integer defined by the developer to denote the extension being used\", read as one. Its ordering rule — that a developer's levels against one base version increase over time — is a statement about a developer's practice that a reader has nothing to check against."
+
 
 [[clause]]
 clause = "7.12.6"
 title = "URL"
-status = "silent"
-note = "`/URL`, documentation for the extension, registered in the PDF Registry. Nothing here would fetch it — principle 3, and §7.11.5's row — but it is the one entry that makes an unknown extension diagnosable by a person rather than only by a program."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "`/URL`, \"a URL that refers to the documentation for this extension\", read as the string it is and fetched by nobody: this reader has no network (ADR 0014), and the entry documents an extension to a human rather than to a program. §12.6.4.8's resolution is not applied to it either — that clause is about a URI *action*, and this is a citation."
+
 
 [[clause]]
 clause = "8.1"
@@ -4377,44 +4398,65 @@ note = "Geospatial features — the point data dictionary. A map's coordinates r
 [[clause]]
 clause = "12.11"
 title = "Document requirements"
-status = "silent"
-note = "Document requirements — the family. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
+status = "partial"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty"]
+note = "The catalog's `/Requirements`: a document naming \"feature(s) of PDF beyond those commonly expected … required for correct handling\". Read in full — Table 273's `/S`, `/V` and `/Penalty`, Table 275's twenty-four types, Table 276's handlers — and `requirements::unmet` names each one this program cannot meet with the reason. What is `partial` is the *acting* on it: §12.11.6 says processing \"shall not continue\" when the requirements cannot be met, and this program draws the document and says what it could not promise. See §12.11.6 for why. **0 of the 974 corpus documents state one.**"
+
 
 [[clause]]
 clause = "12.11.1"
 title = "General"
-status = "silent"
-note = "Document requirements — the framing. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty"]
+note = "Table 273's common entries, with the defaults the clause states: `/Penalty` is 100 unless the file says otherwise, and an absent `/V` means the requirement is judged \"without regard to version number\". A dictionary with no `/S` states no requirement and is dropped, since the entry is required and is the whole content of the statement. Table 274's `/Encrypt` and `/DigSig` are the two type-specific entries; neither is read, because the requirements they belong to are ones this program declares unmet by type alone."
+
 
 [[clause]]
 clause = "12.11.2"
 title = "Requirement types"
-status = "silent"
-note = "Document requirements — Table 271's requirement types — `EnableJavaScripts`, `Attachment`, `Encryption`, `OCInteract` and the rest, several of which name things principle 5 excludes and several of which this tree implements. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty"]
+note = "Table 275's twenty-four types, each an arm of `requirements::Kind`, and a name outside the table kept as `Kind::Other` because \"[a]dditional requirement types, including ones identifying vendor-specific features, may be registered\". `Kind::unmet` is this program's own answer per type — three met, twenty-one not, each with its reason — and it is **a claim about this tree rather than about the standard**, so it decays exactly as a ledger row does: a session that builds a layer panel has to come back and change `OCInteract`."
+
 
 [[clause]]
 clause = "12.11.3"
 title = "Requirement penalty values"
-status = "silent"
-note = "Document requirements — the penalty a processor incurs by not meeting a requirement, 0 to 100. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
+status = "partial"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty"]
+note = "`/Penalty` is read and clamped to the clause's [0, 100], with its two ends' meanings recorded: 0 is \"although the document uses this feature the need is optional\" and 100 is \"this document will not produce the author's intent unless the PDF processor can fully support this feature\". **The clause states no threshold** — intermediate values \"are available to weight the value of this feature among other features\" and against \"other documents in the choosing process\" — so there is no computation here to complete, and weighing them is left to a caller that has something to choose between."
+
 
 [[clause]]
 clause = "12.11.4"
 title = "Requirement versions"
-status = "silent"
-note = "Document requirements — requirement versions. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
+status = "implemented"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty"]
+note = "`/V` in both forms: a name that \"specifies a version number, represented as two or more decimal integers separated by a period\", kept as the name for the reason the clause's NOTE gives; and an extensions dictionary, from which the registered prefix is kept, since the version it states belongs to a developer's extension rather than to PDF."
+
 
 [[clause]]
 clause = "12.11.5"
 title = "Requirement handlers"
-status = "silent"
-note = "Document requirements — requirement handlers. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
+status = "partial"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty"]
+note = "Table 276's alternative requirement handlers, whose whole purpose is to disable an ECMAScript that would otherwise check the same requirement — \"[t]raditionally, requirements handling has been accomplished with an ECMAScript segment\". This program runs no ECMAScript (principle 5), so there is nothing to disable and the `/RH` entry is read by nobody: the clause's `NoOp` handler type describes what this reader does with every requirement it cannot meet."
+
 
 [[clause]]
 clause = "12.11.6"
 title = "Requirements processing"
-status = "silent"
-note = "Document requirements — how a processor is meant to process the array — which is the sentence worth reading before building it. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
+status = "partial"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty"]
+note = "The processing rule, and the one place this program departs from the clause on purpose. §12.11.6 says that when requirements cannot be met \"then the processing of the document shall not continue\"; this program draws the document and prints what it could not promise. Two reasons, and the first is the clause's own: the computation it refers to is §12.11.3's penalty, for which the standard states no threshold, so \"cannot be met\" is never made decidable. The second is a choice — refusing to open a file a person asked for is a worse failure for a viewer than showing it with its limits named. The clause's own next sentence is what makes that safe: \"[i]f the reader encounters an unsupported feature (whether or not that feature was declared as a requirement), it shall take the normal fallback actions\", and NOTE 1 says \"there is no formal connection between the requirement type and the operation of the associated feature(s)\" — so every feature is still reported where it is used."
+
 
 [[clause]]
 clause = "13.1"

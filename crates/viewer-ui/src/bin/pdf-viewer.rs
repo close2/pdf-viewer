@@ -105,6 +105,22 @@ fn main() {
         println!("note: this file's cross-reference table was broken and was rebuilt by scanning");
     }
 
+    // §12.11's document requirements, said once and out loud. The clause makes this a
+    // statement about the *document* rather than about any page — "there is no formal
+    // connection between the requirement type and the operation of the associated feature(s)"
+    // — so it belongs here rather than in a page's report, and it is the one thing a page
+    // report cannot do: tell a person before they trust what they are looking at. §12.11.6
+    // asks a processor that cannot meet the requirements to stop; this one draws the document
+    // and names what it could not promise, because refusing to open a file somebody asked for
+    // is a worse failure. No corpus document states any of this.
+    for (requirement, reason) in pdf_model::requirements::unmet(&document) {
+        println!(
+            "note: this document requires {} (penalty {}) — {reason}",
+            requirement.kind.as_str(),
+            requirement.penalty
+        );
+    }
+
     let page_count = Pages::new(&document).len();
     println!("{}: {page_count} page(s)", path.to_string_lossy());
     if page_count == 0 {
