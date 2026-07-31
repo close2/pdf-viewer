@@ -231,6 +231,53 @@ pub fn attachments(document: &Document) -> Vec<Attachment> {
     out
 }
 
+/// §7.11.4.2's related files: the other files of a set the specification names one of.
+///
+/// > In some circumstances, a PDF file can refer to a group of related files, such as the set of
+/// > five files that make up a DCS 1.0 colour-separated image. The file specification explicitly
+/// > names only one of the files; the rest shall be identified by some systematic variation of
+/// > that file name (such as by altering the extension).
+///
+/// `/RF` is a *dictionary keyed like `/EF`* — `/F`, `/UF` and the platform keys — whose values
+/// are arrays of `2 × n` elements pairing a name with an embedded file stream. So this returns
+/// the pairs behind whichever key the caller's own attachment came from, and it uses `/UF`
+/// before `/F` for the reason [`read`] does.
+///
+/// Empty for a specification with no `/RF`, which is every one in the corpus: measured, and it
+/// is why this is written from §7.11.4.2's own EXAMPLE.
+#[must_use]
+pub fn related(document: &Document, specification: &Dictionary) -> Vec<(String, Arc<Stream>)> {
+    let related = document.get_key(specification, "RF");
+    let Some(related) = related.as_dict() else {
+        return Vec::new();
+    };
+    let array = ["UF", "F", "DOS", "Mac", "Unix"].iter().find_map(|key| {
+        document
+            .get_key(related, key)
+            .as_array()
+            .map(<[Object]>::to_vec)
+    });
+    let Some(array) = array else {
+        return Vec::new();
+    };
+    array
+        .chunks_exact(2)
+        .take(MAX_ATTACHMENTS)
+        .filter_map(|pair| {
+            // "The first element of each pair shall be a string giving the name of one of the
+            // related files; the second element shall be an embedded file stream holding the
+            // file's contents." A pair whose halves are the wrong types is a file that has not
+            // stated a related file, and is dropped rather than half-read.
+            let Object::String(name) = document.resolve(pair.first()?) else {
+                return None;
+            };
+            let stream = document.resolve(pair.get(1)?);
+            let stream = stream.as_stream()?;
+            Some((pdf_syntax::text_string(&name), Arc::clone(stream)))
+        })
+        .collect()
+}
+
 /// Reads one §7.11.3 file specification that carries an embedded file.
 ///
 /// `None` where it carries none: `/EF` is what makes a file specification an *attachment*, and
@@ -280,7 +327,7 @@ pub fn read(document: &Document, specification: &Dictionary, name: String) -> Op
 
 #[cfg(test)]
 mod tests {
-    use super::attachments;
+    use super::{attachments, related};
     use pdf_syntax::Document;
 
     fn document(objects: &[&str]) -> Document {
@@ -446,5 +493,58 @@ mod tests {
                 .map(|file| file.relationship.clone()),
             Some(super::Relationship::Other("ACME_Ledger".to_owned()))
         );
+    }
+
+    /// §7.11.4.2's own EXAMPLE: a DCS 1.0 set of five files behind one specification.
+    ///
+    /// > 10 0 obj %File specification dictionary <</Type /Filespec /F (Sunset.eps) /UF
+    /// > (Sunset.eps) /EF <</F 21 0 R /UF 41 0 R >> /RF <</UF 30 0 R>> %Related files array
+    ///
+    /// The shape worth checking is that `/RF` is keyed like `/EF` and its value is a flat array
+    /// of alternating names and streams — the clause's `[ string 1 stream 1 string 2 stream 2 …
+    /// string n stream n ]` — rather than an array of pairs.
+    #[test]
+    fn a_related_files_array_pairs_names_with_streams() {
+        let stream = |name: &str| {
+            format!(
+                "<< /Type /EmbeddedFile /Length {} >>\nstream\n{name}\nendstream",
+                name.len()
+            )
+        };
+        let doc = document(&[
+            "<< /Type /Catalog /Names << /EmbeddedFiles << /Names [(Sunset) 3 0 R] >> >> >>",
+            "<< /Type /Pages /Kids [] /Count 0 >>",
+            "<< /Type /Filespec /F (Sunset.eps) /UF (Sunset.eps) /EF << /UF 4 0 R >> \
+             /RF << /UF [(Sunset.eps) 4 0 R (Sunset.C) 5 0 R (Sunset.M) 6 0 R \
+             (Sunset.Y) 7 0 R (Sunset.K) 8 0 R] >> >>",
+            &stream("eps"),
+            &stream("cyan"),
+            &stream("magenta"),
+            &stream("yellow"),
+            &stream("black"),
+        ]);
+        let files = attachments(&doc);
+        let [file] = files.as_slice() else {
+            panic!("one attachment, got {files:?}");
+        };
+        assert_eq!(file.file_name.as_deref(), Some("Sunset.eps"));
+
+        let specification = doc
+            .get(pdf_syntax::ObjectId {
+                number: 3,
+                generation: 0,
+            })
+            .as_dict()
+            .cloned()
+            .expect("a file specification");
+        let set = related(&doc, &specification);
+        assert_eq!(
+            set.iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            ["Sunset.eps", "Sunset.C", "Sunset.M", "Sunset.Y", "Sunset.K"],
+            "the whole DCS set, in the order the array pairs them"
+        );
+        assert_eq!(set.len(), 5);
     }
 }

@@ -1024,8 +1024,10 @@ note = "Both of the clause's routes are readable and one is walked: the name dic
 [[clause]]
 clause = "7.11.4.2"
 title = "Related files arrays"
-status = "silent"
-note = "`/RF`, an array of 2 × n elements pairing a related file's name with its embedded stream, for a set like DCS 1.0's five separations. Nothing reads it. Reachable only through a file specification dictionary, so it is behind §7.11.3 twice over."
+status = "implemented"
+code = ["crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/attachment.rs::a_related_files_array_pairs_names_with_streams"]
+note = "§7.11.4.2's related files array, in `attachment::related`. The shape is the part worth getting right: `/RF` is a dictionary keyed like `/EF` — `/F`, `/UF` and the platform keys — and each value is a *flat* array of `2 × n` elements alternating a name with an embedded file stream, not an array of pairs. The clause's own EXAMPLE is a DCS 1.0 set of five files behind one specification, and it is the test. Nothing extracts them, for `attachment.rs`'s stated reason: writing a file is what the sandbox exists to prevent. No corpus file specification carries a `/RF`, measured over every object of all 974 documents."
 
 [[clause]]
 clause = "7.11.5"
@@ -1036,8 +1038,10 @@ note = "`/FS /URL` makes `/F` a uniform resource locator rather than a path. **T
 [[clause]]
 clause = "7.11.6"
 title = "Collection items"
-status = "silent"
-note = "A collection item dictionary carries one file's data for the columns §12.3.5's collection schema defines. Nothing reads it, and §12.3.5's own row is `silent` beside it — a collection is a *view* of a document's attachments, which is two viewer features deep and no part of a page."
+status = "implemented"
+code = ["crates/pdf-model/src/collection.rs"]
+test = ["crates/pdf-model/src/collection.rs::a_collection_subitem_keeps_its_prefix_apart_from_its_data", "crates/pdf-model/src/collection.rs::the_clauses_own_email_inbox_reads_as_five_columns"]
+note = "Table 46's collection item and Table 47's subitem, in `collection::item`, read from a `/CI` on a file specification or on a folder. The dictionary has no fixed entries — every key is one the writer chose and the schema names — so this is a map, and the *values* are kept as the objects the file wrote rather than as strings: \"[t]he type of each entry shall match the type of data identified by the collection field dictionary … referenced by the same key\", so the type is the schema's to say and a reader guessing from the object would disagree with it. A subitem's `/P` prefix is kept apart from its `/D` data because Table 47 makes them behave differently — the prefix is shown and \"is ignored when an interactive PDF processor sorts the items in the collection\". The clause's own EXAMPLE 2 is the test."
 
 [[clause]]
 clause = "7.12"
@@ -3419,26 +3423,34 @@ note = "A page's `/Thumb`, decoded into the same RGBA raster every other image b
 [[clause]]
 clause = "12.3.5"
 title = "Collections"
-status = "silent"
-note = "Collections — the catalog's `/Collection`, presenting a document as a set of embedded files with a schema of columns to sort them by. A file browser rather than a page; the embedded files themselves are §7.11's."
+status = "partial"
+code = ["crates/pdf-model/src/collection.rs"]
+test = ["crates/pdf-model/src/collection.rs::the_clauses_own_email_inbox_reads_as_five_columns", "crates/pdf-model/src/collection.rs::a_navigator_names_layouts_in_the_order_the_file_prefers_them", "crates/pdf-model/tests/collections.rs::no_corpus_document_is_a_portable_collection"]
+note = "Table 153 whole, with Tables 154 to 158 behind it: the schema's fields with their two kinds of subtype, `/D`, `/View`, `/Sort`, `/Colors`, `/Split`, `/Navigator` and `/Folders`. Three of its rules are answered rather than stored, because each is a decision a reader makes: `Collection::initial_document` is §12.3.5.1's three fallbacks for `/D` — the container, the first file, or \"an empty preview window\" — as three values rather than an `Option`; `Sort::ascending` applies Table 156's single-boolean-or-array rule; and `FieldKind::is_in_the_item` is the clause's own division between fields whose data is in §7.11.6's `/CI` and \"file-related fields\" whose data is already in the file specification. `partial` for the sentence a viewer owes and this one cannot pay: \"[i]f this dictionary is present in a PDF document, the interactive PDF processor shall present the document as a portable collection\", which needs a file browser. **No corpus document states a `/Collection`**, so the clause's own EXAMPLE 1 — an email in-box of five columns — is the test."
 
 [[clause]]
 clause = "12.3.5.1"
 title = "General"
-status = "silent"
-note = "Table 154's collection dictionary: the view, the schema, the initial document, the folders. All of it describes a user interface."
+status = "partial"
+code = ["crates/pdf-model/src/collection.rs"]
+test = ["crates/pdf-model/src/collection.rs::the_clauses_own_email_inbox_reads_as_five_columns"]
+note = "The general clause and its tables, read in `collection.rs`. What makes a collection *presented* rather than merely described is §12.3.5.1's \"shall present the document as a portable collection\", which is a user interface; everything the interface would read is here. Table 153's `/View` defaults to `D`, and the one place the entry is load-bearing rather than a preference is §7.6.7's unencrypted wrapper document, where the clause requires `H` — a browser over the wrapper would hide the page that says the payload is encrypted."
 
 [[clause]]
 clause = "12.3.5.2"
 title = "Collection hierarchical folders"
-status = "silent"
-note = "Collection folders, a hierarchy over the embedded files. As above, and it inherits §7.11's file specifications, which this tree reads only far enough to refuse a stream whose data lives in an external file (§7.3.8.1)."
+status = "partial"
+code = ["crates/pdf-model/src/collection.rs"]
+test = ["crates/pdf-model/src/collection.rs::a_files_folder_is_written_into_its_name_tree_key", "crates/pdf-model/src/collection.rs::a_folder_name_is_a_file_name_by_the_clauses_five_rules", "crates/pdf-model/src/collection.rs::a_navigator_names_layouts_in_the_order_the_file_prefers_them"]
+note = "Table 159's folder tree, walked from `/Folders` along `/Child` and `/Next` with §12.3.3's defence — forward links only, each object once — and the two rules the clause states as prose rather than as entries. **A file's folder is written into its name-tree key**: `<3>report.pdf` is folder 3, one or more digits between the brackets, and a key that does not conform means the root folder rather than an error, which is `collection::folder_of`. **A folder name is a *file name***, which the clause defines by five requirements — a text string, no NUL, none of eight special characters, and not ending in a full stop — and `collection::is_file_name` answers it without refusing anything, because the clause leaves that open: \"[a]n interactive PDF processor may choose to support invalid names or not\". `partial` for the panel. The corpus's 23 embedded files are all plain keys, measured, so no document has folders."
 
 [[clause]]
 clause = "12.3.6"
 title = "Navigators"
-status = "silent"
-note = "Navigators: a collection's own presentation, supplied as SWF. The *format* is what principle 5's exclusion of clause 13 is about — a media engine rather than a rendering question — but this clause is in 12 and the exclusion list is closed, so it is recorded as debt rather than claimed as excluded. Anyone widening that list should start here, with an argument."
+status = "partial"
+code = ["crates/pdf-model/src/collection.rs"]
+test = ["crates/pdf-model/src/collection.rs::a_navigator_names_layouts_in_the_order_the_file_prefers_them"]
+note = "**This row was wrong for thirty-odd sessions** and its own note is the evidence: it said a navigator is \"supplied as SWF\" and that anyone widening `CLAUDE.md`'s exclusion list \"should start here, with an argument\". ISO 32000-2's §12.3.6 names no media format at all — a navigator dictionary holds `/Layout`, one or more of seven **named layouts** (`D`, `T`, `H`, `FilmStrip`, `FreeForm`, `Linear`, `Tree`), each described in the clause's own prose. The SWF navigator was an Adobe extension this standard replaced. So it is a reader's question and is read: `Navigator::preferred` is the clause's selection rule — \"an interactive PDF processor should present the first one it is capable of displaying in the order present in the array\" — which takes the layouts a *caller* can draw, since the answer depends on the viewer as much as on the file. `partial` because nothing draws one."
 
 [[clause]]
 clause = "12.4"
