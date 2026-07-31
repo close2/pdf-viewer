@@ -24,16 +24,39 @@ use pdf_syntax::{Dictionary, Document, Object, tree};
 
 /// The `/StructParents`-keyed map from a marked-content identifier to its structure element.
 ///
-/// Built for one page, once, and empty for the vast majority of documents — 87 of the corpus's
+/// Built for one page, once, and empty for the vast majority of documents — 89 of the corpus's
 /// 974 have a `/StructTreeRoot` at all.
+///
+/// # What it costs, measured
+///
+/// Reading it for the specification's own first page is **96 M instructions, 4.8% of
+/// interpreting that page** — measured with `callgrind_interpret` against the same page with
+/// this struct stubbed out. Almost none of that is the descent: the parent tree's nodes carry
+/// `/Limits`, so a lookup visits about one node per level. It is that the structure elements
+/// and the tree's own nodes live in **object streams the drawing path never touches**, and
+/// reaching them inflates those streams.
+///
+/// A page that states no `/StructParents` pays one dictionary lookup and nothing else, which is
+/// 885 of the 974 corpus documents. The cost is therefore paid by tagged documents, for correct
+/// text extraction, and it is written down here rather than hidden: whoever wants it back has
+/// two routes — extract text on demand instead of during `interpret`, or read the structure only
+/// when a caller asks for text. Both are API changes and neither should be made without a
+/// second measurement.
 #[derive(Debug, Clone, Default)]
 pub struct ParentTree {
-    /// The elements this page's marked-content identifiers name, indexed by `/MCID`.
+    /// The entries this page's marked-content identifiers name, **unresolved**, indexed by
+    /// `/MCID`.
     ///
     /// A `Vec` rather than a map because the clause makes the identifier "a zero-based index
     /// into the array", and its NOTE asks producers to keep them small "to conserve space in
     /// the array" — so the array is dense by construction.
-    elements: Vec<Option<Dictionary>>,
+    ///
+    /// Unresolved because resolving is not free and most entries are never asked about.
+    /// Following all forty of the specification's own first page cost **96 M instructions**,
+    /// 5% of interpreting the page, for an answer only sixteen marked-content sequences could
+    /// have used — measured with `callgrind_interpret`, which is the only reason this is a
+    /// `Vec<Object>` and not a `Vec<Dictionary>`.
+    entries: Vec<Object>,
 }
 
 impl ParentTree {
@@ -70,28 +93,30 @@ impl ParentTree {
         // array." A file whose entry is a single element instead — which is the form
         // §14.7.5.4 gives an *object* content item — has one sequence, so it reads as an array
         // of one rather than as nothing.
-        let elements = match entry {
-            Object::Array(items) => items
-                .iter()
-                .map(|item| document.resolve(item).as_dict().cloned())
-                .collect(),
-            Object::Dictionary(element) => vec![Some(element)],
+        let entries: Vec<Object> = match entry {
+            Object::Array(items) => items.clone(),
+            element @ Object::Dictionary(_) => vec![element],
             _ => Vec::new(),
         };
-        Self { elements }
+        Self { entries }
     }
 
     /// The structure element a marked-content identifier belongs to.
+    ///
+    /// Resolved here rather than when the tree was read; see [`Self::entries`].
     #[must_use]
-    pub fn element(&self, mcid: i64) -> Option<&Dictionary> {
+    pub fn element(&self, document: &Document, mcid: i64) -> Option<Dictionary> {
         let index = usize::try_from(mcid).ok()?;
-        self.elements.get(index)?.as_ref()
+        document
+            .resolve(self.entries.get(index)?)
+            .as_dict()
+            .cloned()
     }
 
-    /// Whether this page has any structure at all.
+    /// Whether this page names any structure at all.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.elements.is_empty()
+        self.entries.is_empty()
     }
 }
 
@@ -163,19 +188,19 @@ mod tests {
         let parents = ParentTree::for_page(&doc, &page.dict);
 
         assert!(!parents.is_empty());
-        let first = parents.element(0).expect("the element for /MCID 0");
+        let first = parents.element(&doc, 0).expect("the element for /MCID 0");
         assert_eq!(
-            doc.get_key(first, "S")
+            doc.get_key(&first, "S")
                 .as_name()
                 .map(|s| s.as_bytes().to_vec()),
             Some(b"P".to_vec())
         );
         assert_eq!(
-            parents.element(1).and_then(|e| actual_text(&doc, e)),
+            parents.element(&doc, 1).and_then(|e| actual_text(&doc, &e)),
             Some("fi".to_owned()),
             "the second entry, indexed rather than taken first"
         );
-        assert!(parents.element(2).is_none());
+        assert!(parents.element(&doc, 2).is_none());
     }
 
     /// A page with no `/StructParents` has no structure, and that is not a failure.

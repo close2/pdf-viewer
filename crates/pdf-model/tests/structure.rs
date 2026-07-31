@@ -98,8 +98,8 @@ fn a_page_that_states_a_structural_parent_key_resolves_it() {
         resolved = resolved.saturating_add(1);
         if (0..2000).any(|mcid| {
             parents
-                .element(mcid)
-                .is_some_and(|element| actual_text(&document, element).is_some())
+                .element(&document, mcid)
+                .is_some_and(|element| actual_text(&document, &element).is_some())
         }) {
             with_actual_text = with_actual_text.saturating_add(1);
         }

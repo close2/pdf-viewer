@@ -3166,7 +3166,11 @@ impl Interpreter<'_> {
         state: &GraphicsState,
         clip: Option<ClipId>,
     ) {
-        if let Some(PatternPaint::Tiling(tiling)) = state.fill_pattern.clone() {
+        // Borrowed rather than cloned: this runs once per glyph, and cloning the whole
+        // `Option<PatternPaint>` would bump a shading's refcount on every glyph of a page whose
+        // text is painted with one.
+        if let Some(PatternPaint::Tiling(tiling)) = &state.fill_pattern {
+            let tiling = Rc::clone(tiling);
             self.tile(outline, transform, FillRule::NonZero, &tiling, state);
             return;
         }
@@ -3734,8 +3738,8 @@ impl Interpreter<'_> {
             return Some(pdf_syntax::text_string(&bytes));
         }
         let mcid = self.document.get_key(&list, "MCID").as_integer()?;
-        let element = self.structure.element(mcid)?;
-        crate::structure::actual_text(self.document, element)
+        let element = self.structure.element(self.document, mcid)?;
+        crate::structure::actual_text(self.document, &element)
     }
 
     /// The property list a `BDC` operand names, inline or through `/Properties`.

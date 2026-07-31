@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-seventh** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-eighth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,67 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the fifty-seventh session changed
+## What the fifty-eighth session changed
+
+**Ten sessions of rendering changes, measured.** Nothing new was built; what this session
+produced is numbers, one of which is a regression this project's rules say has to be attributed
+rather than absorbed.
+
+**Interpretation costs 5.3% more than it did ten sessions ago, and the whole of the rise is one
+feature.** Measured by stubbing it out and running the same page, not by reasoning:
+
+| `callgrind_interpret` over the specification's own first page | instructions |
+|---|---|
+| at the start of these ten sessions (`dd49639`) | 1 989.5 M |
+| with §14.7.5.4's parent tree stubbed out | 2 003.9 M — **everything else these sessions added costs 0.7% together** |
+| as it ships | **2 094.9 M** |
+
+So **reading a page's structure costs 4.5% of interpreting it**, and the first guess about why
+was wrong: almost none of it is the tree descent, because the parent tree's nodes carry
+`/Limits` and a lookup visits about one node per level. It is that structure elements live in
+**object streams the drawing path never touches**, and reaching them inflates those streams —
+which is the same answer as "a third of interpreting a page is inflating it", arriving from a
+new direction.
+
+Two things followed. The parent tree now resolves its entries **lazily**, which is the right
+shape whatever it saves (5 M here, and everything on a page whose entry is long and whose
+sequences are few). And the cost is written on `structure.rs`'s own doc comment with the two
+ways to get it back — extract text on demand rather than during `interpret`, or read the
+structure only when a caller asks for text — **both API changes, and neither to be made without
+a second measurement.**
+
+**Against `hayro`, read the two totals before reading the median:**
+
+| | now | forty-sixth session |
+|---|---|---|
+| total, ours | **7.13 s** over 852 complete pages | 8.28 s over 853 |
+| total, `hayro` | **39.03 s** | 112.7 s |
+| median page | **2.29× slower** | 2.12× |
+
+Our total *fell* by 14%; `hayro`'s fell by **65%**, which is far outside the run-to-run variance
+this file has recorded for it. Something about the other program or its build changed between the
+two measurements, nothing in this tree can say what, and the honest conclusion is that **the
+median moved because the denominator did**. The number to trust across sessions is our own total.
+
+| | before | now |
+|---|---|---|
+| interpreting the specification's page | 1 989.5 M | **2 094.9 M**, and 96 M of it named |
+| our total over the corpus, against `hayro` | 8.28 s | **7.13 s** |
+| pages agreeing with the reference consensus | 821 | **821** |
+| corpus documents drawing with nothing reported | 858 | **858** |
+| **tests** | 646 | **647** |
+
+What it taught:
+
+- **Attribute a regression by removing the suspect, not by reading the profile.** The profile
+  said the lexer, `token_to_object` and allocation had all grown, which is true and is the
+  *shape* of the extra work rather than its cause. One stubbed field and one rerun said 96 of
+  the 110 M, and the other nine sessions were 0.7% between them.
+- **A ratio has two ends, and this file has quoted the wrong one before.** A median that moves
+  from 2.12 to 2.29 while our own total falls 14% is not a slowdown; it is a comparison whose
+  other side changed. Quote the absolute number you control.
+
+### The fifty-seventh session, in brief
 
 **A click follows a link.** ADR 0062, and it is the first thing this program does *because
 somebody pointed at something*.
@@ -1510,6 +1570,16 @@ below rather than here.
 | 46 | Clause 12 completed as a review; the median page profiled at last | — |
 | 47 | A negative line width is a choice, written down; §14.7 reviewed | — |
 | 48 | Name and number trees, and §12.4.2's page labels on top of them | ADR 0053 |
+| 49 | §12.3.2's destinations, all three spellings; §7.11 and §7.12 reviewed, and clause 7 is complete for real | ADR 0054 |
+| 50 | §12.3.3's outline, and a `/Count` the clause states as an algorithm; §14.13 reviewed | ADR 0055 |
+| 51 | A tiling pattern's cell clipped to its `/BBox`, per cell; §14.12 reviewed | ADR 0056 |
+| 52 | A pattern inside a form maps to the form's space; §14.9 reviewed | ADR 0057 |
+| 53 | A glyph filled with a tiling pattern is tiled; §14.10 reviewed | ADR 0058 |
+| 54 | A ramp that can hold a step; §14.8's page-content half reviewed | ADR 0059 |
+| 55 | §14.9.4's `/ActualText`, and the property list that was never a dictionary; §14.8.4 reviewed | ADR 0060 |
+| 56 | **The ledger reaches zero unreviewed rows**; §14.7.5.4's parent tree closes the last one | ADR 0061 |
+| 57 | A click follows a link | ADR 0062 |
+| 58 | Everything re-measured, and one feature's cost attributed | — |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -1534,7 +1604,7 @@ PDF *viewer* in the full sense — nothing edits a field or asks a person for a 
 is now measured *by clause* as well as by corpus: 193 of the ledger's rows are `silent`, and
 almost every one of them is a viewer rather than a renderer.
 
-- **646 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **647 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -2295,16 +2365,27 @@ parts that make a document *interactive* are not started.
 ## What to do next
 
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
-everything the corpus and the oracle name — 76 contradicted pages, 30 of them unexplained, and a
-feature list sized by how many documents want each item. **The list is nearly empty of clause
-work**: nine sessions took `/FontFile`, all five bit depths, text markup appearances, `/AS`
-usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is left that any
-corpus document names is a licensing decision (predefined `CMap`s, 12), `viewer-ui` work (a
-password prompt, 8), substitution quality (24 fonts), and three transparency-group departures
-that need a second raster format or a backdrop. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name — and as of the fifty-sixth session **that track has no unread clause left: 0 of 823 subclauses are `unreviewed`, and what remains is 193 `silent` rows and 30 `reported` ones, each naming what it owes**. A project running only the
-first track finishes when the corpus goes quiet, which can happen with a great deal of the
-standard unimplemented and nothing able to say which parts.
+everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
+family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
+rows in the fifty-sixth session, so the specification track is now **its 193 `silent` rows and 30
+`reported` ones**, each of which names what it owes and where. A project running only the first
+track finishes when the corpus goes quiet, which can happen with a great deal of the standard
+unimplemented and nothing able to say which parts; a project running only the second ships
+features no file exercises.
+
+**Where the silence is**, and it is the map for the next several sessions:
+
+- **Clause 12's interactive half.** Nothing edits a field, performs an action other than a go-to,
+  or shows a panel. Three rows have their machinery already built and need only the *gesture* —
+  §12.6.4.13's `/SetOCGState` over §8.11's optional content, §12.6.4.9's `/Hide` over §12.5.3's
+  flag, and §12.4.4's page transitions — and the fifty-seventh session showed what that costs: a
+  click was four lines of `winit` and everything else was a clause.
+- **Clause 14's structure.** §14.7's tree is read only where §14.7.5.4's parent tree reaches it;
+  §14.8's types and attributes are unread as data. §14.9 is what says how much of it accessibility
+  needs, and three of its four entries — `/Lang`, `/Alt`, `/E` — are now one lookup away from
+  where `/ActualText` already is.
+- **Substitution quality**, §9.8.3's `/Style /Panose` and `/FD`, which is the oldest silence in
+  the ledger and the one no gate can score.
 
 This is a `CLAUDE.md` principle-5 rule, not a suggestion. In practice: **one item from each track
 per session**, with the spec item usually the smaller, because reviewing a clause family against
@@ -2442,12 +2523,14 @@ Five small items, listed before the big lists because they are small:
   renderer still runs in the main process, which is the half of principle 3 not yet built. The
   protocol would have to carry a display list rather than an image, which is a real design
   question.
-- **The median page has been profiled** (forty-sixth session) and what is left of it is not
-  obviously ours: 28.9% of interpretation is `zlib_rs` inflating the page. The next-largest
-  items are `show_text` at 6.7% and the lexer at 4.2%, and the one avoidable item found — a
-  repeated Adobe Glyph List search — was worth 1.2%. Anyone returning to this should start by
-  asking whether the *decompression* can be avoided rather than made faster: a content stream is
-  inflated once per interpretation and nothing caches it between the corpus gate's two passes.
+- **The median page has been profiled** (forty-sixth session, re-measured in the fifty-eighth)
+  and what is left of it is not obviously ours: 28.0% of interpretation is `zlib_rs` inflating
+  the page. The next-largest items are `show_text` at 6.5% and the lexer at 5.1%, and the one
+  avoidable item found — a repeated Adobe Glyph List search — was worth 1.2%. Anyone returning
+  to this should start by asking whether the *decompression* can be avoided rather than made
+  faster: a content stream is inflated once per interpretation and nothing caches it between the
+  corpus gate's two passes. **The one measured regression is §14.7.5.4's parent tree at 4.5%**,
+  and it is inflation too — of object streams the drawing path never touches.
 - **Carry an image and its sampling intent to the backends, rather than a finished raster.** One
   `pdf-render` change that unblocks three items on this list, and the reason they are one question
   rather than three: reduction happens at *decode* resolution today (`Image::area_averaged` works
@@ -2543,16 +2626,24 @@ difference against `poppler` confounds the language, the allocator and thirty ye
 `cargo run --release -p hayro-compare --bin hayro-speed -- <files>` renders page one of each file
 with both, alternating, best of N.
 
-| | |
-|---|---|
-| total, ours | **8.28 s** against `hayro`'s 112.7 s, over 853 complete pages |
-| **median page** | **2.12× slower** |
-| worst page | 56×, and it is `issue19176.pdf` at 532 µs against 9.5 µs — a 9x11-point page where the absolute numbers are too small to mean anything |
+Measured again in the **fifty-eighth** session, after ten sessions of rendering changes:
+
+| | fifty-eighth session | forty-sixth |
+|---|---|---|
+| total, ours | **7.13 s** over 852 complete pages | 8.28 s over 853 |
+| total, `hayro` | **39.03 s** | 112.7 s |
+| **median page** | **2.29× slower** | 2.12× |
+| worst page | 63×, `issue19176.pdf` at 854 µs against 13.5 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 56× |
+
+**Read the two totals before reading the median.** Our total *fell* by 14% and `hayro`'s fell by
+**65%**, which is far outside the run-to-run variance this file has recorded for it (4.5× to
+5.8× on the same corpus). Something about the other program or its build changed between the two
+measurements; nothing in this tree can say what, and the honest conclusion is that **the median
+ratio moved because the denominator did**. The number to trust across sessions is our own total,
+and it went down.
 
 **The totals and the median answer different questions and only quoting both is honest.** In
-aggregate we are 4.5× to 5.8× faster — the range is `hayro`'s own run-to-run variance on this
-machine, which is a reminder that wall-clock numbers lie — because their distribution has a long
-tail and ours no longer does.
+aggregate we are 5.5× faster, because their distribution has a long tail and ours no longer does.
 
 **The median is 2.14× and the number an earlier version of this file quoted was 1.66×, and the
 denominator is the whole difference.** That measurement was over 685 pages; there are now 818,
@@ -2574,23 +2665,40 @@ the first example stops at the display list, so a backend change measures as exa
 area averaging cost between −2.4% and +9.0% depending on the page, and the corpus gate could not
 see the difference.
 
-**Where interpretation goes on the median page, measured in the forty-sixth session** — the
-first time anybody looked, and the guess this file carried was wrong. `callgrind_interpret`
-over the specification's own page:
+**Where interpretation goes on the median page**, `callgrind_interpret` over the specification's
+own page, re-measured in the fifty-eighth session:
 
 | | share |
 |---|---|
-| `zlib_rs::inflate` | **28.9%** |
-| `Interpreter::show_text` | 6.7% |
-| `read_fonts::ps::agl::name_to_char` | 4.3%, now 3.35% |
-| `Lexer::next_token` | 4.2% |
-| `inflate_table` | 4.2% |
+| `zlib_rs::inflate` | **28.0%** |
+| `Interpreter::show_text` | 6.5% |
+| `Lexer::next_token` | 5.1% |
+| `inflate_table` | 4.0% |
+| `read_fonts::ps::agl::name_to_char` | 3.2% |
 
 **Nearly a third of interpreting a page is inflating it.** That is `flate2` doing its job and is
-the answer for the typical page; the guess in this file had been "parsing, font loading and
-per-page setup". The one item that was *ours* and avoidable was the AGL: §9.10.2's second method
-searched a four-thousand-entry list per character shown, in a font with at most 256 codes, and a
-cache took the whole of interpretation from 2 013.8 M instructions to 1 989.1 M.
+the answer for the typical page; the guess this file carried before the forty-sixth session had
+been "parsing, font loading and per-page setup". The one item that was *ours* and avoidable was
+the AGL: §9.10.2's second method searched a four-thousand-entry list per character shown, in a
+font with at most 256 codes, and a cache took the whole of interpretation from 2 013.8 M
+instructions to 1 989.1 M.
+
+**Interpretation now costs 2 094.9 M, which is 5.3% more than that**, and the whole of the rise
+is one feature — measured rather than guessed, by stubbing it out and running the same page:
+
+| | instructions |
+|---|---|
+| at the start of these ten sessions (`dd49639`) | 1 989.5 M |
+| with §14.7.5.4's parent tree stubbed out | 2 003.9 M — **everything else these sessions added costs 0.7% together** |
+| as it ships | **2 094.9 M** |
+
+So **reading a page's structure costs 4.5% of interpreting it**, and almost none of that is the
+tree descent: the parent tree's nodes carry `/Limits`, so a lookup visits about one node per
+level. It is that structure elements live in **object streams the drawing path never touches**,
+and reaching them inflates those streams. A page that states no `/StructParents` pays one
+dictionary lookup — 885 of the 974 corpus documents. The cost is on `structure.rs`'s own doc
+comment with the two ways to get it back, both API changes, neither to be made without a second
+measurement.
 
 **Still open, and the largest items.** This profile predates two fixes and its shading half is
 still live:
