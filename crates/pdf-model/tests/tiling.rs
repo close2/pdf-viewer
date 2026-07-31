@@ -356,3 +356,79 @@ fn a_pattern_inside_a_form_is_anchored_to_the_forms_space() {
         "and not to the page, which would start the cells 10 units to the left"
     );
 }
+
+/// A glyph filled with a tiling pattern is its outline tiled, not a solid fill.
+///
+/// §8.7.2: "All patterns shall be treated as colours; a Pattern colour space shall be
+/// established with the CS or cs operator just like other colour spaces" — so a pattern set as
+/// the *fill* colour applies to text exactly as it applies to a path, and the glyph's outline
+/// is what the cell is clipped to. `pattern_text_embedded_font.pdf` is the corpus page that
+/// found this: three references draw a checkerboard line of `AbCdEf` and this tree drew
+/// nothing at all there, because a glyph took `fill_paint()`, which a tiling pattern
+/// deliberately leaves alone.
+///
+/// The fixture uses one of the standard fonts, so no font program is embedded and the test is
+/// about the paint rather than about glyph outlines: a large `A` in Helvetica over a cell that
+/// paints alternate 5-unit squares. What is asserted is that ink lands inside the glyph and
+/// that the gaps between cells stay empty *inside the glyph* — the two answers a solid fill
+/// cannot both give.
+#[test]
+fn a_glyph_filled_with_a_tiling_pattern_is_tiled() {
+    let cell = "1 0 0 rg 0 0 5 5 re f";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
+         /XStep 10 /YStep 10 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream",
+        cell.len().saturating_add(1)
+    );
+    let content = "BT /F0 120 Tf /Pattern cs /P0 scn 5 10 Td (A) Tj ET";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /Pattern << /P0 5 0 R >> \
+         /Font << /F0 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n{pattern}\nendobj\n",
+        content.len().saturating_add(1)
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len() + 1;
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+
+    let raster = render(out.into_bytes());
+    let mut painted = 0u32;
+    let mut clear = 0u32;
+    for y in 0..100u32 {
+        for x in 0..100u32 {
+            let (red, _, _, alpha) = pixel(&raster, x, y);
+            if alpha == 255 && red > 240 {
+                painted += 1;
+            } else if alpha == 0 {
+                clear += 1;
+            }
+        }
+    }
+    // A 120-point `A` covers a large part of a 100-unit page, and the cell paints a quarter of
+    // its area — so a tiled glyph leaves far more of the page clear than a solidly filled one,
+    // and both numbers have to be substantial for the pattern to have been the paint.
+    assert!(painted > 200, "the glyph is painted somewhere: {painted}");
+    assert!(
+        clear > 7000,
+        "and three quarters of every cell it covers is left clear: {clear}"
+    );
+}

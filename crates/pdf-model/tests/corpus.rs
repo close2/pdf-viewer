@@ -395,7 +395,23 @@ const MAX_PAGELESS: usize = 11;
 /// simple font with the same defect gets. The document that joined this row left the oracle's
 /// contradicted list on the same change, which is the exchange trap 5 describes: a page we can
 /// no longer be judged on is a page we have stopped claiming to draw.
-const MAX_INCOMPLETE: usize = 95;
+/// **95 to 97 in the fifty-third session, and both are new reports** — from one change, which
+/// is that a glyph filled with a *tiling* pattern is now its outline tiled rather than a solid
+/// fill in whatever colour happened to be set. §8.7.2 makes a pattern a colour: "All patterns
+/// shall be treated as colours". `pattern_text_embedded_font.pdf` left the oracle's
+/// contradicted list on the same change, drawing the checkerboard line three references draw
+/// and we had left blank.
+///
+/// `scorecard_reduced.pdf` reports **a stroke whose colour is a tiling pattern**, which is the
+/// half of §8.7.2 that stays unimplemented: the stroked outline is the backends' to compute
+/// (ADR 0028), so there is no path here to tile. It had been stroked in the last solid colour.
+///
+/// `ContentStreamCycleType3insideType3.pdf` reports `MAX_FORM_DEPTH`, and the document is named
+/// for the reason: its tiling pattern's `/Resources` name `/CyclicFont`, which *is* the Type 3
+/// font whose glyph the pattern is filling. Entering the cycle is what tiling a glyph means;
+/// stopping at a bounded depth and saying so is what the bound is for. Before this change the
+/// cycle was never entered because the pattern was ignored, and the page was quietly wrong.
+const MAX_INCOMPLETE: usize = 97;
 
 /// How long one document may take before it counts as a failure.
 ///

@@ -1663,7 +1663,7 @@ impl Interpreter<'_> {
             if let (Some(rule), Some(PatternPaint::Tiling(tiling))) =
                 (fill, state.fill_pattern.clone())
             {
-                self.tile(&shared, rule, &tiling, state);
+                self.tile(&shared, state.transform, rule, &tiling, state);
             } else if let Some(rule) = fill {
                 self.list.push(Command::Fill {
                     path: Arc::clone(&shared),
@@ -1673,6 +1673,16 @@ impl Interpreter<'_> {
                     clip: fill_clip,
                     mask: state.soft_mask,
                     blend: state.blend,
+                });
+            }
+            // A stroke whose colour is a *tiling* pattern would be the cell replayed across
+            // the stroked outline, and this tree does not compute that outline — the backends
+            // stroke a path themselves (§8.4.3 and ADR 0028). §8.7.2 makes a pattern a colour
+            // for `SCN` exactly as for `scn`, so this is a gap rather than a permission, and
+            // it is named rather than drawn in the last solid colour that happened to be set.
+            if stroke.is_some() && matches!(state.stroke_pattern, Some(PatternPaint::Tiling(_))) {
+                self.note(Unsupported::Shading {
+                    name: "a stroke whose colour is a tiling pattern".to_owned(),
                 });
             }
             if stroke.is_some() {
@@ -2916,22 +2926,7 @@ impl Interpreter<'_> {
                                 self.glyphs = self.glyphs.saturating_add(1);
                             }
                             if fills {
-                                self.list.push(Command::Fill {
-                                    // The font hands out shared outlines and the display
-                                    // list keeps them shared: a page of text is the same few
-                                    // dozen glyphs over and over, so this is a refcount
-                                    // rather than a copy of the segments.
-                                    path: Arc::clone(&outline),
-                                    transform,
-                                    // Glyph outlines are non-zero filled; even-odd would
-                                    // hollow out counters that overlap, such as in a bold
-                                    // 'B'.
-                                    fill_rule: FillRule::NonZero,
-                                    paint: state.fill_paint(),
-                                    clip: glyph_fill_clip,
-                                    mask: state.soft_mask,
-                                    blend: state.blend,
-                                });
+                                self.fill_glyph(&outline, transform, state, glyph_fill_clip);
                             }
                             if strokes {
                                 self.stroke_glyph(&outline, glyph_to_user, state);
@@ -3088,6 +3083,40 @@ impl Interpreter<'_> {
         } else {
             Transform::translate(displacement.mul_add(size, spacing) * scale, 0.0)
         }
+    }
+
+    /// Fills one glyph outline, which a pattern makes more than a `Fill` command.
+    ///
+    /// §9.2.3 lets a glyph be painted "in any colour", and §8.7.2 makes a pattern one: "All
+    /// patterns shall be treated as colours". A *tiling* pattern is not a paint, though — it
+    /// is a cell replayed across an area — so a glyph filled with one is its outline tiled,
+    /// exactly as a path is. The transform is the *glyph's* rather than the text object's,
+    /// because the outline is in glyph space.
+    fn fill_glyph(
+        &mut self,
+        outline: &Arc<Path>,
+        transform: Transform,
+        state: &GraphicsState,
+        clip: Option<ClipId>,
+    ) {
+        if let Some(PatternPaint::Tiling(tiling)) = state.fill_pattern.clone() {
+            self.tile(outline, transform, FillRule::NonZero, &tiling, state);
+            return;
+        }
+        self.list.push(Command::Fill {
+            // The font hands out shared outlines and the display list keeps them shared: a
+            // page of text is the same few dozen glyphs over and over, so this is a refcount
+            // rather than a copy of the segments.
+            path: Arc::clone(outline),
+            transform,
+            // Glyph outlines are non-zero filled; even-odd would hollow out counters that
+            // overlap, such as in a bold 'B'.
+            fill_rule: FillRule::NonZero,
+            paint: state.fill_paint(),
+            clip,
+            mask: state.soft_mask,
+            blend: state.blend,
+        });
     }
 
     /// Strokes one glyph outline, ISO 32000-2 §9.3.6 rendering modes 1, 2, 5 and 6.
@@ -3266,7 +3295,14 @@ impl Interpreter<'_> {
     /// it keeps the list flat: a backend never learns what a pattern is, and the result is
     /// resolution-independent because the cell is real geometry rather than a rendered
     /// image.
-    fn tile(&mut self, path: &Arc<Path>, rule: FillRule, tiling: &Tiling, state: &GraphicsState) {
+    fn tile(
+        &mut self,
+        path: &Arc<Path>,
+        transform: Transform,
+        rule: FillRule,
+        tiling: &Tiling,
+        state: &GraphicsState,
+    ) {
         /// Most cells one pattern fill may draw.
         ///
         /// A small cell over a large area is an enormous number of tiles, and the content
@@ -3282,7 +3318,7 @@ impl Interpreter<'_> {
             });
             return;
         };
-        let path_to_pattern = state.transform.then(to_pattern);
+        let path_to_pattern = transform.then(to_pattern);
 
         let Some(bounds) = bounds_of(path, path_to_pattern) else {
             return;
@@ -3303,7 +3339,7 @@ impl Interpreter<'_> {
         // The path clips every cell, so a tile that falls outside it contributes nothing.
         let clip = Clip {
             path: (**path).clone(),
-            transform: state.transform,
+            transform,
             fill_rule: rule,
             parent: state.clip,
         };

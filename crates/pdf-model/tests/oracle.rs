@@ -756,6 +756,22 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// any other reader: `loca`'s last entry equals `glyf`'s length under exactly one of the two
 /// readings, and `loca`'s own length is `4 × (n + 1)` rather than `2 × (n + 1)`. ADR 0052.
 ///
+/// # One left in the fifty-third session, and two documents left the comparison with it
+///
+/// `pattern_text_embedded_font.pdf` draws two lines of `AbCdEf`: one filled with a shading and
+/// one with a *tiling* pattern. Three references draw both; this tree drew the shading line and
+/// left the other blank, because a glyph took `fill_paint()`, which leaves a tiling pattern
+/// alone by design — a tiling pattern is not a paint, it is a cell replayed across an area, and
+/// nothing replayed it across a glyph. §8.7.2 settles it in five words: "All patterns shall be
+/// treated as colours."
+///
+/// The same change made two documents *report*, which is trap 5's exchange and is written up on
+/// `MAX_INCOMPLETE`: `scorecard_reduced.pdf` strokes with a tiling pattern, which needs the
+/// stroked outline the backends compute for themselves, and
+/// `ContentStreamCycleType3insideType3.pdf` puts the Type 3 font being drawn inside its own
+/// pattern's `/Resources`, so tiling its glyph enters the cycle the file is named for and stops
+/// at `MAX_FORM_DEPTH`. 820 agreeing, 77 contradicted, over two fewer pages.
+///
 /// # Three left in the fifty-second session, on one clause and one page's evidence
 ///
 /// `issue6231_1.pdf` is a TeX plot: three references draw a coloured surface over its axes and
@@ -833,7 +849,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 32] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 31] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -864,7 +880,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 32] = [
     "issue8097_reduced.pdf page 1",
     "issue8570.pdf page 1",
     "openoffice.pdf page 1",
-    "pattern_text_embedded_font.pdf page 1",
     "transparent.pdf page 1",
 ];
 
