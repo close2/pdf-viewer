@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **seventieth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **seventy-ninth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,215 +12,14 @@ Each session's own reasoning lives in its ADR, and every session is one line in 
 got here". This file keeps a lesson **exactly once**: in a trap if it changes how you write code,
 in "Habits" if it changes how you work, and in the numbers if it is a fact about today. It was
 halved in the fifty-ninth session by deleting twenty per-session narratives that duplicated those
-three homes; if you find yourself retelling a session here, the retelling belongs in its ADR and
-the lesson belongs in Traps or Habits.
+three homes, and cut back to three prose entries again in the seventy-ninth after ten sessions had
+accumulated eleven; if you find yourself retelling a session here, the retelling belongs in its ADR
+and the lesson belongs in Traps or Habits.
 
 ## What the last three sessions changed
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Sixty-seventh — Table 99's other half, the one a layer panel reads.** §8.11.4.3 has ten
-entries and four decided the initial state; `/RBGroups` joined them in the sixty-second session
-when `/PreserveRB` made it load-bearing. `/Order`, `/ListMode`, `/Locked` and a group's `/Name`
-are read now, over the `ViewState` the sixty-second session built, so what is missing for a layer
-panel is the panel.
-
-- **`/Order` is kept as a tree with the clause's own distinction preserved.** A nested array
-  opening with a text string is a *label* — "used to present collections of related optional
-  content groups, and not to communicate actual nesting" — and one without a label is nesting,
-  "such as for layers with sublayers". The clause's EXAMPLE 1 and EXAMPLE 2 are the two shapes
-  and both are tests. A panel that drew them alike would tell a person that a heading is a layer.
-- **`/Locked` binds a panel and deliberately not §12.6.4.13's action**, which is the clause's own
-  division: a locked group "cannot be changed through the user interface", and a processor "may
-  allow the states … to be changed by means other than the user interface, such as ECMAScript or
-  items in the AS entry". `ViewState::set_group` refuses; `Action::SetOcgState` does not.
-- **Radio-button collections apply either way.** `/PreserveRB` is a *set-OCG-state action's*
-  entry with no counterpart for a person, and Table 99 states the paradigm unconditionally — so a
-  panel that let two members of one collection be on would be showing a state the configuration
-  says cannot exist.
-- **`/ListMode`'s `VisiblePages` is carried and not acted on**, because which pages are visible is
-  a question about a window this crate does not have. An absent entry reads as `AllPages`: of the
-  two mistakes, a panel that hides a group nobody asked it to hide is the worse one.
-
-
-**Sixty-ninth — §12.4.4.2's sub-page navigation, on the control two sessions built.** The
-ledger's row for this subclause has said since the fifty-fourth session that it was "the one
-presentation row whose missing piece is a control rather than a renderer". The sixty-second and
-sixty-seventh sessions built the control; this is the list.
-
-- **A navigation node is a pair of §12.6 actions**, and the clause's own NOTE 1 says what a page
-  state is made of — bullet points "represented by optional content", each state "represented as
-  a navigation node". So `navigation::steps` reads `/PresSteps` into a list and
-  `ViewState::perform_all` walks it. The clause's example is the test.
-- **Only `/Next` is walked.** Table 165 makes the nodes one doubly linked list, so `/Prev` is
-  that order read backwards; a file whose two chains disagree has stated two orders with no rule
-  to choose between them. A ring is bounded by visiting each node once.
-- **Nothing turns a presentation on**, and NOTE 3 is why that is a coherent place to stop: nodes
-  need be respected "only when in presentation mode". §12.4.4.1's `/Trans` and `/Dur` are
-  animations and are still owed. NOTE 2's obligation to save and restore the optional content
-  states around presentation mode is the reason `ViewState` is a value a caller owns and is
-  `Clone`.
-- **No corpus document states one** — neither `PresSteps` nor `NavNode` occurs in the raw bytes
-  of any of the 974 — so this is the specification track, and the count is measured rather than
-  guessed.
-
-`silent` falls 181 → 179.
-
-
-**Seventieth — §12.4.4.1's transitions, which is the rest of the presentation.** The row above
-left `/Trans` and `/Dur` owed, calling them animations. They are, and reading what a page *states*
-about one is not animating it: `navigation::transition` is Table 164 entire and
-`navigation::display_duration` is `/Dur`, on the same division Table 99's `/Order` is read
-under — the document's own words belong to `pdf-model`, and what a window does with them does not.
-
-- **Every entry carries the table's own default**, so a caller reads a complete transition or
-  none: twelve named styles with a thirteenth variant holding the name the file wrote, `/D`,
-  `/Dm`, `/M`, `/Di` as degrees *or* the name `None`, `/SS`, `/B`. `R`'s row is the one that
-  states an obligation rather than an appearance — "the D entry shall be ignored" — so a
-  replacement's duration is zero whatever `/D` says.
-- **No `/Dur` is not a `/Dur` of zero**: "[i]f no Dur entry is specified in the page object, the
-  page shall not advance automatically", so it answers an `Option` and NOTE 1 makes the number a
-  maximum rather than a schedule.
-- **Neither entry is inherited.** §7.7.3.4 makes four entries inheritable and these are not among
-  them, so a `/Pages` node stating `/Dur` states nothing — which is a test.
-- **`doc/md/` dropped a default, and the standard's own PDF has it.** Table 164 gives `/Di`
-  "Default value: 0." and the markdown conversion loses the line. First time the conversion
-  caveat has cost anything; the fix was one `pdftotext -layout` (see "Things worth knowing").
-- **Demand measured and it is zero**: over *every page* of all 964 openable corpus documents, not
-  one states a `/Trans` or a `/Dur`. Neither gate moves; `silent` falls 179 → 178.
-
-**Seventy-first — §11.4.6's knockout groups, drawn.** The oldest `silent` row in the ledger —
-this tree's first, from the ninth session — became `reported` in the seventeenth and has been the
-largest item on the corpus's list of transparency departures ever since. Its own note had carried
-the implementation in words for fifty-four sessions: "for an isolated knockout group the initial
-backdrop is transparent, so §11.3.6's formula leaves each element its own colour and its blend
-mode has no effect at all, and the clause's two-stage average by source shape is then a
-Porter-Duff Source composite modulated by coverage". That is what `Command::Group` now carries.
-
-- **The clause says why it cannot always be done, and the condition comes from that sentence.**
-  "[T]he existence of the knockout feature is the main reason for maintaining a separate shape
-  value rather than only a single alpha that combines shape and opacity" — and a raster of
-  premultiplied samples has the one. So `pdf-model` sets the flag only where every element's
-  shape *is* its coverage: no soft mask, no per-sample alpha in an image or shading, no nested
-  group. Everything else keeps the report it has had since ADR 0026.
-- **Isolation is a second condition, and §11.4.4's NOTE 3 decides it.** A non-isolated knockout
-  group composites its elements with the group's own backdrop; where nothing blends, that
-  backdrop is composited in and removed again exactly and cancels — the argument this tree
-  already uses for non-isolated groups — so those are drawn and the ones that blend keep both
-  reports.
-- **Vello cannot say Porter-Duff Source, and finding out cost a measurement rather than a
-  reading.** `tiny-skia` takes it as a per-draw blend mode; a Vello layer's compose runs over the
-  layer's whole *bounding box* with the clip's coverage applied to the source, so `Compose::Copy`
-  erased a whole row outside the shape. `render-gpu` empties the shape with `Compose::DestOut`
-  and paints over it. The two forms differ only at a partially covered pixel, by `(1 − a·αs)` on
-  what the destination keeps, so the cross-backend scene draws a **diagonal** edge inside the
-  knockout group: mean 0.0039, 0.028% of channels, against bounds of 0.5 and 2%.
-- **Two documents left the incomplete list, 97 → 95**, `knockout_isolated_overlap.pdf` now
-  **agrees with the reference consensus**, and `knockout_groups_test.pdf` page 2 came from mean
-  5.07 to 3.08 while staying contradicted. Interpretation is unchanged: 2 103.4 M instructions
-  against 2 099.6 M for `HEAD` built in the same sitting, which is inside the 0.23% floor.
-
-**Seventy-second — the two clauses that were waiting on knockout.** §9.3.8 says a text object
-with `Tk` true behaves "as if it were a non-isolated knockout transparency group … where each
-glyph is an individual element in that group's transparency stack", and §11.6.2 says "[p]ortions
-of an object shall not be composited with one another" of a path filled and stroked by one
-operator. Both are knockout groups the *file* does not state, and both have been reports since
-the fourteenth and fifteenth sessions with the same sentence beside them: implementing them means
-§11.4.6. That landed in the session before this one, so this is the two of them, in one function.
-
-- **`knockout_is_drawable` is the shared condition**, and it is two clauses: the shape has to be
-  the coverage a rasteriser draws it with, and no element may blend, because both of these groups
-  are *non-isolated* and §11.4.4's NOTE 3 is what makes a transparent backdrop the same
-  computation.
-- **§9.3.8's other three sentences are the design.** The graphics state is inherited and *not*
-  reset, unlike §11.6.6's group XObject — so each glyph command keeps the alpha, mask and blend
-  mode it was shown under, and the group initialises nothing. The result "shall be composited
-  with the backdrop, using the Normal blend mode and alpha and soft mask values of 1.0", which is
-  the command's four other fields.
-- **§11.6.2's construction is the clause's own**: "at any given point, only the topmost object
-  enclosing the point shall contribute", and `B` strokes second, so the two commands are already
-  in the order a knockout group wants them.
-- **The corpus: 95 → 90 incomplete**, `TextKnockout` gone entirely and `CompositedInParts` 4 → 2.
-  The oracle's judged set grew 1655 → 1660 and **four of the five new pages agree**; contradicted
-  stays at 65. Interpretation is unchanged to five significant figures.
-- **The text gate gained a name and it is the denominator moving.** `issue17069.pdf` reads back
-  10 of 12 words and has always done; it was not *gated* until the page stopped reporting. The
-  list is 44 and the corpus is still 97.8%.
-
-**Seventy-third — one shading object, built once** (ADR 0069). The handover has asked since the
-forty-sixth session whether `bug1721218_reduced.pdf`'s shadings "are 3576 distinct functions or
-one re-parsed", and the sixty-fifth session answered it by instrumenting the *pattern* path,
-counting eight, and writing "parsing was never the cost". **The measurement was on the wrong
-path.** `Function::parse` runs **7000+ times** on that page: the pattern path runs once and the
-`sh` operator 3576 times, each rebuilding the same gradient's colours from the same objects.
-
-- **A shading's colours are a property of the object, its placement is not.**
-  `pdf_model::shading::Cache` holds an `Arc<ShadingKind>` per `ObjectId`, and
-  `pdf_render::Shading::kind` became an `Arc` so the sharing reaches the display list — a mesh's
-  triangles must not be copied per painting.
-- **53.96 G → 43.13 G on that page, a fifth of it**, with `Function::parse`, `Function::eval` and
-  `shading::ramp` all gone from the profile. Over the corpus it is invisible and should be: 6.92 s
-  → 6.91 s over the 858 complete pages, and 8.19 s → 7.55 s over all 946, where the difference is
-  that one page.
-- **The key is an identity, and a named colour space is the one thing it cannot be.** §8.6.5.1
-  resolves a space name through the resources in force, and §8.6.5.6's `/DefaultRGB` does the
-  same for the device names — so one object under two resource dictionaries can be two sets of
-  colours. Those are not cached at all, and the fixture that proves it (a page inking `/Space`
-  red and a form inking it blue) was confirmed to fail without the refusal.
-- **Reaching the identity took one change nobody would have looked for**: `Interpreter::resource`
-  resolved a reference before returning it, which throws away the only thing that says two
-  paintings are of one object.
-- Both pixel gates are unchanged to the verdict, which is the property a cache has to have — so
-  the test that proves it works asserts *pointer identity*, because no measurement of the output
-  could.
-
-**Seventy-fourth — §10.7.3's smoothness tolerance, which was a silence inside a `partial` row.**
-`/SM` was read nowhere. The clause bounds "the allowable colour error between a shading
-approximated by piecewise linear interpolation and the true value", and this renderer had one
-fixed internal bound — a `Ramp`'s 256 samples — where the clause asks for a per-document one.
-
-- **It moves the sampling in one direction only, and that is the clause rather than a
-  convenience.** A tolerance is a *maximum* error, so a coarser request than 1/256 is met by
-  drawing finer; "each output device may have internal limits on the maximum and minimum
-  tolerances attainable" is what permits keeping ours instead of coarsening on request. A finer
-  request is honoured to 4096 samples, which is the same sentence's internal limit.
-- **5 corpus documents ask for 0.002** — finer than 1/256 — and had been getting 1/256 in
-  silence. 21 ask for 0.02, which is five times coarser than we draw. One writes `/SM 6`, which
-  Table 57 makes a fraction, so it is ignored.
-- **What a finer sampling buys is detail, not smoothness**, and the interaction with ADR 0068 is
-  worth knowing: `simplify` drops every stop within half an eight-bit level of the line its
-  neighbours draw, so extra samples of a *smooth* function are discarded again immediately. What
-  survives is a feature narrower than 1/256 of the domain — a type 0 function with thousands of
-  samples, a stitching function with narrow sub-domains. Both halves are a test.
-- **Meshes need nothing**: `MeshRaster` evaluates Gouraud interpolation per device pixel (ADR
-  0051), so there is no piecewise approximation left to bound. Neither gate moves; the tolerance
-  is part of `shading::Cache`'s key, because the same shading under two `/SM` values is two sets
-  of colours.
-
-**Seventy-fifth — eight "unexplained" contradicted pages are one population, measured.** The
-demand track, worked as this file prescribes: rank `CONTRADICTED_UNEXPLAINED` by our worst
-measurement over its bound, and look at the top. The ranking after four sessions of rendering
-changes has a shape rather than a leader — the top eight are all **1.08 to 1.61**, all text, and
-every one of them fails on **mean absolute difference alone**: worst tile 13.7–22.1 against 40,
-structural similarity 0.904–0.946 against 0.900.
-
-- **The instrument that settled it counts ink rather than pixels**: the mean luminance of the
-  whole page, which measures how much was painted without caring where. **We are within half a
-  level of both references the gate votes with on all eight**, and on five of them `ghostscript`
-  — which links the same `libfreetype` as the other two — is further from them than we are. The
-  table is in `oracle.rs`; the artefacts the oracle already writes are the whole method.
-- **So the amount of ink is right and its sub-pixel placement is what differs**, which is exactly
-  what a mean absolute difference measures and what neither tile nor structure can see. Trap 9 is
-  the other half: on a page whose difference is a letter's edges the three references are one
-  glyph rasteriser, so their mutual distance is small and the bound's widening buys nothing.
-- **`CONTRADICTED_GLYPH_EDGES` names them, and the bound is not touched.** `Reference::
-  independence` has carried this argument since the forty-first session and was acted on nowhere;
-  acting on it by *naming* keeps the ratchet — a page whose ink stopped matching would fail it —
-  where loosening a number would have been the curve-fitting this project forbids.
-- **`CONTRADICTED_UNEXPLAINED` is 23 → 15**, and what is left of it starts at 0.85 of its bound.
-  Nothing on the list is above its bound any more except `issue7891_bc1.pdf` and the eight now
-  named, all of which are measured.
 
 **Seventy-sixth — Table 170's other two appearances, and the third input again.** §12.5.5 states
 three appearances as three *situations*: normal "when the annotation is not interacting with the
@@ -283,6 +82,18 @@ drawing a page needs. `structure::Tree` reads it downwards.
 - **The data is this crate's and the consumer is not**, which is the same division Table 99's
   layer-panel half is read under and the same debt: nothing yet hands a structure tree to
   anybody. `silent` falls 177 → 174 and three rows become `partial` or `implemented`.
+
+**Seventy-ninth — everything re-verified.** Ten sessions of change, and the file's own habit is
+that whatever it asserts should be run once. All of it was: 708 tests, `clippy` under `pedantic`
+plus the three deny lints, `cargo fmt --check`, `cargo deny` on all four checks, and **all four
+fuzz targets at 50 000 runs apiece**, which no session in this run had done. Three gates:
+974 documents in 2.5 s with 90 incomplete, 1794 oracle pages in 36 s with 836 agreements and 65
+contradictions, and 97.8% of `pdftotext`'s words over the same corpus. The conformance gate reads
+1898 citations, 189 quotations, 105 tables and 823 rows.
+
+This section was also cut back to the three prose entries its own rule asks for; the seven it
+lost are one line each in the table below, and every durable lesson from them is in a ledger row,
+a trap or a habit — which was checked entry by entry rather than assumed.
 
 ## How the project got here
 
@@ -365,13 +176,16 @@ below rather than here.
 | 76 | Table 170's rollover and down appearances, on the pointer | — |
 | 77 | §12.6.3's trigger events, and the one precedence rule Table 197 states | — |
 | 78 | §14.7.2's structure tree, read downwards at last | — |
+| 79 | Everything re-verified, including the fuzzers and `cargo deny` | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
 → 102 → 101 → 101 → 99 → 88 over sessions 6 to 31, then 87 → 86 → 83 → 82 (steady to 50) → 81 →
-78 → 77 → 76 (steady to 60) → **65** over 41 to 61. Corpus documents drawing incompletely: 291 → 368 → 250 → 290 →
+78 → 77 → 76 (steady to 60) → **65** over 41 to 61, and steady at 65 to 79 — where two sessions
+of new features (§11.4.6, §9.3.8, §11.6.2) added five pages to the *judged* set without adding
+one to this list. Corpus documents drawing incompletely: 291 → 368 → 250 → 290 →
 283 → 263 → 251 → 235 → 232 → 231 → 231 → 237 → 220 → 220 → 189 → 147 → 137 → 129 → 130 (steady)
-→ 110 → 106 → 105 → 97 → 94 → 95 → 97 → **96**.
+→ 110 → 106 → 105 → 97 → 94 → 95 → 97 → 96 (steady to 70) → 95 → **90** over 71 and 72.
 
 Both move in both directions on purpose: a rise in the first can mean pages *joined* the
 comparison, and a rise in the second is honesty when a silence ends. The sections below say
@@ -397,8 +211,9 @@ the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
 - **708 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
-  `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
-  assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
+  `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all four fuzz targets
+  clean at 50 000 runs apiece** — every one of those re-run in the seventy-ninth session rather
+  than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
   functions.)
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and 101 318
@@ -412,7 +227,7 @@ the ledger's rows are
   ratcheted.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
-  specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
+  specification PDF — in **~35 s**, because the references' renders are remembered between runs
   (ADR 0020). Of the 1660 pages we claim to draw completely, **836 agree with the reference
   consensus, 65 are contradicted and 749 are pages the references cannot agree about among
   themselves**. The 65 are named, grouped and ratcheted in both directions. Twenty-five pages
@@ -526,7 +341,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1800 citations, 178 quotations, 101 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1898 citations, 189 quotations, 105 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -1320,18 +1135,26 @@ difference against `poppler` confounds the language, the allocator and thirty ye
 `cargo run --release -p hayro-compare --bin hayro-speed -- <files>` renders page one of each file
 with both, alternating, best of N.
 
-Measured again in the **fifty-eighth** session, after ten sessions of rendering changes:
+Measured again in the **seventy-third** session, on either side of one change in one sitting —
+which is the only way this number means anything:
 
-| | sixty-fifth session | fifty-eighth | forty-sixth |
-|---|---|---|---|
-| total, ours | **6.20 s** | 7.13 s over 852 complete pages | 8.28 s over 853 |
-| total, `hayro` | 34.93 s | 39.03 s | 112.7 s |
-| **median page** | **2.15× slower** | 2.29× | 2.12× |
+| | seventy-third session | sixty-fifth | fifty-eighth | forty-sixth |
+|---|---|---|---|---|
+| total, ours | **6.91 s** over 858 complete pages | 6.20 s over 852 | 7.13 s over 852 | 8.28 s over 853 |
+| total, `hayro` | 41.87 s | 34.93 s | 39.03 s | 112.7 s |
+| **median page** | 2.14× slower | **2.15×** | 2.29× | 2.12× |
 | worst page | 50×, `issue19176.pdf` at 553 µs against 11.1 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 63× | 56× |
 
 **Our own total fell 7.13 s → 6.20 s in the sixty-fifth session**, and the two sessions between
 added features rather than removing work, so the fall is ADR 0068's: a ramp now hands a
 rasteriser the stops it cannot compute for itself.
+
+**The 6.91 s above is not a regression against that 6.20 s and is not comparable to it**: it
+counts 858 pages rather than 852, on a machine that had just built the workspace, and the
+seventy-third session's own A/B — stash, rebuild, measure, restore, measure — put ADR 0069's
+change at 6.92 s before and 6.91 s after. Over *all* 946 pages the same pair is 8.19 s and
+7.55 s, and essentially the whole difference is `bug1721218_reduced.pdf`, which is incomplete and
+so is not in the first total at all. **Quote a total against a total taken the same afternoon.**
 
 **Read the two totals before reading the median.** Our total *fell* by 14% and `hayro`'s fell by
 **65%**, which is far outside the run-to-run variance this file has recorded for it (4.5× to
