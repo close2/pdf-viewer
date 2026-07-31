@@ -34,6 +34,7 @@ pub mod image;
 pub mod inline_image;
 pub mod mesh;
 pub mod optional_content;
+pub mod outline;
 pub mod page;
 pub mod page_label;
 pub mod shading;

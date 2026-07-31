@@ -129,6 +129,12 @@ struct App {
     /// Once rather than per page turn: the tree is a handful of ranges and reading it costs
     /// one walk, where doing it per page would put a number-tree walk on every arrow key.
     labels: pdf_model::page_label::PageLabels,
+    /// §12.3.3's outline, read once for the same reason.
+    ///
+    /// There is no panel to show it in. What it is used for is the one question a viewer
+    /// without a panel can still answer — which section the current page is in — and that is
+    /// worth more in a title bar than a page number alone.
+    outline: pdf_model::outline::Outline,
     page_count: usize,
     page_index: usize,
     state: Option<State>,
@@ -143,6 +149,7 @@ struct State {
 impl App {
     fn new(document: Document, title: String, page_count: usize) -> Self {
         let labels = pdf_model::page_label::PageLabels::read(&document);
+        let outline = pdf_model::outline::Outline::read(&document, &Pages::new(&document));
         // §12.3.2.1: "the optional OpenAction entry in a document's catalog dictionary may
         // specify a destination that shall be displayed when the document is opened." Table 29
         // states the other half — an absent or unresolvable entry means "the top of the first
@@ -160,6 +167,7 @@ impl App {
             document,
             title,
             labels,
+            outline,
             page_count,
             page_index,
             state: None,
@@ -286,6 +294,10 @@ impl ApplicationHandler for App {
                 let Some(state) = self.state.as_mut() else {
                     return;
                 };
+                let section = self
+                    .outline
+                    .section_at(&self.document, &Pages::new(&self.document), index)
+                    .map(ToOwned::to_owned);
                 let report = render(
                     &self.context,
                     state,
@@ -293,6 +305,7 @@ impl ApplicationHandler for App {
                     index,
                     count,
                     &self.labels,
+                    section.as_deref(),
                 );
                 state
                     .window
@@ -312,6 +325,7 @@ fn render(
     page_index: usize,
     page_count: usize,
     labels: &pdf_model::page_label::PageLabels,
+    section: Option<&str>,
 ) -> String {
     let width = state.surface.config.width;
     let height = state.surface.config.height;
@@ -393,10 +407,10 @@ fn render(
         CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
             context.configure_surface(&state.surface);
             state.window.request_redraw();
-            return describe(page_index, page_count, labels, &interpretation);
+            return describe(page_index, page_count, labels, section, &interpretation);
         }
         CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => {
-            return describe(page_index, page_count, labels, &interpretation);
+            return describe(page_index, page_count, labels, section, &interpretation);
         }
         CurrentSurfaceTexture::Validation => return "swapchain validation failed".to_owned(),
     };
@@ -417,7 +431,7 @@ fn render(
     handle.queue.submit(Some(encoder.finish()));
     frame.present();
 
-    describe(page_index, page_count, labels, &interpretation)
+    describe(page_index, page_count, labels, section, &interpretation)
 }
 
 /// Builds the title-bar status, naming what could not be drawn.
@@ -425,6 +439,7 @@ fn describe(
     page_index: usize,
     page_count: usize,
     labels: &pdf_model::page_label::PageLabels,
+    section: Option<&str>,
     interpretation: &pdf_model::Interpretation,
 ) -> String {
     // ISO 32000-2 §12.4.2: "Page labels and page indices need not coincide". Where the
@@ -437,6 +452,13 @@ fn describe(
             page_index.saturating_add(1)
         ),
         _ => format!("page {} of {page_count}", page_index.saturating_add(1)),
+    };
+    // §12.3.3's outline is a table of contents, so the item covering this page is the section
+    // a reader is in. Shown after the page number rather than before it, because it is context
+    // for a position rather than the position itself.
+    let page = match section {
+        Some(section) if !section.is_empty() => format!("{page} — {section}"),
+        _ => page,
     };
     if interpretation.is_complete() {
         return page;

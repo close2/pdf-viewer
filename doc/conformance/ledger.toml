@@ -3368,8 +3368,10 @@ note = "Both of the clause's tables — the PDF 1.1 `/Dests` dictionary in the c
 [[clause]]
 clause = "12.3.3"
 title = "Document outline"
-status = "silent"
-note = "The document outline: `/Outlines` in the catalog, a doubly-linked tree of items each carrying a `/Title`, a destination or an action, and optional colour and style. In scope by name and unbuilt. Two things are worth leaving for whoever builds it: the title is a *text string* (§7.9.2.2), which this tree already decodes, and the sign of `/Count` is what says whether an item is open."
+status = "partial"
+code = ["crates/pdf-model/src/outline.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/outline.rs::the_visible_count_skips_a_closed_items_descendants", "crates/pdf-model/tests/outlines.rs::a_stated_count_agrees_with_the_count_the_clause_defines"]
+note = "The whole hierarchy is read: Table 150's root, Table 151's items with `/Title` as a §7.9.2.2 text string, a destination from `/Dest` or from a go-to action's `/D`, Table 152's italic and bold bits, `/C` clamped to `DeviceRGB`, and the sign of `/Count` deciding whether an item is open. The walk follows `/First` and `/Next` only — `/Prev`, `/Last` and `/Parent` are redundant with what it already has and could only disagree — and refuses to visit an object twice, because all six links are indirect references a producer can get wrong. **`/Count` is stated as a three-step algorithm rather than as a number**, so a document states the same fact twice and can be checked against itself: 144 of the 146 corpus documents that state one over a non-empty outline agree with the steps run over their own items, and the two that do not contradict *themselves* — `nested_outline.pdf` marks three items open with `/Count 2` apiece, which makes nine visible, and says 3. `partial` because a viewer with no panel cannot show it: what `viewer-ui` uses is `section_at`, the innermost item covering the page being drawn, shown in the title bar. That mapping from a page back to an item is a **documented choice** — the clause describes a panel a person clicks and states nothing about it."
 
 [[clause]]
 clause = "12.3.4"
@@ -5646,54 +5648,65 @@ status = "unreviewed"
 [[clause]]
 clause = "14.13"
 title = "Associated files"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the ten below. **Associated files never change a pixel** — they are \"content in other formats\" carried alongside PDF objects, connected by an `/AF` array of file specification dictionaries and labelled by `/AFRelationship`. Nothing in this tree reads one, and 6 of the 974 corpus documents state `/AF` on their catalog. §14.1's opening sentence covers the family exactly: \"[t]he features described in this clause do not affect the final appearance of a document.\" What keeps this `silent` rather than `inapplicable` is that a *reader* can still owe something — an attachments list, and an accessibility path that §14.9 may yet want — and §7.11.4's embedded file streams are the same debt seen from the other end."
 
 [[clause]]
 clause = "14.13.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "What an associated file is and the eight object types that may carry `/AF`: the catalog, a page, a marked-content property list, a structure element, an XObject, a `/DPart`, an annotation and a metadata stream. Five of those eight are objects this tree already parses, so the entry is one array lookup away wherever it matters; what does not exist is anything to *do* with the result."
 
 [[clause]]
 clause = "14.13.2"
 title = "Embedded associated files"
-status = "unreviewed"
+status = "silent"
+note = "An associated file may be external or embedded, and the clause recommends embedded. Two requirements worth carrying to whoever builds this: the embedded stream's `/Params` \"shall contain at least a ModDate key\", and \"[t]he embedded file stream dictionary shall include a valid MIME type value for the Subtype key. If the MIME type is not known, the value `application/octet-stream` shall be used.\" A `/Subtype` is a name, so its MIME solidus arrives as `#2F` — §7.3.5's escape, which the lexer already resolves."
 
 [[clause]]
 clause = "14.13.3"
 title = "Associated files linked to the PDF document's catalog"
-status = "unreviewed"
+status = "silent"
+note = "`/AF` on the document catalog, for files associated with the document as a whole. 6 corpus documents state one. Nothing reads it."
 
 [[clause]]
 clause = "14.13.4"
 title = "Associated files linked to a page dictionary"
-status = "unreviewed"
+status = "silent"
+note = "`/AF` on a page dictionary. `page.rs` reads that dictionary and §7.7.3.4's inheritance does not reach this entry — Table 31 does not list it — so a page's associated files are its own. Nothing reads it."
 
 [[clause]]
 clause = "14.13.5"
 title = "Associated files linked to graphics objects"
-status = "unreviewed"
+status = "silent"
+note = "The one subclause of this family that touches the rendering path, and it touches it without changing it. Content is associated with a file by bracketing it in `BDC`/`EMC` with the tag `/AF` and a property list naming an array of file specification dictionaries — the same mechanism §8.11.3.3's `/OC` and §14.7.5.2's `/MCID` arrive by, and `content.rs` already parses that property list. An `/AF` bracket that this tree ignores draws exactly what the clause says it should, because the association changes nothing about the marks. Two prohibitions are worth recording: \"the DP or MP marked-content operators shall not be used with the AF tag\", since a point cannot bracket a sequence, and NOTE 2's observation that `BMC` \"does not take properties and therefore cannot be used with the AF key\"."
 
 [[clause]]
 clause = "14.13.6"
 title = "Associated files linked to structure elements"
-status = "unreviewed"
+status = "silent"
+note = "`/AF` on a structure element, \"to accommodate content that spans pages such as in an article, section or table\". Behind §14.7's structure tree, which is `silent` in full — so this row cannot close before those do, and unlike §12.3.2.3's structure destinations it genuinely needs the tree rather than one element's own entries."
 
 [[clause]]
 clause = "14.13.7"
 title = "Associated files linked to XObjects"
-status = "unreviewed"
+status = "silent"
+note = "`/AF` on a Type 1 form XObject or an image XObject, in the stream dictionary. Both are objects this tree resolves and draws; neither has its `/AF` read."
 
 [[clause]]
 clause = "14.13.8"
 title = "Associated files linked to DParts"
-status = "unreviewed"
+status = "silent"
+note = "`/AF` on a `/DPart` dictionary, which is §14.12's document parts — `unreviewed` beside it, and the only one of this family's eight attachment points whose *host* structure this tree does not read at all."
 
 [[clause]]
 clause = "14.13.9"
 title = "Associated files linked to an annotation dictionary"
-status = "unreviewed"
+status = "silent"
+note = "`/AF` on an annotation dictionary. `annotation.rs` reads every annotation on a page and none of their `/AF` entries. The clause's NOTE names §13.7.2's RichMedia annotations as the motivating case, and those are `out-of-scope` by `CLAUDE.md`'s multimedia exclusion — but the entry is not, since any annotation may carry one."
 
 [[clause]]
 clause = "14.13.10"
 title = "Associated file examples"
-status = "unreviewed"
+status = "inapplicable"
+note = "Three worked examples — a presentation associated with the catalog, a `.doc` associated with a marked-content sequence, a MathML file associated with a form XObject. Nothing normative that §14.13.1 to §14.13.9 do not state; read and dismissed, which the ledger records rather than leaving blank."

@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **forty-ninth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **fiftieth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,82 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the forty-ninth session changed
+## What the fiftieth session changed
+
+**§12.3.3's document outline, and a `/Count` the clause states as an algorithm rather than as a
+number — so a document states one fact twice and can be checked against itself.** ADR 0055.
+
+The outline is the second thing downstream of the destinations built a session ago and the third
+of the four rows the name trees unblocked. 176 of the 974 documents have one. It is also the
+first item in this project whose whole purpose is a *panel*, in a viewer that has none, and the
+answer to that is: **read the whole hierarchy, and use the part a viewer without a panel can
+use.** `Outline::section_at` gives the innermost item covering the page being drawn, and the
+title bar now says which section a reader is in beside the page number and the §12.4.2 label.
+That mapping is a **documented choice** — §12.3.3 describes a panel a person clicks and says
+nothing about going the other way.
+
+**Table 151 defines `/Count` in three numbered steps**, over "those immediate children whose
+Count is positive" — the open ones. Running the steps over what was read and comparing with what
+the file states is a check on *this reader*: a walk that lost a level, took a closed item's
+children as visible, or ran off a `/Next` chain would disagree with every producer that ran the
+same steps.
+
+| | states | the steps give |
+|---|---|---|
+| **144 of 146 documents** | agree | — |
+| `nested_outline.pdf` | 3 | **9** — its three top-level items each carry `/Count 2`, which by step 3 makes them open and their six children visible |
+| `outline_goto_action.pdf` | 1 | **2** — one parent, open, and one child |
+
+Both exceptions contradict *themselves*, and both are hand-written pdf.js fixtures whose root
+count was written rather than computed. **A number counted from the items is the clause's; a
+number written beside them is a claim.**
+
+Two more things the walk decides, each written where it is made. **Follow `/First` and `/Next`
+and nothing else**: the clause threads six indirect references per item — `/Prev`, `/Last` and
+`/Parent` are redundant with the forward walk and could only disagree with it. And **twenty-six
+documents state an `/Outlines` that yields no items**, every one of them
+`<< /Type /Outlines /Count 0 >>` with no `/First`, which Table 150 permits; the test asserts that
+per document, so a root *with* a `/First` producing nothing would fail rather than be counted.
+
+**On the specification track, §14.13's associated files — eleven rows, all of them read against
+`/AF`, which nothing here has ever looked at.** The family is `silent` and §14.1's own opening
+sentence is why it changes nothing on a page: "[t]he features described in this clause do not
+affect the final appearance of a document." Three findings worth carrying:
+
+- **Five of the eight objects that may carry `/AF` are objects this tree already parses** — the
+  catalog, a page, a marked-content property list, an XObject, an annotation. The entry is one
+  array lookup away wherever it matters; what does not exist is anything to do with the result.
+- **§14.13.5 touches the rendering path without changing it.** Content is associated with a file
+  by bracketing it in `BDC`/`EMC` with the tag `/AF` — the same mechanism §8.11.3.3's `/OC` and
+  §14.7.5.2's `/MCID` arrive by, which `content.rs` already parses. An `/AF` bracket this tree
+  ignores draws exactly what the clause says it should. Two prohibitions come with it: `DP` and
+  `MP` "shall not be used with the AF tag", and `BMC` cannot be, because it takes no properties.
+- **§14.13.6 genuinely needs the structure tree**, and saying so is worth something now that
+  §12.3.2.3 turned out not to. The difference is exact: a structure *destination* reads one
+  element's own `/K` and `/Pg`; an associated file on a structure element needs the element to be
+  findable, which is the tree.
+
+| | before | now |
+|---|---|---|
+| corpus documents drawing with nothing reported | 858 | **858** |
+| pages agreeing with the reference consensus | 816 | **816** |
+| **ledger subclauses nobody has read** | 107 | **96** — all of them clause 14 |
+| ledger rows owing something in silence | 138 | **147** |
+| `§` citations the checker verified | 1500 | **1509** |
+| **tests** | 626 | **632** |
+
+What it taught:
+
+- **A clause that states an algorithm is a clause that can audit a corpus.** §12.4.2 gave nine
+  labels beside a tree and those became the test; §12.3.3 gives three steps and a number, and
+  those became a test over 146 documents that checks the reader against every producer at once.
+  Look for the requirement stated as a *procedure* — it is worth more than the same requirement
+  stated as a value.
+- **"Two documents disagree with us" is a question, not a defect.** Both here disagree with
+  themselves as well, which is visible only because the check was run on the file's own two
+  statements rather than on ours against theirs.
+
+### The forty-ninth session, in brief
 
 **§12.3.2's destinations, in all three of the spellings the clause gives one object** — and the
 finding is that the row saying it could not be done was this project's own. ADR 0054.
@@ -965,13 +1040,14 @@ patterns, embedded text, transparency groups, soft masks, and annotations both f
 appearance streams and constructed where the standard states one — on a CPU and a GPU backend,
 with JBIG2 and JPEG 2000 decoded in a confined worker, encrypted files decrypted at every
 revision and method §7.6 states, **a form field's value laid out from its `/DA` string**, a page's
-own label from §12.4.2 shown in the title bar, and — since the forty-ninth session — **§12.3.2's
-destinations**, which decide the page a document opens at. It is not yet a PDF *viewer* in the
+own label from §12.4.2 shown in the title bar, **§12.3.2's destinations**, which decide the page a
+document opens at, and — since the fiftieth session — **§12.3.3's outline**, which names the
+section the page being shown is in. It is not yet a PDF *viewer* in the
 full sense — nothing edits a field, follows a link or asks a person for a password — and the gap
-is now measured *by clause* as well as by corpus: 138 of the ledger's rows are `silent`, and
+is now measured *by clause* as well as by corpus: 147 of the ledger's rows are `silent`, and
 almost every one of them is a viewer rather than a renderer.
 
-- **626 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **632 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -1069,7 +1145,7 @@ almost every one of them is a viewer rather than a renderer.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 1500 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 1509 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -1100,7 +1176,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1500 citations, 154 quotations, 85 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1509 citations, 156 quotations, 85 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -1739,7 +1815,7 @@ usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is 
 corpus document names is a licensing decision (predefined `CMap`s, 12), `viewer-ui` work (a
 password prompt, 8), substitution quality (24 fonts), and three transparency-group departures
 that need a second raster format or a backdrop. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name: **107 of 823 subclauses are `unreviewed`, every one of them clause
+§6.3.2.2's ranking name: **96 of 823 subclauses are `unreviewed`, every one of them clause
 14's**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
@@ -1776,11 +1852,10 @@ left**: §12.7.7's named pages and §14.7.5.4's `/ParentTree`, each now needing 
 semantics on top of `pdf_syntax::tree`. That is what a conformance ledger can produce and a
 demand curve cannot: a component nobody would have asked for.
 
-**And the next thing downstream of it.** §12.3.2's destinations are read (ADR 0054), so
-§12.3.3's **document outline** — which `CLAUDE.md` names in scope — is now a linked list of
-`/First`, `/Next` and `/Title` over an object that already resolves, and 176 of the 974 corpus
-documents have one. §12.5.6.5's links and §12.6.4.2's go-to actions are the same shape and each
-needs the gesture that reaches it, which is `viewer-ui` work rather than clause work.
+**And the next thing downstream of it.** §12.3.2's destinations are read (ADR 0054) and §12.3.3's
+outline with them (ADR 0055), so what is left of clause 12's navigation half is the two that need
+a *gesture*: §12.5.6.5's link annotations and §12.6.4.2's go-to actions, which are `viewer-ui`
+work — a mouse, a hit test against `/Rect`, and a page change this program already performs.
 
 **And a third thing, on neither track: the instrument.** 95% of the oracle's cost was three other
 programs answering a question they had already answered, and nobody had looked because 85 seconds
@@ -1798,7 +1873,7 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **A shading's `/BBox`, `/UserUnit` and `/MissingWidth` are the three rendering
 items that came back onto it and off it again** in the twenty-eighth, twenty-ninth and
 thirtieth sessions, and none was announced by a document: all three were found by reading a
-clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **107 of 823 subclauses have never been read at all, every one of them in clause 14**.
+clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **96 of 823 subclauses have never been read at all, every one of them in clause 14**.
 
 **The corpus has gone quiet, and the nine sessions from the thirtieth to the thirty-eighth are
 what that looks like when the two-track rule is followed.** Everything that moved a gate number
@@ -1822,19 +1897,20 @@ program fell through to substitution, and substitution says nothing.
   clause the code cites and nobody has read is the cheapest debt this project can accrue, and
   the list now fails the build the moment one appears. Every clearing of it has produced
   findings the demand item could not have reached — most recently §10.4.2.5.
-- **Only clause 14 is left, and it is 107 rows.** Every other technical clause — 7, 8, 9, 10, 11,
+- **Only clause 14 is left, and it is 96 rows.** Every other technical clause — 7, 8, 9, 10, 11,
   12 and 13 — has no `unreviewed` row, and clause 7 became true rather than claimed in the
   forty-ninth session (§7.11 and §7.12; the count is taken by grouping the ledger's `unreviewed`
-  rows by leading clause number, never by what a session touched). What remains is §14.7's
-  logical structure below its first nineteen rows, §14.8's tagged PDF, §14.9's accessibility
-  support, §14.10's web capture, §14.11's prepress and §14.12's document parts. `CLAUDE.md` puts
+  rows by leading clause number, never by what a session touched). What remains is **§14.8's
+  tagged PDF at 60 rows**, §14.9's accessibility support at 11, §14.10's web capture at 18 and
+  §14.12's document parts at 7. §14.13's associated files went in the fiftieth session. `CLAUDE.md` puts
   "tagged PDF as far as accessibility needs it" in scope and nothing in clause 14 on the
   exclusion list, so these are reviews owed rather than a boundary. Record every row, including
   the `inapplicable` ones — a clause read and dismissed is worth as much as one implemented, and
   costs a minute.
-- **138 `silent` rows, and almost all of them arrived by *reading* rather than by any change to
+- **147 `silent` rows, and almost all of them arrived by *reading* rather than by any change to
   the code** — clause 12's interactive half in three sessions (§12.3, then §12.1/§12.2/§12.4,
-  then §12.6's actions), §14.7's nineteen, and §7.11 and §7.12's in the forty-ninth. Three
+  then §12.6's actions), §14.7's nineteen, §7.11 and §7.12's in the forty-ninth, §14.13's in the
+  fiftieth. Three
   of §12.6's would change what is *drawn* and each has its mechanism already built:
   `/SetOCGState` over §8.11, `/Hide` over §12.5.3's Hidden flag, and `/Trans` over §12.4.4. The count was two only because clause 12's interactive half was
   `unreviewed`; `unreviewed` and `silent` are different admissions, and the second is the one
