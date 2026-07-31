@@ -138,7 +138,7 @@ fn a_shading_carries_the_non_stroking_constant() {
         } = command
             && let pdf_render::ShadingKind::Axial { ramp, .. } = &shading.kind
         {
-            alphas.extend(ramp.colours.iter().map(|colour| colour.a));
+            alphas.extend(ramp.stops.iter().map(|stop| stop.colour.a));
         }
     }
 

@@ -756,6 +756,20 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// any other reader: `loca`'s last entry equals `glyf`'s length under exactly one of the two
 /// readings, and `loca`'s own length is `4 × (n + 1)` rather than `2 × (n + 1)`. ADR 0052.
 ///
+/// # One left in the fifty-fourth session, and it is a step drawn as a gradient
+///
+/// `issue10572.pdf` is twenty-four hard stripes of green and blue, and we drew each boundary as
+/// a seven-pixel gradient. The file states the steps precisely: a type 3 stitching function
+/// whose sub-functions are themselves type 3 with `/Bounds [0.5 0.5]` — a subdomain of zero
+/// width, which is how a producer writes a discontinuity. §8.7.4.5.3 makes the colour at a
+/// point whatever the function says, and 256 evenly spaced samples over an 1800-unit axis put
+/// a sample every seven pixels, so every step landed inside one interval and was averaged
+/// across it.
+///
+/// A `Ramp` now carries a *position* per stop, and `Function::breakpoints` reports where the
+/// clause allows a jump — `/Bounds`, recursively, mapped back through `/Encode`. Each break
+/// gets two stops at one position, which is how a gradient expresses a step. ADR 0059.
+///
 /// # One left in the fifty-third session, and two documents left the comparison with it
 ///
 /// `pattern_text_embedded_font.pdf` draws two lines of `AbCdEf`: one filled with a shading and
@@ -849,7 +863,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 31] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 30] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -864,7 +878,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 31] = [
     "freeculture.pdf page 67",
     "freeculture.pdf page 76",
     "issue1002.pdf page 1",
-    "issue10572.pdf page 1",
     "issue2017r.pdf page 1",
     "issue3207r.pdf page 1",
     "issue3405r.pdf page 1",

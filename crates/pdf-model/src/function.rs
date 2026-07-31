@@ -161,6 +161,84 @@ impl Function {
         }
     }
 
+    /// Where this function may be discontinuous, as values in its own input domain.
+    ///
+    /// §7.10.4's type 3 function "defines a stitching of the subdomains of several 1-input
+    /// functions", and its `/Bounds` are exactly where one sub-function stops and the next
+    /// begins — so a bound is the only place the standard lets a 1-input function jump. Two
+    /// equal bounds make a subdomain of zero width, which is how a producer writes a *step*:
+    /// `issue10572.pdf` does it twelve times to draw twenty-four hard stripes.
+    ///
+    /// A caller sampling this function into a table needs the list so that it can put a sample
+    /// on each side of every jump; without it a step is averaged into a gradient as wide as
+    /// the sampling interval. Types 0, 2 and 4 declare no discontinuity: a sampled function
+    /// interpolates between its samples, an exponential one is smooth, and a PostScript
+    /// program's branches are not declared anywhere a reader could find them.
+    ///
+    /// Nested stitching functions are followed, because the jump a sub-function contains is a
+    /// jump of the whole: each is mapped back through `/Encode` and the subdomain it belongs
+    /// to. Only the first input is considered — `/Bounds` applies to 1-input functions, which
+    /// is all §7.10.4 defines.
+    #[must_use]
+    pub fn breakpoints(&self) -> Vec<f32> {
+        /// How deep a chain of stitching functions is followed.
+        ///
+        /// `parse` already bounds the nesting it will build; this is the walk's own guard so
+        /// that the two cannot disagree.
+        const MAX_DEPTH: usize = 8;
+
+        fn walk(function: &Function, depth: usize, out: &mut Vec<f32>) {
+            let Kind::Stitching {
+                functions,
+                bounds,
+                encode,
+            } = &function.kind
+            else {
+                return;
+            };
+            if depth > MAX_DEPTH {
+                return;
+            }
+            let (domain_low, domain_high) = function.domain.first().copied().unwrap_or((0.0, 1.0));
+            out.extend(bounds.iter().copied());
+
+            for (index, sub) in functions.iter().enumerate() {
+                // The subdomain this sub-function covers, which is what `eval_stitching`
+                // selects with.
+                let low = if index == 0 {
+                    domain_low
+                } else {
+                    bounds
+                        .get(index.saturating_sub(1))
+                        .copied()
+                        .unwrap_or(domain_low)
+                };
+                let high = bounds.get(index).copied().unwrap_or(domain_high);
+                let (encode_low, encode_high) = encode.get(index).copied().unwrap_or((0.0, 1.0));
+
+                let mut inner = Vec::new();
+                walk(sub, depth.saturating_add(1), &mut inner);
+                for at in inner {
+                    // Undo the `/Encode` mapping, which is what `eval_stitching` applies on
+                    // the way in. An encode range of zero width maps the whole subdomain to
+                    // one point, so nothing inside it has a position of its own.
+                    if (encode_high - encode_low).abs() <= f32::EPSILON {
+                        continue;
+                    }
+                    let fraction = (at - encode_low) / (encode_high - encode_low);
+                    out.push(low + fraction * (high - low));
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        walk(self, 0, &mut out);
+        out.retain(|at| at.is_finite());
+        out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        out.dedup();
+        out
+    }
+
     /// Evaluates the function, clipping inputs to the domain and outputs to the range.
     #[must_use]
     pub fn eval(&self, inputs: &[f32]) -> Vec<f32> {
@@ -1291,5 +1369,34 @@ mod tests {
         // Inputs outside the domain are clipped, not extrapolated.
         assert_eq!(function.eval(&[-5.0]), vec![0.0, 0.0, 0.0]);
         assert_eq!(function.eval(&[5.0]), vec![1.0, 0.5, 0.0]);
+        // A function with no `/Bounds` declares no discontinuity.
+        assert!(function.breakpoints().is_empty());
+    }
+
+    /// A nested stitching function's bounds come back in the *outer* domain.
+    ///
+    /// This is `issue10572.pdf`'s shape reduced to two bands: an outer type 3 over `[-2, 2]`
+    /// with one bound at 0, whose two sub-functions are each a type 3 over `[0, 1]` with two
+    /// equal bounds at 0.5 — the way a producer writes a step. The steps are therefore at
+    /// -1 and +1 in the outer domain, and the bound between them at 0, and getting there
+    /// needs `/Encode` undone twice.
+    #[test]
+    fn a_nested_stitching_functions_steps_map_to_the_outer_domain() {
+        let source = b"%PDF-1.7\n            1 0 obj\n<< /FunctionType 3 /Domain [-2 2] /Bounds [0] /Encode [0 1 0 1]             /Functions [2 0 R 2 0 R] >>\nendobj\n            2 0 obj\n<< /FunctionType 3 /Domain [0 1] /Bounds [0.5 0.5] /Encode [0 1 0 1 0 1]             /Functions [3 0 R 3 0 R 3 0 R] >>\nendobj\n            3 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>\nendobj\n            trailer\n<< /Root 1 0 R >>\n";
+        let document = pdf_syntax::Document::open(source.to_vec()).expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 1,
+            generation: 0,
+        });
+        let function = Function::parse(&document, &object).expect("parses");
+
+        let breaks = function.breakpoints();
+        assert_eq!(breaks.len(), 3, "{breaks:?}");
+        for (found, expected) in breaks.iter().zip([-1.0, 0.0, 1.0]) {
+            assert!(
+                (found - expected).abs() < 1e-5,
+                "{breaks:?} should be [-1, 0, 1]"
+            );
+        }
     }
 }

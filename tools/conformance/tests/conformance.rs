@@ -48,7 +48,7 @@ const UNREVIEWED_CEILING: usize = 314;
 /// row naming `file.rs` is a claim nothing checks. The gate cannot tell whether a named test
 /// *covers* the clause, so this is a count rather than a rule; what it does is keep the
 /// population where a false claim can hide from growing, and say how large it is.
-const FILE_ONLY_EVIDENCE_CEILING: usize = 59;
+const FILE_ONLY_EVIDENCE_CEILING: usize = 58;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///

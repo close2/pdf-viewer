@@ -53,7 +53,7 @@ impl Shading {
         let opaque = |colour: &Color| colour.a >= 1.0;
         match &self.kind {
             ShadingKind::Axial { ramp, .. } | ShadingKind::Radial { ramp, .. } => {
-                ramp.colours.iter().all(opaque)
+                ramp.stops.iter().all(|stop| opaque(&stop.colour))
             }
             ShadingKind::Sampled { pixels, .. } => pixels.iter().all(opaque),
             ShadingKind::Mesh { triangles } => triangles
@@ -80,7 +80,14 @@ impl Shading {
             ..*colour
         };
         let ramp = |ramp: &Ramp| Ramp {
-            colours: ramp.colours.iter().map(scale).collect(),
+            stops: ramp
+                .stops
+                .iter()
+                .map(|stop| Stop {
+                    at: stop.at,
+                    colour: scale(&stop.colour),
+                })
+                .collect(),
         };
         let kind = match &self.kind {
             ShadingKind::Axial {
@@ -194,15 +201,34 @@ pub enum ShadingKind {
     },
 }
 
-/// A colour ramp, sampled at even intervals.
+/// A colour ramp: positions along a shading's parameter, each with a colour.
 ///
-/// PDF states a shading's colours as a function of one parameter. Sampling it evenly is
-/// what lets a backend hand the result to a gradient implementation, which is how both
-/// rasterisers draw these natively and quickly.
+/// PDF states a shading's colours as a function of one parameter. Sampling it is what lets a
+/// backend hand the result to a gradient implementation, which is how both rasterisers draw
+/// these natively and quickly.
+///
+/// # Why the positions are carried rather than implied
+///
+/// An evenly spaced array cannot express a *step*. §8.7.4.5.3's colour at a point is whatever
+/// the function says, and a type 3 stitching function with two equal `/Bounds` says green up to
+/// one point and blue after it — a discontinuity, exactly representable by two stops at the
+/// same position and not representable at all by samples that are averaged between.
+/// `issue10572.pdf` is the page that made the difference visible: 24 hard stripes drawn as
+/// seven-pixel gradients, because 256 even samples over an 1800-unit axis put a sample every
+/// seven pixels and every step landed inside one interval.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ramp {
-    /// Colours from the start of the transition to its end. Never empty.
-    pub colours: Arc<[Color]>,
+    /// The stops, in ascending position order, spanning `0.0..=1.0`. Never empty.
+    pub stops: Arc<[Stop]>,
+}
+
+/// One entry of a [`Ramp`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stop {
+    /// Where along the shading's parameter this colour applies, in `0.0..=1.0`.
+    pub at: f32,
+    /// The colour there.
+    pub colour: Color,
 }
 
 impl Ramp {
@@ -213,57 +239,112 @@ impl Ramp {
     /// cost is one array of this length per shading, built once.
     pub const RESOLUTION: usize = 256;
 
-    /// Builds a ramp by sampling a colour function over `0.0..=1.0`.
+    /// Builds a ramp by sampling a colour function evenly over `0.0..=1.0`.
     ///
     /// The function is called [`Self::RESOLUTION`] times and never afterwards, which is
     /// what keeps PDF functions out of the display list.
     #[must_use]
-    pub fn sample(mut colour_at: impl FnMut(f32) -> Color) -> Self {
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "RESOLUTION is a small constant, exactly representable"
-        )]
-        let last = (Self::RESOLUTION.saturating_sub(1)) as f32;
-        let colours: Vec<Color> = (0..Self::RESOLUTION)
-            .map(|index| {
-                #[expect(clippy::cast_precision_loss, reason = "index is bounded by RESOLUTION")]
-                let t = index as f32 / last;
-                colour_at(t)
-            })
+    pub fn sample(colour_at: impl FnMut(f32) -> Color) -> Self {
+        Self::sample_across(&[], colour_at)
+    }
+
+    /// The same, with positions at which the function is known to be discontinuous.
+    ///
+    /// `breaks` are positions in `0.0..=1.0` — for a PDF shading, a type 3 function's
+    /// `/Bounds` mapped onto the shading's own domain. Each gets **two** stops at the same
+    /// position, taken from just below and just above it, which is how a gradient expresses a
+    /// step; the samples between two breaks are spread evenly over the interval, so a ramp
+    /// with no breaks is exactly what [`Self::sample`] used to build.
+    ///
+    /// The total number of stops stays near [`Self::RESOLUTION`]: a function with many bounds
+    /// gets fewer samples inside each interval rather than more stops overall, because the
+    /// stops are what a rasteriser walks per pixel batch.
+    #[must_use]
+    pub fn sample_across(breaks: &[f32], mut colour_at: impl FnMut(f32) -> Color) -> Self {
+        /// How far either side of a break the two stops are sampled.
+        ///
+        /// Small enough that a continuous function's two values are the same colour to eight
+        /// bits, and large enough to be a distinct `f32` anywhere in the unit interval.
+        const NUDGE: f32 = 1e-5;
+
+        let mut edges: Vec<f32> = breaks
+            .iter()
+            .copied()
+            .filter(|at| at.is_finite() && *at > 0.0 && *at < 1.0)
             .collect();
+        edges.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        edges.dedup();
+
+        // Samples per interval, so that the whole ramp is about RESOLUTION stops however many
+        // intervals there are. Three is the floor: the ends of the interval and its middle.
+        let intervals = edges.len().saturating_add(1);
+        let per_interval = Self::RESOLUTION.checked_div(intervals).unwrap_or(3).max(3);
+
+        let mut stops: Vec<Stop> = Vec::with_capacity(Self::RESOLUTION.saturating_add(8));
+        let mut low = 0.0f32;
+        for index in 0..intervals {
+            let high = edges.get(index).copied().unwrap_or(1.0);
+            let span = high - low;
+            for step in 0..per_interval {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "step and per_interval are bounded by RESOLUTION"
+                )]
+                let fraction = step as f32 / (per_interval.saturating_sub(1).max(1)) as f32;
+                let at = low + span * fraction;
+                // The last sample of an interval belongs to the function *below* the break,
+                // and the first of the next to the function above it: two stops at one
+                // position, which is the step.
+                let sampled = if step.saturating_add(1) == per_interval && high < 1.0 {
+                    (high - NUDGE).max(low)
+                } else if step == 0 && low > 0.0 {
+                    (low + NUDGE).min(high)
+                } else {
+                    at
+                };
+                stops.push(Stop {
+                    at: at.clamp(0.0, 1.0),
+                    colour: colour_at(sampled),
+                });
+            }
+            low = high;
+        }
+
         Self {
-            colours: colours.into(),
+            stops: stops.into(),
         }
     }
 
-    /// Returns the colour at a position in `0.0..=1.0`, interpolating between samples.
+    /// Returns the colour at a position in `0.0..=1.0`, interpolating between stops.
     #[must_use]
     pub fn colour_at(&self, t: f32) -> Color {
-        let last = self.colours.len().saturating_sub(1);
-        if last == 0 {
-            return self.colours.first().copied().unwrap_or(Color::BLACK);
+        let t = t.clamp(0.0, 1.0);
+        let Some(first) = self.stops.first() else {
+            return Color::BLACK;
+        };
+        if t <= first.at {
+            return first.colour;
         }
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "the ramp length is RESOLUTION, a small constant"
-        )]
-        let scaled = t.clamp(0.0, 1.0) * last as f32;
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "scaled is clamped to 0..=last"
-        )]
-        let low = scaled.floor() as usize;
-        let high = low.saturating_add(1).min(last);
-        let fraction = scaled - scaled.floor();
-        let a = self.colours.get(low).copied().unwrap_or(Color::BLACK);
-        let b = self.colours.get(high).copied().unwrap_or(a);
-        Color {
-            r: a.r + (b.r - a.r) * fraction,
-            g: a.g + (b.g - a.g) * fraction,
-            b: a.b + (b.b - a.b) * fraction,
-            a: a.a + (b.a - a.a) * fraction,
+        let mut previous = *first;
+        for stop in self.stops.iter().skip(1) {
+            if t <= stop.at {
+                let span = stop.at - previous.at;
+                let fraction = if span > 0.0 {
+                    (t - previous.at) / span
+                } else {
+                    1.0
+                };
+                let (a, b) = (previous.colour, stop.colour);
+                return Color {
+                    r: a.r + (b.r - a.r) * fraction,
+                    g: a.g + (b.g - a.g) * fraction,
+                    b: a.b + (b.b - a.b) * fraction,
+                    a: a.a + (b.a - a.a) * fraction,
+                };
+            }
+            previous = *stop;
         }
+        previous.colour
     }
 }
 
@@ -587,8 +668,84 @@ impl Triangle {
 
 #[cfg(test)]
 mod tests {
-    use super::Triangle;
+    use super::{Ramp, Triangle};
     use crate::{Color, Point};
+
+    /// A break makes a step, and a ramp without one averages across it.
+    ///
+    /// The function here is green below 0.5 and blue above it, which is what a type 3
+    /// stitching function with two equal `/Bounds` states. Sampled evenly, the midpoint of the
+    /// ramp is a blend of the two; sampled across the break, every position is one colour or
+    /// the other and the two stops that share position 0.5 are what carry the jump.
+    #[test]
+    fn a_break_is_a_step_and_not_a_gradient() {
+        let step = |t: f32| {
+            if t < 0.5 {
+                Color {
+                    r: 0.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 1.0,
+                }
+            } else {
+                Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 1.0,
+                    a: 1.0,
+                }
+            }
+        };
+
+        let even = Ramp::sample(step);
+        let across = Ramp::sample_across(&[0.5], step);
+
+        // Just to one side of the break, an evenly sampled ramp is already part-way to the
+        // other colour; a ramp with the break in it is not.
+        let near = 0.5 - 0.001;
+        assert!(
+            even.colour_at(near).b > 0.05,
+            "an even ramp bleeds blue below the step: {:?}",
+            even.colour_at(near)
+        );
+        assert!(
+            across.colour_at(near).b < 0.001,
+            "a ramp sampled across the break does not: {:?}",
+            across.colour_at(near)
+        );
+        assert!(across.colour_at(0.5 + 0.001).g < 0.001);
+
+        // Two stops share the break's position, which is what a gradient needs to draw a step.
+        let at_break = across
+            .stops
+            .iter()
+            .filter(|stop| (stop.at - 0.5).abs() < 1e-6)
+            .count();
+        assert_eq!(at_break, 2, "the step is two stops at one position");
+    }
+
+    /// A ramp with no breaks is still an even sampling, and both ends are present.
+    #[test]
+    fn an_unbroken_ramp_spans_the_whole_interval() {
+        let ramp = Ramp::sample(|t| Color {
+            r: t,
+            g: t,
+            b: t,
+            a: 1.0,
+        });
+        assert_eq!(ramp.stops.len(), Ramp::RESOLUTION);
+        assert!(
+            ramp.stops
+                .first()
+                .is_some_and(|stop| stop.at.abs() < f32::EPSILON)
+        );
+        assert!(
+            ramp.stops
+                .last()
+                .is_some_and(|stop| (stop.at - 1.0).abs() < f32::EPSILON)
+        );
+        assert!((ramp.colour_at(0.5).r - 0.5).abs() < 0.01);
+    }
 
     /// A triangle with the given device-space extents and three distinct corner colours, so
     /// that [`Triangle::is_flat`] never short-circuits the size question.

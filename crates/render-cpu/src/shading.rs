@@ -97,8 +97,8 @@ pub(crate) fn shader<'a>(
 
 /// Builds the gradient stops for a ramp, honouring `/Extend`.
 fn stops(ramp: &Ramp, extend: (bool, bool)) -> Vec<tiny_skia::GradientStop> {
-    let count = ramp.colours.len();
-    let mut stops: Vec<tiny_skia::GradientStop> = Vec::with_capacity(count.saturating_add(2));
+    let mut stops: Vec<tiny_skia::GradientStop> =
+        Vec::with_capacity(ramp.stops.len().saturating_add(2));
 
     // A non-extended end is cut off by a transparent stop just inside the ramp, so `Pad`
     // repeats transparency beyond it. See the note at the top of this module.
@@ -112,16 +112,11 @@ fn stops(ramp: &Ramp, extend: (bool, bool)) -> Vec<tiny_skia::GradientStop> {
     if !extend.0 {
         stops.push(transparent_stop(0.0, ramp.colour_at(0.0)));
     }
-    for (index, colour) in ramp.colours.iter().enumerate() {
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "the ramp length is a small constant"
-        )]
-        let t = index as f32 / (count.saturating_sub(1).max(1)) as f32;
-        let position = low + t * (high - low);
+    for stop in ramp.stops.iter() {
+        let position = low + stop.at * (high - low);
         stops.push(tiny_skia::GradientStop::new(
             position.clamp(0.0, 1.0),
-            crate::convert::color(*colour),
+            crate::convert::color(stop.colour),
         ));
     }
     if !extend.1 {

@@ -79,8 +79,7 @@ pub(crate) fn brush(
 
 /// Builds the gradient stops for a ramp, honouring `/Extend`.
 fn stops(ramp: &Ramp, extend: (bool, bool)) -> Vec<peniko::ColorStop> {
-    let count = ramp.colours.len();
-    let mut stops: Vec<peniko::ColorStop> = Vec::with_capacity(count.saturating_add(2));
+    let mut stops: Vec<peniko::ColorStop> = Vec::with_capacity(ramp.stops.len().saturating_add(2));
 
     let (low, high) = match extend {
         (true, true) => (0.0, 1.0),
@@ -92,13 +91,11 @@ fn stops(ramp: &Ramp, extend: (bool, bool)) -> Vec<peniko::ColorStop> {
     if !extend.0 {
         stops.push(stop(0.0, transparent(ramp.colour_at(0.0))));
     }
-    for (index, colour) in ramp.colours.iter().enumerate() {
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "the ramp length is a small constant"
-        )]
-        let t = index as f32 / count.saturating_sub(1).max(1) as f32;
-        stops.push(stop((low + t * (high - low)).clamp(0.0, 1.0), *colour));
+    for entry in ramp.stops.iter() {
+        stops.push(stop(
+            (low + entry.at * (high - low)).clamp(0.0, 1.0),
+            entry.colour,
+        ));
     }
     if !extend.1 {
         stops.push(stop(1.0, transparent(ramp.colour_at(1.0))));

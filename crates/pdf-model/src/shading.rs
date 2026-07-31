@@ -194,7 +194,24 @@ fn ramp(document: &Document, dict: &Dictionary, space: &ColourSpace) -> Result<R
     }
     let (low, high) = domain(document, dict);
 
-    Ok(Ramp::sample(|t| {
+    // Where the function jumps, in the shading's own parameter. §8.7.4.5.3 makes the colour at
+    // a point whatever the function says it is, and a type 3 function with two equal `/Bounds`
+    // says one colour up to a point and another after it — a step, which a table of evenly
+    // spaced samples cannot hold. `Ramp::sample_across` puts a pair of stops at each of these.
+    let span = high - low;
+    let mut breaks: Vec<f32> = Vec::new();
+    if span.abs() > f32::EPSILON {
+        for function in &functions {
+            breaks.extend(
+                function
+                    .breakpoints()
+                    .into_iter()
+                    .map(|at| (at - low) / span),
+            );
+        }
+    }
+
+    Ok(Ramp::sample_across(&breaks, |t| {
         let parameter = low + t * (high - low);
         colour_from(&functions, &[parameter], space)
     }))

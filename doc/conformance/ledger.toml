@@ -5082,102 +5082,126 @@ note = "A worked example of a structure tree. Nothing normative; recorded so tha
 [[clause]]
 clause = "14.8"
 title = "Tagged PDF"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of §14.8's sixty rows, of which this session reads the first twenty. Tagged PDF is \"a stylised use of PDF that builds on the logical structure framework described in 14.7\" — so every row of it is behind §14.7's structure tree, which is `silent` in full. **78 of the 974 corpus documents carry a `/MarkInfo`.** `CLAUDE.md` puts this family in scope only \"as far as accessibility needs it\", and §14.9 is what defines that; what §14.8 adds beyond §14.9 is a vocabulary of structure types and attributes for *repurposing* — reflow, export, conversion — which is not what this program does."
 
 [[clause]]
 clause = "14.8.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "What a tagged PDF is and the one requirement stated here rather than in a table: \"A tagged PDF document shall contain a mark information dictionary … with a value of true for the Marked entry.\" That is a cheap thing to read and nothing reads it. The NOTE's five uses are worth keeping straight because only one of them is this project's: extraction, reflow, indexing, conversion, and \"[m]aking content accessible to users with disabilities\"."
 
 [[clause]]
 clause = "14.8.2"
 title = "Tagged PDF and page content"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the twelve below: what tagged PDF adds to a *page*, as opposed to what §14.7 adds to a document. Two of the twelve would change what `text_extraction.rs` produces and neither is read."
 
 [[clause]]
 clause = "14.8.2.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The six rules the rest of the family states, listed. Three are about extraction — artifacts against real content, logical content order, and an unambiguous Unicode mapping — and the last sends the reader to §14.9, which is where `CLAUDE.md`'s scope for this clause is defined."
 
 [[clause]]
 clause = "14.8.2.2"
 title = "Real content and Artifacts"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the two below: the division of a page into real content and artifacts."
 
 [[clause]]
 clause = "14.8.2.2.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The definition, and the sentence that makes it decidable without any tagging: \"Any content that is not included in the structure tree is an artifact even when not enclosed in a marked-content sequence using the tag Artifact\" — so in a tagged document the structure tree is the *whole* answer, and the `/Artifact` tag is a convenience. NOTE 3 in §14.8.2.5.1 completes it: artifacts are not part of the logical content order at all."
 
 [[clause]]
 clause = "14.8.2.2.2"
 title = "Specification of Artifacts"
-status = "unreviewed"
+status = "silent"
+note = "How an artifact is marked: `/Artifact BMC … EMC`, or with a property list, or through an `Artifact` structure element. Table 363 names four kinds — `Pagination`, `Layout`, `Page` and `Background` — and gives an artifact a `/BBox` and an `/Attached` edge list. **10 corpus documents write one.** `content.rs` already brackets `BDC`/`BMC` pairs and ignores tags it does not know, which draws exactly what the clause intends; what is missing is any *use* of the distinction, which is a text-extraction question rather than a rendering one."
 
 [[clause]]
 clause = "14.8.2.3"
 title = "Soft hyphens"
-status = "unreviewed"
+status = "silent"
+note = "A soft hyphen — the one a line break introduced — \"may be represented as a soft hyphen, mapped to the Unicode value U+00AD\", and a writer \"shall distinguish explicitly between soft and hard hyphens\". A reader extracting text should drop a soft hyphen and keep U+002D; `text_extraction.rs` treats both as whatever the font's `/ToUnicode` says, which is right for a hard hyphen and wrong for a soft one in a document that marks them."
 
 [[clause]]
 clause = "14.8.2.4"
 title = "Hidden or invisible page content"
-status = "unreviewed"
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_render_modes.rs::mode_3_paints_nothing_and_still_extracts_its_text"]
+note = "One rule, and this tree already satisfies it: \"page content shall be considered to include all graphics objects in their entirety, regardless of whether they are visible when the document is displayed or printed.\" Text in rendering mode 3 is invisible and is still extracted here — which the oracle records from the other side, in the entry about a page of invisible text over a scanned image that reads back plenty of words and marks the page with no glyph. The NOTE gives the reason and it is this project's own: \"invisible elements can become visible when content is repurposed, or a text-to-speech engine could choose to speak invisible text\"."
 
 [[clause]]
 clause = "14.8.2.5"
 title = "Page content order and logical content order"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the three below: page content order against logical content order."
 
 [[clause]]
 clause = "14.8.2.5.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The two orders defined: page content order \"by the sequencing of graphics objects within a page's content stream\", logical content order \"by a depth-first traversal of the document's logical structure hierarchy\". This tree extracts text in page content order, which the clause says *should* coincide and lists three cases where it cannot — a headline spanning two pages, two articles beginning on one page, and objects that must overlap in a particular order."
 
 [[clause]]
 clause = "14.8.2.5.2"
 title = "Sequencing of annotations"
-status = "unreviewed"
+status = "silent"
+note = "Where an annotation sits in the logical order, which is not where it sits in the file: annotations \"are not interleaved within the page's content stream but are listed in the Annots array\", and their position \"is determined from the document's logical structure\" through an `Annot`, `Link` or `Form` element's object reference. `annotation.rs` draws every annotation after the page content, which is the correct *painting* order (§12.5.5) and says nothing about the reading order."
 
 [[clause]]
 clause = "14.8.2.5.3"
 title = "Reverse-order show strings"
-status = "unreviewed"
+status = "silent"
+note = "`/ReversedChars`, a marked-content tag saying that the show strings inside it hold their characters in reverse — for right-to-left text set with a font whose glyphs run left to right. \"[T]he sequence of the characters as found in the show string operator shall be reversed before using them\", per string rather than across the sequence. It changes *extraction* and nothing else: the glyphs are already positioned, so the page draws correctly either way. No corpus document writes one, and `text_extraction.rs` would return the text backwards if one did."
 
 [[clause]]
 clause = "14.8.2.6"
 title = "Unicode mapping in tagged PDF"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the two below: how a tagged document guarantees that its character codes have Unicode values."
 
 [[clause]]
 clause = "14.8.2.6.1"
 title = "General"
-status = "unreviewed"
+status = "partial"
+code = ["crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor"]
+note = "\"Every character code that belongs to a structure element in the structure tree shall map to Unicode\", by §9.10.2's three methods — which this tree implements in full and in the clause's stated priority, and which is the whole of what a *reader* can do here. What is not read is the exception this clause adds: \"except where an associated Alt or ActualText entry applies\", which is §14.9.3's and §14.9.4's row. The clause's advice about the private use area is a writer's."
 
 [[clause]]
 clause = "14.8.2.6.2"
 title = "Identifying word breaks"
-status = "unreviewed"
+status = "silent"
+note = "How a word break is identified when no character encodes one: a `Tj` gap, a positioning operator, or the end of a marked-content sequence may all be one, and a tagged document is required to make it unambiguous. `text_extraction.rs` infers word breaks from glyph positions, which is the same *evidence* the clause describes and not the clause's own rule; the difference matters for a document that marks them and for no other."
 
 [[clause]]
 clause = "14.8.3"
 title = "Basic layout model"
-status = "unreviewed"
+status = "inapplicable"
+note = "Aggregate of the three below. The basic layout model is the vocabulary §14.8.5's layout attributes are defined against — reference areas, block and inline progression directions — and it exists so that a processor *reflowing* a document knows what the attributes mean. This program lays nothing out: it draws the page the file describes, at the positions the file states."
 
 [[clause]]
 clause = "14.8.3.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "The model: content laid out in reference areas, each with a writing direction, block and inline progression. Every term here is an input to reflow, which §14.8.1's NOTE lists as one of tagged PDF's five uses and which is not one this program has."
 
 [[clause]]
 clause = "14.8.3.2"
 title = "Reference area"
-status = "unreviewed"
+status = "inapplicable"
+note = "A reference area is the rectangle a block-level element is laid out in. Read as a definition; nothing here computes one, because nothing here decides where content goes."
 
 [[clause]]
 clause = "14.8.3.3"
 title = "Progression direction"
-status = "unreviewed"
+status = "inapplicable"
+note = "Progression direction — inline and block — for the four writing modes. The one place a *rendering* question hides nearby is §9.7's vertical writing, which is implemented from §9.2.4's metrics rather than from this model, and the two must not be confused: `/W2` places glyphs, this places blocks."
 
 [[clause]]
 clause = "14.8.4"
