@@ -2084,7 +2084,7 @@ title = "Determining the state of optional content groups"
 status = "partial"
 code = ["crates/pdf-model/src/optional_content.rs"]
 test = ["crates/pdf-model/tests/optional_content.rs::a_base_state_of_off_hides_the_groups_the_on_array_does_not_name"]
-note = "Steps a) and b) — the base state over every group, then the array opposite to it — are implemented, and the clause calls their result the initial state used by all PDF processors. Everything after that sentence is about an interactive processor and is not: usage application dictionaries for View, Print and Export events, and manual overrides surviving reapplication. See §8.11.4.4."
+note = "Steps a) and b) — the base state over every group, then the array opposite to it — are implemented, and the clause calls their result the initial state used by all PDF processors. The paragraph after it is now half implemented too: \"[t]he user may manipulate optional content group states manually or by triggering set-OCG-state actions\", and since the sixty-second session §12.6.4.13's action does exactly that against a `ViewState` the file cannot see, which is what the same sentence's \"[m]anual changes shall override the states that were set automatically\" requires. Still owed: usage application dictionaries for the Print and Export events, whose changes \"persist only for the duration\" of an operation this program does not perform, and a layer panel for the manual half. See §8.11.4.4."
 
 [[clause]]
 clause = "9.1"
@@ -3689,21 +3689,24 @@ note = "3D and RichMedia annotations are defined by §13.6.2 and §13.7.2, which
 [[clause]]
 clause = "12.6"
 title = "Actions"
-status = "silent"
-note = "Actions — what a PDF *does* when something is triggered. `CLAUDE.md` splits this family down the middle: \"[f]ield *appearance* is not excluded; field *behaviour* is\", and \"JavaScript and script-driven form behaviour\" is on principle 5's closed exclusion list by name. So §12.6.4.17's ECMAScript actions are `out-of-scope` and every other action type is `silent` — unimplemented, unreported, and owed. Nothing in this tree reads an `/A` entry on anything."
-
+status = "partial"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs"]
+test = ["crates/pdf-model/tests/actions.rs"]
+note = "Actions — what a PDF *does* when something is triggered. `CLAUDE.md` splits this family down the middle: \"[f]ield *appearance* is not excluded; field *behaviour* is\", and \"JavaScript and script-driven form behaviour\" is on principle 5's closed exclusion list by name. Since the sixty-second session `action.rs` reads Table 196's dictionary and its `/Next` tree, and **the three types that change what a page displays are performed**: §12.6.4.2's go-to, §12.6.4.13's set-OCG-state and §12.6.4.11's hide. The other seventeen are recognised and each carries its own refusal by name. What performs them is `view.rs`'s `ViewState`, which is the first thing in this tree that is neither the document nor the page: a layer a click switched off is not in the file, so `interpret_with` takes it as a third input and `interpret` is that function at the state a document opens in."
 [[clause]]
 clause = "12.6.1"
 title = "General"
-status = "silent"
-note = "The framing, and the one sentence with a consequence for a *renderer*: an action is performed in response to a trigger, and \"[a]ctions may be chained together\" through `/Next`, breadth-first, with the clause warning that a cycle is possible. Nothing here follows one, so nothing here can loop on one either."
-
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs"]
+test = ["crates/pdf-model/tests/actions.rs::a_set_ocg_state_action_changes_what_the_next_render_draws"]
+note = "The framing: an action is performed in response to a trigger, and the entries that carry one are read where they are — a link annotation's `/A` (§12.5.6.5, `link.rs`), an outline item's (§12.3.3, `outline.rs`), and the catalog's `/OpenAction` (§7.7.2, `destination.rs`). Table 190's screen annotation and Table 249's FDF field are the two this tree does not reach, and both belong to families it excludes."
 [[clause]]
 clause = "12.6.2"
 title = "Action dictionaries"
-status = "silent"
-note = "Table 196's action dictionary: `/Type`, `/S`, `/Next`. Unread. The shape is worth recording because it is the same one §12.5's annotation dictionary has — a `/S` subtype selecting a table of additional entries — and `appearance.rs` already dispatches on exactly that pattern for annotations."
-
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs"]
+test = ["crates/pdf-model/src/action.rs::a_next_chain_is_flattened_in_execution_order", "crates/pdf-model/src/action.rs::a_cycle_of_next_entries_terminates"]
+note = "Table 196 in full: `/Type` (optional and ignored), `/S` dispatching on Table 201's twenty names, and `/Next`, which is where the work is. NOTE 1 makes the chain a *tree* — \"[a]ctions within each Next array are executed in order, each followed in turn by any actions specified in its Next entry, and so on recursively\" — so `action::read` flattens it depth-first into the order it is performed in, which is also what lets a go-to buried under a sound reach `link.rs`. The clause's own robustness rule is the other half and it is a rule about *broken files*: \"self-referential actions ought not be executed more than once\", so each action object is visited once and the total is bounded. NOTE 2's advice not to modify an action tree while running it is a writer's."
 [[clause]]
 clause = "12.6.3"
 title = "Trigger events"
@@ -3713,15 +3716,17 @@ note = "Trigger events: Table 197's `/AA` on a page, an annotation or a field, a
 [[clause]]
 clause = "12.6.4"
 title = "Action types"
-status = "silent"
-note = "Table 199's eighteen action types. The rows below take them one at a time; the summary is that this tree implements none and that three of them would change what is *drawn* rather than where the reader goes — `/SetOCGState`, `/Trans` and `/Hide`."
-
+status = "partial"
+code = ["crates/pdf-model/src/action.rs"]
+test = ["crates/pdf-model/tests/actions.rs"]
+note = "Table 201's twenty action types. The rows below take them one at a time; the summary is that **three are performed and they are the three that change what is displayed** — `/GoTo` (§12.6.4.2), `/SetOCGState` (§12.6.4.13) and `/Hide` (§12.6.4.11) — and the other seventeen are recognised and refused by name rather than ignored as a class. `/Trans` is the fourth that could change a mark and does not: §12.4.4's transition is an animation between two renders, and this viewer draws the second one."
 [[clause]]
 clause = "12.6.4.1"
 title = "General"
-status = "silent"
-note = "The list of types and the rule that a processor \"shall ignore\" an action whose `/S` it does not recognise, which is the same compatibility principle §7.8.2's `BX`/`EX` states for operators and Annex I states for the file as a whole. Ignoring is what this tree does, though by never looking rather than by deciding."
-
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs"]
+test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
+note = "The list of types, and the rule that a processor \"shall ignore\" an action whose `/S` it does not recognise — the same compatibility principle §7.8.2's `BX`/`EX` states for operators and Annex I for the file as a whole. Implemented as a *distinction* rather than a blanket: a name Table 201 holds becomes an `Action::Refused` carrying that name, and a name it does not hold produces nothing at all, because calling an unknown name a refused action would claim to know what was refused."
 [[clause]]
 clause = "12.6.4.2"
 title = "Go-To actions"
@@ -3781,9 +3786,10 @@ note = "Movie: play a movie annotation. Deprecated in PDF 2.0 in favour of §13.
 [[clause]]
 clause = "12.6.4.11"
 title = "Hide actions"
-status = "silent"
-note = "Hide: set or clear the Hidden flag on named annotations or fields. **This one changes what is drawn.** §12.5.3's Hidden flag is implemented — `annotation.rs` honours it — so the mechanism exists and only the trigger that would flip it does not."
-
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs", "crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/actions.rs::a_hide_action_stops_an_annotation_being_drawn", "crates/pdf-model/tests/actions.rs::a_show_action_clears_the_flag_the_file_set"]
+note = "Hide, in both directions and in all three of Table 214's forms for `/T`: an indirect reference to an annotation, a fully qualified field name resolved through §12.7.4.2, or an array of either. `/H` defaults to true. **This one changes what is drawn** — the clause sets and clears the same Hidden flag §12.5.3 defines, so `/H false` shows an annotation whose own `/F` hides it, which is the half a reader gets wrong by treating the action as a filter laid over the file. The state lives in `ViewState` and not in the document, because this program does not write files. No corpus document states one: the sixty-second session walked every object of all 964 openable documents and found no `/Hide` at all."
 [[clause]]
 clause = "12.6.4.12"
 title = "Named actions"
@@ -3793,9 +3799,10 @@ note = "Named: `/NextPage`, `/PrevPage`, `/FirstPage`, `/LastPage` and any regis
 [[clause]]
 clause = "12.6.4.13"
 title = "Set-OCG-state actions"
-status = "silent"
-note = "Set-OCG-state: turn optional content groups on, off or to the opposite of their current state. **This one changes what is drawn**, and everything under it is implemented: §8.11's configuration, membership and visibility expressions are read in full and `optional_content.rs` answers \"is this layer on\" for every mark. What is missing is the ability to *change* the answer after the page is built."
-
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/actions.rs::a_set_ocg_state_action_changes_what_the_next_render_draws", "crates/pdf-model/src/view.rs::turning_a_radio_button_group_on_turns_its_siblings_off"]
+note = "Set-OCG-state, with Table 217's `/State` processed left to right — each name applying \"to the subsequent groups until the next name is encountered\", a group set as many times as it appears, which is what the clause's EXAMPLE 2 turns on — and `/PreserveRB`, whose default of **true** is what made Table 99's `/RBGroups` load-bearing: a group turned on takes every other member of its radio-button collection off with it. `/RBGroups` had been recorded as unread for the whole project; it is read here and nowhere else, because §8.11.4.5 gives it no part in the *initial* state. **One corpus document states this action**, measured over every object of all 964 openable files."
 [[clause]]
 clause = "12.6.4.14"
 title = "Rendition actions"
@@ -3879,9 +3886,10 @@ note = "Table 226's inheritance is implemented and is what makes a merged widget
 [[clause]]
 clause = "12.7.4.2"
 title = "Field names"
-status = "inapplicable"
-note = "A field's partial and fully qualified names, the PERIOD that separates them, and the rule that a dictionary with no `/T` 'shall not be considered a field but simply a Widget annotation'. Names identify a field for export, scripting and the user interface, none of which decides a mark; the widget rule is honoured by construction rather than by code, since drawing reads `/FT` up the `/Parent` chain and never asks whether a dictionary is a field. The requirement that two fields with the same fully qualified name share `/FT`, `/V` and `/DV` is on the writer."
-
+status = "implemented"
+code = ["crates/pdf-model/src/view.rs"]
+test = ["crates/pdf-model/src/view.rs::a_hide_action_finds_a_field_by_its_fully_qualified_name", "crates/pdf-model/src/view.rs::one_field_name_may_reach_several_widgets"]
+note = "A field's partial and fully qualified names, the PERIOD that separates them, and the rule that a dictionary with no `/T` \"shall not be considered a field but simply a Widget annotation\". **This row was `inapplicable` for eighteen sessions and the reasoning was sound and wrong**: names identify a field for export, scripting and the user interface, none of which decides a mark — until §12.6.4.11's hide action names one, and then a field name decides whether an annotation is drawn. `view.rs` builds the whole table from `/AcroForm /Fields`, appending each partial name to its parent's, and a kid with no `/T` joins its parent's name rather than starting one, so one name reaches every widget of its field. The requirement that two fields sharing a fully qualified name share `/FT`, `/V` and `/DV` is on the writer."
 [[clause]]
 clause = "12.7.4.3"
 title = "Variable text"

@@ -820,6 +820,24 @@ impl GraphicsState {
 /// is a property of the page rather than of the device.
 #[must_use]
 pub fn interpret(document: &Document, page: &Page) -> Interpretation {
+    interpret_with(document, page, &crate::view::ViewState::of(document))
+}
+
+/// Interprets a page against a viewer state §12.6.4's actions have moved.
+///
+/// The same as [`interpret`] except that the optional content groups' states and the
+/// annotations' Hidden flags come from `state` rather than from the file alone — which is
+/// what §12.6.4.13 and §12.6.4.11 change, and what §8.11.4.5 says a manual change does:
+/// "Manual changes shall override the states that were set automatically."
+///
+/// [`interpret`] is this function with the state the document opens in, so the two cannot
+/// diverge and a caller that never performs an action pays nothing but one struct.
+#[must_use]
+pub fn interpret_with(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+) -> Interpretation {
     let (content, issues) = page.content_with_report(document);
     let size = rotated_size(page);
 
@@ -838,7 +856,8 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         page: size,
         structure: crate::structure::ParentTree::for_page(document, &page.dict),
         output_intent: output_intent_space(document),
-        optional_content: crate::optional_content::OptionalContent::read(document),
+        optional_content: state.optional_content().cloned(),
+        view: state,
         hidden: 0,
         glyph_depth: 0,
         soft_mask_depth: 0,
@@ -1041,7 +1060,12 @@ struct Interpreter<'a> {
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
     /// The document's optional content configuration, if it has one (§8.11).
+    ///
+    /// Cloned from the viewer state rather than borrowed, because §12.6.4.13's action may
+    /// have moved it and the interpreter reads it thousands of times per page.
     optional_content: Option<crate::optional_content::OptionalContent>,
+    /// The viewer state, for the half of it the interpreter asks per annotation (§12.6.4.11).
+    view: &'a crate::view::ViewState,
     /// How many enclosing `BDC /OC` sections are hidden.
     ///
     /// A counter rather than a flag because marked content nests, and the outermost hidden
@@ -2780,7 +2804,18 @@ impl Interpreter<'_> {
             {
                 continue;
             }
-            match crate::annotation::decide(self.document, dict) {
+            // §12.6.4.11: a hide action "hides or shows one or more annotations on the screen
+            // by setting or clearing their Hidden flags", so what it states is the same flag
+            // §12.5.3 defines and overrides what the file wrote there. Silent for the same
+            // reason the line above is: an annotation something switched off is not one this
+            // program failed to draw.
+            let by_action = entry
+                .as_reference()
+                .and_then(|id| self.view.annotation_hidden(id));
+            if by_action == Some(true) {
+                continue;
+            }
+            match crate::annotation::decide(self.document, dict, by_action == Some(false)) {
                 crate::annotation::Decision::Nothing => {}
                 crate::annotation::Decision::Unsupported(detail) => {
                     self.note(Unsupported::Annotation { detail });

@@ -1,0 +1,447 @@
+//! What a *viewer* holds that a document does not: the state actions change.
+//!
+//! A [`crate::Interpretation`] is a function of a document and a page. That is true of every
+//! rendering this program did before the sixty-second session, and it stops being true the
+//! moment §12.6.4's actions are performed: §12.6.4.13 sets the state of an optional content
+//! group, §12.6.4.11 sets an annotation's Hidden flag, and both decide what the *next* render
+//! of the page draws. Neither is written back to the file.
+//!
+//! So there is a third input, and this is it. [`ViewState::of`] builds the state a document
+//! opens in — §8.11.4.5's initial configuration and no hidden annotations — and
+//! [`ViewState::perform`] moves it. `crate::interpret` builds a fresh one per page, so
+//! nothing that does not want this pays for it; `crate::interpret_with` takes one that has
+//! been moved.
+//!
+//! # Why the state is not in the `Document`
+//!
+//! `pdf_syntax::Document` is what the file says. A layer a person switched off is not what
+//! the file says, and putting it there would make two renders of one page differ for reasons
+//! the file cannot explain — which is exactly the property that makes the oracle's comparison
+//! meaningful. §8.11.4.5 draws the same line: the initial state is "the state used by all PDF
+//! processors", and everything after it is one processor's.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use pdf_syntax::{Dictionary, Document, Object, ObjectId};
+
+use crate::action::{Action, Hide, HideTarget};
+use crate::destination::Destination;
+use crate::optional_content::OptionalContent;
+
+/// Deepest nesting of `/Kids` walked when a field name is resolved.
+///
+/// §12.7.4.1's field tree is a tree a document controls, and `/Kids` may point back up it.
+/// Real forms nest two or three levels — a page, a section, a field — and this is far past
+/// any of them.
+const MAX_FIELD_DEPTH: usize = 32;
+
+/// The document state a viewer holds and §12.6.4's actions change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewState {
+    /// §8.11's layers, in the state the document opened in plus every change performed since.
+    ///
+    /// `None` for a document with no `/OCProperties`, which §8.11.4.2 makes decisive: without
+    /// it "a PDF processor shall ignore any optional content structures in the document".
+    optional_content: Option<OptionalContent>,
+    /// Annotations §12.6.4.11 has hidden, by object identity.
+    ///
+    /// A set of *overrides* rather than a copy of every annotation's flags: Table 167's own
+    /// Hidden bit is still read from the file, and this is what a hide action added on top.
+    /// Table 214's `/H false` removes an entry rather than adding one, which is why showing an
+    /// annotation the file itself marks Hidden does nothing — the action "hides or shows one
+    /// or more annotations on the screen by setting or clearing their Hidden flags", and this
+    /// program does not write to the file.
+    hidden: BTreeSet<ObjectId>,
+    /// Annotations §12.6.4.11 has shown, by object identity.
+    ///
+    /// The other half: `/H false` on an annotation whose own `/F` sets Hidden clears the flag
+    /// for this session. Two sets rather than a map from identity to boolean because the
+    /// common case is that both are empty and neither allocates.
+    shown: BTreeSet<ObjectId>,
+}
+
+impl ViewState {
+    /// The state a document opens in.
+    ///
+    /// §8.11.4.5's initial configuration — "[t]his state shall be the initial state used by
+    /// all PDF processors" — and nothing hidden beyond what each annotation's own `/F` says.
+    #[must_use]
+    pub fn of(document: &Document) -> Self {
+        Self {
+            optional_content: OptionalContent::read(document),
+            hidden: BTreeSet::new(),
+            shown: BTreeSet::new(),
+        }
+    }
+
+    /// The optional content configuration, as the state currently stands.
+    #[must_use]
+    pub fn optional_content(&self) -> Option<&OptionalContent> {
+        self.optional_content.as_ref()
+    }
+
+    /// Whether §12.6.4.11 has hidden this annotation, shown it, or said nothing about it.
+    ///
+    /// `Some(true)` means an action hid it, `Some(false)` that an action showed one the file
+    /// marks hidden, and `None` that the annotation's own `/F` decides (§12.5.3).
+    #[must_use]
+    pub fn annotation_hidden(&self, annotation: ObjectId) -> Option<bool> {
+        if self.hidden.contains(&annotation) {
+            Some(true)
+        } else if self.shown.contains(&annotation) {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    /// Performs one action, and answers the destination it asks to be displayed.
+    ///
+    /// `Some` only for §12.6.4.2's go-to action, which is the one type that changes *which*
+    /// page is shown rather than what is on it. The caller decides what to do with it,
+    /// because turning a destination into a page is [`Destination::page_index`]'s job and
+    /// scrolling to one is the viewer's.
+    ///
+    /// A [`Action::Refused`] does nothing and is not an error: the action is named so that a
+    /// caller may say what it declined to do, and doing nothing is what §12.6.1's list of
+    /// twenty types leaves a renderer that implements three of them.
+    pub fn perform(&mut self, document: &Document, action: &Action) -> Option<Destination> {
+        match action {
+            Action::GoTo(destination) => return Some(*destination),
+            Action::SetOcgState(state) => {
+                if let Some(content) = self.optional_content.as_mut() {
+                    content.apply(&state.changes, state.preserve_radio_buttons);
+                }
+            }
+            Action::Hide(hide) => self.hide(document, hide),
+            Action::Refused(_) => {}
+        }
+        None
+    }
+
+    /// Performs a whole `/Next` chain and answers the *first* destination in it.
+    ///
+    /// First rather than last because a go-to changes the page being shown and §12.6.2's
+    /// NOTE 1 warns that "actions that close the document or otherwise render the next action
+    /// impossible ought to terminate the execution sequence" — but every action here is still
+    /// performed, because a `/SetOCGState` after a `/GoTo` is a layer change for the page
+    /// being navigated *to*, and the clause states no ordering that would drop it.
+    pub fn perform_all(&mut self, document: &Document, actions: &[Action]) -> Option<Destination> {
+        let mut first = None;
+        for action in actions {
+            let reached = self.perform(document, action);
+            first = first.or(reached);
+        }
+        first
+    }
+
+    /// §12.6.4.11 applied: every annotation the action names, in either of `/T`'s two forms.
+    fn hide(&mut self, document: &Document, action: &Hide) {
+        let mut fields: Option<BTreeMap<String, Vec<ObjectId>>> = None;
+        for target in &action.targets {
+            match target {
+                HideTarget::Annotation(id) => self.set_hidden(*id, action.hide),
+                HideTarget::Field(name) => {
+                    // Built at most once per action, and only for an action that names a
+                    // field: the walk is over `/AcroForm /Fields`, which most documents do
+                    // not have and no document needs for the reference form.
+                    let table = fields.get_or_insert_with(|| widgets_by_field_name(document));
+                    for id in table.get(name).into_iter().flatten() {
+                        self.set_hidden(*id, action.hide);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Records one annotation's new state, keeping the two sets disjoint.
+    fn set_hidden(&mut self, annotation: ObjectId, hide: bool) {
+        if hide {
+            self.shown.remove(&annotation);
+            self.hidden.insert(annotation);
+        } else {
+            self.hidden.remove(&annotation);
+            self.shown.insert(annotation);
+        }
+    }
+}
+
+/// Every widget annotation in the document, keyed by its field's fully qualified name.
+///
+/// §12.7.4.1 defines the tree and §12.7.4.2 the name built over it:
+///
+/// > For a field with no parent, the partial and fully qualified names are the same. For a
+/// > field that is the child of another field, the fully qualified name shall be formed by
+/// > appending the child field's partial name to the parent's fully qualified name, separated
+/// > by a PERIOD (2Eh)
+///
+/// The two subtleties are both in the clause. A field's widget annotation may be the field
+/// dictionary *itself* — §12.5.6.19 says the two "may be merged into a single dictionary" —
+/// so a leaf with no `/Kids` is its own widget. And a kid with no `/T` "shall not be
+/// considered a field but simply a Widget annotation", so it belongs to its parent's name
+/// rather than starting a new one.
+fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<ObjectId>> {
+    let mut out = BTreeMap::new();
+    let Ok(catalog) = document.catalog() else {
+        return out;
+    };
+    let form = document.get_key(&catalog, "AcroForm");
+    let Some(form) = form.as_dict() else {
+        return out;
+    };
+    let fields = document.get_key(form, "Fields");
+    let Some(fields) = fields.as_array().map(<[Object]>::to_vec) else {
+        return out;
+    };
+    let mut seen = BTreeSet::new();
+    for field in &fields {
+        walk(document, field, "", &mut out, &mut seen, 0);
+    }
+    out
+}
+
+/// Walks one node of the field tree, extending the qualified name as §12.7.4.2 states.
+fn walk(
+    document: &Document,
+    node: &Object,
+    prefix: &str,
+    out: &mut BTreeMap<String, Vec<ObjectId>>,
+    seen: &mut BTreeSet<ObjectId>,
+    depth: usize,
+) {
+    if depth > MAX_FIELD_DEPTH {
+        return;
+    }
+    let Some(id) = node.as_reference() else {
+        // A field has to be an indirect object for anything to name it; a direct dictionary
+        // in `/Kids` has no identity a hide action could reach.
+        return;
+    };
+    if !seen.insert(id) {
+        return;
+    }
+    let resolved = document.get(id);
+    let Some(dict) = resolved.as_dict() else {
+        return;
+    };
+
+    let name = qualified_name(document, dict, prefix);
+    let kids = document.get_key(dict, "Kids");
+    match kids.as_array().map(<[Object]>::to_vec) {
+        Some(kids) if !kids.is_empty() => {
+            for kid in &kids {
+                walk(document, kid, &name, out, seen, depth.saturating_add(1));
+            }
+        }
+        // A leaf: the field dictionary and its widget annotation merged into one.
+        _ => out.entry(name).or_default().push(id),
+    }
+}
+
+/// This node's fully qualified name: the prefix, and its own `/T` if it has one.
+fn qualified_name(document: &Document, dict: &Dictionary, prefix: &str) -> String {
+    let Object::String(bytes) = document.get_key(dict, "T") else {
+        return prefix.to_owned();
+    };
+    let partial = pdf_syntax::text_string(&bytes);
+    if prefix.is_empty() {
+        partial
+    } else {
+        format!("{prefix}.{partial}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ViewState, widgets_by_field_name};
+    use crate::action::read;
+    use pdf_syntax::{Document, Object, ObjectId};
+
+    fn document(objects: &[&str]) -> Document {
+        use std::fmt::Write as _;
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let _ = write!(
+            out,
+            "xref\n0 {}\n0000000000 65535 f \n",
+            objects.len().saturating_add(1)
+        );
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+            objects.len().saturating_add(1)
+        );
+        Document::open(out.into_bytes()).expect("a valid file")
+    }
+
+    fn id(number: u32) -> ObjectId {
+        ObjectId {
+            number,
+            generation: 0,
+        }
+    }
+
+    /// §12.6.4.13 turns a layer off, and the next render of the page hides its content.
+    #[test]
+    fn a_set_ocg_state_action_turns_a_layer_off() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [4 0 R] /D << >> >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /S /SetOCGState /State [/OFF 4 0 R] >>",
+            "<< /Type /OCG /Name (layer) >>",
+        ]);
+        let mut state = ViewState::of(&doc);
+        assert_eq!(
+            state.optional_content().and_then(|oc| oc.state(id(4))),
+            Some(true),
+            "§8.11.4.5's default BaseState is ON"
+        );
+
+        let actions = read(&doc, &Object::Reference(id(3)));
+        assert!(state.perform_all(&doc, &actions).is_none(), "not a go-to");
+        assert_eq!(
+            state.optional_content().and_then(|oc| oc.state(id(4))),
+            Some(false)
+        );
+    }
+
+    /// Table 217's `/PreserveRB`, default true: turning one group on turns its siblings off.
+    ///
+    /// Table 99 states the paradigm — "the state of at most one optional content group in
+    /// each array shall be ON at a time. If one group is turned ON, all others shall be
+    /// turned OFF" — and Table 217's default is what makes it apply without the file asking.
+    #[test]
+    fn turning_a_radio_button_group_on_turns_its_siblings_off() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [4 0 R 5 0 R] \
+             /D << /BaseState /OFF /ON [4 0 R] /RBGroups [[4 0 R 5 0 R]] >> >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /S /SetOCGState /State [/ON 5 0 R] >>",
+            "<< /Type /OCG /Name (first) >>",
+            "<< /Type /OCG /Name (second) >>",
+        ]);
+        let mut state = ViewState::of(&doc);
+        let both = |state: &ViewState| {
+            (
+                state.optional_content().and_then(|oc| oc.state(id(4))),
+                state.optional_content().and_then(|oc| oc.state(id(5))),
+            )
+        };
+        assert_eq!(both(&state), (Some(true), Some(false)));
+
+        state.perform_all(&doc, &read(&doc, &Object::Reference(id(3))));
+        assert_eq!(
+            both(&state),
+            (Some(false), Some(true)),
+            "the collection admits one"
+        );
+    }
+
+    /// `/PreserveRB false` leaves the siblings alone, which is the entry's whole purpose.
+    #[test]
+    fn preserve_rb_false_ignores_the_collections() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [4 0 R 5 0 R] \
+             /D << /BaseState /OFF /ON [4 0 R] /RBGroups [[4 0 R 5 0 R]] >> >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /S /SetOCGState /State [/ON 5 0 R] /PreserveRB false >>",
+            "<< /Type /OCG /Name (first) >>",
+            "<< /Type /OCG /Name (second) >>",
+        ]);
+        let mut state = ViewState::of(&doc);
+        state.perform_all(&doc, &read(&doc, &Object::Reference(id(3))));
+        assert_eq!(
+            (
+                state.optional_content().and_then(|oc| oc.state(id(4))),
+                state.optional_content().and_then(|oc| oc.state(id(5))),
+            ),
+            (Some(true), Some(true)),
+            "both on, which the collection would forbid and this entry permits"
+        );
+    }
+
+    /// §12.7.4.2's own example, built as a field tree and looked up by a hide action.
+    ///
+    /// > If a field with the partial field name PersonalData has a child whose partial name
+    /// > is Address, which in turn has a child with the partial name ZipCode, the fully
+    /// > qualified name of this last field is PersonalData.Address.ZipCode
+    #[test]
+    fn a_hide_action_finds_a_field_by_its_fully_qualified_name() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /S /Hide /T (PersonalData.Address.ZipCode) >>",
+            "<< /T (PersonalData) /Kids [5 0 R] >>",
+            "<< /T (Address) /Parent 4 0 R /Kids [6 0 R] >>",
+            "<< /T (ZipCode) /Parent 5 0 R /FT /Tx >>",
+        ]);
+        let table = widgets_by_field_name(&doc);
+        assert_eq!(
+            table.get("PersonalData.Address.ZipCode").map(Vec::as_slice),
+            Some([id(6)].as_slice())
+        );
+
+        let mut state = ViewState::of(&doc);
+        assert_eq!(state.annotation_hidden(id(6)), None);
+        state.perform_all(&doc, &read(&doc, &Object::Reference(id(3))));
+        assert_eq!(state.annotation_hidden(id(6)), Some(true));
+    }
+
+    /// A kid with no `/T` is a widget of its parent's field, not a field of its own.
+    ///
+    /// §12.7.4.2: "A field dictionary that does not have a partial field name (T entry) of its
+    /// own shall not be considered a field but simply a Widget annotation." So one name
+    /// reaches two annotations, and hiding it hides both — which is what Table 214 means by
+    /// "whose associated widget annotation or annotations are to be affected".
+    #[test]
+    fn one_field_name_may_reach_several_widgets() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /S /Hide /T (Signature) /H true >>",
+            "<< /T (Signature) /FT /Sig /Kids [5 0 R 6 0 R] >>",
+            "<< /Parent 4 0 R /Subtype /Widget >>",
+            "<< /Parent 4 0 R /Subtype /Widget >>",
+        ]);
+        let mut state = ViewState::of(&doc);
+        state.perform_all(&doc, &read(&doc, &Object::Reference(id(3))));
+        assert_eq!(state.annotation_hidden(id(5)), Some(true));
+        assert_eq!(state.annotation_hidden(id(6)), Some(true));
+    }
+
+    /// A cycle in `/Kids` terminates rather than exhausting the stack.
+    ///
+    /// `/Kids` is a reference the document controls and §12.7.4.1 states no acyclicity rule,
+    /// so a field pointing back at its own ancestor is a file a reader has to survive. The
+    /// assertion that matters is that this returns at all — without the `seen` set it
+    /// recurses until the stack ends — and the leaf beside the cycle is still found, which is
+    /// what says the guard skips the loop rather than the subtree.
+    #[test]
+    fn a_cycle_in_the_field_tree_terminates() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /T (a) /Kids [4 0 R] >>",
+            "<< /T (b) /Kids [3 0 R 5 0 R] >>",
+            "<< /T (c) /FT /Tx >>",
+        ]);
+        let table = widgets_by_field_name(&doc);
+        assert_eq!(
+            table.get("a.b.c").map(Vec::as_slice),
+            Some([id(5)].as_slice())
+        );
+        assert!(
+            !table.keys().any(|name| name.matches('a').count() > 1),
+            "the cycle produced no repeated name: {:?}",
+            table.keys().collect::<Vec<_>>()
+        );
+    }
+}

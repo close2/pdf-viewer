@@ -49,6 +49,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
+use crate::action::Change;
+
 /// Deepest nesting of a visibility expression that will be evaluated.
 ///
 /// `/VE` is a tree of arrays a document supplies, so it is untrusted input with a natural
@@ -113,7 +115,7 @@ impl Policy {
 /// happens on the page-one path without a measurable cost — but it is still built lazily by
 /// the interpreter rather than at open time, because a document without `/OCProperties` must
 /// not pay for a lookup it will never use.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OptionalContent {
     /// Every group `/OCProperties /OCGs` lists, with the state `/D` gives it.
     states: BTreeMap<ObjectId, bool>,
@@ -130,6 +132,14 @@ pub struct OptionalContent {
     /// in determining visibility; therefore, all content shall be considered visible." An
     /// empty array is not the same as an absent entry, which means `View`.
     everything_visible: bool,
+    /// Table 99's `/RBGroups`: collections in which at most one group may be on.
+    ///
+    /// Read but never applied when the document is opened, and that is the clause's own
+    /// arrangement rather than an omission: §8.11.4.5 builds the initial state from
+    /// `/BaseState` and the `/ON`/`/OFF` arrays and says nothing about radio buttons, so a
+    /// configuration that states two members of one collection as on has stated exactly that.
+    /// The collections govern *changes* — a user's, or §12.6.4.13's `/PreserveRB`.
+    radio_buttons: Vec<Vec<ObjectId>>,
 }
 
 impl OptionalContent {
@@ -204,12 +214,86 @@ impl OptionalContent {
             })
             .collect();
 
+        // "An array consisting of one or more arrays, each of which represents a collection
+        // of optional content groups whose states shall be intended to follow a radio button
+        // paradigm." An entry that is not an array of arrays states no collection.
+        let radio_buttons = document
+            .get_key(&configuration, "RBGroups")
+            .as_array()
+            .map(|outer| {
+                outer
+                    .iter()
+                    .filter_map(|inner| {
+                        let resolved = document.resolve(inner);
+                        let members: Vec<ObjectId> =
+                            resolved.as_array()?.iter().filter_map(reference).collect();
+                        (!members.is_empty()).then_some(members)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Some(Self {
             states,
             disregarded,
             unresolved,
             everything_visible,
+            radio_buttons,
         })
+    }
+
+    /// Applies §12.6.4.13's state changes, in the order the action states them.
+    ///
+    /// The changes live here rather than in `action.rs` because both halves of the rule are
+    /// this module's data: the states, and Table 99's `/RBGroups` collections that
+    /// `/PreserveRB` preserves.
+    ///
+    /// Table 217 states the rule: a group set to ON during processing of the `/State` array —
+    /// by `ON` or by `Toggle` — turns off every other group belonging to the same radio-button
+    /// collection, and a group set to OFF has no effect on any other.
+    ///
+    /// A group the document never declared is not adjusted, for the same reason
+    /// [`Self::read`] adjusts rather than adds: Table 98 requires `/OCGs` to list every group
+    /// in the document, so a `/State` array naming something else names nothing.
+    pub fn apply(&mut self, changes: &[(ObjectId, Change)], preserve_radio_buttons: bool) {
+        for (group, change) in changes {
+            let Some(current) = self.states.get_mut(group) else {
+                continue;
+            };
+            let now = change.applied_to(*current);
+            *current = now;
+            if now && preserve_radio_buttons {
+                self.exclude_others(*group);
+            }
+        }
+    }
+
+    /// Turns off every other member of each radio-button collection `group` belongs to.
+    fn exclude_others(&mut self, group: ObjectId) {
+        // Collected first because the collections and the states are both borrowed from
+        // `self`; a document states a handful of collections of a handful of groups.
+        let others: Vec<ObjectId> = self
+            .radio_buttons
+            .iter()
+            .filter(|collection| collection.contains(&group))
+            .flatten()
+            .copied()
+            .filter(|other| *other != group)
+            .collect();
+        for other in others {
+            if let Some(state) = self.states.get_mut(&other) {
+                *state = false;
+            }
+        }
+    }
+
+    /// Whether a group is on, for a caller that holds the group's identity.
+    ///
+    /// `None` for a group that takes no part in deciding visibility — see [`Self::state_of`],
+    /// whose answer this is.
+    #[must_use]
+    pub fn state(&self, group: ObjectId) -> Option<bool> {
+        self.state_of(group)
     }
 
     /// The usage categories §8.11.4.4 asked for and this processor could not answer.

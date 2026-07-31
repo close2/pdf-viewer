@@ -137,7 +137,19 @@ const FLAG_HIDDEN: i64 = 1 << 1;
 const FLAG_NO_VIEW: i64 = 1 << 5;
 
 /// Decides what, if anything, an annotation contributes to the page.
-pub(crate) fn decide(document: &Document, annotation: &Dictionary) -> Decision {
+///
+/// `shown_by_action` is set where §12.6.4.11's hide action with `/H false` named this
+/// annotation. The clause makes the two the same bit — the action "hides or shows one or more
+/// annotations on the screen by setting or clearing their Hidden flags" — so an action that
+/// clears it beats what the file wrote, and this program clears it for the session rather than
+/// in the file. `NoView` is deliberately *not* covered: Table 167 makes it a separate bit
+/// about the device rather than about the annotation's state, and §12.6.4.11 names only the
+/// Hidden flag.
+pub(crate) fn decide(
+    document: &Document,
+    annotation: &Dictionary,
+    shown_by_action: bool,
+) -> Decision {
     let subtype = document
         .get_key(annotation, "Subtype")
         .as_name()
@@ -155,7 +167,7 @@ pub(crate) fn decide(document: &Document, annotation: &Dictionary) -> Decision {
         .get_key(annotation, "F")
         .as_integer()
         .unwrap_or_default();
-    if flags & FLAG_HIDDEN != 0 || flags & FLAG_NO_VIEW != 0 {
+    if (flags & FLAG_HIDDEN != 0 && !shown_by_action) || flags & FLAG_NO_VIEW != 0 {
         return Decision::Nothing;
     }
     if flags & FLAG_INVISIBLE != 0 && !STANDARD_SUBTYPES.contains(&subtype.as_slice()) {

@@ -24,6 +24,7 @@
 #![forbid(unsafe_code)]
 
 pub mod accessibility;
+pub mod action;
 mod annotation;
 mod appearance;
 pub mod colour;
@@ -44,6 +45,7 @@ mod soft_mask;
 pub mod structure;
 pub mod type3;
 mod variable_text;
+pub mod view;
 
 pub use content::{Interpretation, Unsupported, interpret};
 pub use page::{Page, Pages};

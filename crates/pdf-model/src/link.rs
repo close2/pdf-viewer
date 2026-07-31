@@ -35,9 +35,16 @@ pub struct Link {
     /// Where activating it goes, where this reader can say.
     ///
     /// `None` for a link whose action is not a go-to: a URI, a launch, an ECMAScript action.
-    /// Those are not gaps in this module — §12.6.4.5's launch action is deliberately absent
-    /// for the reason principle 3 gives, and a URI needs a network this program does not have.
+    /// Those are named rather than lost — see [`Self::actions`] and `crate::action`.
     pub destination: Option<Destination>,
+    /// Everything activating it performs, in §12.6.2's order, from `/A` and its `/Next` chain.
+    ///
+    /// Empty for a link that states only a `/Dest`, which is a destination rather than an
+    /// action — Table 176 makes the two exclusive, "not permitted if an A entry is present".
+    /// [`Self::destination`] is what a caller needs to turn a click into a page; this is what
+    /// it needs to change a layer (§12.6.4.13) or hide an annotation (§12.6.4.11), and it is
+    /// performed by `crate::view::ViewState`.
+    pub actions: Vec<crate::action::Action>,
 }
 
 impl Link {
@@ -74,9 +81,14 @@ pub fn links(document: &Document, page: &Page) -> Vec<Link> {
         let Some(rect) = rectangle(document, annotation) else {
             continue;
         };
+        let actions = crate::action::read(
+            document,
+            annotation.get("A").unwrap_or(&pdf_syntax::Object::Null),
+        );
         out.push(Link {
             region: region(document, annotation, rect),
-            destination: destination(document, annotation),
+            destination: destination(document, annotation, &actions),
+            actions,
         });
     }
     out
@@ -105,18 +117,24 @@ pub fn target(document: &Document, pages: &Pages<'_>, link: &Link) -> Option<usi
 /// The clause makes them exclusive — `/Dest` is "not permitted if an A entry is present" — so a
 /// file writing both has broken a rule, and `/Dest` is read first because it is the direct
 /// statement of the same thing.
-fn destination(document: &Document, annotation: &Dictionary) -> Option<Destination> {
+///
+/// The `/A` half comes from the already-read action list rather than from the dictionary again,
+/// which is what makes a go-to buried in a `/Next` chain reachable: §12.6.2 lets a link play a
+/// sound and *then* jump, and reading only the outermost `/S` would miss the jump.
+fn destination(
+    document: &Document,
+    annotation: &Dictionary,
+    actions: &[crate::action::Action],
+) -> Option<Destination> {
     if let Some(dest) = annotation.get("Dest")
         && let Some(destination) = Destination::read(document, dest)
     {
         return Some(destination);
     }
-    let action = document.get_key(annotation, "A");
-    let action = action.as_dict()?;
-    if document.get_key(action, "S").as_name()?.as_bytes() != b"GoTo" {
-        return None;
-    }
-    Destination::read(document, action.get("D")?)
+    actions.iter().find_map(|action| match action {
+        crate::action::Action::GoTo(destination) => Some(*destination),
+        _ => None,
+    })
 }
 
 /// The activation region: `/QuadPoints` where the clause admits them, `/Rect` otherwise.

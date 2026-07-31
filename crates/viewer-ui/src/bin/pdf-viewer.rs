@@ -124,6 +124,12 @@ struct App {
     context: RenderContext,
     document: Document,
     title: String,
+    /// What §12.6.4's actions have changed since the document opened.
+    ///
+    /// Held here rather than rebuilt per frame because that is what it *is*: a layer a click
+    /// switched off is not in the file, and a state rebuilt from the file every frame would
+    /// switch it back on. See `pdf_model::view`.
+    view: pdf_model::view::ViewState,
     /// §12.4.2's labelling ranges, read once when the document opens.
     ///
     /// Once rather than per page turn: the tree is a handful of ranges and reading it costs
@@ -172,10 +178,12 @@ impl App {
             .and_then(|destination| destination.page_index(&document, &Pages::new(&document)))
             .filter(|index| *index < page_count)
             .unwrap_or(0);
+        let view = pdf_model::view::ViewState::of(&document);
         Self {
             context: RenderContext::new(),
             document,
             title,
+            view,
             labels,
             outline,
             cursor: (0.0, 0.0),
@@ -186,7 +194,7 @@ impl App {
         }
     }
 
-    /// Follows the §12.5.6.5 link under the pointer, if there is one that leads somewhere.
+    /// Activates the §12.5.6.5 link under the pointer, if there is one.
     ///
     /// Returns whether the page changed. A click on nothing, on a link whose action this
     /// program will not perform — a URI needs a network it does not have, and §12.6.4.5's
@@ -219,14 +227,25 @@ impl App {
         let Some(link) = pdf_model::link::at(&links, x, y) else {
             return false;
         };
-        let Some(target) = pdf_model::link::target(&self.document, &pages, link) else {
-            return false;
-        };
-        if target == self.page_index || target >= self.page_count {
-            return false;
+
+        // §12.6.4's actions first, because two of the three this program performs change what
+        // the *current* page draws — a layer's state (§12.6.4.13) and an annotation's Hidden
+        // flag (§12.6.4.11) — and a link may do both and then jump. `ViewState` keeps them;
+        // redrawing is this function's answer either way.
+        let before = self.view.clone();
+        let reached = self.view.perform_all(&self.document, &link.actions);
+        let changed_here = self.view != before;
+
+        let target = link
+            .destination
+            .or(reached)
+            .and_then(|destination| destination.page_index(&self.document, &pages))
+            .filter(|target| *target != self.page_index && *target < self.page_count);
+        if let Some(target) = target {
+            self.page_index = target;
+            return true;
         }
-        self.page_index = target;
-        true
+        changed_here
     }
 
     /// Moves by `delta` pages, clamped to the document.
@@ -362,22 +381,21 @@ impl ApplicationHandler for App {
 
             WindowEvent::RedrawRequested => {
                 let (index, count) = (self.page_index, self.page_count);
-                let Some(state) = self.state.as_mut() else {
-                    return;
-                };
                 let section = self
                     .outline
                     .section_at(&self.document, &Pages::new(&self.document), index)
                     .map(ToOwned::to_owned);
-                let (report, scale) = render(
-                    &self.context,
-                    state,
-                    &self.document,
-                    index,
-                    count,
-                    &self.labels,
-                    section.as_deref(),
-                );
+                let (view, labels) = (&self.view, &self.labels);
+                let Some(state) = self.state.as_mut() else {
+                    return;
+                };
+                let caption = Caption {
+                    page_index: index,
+                    page_count: count,
+                    labels,
+                    section: section.as_deref(),
+                };
+                let (report, scale) = render(&self.context, state, &self.document, view, &caption);
                 state
                     .window
                     .set_title(&format!("{} — {report}", self.title));
@@ -392,17 +410,32 @@ impl ApplicationHandler for App {
 /// Renders the current page and presents it.
 ///
 /// Returns a short status for the title bar and the scale it drew at — the second because a
+/// What the title bar needs to name the page being shown.
+///
+/// One struct rather than four parameters because they travel together everywhere and none of
+/// them is about *drawing*: §12.4.2's label, the index behind it, how many pages there are, and
+/// §12.3.3's section. [`render`] passes it straight through to [`describe`].
+struct Caption<'a> {
+    /// Zero-based, which is the page tree's numbering and not a reader's.
+    page_index: usize,
+    /// How many pages the document has.
+    page_count: usize,
+    /// §12.4.2's labelling ranges.
+    labels: &'a pdf_model::page_label::PageLabels,
+    /// §12.3.3's section title for this page, where the outline names one.
+    section: Option<&'a str>,
+}
+
 /// click has to be mapped back through exactly the transform the frame on screen was drawn
 /// with, and that scale is computed here from the window's own size.
 fn render(
     context: &RenderContext,
     state: &mut State,
     document: &Document,
-    page_index: usize,
-    page_count: usize,
-    labels: &pdf_model::page_label::PageLabels,
-    section: Option<&str>,
+    view: &pdf_model::view::ViewState,
+    caption: &Caption<'_>,
 ) -> (String, f32) {
+    let page_index = caption.page_index;
     let width = state.surface.config.width;
     let height = state.surface.config.height;
 
@@ -412,7 +445,7 @@ fn render(
             1.0,
         );
     };
-    let interpretation = pdf_model::interpret(document, &page);
+    let interpretation = pdf_model::content::interpret_with(document, &page, view);
     let list = &interpretation.display_list;
 
     // Fit the whole page in the window, taking the smaller ratio so neither dimension
@@ -451,16 +484,10 @@ fn render(
         CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
             context.configure_surface(&state.surface);
             state.window.request_redraw();
-            return (
-                describe(page_index, page_count, labels, section, &interpretation),
-                scale,
-            );
+            return (describe(caption, &interpretation), scale);
         }
         CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => {
-            return (
-                describe(page_index, page_count, labels, section, &interpretation),
-                scale,
-            );
+            return (describe(caption, &interpretation), scale);
         }
         CurrentSurfaceTexture::Validation => {
             return ("swapchain validation failed".to_owned(), scale);
@@ -483,10 +510,7 @@ fn render(
     handle.queue.submit(Some(encoder.finish()));
     frame.present();
 
-    (
-        describe(page_index, page_count, labels, section, &interpretation),
-        scale,
-    )
+    (describe(caption, &interpretation), scale)
 }
 
 /// Builds the scene and renders it into the surface's texture.
@@ -538,13 +562,13 @@ fn draw(
 }
 
 /// Builds the title-bar status, naming what could not be drawn.
-fn describe(
-    page_index: usize,
-    page_count: usize,
-    labels: &pdf_model::page_label::PageLabels,
-    section: Option<&str>,
-    interpretation: &pdf_model::Interpretation,
-) -> String {
+fn describe(caption: &Caption<'_>, interpretation: &pdf_model::Interpretation) -> String {
+    let Caption {
+        page_index,
+        page_count,
+        labels,
+        section,
+    } = *caption;
     // ISO 32000-2 §12.4.2: "Page labels and page indices need not coincide". Where the
     // document states a label, it is what a reader is meant to see — a page of front matter
     // is *iv*, not page four — so the index is shown beside it rather than instead of it,
