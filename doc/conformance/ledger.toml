@@ -967,92 +967,110 @@ note = "The type 4 function's own dictionary, which is a stream: `/Domain`, `/Ra
 [[clause]]
 clause = "7.11"
 title = "File specifications"
-status = "unreviewed"
+status = "reported"
+note = "Aggregate of the ten below. **Nothing in this tree parses a file specification**, and the sentence that decides why is §7.11.1's: a file specification refers to a file \"external to the PDF file\" *in either case*, embedded or not. `CLAUDE.md` principle 3 gives the renderer no filesystem and no network, so following one is refused by architecture rather than unimplemented by accident — and every path in this tree that meets one already refuses out loud: §7.3.8's external stream data, §8.10.4's reference XObject drawn as its proxy, and §12.5.6.15's file attachment icon. What is owed in silence is on the two `silent` rows below, and it is a viewer's list of attachments rather than anything on a page."
 
 [[clause]]
 clause = "7.11.1"
 title = "General"
-status = "unreviewed"
+status = "reported"
+note = "The two forms — a simple specification as a string or a dictionary, a full one as a dictionary only — and the sentence this family turns on: \"[t]he file is considered external to the PDF file in either case.\" So an *embedded* file is still an external file with its bytes carried along, which is why reading one is an attachment feature and never a rendering one. Refusals, not silence: see §7.11's row for the three places this tree meets a specification and names it."
 
 [[clause]]
 clause = "7.11.2"
 title = "File specification strings"
-status = "unreviewed"
+status = "reported"
+note = "Aggregate of the two below: how a simple file specification's string spells a path."
 
 [[clause]]
 clause = "7.11.2.1"
 title = "General"
-status = "unreviewed"
+status = "reported"
+note = "The string form: SOLIDUS as \"a generic component separator that shall be mapped to the appropriate platform-specific separator\", a literal SOLIDUS escaped by REVERSE SOLIDUS, and components that \"shall be stored as bytes and shall be passed to the operating system without interpretation or conversion of any sort\". None of it is computed here, and the reason is one level up: this program never turns a specification into a path, because it has no filesystem to hand one to. The clause is worth having read for the last sentence — a reader that decoded these bytes as text would corrupt a file name in every locale where they are not UTF-8."
 
 [[clause]]
 clause = "7.11.2.2"
 title = "Absolute and relative file specifications"
-status = "unreviewed"
+status = "reported"
+note = "Absolute and relative specifications, RFC 3986's resolution for a URL-based file system, and the `..` rule for every other. Unimplemented for §7.11.2.1's reason, and worth one note for whoever implements it: the clause forbids more than it permits — a URL-based relative specification \"shall be limited to paths\", with \"[t]he scheme, network location/login, fragment identifier, query information, and parameter sections\" not allowed. That is a security rule wearing a syntax rule's clothes, and principle 3 would want it enforced rather than assumed."
 
 [[clause]]
 clause = "7.11.3"
 title = "File specification dictionaries"
-status = "unreviewed"
+status = "reported"
+note = "Table 43's dictionary — `/FS`, `/F`, `/UF`, the three deprecated platform keys, `/ID`, `/V`, `/EF`, `/RF`, `/Desc`, `/CI`, `/AFRelationship`. Unread, for §7.11's reason. One requirement is worth writing down before anybody reads it, because it is the kind a first implementation inverts: \"[a] PDF reader shall use the value of the UF key, when present, instead of the F key\" — `/UF` is a *text string* by §7.9.2.2 and `/F` a byte string, so the two are not interchangeable and the newer one wins."
 
 [[clause]]
 clause = "7.11.4"
 title = "Embedded file streams"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the two below. Embedded file streams are the one part of this family that needs no filesystem at all — the bytes are inside the document — and 10 of the 974 corpus documents carry a `/Names /EmbeddedFiles` tree, which §7.9.6's reader now walks. Nothing reads them and nothing says so, which is what `silent` is for; what it costs is an attachments list a viewer would show, not a page drawn wrong."
 
 [[clause]]
 clause = "7.11.4.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The two ways an embedded file arrives: a file specification's `/EF`, which §12.5.6.15's file attachment annotations use, and the name dictionary's `/EmbeddedFiles` tree for the document as a whole. Table 44's `/Subtype` is a MIME media type and Table 45's `/Params` carries `/Size`, `/CreationDate`, `/ModDate` and an MD5 `/CheckSum` — the clause's own NOTE says that checksum \"is strictly a checksum, and is not used for security purposes\", which is worth having read before anybody treats a match as authentication."
 
 [[clause]]
 clause = "7.11.4.2"
 title = "Related files arrays"
-status = "unreviewed"
+status = "silent"
+note = "`/RF`, an array of 2 × n elements pairing a related file's name with its embedded stream, for a set like DCS 1.0's five separations. Nothing reads it. Reachable only through a file specification dictionary, so it is behind §7.11.3 twice over."
 
 [[clause]]
 clause = "7.11.5"
 title = "URL specifications"
-status = "unreviewed"
+status = "reported"
+note = "`/FS /URL` makes `/F` a uniform resource locator rather than a path. **This one is a security property rather than a gap**, in the same way §12.6.4.5's launch action is: principle 3 gives the renderer no network, so a document asking this program to fetch a URL gets nothing, and that is the intended answer rather than a missing feature. The clause's own encoding note is small and exact — 7-bit US-ASCII is a strict subset of PDFDocEncoding, so a URL is already a text string under §7.9.2.2's third encoding."
 
 [[clause]]
 clause = "7.11.6"
 title = "Collection items"
-status = "unreviewed"
+status = "silent"
+note = "A collection item dictionary carries one file's data for the columns §12.3.5's collection schema defines. Nothing reads it, and §12.3.5's own row is `silent` beside it — a collection is a *view* of a document's attachments, which is two viewer features deep and no part of a page."
 
 [[clause]]
 clause = "7.12"
 title = "Extensions dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Aggregate of the six below. The catalog's `/Extensions` names the developer extensions a document uses, and **9 of the 974 corpus documents state one, every one of them Adobe's `ADBE` prefix**. Nothing reads it. The finding is what it is next to: §7.12 and §12.11's `/Requirements` are the same idea twice — a document declaring what a processor needs to be able to do — and this tree reads neither while reporting, per feature, exactly what it cannot draw. Putting the document's own claim beside our report is cheap and nobody has."
 
 [[clause]]
 clause = "7.12.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Where the dictionary lives and what shape it has: an optional `/Extensions` in the catalog, keyed by Annex E's registered developer prefixes, whose values are developer extensions dictionaries. One structural rule, and it is the sort a reader can check for free: the extensions dictionary, the developer dictionaries \"as well as their entries, shall be direct objects\" — no indirect references anywhere inside it."
 
 [[clause]]
 clause = "7.12.2"
 title = "Extensions dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Table 48: `/Type`, and one entry per registered prefix name whose value is a developer extensions dictionary *or*, since PDF 2.0, an array of them — the NOTE says arrays \"were introduced in this document (2020)\", so a reader written against PDF 1.7 will find a type it does not expect under a prefix it does."
 
 [[clause]]
 clause = "7.12.3"
 title = "Developer extensions dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Table 49: `/BaseVersion`, `/ExtensionLevel`, `/URL` and PDF 2.0's `/ExtensionRevision`, the first two required. Nothing reads them; the three rows below are what they mean."
 
 [[clause]]
 clause = "7.12.4"
 title = "BaseVersion"
-status = "unreviewed"
+status = "silent"
+note = "`/BaseVersion` is the PDF version an extension applies to, and it \"shall be less than or equal to the PDF version, both in the document header … and the catalog dictionary Version key value, if present\" — a consistency check a reader could make and this one does not. The NOTE is the trap: the value \"is not to be interpreted as a real number but as two integers with a PERIOD (2Eh) between them\", so 1.10 is not 1.1."
 
 [[clause]]
 clause = "7.12.5"
 title = "ExtensionLevel"
-status = "unreviewed"
+status = "silent"
+note = "`/ExtensionLevel`, an integer \"interpreted with respect to the BaseVersion value\", monotonically increasing per developer over time. Unread. It is the number that would say *which* extension a document expects, and therefore the number a report about an unimplemented extension would have to carry."
 
 [[clause]]
 clause = "7.12.6"
 title = "URL"
-status = "unreviewed"
+status = "silent"
+note = "`/URL`, documentation for the extension, registered in the PDF Registry. Nothing here would fetch it — principle 3, and §7.11.5's row — but it is the one entry that makes an unknown extension diagnosable by a person rather than only by a program."
 
 [[clause]]
 clause = "8.1"
@@ -3310,32 +3328,42 @@ note = "The framing: an outline and a set of thumbnails, each item associated wi
 [[clause]]
 clause = "12.3.2"
 title = "Destinations"
-status = "silent"
-note = "Destinations, in both of their forms. Nothing reads one. The parts of the tree that would consume one exist: `Pages` resolves a page tree and `page.rs` knows §7.7.3.3's boxes, so a destination is a page reference plus a rectangle in a coordinate system this crate already computes. What is missing is the thing that would act on it."
+status = "partial"
+code = ["crates/pdf-model/src/destination.rs"]
+test = ["crates/pdf-model/tests/destinations.rs::an_open_action_that_states_a_destination_names_a_page"]
+note = "Destinations, in all three of their spellings — the explicit array, the structure element and the name — read into one type by `Destination::read`, because every caller in the standard may be handed any of them. What a destination *names* is computed; what a *window* would do with it is not, and the split is stated on §12.3.2.1's row. One consumer exists, the catalog's `/OpenAction`, and it is the only destination a viewer must resolve without anybody clicking anything. The other three callers the clause names — an outline item, a link annotation and a go-to action — are `silent` on their own rows and each now needs only the gesture that reaches it."
 
 [[clause]]
 clause = "12.3.2.1"
 title = "General"
-status = "silent"
-note = "What a destination *is*: a page, a location in it, and a magnification. The clause names the four places one may be reached from — an outline item, a link annotation (§12.5.6.5), a Go-To action (§12.6.4.2), and the catalog's `/OpenAction` — and this tree draws a link annotation's *appearance* while ignoring where it points, which is the honest summary of the whole family."
+status = "partial"
+code = ["crates/pdf-model/src/destination.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/tests/destinations.rs::an_open_action_that_states_a_destination_names_a_page"]
+note = "The clause lists a destination's three items, and this row is `partial` because the tree answers exactly the first of them: \"[t]he page of the document that shall be displayed\" is a property of the document and `Destination::page_index` computes it; \"[t]he location of the document window on that page\" and \"[t]he magnification (zoom) factor\" are properties of a window with scrolling and zoom, which this program does not have — it fits a page to its surface. `View` carries Table 149's parameters exactly as the file states them and nothing acts on them. 55 of the 974 corpus documents state an `/OpenAction` and 49 name a page this reader finds; the viewer opens there."
 
 [[clause]]
 clause = "12.3.2.2"
 title = "Explicit destinations"
-status = "silent"
-note = "Table 149's eight explicit forms — `/XYZ`, `/Fit`, `/FitH`, `/FitV`, `/FitR`, `/FitB`, `/FitBH`, `/FitBV` — with coordinates \"expressed in the default user space coordinate system\" and a page's bounding box defined as \"the smallest rectangle enclosing all of its contents\", clipped to the crop box. That last is the only part of this family with a *rendering* question in it: this tree computes no content bounding box, though §14.11.2's crop box it does compute."
+status = "partial"
+code = ["crates/pdf-model/src/destination.rs"]
+test = ["crates/pdf-model/src/destination.rs::every_form_table_149_lists_is_read", "crates/pdf-model/src/destination.rs::a_null_parameter_is_not_a_zero"]
+note = "All eight of Table 149's forms are read, with the table's own distinction between an absent parameter and a zero one: \"[a] null value for any of the parameters left, top, or zoom specifies that the current value of that parameter shall be retained unchanged\", and \"[a] zoom value of 0 has the same meaning as a null value\" — so `View` carries `Option<f32>` and a stated zero coordinate stays a coordinate. The clause requires the first entry to be \"an indirect reference to a page object (except in a remote go-to action …)\", and the NOTE makes the integer form belong to another document, so `Target::Number` names nothing here; no corpus link uses it and one `/OpenAction` does, where the clause's fallback and the lenient reading agree on page one anyway. `partial` for the two things a window would do: the view is not applied, and \"the smallest rectangle enclosing all of its contents\" — the bounding box `/FitB`, `/FitBH` and `/FitBV` need — is not computed."
 
 [[clause]]
 clause = "12.3.2.3"
 title = "Structure destinations"
-status = "silent"
-note = "A destination naming a *structure element* rather than a page, which needs §14.7's logical structure tree — unread, and the reason this row cannot be closed before clause 14's is."
+status = "implemented"
+code = ["crates/pdf-model/src/destination.rs"]
+test = ["crates/pdf-model/src/destination.rs::a_structure_destination_finds_its_page_through_the_kids", "crates/pdf-model/src/destination.rs::the_fallback_to_page_one_belongs_to_structure_destinations_only"]
+note = "A destination whose first entry is a structure element, and the clause states the whole algorithm for getting back to a page: the kids in linear array order, a marked-content or object reference answering with its page, a child element recursed into, and \"[i]n the case where no page content is identified, then the page reference shall be assumed to be the first page in the document\". **It needs `/K` and `/Pg` and not the structure tree**, which is why this row closes while §14.7's stay `silent` — the row said the opposite for two sessions. The page a reference \"belongs to\" is Table 357's and Table 358's `/Pg`, falling back to the containing element's, which §14.7.5.3 states in as many words. The fallback to page one is a sentence about structure destinations and is not applied to any other unresolvable reference."
 
 [[clause]]
 clause = "12.3.2.4"
 title = "Named destinations"
-status = "silent"
-note = "A destination named indirectly, through a `/Dests` name tree in the catalog's `/Names` or the older `/Dests` dictionary. Name trees are a data structure this tree has never needed; nothing in it reads one."
+status = "implemented"
+code = ["crates/pdf-model/src/destination.rs", "crates/pdf-syntax/src/tree.rs"]
+test = ["crates/pdf-model/src/destination.rs::a_named_destination_is_found_in_either_table", "crates/pdf-model/tests/destinations.rs::a_named_destination_resolves_when_its_document_defines_it"]
+note = "Both of the clause's tables — the PDF 1.1 `/Dests` dictionary in the catalog and the PDF 1.2 `/Dests` name tree in the name dictionary — and both key forms, with the dictionary-valued destination's `/D` followed. Annex J.3.3 and J.3.4, which the clause requires the lookup to use, cost nothing here: both reduce to a binary comparison of the *decoded* bytes, which is what the lexer has already produced. The corpus measures the clause's own pairing and finds it exact: of 106 named destinations reachable from link annotations, the 22 that resolve are 2 names in a catalog dictionary and 20 strings in a name tree, not one crossing. The other 84 name keys their own document does not define — five files carry named links and no table at all — which is a fact about those files and is asserted as one."
 
 [[clause]]
 clause = "12.3.3"

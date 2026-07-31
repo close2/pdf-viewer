@@ -143,13 +143,25 @@ struct State {
 impl App {
     fn new(document: Document, title: String, page_count: usize) -> Self {
         let labels = pdf_model::page_label::PageLabels::read(&document);
+        // §12.3.2.1: "the optional OpenAction entry in a document's catalog dictionary may
+        // specify a destination that shall be displayed when the document is opened." Table 29
+        // states the other half — an absent or unresolvable entry means "the top of the first
+        // page" — which is what `unwrap_or(0)` is, and why nothing is reported here.
+        //
+        // Only the *page* of the destination is honoured. Its location and magnification are
+        // properties of a window with scrolling and zoom, and this one fits a page to its
+        // surface; `Destination::view` carries them for whoever builds that.
+        let page_index = pdf_model::destination::Destination::open_action(&document)
+            .and_then(|destination| destination.page_index(&document, &Pages::new(&document)))
+            .filter(|index| *index < page_count)
+            .unwrap_or(0);
         Self {
             context: RenderContext::new(),
             document,
             title,
             labels,
             page_count,
-            page_index: 0,
+            page_index,
             state: None,
         }
     }
@@ -176,7 +188,12 @@ impl ApplicationHandler for App {
         }
 
         let attributes = Window::default_attributes()
-            .with_title(format!("{} — page 1 of {}", self.title, self.page_count))
+            .with_title(format!(
+                "{} — page {} of {}",
+                self.title,
+                self.page_index.saturating_add(1),
+                self.page_count
+            ))
             .with_inner_size(winit::dpi::LogicalSize::new(800.0, 1000.0));
         let window = Arc::new(
             event_loop
