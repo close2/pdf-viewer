@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **forty-sixth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **forty-seventh** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,61 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the forty-sixth session changed
+## What the forty-seventh session changed
+
+**A `.max(0.0)` was answering a question nobody had asked, and one contradicted page is where
+the three possible answers pull apart.** `issue19633.pdf` strokes one diagonal under
+**`-0.1 w`**. §8.4.3.2 says the line width "shall be a non-negative number expressed in user
+space units", so the value is outside the parameter's domain and the clause states no recovery.
+
+Four readings exist and each renderer takes a different one:
+
+| | draws |
+|---|---|
+| **ours** — clamp into the domain, then apply §8.4.3.2's rule for zero | one device pixel, solid |
+| `poppler`, `mupdf` — the magnitude | about a tenth of a pixel's coverage, very faint |
+| `ghostscript` | between the two |
+| the clause's own definition of stroking, applied literally — "all points whose perpendicular distance … is less than or equal to half the line width" | **nothing**, and nobody takes it |
+
+Ours is defensible and was never written down: the clamp sat in the `w` handler with no comment
+and the rule for zero sat in `Stroke::device_width` with a comment about zero. The choice is now
+stated in both places and on §8.4.3.2's ledger row, and the page moves to
+`CONTRADICTED_NEGATIVE_LINE_WIDTH`. **One operator in one of 974 documents**, measured — so the
+corpus cannot rank this and the clause does not decide it.
+
+**On the specification track, §14.7's nineteen rows — logical structure, which is the half of
+clause 14 `CLAUDE.md` puts in scope** ("tagged PDF as far as accessibility needs it"). None of
+it is read, so all nineteen are `silent`, and two things came out of writing them:
+
+- **Everything a structure tree hangs on already exists.** §14.7.5.2 attaches an element to
+  content through a `BDC` property list carrying an `/MCID`, and `content.rs` already parses
+  that property list because §8.11.3.3's `/OC` arrives the same way. §14.7.5.3 names annotations
+  and XObjects as content items, and both are drawn. The tree is the missing part, not its
+  attachments.
+- **Four rows in two clauses are waiting on one data structure.** §14.7.5.4's `/ParentTree`,
+  §12.3.2.4's named destinations, §12.4.2's page labels and §12.7.7's named pages all need a
+  **number or name tree**, which nothing in this tree reads. That is the clearest single item
+  the ledger has produced: one small piece of §7.9.6 and §7.9.7 unblocks four families.
+
+| | before | now |
+|---|---|---|
+| a negative line width | `.max(0.0)`, undocumented | a documented choice, in three places |
+| **contradicted pages with no explanation** | 37 | **36** |
+| **ledger subclauses nobody has read** | 155 | **136** |
+| corpus documents drawing with nothing reported | 858 | 858 |
+| pages agreeing with the reference consensus | 816 | 816 |
+
+What it taught:
+
+- **A clamp is a decision.** `width.max(0.0)` reads as defensive hygiene and is in fact this
+  program's whole answer to a value the standard forbids — chosen once, by nobody, and visible
+  on a page. Look at what a `max`, a `clamp` or an `unwrap_or` decides before calling it a
+  guard.
+- **The ledger can find a missing *component*, not only a missing feature.** Four rows across
+  two clauses named the same absent data structure, which no single clause review would have
+  shown and no corpus document would ever have asked for.
+
+### The forty-sixth session, in brief
 
 **Clause 12 is complete as a review — 166 rows, none `unreviewed`.** Seven of the standard's
 eight technical clauses now have no unread row: 7, 8, 9, 10, 11, 12 and 13's exclusions. Only
@@ -339,7 +393,17 @@ What it taught:
   found the shared ICC profile two sessions ago and found this page, both times *before* an
   artefact was opened. "We differ from all three while they agree" and "two clusters of two"
   are different diagnoses and one table separates them.
-- **An inconsistency inside a reference's own output outranks any distance from it.** Two
+- **A clamp is a decision.** `width.max(0.0)` on the `w` operator reads as defensive hygiene and
+is in fact this program's whole answer to a value §8.4.3.2 forbids — chosen once, by nobody, and
+visible as a dark line on `issue19633.pdf` where two references draw a faint one. Ask what a
+`max`, a `clamp` or an `unwrap_or` *decides* before calling it a guard.
+
+**The ledger can find a missing component, not only a missing feature.** Four rows across two
+clauses — §14.7.5.4's `/ParentTree`, §12.3.2.4's named destinations, §12.4.2's page labels and
+§12.7.7's named pages — name the same absent data structure, a name or number tree. No single
+clause review would have shown that and no corpus document would ever have asked for it.
+
+**An inconsistency inside a reference's own output outranks any distance from it.** Two
 renderers spacing one line of one font at two different widths — 20 pt for the letters and 15
 for the digits — cannot both be reading the document's `/W`, and seeing that needed no
 tolerance, no ratio and no vote, only the ink columns. When a page is contradicted, ask whether
@@ -685,6 +749,7 @@ below rather than here.
 | 44 | A font's own tables say which way round its offsets are; §12.1, §12.2 and §12.4 reviewed | ADR 0052 |
 | 45 | A contradicted page's label measured and replaced; §12.6's actions reviewed | — |
 | 46 | Clause 12 completed as a review; the median page profiled at last | — |
+| 47 | A negative line width is a choice, written down; §14.7 reviewed | — |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -1298,12 +1363,12 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **155
-of 823 subclauses are `unreviewed`**, and 668 have been read against this code — 86 of those
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **136
+of 823 subclauses are `unreviewed`**, and 687 have been read against this code — 86 of those
 carrying principle 5's exclusions, all but four of them clause 13, and **113 of them `silent`**,
 which is a fact about this project's shape: it renders pages correctly and does nothing when a
 person clicks on one. So the honest summary is that the
-project has measured 81% of its clause coverage — up from 37% sixteen sessions ago, and **six
+project has measured 83% of its clause coverage — up from 37% seventeen sessions ago, and **six
 clauses now have no `unreviewed` row at all**: 7, 8, 9, 10, 11 and 13's exclusions — everything
 that decides whether a page is drawn correctly, plus the syntax it is read from. What remains is concentrated in
 clause 12's interactive half and clause 14, which are the parts this tree has not built.
@@ -1376,7 +1441,8 @@ tall, 1 a `CalRGB` alternate two references do not convert, 1 a level of mask qu
 flat page (trap 12), 1 a symbolic font whose (3, 0) subtable reaches an empty glyph, **4 a `DeviceCMYK`
 conversion where the two agreeing references share one ICC profile** (ADR 0048), 2 where the
 agreeing references drew nothing at all, 1 where two references space one line by two
-different widths, and **37 have nothing on them to explain it**.
+different widths, 1 a line width the clause forbids, and **36 have nothing on them to explain
+it**.
 That last group is the most valuable list in the repository, and 21 of them are pages beyond the
 first, which a page-one comparison would never have seen. **One page left the `substituted fonts`
 group in the twenty-eighth session by being fixed** — `issue8092.pdf`, whose difference was a
@@ -1464,7 +1530,7 @@ parts that make a document *interactive* are not started.
 ## What to do next
 
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
-everything the corpus and the oracle name — 82 contradicted pages, 37 of them unexplained, and a
+everything the corpus and the oracle name — 82 contradicted pages, 36 of them unexplained, and a
 feature list sized by how many documents want each item. **The list is nearly empty of clause
 work**: nine sessions took `/FontFile`, all five bit depths, text markup appearances, `/AS`
 usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is left that any
@@ -1609,7 +1675,7 @@ Five small items, listed before the big lists because they are small:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 37 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 36 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. **Read trap 9 before starting**, because an entry may be any of its three shapes, and
 checking costs a web search of the other project's source.
@@ -1809,7 +1875,7 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 | of the 1656 pages we call complete | count | |
 |---|---|---|
 | agree with the reference consensus | 816 | |
-| **contradicted** | **82** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 15 substituted fonts, **37 unexplained** |
+| **contradicted** | **82** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 15 substituted fonts, **36 unexplained** |
 | ambiguous | 747 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |

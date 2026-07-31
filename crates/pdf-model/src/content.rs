@@ -1131,6 +1131,13 @@ impl Interpreter<'_> {
                 // --- line parameters ---
                 b"w" => {
                     if let Some(width) = number_at(&operands, 0) {
+                        // ISO 32000-2 §8.4.3.2: the line width "shall be a non-negative
+                        // number expressed in user space units". A negative one is outside
+                        // the parameter's stated domain and the clause states no recovery,
+                        // so clamping it into the domain is a **documented choice** and not a
+                        // derivation — see `Stroke::device_width` for what 0 then means, and
+                        // `oracle.rs`'s `CONTRADICTED_NEGATIVE_LINE_WIDTH` for the page that
+                        // shows the three answers apart.
                         state.stroke.width = width.max(0.0);
                     }
                 }

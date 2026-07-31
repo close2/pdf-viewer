@@ -1159,7 +1159,7 @@ title = "Line width"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/paint.rs"]
 test = ["crates/render-cpu/tests/stroke_width.rs::a_zero_width_stroke_is_one_device_pixel_at_every_scale", "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_the_thinnest_line_the_device_draws"]
-note = "The `w` operator sets the width, and a width of 0 is drawn as \"the thinnest line that can be rendered at device resolution: 1 device pixel wide\". **This row was wrong for fifteen sessions and is the ledger's second known error**: it said a zero width \"reaches the rasteriser as the thinnest line it draws\", which was true of `tiny-skia`, whose hairline mode a zero width selects, and false of Vello, where `kurbo` expands a zero-width stroke into an empty outline and the line vanished. A row that names a *rasteriser's* convention has recorded that rasteriser rather than the clause. `Stroke::device_width` now states the minimum in `pdf-render`, where both backends read it, and the scene that would have caught the defect exists. The clause is also cited from `oracle.rs` for what it does *not* say: it gives a stroke a device-resolution minimum and gives an image none, which is why `issue4436r.pdf`'s half-pixel-tall image mask is drawn at its coverage rather than snapped to a whole row."
+note = "The `w` operator sets the width, and a width of 0 is drawn as \"the thinnest line that can be rendered at device resolution: 1 device pixel wide\". **This row was wrong for fifteen sessions and is the ledger's second known error**: it said a zero width \"reaches the rasteriser as the thinnest line it draws\", which was true of `tiny-skia`, whose hairline mode a zero width selects, and false of Vello, where `kurbo` expands a zero-width stroke into an empty outline and the line vanished. A row that names a *rasteriser's* convention has recorded that rasteriser rather than the clause. `Stroke::device_width` now states the minimum in `pdf-render`, where both backends read it, and the scene that would have caught the defect exists. The clause is also cited from `oracle.rs` for what it does *not* say, twice. It gives a stroke a device-resolution minimum and gives an image none, which is why `issue4436r.pdf`'s half-pixel-tall image mask is drawn at its coverage rather than snapped to a whole row. And it says the width \"shall be a non-negative number\" without saying what a *negative* one means: `issue19633.pdf` writes `-0.1 w`, this tree clamps into the domain and then applies the rule for zero, and every reference takes a different one of the three available readings — a **documented choice**, now written where it is made rather than left in a `.max(0.0)`. One operator in one of 974 documents, measured."
 
 [[clause]]
 clause = "8.4.3.3"
@@ -4901,97 +4901,116 @@ note = "A property list is \"either an inline dictionary representing the proper
 [[clause]]
 clause = "14.7"
 title = "Logical structure"
-status = "unreviewed"
+status = "silent"
+note = "Logical structure: a tree of elements over the content of a document, saying that this run of glyphs is a heading and that one a table cell. **This is the half of clause 14 `CLAUDE.md` puts in scope** — \"tagged PDF as far as accessibility needs it\" — and none of it is read. Nothing here is a rendering question: a document with a perfect structure tree and one with none draw identically, which is exactly why it is worth recording as debt rather than leaving as an absence."
 
 [[clause]]
 clause = "14.7.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing, and the sentence that decides how much of §14.6 has to work first: logical structure \"is independent of the content stream\" but is *attached* to it through marked-content sequences (§14.7.5.2), whose bracketing `content.rs` already maintains for optional content and for §12.7.4.3's splice. So the mechanism a structure tree hangs on exists; the tree does not."
 
 [[clause]]
 clause = "14.7.2"
 title = "Structure hierarchy"
-status = "unreviewed"
+status = "silent"
+note = "The structure hierarchy: the catalog's `/StructTreeRoot`, Table 355's structure tree root, and Table 356's structure elements with `/S`, `/P`, `/K` and `/Pg`. A tree of dictionaries, which this crate's object model reads without difficulty and nothing asks it to."
 
 [[clause]]
 clause = "14.7.3"
 title = "Structure types"
-status = "unreviewed"
+status = "silent"
+note = "Structure types: the standard set — `Document`, `Part`, `H1` to `H6`, `P`, `Table`, `Figure` and the rest — and `/RoleMap`, which maps a document's own type names onto them. The one part of this subclause with a *reading* consequence is that a type is a name in a namespace (§14.7.4), so two documents may use the same word for different things."
 
 [[clause]]
 clause = "14.7.4"
 title = "Namespaces"
-status = "unreviewed"
+status = "silent"
+note = "Namespaces (PDF 2.0), which qualify a structure type so that a document may mix vocabularies."
 
 [[clause]]
 clause = "14.7.4.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing. New in PDF 2.0 and the reason §14.7.3's role map is no longer the only indirection between a document's type names and the standard's."
 
 [[clause]]
 clause = "14.7.4.2"
 title = "Namespace dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Table 358's namespace dictionary: `/NS` the identifying URI, `/Schema`, `/RoleMapNS`."
 
 [[clause]]
 clause = "14.7.5"
 title = "Structure content"
-status = "unreviewed"
+status = "silent"
+note = "Structure content: how an element points at the marks on a page."
 
 [[clause]]
 clause = "14.7.5.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing."
 
 [[clause]]
 clause = "14.7.5.1.1"
 title = "Content items"
-status = "unreviewed"
+status = "silent"
+note = "The three kinds of content item an element's `/K` may name — a marked-content sequence, a whole PDF object such as an annotation or an XObject, and another element."
 
 [[clause]]
 clause = "14.7.5.2"
 title = "Marked-content sequences as content items"
-status = "unreviewed"
+status = "silent"
+note = "Marked-content sequences as content items: `BDC` with a `/MCID` in its property list, matched to a structure element by that identifier. **`content.rs` already parses the property list this rides on**, because §8.11.3.3's `/OC` arrives the same way — an `/MCID` is one more entry it does not read."
 
 [[clause]]
 clause = "14.7.5.3"
 title = "PDF objects as content items"
-status = "unreviewed"
+status = "silent"
+note = "PDF objects as content items: an object reference dictionary naming an annotation or an XObject as the content of an element. Table 362's `/Obj`, and §12.5's annotations are drawn here already — what is missing is the link back to the tree."
 
 [[clause]]
 clause = "14.7.5.4"
 title = "Finding structure elements from content items"
-status = "unreviewed"
+status = "silent"
+note = "Finding structure elements from content items: the page's `/StructParents` and the `/ParentTree` number tree, which is the inverse of the previous two subclauses. A **number tree** again, which §12.3.2.4, §12.4.2 and §12.7.7 also need — four rows in two clauses waiting on one data structure, which is the clearest argument in the ledger for building it."
 
 [[clause]]
 clause = "14.7.6"
 title = "Structure attributes"
-status = "unreviewed"
+status = "silent"
+note = "Structure attributes: layout, list, table and printer's-mark properties hung on an element."
 
 [[clause]]
 clause = "14.7.6.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Table 363's attribute dictionaries and the `/O` owner that says which vocabulary an attribute belongs to."
 
 [[clause]]
 clause = "14.7.6.2"
 title = "Attribute classes"
-status = "unreviewed"
+status = "silent"
+note = "Attribute classes: `/ClassMap` in the structure tree root, so that a set of attributes can be named once and referred to by many elements."
 
 [[clause]]
 clause = "14.7.6.3"
 title = "Attribute revision numbers"
-status = "unreviewed"
+status = "silent"
+note = "Attribute revision numbers, which say that an attribute was updated after the content it describes — a *validity* mechanism, and one a reader that does not edit has nothing to do with."
 
 [[clause]]
 clause = "14.7.6.4"
 title = "User properties"
-status = "unreviewed"
+status = "silent"
+note = "User properties: arbitrary application data attached to a structure element, which the clause is explicit have no standard meaning."
 
 [[clause]]
 clause = "14.7.7"
 title = "Example of logical structure"
-status = "unreviewed"
+status = "silent"
+note = "A worked example of a structure tree. Nothing normative; recorded so that the family has no gap in it."
 
 [[clause]]
 clause = "14.8"

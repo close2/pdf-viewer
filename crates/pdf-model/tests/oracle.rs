@@ -214,6 +214,28 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 1] = ["issue9940.pdf page 1"];
 /// one this project wrote.
 const CONTRADICTED_REFERENCE_GLYPH_WIDTHS: [&str; 1] = ["issue9915_reduced.pdf page 1"];
 
+/// Contradicted, where the document asks for a line width the clause forbids.
+///
+/// 1 page, and one operator in it: `issue19633.pdf` strokes a single diagonal under `-0.1 w`.
+/// §8.4.3.2 says the line width "shall be a non-negative number expressed in user space
+/// units", so the value is outside the parameter's stated domain, and the clause states no
+/// recovery for one that is.
+///
+/// **Three readings are available and each renderer takes a different one.** We clamp the
+/// value into the domain, which makes it zero, and §8.4.3.2's rule for zero is "the thinnest
+/// line that can be rendered at device resolution: 1 device pixel wide" — a dark, solid line.
+/// `poppler` and `mupdf` draw a very faint one, consistent with the magnitude, 0.1 of a pixel's
+/// coverage. `ghostscript` draws something between the two. A *fourth* reading is the clause's
+/// own definition of stroking — "painting all points whose perpendicular distance from the path
+/// in user space is less than or equal to half the line width" — under which a negative width
+/// paints nothing at all, and nobody takes it.
+///
+/// Listed rather than chased, and the choice is written down where it is made
+/// (`content.rs`'s `w` handler and `Stroke::device_width`) rather than left in a `.max(0.0)`
+/// that answers a question nobody asked. **One operator in one of 974 documents**, measured —
+/// so the corpus cannot rank this and the clause does not decide it.
+const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
+
 /// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.
 ///
 /// 4 pages in 3 documents, and the group with the most evidence behind it of any here —
@@ -781,7 +803,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 37] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 36] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -797,7 +819,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 37] = [
     "freeculture.pdf page 76",
     "issue1002.pdf page 1",
     "issue10572.pdf page 1",
-    "issue19633.pdf page 1",
     "issue2017r.pdf page 1",
     "issue3207r.pdf page 1",
     "issue3405r.pdf page 1",
@@ -1541,6 +1562,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_IMAGE_RESAMPLING)
         .chain(&CONTRADICTED_CALIBRATED_COLOUR)
         .chain(&CONTRADICTED_REFERENCE_GLYPH_WIDTHS)
+        .chain(&CONTRADICTED_NEGATIVE_LINE_WIDTH)
         .chain(&CONTRADICTED_DEVICE_CMYK_CONVERSION)
         .chain(&CONTRADICTED_SUBPIXEL_IMAGE)
         .chain(&CONTRADICTED_MASK_QUANTISATION)

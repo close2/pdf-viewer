@@ -182,6 +182,19 @@ impl Stroke {
     /// transform, which is what every page transform in this renderer is, the two singular
     /// values coincide and the choice does not arise.
     #[must_use]
+    /// # A negative width is not a width, and this is where that is decided
+    ///
+    /// The clause says the parameter "shall be a non-negative number", so `-0.1 w` is outside
+    /// its domain and no recovery is stated. `content.rs` clamps such a value to zero, which
+    /// brings it into the domain, and this function then applies the clause's rule for zero —
+    /// so a negative width draws one device pixel. That is a **choice**, not a derivation, and
+    /// two others are equally available: the clause's own definition of stroking paints "all
+    /// points whose perpendicular distance from the path … is less than or equal to half the
+    /// line width", which for a negative width is no point at all; and the magnitude, which
+    /// covers the same region a positive width of the same size would. `issue19633.pdf` is the
+    /// corpus's only witness — one operator in one document — and the three readings put a
+    /// visibly different line on it.
+    ///
     pub fn device_width(&self, to_device: Transform) -> f32 {
         let stretch = to_device.max_stretch();
         // A degenerate transform has collapsed the path to a line or a point; there is no
