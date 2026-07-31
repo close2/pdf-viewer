@@ -313,6 +313,11 @@ pub struct LoadedFont {
     /// never reaches the list at all, and 256 AGL searches is not a cost to pay on the page-one
     /// path for nothing (`CLAUDE.md` principle 2).
     agl_by_code: OnceCell<Box<[Option<char>; 256]>>,
+    /// §9.10.2's last resort: what the *program* calls the glyph a code selected.
+    ///
+    /// One entry per code of a simple font, built once and only for a font that reaches this
+    /// far — see [`LoadedFont::text`], which is the only reader and explains the choice.
+    post_by_code: OnceCell<Box<[Option<char>; 256]>>,
 }
 
 impl std::fmt::Debug for LoadedFont {
@@ -480,6 +485,7 @@ impl LoadedFont {
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
             agl_by_code: OnceCell::new(),
+            post_by_code: OnceCell::new(),
         })
     }
 
@@ -589,6 +595,7 @@ impl LoadedFont {
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
             agl_by_code: OnceCell::new(),
+            post_by_code: OnceCell::new(),
         })
     }
 
@@ -603,10 +610,13 @@ impl LoadedFont {
 
     /// Appends the text a character code represents, reporting whether any was found.
     ///
-    /// Two sources, in order of authority. `/ToUnicode` is the producer's own statement of
-    /// what a code means and is preferred. Failing that, the glyph name the encoding
-    /// selects identifies a character through the Adobe Glyph List — which describes what
-    /// was actually drawn, and so stays right even when a producer's `/ToUnicode` is not.
+    /// Three sources, in order of authority, and the first two are §9.10.2's own first two
+    /// methods. `/ToUnicode` is the producer's own statement of what a code means and is
+    /// preferred. Failing that, the glyph name the encoding selects identifies a character
+    /// through the Adobe Glyph List — which describes what was actually drawn, and so stays
+    /// right even when a producer's `/ToUnicode` is not. The third is not a method of the
+    /// clause but the choice it explicitly permits where its methods fail; see
+    /// [`Self::text_from_program`].
     ///
     /// Takes the destination by reference because extraction calls this once per character
     /// on the page, and returning a `String` would allocate for every one.
@@ -615,7 +625,7 @@ impl LoadedFont {
             return true;
         }
         let Some(names) = self.glyph_names.as_ref() else {
-            return false;
+            return self.text_from_program(code, out);
         };
         let table = self.agl_by_code.get_or_init(|| {
             let mut table = Box::new([None; 256]);
@@ -625,6 +635,90 @@ impl LoadedFont {
                     .map(Cow::as_ref)
                     .filter(|name| !name.is_empty())
                     .and_then(read_fonts::ps::agl::name_to_char);
+            }
+            table
+        });
+        if let Some(character) = usize::try_from(code.value())
+            .ok()
+            .and_then(|code| table.get(code))
+            .copied()
+            .flatten()
+        {
+            out.push(character);
+            return true;
+        }
+        self.text_from_program(code, out)
+    }
+
+    /// §9.10.2's last resort: the name the *font program* gives the glyph that was drawn.
+    ///
+    /// The clause's three methods are tried first and in its order. Where all three fail it
+    /// states an outcome and a permission in one sentence:
+    ///
+    /// > If these methods fail to produce a Unicode value, there is no way to determine what
+    /// > the character code represents in which case a PDF processor may choose a character
+    /// > code of their choosing.
+    ///
+    /// This is that choice, and it is a choice rather than a fourth method — the second method
+    /// asks for "the glyph name the glyph selection algorithm uses", and a symbolic `TrueType`
+    /// selects its glyph by *code* through a `cmap` subtable, so no name was used. What is
+    /// available instead is the program's own `post` table, which states what the glyph it drew
+    /// is called, and the Adobe Glyph List, which states what that name means. Neither is a
+    /// guess: both are read from data the file itself carries, which is the same instrument
+    /// §9.6.5.4's own last resort uses for the *forward* direction.
+    ///
+    /// `issue15910.pdf` is the case. Its `/F10` is a symbolic `TrueType` Arial subset with no
+    /// `/Encoding` and no `/ToUnicode`, drawing `(Allgäu)` and `(Käferhofen 10)`; both methods
+    /// above return nothing and the page read back as though those two lines were not there.
+    ///
+    /// It cannot invent text where a font does not name its glyphs: a `post` table of version
+    /// 3.0 holds no names at all, and a name outside the Adobe Glyph List answers `None`. That
+    /// is what keeps it from being the fallback-that-fills-the-page this project forbids —
+    /// measured over the pdf.js corpus rather than assumed, in the sixty-fourth session.
+    ///
+    /// **Two statements the program makes, in that order.** The `post` table names the glyph,
+    /// which the Adobe Glyph List turns into a character — the same step §9.10.2's own second
+    /// method takes, from a name the file supplies rather than one the encoding chose. Failing
+    /// that, the program's Unicode `cmap` subtable is inverted: an entry mapping U+00E4 to
+    /// glyph 74 is the font saying that glyph 74 is `ä`, whichever direction it is read in.
+    /// `issue15910.pdf` needs the second, because its `post` is version 2.0 with every name an
+    /// empty string — a table that satisfies the format and states nothing.
+    ///
+    /// Only for a simple font: a composite one selects by CID through a `CMap`, and §9.10.2's
+    /// third method is the route the clause states for those.
+    fn text_from_program(&self, code: Code, out: &mut String) -> bool {
+        if !matches!(self.mapping, CodeMapping::Named(_)) {
+            return false;
+        }
+        let table = self.post_by_code.get_or_init(|| {
+            let mut table = Box::new([None; 256]);
+            let Ok(font) = FontRef::new(&self.data) else {
+                return table;
+            };
+            let Ok(post) = font.post() else {
+                return table;
+            };
+            // The program's own Unicode subtable, inverted. Built once and only where the
+            // `post` table left something unanswered, because it walks every mapping the font
+            // states — a few hundred for a subset, and a few thousand for a full CJK face.
+            let mut by_glyph: Option<BTreeMap<u16, char>> = None;
+            for (code, slot) in table.iter_mut().enumerate() {
+                let Some(glyph) = u32::try_from(code)
+                    .ok()
+                    .and_then(|code| self.glyph_for_selector(code))
+                else {
+                    continue;
+                };
+                *slot = post
+                    .glyph_name(skrifa::raw::types::GlyphId16::new(glyph))
+                    .filter(|name| !name.is_empty())
+                    .and_then(read_fonts::ps::agl::name_to_char)
+                    .or_else(|| {
+                        by_glyph
+                            .get_or_insert_with(|| invert_charmap(&font))
+                            .get(&glyph)
+                            .copied()
+                    });
             }
             table
         });
@@ -875,8 +969,9 @@ impl LoadedFont {
     /// A simple font's `/Widths` is indexed by character code and a composite font's `/W` by
     /// CID (§9.7.4.3), so this is the key both tables use — which is what the
     /// widths-against-charstrings cross-check needs, since it walks those tables rather than a
-    /// string. Only tests want it: drawing always starts from a code.
-    #[cfg(test)]
+    /// string. Drawing always starts from a code; the two callers that do not are that check
+    /// and §9.10.2's last resort in [`Self::text_from_program`], which needs the glyph in order
+    /// to ask the program what it is called.
     fn glyph_for_selector(&self, selector: u32) -> Option<u16> {
         match &self.mapping {
             CodeMapping::Named(table) => *table.get(usize::try_from(selector).ok()?)?,
@@ -1893,6 +1988,23 @@ fn truetype_code_table(
     }
 
     Ok((table, names))
+}
+
+/// Every glyph a font's Unicode subtable names, keyed by glyph.
+///
+/// The first character wins where several map to one glyph, which happens in every subset that
+/// unifies a letter with its presentation form. Deterministic because `Charmap::mappings`
+/// walks the subtable in code order.
+fn invert_charmap(font: &FontRef<'_>) -> BTreeMap<u16, char> {
+    let mut out = BTreeMap::new();
+    for (code, glyph) in font.charmap().mappings() {
+        let (Some(character), Ok(glyph)) = (char::from_u32(code), u16::try_from(glyph.to_u32()))
+        else {
+            continue;
+        };
+        out.entry(glyph).or_insert(character);
+    }
+    out
 }
 
 /// A code's glyph through the font's own codes: the (3, 0) subtable, then the (1, 0) one.

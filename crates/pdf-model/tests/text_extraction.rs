@@ -377,12 +377,21 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// code to the *glyph's* name and each glyph is a Greek letter. Both readbacks are defensible
 /// and the clause is about naming what was drawn, which is what ours does.
 ///
-/// The remaining seven are partial for reasons nobody has looked into: `issue13211.pdf`,
-/// `issue15910.pdf`, `issue16538.pdf`, `issue16553.pdf`, `issue19182.pdf`, `issue19971.pdf`
-/// and `bug1392647.pdf`. **They are the list worth working**, and the method is the one that
-/// found `operator-in-TJ-array.pdf` in the session this gate landed: print our readback beside
-/// the reference's and read the file where they part.
-const TEXT_BELOW_FLOOR: [&str; 46] = [
+/// The remaining six are partial for reasons nobody has looked into: `issue13211.pdf`,
+/// `issue16538.pdf`, `issue16553.pdf`, `issue19182.pdf`, `issue19971.pdf` and
+/// `bug1392647.pdf`. **They are the list worth working**, and the method is the one that found
+/// `operator-in-TJ-array.pdf` and `issue15910.pdf` in the two sessions after this gate landed:
+/// print our readback beside the reference's and read the file where they part.
+///
+/// # Three left in the sixty-fourth session, and the route is §9.10.2's own permission
+///
+/// `bug894572.pdf`, `issue1350.pdf` and `issue15910.pdf` are gone because a simple font's
+/// glyph is now named by the *program* where the clause's three methods all fail — the `post`
+/// table's name through the Adobe Glyph List, or the Unicode `cmap` subtable inverted. See
+/// `pdf_font::LoadedFont::text_from_program`. The corpus went 96.5% to **97.8%** and no
+/// document moved the other way, which is the measurement that says this is not the
+/// fallback-that-fills-the-page.
+const TEXT_BELOW_FLOOR: [&str; 43] = [
     "ArabicCIDTrueType.pdf",
     "PDFJS-7562-reduced.pdf",
     "Type3WordSpacing.pdf",
@@ -391,7 +400,6 @@ const TEXT_BELOW_FLOOR: [&str; 46] = [
     "bug1027533.pdf",
     "bug1392647.pdf",
     "bug1650302_reduced.pdf",
-    "bug894572.pdf",
     "complex_ttf_font.pdf",
     "french_diacritics.pdf",
     "issue10301.pdf",
@@ -401,11 +409,9 @@ const TEXT_BELOW_FLOOR: [&str; 46] = [
     "issue12705.pdf",
     "issue13147.pdf",
     "issue13211.pdf",
-    "issue1350.pdf",
     "issue14046.pdf",
     "issue14999_reduced.pdf",
     "issue15516_reduced.pdf",
-    "issue15910.pdf",
     "issue16538.pdf",
     "issue16553.pdf",
     "issue19182.pdf",

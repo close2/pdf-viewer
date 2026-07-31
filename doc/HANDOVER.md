@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-third** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-fourth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -139,6 +139,26 @@ thirty-first.
   right-to-left text read back in painting order. **Seven are undiagnosed and are the list worth
   working.**
 
+**Sixty-fourth — §9.10.2's closing sentence is a permission** (ADR 0067). The new gate's
+undiagnosed list, worked. `issue15910.pdf` draws `(Allgäu)` and `(Käferhofen 10)` with a
+symbolic `TrueType` Arial subset that has no `/Encoding` and no `/ToUnicode`: §9.6.5.4 takes the
+code straight to a glyph through the program's `cmap`, so no glyph *name* is used anywhere and
+§9.10.2's second method has nothing to look up. The page read back as though those two lines
+were not there.
+
+- **The clause's last sentence has two halves and this project had acted on the first.** "[T]here
+  is no way to determine what the character code represents **in which case a PDF processor may
+  choose a character code of their choosing**."
+- **The choice is to ask the program what it drew**: the `post` table's glyph name through the
+  Adobe Glyph List, and failing that the Unicode `cmap` subtable inverted. Both read data the
+  file carries; neither invents a mapping, which is the difference from the
+  fallback-that-fills-the-page this file forbids.
+- **`issue15910.pdf` needs the second, and needing it is the argument for both**: its `post` is
+  version 2.0 — the version that carries names — with all seventy-nine of them the empty string.
+- **Measured, not argued**: the corpus readback went 96.5% → **97.8%** and **no document moved
+  the other way**, which is the observation that separates a reading from a fallback. Three
+  documents left the list; the 14 specification PDFs still score 100%. Neither pixel gate moves.
+
 
 ## How the project got here
 
@@ -206,6 +226,7 @@ below rather than here.
 | 61 | The page's top edge is raster row zero; 11 contradicted pages agree | ADR 0064 |
 | 62 | §12.6's actions, and the third input a viewer has | ADR 0065 |
 | 63 | A third gate: the text, over the whole corpus | ADR 0066 |
+| 64 | §9.10.2's closing sentence is a permission, and three documents took it | ADR 0067 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -1274,10 +1295,10 @@ rise is a new report and is written down as one.
 
 **Text, ratcheted in `crates/pdf-model/tests/text_extraction.rs`** and new in the sixty-third
 session (ADR 0066): `Interpretation::text` against `pdftotext` over the same 974 documents,
-30 seconds, **96.5% of the reference's words** over the pages we draw completely, with 46 named
-below the 0.90 floor. 31 of those are fonts where all three of §9.10.2's methods fail, 7 are
-right-to-left text read back in painting order, 1 is a Symbol font naming Greek glyphs, and
-**7 are undiagnosed**. The 14 specification PDFs keep their own 0.99 floor and still score 100%.
+30 seconds, **97.8% of the reference's words** over the pages we draw completely, with 43 named
+below the 0.90 floor. 31 of those are fonts where all three of §9.10.2's methods fail *and* whose
+program names nothing either, 7 are right-to-left text read back in painting order, 1 is a Symbol
+font naming Greek glyphs, and **6 are undiagnosed**. The 14 specification PDFs keep their own 0.99 floor and still score 100%.
 
 Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both directions.
 
@@ -1744,7 +1765,11 @@ before calling it a guard.
 
 **A fallback that fills the page is worse than one that leaves it blank.** "If nothing else
 matched, the code is the glyph index" drew `v 0' ' W` for `What's an interval?` — confident,
-plausible, wrong and silent.
+plausible, wrong and silent. **The distinction that makes one legitimate is where the answer
+comes from, and it is measurable.** §9.10.2's own permission to "choose a character code of
+their choosing" is taken by asking the *program* what it drew — its `post` name, its Unicode
+`cmap` inverted — and the corpus readback rose 96.5% → 97.8% with **no document moving the other
+way**. A fallback that invents text lowers a score somewhere.
 
 **A shortcut that is right on the common case is worse than one that is wrong on all of them.**
 The Cal-space pass-through was nearly correct for `/Gamma 2.2` and badly wrong otherwise, and
@@ -1809,8 +1834,9 @@ space and §7.7.3.3's rotation.
   the only check that catches a code reaching a *plausible* wrong glyph, and it is known to
   bite: reverting the operand-cap fix scores 93.2%, shifting every `/ToUnicode` entry by one
   code scores 58.7%, and the pdf.js run found a real defect on its first pass. The corpus
-  number is **96.5%**, and 31 of the 46 below the floor are §9.10.2's own "there is no way to
-  determine what the character code represents".
+  number is **97.8%**, and 31 of the 43 below the floor are §9.10.2's own "there is no way to
+  determine what the character code represents" — the *first* half of that sentence, since the
+  second half is now taken (ADR 0067).
 - **`doc/md/` is the specification, in a form code can read.** Markdown conversions of the 14
   specification PDFs, with real tables, committed — so a test may depend on it without a skip path.
   `ISO_32000-2_sponsored_EC3.md` is 24 MB and its 860 `##` headings give a clause number, a title
