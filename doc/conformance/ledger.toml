@@ -5536,26 +5536,38 @@ note = "`Artifact` as a *structure element*, PDF 2.0's, which is the third of §
 [[clause]]
 clause = "14.8.5"
 title = "Standard structure attributes"
-status = "silent"
-note = "Aggregate of the sixteen below: the attributes a structure element may carry, which are how a tagged document says *how its content looked* to a processor that intends to lay it out again. All of it is behind §14.7.6's attribute objects and §14.7's tree, and none of it changes a mark — the appearance the attributes describe is already on the page, drawn by the operators that produced it."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::an_attributes_owner_and_its_ancestry_decide_which_value_applies"]
+note = "The attributes a structure element may carry. **How an attribute is found is implemented** — where it lives (§14.8.5.1), whose vocabulary it is in (§14.8.5.2) and which of several values applies (§14.8.5.3) — and **what each attribute means is not, deliberately**: twelve of this family's sixteen rows are `inapplicable`, because a layout attribute describes the layout process that produced an appearance this reader already has. What is left `silent` is §14.8.5.6's `PrintField`, the one family with a rendering-adjacent entry."
+
 
 [[clause]]
 clause = "14.8.5.1"
 title = "General"
-status = "silent"
-note = "Where an attribute lives: a structure element's `/A`, naming an attribute object or an array of them, or its `/C`, naming a class looked up in the structure tree root's `/ClassMap`. The clause also names the four entries that are *not* attribute objects and says why they are worth a reader's attention — `/Lang`, `/Alt`, `/ActualText` and `/E` are \"described in 14.9 … but are useful to other PDF consumers as well\", and they appear on the element itself or on a `Span` property list. All four are read, in both locations, since the sixtieth session; what is unread is everything this row is actually about, the attribute objects and the `/ClassMap`."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own"]
+note = "Where an attribute lives: a structure element's `/A`, naming an attribute object or an array of them, or its `/C`, naming a class looked up in the structure tree root's `/ClassMap`. Both are read as of the eighty-second session (ADR 0072), with §14.7.6.3's revision numbers, which is what makes the arrays parseable at all. **This row was `silent` while §14.7.6's rows recorded the same code as implemented** — two clauses describing one mechanism, and the ledger's own way of understating."
+
 
 [[clause]]
 clause = "14.8.5.2"
 title = "Standard attribute owners"
-status = "silent"
-note = "Table 376's owners: `Layout`, `List`, `PrintField`, `Table`, `Artifact`, `XML-1.00`, `HTML-3.20`, `HTML-4.01`, `OEB-1.00`, `RTF-1.05`, `CSS-1.00`, `CSS-2.00`, `CSS-3.00` and `NSO`. The rule with teeth is the precedence: an attribute owned by an export format \"shall be applied only when processing PDF content based on that format\" and then \"shall override any corresponding attributes owned by Layout, List, PrintField, Table or Artifact\". A reader that ignores the owner and merges the dictionaries would take a CSS attribute for a layout one."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::an_attributes_owner_and_its_ancestry_decide_which_value_applies"]
+note = "Table 376's owners, read as `structure::Owner`. The distinction that earns the type is the one §14.8.5.3 turns on: five owners are PDF's own vocabulary — `Layout`, `List`, `PrintField`, `Table`, `Artifact` — and everything else is a *format's*, `HTML-4.01` or `CSS-3` or a name registered under Annex E. The thirteen format owners are one arm rather than thirteen, because this reader translates to none of those formats and what it needs from the name is only that it is not one of the five. `UserProperties` and `NSO` are Table 360's two other values and are read with them."
+
 
 [[clause]]
 clause = "14.8.5.3"
 title = "Attribute values and inheritance"
-status = "silent"
-note = "A five-step priority for an attribute's value — format-specific `/A`, then `Layout`-family `/A`, then the class map, then an inheritable value from the parent, then the default — and the sentence that makes the fourth step necessary: \"an attribute that is specified for an element shall apply to all the descendants of the element in the structure tree unless a descendent element specifies an explicit value\". Structurally the same rule as §7.7.3.4's page-attribute inheritance, over a different tree."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::an_attributes_owner_and_its_ancestry_decide_which_value_applies"]
+note = "The clause's five-step priority, of which the first four are here. A format-specific owner's value is skipped rather than preferred, which is the clause's own condition — priority 1 applies \"if processing based on the format indicated by the owner value\" and this program processes to no format; priority 2 is the PDF-native owners' `/A`, priority 3 the class map, and priority 4 is `Tree::inherited_attribute` walking `/P`, bounded like §14.9.2.3's language walk. **Priority 5 and the choice between 3 and 4 belong to the attribute rather than to the element**: §14.8.5.4's tables say which attributes are inheritable and what each defaults to, and a reader that inherited every attribute would give a paragraph its table's `/ColSpan`. So the caller picks, and the clause's closing sentence is why the two answers are the same kind — \"[t]here is no semantic distinction between attributes that are specified explicitly and ones that are inherited\"."
+
 
 [[clause]]
 clause = "14.8.5.4"

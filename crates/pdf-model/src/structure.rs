@@ -424,12 +424,25 @@ impl Tree {
         out
     }
 
-    /// One attribute's value, with §14.7.6's two precedence rules applied.
+    /// One attribute's value, by §14.8.5.3's priority, **without** the inherited step.
     ///
-    /// `None` where no attribute object attached to the element states it. The owner is not
-    /// part of the question — §14.8.5's standard attributes are keyed by name within an owner,
-    /// and a caller that cares which vocabulary answered has [`Self::attributes`] and
-    /// [`AttributeObject::owner`].
+    /// The clause states five priorities and this applies the first three, which are the ones
+    /// about *this* element:
+    ///
+    /// 1. an `/A` attribute owned by a format-specific owner — anything but Table 376's five
+    ///    PDF-native ones — "if processing based on the format indicated by the owner value",
+    ///    which this program is not, so it is skipped rather than preferred;
+    /// 2. an `/A` attribute owned by `Layout`, `PrintField`, `Table`, `List` or `Artifact`;
+    /// 3. an attribute from a class the element's `/C` names.
+    ///
+    /// §14.7.6's two rules decide within each of those, and [`Self::attributes`] has already put
+    /// the objects in the order that makes the last match the winner.
+    ///
+    /// The fourth priority — "[t]he resolved value of the parent structure element, if the
+    /// attribute is inheritable" — is [`Self::inherited_attribute`], because whether an
+    /// attribute *is* inheritable is stated per attribute in §14.8.5.4's tables and is a
+    /// property of the attribute rather than of the element. The fifth, a default, is the same
+    /// kind of statement and belongs to whoever knows the attribute.
     #[must_use]
     pub fn attribute(
         &self,
@@ -437,10 +450,49 @@ impl Tree {
         element: &Dictionary,
         name: &str,
     ) -> Option<Object> {
-        self.attributes(document, element)
+        let attached = self.attributes(document, element);
+        // Priority 2 and 3 together, in the order `attributes` returns them: classes first,
+        // then `/A`, so the last match wins. A format-specific owner is not consulted at all —
+        // the clause conditions priority 1 on "processing based on the format indicated by the
+        // owner value", and nothing here translates to XML, HTML or CSS.
+        attached
             .iter()
             .rev()
+            .filter(|object| object.kind.is_pdf_native() || object.kind == Owner::Namespace)
             .find_map(|object| object.get(document, name))
+    }
+
+    /// §14.8.5.3's fourth priority: the value this element or its nearest ancestor states.
+    ///
+    /// > Inheritable attributes propagate down the structure tree; that is, an attribute that is
+    /// > specified for an element shall apply to all the descendants of the element in the
+    /// > structure tree unless a descendent element specifies an explicit value for the attribute.
+    ///
+    /// The walk goes up `/P`, which is the same chain §14.9.2.3's language inheritance uses and
+    /// is bounded the same way — a `/P` is a reference a document controls. **Whether to call
+    /// this or [`Self::attribute`] is the caller's decision**, because the clause makes
+    /// inheritability a property of each attribute: §14.8.5.4's tables say which are inheritable,
+    /// and a reader that inherited every attribute would give a paragraph its table's
+    /// `/ColSpan`.
+    ///
+    /// The clause's own closing sentence is why this returns the same kind of answer as the
+    /// direct one: "[t]here is no semantic distinction between attributes that are specified
+    /// explicitly and ones that are inherited."
+    #[must_use]
+    pub fn inherited_attribute(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+        name: &str,
+    ) -> Option<Object> {
+        let mut current = element.clone();
+        for _ in 0..MAX_ANCESTRY {
+            if let Some(value) = self.attribute(document, &current, name) {
+                return Some(value);
+            }
+            current = document.get_key(&current, "P").as_dict()?.clone();
+        }
+        None
     }
 
     /// Every descendant of the root, depth first, with its depth.
@@ -1024,6 +1076,8 @@ pub struct AttributeObject {
     /// entry shall be present", and §14.7.4.2 adds that a namespace name matching a standard
     /// owner's "shall be considered equivalent".
     pub owner: String,
+    /// The same entry as §14.8.5.2's vocabulary, which is what decides §14.8.5.3's priority.
+    pub kind: Owner,
     /// Table 360's `/NS`, present exactly when `/O` is `NSO`, as the namespace it names.
     pub namespace: Option<Namespace>,
     /// §14.7.6.3's revision number: the one stated beside this object in the element's `/A` or
@@ -1051,8 +1105,10 @@ impl AttributeObject {
             .get_key(dict, "NS")
             .as_dict()
             .and_then(|space| Namespace::read(document, space));
+        let owner = String::from_utf8_lossy(owner.as_bytes()).into_owned();
         Some(Self {
-            owner: String::from_utf8_lossy(owner.as_bytes()).into_owned(),
+            kind: Owner::read(&owner),
+            owner,
             namespace,
             revision,
             dict: dict.clone(),
@@ -1115,6 +1171,71 @@ impl AttributeObject {
             });
         }
         out
+    }
+}
+
+/// §14.8.5.2's standard attribute owners. Table 376.
+///
+/// The owner "determines the interpretation of the attributes defined in the object", so it is
+/// not a label: `/BBox` under `Layout` and `/BBox` under `HTML-4.01` are different attributes
+/// that happen to share a name. It also decides §14.8.5.3's priority, where the five *PDF-native*
+/// owners rank below the format-specific ones.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Owner {
+    /// `Layout`: "[a]ttributes governing the layout of content".
+    Layout,
+    /// `List`: "governing the numbering of lists".
+    List,
+    /// `PrintField`: "governing `Form` structure elements for non-interactive form fields".
+    PrintField,
+    /// `Table`: "governing the organisation of cells in tables".
+    Table,
+    /// `Artifact`: "governing `Artifact` structure elements".
+    Artifact,
+    /// `UserProperties`: §14.7.6.4's, which Table 360 names beside the standard owners.
+    UserProperties,
+    /// `NSO`: the owner is the namespace the object's `/NS` names, which Table 360 requires to
+    /// be present in exactly this case.
+    Namespace,
+    /// One of Table 376's format-specific owners — `XML-1.00`, `HTML-4.01`, `CSS-3`, `ARIA-1.1`
+    /// and the rest — or a name registered under Annex E, kept as written.
+    ///
+    /// One arm rather than thirteen: this reader translates to none of those formats, so what it
+    /// needs from the name is that it is *not* one of the five PDF-native owners, which is what
+    /// §14.8.5.3's first priority turns on.
+    Format(String),
+}
+
+impl Owner {
+    /// Reads Table 360's `/O`.
+    #[must_use]
+    pub fn read(name: &str) -> Self {
+        match name {
+            "Layout" => Self::Layout,
+            "List" => Self::List,
+            "PrintField" => Self::PrintField,
+            "Table" => Self::Table,
+            "Artifact" => Self::Artifact,
+            "UserProperties" => Self::UserProperties,
+            "NSO" => Self::Namespace,
+            other => Self::Format(other.to_owned()),
+        }
+    }
+
+    /// Whether this owner is one §14.8.5.3 ranks *below* a format-specific one.
+    ///
+    /// The clause's first priority is an attribute "owned by an owner as specified by the O
+    /// entry … excluding `Layout`, `PrintField`, `Table`, `List` and `Artifact`, if present, and if
+    /// processing based on the format indicated by the owner value"; its second is one owned by
+    /// those five. So the five are the PDF-native vocabulary and everything else is somebody
+    /// else's format — which outranks it *for a processor translating to that format*, and this
+    /// one translates to none.
+    #[must_use]
+    pub fn is_pdf_native(&self) -> bool {
+        matches!(
+            self,
+            Self::Layout | Self::List | Self::PrintField | Self::Table | Self::Artifact
+        )
     }
 }
 
@@ -1788,5 +1909,71 @@ mod tests {
             "a structure tree is not the claim; the entry is"
         );
         assert!(Tree::of(&untagged).is_some(), "and the tree is still there");
+    }
+
+    /// §14.8.5.3's priority: a format-specific owner is skipped and an inheritable value walks
+    /// up `/P`.
+    ///
+    /// The fixture states `/TextAlign` three times over two elements: an `HTML-4.01` object on
+    /// the child, a `Layout` object on the *parent*, and a `Layout` object on the child. The
+    /// clause's first priority applies "if processing based on the format indicated by the owner
+    /// value" — this program processes to no format, so the `HTML-4.01` value is not the answer
+    /// even though it outranks `Layout` for a processor translating to HTML. The parent's value
+    /// is the fourth priority and only reachable through `inherited_attribute`.
+    #[test]
+    fn an_attributes_owner_and_its_ancestry_decide_which_value_applies() {
+        use super::Owner;
+
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R >>",
+            "<< /Type /StructElem /S /Sect /A 8 0 R /K [6 0 R 7 0 R] >>",
+            "<< /Type /StructElem /S /P /P 5 0 R /A [9 0 R 10 0 R] >>",
+            "<< /Type /StructElem /S /P /P 5 0 R >>",
+            "<< /O /Layout /TextAlign /Justify >>",
+            "<< /O /HTML-4.01 /TextAlign /Center >>",
+            "<< /O /Layout /TextAlign /Start >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(section)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element under the root");
+        };
+        let kids = tree.children(&doc, Some(&section));
+        let [Child::Element(stated), Child::Element(bare)] = kids.as_slice() else {
+            panic!("two paragraphs: {kids:?}");
+        };
+
+        assert_eq!(
+            tree.attributes(&doc, stated)
+                .iter()
+                .map(|object| object.kind.clone())
+                .collect::<Vec<_>>(),
+            vec![Owner::Format("HTML-4.01".to_owned()), Owner::Layout]
+        );
+        assert_eq!(
+            tree.attribute(&doc, stated, "TextAlign")
+                .and_then(|value| value.as_name().map(|n| n.as_bytes().to_vec())),
+            Some(b"Start".to_vec()),
+            "the Layout value, because nothing here processes to HTML"
+        );
+        assert_eq!(
+            tree.attribute(&doc, bare, "TextAlign"),
+            None,
+            "the parent's value is not this element's own"
+        );
+        assert_eq!(
+            tree.inherited_attribute(&doc, bare, "TextAlign")
+                .and_then(|value| value.as_name().map(|n| n.as_bytes().to_vec())),
+            Some(b"Justify".to_vec()),
+            "§14.8.5.3's fourth priority, up /P"
+        );
+        assert_eq!(
+            tree.inherited_attribute(&doc, stated, "TextAlign")
+                .and_then(|value| value.as_name().map(|n| n.as_bytes().to_vec())),
+            Some(b"Start".to_vec()),
+            "an element that states its own is not overridden by its parent's"
+        );
     }
 }
