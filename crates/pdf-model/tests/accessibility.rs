@@ -34,32 +34,53 @@ use pdf_syntax::Document;
 /// a page with no structure at all, and one whose `/StructParents` reaches a parent tree.
 fn fixture(content: &str, catalog: &str, structure: &str, page_extra: &str) -> Vec<u8> {
     let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {catalog} >>\nendobj\n\
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {catalog} \
+         /AcroForm << /Fields [22 0 R] /DR << /Font << /Helv 20 0 R >> >> >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
          /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R {page_extra} >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
-         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n{structure}",
+         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         20 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         21 0 obj\n<< /Type /Annot /Subtype /Square /Rect [120 20 180 60] /C [1 0 0] \
+         /Contents (a red square) >>\nendobj\n\
+         22 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (f) /V (typed) \
+         /Rect [120 20 180 60] /DA (/Helv 9 Tf 0 g) /Contents (a text field) >>\nendobj\n\
+         {structure}",
         content.len() + 1,
     );
 
+    // Offsets are keyed by the number each object states rather than by its position, so a
+    // test may add objects at any number without renumbering the ones this builder supplies.
     let mut out = String::from("%PDF-1.7\n");
-    let mut offsets = Vec::new();
+    let mut offsets: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut cursor = out.len();
     for object in body.split_inclusive("endobj\n") {
-        offsets.push(cursor);
+        let number: usize = object
+            .split_whitespace()
+            .next()
+            .and_then(|word| word.parse().ok())
+            .expect("every object states its number");
+        offsets.insert(number, cursor);
         cursor += object.len();
     }
     out.push_str(&body);
     let xref_at = out.len();
-    let _ = write!(out, "xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1);
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
+    let size = offsets.keys().copied().max().unwrap_or(0) + 1;
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for number in 1..size {
+        match offsets.get(&number) {
+            Some(offset) => {
+                let _ = writeln!(out, "{offset:010} 00000 n ");
+            }
+            None => {
+                let _ = writeln!(out, "0000000000 65535 f ");
+            }
+        }
     }
     let _ = write!(
         out,
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-        offsets.len() + 1
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
 }
@@ -257,4 +278,114 @@ fn an_empty_language_identifier_states_nothing() {
     );
     assert!(drawn.described.is_empty(), "an empty tag records no span");
     assert_eq!(runs(&drawn.speech()), vec![("quoi", Some("fr"))]);
+}
+
+/// §14.9.4: two consecutive replacement texts have no word break between them.
+///
+/// > If each of two (or more) consecutive structure or marked-content sequences has an
+/// > ActualText entry, they shall be treated as if no word break is present between them.
+///
+/// The two glyphs are placed far enough apart that the readback's own space inference puts a
+/// space between them — which is what makes this test discriminate. That space is neither
+/// sequence's; it is what the *placement* pass concluded from the gap, and the clause says the
+/// two replacements are one word.
+#[test]
+fn consecutive_replacement_texts_are_not_separated() {
+    let apart = interpret(
+        "BT /F1 12 Tf 10 50 Td (Dru) Tj 40 0 Td (k) Tj ET",
+        "",
+        "",
+        "",
+    );
+    assert!(
+        apart.text.contains(' '),
+        "the fixture's gap infers a space without the entries: {:?}",
+        apart.text
+    );
+
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 50 Td /Span << /ActualText (Dru) >> BDC (Dru) Tj EMC \
+         40 0 Td /Span << /ActualText (c) >> BDC (k) Tj EMC ET",
+        "",
+        "",
+        "",
+    );
+    assert_eq!(drawn.text.trim_end(), "Druc");
+}
+
+/// A sequence between two replacements ends their adjacency.
+///
+/// The rule is about *consecutive* sequences, so text drawn between two of them is a word break
+/// the clause does not remove — otherwise every `/ActualText` on a page would run into the next.
+#[test]
+fn a_replacement_after_ordinary_text_keeps_its_break() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 50 Td /Span << /ActualText (one) >> BDC (a) Tj EMC \
+         40 0 Td (X) Tj 40 0 Td /Span << /ActualText (two) >> BDC (b) Tj EMC ET",
+        "",
+        "",
+        "",
+    );
+    assert!(
+        drawn.text.contains('X'),
+        "the middle text is still there: {:?}",
+        drawn.text
+    );
+    assert!(
+        !drawn.text.contains("onetwo"),
+        "the two replacements are not adjacent: {:?}",
+        drawn.text
+    );
+}
+
+/// §14.9.3's third location: an annotation with no text of its own is described by `/Contents`.
+///
+/// > Any type of annotation (see 12.5, "Annotations") that does not already have a text
+/// > representation, through a Contents entry in the annotation dictionary
+///
+/// The fixture's `Square` annotation has no appearance stream, so this tree constructs one from
+/// §12.5.6.8 — a shape and no text at all. What a screen reader is given for it is the
+/// `/Contents` the producer wrote, and what a person copying the page gets is unchanged.
+#[test]
+fn an_annotation_with_no_text_is_described_by_its_contents() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 50 Td (page text) Tj ET",
+        "",
+        "",
+        "/Annots [21 0 R]",
+    );
+    assert_eq!(
+        drawn.text.trim_end(),
+        "page text",
+        "extraction is untouched"
+    );
+    assert_eq!(
+        runs(&drawn.speech()),
+        vec![("page text a red square ", None)]
+    );
+}
+
+/// An annotation that *does* read as text keeps its own words.
+///
+/// The clause's condition is "does not already have a text representation", and it is checked
+/// rather than assumed: a widget whose field value this tree lays out (§12.7.4.3) reads back
+/// what it drew, so its `/Contents` is not a substitute for it.
+#[test]
+fn an_annotation_that_reads_as_text_is_not_replaced() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 80 Td (page text) Tj ET",
+        "",
+        "",
+        "/Annots [22 0 R]",
+    );
+    assert!(
+        drawn.text.contains("typed"),
+        "the field's own value was drawn: {:?}",
+        drawn.text
+    );
+    assert!(
+        !format!("{:?}", drawn.speech()).contains("a text field"),
+        "its /Contents did not stand in for it: {:?}",
+        drawn.speech()
+    );
 }

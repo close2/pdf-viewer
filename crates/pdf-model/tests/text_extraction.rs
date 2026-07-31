@@ -377,11 +377,17 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// code to the *glyph's* name and each glyph is a Greek letter. Both readbacks are defensible
 /// and the clause is about naming what was drawn, which is what ours does.
 ///
-/// The remaining six are partial for reasons nobody has looked into: `issue13211.pdf`,
+/// The remaining six are partial for reasons nobody has diagnosed further: `issue13211.pdf`,
 /// `issue16538.pdf`, `issue16553.pdf`, `issue19182.pdf`, `issue19971.pdf` and
-/// `bug1392647.pdf`. **They are the list worth working**, and the method is the one that found
-/// `operator-in-TJ-array.pdf` and `issue15910.pdf` in the two sessions after this gate landed:
-/// print our readback beside the reference's and read the file where they part.
+/// `bug1392647.pdf`. **All six agree with the reference consensus on pixels**, measured in the
+/// sixty-sixth session with one filtered oracle run, so every one of them draws a picture two
+/// independent renderers accept and fails only at naming what it drew. The whole of what is left
+/// on this list is §9.10.2, and none of it is a drawing defect — which is worth knowing before
+/// spending a session on any of them, and is the cheapest thing to check about an entry here.
+///
+/// The method that found the two real defects is still the one to use: print our readback beside
+/// the reference's and read the file where they part. It found `operator-in-TJ-array.pdf` and
+/// `issue15910.pdf` in the two sessions after this gate landed.
 ///
 /// # Three left in the sixty-fourth session, and the route is §9.10.2's own permission
 ///

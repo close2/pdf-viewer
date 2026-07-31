@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-fifth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-sixth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -160,6 +160,30 @@ were not there.
   documents left the list; the 14 specification PDFs still score 100%. Neither pixel gate moves.
 
 
+**Sixty-sixth — §14.9 completed, and what the text gate's list actually is.** Two small
+requirements and one cheap measurement.
+
+- **§14.9.3's third location**: an annotation's `/Contents` is its alternate description, and the
+  clause's own condition — "does not already have a text representation" — is *checked* rather
+  than assumed. The description is recorded only where the annotation's appearance read back
+  nothing, so a widget that laid out its field value keeps its own words. §14.9.3 is
+  `implemented`.
+- **§14.9.4's last requirement**: two consecutive `/ActualText` sequences "shall be treated as if
+  no word break is present between them", and the break in question is not in either sequence —
+  it is what the placement pass inferred from the gap the glyphs left. Removed where two
+  replacements are adjacent, kept where anything else was drawn between them. §14.9.4 is
+  `implemented`, and §14.9 now owes only a consumer.
+- **The text gate's six undiagnosed entries all agree with the reference consensus on pixels.**
+  One filtered oracle run says so, and it changes what the list means: `issue13211.pdf`,
+  `issue16538.pdf`, `issue16553.pdf`, `issue19182.pdf`, `issue19971.pdf` and `bug1392647.pdf`
+  draw pictures two independent renderers accept, and fail only at *naming* what they drew. **The
+  whole remaining list is §9.10.2, and none of it is a drawing defect** — which is worth knowing
+  before spending a session on any of them.
+- The fixture builder in `tests/accessibility.rs` now keys its cross-reference table by the
+  number each object states rather than by position, so a test may add objects without
+  renumbering. The old builder made object 6 mean two different things in two tests.
+
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -228,6 +252,7 @@ below rather than here.
 | 63 | A third gate: the text, over the whole corpus | ADR 0066 |
 | 64 | §9.10.2's closing sentence is a permission, and three documents took it | ADR 0067 |
 | 65 | A ramp is not a gradient: 144 G instructions become 54 G | ADR 0068 |
+| 66 | §14.9 completed, and the text gate's remaining list is all naming | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -256,7 +281,7 @@ PDF *viewer* in the full sense — nothing edits a field, asks a person for a pa
 page — and the gap is now measured *by clause* as well as by corpus: 188 of the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **681 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **685 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -856,8 +881,8 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 267 | every normative requirement in the clause is executed |
-| `partial` | 163 | some are; the note says which are not |
+| `implemented` | 269 | every normative requirement in the clause is executed |
+| `partial` | 161 | some are; the note says which are not |
 | **`silent`** | **181** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -1312,7 +1337,9 @@ session (ADR 0066): `Interpretation::text` against `pdftotext` over the same 974
 30 seconds, **97.8% of the reference's words** over the pages we draw completely, with 43 named
 below the 0.90 floor. 31 of those are fonts where all three of §9.10.2's methods fail *and* whose
 program names nothing either, 7 are right-to-left text read back in painting order, 1 is a Symbol
-font naming Greek glyphs, and **6 are undiagnosed**. The 14 specification PDFs keep their own 0.99 floor and still score 100%.
+font naming Greek glyphs, and 6 are undiagnosed — **all six of which agree with the reference
+consensus on pixels**, so the whole of what is left on this list is naming and none of it is a
+drawing defect. The 14 specification PDFs keep their own 0.99 floor and still score 100%.
 
 Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both directions.
 

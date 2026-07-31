@@ -1199,6 +1199,9 @@ impl Interpreter<'_> {
         // How many `[` are open. An array is *one* operand, so nothing inside it is an
         // operator; see the keyword arm below.
         let mut array_depth = 0usize;
+        // Where the last `/ActualText` replacement ended in the readback, for §14.9.4's rule
+        // that two consecutive ones have no word break between them.
+        let mut replaced_ends_at: Option<usize> = None;
 
         while let Some(token) = lexer.next_token() {
             self.operations = self.operations.saturating_add(1);
@@ -1737,11 +1740,32 @@ impl Interpreter<'_> {
                         // "The ActualText value shall be used as a replacement, not a
                         // description, for the content" — so whatever the enclosed operators
                         // read back is discarded and the stated text stands in its place.
+                        let replaced_here = section.actual_text.is_some();
                         if let Some(replacement) = section.actual_text
                             && section.starts_at <= self.text.len()
                         {
                             self.text.truncate(section.starts_at);
+                            // "If each of two (or more) consecutive structure or marked-content
+                            // sequences has an ActualText entry, they shall be treated as if no
+                            // word break is present between them." The space between them is not
+                            // in either sequence — it is what the *placement* pass inferred from
+                            // the gap the glyphs left — so the clause is asking for it to go.
+                            // Only whitespace is removed, and only where the previous section's
+                            // replacement ended where this one's text began: a real character
+                            // between the two means they are not consecutive.
+                            if let Some(end) = replaced_ends_at
+                                && self.text.get(end..).is_some_and(|between| {
+                                    !between.is_empty() && between.chars().all(char::is_whitespace)
+                                })
+                            {
+                                self.text.truncate(end);
+                            }
                             self.text.push_str(&replacement);
+                            replaced_ends_at = Some(self.text.len());
+                        } else if !replaced_here && self.text.len() > section.starts_at {
+                            // Marks were made that no `/ActualText` replaced, so whatever came
+                            // before is no longer adjacent to whatever comes next.
+                            replaced_ends_at = None;
                         }
                         // §14.9.3's and §14.9.5's substitutions are recorded over the range
                         // rather than applied to it: they are what the page is *spoken* as,
@@ -2860,10 +2884,46 @@ impl Interpreter<'_> {
                     if let Some(detail) = owed {
                         self.note(Unsupported::Annotation { detail });
                     }
+                    let before = self.text.len();
                     self.draw_appearance(&appearance, base, &page.resources);
+                    self.describe_annotation(dict, before);
                 }
             }
         }
+    }
+
+    /// §14.9.3's third location for an alternate description: the annotation itself.
+    ///
+    /// > Any type of annotation (see 12.5, "Annotations") that does not already have a text
+    /// > representation, through a Contents entry in the annotation dictionary
+    ///
+    /// The condition is the clause's own and it is checked rather than assumed: `from` is where
+    /// the readback stood before the appearance ran, so an appearance that drew nameable text
+    /// *has* a text representation and its `/Contents` is not a substitute for it. One that drew
+    /// none — a stamp, a figure, a signature whose glyphs no method can name — has nothing to
+    /// vocalise, and the clause says what to say instead.
+    ///
+    /// The span is empty by construction, because the description replaces nothing: it is what
+    /// a screen reader is given *in place of* an annotation that reads as nothing at all.
+    /// `speech` puts a word break on each side of it, which is §14.9.3's rule for two
+    /// consecutive descriptions and is what keeps it from running into the page's own text.
+    fn describe_annotation(&mut self, annotation: &Dictionary, from: usize) {
+        if self.text.len() > from {
+            return;
+        }
+        let Object::String(bytes) = self.document.get_key(annotation, "Contents") else {
+            return;
+        };
+        let text = pdf_syntax::text_string(&bytes);
+        if text.is_empty() {
+            return;
+        }
+        self.described.push(crate::accessibility::Described {
+            range: from..from,
+            alt: Some(text),
+            expansion: None,
+            language: None,
+        });
     }
 
     /// Runs one appearance stream, clipped to its `/BBox`.
