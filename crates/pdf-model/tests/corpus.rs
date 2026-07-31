@@ -72,6 +72,13 @@ const MAX_UNOPENABLE: usize = 0;
 /// `print_protection.pdf`, has one nobody has recorded and `poppler` refuses it too.
 ///
 /// This count going *down* would mean a password had started working that should not.
+///
+/// **All eight passwords are now known and tested** in `pdf-syntax`'s `encryption.rs`, seven
+/// from the pdf.js issue or pull request each file is named after and the eighth —
+/// `print_protection.pdf`'s `1234` — from pdf.js's own browser test, which is the only place
+/// that file is used at all. So this row is no longer "eight documents we cannot read": it is
+/// eight documents whose decryption is verified elsewhere and which this gate opens with the
+/// empty password §7.6.4.1 requires it to try first. What is missing is still only the prompt.
 const MAX_LOCKED: usize = 8;
 
 /// Documents whose encryption this reader does not implement.

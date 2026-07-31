@@ -66,20 +66,32 @@ shape as ADR 0052's byte-swapped `indexToLocFormat`. Whoever takes it writes the
 | four `poppler-*`/`REDHAT-*` crashers | refused by every reference too — fuzzer and bug-tracker fixtures, kept as regression material rather than as documents |
 | `bug1020226.pdf` | not a PDF defect at all: a null-dereference in Firefox's *worker* shutdown that a pdf.js promise exposed |
 
-**And a correction to my own summary of the locked files.** Seven of the eight passwords are
-published in the issues the files are named after — and six were **already** recorded and tested
-in `encryption.rs` by an earlier session, which the research rediscovered rather than found. The
-one genuinely new is `pr6531_1.pdf`'s `asdfasdf`, from pull request #6531, now in that test; it
-is the file that request was about, a document with a user password and no owner password.
-`print_protection.pdf`'s password is published nowhere and `poppler` refuses it too, so
-"needs a password" is the right answer for it.
+**And the locked files: all eight passwords are now known and tested.** Six were **already**
+in `encryption.rs` from an earlier session, which this research rediscovered rather than found.
+Two are new. `pr6531_1.pdf`'s `asdfasdf` comes from pull request #6531, and the file is what
+that request was about — a document with a user password and no owner password, which pdf.js
+was opening without asking for either.
+
+`print_protection.pdf`'s is `1234`, and it is in **no issue at all**: it is typed into pdf.js's
+own browser test. That file turns out not to be a rendering test anywhere — it is not in
+`test_manifest.json`, so it never enters their reference-image set; its single use is
+`test/integration/viewer_spec.mjs`'s "Printing can be disallowed for some pdfs (bug 1978985)",
+which types the password, waits for the text layer, and asserts the **print button is hidden**.
+Mozilla bug 1978985 is the complaint that `pdfjs.enablePermissions` did not stop Ctrl+P.
+
+Two things came out of pinning it. Its `/P` is −3392, which clears Table 22's bit 3. And
+**`1234` is its *owner* password**, not its user password — which is the interesting half,
+because §7.6.4.1 says authenticating that way "should allow full (owner) access", so the
+restriction the file states is one a reader is entitled to ignore and pdf.js enforces anyway.
+Nothing here prints, so the question does not arise; the test records which password matched so
+that it cannot arise silently later.
 
 | | before | now |
 |---|---|---|
-| corpus documents whose password we hold and test | 6 | **7 of 8** |
+| corpus documents whose password we hold and test | 6 | **8 of 8** |
 | the claim "a damaged file, not a clause" | in the tree | **corrected, with the measurement that falsifies it** |
 | unexplained contradicted pages | 30 | **30**, now classified from outside |
-| **tests** | 647 | **647** |
+| **tests** | 647 | **648** |
 
 What it taught:
 

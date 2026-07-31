@@ -175,9 +175,10 @@ fn each_revision_and_method_decrypts_to_a_readable_content_stream() {
 /// file is named after, which is worth saying because it is the only reason this test can
 /// exist. `pr6531_1.pdf`'s is in pull request #6531's discussion, and the file is the one that
 /// request was about — a document with a user password and **no** owner password, which pdf.js
-/// was opening without asking for either. Of the corpus's eight password-protected documents
-/// this covers seven; `print_protection.pdf`'s password is published nowhere, and `poppler`
-/// refuses it too.
+/// was opening without asking for either. This covers all eight of the corpus's
+/// password-protected documents. `print_protection.pdf`'s was the last one found and it is in
+/// no issue at all: it is typed into pdf.js's own browser test,
+/// `test/integration/viewer_spec.mjs`, which is the only place that file is used.
 #[test]
 fn a_document_with_a_password_opens_with_it_and_not_without() {
     let cases = [
@@ -188,6 +189,7 @@ fn a_document_with_a_password_opens_with_it_and_not_without() {
         ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
         ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
         ("pr6531_1.pdf", "asdfasdf"),
+        ("print_protection.pdf", "1234"),
     ];
 
     let mut checked = 0;
@@ -215,7 +217,7 @@ fn a_document_with_a_password_opens_with_it_and_not_without() {
     }
 
     if corpus_bytes("issue3371.pdf").is_some() {
-        assert_eq!(checked, 7, "every listed document should have been checked");
+        assert_eq!(checked, 8, "every listed document should have been checked");
     }
 }
 
@@ -419,6 +421,30 @@ fn an_empty_password_may_be_the_owner_password() {
         permissions.owner,
         "the empty password authenticates against /O here, not /U"
     );
+}
+
+/// §7.6.4.2 Table 22 bit 3, on the file the corpus keeps for exactly that.
+///
+/// `print_protection.pdf` is not a rendering test anywhere. pdf.js uses it in one browser test
+/// — "Printing can be disallowed for some pdfs (bug 1978985)" — which types `1234`, waits for
+/// the text layer and then asserts that the print button is *hidden*; the file is not in
+/// `test_manifest.json`, so it never enters their reference-image set at all.
+///
+/// Two things are worth pinning here. Its `/P` is −3392, which clears bit 3, so a reader that
+/// honours permissions may not print it. And **`1234` is its owner password**, not its user
+/// password — which matters because §7.6.4.1 says authenticating that way "should allow full
+/// (owner) access", so the restriction the file states is one this reader would be entitled to
+/// ignore, and pdf.js enforces it anyway. Nothing here prints, so the question does not arise;
+/// recording which password matched is what keeps it from arising silently later.
+#[test]
+fn an_owner_password_authenticates_and_the_print_bit_is_still_read() {
+    let Some(document) = open("print_protection.pdf", "1234") else {
+        return;
+    };
+    let permissions = document.permissions().expect("the document is encrypted");
+    assert!(permissions.owner, "1234 matches /O here, not /U");
+    assert!(!permissions.print, "/P -3392 clears bit 3");
+    assert!(!permissions.print_faithfully, "and bit 12 with it");
 }
 
 /// Table 21's `/EncryptMetadata`, and §14.3.2's stream that it exempts.
