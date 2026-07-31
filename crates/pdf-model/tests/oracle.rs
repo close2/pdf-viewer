@@ -711,6 +711,58 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
     "issue8125.pdf page 1",
 ];
 
+/// Pages that are almost entirely glyph edges, where our *ink* matches the consensus.
+///
+/// Eight pages, measured in the seventy-fifth session, and they are one population rather than
+/// eight questions. Each fails **only** on mean absolute difference — 5.4 to 6.4 against a bound
+/// of 5.00 — while every other measure passes with room: worst tile 13.7 to 22.1 against 40, and
+/// structural similarity 0.904 to 0.946 against 0.900. Structural similarity is the bound that
+/// "does the work on text" (`pdfref::Tolerance`), and it says the same shapes are in the same
+/// places.
+///
+/// The measurement that turns that into a diagnosis is the *ink*: the mean luminance of the whole
+/// page, which counts how much was painted without caring where. Over the oracle's own artefacts:
+///
+/// | page | ours | `poppler` | `mupdf` | `ghostscript` |
+/// |---|---|---|---|---|
+/// | `bug1175962.pdf` | 229.07 | 229.30 | 229.25 | 231.26 |
+/// | `issue6889.pdf` | 236.63 | 236.59 | 236.58 | 233.90 |
+/// | `bug894572.pdf` | 241.41 | 241.36 | 241.35 | 243.20 |
+/// | `issue8570.pdf` | 220.50 | 220.52 | 220.51 | 221.08 |
+/// | `bug1200096.pdf` | 240.72 | 240.70 | 240.67 | 238.40 |
+/// | `bug1108301.pdf` | 233.27 | 233.68 | 233.60 | 235.86 |
+/// | `issue2017r.pdf` | 236.85 | 236.84 | 236.82 | 236.88 |
+/// | `openoffice.pdf` | 228.19 | 228.09 | 228.08 | 227.92 |
+///
+/// **We are within half a level of the two references the gate votes with on every one of them**,
+/// and on five of the eight `ghostscript` — which links the same `libfreetype` as the other two —
+/// is further from them than we are. So the amount of ink is right and its *sub-pixel placement*
+/// is what differs, which is precisely what a mean absolute difference measures and what neither
+/// tile nor structure can see.
+///
+/// Trap 9 is the other half of the explanation and it is why the bound stays at 5.00: on a page
+/// whose difference is a letter's edges, `poppler`, `mupdf` and `ghostscript` are one glyph
+/// rasteriser, so their mutual distance is small and widening buys nothing. `Reference::
+/// independence` records that sharing and `Tolerance::widened_to` has carried the argument since
+/// the forty-first session, acted on nowhere — this group is the first thing to act on it, and it
+/// acts by *naming* rather than by loosening a number. A page whose ink stopped matching would
+/// leave this group by failing the ratchet.
+///
+/// `bug1175962.pdf` was measured on its own in the sixty-eighth session and reached the same
+/// conclusion by a different route; the other seven were sitting in `CONTRADICTED_UNEXPLAINED`
+/// claiming to be unexplained. Reproducing the table: the oracle leaves every renderer's PNG
+/// under `<target>/tmp/oracle/<stem>/p1/`, and the mean of its RGB channels is the number above.
+const CONTRADICTED_GLYPH_EDGES: [&str; 8] = [
+    "bug1108301.pdf page 1",
+    "bug1175962.pdf page 1",
+    "bug1200096.pdf page 1",
+    "bug894572.pdf page 1",
+    "issue2017r.pdf page 1",
+    "issue6889.pdf page 1",
+    "issue8570.pdf page 1",
+    "openoffice.pdf page 1",
+];
+
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
 /// 42 pages carrying no undrawn annotation, no hidden optional content and no substituted
@@ -975,29 +1027,21 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
 /// any printed metric. That is trap 12's shape rather than a defect: the bound is 6.04 because
 /// two references agree very closely, and no reading of a clause chooses between five
 /// resamplings of one image.
-const CONTRADICTED_UNEXPLAINED: [&str; 23] = [
-    "bug1108301.pdf page 1",
+const CONTRADICTED_UNEXPLAINED: [&str; 15] = [
     "bug1151216.pdf page 1",
-    "bug1175962.pdf page 1",
-    "bug1200096.pdf page 1",
     "bug1252420.pdf page 1",
-    "bug894572.pdf page 1",
     "freeculture.pdf page 313",
-    "issue2017r.pdf page 1",
     "issue3207r.pdf page 1",
     "issue3405r.pdf page 1",
     "issue3694_reduced.pdf page 1",
     "issue4061.pdf page 1",
     "issue4650.pdf page 1",
     "issue5010.pdf page 1",
-    "issue6889.pdf page 1",
     "issue7492.pdf page 1",
     "issue7696.pdf page 1",
     "issue7891_bc1.pdf page 1",
     "issue7901.pdf page 1",
     "issue8097_reduced.pdf page 1",
-    "issue8570.pdf page 1",
-    "openoffice.pdf page 1",
     "transparent.pdf page 1",
 ];
 
@@ -1730,6 +1774,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_LINK_BORDER)
         .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
         .chain(&CONTRADICTED_ANTIALIASED_EDGES)
+        .chain(&CONTRADICTED_GLYPH_EDGES)
         .chain(&CONTRADICTED_SYMBOLIC_FONT_FLAGS)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)
         .chain(&CONTRADICTED_UNEXPLAINED)
