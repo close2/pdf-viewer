@@ -392,9 +392,220 @@ fn changes(document: &Document, dict: &Dictionary) -> Option<[i64; 3]> {
     ])
 }
 
+/// §12.8.4.3's document security store: the material a later validation would need. Table 261.
+///
+/// The clause's own list of what it holds is a list of *certificates*, and none of it is this
+/// program's to interpret: an array of certificates, "an array of all Certificate Revocation
+/// Lists (CRL) (see Internet RFC 5280 )", an array of OCSP responses (RFC 6960), and a `/VRI`
+/// map keyed by "the base-16-encoded (uppercase) SHA-1 digest of the signature to which it
+/// applies".
+///
+/// So this counts them and stops. Parsing a certificate is X.509 and a trust decision, which is
+/// [`Signature`]'s refusal; counting them says the one thing a person might want from a program
+/// that cannot validate — **whether the document carries what a validator would need**, which is
+/// the whole point of §12.8.4's "long term validation".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SecurityStore {
+    /// How many certificates `/Certs` holds.
+    pub certificates: usize,
+    /// How many certificate revocation lists `/CRLs` holds.
+    pub revocation_lists: usize,
+    /// How many OCSP responses `/OCSPs` holds.
+    pub ocsp_responses: usize,
+    /// How many signatures `/VRI` carries validation information for.
+    ///
+    /// One entry per signature "that a given signature handler or PDF processor has used to
+    /// successfully validate the given signature" — the clause is explicit that a VRI records
+    /// only successes: "[a] signature VRI dictionary shall not be used to record the information
+    /// used in an unsuccessful validation attempt."
+    pub validated_signatures: usize,
+}
+
+impl SecurityStore {
+    /// Whether the document carries any validation material at all.
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.certificates == 0
+            && self.revocation_lists == 0
+            && self.ocsp_responses == 0
+            && self.validated_signatures == 0
+    }
+}
+
+/// §12.8.4.3's `/DSS`, counted.
+#[must_use]
+pub fn security_store(document: &Document) -> SecurityStore {
+    let Ok(catalog) = document.catalog() else {
+        return SecurityStore::default();
+    };
+    let dss = document.get_key(&catalog, "DSS");
+    let Some(dss) = dss.as_dict() else {
+        return SecurityStore::default();
+    };
+    let count = |key: &str| {
+        document
+            .get_key(dss, key)
+            .as_array()
+            .map_or(0, <[Object]>::len)
+    };
+    SecurityStore {
+        certificates: count("Certs"),
+        revocation_lists: count("CRLs"),
+        ocsp_responses: count("OCSPs"),
+        validated_signatures: document.get_key(dss, "VRI").as_dict().map_or(0, |vri| {
+            vri.iter()
+                .filter(|(key, _)| key.as_bytes() != b"Type")
+                .count()
+        }),
+    }
+}
+
+/// §12.8.7's legal attestation dictionary: what the author says is in the document. Table 264.
+///
+/// The clause exists because a PDF can lie about itself:
+///
+/// > The PDF language provides a number of capabilities that can make the rendered appearance of
+/// > a PDF document vary. These capabilities could potentially be used to construct a document
+/// > that misleads the recipient of a document, intentionally or unintentionally.
+///
+/// So an author certifying a document is asked to declare the counts of the things that could —
+/// scripts, launch actions, alternate images, external streams — and a reviewer can weigh them.
+///
+/// **This is a document stating a fact this program can check.** [`Legal::disagreements`] counts
+/// the same things over the object graph and names every entry where the two differ, which is the
+/// habit §12.3.3's `/Count`, an LZW stream's length and §12.4.3's bead arrays all taught: a file
+/// that says the same thing twice can be held to it. A disagreement is not proof of anything —
+/// the clause states no algorithm for counting, and an author's tool may count a shared action
+/// once where this one counts two references — but it is exactly the kind of thing "any
+/// questionable content can be reviewed in the context of" means.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Legal {
+    /// The counts the dictionary states, by their Table 264 key.
+    pub stated: Vec<(String, i64)>,
+    /// `/Attestation`, the author's own words about the entries above.
+    pub attestation: Option<String>,
+}
+
+impl Legal {
+    /// Entries whose stated count differs from what this reader finds, as `(key, stated, found)`.
+    ///
+    /// Only the entries a renderer can count on its own evidence are checked — the action types,
+    /// which `action.rs` already names, and the external streams §7.3.8.1 refuses. The rest of
+    /// Table 264 is counted by nobody here and is left out rather than guessed at.
+    #[must_use]
+    pub fn disagreements(&self, document: &Document) -> Vec<(String, i64, i64)> {
+        let found = census(document);
+        self.stated
+            .iter()
+            .filter_map(|(key, stated)| {
+                let counted = found.iter().find(|(name, _)| name == key)?.1;
+                (counted != *stated).then(|| (key.clone(), *stated, counted))
+            })
+            .collect()
+    }
+}
+
+/// §12.8.7's `/Legal`, where the catalog states one.
+#[must_use]
+pub fn legal(document: &Document) -> Option<Legal> {
+    let catalog = document.catalog().ok()?;
+    let legal = document.get_key(&catalog, "Legal");
+    let legal = legal.as_dict()?;
+    Some(Legal {
+        stated: legal
+            .iter()
+            .filter_map(|(key, value)| {
+                Some((
+                    String::from_utf8_lossy(key.as_bytes()).into_owned(),
+                    document.resolve(value).as_integer()?,
+                ))
+            })
+            .collect(),
+        attestation: match document.get_key(legal, "Attestation") {
+            Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+            _ => None,
+        },
+    })
+}
+
+/// Counts the Table 264 entries this program can count, over every object in the document.
+///
+/// A whole-object walk, which is why nothing calls it while a page is being drawn: this answers a
+/// question about the *document* and is asked once, by somebody who wants to know whether its
+/// author's declaration holds.
+fn census(document: &Document) -> Vec<(String, i64)> {
+    // Every key this program can count, starting at zero — because a *missing* count and a count
+    // of zero are different answers: the first means "not countable here" and is left out of the
+    // comparison, the second means "the author declared some and there are none".
+    let mut counts: std::collections::BTreeMap<&'static str, i64> = [
+        "JavaScriptActions",
+        "LaunchActions",
+        "URIActions",
+        "MovieActions",
+        "SoundActions",
+        "HideAnnotationActions",
+        "GoToRemoteActions",
+        "AlternateImages",
+        "ExternalStreams",
+        "TrueTypeFonts",
+    ]
+    .into_iter()
+    .map(|key| (key, 0))
+    .collect();
+    for number in document.xref().object_numbers() {
+        let object = document.get(pdf_syntax::ObjectId {
+            number,
+            generation: 0,
+        });
+        let dict = match &object {
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => &stream.dict,
+            _ => continue,
+        };
+        if let Some(action) = dict.get("S").and_then(Object::as_name) {
+            let key = match action.as_bytes() {
+                b"JavaScript" => Some("JavaScriptActions"),
+                b"Launch" => Some("LaunchActions"),
+                b"URI" => Some("URIActions"),
+                b"Movie" => Some("MovieActions"),
+                b"Sound" => Some("SoundActions"),
+                b"Hide" => Some("HideAnnotationActions"),
+                b"GoToR" => Some("GoToRemoteActions"),
+                _ => None,
+            };
+            if let Some(key) = key {
+                let slot = counts.entry(key).or_default();
+                *slot = slot.saturating_add(1);
+            }
+        }
+        if dict.get("Alternates").is_some() {
+            let slot = counts.entry("AlternateImages").or_default();
+            *slot = slot.saturating_add(1);
+        }
+        // §7.3.8.1's external stream: the bytes are in a file rather than in the document, which
+        // this tree refuses by name — and which Table 264 counts for the same reason it exists.
+        if matches!(&object, Object::Stream(_)) && dict.get("F").is_some() {
+            let slot = counts.entry("ExternalStreams").or_default();
+            *slot = slot.saturating_add(1);
+        }
+        if dict
+            .get("Subtype")
+            .and_then(Object::as_name)
+            .is_some_and(|subtype| subtype.as_bytes() == b"TrueType")
+        {
+            let slot = counts.entry("TrueTypeFonts").or_default();
+            *slot = slot.saturating_add(1);
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(key, count)| (key.to_owned(), count))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Coverage, Modification, permissions, signatures};
+    use super::{Coverage, Modification, legal, permissions, security_store, signatures};
     use pdf_syntax::Document;
 
     /// Builds a document from object bodies numbered from 1.
@@ -517,5 +728,41 @@ mod tests {
             "ETSI.CAdES.detached turns §12.8.1's should into Table 255's shall"
         );
         assert_eq!(signature.coverage(200), Coverage::Malformed);
+    }
+
+    /// §12.8.4's store, counted, and §12.8.7's declaration, checked against the document.
+    ///
+    /// The `/Legal` dictionary states four counts; three of them are wrong on purpose, and the
+    /// fourth is the URI action the document actually holds. What comes back is the difference,
+    /// which is the only thing a reader can honestly offer: the clause states no counting
+    /// algorithm, so a disagreement is a question rather than a verdict.
+    #[test]
+    fn a_documents_own_declaration_can_be_held_against_it() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /DSS 3 0 R \
+             /Legal << /JavaScriptActions 0 /URIActions 1 /LaunchActions 2 /TrueTypeFonts 0 \
+             /Attestation (Nothing here moves.) >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Type /DSS /Certs [5 0 R 6 0 R] /OCSPs [6 0 R] \
+             /VRI << /ABCDEF << /Cert [5 0 R] >> >> >>",
+            "<< /S /URI /URI (http://example.invalid/) >>",
+            "<< /Length 0 >>\nstream\n\nendstream",
+            "<< /Length 0 >>\nstream\n\nendstream",
+        ]);
+
+        let store = security_store(&doc);
+        assert_eq!(store.certificates, 2);
+        assert_eq!(store.revocation_lists, 0);
+        assert_eq!(store.ocsp_responses, 1);
+        assert_eq!(store.validated_signatures, 1);
+        assert!(!store.is_empty());
+
+        let legal = legal(&doc).expect("a /Legal dictionary");
+        assert_eq!(legal.attestation.as_deref(), Some("Nothing here moves."));
+        assert_eq!(
+            legal.disagreements(&doc),
+            vec![("LaunchActions".to_owned(), 2, 0)],
+            "the URI action agrees; the two launch actions the author declared are not there"
+        );
     }
 }

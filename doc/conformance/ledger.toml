@@ -3339,8 +3339,10 @@ note = "The clause's subject is *when* a conversion happens: in the transparent 
 [[clause]]
 clause = "12.1"
 title = "General"
-status = "silent"
-note = "Clause 12's own map: annotations, forms, actions, navigation, digital signatures. This tree implements the parts that *put marks on a page* — §12.5's annotation appearances in full, §12.7.4's variable text, §8.11's optional content — and none of the parts that make a document interactive. `CLAUDE.md` states the split the other way round from the clause: \"everything that displays\" is in scope and *behaviour* is not, with JavaScript excluded by name. So this row is `silent` for the navigation and action families rather than for the whole clause, and the subclause rows say which is which."
+status = "partial"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs", "crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-model/tests/actions.rs::a_hide_action_stops_an_annotation_being_drawn", "crates/pdf-model/tests/links.rs::a_links_region_is_found_and_its_destination_resolves"]
+note = "Clause 12's own map: annotations, forms, actions, navigation, digital signatures. `CLAUDE.md` states the split this row records — \"everything that displays\" is in scope and *behaviour* is not, with JavaScript excluded by name — and after ten sessions on this clause what is left silent is **one file format**: §12.7.8's FDF and §12.7.7's named pages, which exist to be imported from it. Everything else in the clause is `implemented`, `partial`, `reported`, `inapplicable` or `out-of-scope`: §12.2's preferences, §12.3's destinations, outline, thumbnails and collections, §12.4's labels, articles and presentations, §12.5's annotations and their constructed appearances, §12.6's twenty action types with seven performed, §12.7's field appearances and its reset action, §12.8's signatures read and never verified, §12.9's measurements, §12.10's geospatial dictionaries and §12.11's requirements. This row said \"[n]one of the parts that make a document interactive\" while a click had been following links since the fifty-seventh session."
 
 [[clause]]
 clause = "12.2"
@@ -4238,14 +4240,18 @@ note = "Table 257's parameters as a statement: `/P` 1 means \"the document shall
 [[clause]]
 clause = "12.8.2.2.2"
 title = "Validating signatures that use the DocMDP transform method"
-status = "silent"
-note = "Digital signatures — validating a `DocMDP` signature, which needs the incremental-update history §7.5.6 records — the one part of this family whose *input* this tree already has, since `xref.rs` follows the `/Prev` chain and could in principle say which objects each update touched. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "reported"
+code = ["crates/pdf-model/src/signature.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/tests/signatures.rs::every_signed_corpus_document_says_what_it_signed"]
+note = "Validating a `DocMDP` signature is two steps and this program does neither: \"a PDF processor first shall verify the byte range digest. Next, it shall verify that any modifications that have been made to the document are permitted by the transform parameters.\" What it does instead is say so out loud, and give a person the two facts underneath: the `/P` level the author stated, and how many bytes were appended after the signed range. §12.8.2.2.2's own second paragraph is why those two are the useful pair — the comparison it describes is between the signed revision and the current one, and the tail is where that difference lives."
 
 [[clause]]
 clause = "12.8.2.3"
 title = "UR"
-status = "silent"
-note = "Digital signatures — `UR`, usage rights, deprecated in PDF 2.0. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "reported"
+code = ["crates/pdf-model/src/signature.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/tests/signatures.rs::every_signed_corpus_document_says_what_it_signed"]
+note = "The `UR` transform: a usage rights signature granting \"features of a PDF processor that are not available by default\", deprecated in PDF 2.0. Recognised where a `/Reference` names it and where §12.8.6's `/Perms /UR3` states one — 4 corpus documents do — and never acted on, which is stated rather than silent: this program has no feature behind such a gate, so there is nothing for a usage rights signature to unlock even if it were validated."
 
 [[clause]]
 clause = "12.8.2.4"
@@ -4378,62 +4384,82 @@ note = "Digital signatures — revocation checking at a time in the past, which 
 [[clause]]
 clause = "12.8.4"
 title = "Long term validation of signatures"
-status = "silent"
-note = "Digital signatures — long-term validation: keeping enough material in the file to validate later. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "partial"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"]
+note = "Long-term validation, counted rather than parsed. What §12.8.4 is *for* is making a signature checkable after its certificate expires, and what it stores is X.509 material: certificates, \"an array of all Certificate Revocation Lists (CRL) (see Internet RFC 5280 )\" and OCSP responses (RFC 6960). `SecurityStore` says how many of each the document carries and how many signatures have validation information — which is the one thing a program that cannot validate can usefully answer: **whether the document carries what a validator would need**. Parsing any of it is the trust decision §12.8 refuses."
 
 [[clause]]
 clause = "12.8.4.1"
 title = "General"
-status = "silent"
-note = "Digital signatures — the framing. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "partial"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"]
+note = "The framing, and the reason the counts matter: validation material is stored so that a signature outlives its certificate. Counted, not parsed."
 
 [[clause]]
 clause = "12.8.4.2"
 title = "Introduction to the document security store (DSS)"
-status = "silent"
-note = "Digital signatures — an introduction to the document security store. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "partial"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"]
+note = "The introduction to the DSS. Read as §12.8.4.3, which is where its entries are."
 
 [[clause]]
 clause = "12.8.4.3"
 title = "Document Security Store (DSS)"
-status = "silent"
-note = "Digital signatures — the DSS dictionary itself. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "implemented"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"]
+note = "Table 261 whole: `/Certs`, `/CRLs`, `/OCSPs` and `/VRI`, each counted. The `/VRI` keys are \"the base-16-encoded (uppercase) SHA-1 digest of the signature to which it applies\", which this reader does not compute — it counts the entries, since what a caller can act on is how many signatures somebody has already validated."
 
 [[clause]]
 clause = "12.8.4.4"
 title = "Validation-related information (VRI)"
-status = "silent"
-note = "Digital signatures — validation-related information, keyed by signature. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "partial"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"]
+note = "Table 262's VRI dictionaries, counted per signature. The clause's own sentence is why the count means something rather than nothing: \"[a] signature VRI dictionary shall not be used to record the information used in an unsuccessful validation attempt\", so an entry is a record of a *successful* validation by somebody. The certificates it selects are the DSS's, and reading them is X.509."
 
 [[clause]]
 clause = "12.8.4.5"
 title = "Usage of the DSS VRI"
-status = "silent"
-note = "Digital signatures — how a DSS's VRI is used. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "partial"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"]
+note = "How a validator uses the VRI, which needs the validator. What is read is that the entries exist and for how many signatures."
 
 [[clause]]
 clause = "12.8.5"
 title = "Document timestamp (DTS) dictionary"
-status = "silent"
-note = "Digital signatures — document timestamps. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "partial"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_certification_signature_states_what_may_change_after_it", "crates/pdf-model/tests/signatures.rs::every_signed_corpus_document_says_what_it_signed"]
+note = "A document timestamp \"is a standard signature dictionary as described in [Table 255]\", so it is read by the same code and told apart by its `/Type`: `Signature::timestamp`. Its `/ByteRange` \"shall cover the entire PDF file\", which `Signature::coverage` checks — the one requirement of this family a program without a trust store can hold a file to. The token itself is an RFC 3161 `TimeStampToken` and is not parsed."
 
 [[clause]]
 clause = "12.8.5.1"
 title = "General"
-status = "silent"
-note = "Digital signatures — the framing. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "implemented"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_certification_signature_states_what_may_change_after_it"]
+note = "The framing — \"[a] document timestamp dictionary establishes the exact contents of the complete PDF file at the time indicated in the timestamp token\" — and the reading of it is Table 255's, with `/Type /DocTimeStamp` as the distinction."
 
 [[clause]]
 clause = "12.8.5.2"
 title = "Initial document timestamp dictionary"
-status = "silent"
-note = "Digital signatures — the initial document timestamp dictionary. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "partial"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_certification_signature_states_what_may_change_after_it", "crates/pdf-model/tests/signatures.rs::every_signed_corpus_document_says_what_it_signed"]
+note = "The initial timestamp: Table 255's dictionary with a token from \"a trusted timestamp authority\", whose byte range \"shall cover the entire PDF file, including the signature dictionary but excluding the Contents value\" — read and checked. The clause also says how a processor finds them, and this reader follows it: \"[t]he existence of one or more document timestamps shall be determined by examining signature fields\", which is the same walk `signatures` does. The token is RFC 3161's and is not parsed."
 
 [[clause]]
 clause = "12.8.5.3"
 title = "Subsequent document timestamp dictionaries"
-status = "silent"
-note = "Digital signatures — subsequent document timestamp dictionaries. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "partial"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_certification_signature_states_what_may_change_after_it"]
+note = "A later timestamp applied before the previous one's certificate expires, with the material to prove the chain in the DSS — which §12.8.4.3's row counts. Read as another timestamp signature; the *reasoning* about expiry is a validator's."
 
 [[clause]]
 clause = "12.8.6"
@@ -4446,8 +4472,10 @@ note = "Table 263's permissions dictionary: `/DocMDP`, whose `/P` level is read 
 [[clause]]
 clause = "12.8.7"
 title = "Legal content attestations"
-status = "silent"
-note = "Digital signatures — legal content attestations, `/Legal`, which lists the constructs in a document that could change what a signer sees — an honesty aid for a signing tool rather than a renderer. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
+status = "implemented"
+code = ["crates/pdf-model/src/signature.rs"]
+test = ["crates/pdf-model/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"]
+note = "Table 264's legal attestation dictionary, read — and **checked against the document**. The clause exists because \"[t]he PDF language provides a number of capabilities that can make the rendered appearance of a PDF document vary\", and it asks an author certifying a document to declare how many of them are in it. Ten of those counts are things this reader can count itself, so `Legal::disagreements` names every entry where the author's number and the object graph's differ. It is a question rather than a verdict, and the note says why: the clause states no counting algorithm, and a producer that counts one shared action once where this counts two references is not lying. `/Attestation` is kept as the author's own words. No corpus document states a `/Legal`."
 
 [[clause]]
 clause = "12.9"
