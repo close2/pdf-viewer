@@ -109,6 +109,16 @@ impl Dictionary {
         self.0.get(&Name::new(key.as_bytes().to_vec()))
     }
 
+    /// Removes a key, returning its value if it was present.
+    ///
+    /// Nothing in this crate removes an entry — a parsed dictionary is what the file says. The
+    /// caller is §12.3.4, where the standard itself takes entries away: a thumbnail image's
+    /// dictionary keeps five of Table 87's entries and "all of the other entries … shall be
+    /// ignored if present".
+    pub fn remove(&mut self, key: &str) -> Option<Object> {
+        self.0.remove(&Name::new(key.as_bytes().to_vec()))
+    }
+
     /// Looks up a key by an already-constructed name.
     ///
     /// Avoids allocating a `Name` when the caller already holds one, which the parser does

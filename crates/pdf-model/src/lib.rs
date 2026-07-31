@@ -47,6 +47,7 @@ pub mod requirements;
 pub mod shading;
 mod soft_mask;
 pub mod structure;
+pub mod thumbnail;
 pub mod type3;
 pub mod uri;
 mod variable_text;

@@ -3347,14 +3347,18 @@ note = "Every entry of Table 147 is read, and the two that decide pixels are app
 [[clause]]
 clause = "12.3"
 title = "Document-level navigation"
-status = "silent"
-note = "Document-level navigation: an outline, thumbnails, destinations, collections and navigators. **Not one of them is implemented and nothing says so**, which is what `silent` records. `CLAUDE.md` puts \"outlines, destinations, page labels\" in scope by name, so this is debt rather than a boundary — and the debt is a *viewer* rather than a clause: none of these changes a rendered page, all of them change what a person can do with the document once it is on screen. The rows below say which is which, so that the count is not one number for six different things."
+status = "partial"
+code = ["crates/pdf-model/src/destination.rs", "crates/pdf-model/src/outline.rs", "crates/pdf-model/src/thumbnail.rs"]
+test = ["crates/pdf-model/tests/destinations.rs::an_open_action_that_states_a_destination_names_a_page", "crates/pdf-model/tests/outlines.rs::a_stated_count_agrees_with_the_count_the_clause_defines", "crates/pdf-model/tests/thumbnails.rs::every_thumbnail_decodes_and_is_compared_with_the_page_it_stands_for"]
+note = "Document-level navigation: an outline, thumbnails, destinations, collections and navigators. Three of the five are read — §12.3.2's destinations in all three spellings, §12.3.3's whole outline hierarchy, and §12.3.4's thumbnail images decoded with Table 87's insignificant entries dropped — and what is missing of each is a *panel*, which is `viewer-ui` rather than clause work. §12.3.5's collections and §12.3.6's navigators stay `silent` and are file-browser surfaces over §7.11's embedded files. **This row said \"[n]ot one of them is implemented\" for forty sessions after §12.3.2 and §12.3.3 landed**, which is the understated-parent shape §14.8.5.1 and §12.4 taught: a parent row is not maintained by the sessions that close its children."
 
 [[clause]]
 clause = "12.3.1"
 title = "General"
-status = "silent"
-note = "The framing: an outline and a set of thumbnails, each item associated with a destination. Both are surfaces this program does not have — `viewer-ui` shows one page at a time and turns pages with the arrow keys. Recorded rather than omitted, because §6.3.2.2's ranking and `CLAUDE.md`'s scope statement both make them owed."
+status = "partial"
+code = ["crates/pdf-model/src/outline.rs", "crates/pdf-model/src/thumbnail.rs"]
+test = ["crates/pdf-model/tests/outlines.rs::a_document_with_an_outline_produces_its_items", "crates/pdf-model/tests/thumbnails.rs::every_thumbnail_decodes_and_is_compared_with_the_page_it_stands_for"]
+note = "The framing: an outline and a set of thumbnails, each item associated with a destination. Both are read as data and neither is a *surface* this program has — `viewer-ui` shows one page at a time, turns pages with the arrow keys, and puts the outline item covering the current page in the title bar. `partial` for the two panels, which §6.3.2.2's ranking and `CLAUDE.md`'s scope statement both make owed."
 
 [[clause]]
 clause = "12.3.2"
@@ -3407,8 +3411,10 @@ note = "The whole hierarchy is read: Table 150's root, Table 151's items with `/
 [[clause]]
 clause = "12.3.4"
 title = "Thumbnail images"
-status = "silent"
-note = "Thumbnail images: a page's `/Thumb`, an image XObject in `DeviceGray`, `DeviceRGB` or `Indexed`. Two things make this row unusual. The clause permits a processor to generate its own instead, and `CLAUDE.md` principle 2 **forbids doing so on the launch path** — so what is missing is a panel rather than a decoder, and the decoder it would need is `image.rs`, which exists. A `/Thumb` is also the only entry in this family that a *page* carries rather than the catalog."
+status = "partial"
+code = ["crates/pdf-model/src/thumbnail.rs", "crates/pdf-model/src/image.rs"]
+test = ["crates/pdf-model/src/thumbnail.rs::only_the_five_significant_entries_of_table_87_survive", "crates/pdf-model/src/thumbnail.rs::an_ignored_soft_mask_does_not_reach_the_pixels", "crates/pdf-model/tests/thumbnails.rs::every_thumbnail_decodes_and_is_compared_with_the_page_it_stands_for"]
+note = "A page's `/Thumb`, decoded into the same RGBA raster every other image becomes — and the clause's work is *subtraction*: \"only the Width , Height , ColorSpace , BitsPerComponent , and Decode entries are significant; all of the other entries listed in `Table 87 -Additional entries specific to an image dictionary` shall be ignored if present\". `thumbnail::significant` drops those eighteen, so a `/SMask` or a `/Mask` on a thumbnail reaches no pixel, while `/Filter`, `/DecodeParms` and `/Length` survive because they are **Table 5's** and the sentence names Table 87 — which the clause's own EXAMPLE requires, writing `/Filter [/ASCII85Decode /DCTDecode]`. The clause's two producer-side constraints are recorded rather than enforced: a `/Subtype` other than `Image`, and a colour space that is not `DeviceGray`, `DeviceRGB` or `Indexed` on one of them. 11 corpus documents state a thumbnail on page one, all 11 decode, one (`issue19517.pdf`) states an `ICCBased` space the clause does not permit. `partial` for the panel, which is `viewer-ui` work — and **generating** a missing thumbnail, which the clause permits and `CLAUDE.md` principle 2 forbids on the launch path."
 
 [[clause]]
 clause = "12.3.5"
