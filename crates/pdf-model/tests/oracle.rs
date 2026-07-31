@@ -756,6 +756,21 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// any other reader: `loca`'s last entry equals `glyf`'s length under exactly one of the two
 /// readings, and `loca`'s own length is `4 × (n + 1)` rather than `2 × (n + 1)`. ADR 0052.
 ///
+/// # One left in the fifty-first session, and it is a rule nobody had read
+///
+/// `tiling-pattern-large-steps.pdf` is 4000 points wide and holds one tiling pattern whose
+/// cell paints a rectangle to x = 4000 inside a `/BBox` that ends at 3950. Table 74 states
+/// what to do with that in one sentence — "These boundaries shall be used to clip the pattern
+/// cell" — and this tree carried no `/BBox` on a tiling pattern at all. poppler, ghostscript
+/// and `hayro` stop the paint at 3950; we and `mupdf` ran on to the end of the page, which is
+/// why the page's mean difference was only 1.60 while one tile differed by **128 levels of
+/// 255**. Ranking the unexplained list by *worst tile over its own bound* put it 25.7× ahead
+/// of anything else on the list, and nothing else about the page is unusual.
+///
+/// The rule is per *cell*, not per fill: a cell whose content runs past its own box would
+/// otherwise spill into the neighbouring cell's, and where `/XStep` exceeds the box — which is
+/// how a pattern tiles with gaps — into the gap between them. 817 agreeing, 81 contradicted.
+///
 /// # One left in the forty-second session, and it is a fix
 ///
 /// `issue215.pdf` drew `openmagazin` in lower case where all four references draw small
@@ -803,7 +818,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 36] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 35] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -838,7 +853,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 36] = [
     "issue8570.pdf page 1",
     "openoffice.pdf page 1",
     "pattern_text_embedded_font.pdf page 1",
-    "tiling-pattern-large-steps.pdf page 1",
     "transparent.pdf page 1",
 ];
 

@@ -1622,8 +1622,8 @@ clause = "8.7.3.1"
 title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/tiling.rs"]
-note = "Table 74's entries: `/PaintType` selects coloured or uncoloured, `/BBox` clips the cell, `/XStep` and `/YStep` space the tiles, `/Resources` names what the cell draws and `/Matrix` places it. The clause's four steps are what the interpreter does — save, install the state in force at the beginning of the parent content stream with the current transform altered by the pattern matrix, run the cell, restore. **`/TilingType` is not read**, and this row is `partial` for it: all three values describe *adjustments to the device pixel grid* — constant spacing by a multiple of a device pixel, no distortion, or constant spacing with more distortion allowed — and this renderer distorts nothing and snaps nothing, which is value 2's behaviour whatever the file asks for. 21 corpus documents ask for something else. A second departure is recorded here rather than hidden: the clause says `/XStep` and `/YStep` \"shall not be zero\", and a zero or absent step falls back to the cell's own size, because the alternative is an infinite loop or an unpainted area."
+test = ["crates/pdf-model/tests/tiling.rs::a_cell_is_clipped_to_its_bounding_box", "crates/pdf-model/tests/tiling.rs"]
+note = "Table 74's entries: `/PaintType` selects coloured or uncoloured, `/BBox` clips the cell — **since the fifty-first session, and this row asserted it for twenty sessions while the code did not do it**; `Tiling` carried no box at all, and `tiling-pattern-large-steps.pdf` was contradicted by one tile differing 128 levels of 255 because a cell painting to x = 4000 inside a box ending at 3950 ran on to the end of the page. The sentence is one line — \"These boundaries shall be used to clip the pattern cell\" — and the clip is per *cell*, because content past one cell's box would otherwise spill into the next cell's or into the gap `/XStep` leaves between them. A note in this ledger is a claim; only a test makes it a fact. `/XStep` and `/YStep` space the tiles, `/Resources` names what the cell draws and `/Matrix` places it. The clause's four steps are what the interpreter does — save, install the state in force at the beginning of the parent content stream with the current transform altered by the pattern matrix, run the cell, restore. **`/TilingType` is not read**, and this row is `partial` for it: all three values describe *adjustments to the device pixel grid* — constant spacing by a multiple of a device pixel, no distortion, or constant spacing with more distortion allowed — and this renderer distorts nothing and snaps nothing, which is value 2's behaviour whatever the file asks for. 21 corpus documents ask for something else. A second departure is recorded here rather than hidden: the clause says `/XStep` and `/YStep` \"shall not be zero\", and a zero or absent step falls back to the cell's own size, because the alternative is an infinite loop or an unpainted area."
 
 [[clause]]
 clause = "8.7.3.2"
@@ -5613,37 +5613,44 @@ note = "OPI substitutes a low-resolution proxy image for a high-resolution one h
 [[clause]]
 clause = "14.12"
 title = "Document parts"
-status = "unreviewed"
+status = "inapplicable"
+note = "Aggregate of the six below. Document parts are a *production workflow* structure: a second hierarchy over the same pages, carrying metadata for a job ticket. §14.12.1 states its own purpose — \"[t]he use of a separate job ticket file for specifying page ordering and processing requirements\", targeted at \"a production workflow, digital printing device, or other messaging channel\" — and nothing in the family changes a mark on a page. That is the same reading §14.2's procedure sets and §14.5's page-piece dictionaries got, and it is why this is `inapplicable` rather than owed. **No corpus document states a `/DPartRoot`.** The two rows below it that are `writer-side` rather than `inapplicable` are the ones whose every sentence constrains how a file is built."
 
 [[clause]]
 clause = "14.12.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "Why document parts exist: a PDF written for one workflow is \"not portable across different production workflows or digital printing devices once they are created\", and a DPart tree lets a job ticket name page ranges without rewriting the file. NOTE 1 is the one sentence with a reader in it — \"a PDF processor can also access page object entries indirectly from the DPart leaf nodes … for structured presentation of pages\" — and it is a NOTE, describing a presentation this program does not offer and the standard does not require."
 
 [[clause]]
 clause = "14.12.2"
 title = "DPart tree structure"
-status = "unreviewed"
+status = "writer-side"
+note = "The tree's shape, and every sentence in it constrains the *file*: the ranges \"shall not overlap and therefore shall not share the same PDF page objects\", each page \"shall be included in the page range defined by one and only one DPart dictionary\", and \"[a] child DPart dictionary shall not be referenced by more than one parent\". A reader implements none of it; it reads whatever tree arrives, if it reads one at all."
 
 [[clause]]
 clause = "14.12.3"
 title = "Connecting the DPart tree structure to pages"
-status = "unreviewed"
+status = "writer-side"
+note = "How the tree connects to pages, and again every requirement is on the writer: each page in a leaf's range \"shall have a DPart key\" pointing back at that leaf, page numbers within a range \"shall be monotonically increasing, as defined by the document's page tree\", and the depth-first order of the DPart tree shall match the page tree's. NOTE 2 states the consequence, which is why a reader owes nothing: \"the pages will be enumerated the same using either mechanism\" — so this tree's page order is already the one the DPart hierarchy would give."
 
 [[clause]]
 clause = "14.12.4"
 title = "Data structures"
-status = "unreviewed"
+status = "inapplicable"
+note = "Aggregate of the two below: Table 408's `DPartRoot` and Table 409's `DPart`. Neither is read, and neither reaches a screen."
 
 [[clause]]
 clause = "14.12.4.1"
 title = "General"
-status = "unreviewed"
+status = "inapplicable"
+note = "Table 408 and Table 409. Two entries touch families this project does read and neither changes that: a `/DPart`'s `/AF` is §14.13.8's associated files, `silent` on their own rows, and its `/Metadata` is §14.3.2's metadata stream, which §14.3 records as interchange. `/DParts` and `/Start`/`/End` are exclusive — the clause's NOTE says only leaf nodes may name pages."
 
 [[clause]]
 clause = "14.12.4.2"
 title = "Document part metadata"
-status = "unreviewed"
+status = "inapplicable"
+note = "Document part metadata: \"application-specific information communicated between the creator of PDF data and a receiving system\". The clause's own definition of the audience, and this program is not it. Two constraints are worth having read for the *shape* they impose rather than for any use here: every key in a DPM dictionary \"shall conform to the rules of an XML name token as well as the rules for PDF name objects\", and the values \"shall only be of type text string, date string, array, dictionary, boolean, integer or real\" — a PDF dictionary restricted to what XML can carry."
 
 [[clause]]
 clause = "14.13"

@@ -251,3 +251,40 @@ fn an_unreasonable_number_of_tiles_is_reported_rather_than_drawn() {
         "four million tiles should be refused and said so: {reported}"
     );
 }
+
+/// A cell's content is clipped to its `/BBox`, in every cell.
+///
+/// Table 74, of the four numbers in `/BBox`: "These boundaries shall be used to clip the
+/// pattern cell." The cell here paints a 30-unit square inside a 10-unit box stepped every 20,
+/// so the clause's answer and the unclipped one are visible in different places: **inside the
+/// box** every renderer paints, in the **gap** between box and step only an unclipped one
+/// does, and in the **next cell's box** an unclipped one paints twice over.
+///
+/// `tiling-pattern-large-steps.pdf` is the corpus page that found this: its cell draws to
+/// x = 4000 inside a box that ends at 3950, and poppler, ghostscript and hayro stop at the box
+/// while this tree ran on to the end of the page.
+#[test]
+fn a_cell_is_clipped_to_its_bounding_box() {
+    let content = "1 0 0 rg 0 0 30 30 re f";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
+         /XStep 20 /YStep 20 /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    );
+    let raster = render(pdf_with(&pattern, "/Pattern cs /P0 scn 0 0 100 100 re f"));
+
+    // Inside the first cell's box: painted.
+    let (red, _, _, alpha) = pixel(&raster, 5, 99 - 5);
+    assert_eq!((red > 240, alpha), (true, 255), "inside the box");
+
+    // Between the box's edge at 10 and the next cell's origin at 20: the cell's own square
+    // covers it and the box does not, so this is the pixel the clause decides.
+    assert_eq!(
+        pixel(&raster, 15, 99 - 15).3,
+        0,
+        "a cell's content past its /BBox is clipped away"
+    );
+
+    // And the same in the horizontal gap alone, where the unclipped square would still reach.
+    assert_eq!(pixel(&raster, 15, 99 - 5).3, 0, "clipped in x as well as y");
+}

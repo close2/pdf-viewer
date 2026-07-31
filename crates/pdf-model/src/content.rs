@@ -277,6 +277,17 @@ struct Tiling {
     resources: Dictionary,
     /// Spacing between cells, in pattern space. Never zero.
     step: (f32, f32),
+    /// ISO 32000-2 §8.7.3.1 Table 74's `/BBox`, the pattern cell's bounding box, in pattern
+    /// space.
+    ///
+    /// > These boundaries shall be used to clip the pattern cell.
+    ///
+    /// Carried per cell rather than applied once, because the clause clips *each* cell: a
+    /// cell whose content runs past its own box would otherwise spill into the next cell's,
+    /// and where `/XStep` exceeds the box — which is how a pattern tiles with gaps — it would
+    /// spill into the gap between them. `/BBox` is required, so a pattern without one is
+    /// malformed; it is then not clipped, which is the only reading that draws anything.
+    bbox: Option<[f32; 4]>,
     /// Maps pattern space to the page's default space.
     to_page: Transform,
     /// The colour an uncoloured pattern is poured through, if it is uncoloured.
@@ -3292,8 +3303,16 @@ impl Interpreter<'_> {
                     tiling.step.0 * as_f32(column),
                     tiling.step.1 * as_f32(row),
                 );
-                let mut cell = GraphicsState::initial(offset.then(tiling.to_page));
-                cell.clip = clip;
+                let to_page = offset.then(tiling.to_page);
+                let mut cell = GraphicsState::initial(to_page);
+                // Table 74: "These boundaries shall be used to clip the pattern cell." The
+                // box is in pattern space, so it travels with the cell's own offset, and it
+                // sits *inside* the path's clip rather than replacing it — a cell is bounded
+                // by both. A file whose box is unusable keeps the path clip alone.
+                cell.clip = tiling
+                    .bbox
+                    .and_then(|corners| self.rect_clip(corners, to_page, clip))
+                    .or(clip);
                 cell.blend = state.blend;
                 cell.fill_alpha = state.fill_alpha;
                 cell.stroke_alpha = state.stroke_alpha;
@@ -3483,6 +3502,17 @@ impl Interpreter<'_> {
             non_zero(step_x).or_else(|| cell_extent(&bbox, 0))?,
             non_zero(step_y).or_else(|| cell_extent(&bbox, 1))?,
         );
+        // Normalised to (left, bottom, right, top): the clause names the four edges in that
+        // order and producers write the corners in any of them, exactly as they do for a page
+        // box. A box with no extent in either direction clips everything away, and Table 74's
+        // NOTE 1 says otherwise — "[a] BBox of zero height or width will still paint one
+        // pixel" — so it is left unclipped rather than emptied.
+        let cell_box = match bbox.as_slice() {
+            [x0, y0, x1, y1] if (x1 - x0).abs() > 0.0 && (y1 - y0).abs() > 0.0 => {
+                Some([x0.min(*x1), y0.min(*y1), x0.max(*x1), y0.max(*y1)])
+            }
+            _ => None,
+        };
 
         let resources = self
             .document
@@ -3520,6 +3550,7 @@ impl Interpreter<'_> {
             content,
             resources,
             step,
+            bbox: cell_box,
             to_page: crate::shading::matrix_of(self.document, dict, "Matrix").then(self.base),
             tint,
         }))
