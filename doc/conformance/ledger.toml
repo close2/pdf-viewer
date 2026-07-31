@@ -4995,14 +4995,18 @@ note = "The framing, and the sentence that decides how much of §14.6 has to wor
 [[clause]]
 clause = "14.7.2"
 title = "Structure hierarchy"
-status = "silent"
-note = "The structure hierarchy: the catalog's `/StructTreeRoot`, Table 355's structure tree root, and Table 356's structure elements with `/S`, `/P`, `/K` and `/Pg`. A tree of dictionaries, which this crate's object model reads without difficulty and nothing asks it to."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::the_structure_tree_reads_its_children_and_maps_their_roles", "crates/pdf-model/src/structure.rs::a_structure_tree_that_points_at_itself_terminates"]
+note = "Table 354's `/StructTreeRoot` and Table 355's structure elements are read since the seventy-eighth session: `structure::Tree` walks `/K` from the root, and the root and an element are one function because both tables give `/K` the same meaning — \"[t]he K entry shall specify the immediate children of the structure tree root, which shall be structure elements\". Walked on demand rather than built, because a tagged document has an element per paragraph and nothing here needs all of them at once; the walk is bounded on depth and on fan-out, since `/K` is a reference a document controls and a cycle is reachable. A dictionary with no `/Type` is an element, which Table 355 states outright. `/ParentTree` is §14.7.5.4's and older. Unread: `/IDTree`, which maps `/ID` strings to elements and needs a consumer that names one; `/ParentTreeNextKey`, which addresses a writer; `/Namespaces` (§14.7.4); `/PronunciationLexicon`, which is §14.9.6's text-to-speech hint; and `/AF` (§14.13). `partial` for those and for the same reason Table 99's layer-panel half is: **the data is this crate's and the consumer is not** — nothing in this program yet hands a structure tree to anybody."
 
 [[clause]]
 clause = "14.7.3"
 title = "Structure types"
-status = "silent"
-note = "Structure types: the standard set — `Document`, `Part`, `H1` to `H6`, `P`, `Table`, `Figure` and the rest — and `/RoleMap`, which maps a document's own type names onto them. The one part of this subclause with a *reading* consequence is that a type is a name in a namespace (§14.7.4), so two documents may use the same word for different things."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::the_structure_tree_reads_its_children_and_maps_their_roles"]
+note = "An element's `/S` is read, and `Tree::role` maps it through §14.7.3's `/RoleMap` — \"[w]here names other than the standard ones are used, a role map should be provided in the structure tree root using the RoleMap entry\" — transitively, because a role map may name a type that is itself mapped, and bounded, because it may name itself. An element with no `/S` answers nothing rather than a guess: Table 355 requires the entry, and inventing a type would be a fallback that fills the page in another clause's clothing. `partial`: the `/RoleMapNS` half of the same sentence is §14.7.4's namespaces, which are unread, and nothing checks a mapped name against §14.8.4's standard set."
 
 [[clause]]
 clause = "14.7.4"
@@ -5037,8 +5041,10 @@ note = "The framing."
 [[clause]]
 clause = "14.7.5.1.1"
 title = "Content items"
-status = "silent"
-note = "The three kinds of content item an element's `/K` may name — a marked-content sequence, a whole PDF object such as an annotation or an XObject, and another element."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::the_structure_tree_reads_its_children_and_maps_their_roles"]
+note = "The two kinds the clause names — marked-content sequences and complete PDF objects — and the three forms they take in a `/K`: a bare integer, Table 357's marked-content reference and Table 358's object reference, each read into `structure::Child`. The clause's restriction is what makes that an enum rather than a recursive type: \"[c]ontent items shall be leaf nodes of the structure tree\". A bare integer takes its page from the element's `/Pg`, which Table 355 requires for exactly that case, and a reference dictionary's own `/Pg` overrides it."
 
 [[clause]]
 clause = "14.7.5.2"

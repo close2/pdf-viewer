@@ -20,7 +20,7 @@
 //! elements — §12.3.2.3's structure destinations read one element's own entries, and text
 //! extraction asks about the element covering a sequence it is already inside.
 
-use pdf_syntax::{Dictionary, Document, Object, tree};
+use pdf_syntax::{Dictionary, Document, Object, ObjectId, tree};
 
 /// The `/StructParents`-keyed map from a marked-content identifier to its structure element.
 ///
@@ -120,6 +120,219 @@ impl ParentTree {
     }
 }
 
+/// Deepest nesting of `/K` walked when the structure tree is read.
+///
+/// §14.7.2 makes the hierarchy a tree, and `/K` is a reference a document controls, so a
+/// file may state a cycle or a chain thousands deep. Real documents nest a handful of levels
+/// — a part, a section, a paragraph, a span — and this is far past any of them.
+const MAX_DEPTH: usize = 64;
+
+/// Most children read from one `/K` array.
+///
+/// A page of a tagged document is one element with a child per marked-content sequence, so
+/// this is a bound on a *document's* fan-out rather than on its depth. It is deliberately
+/// large: a table of a thousand cells is one element with a thousand children and is not
+/// malformed.
+const MAX_CHILDREN: usize = 65_536;
+
+/// One child of a structure element, in the four forms §14.7.5.1.1 defines.
+///
+/// > Content items are of two kinds:
+///
+/// marked-content sequences within content streams, and complete PDF objects such as
+/// annotations and `XObject`s —
+///
+/// and the third possibility is not a content item at all but another element, which is what
+/// makes the structure a tree. The clause's own restriction is what keeps this an enum rather
+/// than a recursive type: "[c]ontent items shall be leaf nodes of the structure tree".
+#[derive(Debug, Clone, PartialEq)]
+pub enum Child {
+    /// Another structure element.
+    Element(Dictionary),
+    /// §14.7.5.2's marked-content sequence, by its identifier and the page it is on.
+    ///
+    /// The identifier arrives either as a bare integer — Table 355 makes `/Pg` required when
+    /// it does — or through a marked-content reference dictionary (Table 357), which may name
+    /// a different page and may name a stream other than the page's own content. The page is
+    /// `None` where neither the reference nor the enclosing element states one.
+    MarkedContent {
+        /// The `/MCID` this sequence carries in the content stream.
+        mcid: i64,
+        /// The page object it belongs to, if one was stated.
+        page: Option<ObjectId>,
+    },
+    /// §14.7.5.3's object reference (Table 358): a whole object, such as an annotation.
+    Object {
+        /// The object itself, from `/Obj`.
+        object: ObjectId,
+        /// The page it is on, from `/Pg`, if stated.
+        page: Option<ObjectId>,
+    },
+}
+
+/// §14.7.2's structure tree, read from the catalog's `/StructTreeRoot`.
+///
+/// The tree is walked on demand rather than built: a tagged document's structure has an
+/// element per paragraph and a child per marked-content sequence, and nothing here needs all
+/// of them at once. [`Tree::children`] is the whole traversal, and it is the same function
+/// for the root and for an element because Table 354 and Table 355 give `/K` the same
+/// meaning in both — "[t]he K entry shall specify the immediate children of the structure
+/// tree root, which shall be structure elements".
+///
+/// # What this is for
+///
+/// The parent tree above answers "which element does this marked-content sequence belong
+/// to", which is what drawing a page needs. This answers the other direction — what the
+/// document *says it is* — which is what a reading-order consumer, an accessibility tree or
+/// a navigation panel needs. Like Table 99's `/Order`, the data is this crate's and the
+/// consumer is not: nothing in this program yet hands a structure tree to anybody.
+#[derive(Debug, Clone)]
+pub struct Tree {
+    /// The structure tree root dictionary itself.
+    root: Dictionary,
+}
+
+impl Tree {
+    /// Reads the catalog's `/StructTreeRoot`, if the document has one.
+    ///
+    /// `None` for an untagged document, which is 885 of the corpus's 974.
+    #[must_use]
+    pub fn of(document: &Document) -> Option<Self> {
+        let catalog = document.catalog().ok()?;
+        let root = document.get_key(&catalog, "StructTreeRoot");
+        Some(Self {
+            root: root.as_dict()?.clone(),
+        })
+    }
+
+    /// The immediate children of an element, or of the root when `element` is `None`.
+    ///
+    /// `/K` is "a dictionary or array" at the root and one of four things at an element, and
+    /// an array may mix all of them; a dictionary with no `/Type` is a structure element,
+    /// which Table 355 states outright — "[i]f the value of K is a dictionary containing no
+    /// Type entry, it shall be assumed to be a structure element dictionary".
+    ///
+    /// `inherited_page` is the `/Pg` of the element being asked about, because Table 355
+    /// makes that entry the page for the integer form of a content item.
+    #[must_use]
+    pub fn children(&self, document: &Document, element: Option<&Dictionary>) -> Vec<Child> {
+        let node = element.unwrap_or(&self.root);
+        // The *reference*, not the page it resolves to: `Document::get_key` resolves,
+        // and what identifies a page here is its identity.
+        let page = node.get("Pg").and_then(Object::as_reference);
+        let kids = document.get_key(node, "K");
+        let mut out = Vec::new();
+        match &kids {
+            Object::Array(items) => {
+                for item in items.iter().take(MAX_CHILDREN) {
+                    if let Some(child) = Self::child(document, item, page) {
+                        out.push(child);
+                    }
+                }
+            }
+            _ => {
+                if let Some(child) = Self::child(document, &kids, page) {
+                    out.push(child);
+                }
+            }
+        }
+        out
+    }
+
+    /// One entry of a `/K`, in whichever of the four forms it takes.
+    fn child(document: &Document, entry: &Object, page: Option<ObjectId>) -> Option<Child> {
+        if let Some(mcid) = document.resolve(entry).as_integer() {
+            return Some(Child::MarkedContent { mcid, page });
+        }
+        let resolved = document.resolve(entry);
+        let dict = resolved.as_dict()?;
+        let kind = document.get_key(dict, "Type");
+        let kind = kind.as_name().map(|name| name.as_bytes().to_vec());
+        match kind.as_deref() {
+            // Table 357: a marked-content reference names the sequence and may move both the
+            // page and the stream it lives in.
+            Some(b"MCR") => Some(Child::MarkedContent {
+                mcid: document.get_key(dict, "MCID").as_integer()?,
+                page: dict.get("Pg").and_then(Object::as_reference).or(page),
+            }),
+            // Table 358: an object reference. `/Obj` is required and is what identifies it.
+            Some(b"OBJR") => Some(Child::Object {
+                object: dict.get("Obj").and_then(Object::as_reference)?,
+                page: dict.get("Pg").and_then(Object::as_reference).or(page),
+            }),
+            _ => Some(Child::Element(dict.clone())),
+        }
+    }
+
+    /// The element's structure type, mapped through §14.7.3's `/RoleMap` where one applies.
+    ///
+    /// > Where names other than the standard ones are used, a role map should be provided in
+    /// > the structure tree root using the RoleMap entry
+    ///
+    /// so a document's own `/Sect2` becomes the standard `/Sect` it maps to. The map is
+    /// followed transitively — a role map may name a type that is itself mapped — with the
+    /// same bound the tree walk uses, and a name that maps to itself or into a cycle answers
+    /// the last name reached rather than looping.
+    ///
+    /// `None` for an element with no `/S`, which Table 355 makes required: a structure
+    /// element that states no type says nothing about what it is, and inventing one would be
+    /// the fallback-that-fills-the-page in another clause's clothing.
+    #[must_use]
+    pub fn role(&self, document: &Document, element: &Dictionary) -> Option<String> {
+        let mut name = document.get_key(element, "S").as_name()?.clone();
+        let map = document.get_key(&self.root, "RoleMap");
+        let Some(map) = map.as_dict() else {
+            return Some(String::from_utf8_lossy(name.as_bytes()).into_owned());
+        };
+        for _ in 0..MAX_DEPTH {
+            let mapped = document.get_key(map, &String::from_utf8_lossy(name.as_bytes()));
+            match mapped.as_name() {
+                Some(next) if next != &name => name = next.clone(),
+                _ => break,
+            }
+        }
+        Some(String::from_utf8_lossy(name.as_bytes()).into_owned())
+    }
+
+    /// Every descendant of the root, depth first, with its depth.
+    ///
+    /// The order is §14.7.2's own: `/K` is a list, and the tree's order is what §14.8.2 calls
+    /// the document's logical reading order. Bounded by [`MAX_DEPTH`] and by visiting each
+    /// element once, because `/K` and `/P` are references a document controls.
+    #[must_use]
+    pub fn walk(&self, document: &Document) -> Vec<(usize, Child)> {
+        let mut out = Vec::new();
+        let mut seen: Vec<Dictionary> = Vec::new();
+        self.descend(document, None, 0, &mut out, &mut seen);
+        out
+    }
+
+    /// One level of [`Self::walk`].
+    fn descend(
+        &self,
+        document: &Document,
+        element: Option<&Dictionary>,
+        depth: usize,
+        out: &mut Vec<(usize, Child)>,
+        seen: &mut Vec<Dictionary>,
+    ) {
+        if depth >= MAX_DEPTH || out.len() >= MAX_CHILDREN {
+            return;
+        }
+        for child in self.children(document, element) {
+            let descend_into = match &child {
+                Child::Element(dict) if !seen.contains(dict) => Some(dict.clone()),
+                _ => None,
+            };
+            out.push((depth, child));
+            if let Some(dict) = descend_into {
+                seen.push(dict.clone());
+                self.descend(document, Some(&dict), depth.saturating_add(1), out, seen);
+            }
+        }
+    }
+}
+
 /// Deepest chain of `/P` links followed when a structure element inherits its language.
 ///
 /// §14.9.2.3 makes the inheritance unbounded — an element "shall inherit its language from any
@@ -208,7 +421,7 @@ pub fn document_language(document: &Document) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ParentTree, actual_text};
+    use super::{Child, ParentTree, Tree, actual_text};
     use pdf_syntax::Document;
 
     /// Builds a document from object bodies numbered from 1.
@@ -273,6 +486,119 @@ mod tests {
             "the second entry, indexed rather than taken first"
         );
         assert!(parents.element(&doc, 2).is_none());
+    }
+
+    /// §14.7.2's tree, walked from the root, with §14.7.3's role map applied.
+    ///
+    /// The fixture is the shape §14.7.5.1.1 describes: an element whose children are another
+    /// element and the three forms a content item takes — a bare integer, a marked-content
+    /// reference and an object reference. Its own type is a name the document invented, which
+    /// the role map takes to a standard one *transitively*, because a role map may name a
+    /// type that is itself mapped.
+    #[test]
+    fn the_structure_tree_reads_its_children_and_maps_their_roles() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K 5 0 R \
+             /RoleMap << /Heading2 /MyHeading /MyHeading /H2 >> >>",
+            "<< /Type /StructElem /S /Heading2 /P 4 0 R /Pg 3 0 R /K [0 6 0 R 7 0 R 8 0 R] >>",
+            "<< /Type /StructElem /S /Span /P 5 0 R >>",
+            "<< /Type /MCR /Pg 3 0 R /MCID 4 >>",
+            "<< /Type /OBJR /Obj 9 0 R >>",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let page = pdf_syntax::ObjectId {
+            number: 3,
+            generation: 0,
+        };
+
+        let top = tree.children(&doc, None);
+        assert_eq!(top.len(), 1, "one child of the root");
+        let Some(Child::Element(heading)) = top.first() else {
+            panic!("the root's child is an element: {top:?}");
+        };
+        assert_eq!(
+            tree.role(&doc, heading).as_deref(),
+            Some("H2"),
+            "/Heading2 maps to /MyHeading maps to /H2"
+        );
+
+        let kids = tree.children(&doc, Some(heading));
+        assert_eq!(
+            kids.len(),
+            4,
+            "an element and three content items: {kids:?}"
+        );
+        assert_eq!(
+            kids.first(),
+            Some(&Child::MarkedContent {
+                mcid: 0,
+                page: Some(page)
+            }),
+            "an integer takes its page from the element's /Pg"
+        );
+        assert!(matches!(kids.get(1), Some(Child::Element(_))));
+        assert_eq!(
+            kids.get(2),
+            Some(&Child::MarkedContent {
+                mcid: 4,
+                page: Some(page)
+            })
+        );
+        assert_eq!(
+            kids.get(3),
+            Some(&Child::Object {
+                object: pdf_syntax::ObjectId {
+                    number: 9,
+                    generation: 0
+                },
+                page: Some(page)
+            }),
+            "an object reference inherits the element's page where it states none"
+        );
+
+        // The walk is the same tree in the order `/K` states it, one level deeper for the
+        // nested element's own children.
+        let walked = tree.walk(&doc);
+        assert_eq!(
+            walked.len(),
+            5,
+            "the heading and its four children: {walked:?}"
+        );
+        assert!(matches!(walked.first(), Some((0, Child::Element(_)))));
+        assert!(matches!(
+            walked.get(1),
+            Some((1, Child::MarkedContent { mcid: 0, .. }))
+        ));
+        assert!(
+            matches!(walked.get(2), Some((1, Child::Element(_)))),
+            "the nested element is a child at depth 1 and has none of its own"
+        );
+    }
+
+    /// A `/K` cycle terminates, and an untagged document has no tree at all.
+    #[test]
+    fn a_structure_tree_that_points_at_itself_terminates() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R >>",
+            "<< /Type /StructElem /S /Sect /K [6 0 R] >>",
+            "<< /Type /StructElem /S /Sect /K [5 0 R] >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert_eq!(tree.walk(&doc).len(), 3, "each element is entered once");
+
+        let untagged = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        ]);
+        assert!(Tree::of(&untagged).is_none());
     }
 
     /// A page with no `/StructParents` has no structure, and that is not a failure.

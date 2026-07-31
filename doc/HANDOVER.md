@@ -261,6 +261,29 @@ annotation events and Table 198's two page events are `action::for_annotation` a
 
 `silent` falls 178 → 177.
 
+**Seventy-eighth — §14.7.2's structure tree, read.** Clause 14's 71 silences are the structure
+tree and its vocabulary, and until now `structure.rs` read the tree only *upwards*: §14.7.5.4's
+parent tree answers "which element does this marked-content sequence belong to", which is what
+drawing a page needs. `structure::Tree` reads it downwards.
+
+- **The root and an element are one function**, because Table 354 and Table 355 give `/K` the
+  same meaning in both. It is walked on demand rather than built: a tagged document has an
+  element per paragraph, nothing here needs all of them at once, and `/K` is a reference a
+  document controls — so the walk is bounded on depth, on fan-out, and by entering each element
+  once. A cycle is a test.
+- **§14.7.5.1.1's content items are the enum's other three arms**: a bare integer, Table 357's
+  marked-content reference and Table 358's object reference. The clause's own restriction is why
+  they are arms rather than a recursive type — "[c]ontent items shall be leaf nodes of the
+  structure tree" — and a bare integer takes its page from the element's `/Pg`, which Table 355
+  requires for exactly that case.
+- **§14.7.3's role map is followed transitively**, because a map may name a type that is itself
+  mapped, and bounded, because it may name itself. An element with no `/S` answers nothing: Table
+  355 requires it, and inventing a type would be the fallback-that-fills-the-page in another
+  clause's clothing.
+- **The data is this crate's and the consumer is not**, which is the same division Table 99's
+  layer-panel half is read under and the same debt: nothing yet hands a structure tree to
+  anybody. `silent` falls 177 → 174 and three rows become `partial` or `implemented`.
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -341,6 +364,7 @@ below rather than here.
 | 75 | Eight "unexplained" contradicted pages are one population, measured | — |
 | 76 | Table 170's rollover and down appearances, on the pointer | — |
 | 77 | §12.6.3's trigger events, and the one precedence rule Table 197 states | — |
+| 78 | §14.7.2's structure tree, read downwards at last | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -372,7 +396,7 @@ page or runs a slide show — and the gap is now measured *by clause* as well as
 the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **706 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **708 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -986,16 +1010,16 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 273 | every normative requirement in the clause is executed |
-| `partial` | 164 | some are; the note says which are not |
-| **`silent`** | **177** | not implemented, and nothing says so |
+| `implemented` | 274 | every normative requirement in the clause is executed |
+| `partial` | 166 | some are; the note says which are not |
+| **`silent`** | **174** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 27 | not implemented, detected and named at runtime |
 | `writer-side` | 7 | addresses a PDF writer; we do not create files |
 
-**177 silences is the shape of the project**: it renders pages correctly and does very little
-when a person clicks on one. **92** of them are clause 12's interactive half and **71** are clause
+**174 silences is the shape of the project**: it renders pages correctly and does very little
+when a person clicks on one. **92** of them are clause 12's interactive half and **68** are clause
 14's structure, neither of which changes a mark on a page. (This file said 112 and 76 for four
 sessions; both were counted before the rows that closed them, and one line of `grep` over the
 ledger grouped by leading clause number is what says so — the same check the fifty-third session
@@ -1064,7 +1088,7 @@ all. The ledger's own notes are the detail; this is the shape.
 | 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group, and **§11.4.6's knockout wherever an element's shape is the coverage it is drawn with**. Left and reported: a knockout element whose shape is not, a non-isolated group whose elements blend, a blending space that is not the device's. |
 | 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, the three §12.6.4 actions that change what is displayed** — a go-to, a set-OCG-state and a hide — and the whole of §12.4.4's presentation read and none of it played, and §12.6.3's trigger events with the appearance each one asks for. 92 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events, and the presentation mode §12.4.4 asks for. |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. The rows carry the exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
-| 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7.5.4's parent tree and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. 71 rows `silent`: the structure tree as data, and tagged PDF's types and attributes. |
+| 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7's structure tree in both directions and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. 68 rows `silent`: what the tree *says* — §14.8's types and attributes — and a consumer for the tree itself. |
 
 So: the parts of the standard that decide whether a page is drawn correctly are largely done; the
 parts that make a document *interactive* have just started.
@@ -1104,7 +1128,7 @@ parts that make a document *interactive* have just started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
-rows in the fifty-sixth session, so the specification track is now its **177 `silent` rows and 27
+rows in the fifty-sixth session, so the specification track is now its **174 `silent` rows and 27
 `reported` ones**, each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -1126,8 +1150,9 @@ file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
   So this was spec-driven work with almost no demand behind it, which is what the two tracks
   exist to make visible — and `URI` at 8 documents is the largest action nobody has written,
   needing a network this program does not have.
-- **Clause 14's structure, 71 rows.** §14.7's tree is read only where §14.7.5.4's parent tree
-  reaches it; §14.8's types and attributes are unread as data. §14.9 is done as far as reading
+- **Clause 14's structure, 68 rows.** §14.7's tree is read in both directions as of the
+  seventy-eighth session — the parent tree upwards, `structure::Tree` downwards — and what it
+  owes is a *consumer*; §14.8's types and attributes are unread as data. §14.9 is done as far as reading
   goes (ADR 0063) and what it now owes is a *consumer* — `Interpretation::speech()` returns runs
   of text with languages and nothing hands them to AccessKit.
 - **Substitution quality**, §9.8.3's `/Style /Panose` and `/FD`: the oldest silence in the
@@ -1152,7 +1177,7 @@ corpus's own issue trackers says most of that is glyph rasterisation on files ch
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
-and the debt is the 204 rows above.
+and the debt is the 201 rows above.
 
 ### 0. The ledger, and where a false claim can still hide
 
