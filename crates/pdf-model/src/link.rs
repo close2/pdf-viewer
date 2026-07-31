@@ -32,6 +32,14 @@ pub struct Link {
     /// Quadrilaterals rather than a rectangle because the clause's region is a set of them —
     /// a link across a line break is two — and because a `/Rect` reduces to one.
     pub region: Vec<[f32; 8]>,
+    /// §12.5.2's `/Rect`, which is not the activation region and is still needed.
+    ///
+    /// The region above is what a click is tested against; this is what §12.6.4.8 measures a
+    /// click *from* — its `/IsMap` coordinates are "offset relative to the upper-left corner
+    /// of the annotation rectangle (that is, the value of the `Rect` entry in the annotation
+    /// with which the URI action is associated)", which is the rectangle even where
+    /// `/QuadPoints` narrowed the region. `[llx, lly, urx, ury]`, normalised.
+    pub rect: [f32; 4],
     /// Where activating it goes, where this reader can say.
     ///
     /// `None` for a link whose action is not a go-to: a URI, a launch, an ECMAScript action.
@@ -87,6 +95,7 @@ pub fn links(document: &Document, page: &Page) -> Vec<Link> {
         );
         out.push(Link {
             region: region(document, annotation, rect),
+            rect,
             destination: destination(document, annotation, &actions),
             actions,
         });

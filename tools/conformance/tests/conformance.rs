@@ -109,6 +109,18 @@ fn every_citation_names_a_clause_that_exists() {
                 malformed.text
             );
         }
+        for foreign in &scan.foreign {
+            let _ = writeln!(
+                wrong,
+                "{}:{}: a `§` after {}, which is not ISO 32000-2. Write \"{} section N\": a `§` \
+                 here is checked against this standard's clauses and would pass by landing on \
+                 one.",
+                path.display(),
+                foreign.line,
+                foreign.document,
+                foreign.document
+            );
+        }
     }
 
     assert!(

@@ -3773,8 +3773,10 @@ note = "Thread: jump to an article bead (§12.4.3), which is `silent` for the sa
 [[clause]]
 clause = "12.6.4.8"
 title = "URI actions"
-status = "silent"
-note = "URI: resolve a uniform resource identifier. Same shape as `/Launch` — the missing feature is also a refusal, and a viewer that gains it needs a confirmation step rather than a handler."
+status = "partial"
+code = ["crates/pdf-model/src/uri.rs", "crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/uri.rs::rfc_3986_normal_examples", "crates/pdf-model/src/action.rs::a_partial_uri_is_resolved_against_the_documents_base", "crates/pdf-model/tests/actions.rs::a_uri_action_arrives_at_the_viewer_already_resolved"]
+note = "Table 210's `/URI` and `/IsMap` and Table 211's `/Base`, which is the whole of what the clause states about a *document*. What the URI is gets decided here: the clause describes a URI \"in Internet RFC 3986\" and says a partial one is interpreted relative to `/Base`, so `uri.rs` is that RFC's section 5.2 reference transformation, with its own section 5.4 examples as the tests — the concatenation a reader reaches for first is wrong on four of them. `/IsMap` appends the cursor as EXAMPLE 1's arithmetic states it, measured from the *upper-left* corner of `/Rect`, which is the half that inverts. **What is not done is the resolving itself**: `viewer-ui` prints the URI rather than opening it, because handing a document-controlled string to a browser is a decision about this machine and not about the file. With no `/Base`, a partial URI is \"interpreted relative to the location of the document itself\", which this crate does not know — `Uri::relative` says so rather than a scheme being invented, which is what one corpus document (`pr19449.pdf`, `foo.bar.com`) would otherwise get. 217 URI actions in 8 of the 974 documents; one states a `/Base` and one states a partial reference, and they are different files."
 
 [[clause]]
 clause = "12.6.4.9"
@@ -3798,8 +3800,10 @@ note = "Hide, in both directions and in all three of Table 214's forms for `/T`:
 [[clause]]
 clause = "12.6.4.12"
 title = "Named actions"
-status = "silent"
-note = "Named: `/NextPage`, `/PrevPage`, `/FirstPage`, `/LastPage` and any registered name. `viewer-ui` already does all four from the keyboard; what is missing is a document being able to ask for them."
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_named_action_is_one_of_table_215s_four_page_commands", "crates/pdf-model/tests/actions.rs::a_named_action_asks_the_viewer_to_turn_the_page"]
+note = "All four of Table 215's names, which are the whole of the table: `NextPage`, `PrevPage`, `FirstPage` and `LastPage`, each an `Action::Named` that reaches the viewer as a `view::Request::Page` and moves it. The movement is `Named::page_from`, clamped at both ends because no document has a page before its first. A name outside the four produces **no action at all** rather than a refusal, because the clause states that case itself — a processor that \"does not recognise the name … shall take no action\" — and the corpus's one instance is a `/Print`, which is a viewer command rather than a page. 3 of the 974 documents write a named action; 8 of their 9 are the four standard names."
 
 [[clause]]
 clause = "12.6.4.13"

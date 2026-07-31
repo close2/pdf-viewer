@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
-use crate::action::{Action, Change, Hide, HideTarget};
+use crate::action::{Action, Change, Hide, HideTarget, Named, Uri};
 use crate::destination::Destination;
 use crate::optional_content::OptionalContent;
 
@@ -84,6 +84,21 @@ pub enum Pointer {
     Over,
     /// A button is pressed or held down inside it.
     Down,
+}
+
+/// What performing an action asks of the viewer that a [`ViewState`] cannot do itself.
+///
+/// The division is the same one this module exists for. A layer's state and an annotation's
+/// Hidden flag are *this document's* state and live here; which page is on screen and what a
+/// URI opens are the window's, and no part of them is a fact about the file.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Request {
+    /// §12.6.4.2: display this destination. [`Destination::page_index`] turns it into a page.
+    Display(Destination),
+    /// §12.6.4.12: move as Table 215's command says, from whichever page is being shown.
+    Page(Named),
+    /// §12.6.4.8: resolve this URI, which means opening it somewhere this program is not.
+    Resolve(Uri),
 }
 
 /// Which of Table 170's appearances an annotation shows.
@@ -190,19 +205,22 @@ impl ViewState {
         true
     }
 
-    /// Performs one action, and answers the destination it asks to be displayed.
+    /// Performs one action, and answers what it asks of the viewer.
     ///
-    /// `Some` only for §12.6.4.2's go-to action, which is the one type that changes *which*
-    /// page is shown rather than what is on it. The caller decides what to do with it,
-    /// because turning a destination into a page is [`Destination::page_index`]'s job and
-    /// scrolling to one is the viewer's.
+    /// `Some` for the three types that change something this state does not hold: which page
+    /// is shown (§12.6.4.2's destination and §12.6.4.12's page commands) and what is outside
+    /// the document altogether (§12.6.4.8's URI). Everything else is performed here and
+    /// answers `None`, because a layer's state and an annotation's Hidden flag are what a
+    /// `ViewState` *is*.
     ///
     /// A [`Action::Refused`] does nothing and is not an error: the action is named so that a
     /// caller may say what it declined to do, and doing nothing is what §12.6.1's list of
-    /// twenty types leaves a renderer that implements three of them.
-    pub fn perform(&mut self, document: &Document, action: &Action) -> Option<Destination> {
+    /// twenty types leaves a renderer that implements five of them.
+    pub fn perform(&mut self, document: &Document, action: &Action) -> Option<Request> {
         match action {
-            Action::GoTo(destination) => return Some(*destination),
+            Action::GoTo(destination) => return Some(Request::Display(*destination)),
+            Action::Named(named) => return Some(Request::Page(*named)),
+            Action::Uri(uri) => return Some(Request::Resolve(uri.clone())),
             Action::SetOcgState(state) => {
                 if let Some(content) = self.optional_content.as_mut() {
                     content.apply(&state.changes, state.preserve_radio_buttons);
@@ -214,20 +232,23 @@ impl ViewState {
         None
     }
 
-    /// Performs a whole `/Next` chain and answers the *first* destination in it.
+    /// Performs a whole `/Next` chain and answers everything it asks of the viewer, in order.
     ///
-    /// First rather than last because a go-to changes the page being shown and §12.6.2's
-    /// NOTE 1 warns that "actions that close the document or otherwise render the next action
-    /// impossible ought to terminate the execution sequence" — but every action here is still
-    /// performed, because a `/SetOCGState` after a `/GoTo` is a layer change for the page
-    /// being navigated *to*, and the clause states no ordering that would drop it.
-    pub fn perform_all(&mut self, document: &Document, actions: &[Action]) -> Option<Destination> {
-        let mut first = None;
+    /// A list rather than one answer, because §12.6.2 makes a chain a sequence of actions and
+    /// two of them may each ask for something: a link may open a URI and then jump. Every
+    /// action is performed even after one that moves the page — a `/SetOCGState` after a
+    /// `/GoTo` is a layer change for the page being navigated *to*, and the clause states no
+    /// ordering that would drop it — while §12.6.2's NOTE 1 leaves the caller to decide what
+    /// to do with two requests, since it is the caller that knows whether the first made the
+    /// second impossible.
+    pub fn perform_all(&mut self, document: &Document, actions: &[Action]) -> Vec<Request> {
+        let mut requests = Vec::new();
         for action in actions {
-            let reached = self.perform(document, action);
-            first = first.or(reached);
+            if let Some(request) = self.perform(document, action) {
+                requests.push(request);
+            }
         }
-        first
+        requests
     }
 
     /// §12.6.4.11 applied: every annotation the action names, in either of `/T`'s two forms.
@@ -402,7 +423,10 @@ mod tests {
         );
 
         let actions = read(&doc, &Object::Reference(id(3)));
-        assert!(state.perform_all(&doc, &actions).is_none(), "not a go-to");
+        assert!(
+            state.perform_all(&doc, &actions).is_empty(),
+            "a layer change asks the viewer for nothing"
+        );
         assert_eq!(
             state.optional_content().and_then(|oc| oc.state(id(4))),
             Some(false)

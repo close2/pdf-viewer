@@ -12,15 +12,26 @@
 //! | `GoTo` | §12.6.4.2 | yes — a destination in this document |
 //! | `SetOCGState` | §12.6.4.13 | yes — §8.11's layers, which decide what is drawn |
 //! | `Hide` | §12.6.4.11 | yes — §12.5.3's Hidden flag, which decides what is drawn |
+//! | `Named` | §12.6.4.12 | yes — Table 215's four page commands |
+//! | `URI` | §12.6.4.8 | yes — the URI, resolved; opening it is the caller's |
 //! | everything else | | [`Action::Refused`], by name |
 //!
 //! The refusals are not laziness and they are not uniform. `GoToR`, `GoToE`, `Launch`,
 //! `ImportData` and `SubmitForm` want a file system or a network, which principle 3's sandbox
-//! deliberately withholds (ADR 0014); `URI` wants a browser; `JavaScript` is on
-//! `CLAUDE.md`'s closed exclusion list; `Sound`, `Movie`, `Rendition` and `GoTo3DView` are
-//! clause 13's multimedia, excluded by the same list; `Trans`, `Named`, `Thread`, `ResetForm`
-//! and `GoToDp` are viewer behaviour this program has not built yet. Each keeps its own name
-//! in the refusal so that a caller can say which, rather than "an action".
+//! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
+//! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
+//! same list; `Trans`, `Thread`, `ResetForm` and `GoToDp` are viewer behaviour this program
+//! has not built yet. Each keeps its own name in the refusal so that a caller can say which,
+//! rather than "an action".
+//!
+//! # A URI action is read here and performed nowhere
+//!
+//! §12.6.4.8 says a URI action "causes a URI to be resolved", and *resolving* is two things
+//! that this crate can do and one it cannot. It can decide what the URI is — Table 210's
+//! `/URI` against Table 211's `/Base`, by RFC 3986 section 5's algorithm in [`crate::uri`]
+//! — and it can apply `/IsMap`'s coordinates. What it cannot do is fetch anything, and it deliberately
+//! does not: handing a document-controlled URI to a browser is a decision about this machine,
+//! so [`Action::Uri`] carries the answer and the caller decides whether to open it.
 //!
 //! # `/Next` makes an action a tree
 //!
@@ -58,6 +69,10 @@ pub enum Action {
     SetOcgState(SetOcgState),
     /// §12.6.4.11: hide or show annotations by setting or clearing their Hidden flags.
     Hide(Hide),
+    /// §12.6.4.12: one of Table 215's four named page commands.
+    Named(Named),
+    /// §12.6.4.8: a URI to resolve, already resolved as far as the document states it.
+    Uri(Uri),
     /// An action type this program recognises and does not perform, named.
     ///
     /// A `&'static str` rather than the file's own bytes: the name is one of Table 201's
@@ -121,6 +136,119 @@ pub enum HideTarget {
     /// walking `/AcroForm /Fields` and §12.7.4.2's naming rules, which is
     /// [`crate::view::ViewState`]'s job when the action is performed and not this module's.
     Field(String),
+}
+
+/// §12.6.4.12's named action: one of Table 215's four page commands.
+///
+/// The table is short and its four entries are the whole of it — "Go to the next page of the
+/// document", the previous, the first and the last — which is why this is an enum of four and
+/// not a string. §12.6.4.12 says a processor "shall support" them and that further names may
+/// be added, and its NOTE says a document using a non-standard name "is not portable".
+///
+/// A name outside the four produces no action at all rather than a [`Action::Refused`],
+/// because the clause states that case itself: if a processor "does not recognise the name,
+/// it shall take no action". Doing nothing is conformance here, not a silence — the corpus's
+/// one example is a `/Print`, which is a viewer command and not a page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Named {
+    /// `NextPage`.
+    NextPage,
+    /// `PrevPage`.
+    PrevPage,
+    /// `FirstPage`.
+    FirstPage,
+    /// `LastPage`.
+    LastPage,
+}
+
+impl Named {
+    /// One of Table 215's four names, or `None` for a name this processor does not recognise.
+    fn read(name: &Name) -> Option<Self> {
+        match name.as_bytes() {
+            b"NextPage" => Some(Self::NextPage),
+            b"PrevPage" => Some(Self::PrevPage),
+            b"FirstPage" => Some(Self::FirstPage),
+            b"LastPage" => Some(Self::LastPage),
+            _ => None,
+        }
+    }
+
+    /// The page this command reaches from `current`, in a document of `pages` pages.
+    ///
+    /// Clamped at both ends: Table 215 names four movements and no document has a page before
+    /// its first or after its last, so the next page of the last page is the last page. `None`
+    /// for an empty document, which has no page to reach.
+    #[must_use]
+    pub fn page_from(self, current: usize, pages: usize) -> Option<usize> {
+        let last = pages.checked_sub(1)?;
+        Some(match self {
+            Self::NextPage => current.saturating_add(1).min(last),
+            Self::PrevPage => current.saturating_sub(1).min(last),
+            Self::FirstPage => 0,
+            Self::LastPage => last,
+        })
+    }
+}
+
+/// §12.6.4.8's URI action. Table 210.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Uri {
+    /// The URI to resolve: Table 210's `/URI`, against Table 211's `/Base` where one exists.
+    ///
+    /// Resolution is RFC 3986 section 5's, which §12.6.4.8 defers to by naming that RFC as
+    /// where a URI is described. Where the document states no `/Base` and the reference is a partial
+    /// one, this is the document's own string unchanged and [`Self::relative`] says so.
+    pub uri: String,
+    /// Whether the URI is still a relative reference, and so incomplete.
+    ///
+    /// §12.6.4.8: with no base URI, partial URIs "shall be interpreted relative to the
+    /// location of the document itself" — which is a fact about where the file was opened
+    /// from and not about the file, so this crate cannot finish the job. The caller opened
+    /// the document and can.
+    pub relative: bool,
+    /// Table 210's `/IsMap`, **default `false`**.
+    ///
+    /// True asks for the cursor's position to be appended, which [`Self::at_position`] does.
+    /// The clause bounds where it applies: the entry "applies only to actions triggered by
+    /// the user's clicking an annotation; it shall be ignored for actions associated with
+    /// outline items or with a document's `OpenAction` entry", so a caller that is not
+    /// following a click never asks.
+    pub is_map: bool,
+}
+
+impl Uri {
+    /// §12.6.4.8's `/IsMap` coordinates, appended as the clause's EXAMPLE 1 states them.
+    ///
+    /// `point` is the cursor in *user* space — the clause has the caller transform it from
+    /// device space first — and `rect` is the annotation's `/Rect` as
+    /// `[llx, lly, urx, ury]`. The offset is from the rectangle's **upper-left** corner, so
+    /// the y term counts downwards from `ury` while the x term counts rightwards from `llx`,
+    /// and the pair is rounded to integers before it is appended after a `?` and separated by
+    /// a comma. EXAMPLE 2 is the shape: `http://www.iso.org/intro?100,200`.
+    ///
+    /// Answers [`Self::uri`] unchanged when `/IsMap` is false, so a caller may call it for
+    /// every click without asking whether the entry is set.
+    #[must_use]
+    pub fn at_position(&self, point: (f32, f32), rect: [f32; 4]) -> String {
+        if !self.is_map {
+            return self.uri.clone();
+        }
+        let (x, y) = point;
+        let [llx, _, _, ury] = rect;
+        let across = (x - llx).round();
+        let down = (ury - y).round();
+        // A NaN coordinate names no position, and appending one would send a reader to a URI
+        // the document did not state.
+        if !across.is_finite() || !down.is_finite() {
+            return self.uri.clone();
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "rounded and finite, and a page is bounded by §14.11.2's 14 400 units"
+        )]
+        let (across, down) = (across as i64, down as i64);
+        format!("{}?{across},{down}", self.uri)
+    }
 }
 
 /// §12.6.3's trigger events for an annotation. Table 197.
@@ -301,8 +429,69 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         b"GoTo" => Action::GoTo(Destination::read(document, dict.get("D")?)?),
         b"SetOCGState" => Action::SetOcgState(set_ocg_state(document, dict)),
         b"Hide" => Action::Hide(hide(document, dict)),
+        b"Named" => Action::Named(Named::read(document.get_key(dict, "N").as_name()?)?),
+        b"URI" => Action::Uri(uri(document, dict)?),
         other => Action::Refused(refused(other)?),
     })
+}
+
+/// Table 210's `/URI` and `/IsMap`, with Table 211's `/Base` applied.
+///
+/// `None` where `/URI` is absent or is not a string: §12.6.4.8 makes the entry required, so a
+/// URI action without one has stated nothing to resolve.
+///
+/// The entry is "encoded in UTF-8", which is what makes this the one place in this tree a PDF
+/// string is read as UTF-8 rather than through §7.9.2.2's text-string rules — Table 210 calls
+/// it an ASCII string and states the encoding of what those bytes spell, and a `/UTF-16`
+/// text string would be a different entry. Bytes that are not UTF-8 are a malformed URI, and
+/// [`String::from_utf8_lossy`] keeps the rest of it rather than dropping the link.
+fn uri(document: &Document, dict: &Dictionary) -> Option<Uri> {
+    let Object::String(bytes) = document.get_key(dict, "URI") else {
+        return None;
+    };
+    let stated = String::from_utf8_lossy(&bytes).into_owned();
+    let is_map = boolean(&document.get_key(dict, "IsMap")).unwrap_or(false);
+
+    // An absolute reference is its own answer: RFC 3986 section 5.2.2's first branch takes
+    // the whole of it from the reference, and the one thing it would still do — removing the dot
+    // segments from its path — is normalisation this module deliberately does not apply to a
+    // URI a document stated. So the base is not even looked up, which keeps the catalog out
+    // of the 216 of the corpus's 217 URI actions that state a scheme.
+    if crate::uri::is_absolute(&stated) {
+        return Some(Uri {
+            uri: stated,
+            relative: false,
+            is_map,
+        });
+    }
+    let (uri, relative) = match base_uri(document) {
+        Some(base) => {
+            let resolved = crate::uri::resolve(&base, &stated);
+            let relative = !crate::uri::is_absolute(&resolved);
+            (resolved, relative)
+        }
+        None => (stated, true),
+    };
+    Some(Uri {
+        uri,
+        relative,
+        is_map,
+    })
+}
+
+/// Table 211's `/Base`, from the catalog's `/URI` dictionary.
+///
+/// §12.6.4.8: "[t]o support URI actions, a PDF document's catalog dictionary … may include a
+/// URI entry whose value is a URI dictionary", and "[o]nly one entry shall be defined for
+/// such a dictionary". One corpus document of 974 states it.
+fn base_uri(document: &Document) -> Option<String> {
+    let catalog = document.catalog().ok()?;
+    let uri = document.get_key(&catalog, "URI");
+    let dict = uri.as_dict()?;
+    match document.get_key(dict, "Base") {
+        Object::String(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        _ => None,
+    }
 }
 
 /// Table 217's `/State` and `/PreserveRB`.
@@ -416,10 +605,8 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"GoToDp" => "GoToDp: a document part, which needs §14.12's part hierarchy",
         b"Launch" => "Launch: running an application, which the sandbox withholds",
         b"Thread" => "Thread: an article thread, which needs a reading-order view",
-        b"URI" => "URI: a network resource, which this reader has no network to fetch",
         b"Sound" => "Sound: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Movie" => "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
-        b"Named" => "Named: a viewer command such as NextPage, which is viewer-ui work",
         b"Rendition" => "Rendition: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Trans" => "Trans: §12.4.4's page transition, which this viewer does not animate",
         b"GoTo3DView" => "GoTo3DView: clause 13's 3D, excluded by CLAUDE.md principle 5",
@@ -436,7 +623,7 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Action, Change, HideTarget, read};
+    use super::{Action, Change, HideTarget, Named, read};
     use pdf_syntax::{Document, Object, ObjectId};
 
     /// Builds a document from object bodies numbered from 1.
@@ -578,11 +765,146 @@ mod tests {
             .iter()
             .map(|action| match action {
                 Action::Hide(_) => "Hide",
+                Action::Uri(_) => "URI",
                 Action::Refused(name) => name.split(':').next().unwrap_or(name),
                 other => panic!("unexpected {other:?}"),
             })
             .collect();
         assert_eq!(kinds, vec!["Hide", "URI", "Launch", "JavaScript"]);
+    }
+
+    /// Table 215's four names, and the one the corpus writes that is not among them.
+    ///
+    /// §12.6.4.12 states what a processor does with the fourth case itself — "if the viewer
+    /// does not recognise the name, it shall take no action" — so `/Print` produces no action
+    /// rather than a refusal. `Named::page_from` is the movement each one names, clamped: the
+    /// page after the last page is the last page.
+    #[test]
+    fn a_named_action_is_one_of_table_215s_four_page_commands() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /S /Named /N /NextPage >>",
+            "<< /S /Named /N /PrevPage >>",
+            "<< /S /Named /N /FirstPage >>",
+            "<< /S /Named /N /LastPage >>",
+            "<< /S /Named /N /Print >>",
+        ]);
+        let named = |number| match read(&doc, &Object::Reference(id(number))).as_slice() {
+            [Action::Named(named)] => Some(*named),
+            [] => None,
+            other => panic!("one named action or none, got {other:?}"),
+        };
+        assert_eq!(named(2), Some(Named::NextPage));
+        assert_eq!(named(3), Some(Named::PrevPage));
+        assert_eq!(named(4), Some(Named::FirstPage));
+        assert_eq!(named(5), Some(Named::LastPage));
+        assert_eq!(named(6), None, "/Print is not one of Table 215's four");
+
+        assert_eq!(Named::NextPage.page_from(1, 10), Some(2));
+        assert_eq!(
+            Named::NextPage.page_from(9, 10),
+            Some(9),
+            "clamped at the end"
+        );
+        assert_eq!(Named::PrevPage.page_from(0, 10), Some(0));
+        assert_eq!(Named::FirstPage.page_from(7, 10), Some(0));
+        assert_eq!(Named::LastPage.page_from(0, 10), Some(9));
+        assert_eq!(Named::LastPage.page_from(0, 0), None, "no page to reach");
+    }
+
+    /// §12.6.4.8 with Table 211's `/Base`: `issue14802.pdf`'s own pair.
+    ///
+    /// The document states `/URI << /Base (http://example.com/) >>` in its catalog and a URI
+    /// action of `(./relative_link.txt)`, which is the only corpus document that needs the
+    /// base at all — and the only one whose `/URI` is a partial reference is a *different*
+    /// file, `pr19449.pdf`, which states no base and so stays relative.
+    #[test]
+    fn a_partial_uri_is_resolved_against_the_documents_base() {
+        let doc = document(&[
+            "<< /Type /Catalog /URI << /Base (http://example.com/) >> >>",
+            "<< /S /URI /URI (./relative_link.txt) >>",
+            "<< /S /URI /URI (https://example.invalid/a?b#c) >>",
+        ]);
+        let read_relative = read(&doc, &Object::Reference(id(2)));
+        let [Action::Uri(relative)] = read_relative.as_slice() else {
+            panic!("one URI action");
+        };
+        assert_eq!(relative.uri, "http://example.com/relative_link.txt");
+        assert!(!relative.relative, "resolved against the base");
+        assert!(!relative.is_map, "Table 210's default");
+
+        let read_absolute = read(&doc, &Object::Reference(id(3)));
+        let [Action::Uri(absolute)] = read_absolute.as_slice() else {
+            panic!("one URI action");
+        };
+        assert_eq!(
+            absolute.uri, "https://example.invalid/a?b#c",
+            "an absolute reference is handed on exactly as the document wrote it"
+        );
+    }
+
+    /// With no `/Base`, a partial URI stays partial and says so.
+    ///
+    /// §12.6.4.8 says such a URI is "interpreted relative to the location of the document
+    /// itself", which is a fact about where the file was opened from. `pr19449.pdf` writes
+    /// `foo.bar.com`, which is a relative reference and not a host name — guessing a scheme
+    /// for it would be deciding where the link goes.
+    #[test]
+    fn a_partial_uri_with_no_base_is_reported_as_relative() {
+        let doc = document(&["<< /Type /Catalog >>", "<< /S /URI /URI (foo.bar.com) >>"]);
+        let actions = read(&doc, &Object::Reference(id(2)));
+        let [Action::Uri(uri)] = actions.as_slice() else {
+            panic!("one URI action");
+        };
+        assert_eq!(uri.uri, "foo.bar.com");
+        assert!(uri.relative);
+    }
+
+    /// §12.6.4.8's `/IsMap`, its EXAMPLE 1's arithmetic and its EXAMPLE 2's shape.
+    ///
+    /// The cursor at (150, 642) in user space, inside a rectangle whose lower-left is at
+    /// (50, 442) and whose upper-right is at (250, 742): across is 150 − 50 and down is
+    /// 742 − 642, so the URI gains `?100,100`. The y term is what the clause's "upper-left
+    /// corner" means and is the half a reader gets wrong, because every other rectangle in
+    /// this tree is measured from its lower-left.
+    #[test]
+    fn is_map_appends_the_cursor_relative_to_the_upper_left_corner() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /S /URI /URI (http://www.iso.org/intro) /IsMap true >>",
+        ]);
+        let actions = read(&doc, &Object::Reference(id(2)));
+        let [Action::Uri(uri)] = actions.as_slice() else {
+            panic!("one URI action");
+        };
+        assert!(uri.is_map);
+        assert_eq!(
+            uri.at_position((150.0, 642.0), [50.0, 442.0, 250.0, 742.0]),
+            "http://www.iso.org/intro?100,100"
+        );
+        // "If the resulting coordinates (xf, yf) are fractional, they shall be rounded to the
+        // nearest integer values."
+        assert_eq!(
+            uri.at_position((150.4, 641.5), [50.0, 442.0, 250.0, 742.0]),
+            "http://www.iso.org/intro?100,101"
+        );
+    }
+
+    /// Without `/IsMap`, a position changes nothing — the entry is what asks for one.
+    #[test]
+    fn a_uri_without_is_map_ignores_the_cursor() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /S /URI /URI (http://example.invalid/) >>",
+        ]);
+        let actions = read(&doc, &Object::Reference(id(2)));
+        let [Action::Uri(uri)] = actions.as_slice() else {
+            panic!("one URI action");
+        };
+        assert_eq!(
+            uri.at_position((1.0, 2.0), [0.0, 0.0, 10.0, 10.0]),
+            "http://example.invalid/"
+        );
     }
 
     /// §12.6.2 NOTE 1: "self-referential actions ought not be executed more than once".

@@ -333,3 +333,57 @@ fn an_annotations_own_action_takes_precedence_over_its_mouse_up_trigger() {
         "and every other event still reads its own entry"
     );
 }
+
+/// §12.6.4.12's named actions reach the viewer as a request rather than a state change.
+///
+/// The whole of what a `ViewState` can do with `NextPage` is *say so*: which page is on
+/// screen is the window's, and the clause's four commands are stated relative to it. So the
+/// assertion is about the boundary — a document's `/Named` action becomes a
+/// [`pdf_model::view::Request::Page`], and `Named::page_from` turns it into an index against
+/// the page count the caller holds.
+#[test]
+fn a_named_action_asks_the_viewer_to_turn_the_page() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        "<< /S /Named /N /LastPage >>",
+    ]);
+    let mut state = ViewState::of(&doc);
+    let before = state.clone();
+    let actions = pdf_model::action::read(&doc, &Object::Reference(id(5)));
+    let requests = state.perform_all(&doc, &actions);
+    assert_eq!(state, before, "a page command changes nothing in the document");
+
+    let [pdf_model::view::Request::Page(named)] = requests.as_slice() else {
+        panic!("one page request, got {requests:?}");
+    };
+    assert_eq!(named.page_from(0, pdf_model::Pages::new(&doc).len()), Some(1));
+}
+
+/// §12.6.4.8's URI reaches the viewer resolved, and nothing here opens it.
+///
+/// The document is `issue14802.pdf`'s shape: a catalog `/URI` dictionary with Table 211's
+/// `/Base`, and an action whose `/URI` is a partial reference. What the gate pins is that the
+/// two are combined *before* the request leaves this crate — a caller that received the
+/// document's own string would have to implement RFC 3986 to use it.
+#[test]
+fn a_uri_action_arrives_at_the_viewer_already_resolved() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /URI << /Base (http://example.com/docs/a.pdf) >> >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        "<< /S /URI /URI (../other/b.html#top) >>",
+    ]);
+    let mut state = ViewState::of(&doc);
+    let requests = state.perform_all(
+        &doc,
+        &pdf_model::action::read(&doc, &Object::Reference(id(4))),
+    );
+    let [pdf_model::view::Request::Resolve(uri)] = requests.as_slice() else {
+        panic!("one URI request, got {requests:?}");
+    };
+    assert_eq!(uri.uri, "http://example.com/other/b.html#top");
+    assert!(!uri.relative);
+}

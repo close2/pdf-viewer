@@ -27,6 +27,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use pdf_model::Pages;
+use pdf_model::view::Request;
 use pdf_render::TargetSpec;
 use pdf_syntax::Document;
 use vello::util::{RenderContext, RenderSurface};
@@ -197,9 +198,14 @@ impl App {
     /// Activates the §12.5.6.5 link under the pointer, if there is one.
     ///
     /// Returns whether the page changed. A click on nothing, on a link whose action this
-    /// program will not perform — a URI needs a network it does not have, and §12.6.4.5's
-    /// launch action is absent for the reason principle 3 gives — or on a link to the page
-    /// already shown, all leave the view where it is.
+    /// program will not perform — §12.6.4.6's launch action is absent for the reason
+    /// principle 3 gives — or on a link to the page already shown, all leave the view where
+    /// it is.
+    ///
+    /// A §12.6.4.8 URI is printed rather than opened. The URI is resolved by `pdf_model`,
+    /// including `/IsMap`'s cursor coordinates; what this program will not do is hand a
+    /// string a document controls to a browser, because that is a decision about this machine
+    /// and not about the document.
     fn follow_link(&mut self) -> bool {
         let pages = Pages::new(&self.document);
         let Some(page) = pages.get(self.page_index) else {
@@ -228,19 +234,34 @@ impl App {
             return false;
         };
 
-        // §12.6.4's actions first, because two of the three this program performs change what
+        // §12.6.4's actions first, because two of the five this program performs change what
         // the *current* page draws — a layer's state (§12.6.4.13) and an annotation's Hidden
         // flag (§12.6.4.11) — and a link may do both and then jump. `ViewState` keeps them;
         // redrawing is this function's answer either way.
         let before = self.view.clone();
-        let reached = self.view.perform_all(&self.document, &link.actions);
+        let requests = self.view.perform_all(&self.document, &link.actions);
         let changed_here = self.view != before;
 
-        let target = link
+        // The first request that names a page wins, because a chain that jumps twice has
+        // shown the second page either way and §12.6.2 states no rule for the pair.
+        let mut target = link
             .destination
-            .or(reached)
-            .and_then(|destination| destination.page_index(&self.document, &pages))
-            .filter(|target| *target != self.page_index && *target < self.page_count);
+            .and_then(|destination| destination.page_index(&self.document, &pages));
+        for request in &requests {
+            match request {
+                Request::Display(destination) => {
+                    target = target.or_else(|| destination.page_index(&self.document, &pages));
+                }
+                Request::Page(named) => {
+                    target = target.or_else(|| named.page_from(self.page_index, self.page_count));
+                }
+                Request::Resolve(uri) => {
+                    println!("link: {}", uri.at_position((x, y), link.rect));
+                }
+            }
+        }
+        let target =
+            target.filter(|target| *target != self.page_index && *target < self.page_count);
         if let Some(target) = target {
             self.page_index = target;
             return true;

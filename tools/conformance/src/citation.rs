@@ -65,6 +65,22 @@ pub struct Quotation {
     pub clause: Option<ClauseNumber>,
 }
 
+/// A `§` that belongs to a document other than ISO 32000-2.
+///
+/// `§` in this tree means "a clause of ISO 32000-2" — that is what makes every one of them
+/// checkable — and the failure this catches is not a typo but a *readable* citation of
+/// something else. `RFC 3986 §5.2` reads correctly to a person and checks as ISO 32000-2's
+/// §5.2, which exists, so it passes in silence while pointing at another document entirely.
+/// The first one arrived in the eightieth session with §12.6.4.8's URI resolution, and one of
+/// its four spellings landed on a real clause.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignCitation {
+    /// The document named before the `§`, as written.
+    pub document: String,
+    /// The 1-based line it appears on.
+    pub line: usize,
+}
+
 /// A reference to one of the standard's numbered tables.
 ///
 /// Table numbers are the half of a citation nothing checked until the thirteenth session,
@@ -89,6 +105,8 @@ pub struct Scan {
     pub citations: Vec<Citation>,
     /// Every `§` that could not be read as a citation.
     pub malformed: Vec<MalformedCitation>,
+    /// Every `§` attached to a document that is not ISO 32000-2.
+    pub foreign: Vec<ForeignCitation>,
     /// Every rustdoc blockquote, in file order.
     pub quotations: Vec<Quotation>,
     /// Every `Table N` reference, in file order.
@@ -182,6 +200,15 @@ fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
         if after.starts_with('{') {
             continue;
         }
+        // A `§` that belongs to another document is not a citation of this one, and checking
+        // its number against ISO 32000-2's clauses is how it would pass unnoticed.
+        if let Some(document) = another_document(line.get(..position).unwrap_or_default()) {
+            scan.foreign.push(ForeignCitation {
+                document,
+                line: line_number,
+            });
+            continue;
+        }
         let digits: String = after
             .chars()
             .take_while(|character| character.is_ascii_digit() || *character == '.')
@@ -199,6 +226,38 @@ fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
             }),
         }
     }
+}
+
+/// The other document a `§` belongs to, from the text before it on the same line.
+///
+/// Recognised by the shape every such citation has: an acronym and a number, immediately
+/// before the section sign — `RFC 3986 §5.2.2`, `ISO 15076-1 §6`. ISO 32000-2 itself is
+/// deliberately *not* foreign, because naming the standard before its own clause number is
+/// exactly what `CLAUDE.md` principle 5 asks for.
+///
+/// Nothing wider is attempted. A checker that guessed at every phrase before a `§` would
+/// report the sentences that merely mention another standard, and this one has to be right
+/// every time to be worth having.
+fn another_document(before: &str) -> Option<String> {
+    let before = before.trim_end();
+    let mut words = before.split_whitespace().rev();
+    let number = words.next()?;
+    let name = words.next()?;
+    let acronym = name.trim_start_matches(['(', '"', '`']);
+    if !number
+        .chars()
+        .all(|character| character.is_ascii_digit() || character == '-')
+        || !acronym.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '/'
+        })
+        || acronym.len() < 2
+    {
+        return None;
+    }
+    if acronym == "ISO" && number == "32000-2" {
+        return None;
+    }
+    Some(format!("{acronym} {number}"))
 }
 
 /// Reads every `Table N` in one line's comment into `scan`.
@@ -428,5 +487,32 @@ mod tests {
         let scan = scan(&source);
         assert_eq!(scan.quotations.len(), 1);
         assert_eq!(scan.quotations.first().unwrap().text, "a real one");
+    }
+
+    /// A `§` that belongs to another document is not a citation of this one.
+    ///
+    /// The case that made this necessary: `RFC 3986 §5.2` is *correct writing* about the
+    /// document §12.6.4.8 defers to, and ISO 32000-2 has a §5.2 of its own — so the citation
+    /// checker read it, found the clause, and said nothing.
+    #[test]
+    fn a_section_sign_after_another_documents_name_is_not_a_citation() {
+        let source = format!("{DOC} resolved by RFC 3986 {SECTION}5.2.2's algorithm\n");
+        let scan = scan(&source);
+        assert!(scan.citations.is_empty(), "{:?}", scan.citations);
+        assert_eq!(
+            scan.foreign
+                .first()
+                .map(|foreign| foreign.document.as_str()),
+            Some("RFC 3986")
+        );
+    }
+
+    /// ISO 32000-2's own name before its own clause number is the convention, not a finding.
+    #[test]
+    fn the_standards_own_name_before_a_clause_is_a_citation() {
+        let source = format!("{DOC} ISO 32000-2 {SECTION}9.6.5.4 names five routes\n");
+        let scan = scan(&source);
+        assert!(scan.foreign.is_empty());
+        assert_eq!(scan.citations.len(), 1);
     }
 }
