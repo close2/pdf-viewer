@@ -27,6 +27,7 @@ pub mod cff;
 pub mod cmap;
 pub mod encoding;
 pub mod name_keyed;
+pub mod panose;
 pub mod standard_metrics;
 pub mod substitute;
 pub mod tounicode;

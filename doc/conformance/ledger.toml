@@ -2567,16 +2567,18 @@ note = "Table 120 applies to a CIDFont's descriptor and is read as far as §9.8.
 [[clause]]
 clause = "9.8.3.2"
 title = "Style"
-status = "silent"
-code = ["crates/pdf-font/src/substitute.rs"]
-note = "`/Style` has one defined entry, `/Panose`, and it is a twelve-byte classification of a typeface's shape. Nothing reads it. The debt is bounded and worth stating exactly: it can only change which installed face stands in for a CIDFont whose program is *not* embedded, never an embedded one, and `substitute.rs` chooses from Table 120's `/Flags`, `/FontWeight` and `/ItalicAngle` instead. Recorded as silent rather than as nothing owed, because a worse substitute is a different page and no report says so."
+status = "implemented"
+code = ["crates/pdf-font/src/panose.rs", "crates/pdf-font/src/substitute.rs"]
+test = ["crates/pdf-font/src/panose.rs::the_clauses_own_example_classifies_a_light_serif_face", "crates/pdf-font/src/panose.rs::the_digits_boundaries_are_panoses_own", "crates/pdf-model/tests/panose.rs::a_panose_number_changes_the_substitute_for_some_fonts_and_not_others"]
+note = "The `/Style` dictionary, of which \"[o]nly the Panose entry is defined\", read as the twelve bytes §9.8.3.2 states — two of OS/2 family class, ten of PANOSE — and applied to substitution. The *meaning* of those ten digits is not in this standard: §9.8.3.2 hands it to Hewlett-Packard's PANOSE Classification Metrics Guide and to Microsoft's TrueType specification, both clause 2 normative references, which is why `panose.rs` cites them by name and reads only the four digits this program can act on — family type, serif style, weight, proportion. Where the classification and Table 121's `/Flags` disagree, **the classification wins**, and the corpus shows why: `noembed-eucjp.pdf` and `noembed-sjis.pdf` name MS-Gothic, a Japanese sans-serif face, with flags claiming serif *and* fixed pitch *and* both Symbolic and Nonsymbolic, while the PANOSE number says Latin Text, Normal Sans. Those two documents are the only ones of the 974 whose substitute the entry changes, measured by deriving each request twice — once with the entry and once with it removed. Serifs decide before proportion, which is a **documented choice**: advances come from `/Widths` or `/W` whenever the file states them, so the shape is what a substitute has to get right. 46 fonts reach a descriptor with a `/Style`; 44 of the values are twelve bytes and two are a producer's own length."
 
 [[clause]]
 clause = "9.8.3.3"
 title = "FD"
-status = "silent"
-code = ["crates/pdf-font/src/lib.rs"]
-note = "`/FD` overrides font-wide *metric* attributes for a class of glyphs, and the clause bounds it to that: \"This font descriptor shall contain entries for metric information only; it shall not include FontFile , FontFile2 , FontFile3\". Every metric it can override is one §9.8.1 records as unread here, because a glyph's advance comes from `/W` and `/DW` (§9.7.4.3) and its outline from the embedded program. So the debt is the same one §9.8.3.2 carries and no larger: a substitute chosen without it, with nothing said."
+status = "partial"
+code = ["crates/pdf-font/src/substitute.rs"]
+test = ["crates/pdf-model/tests/panose.rs::the_corpuss_one_glyph_class_dictionary_states_what_the_clause_forbids"]
+note = "`/FD` is read as the classes it names and their overriding descriptors, and is applied to nothing — the boundary is stated in the clause rather than chosen here. \"[T]he names of the glyph classes depend on the character collection, as identified by the Registry , Ordering , and Supplement entries in the CIDSystemInfo dictionary\", so knowing which *CIDs* a class holds means having the collection itself, which is registered data published outside this standard: the same boundary Table 116's predefined `CMap`s sit behind, and the same licensing decision. What the entry is *for* is building a substitute — \"a more accurate substitution font can be created\" — and this tree selects an installed face instead (ADR 0007). **The clause also contradicts itself, and the corpus's one witness proves it**: such a descriptor \"shall contain entries for metric information only; it shall not include FontFile , FontFile2 , FontFile3 , or any of the entries listed in [Table 120]\", and every metric a descriptor can state is in Table 120. `issue13147.pdf`'s `/FD << /Proportional … >>` — the class the clause itself recommends — holds ten Table 120 entries, because there is nowhere else to put metrics. Nothing here enforces the restriction, and the test records why."
 
 [[clause]]
 clause = "9.9"

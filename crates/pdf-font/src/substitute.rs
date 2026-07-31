@@ -94,6 +94,12 @@ impl Request {
             .map(|c| c.to_ascii_lowercase())
             .collect();
 
+        // §9.8.3.2's classification, where a CIDFont's descriptor states one. It is consulted
+        // *after* the name and *before* the flags, and the order is the argument: the name is
+        // what the producer called the font, PANOSE is what a classification says about it, and
+        // `/Flags` is a bitfield producers set carelessly (see `family_of`).
+        let panose = descriptor.and_then(|d| panose(document, d));
+
         let bold = folded.contains("bold")
             || folded.contains("black")
             || folded.contains("heavy")
@@ -102,8 +108,11 @@ impl Request {
                     .get_key(d, "FontWeight")
                     .as_number()
                     .is_some_and(|weight| weight >= 600.0)
-                    || flag(document, d, Flags::FORCE_BOLD)
-            });
+            })
+            || panose
+                .and_then(crate::panose::Panose::is_bold)
+                .unwrap_or(false)
+            || descriptor.is_some_and(|d| flag(document, d, Flags::FORCE_BOLD));
 
         let italic = folded.contains("italic")
             || folded.contains("oblique")
@@ -116,7 +125,7 @@ impl Request {
             });
 
         Self {
-            family: family_of(&folded, document, descriptor),
+            family: family_of(&folded, document, descriptor, panose),
             bold,
             italic,
         }
@@ -145,8 +154,76 @@ fn flag(document: &Document, descriptor: &Dictionary, bit: u32) -> bool {
         .is_some_and(|flags| flags & bit != 0)
 }
 
-/// Chooses a family from the font name, falling back to the descriptor's flags.
-fn family_of(folded: &str, document: &Document, descriptor: Option<&Dictionary>) -> Family {
+/// §9.8.3.3's `/FD`: per-glyph-class metric overrides, listed and not applied.
+///
+/// A `CIDFont` "may be made up of different classes of glyphs, each class requiring different sets
+/// of the font-wide attributes that appear in font descriptors" — Latin glyphs and kanji, in the
+/// clause's own example — and `/FD` maps a class name to a descriptor overriding the font-wide
+/// one for that class alone.
+///
+/// # Why this returns names rather than metrics for a CID
+///
+/// The names are not free text: "[t]he names of the glyph classes depend on the character
+/// collection, as identified by the Registry , Ordering , and Supplement entries in the
+/// `CIDSystemInfo` dictionary", and Table 123 lists them per collection — `Proportional`, `Kanji`,
+/// `HRoman` and the rest. Knowing which *CIDs* a class holds means having the character
+/// collection itself, which is registered data published outside this standard. That is the same
+/// boundary Table 116's predefined `CMap`s sit behind, and the same decision: vendoring it is a
+/// licensing question, and guessing at it would assign a kanji's metrics to a Latin glyph.
+///
+/// So a caller gets the classes the file states and may use them to *build* a substitute, which
+/// is what the clause says they are for — "[w]ith the information for these glyphs, a more
+/// accurate substitution font can be created". This crate selects an installed face instead
+/// (ADR 0007), so nothing here consumes them yet.
+///
+/// # The sentence that forbids what the clause recommends
+///
+/// §9.8.3.3 says such a descriptor "shall contain entries for metric information only" and shall
+/// not include the three `/FontFile` entries "or any of the entries listed in" Table 120. Every
+/// metric a font descriptor can state — the
+/// ascent, the descent, the stem widths, the missing width — **is** in Table 120, so read
+/// literally the two halves of that sentence cannot both be satisfied by a descriptor that
+/// states anything at all. The corpus's one witness resolves it the only way a producer can:
+/// `issue13147.pdf`'s `/FD << /Proportional … >>` holds `/Ascent`, `/Descent`, `/CapHeight`,
+/// `/XHeight`, `/StemV`, `/StemH`, `/Flags`, `/FontBBox`, `/ItalicAngle` and `/FontName`, all of
+/// them Table 120's. Nothing here enforces the restriction, and this comment is the record of
+/// why: it is the standard disagreeing with itself, not a file being wrong.
+#[must_use]
+pub fn glyph_classes(document: &Document, descriptor: &Dictionary) -> Vec<(String, Dictionary)> {
+    let classes = document.get_key(descriptor, "FD");
+    let Some(classes) = classes.as_dict() else {
+        return Vec::new();
+    };
+    classes
+        .iter()
+        .filter_map(|(name, value)| {
+            Some((
+                String::from_utf8_lossy(name.as_bytes()).into_owned(),
+                document.resolve(value).as_dict()?.clone(),
+            ))
+        })
+        .collect()
+}
+
+/// Table 122's `/Style` `/Panose`, where the descriptor states one.
+///
+/// §9.8.3.2 makes the value a *string*, so a file writing a name or an array has not stated a
+/// classification — and [`crate::panose::Panose::read`] then requires the twelve bytes the
+/// clause states.
+fn panose(document: &Document, descriptor: &Dictionary) -> Option<crate::panose::Panose> {
+    let style = document.get_key(descriptor, "Style");
+    let style = style.as_dict()?;
+    let value = document.get_key(style, "Panose");
+    crate::panose::Panose::read(value.as_string()?)
+}
+
+/// Chooses a family from the font name, then §9.8.3.2's classification, then the flags.
+fn family_of(
+    folded: &str,
+    document: &Document,
+    descriptor: Option<&Dictionary>,
+    panose: Option<crate::panose::Panose>,
+) -> Family {
     // The two symbolic standard-14 fonts are matched first: their names are unambiguous
     // and getting them wrong substitutes Latin letters for symbols, which is unreadable
     // rather than merely imperfect.
@@ -180,9 +257,37 @@ fn family_of(folded: &str, document: &Document, descriptor: Option<&Dictionary>)
         return Family::SansSerif;
     }
 
-    // The name said nothing recognisable, so the descriptor decides. Its flags are a
-    // weaker signal than a name — many producers set them carelessly — which is why they
-    // are consulted last rather than first.
+    // The name said nothing recognisable. §9.8.3.2's PANOSE number is next, because it is a
+    // *classification of the face* rather than a bit somebody set: a document that carries one
+    // has said whether the glyphs have serifs and whether they are monospaced, on a scale
+    // defined outside this standard and cited by it.
+    if let Some(panose) = panose {
+        // Serifs decide before proportion, and the ordering is a **documented choice** rather
+        // than the clause's — §9.8.3.2 states no rule for choosing a substitute at all. Two
+        // reasons, and the second is this crate's own architecture: a monospaced face standing
+        // in for a serifed design changes the shape of every glyph, which is the more
+        // conspicuous error; and the proportion matters least here, because advances come from
+        // `/Widths` or `/W` whenever the document states them (see this module's comment). The
+        // corpus's own case is the argument in miniature — `vertical.pdf` embeds a Japanese
+        // Mincho classified as *both* Cove-serifed and monospaced, and its Latin glyphs are
+        // serifed.
+        if let Some(serif) = panose.is_serif() {
+            return if serif {
+                Family::Serif
+            } else {
+                Family::SansSerif
+            };
+        }
+        if panose.is_monospaced() == Some(true) {
+            return Family::Monospace;
+        }
+        // A `LatinSymbol` face is deliberately *not* `Family::Symbol`: that arm means the
+        // standard-14 `Symbol` font, whose character set is a specific one. All PANOSE states
+        // here is that the glyphs are not letters, which no installed Latin family draws either.
+    }
+
+    // Last, the descriptor's flags, which are a weaker signal than either — many producers
+    // set them carelessly.
     match descriptor {
         Some(d) if flag(document, d, Flags::FIXED_PITCH) => Family::Monospace,
         Some(d) if flag(document, d, Flags::SERIF) => Family::Serif,
