@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-fourth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-fifth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -227,6 +227,7 @@ below rather than here.
 | 62 | §12.6's actions, and the third input a viewer has | ADR 0065 |
 | 63 | A third gate: the text, over the whole corpus | ADR 0066 |
 | 64 | §9.10.2's closing sentence is a permission, and three documents took it | ADR 0067 |
+| 65 | A ramp is not a gradient: 144 G instructions become 54 G | ADR 0068 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -1152,12 +1153,16 @@ with both, alternating, best of N.
 
 Measured again in the **fifty-eighth** session, after ten sessions of rendering changes:
 
-| | fifty-eighth session | forty-sixth |
-|---|---|---|
-| total, ours | **7.13 s** over 852 complete pages | 8.28 s over 853 |
-| total, `hayro` | **39.03 s** | 112.7 s |
-| **median page** | **2.29× slower** | 2.12× |
-| worst page | 63×, `issue19176.pdf` at 854 µs against 13.5 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 56× |
+| | sixty-fifth session | fifty-eighth | forty-sixth |
+|---|---|---|---|
+| total, ours | **6.20 s** | 7.13 s over 852 complete pages | 8.28 s over 853 |
+| total, `hayro` | 34.93 s | 39.03 s | 112.7 s |
+| **median page** | **2.15× slower** | 2.29× | 2.12× |
+| worst page | 50×, `issue19176.pdf` at 553 µs against 11.1 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 63× | 56× |
+
+**Our own total fell 7.13 s → 6.20 s in the sixty-fifth session**, and the two sessions between
+added features rather than removing work, so the fall is ADR 0068's: a ramp now hands a
+rasteriser the stops it cannot compute for itself.
 
 **Read the two totals before reading the median.** Our total *fell* by 14% and `hayro`'s fell by
 **65%**, which is far outside the run-to-run variance this file has recorded for it (4.5× to
@@ -1219,22 +1224,31 @@ measurement.
 **Still open, and the largest items.** This profile predates two fixes and its shading half is
 still live:
 
-| on `bug1721218_reduced.pdf`, 16.1 G instructions | share |
-|---|---|
-| `tiny_skia::pipeline::lowp::gradient` | 29.7% |
-| `pdf_model::function::Function::parse` | 23.2% |
-| `pdf_model::function::Function::eval` | 13.8% |
-| `ColourSpace::to_rgb_at` | 2.6% |
+That profile was re-measured in the sixty-fifth session and **its diagnosis was right and had
+never been acted on**. `bug1721218_reduced.pdf` was **144.05 G instructions** with
+`tiny_skia::pipeline::lowp::gradient` at **68%** — the file's own sentence, that a `Ramp` carries
+256 samples so a shading becomes a 256-stop gradient the rasteriser scans per pixel batch. A ramp
+now drops every stop that lies on the line its neighbours draw, to within half a level in eight
+bits, so a `/FunctionType 2` with `/N 1` is **two stops instead of 256** (ADR 0068):
 
-**The gradient stage** is the largest single item because a `Ramp` carries 256 samples, so a
-shading becomes a 256-stop gradient and `tiny-skia` scans its stops per pixel batch; handing the
-*rasteriser* fewer stops would fix it, while coarsening the `Ramp` in the display list would lose
-fidelity and is not the same thing. **Roughly 40% of that run is building the shadings** rather
-than drawing them: a function is parsed and then sampled 256 times per shading, and that page has
-3576 of them. Whether that is 3576 *distinct* functions or one re-parsed 3576 times has never been
-checked, and it decides whether the fix is memoisation by object reference or something harder.
-One caution: `to_rgb_at` was 2.6% when `CalGray` was a pass-through; it now runs a Bradford
-adaptation and a matrix per colour, and per *sample* for a Cal-space image.
+| on `bug1721218_reduced.pdf` | before | after |
+|---|---|---|
+| whole page | 144.05 G | **54.05 G** |
+| `tiny_skia::pipeline::lowp::gradient` | 97.9 G (68%) | 15.8 G (29%) |
+| `Function::parse` | 3.6 G (2.5%) | 3.6 G (6.7%) |
+
+Two of the old profile's claims did not survive the re-measurement, and both are worth keeping
+as warnings. `Function::parse` was recorded at **23.2%** and is 2.5% of the larger page — the
+profile had aged past its conclusion. And the question the file asked next, whether the page's
+"3576" shadings are distinct functions or one re-parsed, had the wrong premise: instrumenting the
+pattern path counts **eight** shadings on page one. Parsing was never the cost.
+
+What is left on that page, in order: `Function::parse` 6.7%, `Mask::intersect_path` 6.4%,
+`build_soft_mask` 6.4%, `fill_path_impl` 5.1%. The next item is the one already listed above —
+the CPU backend gives every transparency group a page-sized pixmap — and this is the page that
+would show it. One caution about the old table's fourth row: `to_rgb_at` was 2.6% when `CalGray`
+was a pass-through; it now runs a Bradford adaptation and a matrix per colour, and per *sample*
+for a Cal-space image.
 
 Two fixes are worth carrying as patterns, and both are in Habits: unpacking JPEG output cost 6.89
 G instructions until two paired `chunks_exact` iterators took it to 1.25 G — **the safety habits
@@ -1589,6 +1603,12 @@ before you ask whether the number is.
 
 **A gate's numerator moves when its denominator does, and only one of those is news.** Keep the
 denominator beside the numerator, and say which pages moved and why.
+
+**A profile ages past its conclusion, and the conclusion is what survives being read.** This
+file carried one profile of `bug1721218_reduced.pdf` for nineteen sessions. Re-measured, its
+largest item was *four times* the share recorded and its second largest a tenth of it — and the
+sentence beside the largest item had named the fix correctly the whole time and nobody had done
+it. Re-measure before working from a table, and work from the sentence rather than the number.
 
 **A ratio has two ends, and this file has quoted the wrong one.** The median against `hayro` rose
 2.12× → 2.29× while our own total *fell* 14%, because their total fell 65%. Quote the absolute

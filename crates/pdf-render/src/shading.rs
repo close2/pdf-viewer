@@ -222,6 +222,88 @@ pub struct Ramp {
     pub stops: Arc<[Stop]>,
 }
 
+/// How far a dropped stop may sit from the line its neighbours draw, per channel.
+///
+/// Both rasterisers interpolate a gradient linearly between consecutive stops and deliver eight
+/// bits per channel, so a stop within **half a level** of the line through the stops either side
+/// of it produces the same byte whether it is there or not. `1.0 / 512.0` is that half level in
+/// the `0.0..=1.0` this crate's [`Color`] uses.
+///
+/// It is a *lossless* bound rather than a quality knob: raising it would start changing pixels,
+/// which is why it is stated as a fraction of a level and not as a tolerance.
+const COLLINEAR: f32 = 1.0 / 512.0;
+
+/// Drops the stops a rasteriser would have computed anyway.
+///
+/// [`Ramp::sample_across`] samples a colour function at [`Ramp::RESOLUTION`] positions because
+/// that is the resolution at which a *function* has to be believed. What a gradient needs is
+/// something else: the positions where the colour stops being a straight line. A shading whose
+/// function is an exponential with `/N 1` — which is most of them, and every `/FunctionType 2`
+/// interpolation between two colours — is one straight line and needs **two** stops, not 256.
+///
+/// The cost of the difference is not in building the ramp. `tiny-skia` walks a gradient's stop
+/// list per pixel batch, so 256 stops is 128 times the search 2 stops is, and on
+/// `bug1721218_reduced.pdf` `tiny_skia::pipeline::lowp::gradient` was **68% of a 144 G
+/// instruction page**. Vello's shader does the same walk on the GPU.
+///
+/// The rule is exact rather than approximate: a stop is dropped only where every dropped stop
+/// lies within [`COLLINEAR`] of the line the surviving neighbours draw, and both backends
+/// interpolate linearly between those neighbours — so the colour a rasteriser computes at every
+/// position is the same to eight bits. Two stops at one position, which is how
+/// [`Ramp::sample_across`] expresses a discontinuity, are never collapsed into one: a vertical
+/// segment fails the test at once.
+fn simplify(stops: &[Stop]) -> Vec<Stop> {
+    let Some(first) = stops.first().copied() else {
+        return Vec::new();
+    };
+    let mut out = vec![first];
+    let mut anchor = 0usize;
+    let mut index = 1usize;
+    while index < stops.len() {
+        // Extend the run while every stop between the anchor and the candidate lies on the
+        // line the two of them draw. Checking *all* of them, rather than only the one being
+        // dropped, is what stops the error accumulating over a long run.
+        let mut end = index;
+        while end.saturating_add(1) < stops.len() {
+            let next = end.saturating_add(1);
+            let (Some(&start), Some(&finish)) = (stops.get(anchor), stops.get(next)) else {
+                break;
+            };
+            let straight = stops
+                .get(anchor.saturating_add(1)..next)
+                .unwrap_or_default()
+                .iter()
+                .all(|middle| on_the_line(start, finish, *middle));
+            if !straight {
+                break;
+            }
+            end = next;
+        }
+        if let Some(&keep) = stops.get(end) {
+            out.push(keep);
+        }
+        anchor = end;
+        index = end.saturating_add(1);
+    }
+    out
+}
+
+/// Whether `middle` is what linear interpolation between `start` and `finish` would give.
+fn on_the_line(start: Stop, finish: Stop, middle: Stop) -> bool {
+    let span = finish.at - start.at;
+    // A zero-width span is a discontinuity, and a stop inside one has no line to lie on. A
+    // NaN position is neither, and `<=` answers false for it, which is the same refusal.
+    if !span.is_finite() || span <= 0.0 {
+        return false;
+    }
+    let fraction = ((middle.at - start.at) / span).clamp(0.0, 1.0);
+    let between = |a: f32, b: f32| a + (b - a) * fraction;
+    (middle.colour.r - between(start.colour.r, finish.colour.r)).abs() <= COLLINEAR
+        && (middle.colour.g - between(start.colour.g, finish.colour.g)).abs() <= COLLINEAR
+        && (middle.colour.b - between(start.colour.b, finish.colour.b)).abs() <= COLLINEAR
+        && (middle.colour.a - between(start.colour.a, finish.colour.a)).abs() <= COLLINEAR
+}
+
 /// One entry of a [`Ramp`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Stop {
@@ -311,7 +393,7 @@ impl Ramp {
         }
 
         Self {
-            stops: stops.into(),
+            stops: simplify(&stops).into(),
         }
     }
 
@@ -724,7 +806,13 @@ mod tests {
         assert_eq!(at_break, 2, "the step is two stops at one position");
     }
 
-    /// A ramp with no breaks is still an even sampling, and both ends are present.
+    /// A ramp with no breaks spans the whole interval, and a straight one is two stops.
+    ///
+    /// The length assertion used to be `RESOLUTION`, which was a statement about how the ramp
+    /// is *built* rather than about what it says. `simplify` drops every stop a rasteriser
+    /// would have computed anyway, so a linear function — every `/FunctionType 2` with `/N 1`,
+    /// which is most shadings in most documents — comes out as its two endpoints. That is the
+    /// whole of ADR 0068, seen from the smallest possible case.
     #[test]
     fn an_unbroken_ramp_spans_the_whole_interval() {
         let ramp = Ramp::sample(|t| Color {
@@ -733,7 +821,7 @@ mod tests {
             b: t,
             a: 1.0,
         });
-        assert_eq!(ramp.stops.len(), Ramp::RESOLUTION);
+        assert_eq!(ramp.stops.len(), 2, "a straight line needs its two ends");
         assert!(
             ramp.stops
                 .first()
