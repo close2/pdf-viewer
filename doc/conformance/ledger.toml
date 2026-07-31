@@ -5205,14 +5205,20 @@ note = "A worked example of a structure tree. Nothing normative; recorded so tha
 [[clause]]
 clause = "14.8"
 title = "Tagged PDF"
-status = "silent"
-note = "Aggregate of §14.8's sixty rows, of which this session reads the first twenty. Tagged PDF is \"a stylised use of PDF that builds on the logical structure framework described in 14.7\" — so every row of it is behind §14.7's structure tree, which is `silent` in full. **78 of the 974 corpus documents carry a `/MarkInfo`.** `CLAUDE.md` puts this family in scope only \"as far as accessibility needs it\", and §14.9 is what defines that; what §14.8 adds beyond §14.9 is a vocabulary of structure types and attributes for *repurposing* — reflow, export, conversion — which is not what this program does."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_document_says_it_is_tagged_in_its_mark_information_dictionary"]
+note = "Tagged PDF: \"a stylised use of PDF that builds on the logical structure framework described in 14.7\". Of its sixty rows, what is read is the whole of §14.8.4's vocabulary, §14.8.2's artifacts and reversed show strings, §14.8.6's namespaces, and this row's own mark information dictionary. What is left is §14.8.5's attributes — what a `/BBox` or a `/ColSpan` *says* — and §14.8.2.5's ordering, which is a question for a consumer that walks the tree rather than for the reader that builds it."
+
 
 [[clause]]
 clause = "14.8.1"
 title = "General"
-status = "silent"
-note = "What a tagged PDF is and the one requirement stated here rather than in a table: \"A tagged PDF document shall contain a mark information dictionary … with a value of true for the Marked entry.\" That is a cheap thing to read and nothing reads it. The NOTE's five uses are worth keeping straight because only one of them is this project's: extraction, reflow, indexing, conversion, and \"[m]aking content accessible to users with disabilities\"."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_document_says_it_is_tagged_in_its_mark_information_dictionary"]
+note = "What a tagged PDF is, and the one requirement stated here rather than in a table: \"A tagged PDF document shall contain a mark information dictionary … with a value of true for the Marked entry.\" `structure::MarkInfo` reads Table 353's three flags, and the distinction it makes is real rather than technical — a document may have a structure tree without claiming to follow §14.8's rules, and `/Marked` is the claim. `/Suspects` is read and deprecated in PDF 2.0; `/UserProperties` is a hint the clause states as one, since `Tree::attributes` finds them either way."
+
 
 [[clause]]
 clause = "14.8.2"
@@ -5350,122 +5356,182 @@ note = "Progression direction — inline and block — for the four writing mode
 [[clause]]
 clause = "14.8.4"
 title = "Standard structure types"
-status = "silent"
-note = "Aggregate of the nineteen below: the vocabulary of standard structure types, which is most of what tagged PDF *is*. All of it hangs off §14.7's structure tree, which nothing here reads, and **none of it changes a mark on a page** — a `H1` and a `P` are drawn by the same operators and differ only in what they mean. The rule that matters most to a reader is stated once, in §14.8.4.1: \"All structure elements occurring within a tagged PDF document shall have a type matching one of those defined as a Standard Structure Type, or a role map providing a mapping from the non-standard type to a Standard Structure Type\" — so a reader needs the role map (§14.8.6.2) before it needs any of these names."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "The standard structure types: forty-one names in `structure::StandardType`, which is what `Tree::standard_role` answers after §14.7.3's and §14.8.6.2's role mapping. Every subclause's table is read; what is `partial` is that **nothing does anything with a type yet** — the vocabulary is here and the consumer is not, which is the same debt §14.7 carries. Annex L's nesting rules are not checked, and are a validator's job rather than a reader's."
+
 
 [[clause]]
 clause = "14.8.4.1"
 title = "General"
-status = "silent"
-note = "The four categories — document, grouping, block and inline — and the one rule that is not a list: a type usable as either block or inline \"is an inline level structure element\" when used inside a block level element and a block level one otherwise. So the category is a property of the *position*, not of the name, which is the sort of thing an implementation gets wrong by building a table."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_contextual_type_takes_its_category_from_its_parent"]
+note = "The four categories, and the rule for a type that is in more than one: \"[i]f the structure element is used inside a block level element, it is an inline level structure element. In all other cases it is a block level structure element.\" `Category::of` is that sentence, taking the parent's category from a caller walking the tree — because this crate walks `/K` on demand and keeps no ancestry. `Category::Internal` is the fifth answer the clause gives without calling it a level: `LI` is \"[i]nternal to L (List) structure elements\" and `TR` \"[i]nternal to a Table structure\", which is a statement about where an element may appear rather than about what it may contain."
+
 
 [[clause]]
 clause = "14.8.4.2"
 title = "Nesting of standard structure elements"
-status = "silent"
-note = "Nesting, defined by Annex L's parent-child table plus per-type rules. The NOTE's system model is the useful summary and it is six lines: elements may be empty, real content lives inside block or inline elements, document and grouping elements cannot contain content directly, and inline elements contain only inline elements. A reader validating a tree needs Annex L; a reader *drawing* one needs none of it."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_mapped_role_reads_as_its_standard_type"]
+note = "Nesting. The clause defers the rules themselves to Annex L and this reader checks none of them: a nesting rule is a statement about whether a *document* is well formed, and nothing here validates documents — the same position §7.11.2.1's path rules and §7.12.4's version ordering are recorded in. What is implemented is the sentence this row shares with §14.8.4.1: a non-standard type nests \"according to the requirements of the structure elements to which they are role mapped\", which is what makes `standard_role` the question a consumer asks rather than `role`."
+
 
 [[clause]]
 clause = "14.8.4.3"
 title = "Document level structure types"
-status = "silent"
-note = "Table 364's `Document`, `DocumentFragment` and `Part`. A tagged PDF may hold several logical documents merged into one file, which is the reason this category exists at all."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Document` and `DocumentFragment`, the two document level types, both read. `DocumentFragment` is one of the eight PDF 2.0 additions `StandardType::since_pdf_2_0` names, which matters because §14.8.6.1's default namespace is PDF 1.7's and cannot mean it."
+
 
 [[clause]]
 clause = "14.8.4.4"
 title = "Grouping level structure types"
-status = "silent"
-note = "Table 365's grouping types — `Art`, `Sect`, `Div`, `Aside`, `BlockQuote`, `TOC`, `TOCI`, `Index`, `NonStruct`, `Private` and the deprecated `Quote` and `Note`. `TOC` and `TOCI` are the one pair with an obvious counterpart in this tree: §12.3.3's outline is a table of contents the *document* states, and a `TOC` element is one the *content* states; nothing connects them and the standard does not ask anything to."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Part`, `Sect`, `Div`, `Aside` and `NonStruct`, the grouping level types. `Aside` is PDF 2.0's."
+
 
 [[clause]]
 clause = "14.8.4.5"
 title = "Block level structure types"
-status = "silent"
-note = "Table 366's block level types: `P`, `H`, `H1` through `H6`, `Title`, `FENote`, `Sub`, `Lbl`, `Caption`, `LBody`. The heading levels are the part with a rule behind them rather than a name — a tagged document's headings are its outline for a reader that has no `/Outlines`."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`P`, `H`, `Hn`, `Title` and `FENote`. `Hn` is the one entry that is a *family* rather than a name — Table 372 writes it as `H n` \"with n being a sequence of digits representing an unsigned integer greater than or equal to 1\" — so it is matched before the table and `H17` is as standard as `H1`, while `H0` is not. `Title` and `FENote` are PDF 2.0's and are contextual: the clause gives them two and three categories respectively."
+
 
 [[clause]]
 clause = "14.8.4.6"
 title = "Sub-block level structure type"
-status = "silent"
-note = "Table 367's `Sub`, the one sub-block type: a subdivision of a block that is not itself a paragraph. Read and recorded; there is nothing here a renderer could act on."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Sub`, PDF 2.0's sub-block level type, \"a sub-division inside a block level\" element. One row, one name, inline."
+
 
 [[clause]]
 clause = "14.8.4.7"
 title = "Inline level structure types"
-status = "silent"
-note = "Aggregate of the three below: the types that organise content *inside* a block."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "The inline level types. See the three below."
+
 
 [[clause]]
 clause = "14.8.4.7.1"
 title = "General"
-status = "silent"
-note = "The permissive rule this category is built on: an inline element \"is optional\", may occur any number of times, and \"structure elements and portions of actual content inside a parent structure element may occur in any combination and in any order\" unless a type restricts it. So a reader may not assume a block's children are all elements or all content."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "The framing: inline types \"enable structural organisation of content inside block level elements\", which `Category::Inline` is."
+
 
 [[clause]]
 clause = "14.8.4.7.2"
 title = "General inline level structure types"
-status = "silent"
-note = "Table 368's general inline types — `Span`, `Quote`, `Note`, `Reference`, `BibEntry`, `Code`, `Link`, `Annot`, `Em`, `Strong`. **`Span` is the one this tree already meets**, as the marked-content tag §14.9's `/Lang`, `/Alt`, `/ActualText` and `/E` arrive under; all four are read since the sixtieth session. What is unread is `Span` as a structure *type* — the tag on a `BDC` is taken at face value and never checked against Table 368, because none of §14.9's entries is worth less for being written under a tag the file chose badly."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Lbl`, `Span`, `Em`, `Strong`, `Link`, `Annot` and `Form`. `Em` and `Strong` are PDF 2.0's; the last three are contextual, being \"Grouping, Block or Inline\" depending on what they enclose, and each is an *association* between content and an annotation or field rather than a description of the content."
+
 
 [[clause]]
 clause = "14.8.4.7.3"
 title = "Ruby and warichu elements"
-status = "silent"
-note = "A `Link` element's children: content items or other inline elements whose `/A`, `/Dest` and `/PA` \"have identical values\", plus one object reference to the link annotation itself. That last is what ties a structure element to an annotation, and it is §14.7.5.3's object reference — the same construction §12.3.2.3's structure destinations resolve a page through. NOTE 2 names the `/SD` entry as the way to link to a structure element rather than to an area of a page, which is §12.3.2.3 seen from the other end."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Ruby`, `RB`, `RT` and `RP`, the ruby assembly's four types, all inline. `RP` is the one with a condition on its use — punctuation \"used only when a PDF processor cannot place the ruby annotation text adjacent to the ruby base text\" — which is a producer's decision and changes nothing a reader does with the type. **This clause number appears twice in `doc/md/`**, once here and once in an annex; the citation checker finds the first, which is this one."
+
 
 [[clause]]
 clause = "14.8.4.7.4"
 title = "Ruby and warichu elements"
-status = "silent"
-note = "Ruby and warichu: `Ruby`, `RB`, `RT`, `RP`, `Warichu`, `WT`, `WP` — pronunciation glosses set beside or within a line of Japanese or Chinese text. **The glyphs are positioned by the content stream like any others**, so this changes nothing about drawing; what the structure adds is knowing that the small text is a gloss on the large. Their layout attributes are §14.8.5.4.4's `/RubyAlign` and `/RubyPosition`, which are for a processor that lays text out."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Warichu`, `WT` and `WP`, the warichu assembly's three types, all inline."
+
 
 [[clause]]
 clause = "14.8.4.8"
 title = "Other structure types"
-status = "silent"
-note = "Aggregate of the six below: types with an internal structure of their own — lists, tables, captions, figures, formulae and artifacts."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "The other structure types: lists, tables, captions, figures, formulae and the `Artifact` element. See the seven below."
+
 
 [[clause]]
 clause = "14.8.4.8.1"
 title = "General"
-status = "silent"
-note = "Why these are separate: each \"[has] a distinct internal structure on their own, or … may be used as grouping level structure elements, as block level structure elements or as inline level structure elements, depending on the context\", which is §14.8.4.1's positional rule applied to the types that need it most."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "The framing for the types that are neither a level nor an inline: they are structures of their own with internal parts, which is what `Category::Internal` records."
+
 
 [[clause]]
 clause = "14.8.4.8.2"
 title = "Standard structure types for lists"
-status = "silent"
-note = "Table 370's `L`, `LI`, `Lbl` and `LBody`, and one nesting rule stated here rather than in Annex L: a nested list \"shall be a direct child of its parent L (list) structure element or contained within a Div structure element belonging to the parent L\". The NOTE's exception is the interesting half — a list inside an `LBody` is not part of the hierarchy at all."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`L`, `LI` and `LBody`. `L` is contextual — block or inline — and the other two are internal to it, which is the clause's own wording rather than a category: `LI` is \"[i]nternal to L (List) structure elements\"."
+
 
 [[clause]]
 clause = "14.8.4.8.3"
 title = "Table structure types"
-status = "silent"
-note = "Table 371's `Table`, `TR`, `TH`, `TD`, `THead`, `TBody`, `TFoot`, and **an algorithm**, which is rare in this family: where `/Headers` is absent, a cell's headers are found by searching towards the first cell in the direction `/WritingMode` gives, stopping at the table's edge, at a data cell after a header cell, or at a header cell that states its own `/Headers`. The clause's NOTE explains why it needs no special case for right-to-left scripts — \"the structure always reflects the logical content order of the table\" — which is §14.8.2.5.1's logical order doing exactly the work it was defined for."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Table`, `TR`, `TH`, `TD`, `THead`, `TBody` and `TFoot`. `Table` is block level and the other six are internal to it. The attributes that make a table *readable* — `/Headers`, `/Scope`, `/RowSpan`, `/ColSpan` — are §14.8.5's and are unread as data, which is where the remaining work in this family is."
+
 
 [[clause]]
 clause = "14.8.4.8.4"
 title = "Caption structure type"
-status = "silent"
-note = "Table 372's `Caption`, which \"encloses content that serves as a caption\" for a table or figure. One type, no internal structure of its own beyond where it may sit."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Caption`, grouping or block, \"[f]or lists and tables\" and for figures and formulae."
+
 
 [[clause]]
 clause = "14.8.4.8.5"
 title = "Figure structure type"
-status = "silent"
-note = "Table 373's `Figure`. The type an `/Alt` most often hangs on — §14.9.3's alternate description exists chiefly for \"images, formulas, or other items that do not translate naturally into text\" — so this row and §14.9.3's are the same debt seen from two directions."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Figure`, which encloses graphical content and is contextual. Its `/BBox` and `/Alt` are §14.8.5's and §14.9.3's respectively; the second is read (ADR 0063) and the first is not."
+
 
 [[clause]]
 clause = "14.8.4.8.6"
 title = "Formula structure type"
-status = "silent"
-note = "Table 374's `Formula`. As with `Figure`, what a reader owes here is §14.9.3's description rather than anything about the marks."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Formula`, contextual, with the same two attributes as `Figure` and the same split between them."
+
 
 [[clause]]
 clause = "14.8.4.8.7"
 title = "Artifact structure type"
-status = "silent"
-note = "Table 375's `Artifact` structure element, the tree-side counterpart of §14.8.2.2.2's marked-content tag. Its purpose is stated in that clause's NOTE and is worth keeping: it exists \"to accommodate artifact content in cases that have positional context relative to real content within the structure tree\", the example being line numbers."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
+note = "`Artifact` as a *structure element*, PDF 2.0's, which is the third of §14.8.2.2.2's three ways to mark one — \"[b]y inclusion in the logical structure tree through the use of the Artifact structure element type\". The marked-content forms are read by `content.rs` (ADR 0073); this is the type that lets an artifact sit in the tree \"in cases that have positional context relative to real content\", which its NOTE 1 gives line numbers as the example of."
+
 
 [[clause]]
 clause = "14.8.5"

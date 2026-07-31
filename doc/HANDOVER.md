@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **eighty-seventh** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **eighty-eighth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -20,24 +20,6 @@ and the lesson belongs in Traps or Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Eighty-fifth — a refusal that was reading the clause right.** Five spec-track sessions without
-opening the corpus's own list, and it held one entry that was neither a malformed file nor a
-clause gap. ADR 0075.
-
-- **§12.5.6.7's leader lines are stated in full.** The refusal said `/LL` makes `/L` the leaders'
-  endpoints rather than the line's — true, and the next sentences say where the line then is: a
-  perpendicular offset by `/LL`, clockwise when the value is positive, with `/LLE` past the line
-  and `/LLO` before the leader. Nothing had to be invented, and it is now drawn.
-- **The refusal fired on the entry's presence rather than on its value.** The document it named
-  writes `/LL 0`, which Table 178 defines as "no leader lines" — a document asking for nothing,
-  declined for asking.
-- **The corpus ratchet moves for the first time in six sessions: 90 → 89**, and the oracle's
-  agreeing set gains that page (836 → 837).
-- **§8.4.5's row was understating the code too**: `/Font` by indirect reference is implemented
-  and the note still called it owed. Three families in four sessions.
-
-`/LE`'s line endings stay refused, re-read: Table 179 names nine shapes and no dimension.
 
 **Eighty-sixth — the files inside the file, and everything re-measured.** §7.11 is refused by
 architecture, and §7.11.4 is the exception its own row had already named: an embedded file needs
@@ -80,6 +62,25 @@ annotation, with `/AFRelationship` saying what the file is *to* it. ADR 0077.
 
 `silent` falls 129 → 119, and clause 14's silences are now §14.8's vocabulary and one worked
 example.
+
+**Eighty-eighth — the vocabulary a tag is written in.** Four sessions of reading §14.7's tree,
+and what a tag *means* was still a string. §14.8.4's forty-one standard types are
+`structure::StandardType`, and `Tree::standard_role` is `role` read through it. ADR 0078.
+
+- **`Hn` is a family, not a name** — "with n being a sequence of digits representing an unsigned
+  integer greater than or equal to 1" — so `H17` is standard and `H0` is not.
+- **Ten types have two or three categories**, and §14.8.4.1 settles it by context: inside a block
+  level element it is inline, "[i]n all other cases it is a block level structure element".
+  `Category::of` takes the parent from the caller, because this crate keeps no ancestry.
+- **A fifth answer the clause gives without calling it a level**: `LI` is "[i]nternal to L (List)
+  structure elements", which is about where an element may *appear* rather than what it may
+  contain.
+- **Annex L's nesting rules are deliberately not checked**: that is whether a *document* is well
+  formed, and nothing here validates documents.
+- §14.8.1's mark information dictionary came with it, and the distinction is real: a document may
+  have a structure tree without claiming to follow §14.8, and `/Marked` is the claim.
+
+`silent` falls 119 → 97, **under a hundred for the first time**.
 
 ## How the project got here
 
@@ -171,6 +172,7 @@ below rather than here.
 | 85 | §12.5.6.7's leader lines, and the first corpus ratchet in six sessions | ADR 0075 |
 | 86 | §7.11.4's embedded files, listed; everything re-measured | ADR 0076 |
 | 87 | §14.13's associated files: one array in seven places | ADR 0077 |
+| 88 | §14.8.4's forty-one standard structure types, and what a tag means | ADR 0078 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -200,11 +202,11 @@ a page *says* rather than what it shows**, and which reads §12.4.4's whole pres
 page's transition, its advance timing and its own sub-page states — for a caller that has a
 presentation mode to play. It is not yet a
 PDF *viewer* in the full sense — nothing edits a field, asks a person for a password, speaks a
-page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: 119 of
+page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: 97 of
 the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **750 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **754 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all four fuzz targets
   clean at 50 000 runs apiece** — every one of those re-run in the eighty-sixth session rather
   than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -818,16 +820,16 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 307 | every normative requirement in the clause is executed |
-| `partial` | 188 | some are; the note says which are not |
-| **`silent`** | **119** | not implemented, and nothing says so |
+| `implemented` | 326 | every normative requirement in the clause is executed |
+| `partial` | 191 | some are; the note says which are not |
+| **`silent`** | **97** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 27 | not implemented, detected and named at runtime |
 | `writer-side` | 7 | addresses a PDF writer; we do not create files |
 
-**119 silences is the shape of the project**: it renders pages correctly and does very little
-when a person clicks on one. **82** of them are clause 12's interactive half and **33** are clause
+**97 silences is the shape of the project**: it renders pages correctly and does very little
+when a person clicks on one. **82** of them are clause 12's interactive half and **11** are clause
 14's structure, neither of which changes a mark on a page. (This file said 112 and 76 for four
 sessions; both were counted before the rows that closed them, and one line of `grep` over the
 ledger grouped by leading clause number is what says so — the same check the fifty-third session
@@ -896,7 +898,7 @@ all. The ledger's own notes are the detail; this is the shape.
 | 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group, and **§11.4.6's knockout wherever an element's shape is the coverage it is drawn with**. Left and reported: a knockout element whose shape is not, a non-isolated group whose elements blend, a blending space that is not the device's. |
 | 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, and the five §12.6.4 actions a viewer can perform** — a go-to, a set-OCG-state, a hide, §12.6.4.12's four page commands and §12.6.4.8's URI, resolved against Table 211's `/Base` and printed rather than opened (ADR 0070) — and the whole of §12.4.4's presentation read and none of it played, and §12.6.3's trigger events with the appearance each one asks for. 90 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events, and the presentation mode §12.4.4 asks for. |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. The rows carry the exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
-| 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7's structure tree in both directions **with its attributes, classes and namespaces** (ADR 0072) and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. 33 rows `silent`: what the tree *says* — §14.8's types and attributes, 32 of them — and a consumer for the tree itself. §14.13's associated files are read (ADR 0077). |
+| 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7's structure tree in both directions **with its attributes, classes and namespaces** (ADR 0072) and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. **§14.8.4's forty-one standard structure types** (ADR 0078) and §14.13's associated files (ADR 0077). 11 rows `silent`: §14.8.5's attributes, §14.8.2.5's ordering, and a consumer for the tree itself. |
 
 So: the parts of the standard that decide whether a page is drawn correctly are largely done; the
 parts that make a document *interactive* have just started.
@@ -936,7 +938,7 @@ parts that make a document *interactive* have just started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
-rows in the fifty-sixth session, so the specification track is now its **119 `silent` rows and 27
+rows in the fifty-sixth session, so the specification track is now its **97 `silent` rows and 27
 `reported` ones**, each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -962,14 +964,15 @@ file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
   session — `URI`, resolved but not opened, and `Named`'s four page commands (ADR 0070) — which
   leaves `GoToE` at 31 actions in 2 documents as the largest, and it needs §7.11.4's embedded
   file streams before it needs an action.
-- **Clause 14's structure, 33 rows.** §14.7 is read: the tree in both directions, its content
-  items, its attributes and classes, and PDF 2.0's namespaces with the role mapping §14.8.6.2
-  puts on them (ADR 0072). What is left is **§14.8's vocabulary** — what a `/Table` or a
-  `/BackgroundColor` *means*, as against which element states one, which is 32 of the 33 — and
-  **a consumer**, which §14.7 and §14.9 both owe: `Interpretation::speech()` returns runs of text
-  with languages and nothing hands them to AccessKit. §14.13's associated files were the other
-  ten and are read as of the eighty-seventh session (ADR 0077); §14.7.7's worked example is the
-  last row outside §14.8.
+- **Clause 14's structure, 11 rows**, and what is left of them is small. §14.7 is read whole —
+  the tree in both directions, its content items, attributes, classes and namespaces (ADR 0072) —
+  §14.8.4's forty-one standard types are read (ADR 0078), §14.8.2's artifacts and reversed show
+  strings are (ADR 0073), and §14.13's associated files are (ADR 0077). The remaining silences are
+  **§14.8.5's attributes** — what a `/BBox`, a `/ColSpan` or a `/Scope` says — §14.8.2.5's content
+  *ordering*, §14.8.2.6.2's word breaks, and §14.7.7's worked example. **The thing worth doing
+  before any of them is a consumer**: `Interpretation::speech()` returns runs of text with
+  languages, `Tree::standard_role` says what each element is, and nothing hands either to
+  AccessKit — which is the one change that would make four sessions of reading visible.
 - **Substitution quality**, §9.8.3's `/Style /Panose` and `/FD`: the oldest silence in the
   ledger and the one no gate can score.
 

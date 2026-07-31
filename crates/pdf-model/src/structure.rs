@@ -340,6 +340,19 @@ impl Tree {
         Some(String::from_utf8_lossy(name.as_bytes()).into_owned())
     }
 
+    /// The element's §14.8.4 standard type, after §14.7.3's and §14.8.6.2's role mapping.
+    ///
+    /// [`Self::role`] answers the *name*, which is what a document wrote or what its role map
+    /// took it to; this answers what that name means in the standard's own vocabulary. `None`
+    /// where the mapped name is not a standard type, which §14.8.4.1 makes a defect in the
+    /// document rather than a gap here — "[a]ll structure elements occurring within a tagged PDF
+    /// document shall have a type matching one of those defined as a Standard Structure Type, or
+    /// a role map providing a mapping from the non-standard type to a Standard Structure Type".
+    #[must_use]
+    pub fn standard_role(&self, document: &Document, element: &Dictionary) -> Option<StandardType> {
+        StandardType::read(&self.role(document, element)?)
+    }
+
     /// The namespace name an element is in, §14.8.6.1's default where it states none.
     ///
     /// > When a namespace is not explicitly specified for a given structure element or
@@ -466,6 +479,334 @@ impl Tree {
                 self.descend(document, Some(&dict), depth.saturating_add(1), out, seen);
             }
         }
+    }
+}
+
+/// §14.7.1's mark information dictionary. Table 353.
+///
+/// Three booleans in the catalog's `/MarkInfo`, and the first is what §14.8.1 turns on: "[a]
+/// tagged PDF document shall contain a mark information dictionary … with a value of true for
+/// the Marked entry." So this is how a document *says* it is tagged, as against having a
+/// structure tree — which a document may have without claiming to follow §14.8's conventions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MarkInfo {
+    /// `/Marked`: "whether the document conforms to tagged PDF conventions". Default false.
+    ///
+    /// The entry's own sentence bounds what the claim is worth: "[i]f `Suspects` is true, the
+    /// document may not completely conform to tagged PDF conventions."
+    pub marked: bool,
+    /// `/UserProperties`: whether any structure element carries §14.7.6.4's user properties.
+    ///
+    /// A hint rather than a fact a reader needs: the clause says it "allow[s] PDF processors to
+    /// quickly determine whether it is necessary to search the structure tree for elements
+    /// containing user properties", and `Tree::attributes` finds them either way.
+    pub user_properties: bool,
+    /// `/Suspects`, **deprecated in PDF 2.0**: whether the document holds tag suspects.
+    pub suspects: bool,
+}
+
+impl MarkInfo {
+    /// Reads the catalog's `/MarkInfo`, or Table 353's defaults where there is none.
+    #[must_use]
+    pub fn read(document: &Document) -> Self {
+        let Ok(catalog) = document.catalog() else {
+            return Self::default();
+        };
+        let info = document.get_key(&catalog, "MarkInfo");
+        let Some(info) = info.as_dict() else {
+            return Self::default();
+        };
+        let flag = |key: &str| matches!(document.get_key(info, key), Object::Boolean(true));
+        Self {
+            marked: flag("Marked"),
+            user_properties: flag("UserProperties"),
+            suspects: flag("Suspects"),
+        }
+    }
+}
+
+/// §14.8.4's standard structure types: the vocabulary a tagged document's `/S` names.
+///
+/// §14.8.4.1 makes the vocabulary closed for a tagged document — "[a]ll structure elements
+/// occurring within a tagged PDF document shall have a type matching one of those defined as a
+/// Standard Structure Type, or a role map providing a mapping from the non-standard type to a
+/// Standard Structure Type" — which is why [`Tree::role`] exists and why this enum is what its
+/// answer *means*.
+///
+/// The four categories §14.8.4.1 divides them into are [`Category`], and three types are in more
+/// than one: see [`Self::category`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StandardType {
+    /// `Document`: "[e]ncloses a logical document".
+    Document,
+    /// `DocumentFragment` (PDF 2.0): "[e]ncloses a logical document fragment".
+    DocumentFragment,
+    /// `Part`: "a grouping of structure elements without consideration for their hierarchy".
+    Part,
+    /// `Sect`: "a grouping of structure elements with consideration for their hierarchy".
+    Section,
+    /// `Div`: content "structured in fashion that is orthogonal to the semantic structure".
+    Division,
+    /// `Aside` (PDF 2.0): content "distinct from other content within its parent".
+    Aside,
+    /// `NonStruct`: "[a] grouping element having no inherent structural significance".
+    NonStructural,
+    /// `P`: "[a] low-level division of content", usually a paragraph.
+    Paragraph,
+    /// `Hn`: a heading at a stated level.
+    ///
+    /// The table writes it as `H n`, "with n being a sequence of digits representing an unsigned
+    /// integer greater than or equal to 1" — so the level is part of the *name* rather than an
+    /// attribute, and `H7` is as legal as `H1`.
+    Heading(u32),
+    /// `H`: a heading whose level "is not indicated" by the type, and is its nesting instead.
+    UnnumberedHeading,
+    /// `Title` (PDF 2.0): "the title of a document or high-level division of content".
+    Title,
+    /// `FENote` (PDF 2.0): a footnote or endnote.
+    FootnoteOrEndnote,
+    /// `Sub` (PDF 2.0): "a sub-division inside a block level" element.
+    SubBlock,
+    /// `Lbl`: a label, "content that distinguishes it from other content inside the same parent".
+    Label,
+    /// `Span`: "[a] generic inline portion of content having no particular inherent
+    /// characteristics".
+    Span,
+    /// `Em` (PDF 2.0): content emphasised.
+    Emphasis,
+    /// `Strong` (PDF 2.0): content of "strong importance".
+    Strong,
+    /// `Link`: an association between content and a §12.5.6.5 link annotation.
+    Link,
+    /// `Annot`: an association between content and an annotation of another kind.
+    Annotation,
+    /// `Form`: an association between content and a §12.7 form field.
+    Form,
+    /// `Ruby`: the wrapper "around an entire ruby assembly".
+    Ruby,
+    /// `RB`: ruby base text, "[t]he full-size text to which the ruby annotation is applied".
+    RubyBase,
+    /// `RT`: ruby annotation text, the smaller text placed beside the base.
+    RubyText,
+    /// `RP`: ruby punctuation, used only where a processor cannot place the annotation.
+    RubyPunctuation,
+    /// `Warichu`: the wrapper around a warichu assembly.
+    Warichu,
+    /// `WT`: warichu text, "formatted into two lines".
+    WarichuText,
+    /// `WP`: the punctuation surrounding it.
+    WarichuPunctuation,
+    /// `L`: a list.
+    List,
+    /// `LI`: one member of a list, "[i]nternal to L (List) structure elements".
+    ListItem,
+    /// `LBody`: "[t]he actual content of a list item", internal to `LI`.
+    ListItemBody,
+    /// `Table`: "[a] two-dimensional logical structure of cells".
+    Table,
+    /// `TR`: a table row.
+    TableRow,
+    /// `TH`: a header cell.
+    TableHeader,
+    /// `TD`: a data cell.
+    TableData,
+    /// `THead`: the rows constituting the head of a table.
+    TableHead,
+    /// `TBody`: the rows constituting its body.
+    TableBody,
+    /// `TFoot`: the rows constituting its foot.
+    TableFoot,
+    /// `Caption`: a caption for a list, a table, a figure or a formula.
+    Caption,
+    /// `Figure`: graphical content.
+    Figure,
+    /// `Formula`: a formula.
+    Formula,
+    /// `Artifact` (PDF 2.0): §14.8.2.2's artifact, "for which semantics require a reference in
+    /// the structure tree" — the *element* form, as against the marked-content one this crate
+    /// reads in [`Artifact`].
+    Artifact,
+}
+
+/// §14.8.4.1's four categories of standard structure type.
+///
+/// > Some structure types -for example Table or Figure -may be used as block level types or as
+/// > inline types, whereas others (e.g., H1 ) may only be used as block level types.
+///
+/// So a type does not always have one category, and [`Category::Contextual`] is that case with
+/// the clause's own rule attached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    /// "[I]dentify a whole document or a fragment of a document."
+    Document,
+    /// "[M]ake it possible to organise the overall structure of content."
+    Grouping,
+    /// "[S]tructure types that enclose actual content, like a heading or paragraph."
+    Block,
+    /// "[E]nable structural organisation of content inside block level elements."
+    Inline,
+    /// A type whose category depends on where it is used, resolved by [`Category::of`].
+    Contextual,
+    /// A type that is only ever inside one other: a list's `LI`, a table's `TR`.
+    ///
+    /// The clause writes these as "Internal to L (List) structure elements" and "Internal to a
+    /// Table structure" rather than as one of the four levels, which is a different kind of
+    /// statement — about *where* the element may appear rather than about what it may contain.
+    Internal,
+}
+
+impl Category {
+    /// §14.8.4.1's rule for a type that may be block or inline.
+    ///
+    /// > If the structure element is used inside a block level element, it is an inline level
+    /// > structure element … In all other cases it is a block level structure element.
+    ///
+    /// `parent` is the category of the element this one sits in, which a caller walking the tree
+    /// has and this crate does not keep.
+    #[must_use]
+    pub fn of(self, parent: Option<Self>) -> Self {
+        match self {
+            Self::Contextual if parent == Some(Self::Block) => Self::Inline,
+            Self::Contextual => Self::Block,
+            other => other,
+        }
+    }
+}
+
+impl StandardType {
+    /// Reads one of §14.8.4's names, or `None` for anything the clause does not define.
+    ///
+    /// `None` is a finding rather than a default: §14.8.4.1 requires every element of a tagged
+    /// document to be a standard type or role mapped to one, so a name that arrives here
+    /// unmapped is a document that has not done what the clause asks — which a consumer may want
+    /// to say, and cannot if the reader has invented a type for it.
+    #[must_use]
+    pub fn read(name: &str) -> Option<Self> {
+        // `Hn` before the table, because the table cannot hold an unbounded family: the clause
+        // makes `n` "a sequence of digits representing an unsigned integer greater than or equal
+        // to 1", so `H2` and `H17` are both standard and neither is a name anybody enumerated.
+        if let Some(level) = name.strip_prefix('H')
+            && !level.is_empty()
+            && level.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return level
+                .parse()
+                .ok()
+                .filter(|level| *level >= 1)
+                .map(Self::Heading);
+        }
+        Some(match name {
+            "Document" => Self::Document,
+            "DocumentFragment" => Self::DocumentFragment,
+            "Part" => Self::Part,
+            "Sect" => Self::Section,
+            "Div" => Self::Division,
+            "Aside" => Self::Aside,
+            "NonStruct" => Self::NonStructural,
+            "P" => Self::Paragraph,
+            "H" => Self::UnnumberedHeading,
+            "Title" => Self::Title,
+            "FENote" => Self::FootnoteOrEndnote,
+            "Sub" => Self::SubBlock,
+            "Lbl" => Self::Label,
+            "Span" => Self::Span,
+            "Em" => Self::Emphasis,
+            "Strong" => Self::Strong,
+            "Link" => Self::Link,
+            "Annot" => Self::Annotation,
+            "Form" => Self::Form,
+            "Ruby" => Self::Ruby,
+            "RB" => Self::RubyBase,
+            "RT" => Self::RubyText,
+            "RP" => Self::RubyPunctuation,
+            "Warichu" => Self::Warichu,
+            "WT" => Self::WarichuText,
+            "WP" => Self::WarichuPunctuation,
+            "L" => Self::List,
+            "LI" => Self::ListItem,
+            "LBody" => Self::ListItemBody,
+            "Table" => Self::Table,
+            "TR" => Self::TableRow,
+            "TH" => Self::TableHeader,
+            "TD" => Self::TableData,
+            "THead" => Self::TableHead,
+            "TBody" => Self::TableBody,
+            "TFoot" => Self::TableFoot,
+            "Caption" => Self::Caption,
+            "Figure" => Self::Figure,
+            "Formula" => Self::Formula,
+            "Artifact" => Self::Artifact,
+            _ => return None,
+        })
+    }
+
+    /// The category §14.8.4 puts this type in.
+    ///
+    /// [`Category::Contextual`] where the clause gives two or three — `Figure`, `Formula`,
+    /// `Link`, `Annot`, `Form`, `Title`, `FENote`, `Caption`, `L` and `Artifact` — and
+    /// [`Category::of`] is the rule that settles it.
+    #[must_use]
+    pub fn category(&self) -> Category {
+        match self {
+            Self::Document | Self::DocumentFragment => Category::Document,
+            Self::Part | Self::Section | Self::Division | Self::Aside | Self::NonStructural => {
+                Category::Grouping
+            }
+            Self::Paragraph | Self::Heading(_) | Self::UnnumberedHeading | Self::Table => {
+                Category::Block
+            }
+            Self::SubBlock
+            | Self::Label
+            | Self::Span
+            | Self::Emphasis
+            | Self::Strong
+            | Self::Ruby
+            | Self::RubyBase
+            | Self::RubyText
+            | Self::RubyPunctuation
+            | Self::Warichu
+            | Self::WarichuText
+            | Self::WarichuPunctuation => Category::Inline,
+            Self::ListItem
+            | Self::ListItemBody
+            | Self::TableRow
+            | Self::TableHeader
+            | Self::TableData
+            | Self::TableHead
+            | Self::TableBody
+            | Self::TableFoot => Category::Internal,
+            Self::Title
+            | Self::FootnoteOrEndnote
+            | Self::Link
+            | Self::Annotation
+            | Self::Form
+            | Self::List
+            | Self::Caption
+            | Self::Figure
+            | Self::Formula
+            | Self::Artifact => Category::Contextual,
+        }
+    }
+
+    /// Whether this type was introduced in PDF 2.0.
+    ///
+    /// Which matters for §14.8.6.1's two standard namespaces: a document in the *default*
+    /// namespace — `http://iso.org/pdf/ssn`, PDF 1.7's — cannot mean one of these by it, and
+    /// Annex M is where the standard lists the difference. A consumer that cares which
+    /// vocabulary a name came from needs both this and [`Tree::namespace`].
+    #[must_use]
+    pub fn since_pdf_2_0(&self) -> bool {
+        matches!(
+            self,
+            Self::DocumentFragment
+                | Self::Aside
+                | Self::Title
+                | Self::FootnoteOrEndnote
+                | Self::SubBlock
+                | Self::Emphasis
+                | Self::Strong
+                | Self::Artifact
+        )
     }
 }
 
@@ -1302,5 +1643,150 @@ mod tests {
         let pages = crate::page::Pages::new(&doc);
         let page = pages.get(0).expect("page one");
         assert!(ParentTree::for_page(&doc, &page.dict).is_empty());
+    }
+
+    /// §14.8.4's vocabulary, including the family the table cannot enumerate.
+    ///
+    /// `Hn` is written in Table 372 as `H n`, "with n being a sequence of digits representing an
+    /// unsigned integer greater than or equal to 1", so it is a *family* of names and not a name
+    /// — which is why it is read before the table and why `H17` is as standard as `H1`. `H0` is
+    /// not: the clause's own bound is 1.
+    #[test]
+    fn a_heading_carries_its_level_and_the_table_carries_the_rest() {
+        use super::{Category, StandardType};
+
+        assert_eq!(StandardType::read("H1"), Some(StandardType::Heading(1)));
+        assert_eq!(StandardType::read("H17"), Some(StandardType::Heading(17)));
+        assert_eq!(
+            StandardType::read("H"),
+            Some(StandardType::UnnumberedHeading)
+        );
+        assert_eq!(
+            StandardType::read("H0"),
+            None,
+            "the clause's own bound is 1"
+        );
+        assert_eq!(StandardType::read("Hx"), None);
+        assert_eq!(StandardType::read("Paragraph"), None, "not a standard name");
+
+        assert_eq!(
+            StandardType::read("TD").map(|kind| kind.category()),
+            Some(Category::Internal),
+            "a table cell is stated as internal to a table rather than as a level"
+        );
+        assert!(
+            StandardType::read("Em").is_some_and(|kind| kind.since_pdf_2_0()),
+            "emphasis is one of the eight types PDF 2.0 added"
+        );
+        assert!(
+            StandardType::read("P").is_some_and(|kind| !kind.since_pdf_2_0()),
+            "and a paragraph is not"
+        );
+    }
+
+    /// §14.8.4.1's rule for a type that is block *or* inline, applied where it is used.
+    ///
+    /// > If the structure element is used inside a block level element, it is an inline level
+    /// > structure element … In all other cases it is a block level structure element.
+    #[test]
+    fn a_contextual_type_takes_its_category_from_its_parent() {
+        use super::{Category, StandardType};
+
+        let figure = StandardType::read("Figure").expect("a standard type");
+        assert_eq!(figure.category(), Category::Contextual);
+        assert_eq!(
+            figure.category().of(Some(Category::Block)),
+            Category::Inline,
+            "inside a paragraph, a figure is inline"
+        );
+        assert_eq!(
+            figure.category().of(Some(Category::Grouping)),
+            Category::Block,
+            "and anywhere else it is block level"
+        );
+        assert_eq!(figure.category().of(None), Category::Block);
+        assert_eq!(
+            StandardType::read("P")
+                .expect("a paragraph")
+                .category()
+                .of(Some(Category::Block)),
+            Category::Block,
+            "a type with one category keeps it wherever it is used"
+        );
+    }
+
+    /// The role map's answer is read as the standard type it names.
+    ///
+    /// The point of the pair: a document's own `/Chapter` is not a standard type, and after
+    /// §14.7.3's mapping it *is* one. A consumer asking "is this a heading" gets an answer for
+    /// the mapped name and nothing for a name nobody mapped, which §14.8.4.1 makes a defect in
+    /// the document rather than a gap in the reader.
+    #[test]
+    fn a_mapped_role_reads_as_its_standard_type() {
+        use super::StandardType;
+
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R] /RoleMap << /Chapter /H1 >> >>",
+            "<< /Type /StructElem /S /Chapter >>",
+            "<< /Type /StructElem /S /Sidebar >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let children = tree.children(&doc, None);
+        let [Child::Element(mapped), Child::Element(unmapped)] = children.as_slice() else {
+            panic!("two elements: {children:?}");
+        };
+        assert_eq!(
+            tree.standard_role(&doc, mapped),
+            Some(StandardType::Heading(1))
+        );
+        assert_eq!(
+            tree.standard_role(&doc, unmapped),
+            None,
+            "a name no role map takes to a standard type is not one"
+        );
+        assert_eq!(
+            tree.role(&doc, unmapped).as_deref(),
+            Some("Sidebar"),
+            "and the name the document wrote is still available"
+        );
+    }
+
+    /// §14.8.1's mark information dictionary, and the difference between having a tree and
+    /// claiming to be tagged.
+    ///
+    /// "A tagged PDF document shall contain a mark information dictionary … with a value of true
+    /// for the Marked entry", so a document with a structure tree and no `/MarkInfo` has a tree
+    /// and has not made the claim — which is a real distinction and not a technicality: §14.8's
+    /// rules are what `Marked` asserts conformance to.
+    #[test]
+    fn a_document_says_it_is_tagged_in_its_mark_information_dictionary() {
+        use super::MarkInfo;
+
+        let tagged = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R \
+             /MarkInfo << /Marked true /UserProperties true >> >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot >>",
+        ]);
+        let info = MarkInfo::read(&tagged);
+        assert!(info.marked);
+        assert!(info.user_properties);
+        assert!(!info.suspects, "Table 353's default");
+
+        let untagged = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot >>",
+        ]);
+        assert!(
+            !MarkInfo::read(&untagged).marked,
+            "a structure tree is not the claim; the entry is"
+        );
+        assert!(Tree::of(&untagged).is_some(), "and the tree is still there");
     }
 }
