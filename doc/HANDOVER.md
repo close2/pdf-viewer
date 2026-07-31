@@ -241,6 +241,26 @@ two were "for a cursor this viewer has not got yet".
   from "we chose `/D` and it looks the same". 5 corpus documents state a `/D`; no gate moves,
   because nothing presses a button during a gate run.
 
+**Seventy-seventh — §12.6.3's trigger events, the other half of a press.** The session before
+chose *which appearance* the pointer asks for; this reads what a press **does**. Table 197's ten
+annotation events and Table 198's two page events are `action::for_annotation` and
+`action::for_page`, returning §12.6.2's flattened list for `ViewState::perform_all`.
+
+- **Table 197's one precedence rule is applied on the entry it is stated about**: "the A entry in
+  an annotation dictionary, if present, takes precedence over" `/AA /U`, so an annotation stating
+  both performs its `/A` on mouse-up and never its `/U`. Every other event still reads its own
+  entry, which is the half a looser reading would break.
+- **Tables 199 and 200 are excluded rather than owed.** Every entry of the form-field and
+  document-catalog dictionaries is an ECMAScript action, which is on principle 5's closed list —
+  and saying so is the difference between an exclusion and an oversight.
+- **Nothing raises an event**, so the row is `partial`: entering, pressing and focusing are a
+  window's business. The data and the execution are here; the source of the events is not.
+- **15 of the 974 corpus documents write an `/AA` at all** — the sixty-second session's census
+  said 32, counted differently — so this is the specification track again, and the test performs
+  a press that switches a layer off and a departure that switches it back on.
+
+`silent` falls 178 → 177.
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -320,6 +340,7 @@ below rather than here.
 | 74 | §10.7.3's `/SM`, the silence that was hiding inside a `partial` row | — |
 | 75 | Eight "unexplained" contradicted pages are one population, measured | — |
 | 76 | Table 170's rollover and down appearances, on the pointer | — |
+| 77 | §12.6.3's trigger events, and the one precedence rule Table 197 states | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -351,7 +372,7 @@ page or runs a slide show — and the gap is now measured *by clause* as well as
 the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **704 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **706 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -966,15 +987,15 @@ this code.
 | status | rows | |
 |---|---|---|
 | `implemented` | 273 | every normative requirement in the clause is executed |
-| `partial` | 163 | some are; the note says which are not |
-| **`silent`** | **178** | not implemented, and nothing says so |
+| `partial` | 164 | some are; the note says which are not |
+| **`silent`** | **177** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 27 | not implemented, detected and named at runtime |
 | `writer-side` | 7 | addresses a PDF writer; we do not create files |
 
-**178 silences is the shape of the project**: it renders pages correctly and does very little
-when a person clicks on one. **93** of them are clause 12's interactive half and **71** are clause
+**177 silences is the shape of the project**: it renders pages correctly and does very little
+when a person clicks on one. **92** of them are clause 12's interactive half and **71** are clause
 14's structure, neither of which changes a mark on a page. (This file said 112 and 76 for four
 sessions; both were counted before the rows that closed them, and one line of `grep` over the
 ledger grouped by leading clause number is what says so — the same check the fifty-third session
@@ -1041,7 +1062,7 @@ all. The ledger's own notes are the detail; this is the shape.
 | 9 Text | 65 | Simple and composite fonts through **every font program Table 124 defines**, the standard 14 by substitution, Type 3, all eight rendering modes, all nine text state parameters, both encoding algorithms, §9.7's two mappings, both writing modes. Missing: Table 116's predefined `CMap`s (a licensing decision) and §9.8.3's substitution hints. |
 | 10 Rendering | 36 | 19 rows `inapplicable` — halftones and transfer functions describe a marking device. Colour management, rendering intents and §10.7.3's smoothness tolerance are done; §10.7 carries four deliberate departures, all licensed by §10.7.1's NOTE and each named. |
 | 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group, and **§11.4.6's knockout wherever an element's shape is the coverage it is drawn with**. Left and reported: a knockout element whose shape is not, a non-isolated group whose elements blend, a blending space that is not the device's. |
-| 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, the three §12.6.4 actions that change what is displayed** — a go-to, a set-OCG-state and a hide — and the whole of §12.4.4's presentation read and none of it played. 93 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events, and the presentation mode §12.4.4 asks for. |
+| 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, the three §12.6.4 actions that change what is displayed** — a go-to, a set-OCG-state and a hide — and the whole of §12.4.4's presentation read and none of it played, and §12.6.3's trigger events with the appearance each one asks for. 92 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events, and the presentation mode §12.4.4 asks for. |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. The rows carry the exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
 | 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7.5.4's parent tree and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. 71 rows `silent`: the structure tree as data, and tagged PDF's types and attributes. |
 
@@ -1083,7 +1104,7 @@ parts that make a document *interactive* have just started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
-rows in the fifty-sixth session, so the specification track is now its **178 `silent` rows and 30
+rows in the fifty-sixth session, so the specification track is now its **177 `silent` rows and 27
 `reported` ones**, each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -1091,7 +1112,7 @@ file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
 
 **Where the silence is**, and it is the map for the next several sessions:
 
-- **Clause 12's interactive half, 93 rows.** Nothing edits a field, shows a panel, or answers a
+- **Clause 12's interactive half, 92 rows.** Nothing edits a field, shows a panel, or answers a
   trigger event. Two things are now built that the rest hangs off: §12.6's actions and
   `view::ViewState`, the per-document state a viewer holds (ADR 0065). What is nearest:
   **a presentation mode**, whose whole data model is read as of the seventieth session and which
@@ -1131,7 +1152,7 @@ corpus's own issue trackers says most of that is glyph rasterisation on files ch
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
-and the debt is the 205 rows above.
+and the debt is the 204 rows above.
 
 ### 0. The ledger, and where a false claim can still hide
 

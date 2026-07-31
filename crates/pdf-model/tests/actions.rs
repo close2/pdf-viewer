@@ -223,3 +223,113 @@ fn the_opening_state_draws_what_the_file_states() {
     );
     assert_eq!(plain.unsupported, opened.unsupported);
 }
+
+/// §12.6.3's trigger events: a press on an annotation performs what Table 197 names.
+///
+/// The events are the same four §12.5.5's appearances answer to, and this is the other half —
+/// what a press *does* rather than what it looks like. The fixture's widget turns a layer off
+/// on `/D` and on again on `/X`, so performing the events through `ViewState` changes what the
+/// next render draws, which is the only thing worth asserting about an action.
+#[test]
+fn an_annotations_trigger_events_perform_their_actions() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [6 0 R] /D << >> >> >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [5 0 R] \
+         /Resources << /Properties << /L1 6 0 R >> >> >>",
+        &stream("/OC /L1 BDC 20 20 10 10 re f EMC"),
+        "<< /Type /Annot /Subtype /Widget /Rect [0 0 20 20] /F 4 \
+         /AA << /D 7 0 R /X 8 0 R >> >>",
+        "<< /Type /OCG /Name (layer) >>",
+        "<< /S /SetOCGState /State [/OFF 6 0 R] >>",
+        "<< /S /SetOCGState /State [/ON 6 0 R] >>",
+    ]);
+    let pages = pdf_model::Pages::new(&doc);
+    let page = pages.get(0).expect("one page");
+    let annotation = doc
+        .get_key(&page.dict, "Annots")
+        .as_array()
+        .and_then(|entries| entries.first().cloned())
+        .expect("one annotation");
+    let annotation = doc.resolve(&annotation);
+    let annotation = annotation.as_dict().expect("a dictionary");
+
+    let marks = |state: &ViewState| {
+        pdf_model::content::interpret_with(&doc, &page, state)
+            .display_list
+            .commands()
+            .len()
+    };
+
+    let mut state = ViewState::of(&doc);
+    assert_eq!(marks(&state), 1, "the layer opens on");
+
+    let down =
+        pdf_model::action::for_annotation(&doc, annotation, pdf_model::action::Trigger::Down);
+    assert_eq!(down.len(), 1, "one action for `/D`");
+    state.perform_all(&doc, &down);
+    assert_eq!(marks(&state), 0, "pressing it switched the layer off");
+
+    let exit =
+        pdf_model::action::for_annotation(&doc, annotation, pdf_model::action::Trigger::Exit);
+    state.perform_all(&doc, &exit);
+    assert_eq!(
+        marks(&state),
+        1,
+        "and leaving it switched the layer back on"
+    );
+
+    assert!(
+        pdf_model::action::for_annotation(&doc, annotation, pdf_model::action::Trigger::Focus)
+            .is_empty(),
+        "an event the file states nothing for performs nothing"
+    );
+}
+
+/// §12.6.3's one precedence rule: Table 197's `/A` beats `/AA /U`.
+///
+/// > For backward compatibility, the A entry in an annotation dictionary, if present, takes
+/// > precedence over this entry
+///
+/// So an annotation stating both performs its `/A` on mouse-up — which is what a click on a
+/// link already follows — and never its `/AA /U`. Every other event is unaffected, which is
+/// the half a looser reading would break.
+#[test]
+fn an_annotations_own_action_takes_precedence_over_its_mouse_up_trigger() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>",
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /A 5 0 R \
+         /AA << /U 6 0 R /D 6 0 R >> >>",
+        "<< /S /GoTo /D [3 0 R /Fit] >>",
+        "<< /S /SetOCGState /State [/OFF 7 0 R] >>",
+        "<< /Type /OCG /Name (layer) >>",
+    ]);
+    let pages = pdf_model::Pages::new(&doc);
+    let page = pages.get(0).expect("one page");
+    let entry = doc
+        .get_key(&page.dict, "Annots")
+        .as_array()
+        .and_then(|entries| entries.first().cloned())
+        .expect("one annotation");
+    let resolved = doc.resolve(&entry);
+    let annotation = resolved.as_dict().expect("a dictionary");
+
+    let performed = |event| pdf_model::action::for_annotation(&doc, annotation, event);
+    assert!(
+        matches!(
+            performed(pdf_model::action::Trigger::Up).as_slice(),
+            [pdf_model::action::Action::GoTo(_)]
+        ),
+        "mouse-up performs /A: {:?}",
+        performed(pdf_model::action::Trigger::Up)
+    );
+    assert!(
+        matches!(
+            performed(pdf_model::action::Trigger::Down).as_slice(),
+            [pdf_model::action::Action::SetOcgState(_)]
+        ),
+        "and every other event still reads its own entry"
+    );
+}

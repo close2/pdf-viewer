@@ -3713,8 +3713,10 @@ note = "Table 196 in full: `/Type` (optional and ignored), `/S` dispatching on T
 [[clause]]
 clause = "12.6.3"
 title = "Trigger events"
-status = "silent"
-note = "Trigger events: Table 197's `/AA` on a page, an annotation or a field, and Table 198's `/E`, `/X`, `/D`, `/U`, `/Fo`, `/Bl`, `/PO`, `/PC`, `/PV`, `/PI`. Every one of them needs an input device or a page-visibility notion this program does not have. Two are worth naming for the day it does: `/D` and `/U` are what make a widget's `/AP /D` *down* appearance visible, and §12.5.5's placement of that appearance is already implemented — so the appearance exists and nothing can ask for it."
+status = "partial"
+code = ["crates/pdf-model/src/action.rs"]
+test = ["crates/pdf-model/tests/actions.rs::an_annotations_trigger_events_perform_their_actions", "crates/pdf-model/tests/actions.rs::an_annotations_own_action_takes_precedence_over_its_mouse_up_trigger"]
+note = "Table 197's ten annotation events and Table 198's two page events are read since the seventy-seventh session — `action::for_annotation` and `action::for_page` — and what they return is §12.6.2's flattened list, which `ViewState::perform_all` performs. Table 197's one precedence rule is applied where it belongs, on the entry it is stated about: \"[f]or backward compatibility, the A entry in an annotation dictionary, if present, takes precedence over\" `/AA /U`, so an annotation stating both performs its `/A` on mouse-up and never its `/U`. `/AA` on a page is read from the page's own dictionary, because §7.7.3.4 makes four entries inheritable and this is not among them. **Nothing raises an event**: entering, pressing and focusing are a window's business and this crate has no events, exactly as §12.5.5's rollover and down appearances are chosen by a `ViewState` a caller sets. That is why this is `partial` rather than `implemented` — the data and the execution are here and the *source* of the events is not. Tables 199 and 200 are excluded rather than owed: every entry of both is an ECMAScript action, which is on principle 5's closed exclusion list, and saying so is the difference between an exclusion and an oversight. 15 of the 974 corpus documents write an `/AA` at all."
 
 [[clause]]
 clause = "12.6.4"

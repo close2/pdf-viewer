@@ -123,6 +123,118 @@ pub enum HideTarget {
     Field(String),
 }
 
+/// §12.6.3's trigger events for an annotation. Table 197.
+///
+/// The clause's own vocabulary: an additional-actions dictionary "extends the set of events
+/// that can trigger the execution of an action", and each entry names one event. The four
+/// pointer events say what a mouse is — "a generic pointing device" with a selection button,
+/// a location and a notion of focus — which is the same NOTE §12.5.5 makes about the
+/// appearances the same four events change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Trigger {
+    /// `/E`: the cursor enters the annotation's active area.
+    Enter,
+    /// `/X`: the cursor exits it.
+    Exit,
+    /// `/D`: a button is pressed inside it.
+    Down,
+    /// `/U`: a button is released inside it.
+    ///
+    /// The one entry with a precedence rule, and [`for_annotation`] applies it.
+    Up,
+    /// `/Fo`: the annotation receives the input focus. Widgets only.
+    Focus,
+    /// `/Bl`: it loses the input focus. Widgets only.
+    Blur,
+    /// `/PO`: the page containing it is opened.
+    PageOpen,
+    /// `/PC`: that page is closed.
+    PageClose,
+    /// `/PV`: that page becomes visible.
+    PageVisible,
+    /// `/PI`: that page is no longer visible.
+    PageInvisible,
+}
+
+impl Trigger {
+    /// Table 197's key for this event.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Enter => "E",
+            Self::Exit => "X",
+            Self::Down => "D",
+            Self::Up => "U",
+            Self::Focus => "Fo",
+            Self::Blur => "Bl",
+            Self::PageOpen => "PO",
+            Self::PageClose => "PC",
+            Self::PageVisible => "PV",
+            Self::PageInvisible => "PI",
+        }
+    }
+}
+
+/// §12.6.3's trigger events for a page object. Table 198.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PageTrigger {
+    /// `/O`: the page is opened.
+    Open,
+    /// `/C`: the page is closed.
+    Close,
+}
+
+/// What an annotation performs for one of Table 197's events, in execution order.
+///
+/// Empty for an annotation with no `/AA`, which is every annotation in 942 of the 974 corpus
+/// documents.
+///
+/// # `/U` is the entry with a rule
+///
+/// §12.6.3's Table 197, of the mouse-up event:
+///
+/// > For backward compatibility, the A entry in an annotation dictionary, if present, takes
+/// > precedence over this entry
+///
+/// So an annotation that states both performs its `/A` — which is what `crate::link` already
+/// follows on a click — and its `/AA /U` is not reached. That is a *rule about two entries*
+/// rather than a preference, and it is the reason this function takes the annotation rather
+/// than its `/AA`.
+#[must_use]
+pub fn for_annotation(document: &Document, annotation: &Dictionary, event: Trigger) -> Vec<Action> {
+    if event == Trigger::Up {
+        let stated = document.get_key(annotation, "A");
+        if !matches!(stated, Object::Null) {
+            return read(document, &stated);
+        }
+    }
+    let additional = document.get_key(annotation, "AA");
+    let Some(additional) = additional.as_dict() else {
+        return Vec::new();
+    };
+    read(
+        document,
+        additional.get(event.key()).unwrap_or(&Object::Null),
+    )
+}
+
+/// What a page performs for one of Table 198's two events, in execution order.
+///
+/// `/AA` on a page object is **not** one of §7.7.3.4's inheritable entries, so this reads the
+/// page's own dictionary and does not walk `/Parent`.
+#[must_use]
+pub fn for_page(document: &Document, page: &Dictionary, event: PageTrigger) -> Vec<Action> {
+    let additional = document.get_key(page, "AA");
+    let Some(additional) = additional.as_dict() else {
+        return Vec::new();
+    };
+    let key = match event {
+        PageTrigger::Open => "O",
+        PageTrigger::Close => "C",
+    };
+    read(document, additional.get(key).unwrap_or(&Object::Null))
+}
+
 /// Reads the action an `/A` entry names, and everything its `/Next` chain performs after it.
 ///
 /// The returned list is in execution order: an action, then its `/Next` subtree, then the
