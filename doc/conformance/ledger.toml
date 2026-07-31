@@ -838,7 +838,7 @@ title = "Text string language escape sequences"
 status = "implemented"
 code = ["crates/pdf-syntax/src/text_string.rs"]
 test = ["crates/pdf-syntax/src/text_string.rs::a_language_escape_sequence_shows_nothing", "crates/pdf-syntax/src/text_string.rs::a_lone_escape_does_not_swallow_the_rest_of_the_string"]
-note = "Both shapes the clause states — U+001B, a two-letter language code, an optional two-letter country code, U+001B — are removed from a Unicode text string, because the sequence marks a language and carries no character to display. Only from the two Unicode forms: the clause states the byte sequences for UTF-16BE and UTF-8 and not for PDFDocEncoding. A U+001B with no closing one is left where it stands rather than swallowing the rest of the value. What is *not* done with it is anything: the language it names would matter to a text-to-speech engine and to §14.9.2's `/Lang`, and neither exists here."
+note = "Both shapes the clause states — U+001B, a two-letter language code, an optional two-letter country code, U+001B — are removed from a Unicode text string, because the sequence marks a language and carries no character to display. Only from the two Unicode forms: the clause states the byte sequences for UTF-16BE and UTF-8 and not for PDFDocEncoding. A U+001B with no closing one is left where it stands rather than swallowing the rest of the value. What is *not* done with it is anything: the sequence overrides §14.9.2's hierarchy, which the sixtieth session built, so the language a `/Lang` states now reaches a caller and the one an escape sequence states is still dropped with the escape. Closing that means carrying a language *inside* a decoded text string, which changes the return type of every text-string read in the tree for a construct no corpus document writes."
 
 [[clause]]
 clause = "7.9.2.3"
@@ -4965,7 +4965,7 @@ title = "Property lists"
 status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/text_render_modes.rs::an_inline_property_lists_booleans_are_not_operators"]
-note = "The clause decides which form a producer may use by what the list holds: values that are all direct objects \"may be written inline in the content stream as a direct object\", and a list with an indirect reference in it \"shall be defined as a named resource in the Properties subdictionary\". `content.rs` takes both forms — **the inline one only since the fifty-fifth session; this row claimed both for fifteen sessions while the content lexer flattened an inline dictionary into loose tokens**, which is how two corpus documents came to report `true` and `false` as unknown operators. A name that `/Properties` does not define is *reported* — a name that `/Properties` does not define is *reported*, since it is the route an `/OC` membership dictionary arrives by and drawing hidden content silently is the failure §8.11 exists to prevent. NOTE 2's consequence is worth carrying because it explains the shape of the whole interpreter: \"indirect references of the form of 10 0 R can never occur within content streams\", which is why the content lexer resolves nothing and the resource dictionary is the only door out. `partial` because the property list's *contents* are read for optional content and for §14.9.4's `/ActualText` and nothing else; §14.3.2's object-level metadata in one is not, and neither is §14.7.5.2's `/MCID`."
+note = "The clause decides which form a producer may use by what the list holds: values that are all direct objects \"may be written inline in the content stream as a direct object\", and a list with an indirect reference in it \"shall be defined as a named resource in the Properties subdictionary\". `content.rs` takes both forms — **the inline one only since the fifty-fifth session; this row claimed both for fifteen sessions while the content lexer flattened an inline dictionary into loose tokens**, which is how two corpus documents came to report `true` and `false` as unknown operators. A name that `/Properties` does not define is *reported* — a name that `/Properties` does not define is *reported*, since it is the route an `/OC` membership dictionary arrives by and drawing hidden content silently is the failure §8.11 exists to prevent. NOTE 2's consequence is worth carrying because it explains the shape of the whole interpreter: \"indirect references of the form of 10 0 R can never occur within content streams\", which is why the content lexer resolves nothing and the resource dictionary is the only door out. `partial` because the property list's *contents* are read for optional content, for §14.7.5.2's `/MCID` and for §14.9's four accessibility entries, and nothing else; §14.3.2's object-level metadata in one is not."
 
 [[clause]]
 clause = "14.7"
@@ -5265,7 +5265,7 @@ note = "The permissive rule this category is built on: an inline element \"is op
 clause = "14.8.4.7.2"
 title = "General inline level structure types"
 status = "silent"
-note = "Table 368's general inline types — `Span`, `Quote`, `Note`, `Reference`, `BibEntry`, `Code`, `Link`, `Annot`, `Em`, `Strong`. **`Span` is the one this tree already meets**, as the marked-content tag §14.9's `/Lang`, `/Alt`, `/ActualText` and `/E` arrive under; §14.9.4's is read since the fifty-fifth session and the others are not."
+note = "Table 368's general inline types — `Span`, `Quote`, `Note`, `Reference`, `BibEntry`, `Code`, `Link`, `Annot`, `Em`, `Strong`. **`Span` is the one this tree already meets**, as the marked-content tag §14.9's `/Lang`, `/Alt`, `/ActualText` and `/E` arrive under; all four are read since the sixtieth session. What is unread is `Span` as a structure *type* — the tag on a `BDC` is taken at face value and never checked against Table 368, because none of §14.9's entries is worth less for being written under a tag the file chose badly."
 
 [[clause]]
 clause = "14.8.4.7.3"
@@ -5337,7 +5337,7 @@ note = "Aggregate of the sixteen below: the attributes a structure element may c
 clause = "14.8.5.1"
 title = "General"
 status = "silent"
-note = "Where an attribute lives: a structure element's `/A`, naming an attribute object or an array of them, or its `/C`, naming a class looked up in the structure tree root's `/ClassMap`. The clause also names the four entries that are *not* attribute objects and says why they are worth a reader's attention — `/Lang`, `/Alt`, `/ActualText` and `/E` are \"described in 14.9 … but are useful to other PDF consumers as well\", and they appear on the element itself or on a `Span` property list. One of the four is read (§14.9.4)."
+note = "Where an attribute lives: a structure element's `/A`, naming an attribute object or an array of them, or its `/C`, naming a class looked up in the structure tree root's `/ClassMap`. The clause also names the four entries that are *not* attribute objects and says why they are worth a reader's attention — `/Lang`, `/Alt`, `/ActualText` and `/E` are \"described in 14.9 … but are useful to other PDF consumers as well\", and they appear on the element itself or on a `Span` property list. All four are read, in both locations, since the sixtieth session; what is unread is everything this row is actually about, the attribute objects and the `/ClassMap`."
 
 [[clause]]
 clause = "14.8.5.2"
@@ -5450,45 +5450,45 @@ note = "The namespaces beyond the two standard ones — MathML and the PDF/UA an
 [[clause]]
 clause = "14.9"
 title = "Repurposing and accessibility support"
-status = "silent"
-note = "Aggregate of the ten below. Accessibility support: a natural language, an alternate description, a replacement text, an expansion and a pronunciation hint. **None of it is read**, and the omission is visible in the stack rather than only in the ledger — `CLAUDE.md` names AccessKit as this project's accessibility layer and there is nothing yet to hand it. `CLAUDE.md` also puts \"tagged PDF as far as accessibility needs it\" in scope, and this family is the definition of *how far*: everything §14.9 asks for hangs off §14.7's structure tree or off a `Span` marked-content property list, and this is the clause that says which parts of §14.8's sixty rows a screen reader actually needs. The corpus carries the data — **95 of the 974 documents write a `/Lang`, 87 a `/StructTreeRoot`, 5 an `/ActualText`**."
-
+status = "partial"
+code = ["crates/pdf-model/src/accessibility.rs", "crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs"]
+note = "Aggregate of the ten below. Accessibility support: a natural language, an alternate description, a replacement text, an expansion and a pronunciation hint. **Four of the five are read, since the sixtieth session** — `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both of the places §14.9 puts it: a `Span` marked-content sequence's property list and, through §14.7.5.4's parent tree, the structure element the sequence belongs to. The fifth, §14.9.6's pronunciation hints, the clause itself excuses. Two things separate the entries and `accessibility.rs` keeps them apart: `/ActualText` is a *character* substitution and belongs to extraction, so it is applied to `Interpretation::text`; `/Alt` and `/E` are phrase substitutions and belong to vocalisation, so they are recorded as spans and applied by `Interpretation::speech`. What is still owed is a *consumer* — `CLAUDE.md` names AccessKit as this project's accessibility layer and nothing hands it these runs yet — and §14.9.3's third location, an annotation's `/Contents`. Measured over the corpus: **89 of the 953 page ones state a document `/Lang`, 35 carry §14.9 spans — 13 `/Alt`, 702 `/Lang`, no `/E`.**"
 [[clause]]
 clause = "14.9.1"
 title = "General"
-status = "silent"
-note = "The four facilities, and the reason they exist: \"many computer users with visual impairments use screen readers to read documents aloud\". Nothing here reaches a pixel, which is why every row below is `silent` rather than `partial` — a page draws identically whether or not any of it is read."
-
+status = "partial"
+code = ["crates/pdf-model/src/accessibility.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs"]
+note = "The four facilities, and the reason they exist: \"many computer users with visual impairments use screen readers to read documents aloud\". Three of the four are read and the fourth is §14.9.6's, which the clause does not require. Nothing here reaches a pixel, which is why a page draws identically whether or not any of it is read — and why the debt this row still carries is a consumer rather than a parser."
 [[clause]]
 clause = "14.9.2"
 title = "Natural language specification"
 status = "partial"
-code = ["crates/pdf-syntax/src/text_string.rs"]
-test = ["crates/pdf-syntax/src/text_string.rs::a_language_escape_sequence_shows_nothing"]
-note = "Aggregate of the four below. One piece of this is implemented and it is the smallest: §7.9.2.2.2's language escape sequences are recognised inside a text string and **removed**, which `text_string.rs` does for every text string this tree decodes. What is discarded is the language itself, and every `/Lang` entry in every location is unread."
-
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/accessibility.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::a_span_overrides_the_documents_language"]
+note = "Aggregate of the four below. Three of the four locations a `/Lang` may occupy are read and resolved into §14.9.2.3's hierarchy — the catalog's, a structure element's with its ancestry, and a `Span` property list's — and §7.9.2.2.2's escape sequences are still recognised and removed from every text string this tree decodes. `partial` for the fourth location, Table 122's `/Lang` on a CIDFont's font descriptor, which is evidence about which installed face should substitute and is §14.9.2.2's row."
 [[clause]]
 clause = "14.9.2.1"
 title = "General"
-status = "partial"
-code = ["crates/pdf-syntax/src/text_string.rs"]
-test = ["crates/pdf-syntax/src/text_string.rs::a_language_escape_sequence_shows_nothing"]
-note = "The hierarchy's inventory: `/Lang` in the catalog, in a structure element, in a `Span` property list, and the escape sequence inside a Unicode text string that overrides all of them. The last is read and dropped (§7.9.2.2.2); the first three are not read at all. NOTE 2 names the one place a language decides what is *drawn* — an optional content usage dictionary's `/Language`, whose row in §8.11.4.4 records it as a departure this tree measured and declined."
-
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/accessibility.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::a_structure_element_supplies_the_language_of_its_sequence"]
+note = "The hierarchy's inventory, and every item of it is read: `/Lang` in the catalog (`structure::document_language`), in a structure element (`structure::language`, which walks `/P` for the inheritance §14.9.2.3 requires), in a `Span` property list (`content.rs`'s `accessibility`), and the escape sequence inside a Unicode text string that overrides all of them (§7.9.2.2.2, `text_string.rs`, where it is removed). NOTE 2 names the one place a language decides what is *drawn* — an optional content usage dictionary's `/Language`, whose row in §8.11.4.4 records it as a departure this tree measured and declined."
 [[clause]]
 clause = "14.9.2.2"
 title = "Language identifiers"
 status = "partial"
-code = ["crates/pdf-syntax/src/text_string.rs"]
-test = ["crates/pdf-syntax/src/text_string.rs::a_language_escape_sequence_shows_nothing"]
-note = "What a language identifier is: \"either be the empty text string, to indicate that the language is unknown, or a Language-Tag as defined in BCP 47\", compared case-insensitively, with \"zxx\" for non-linguistic content. Three of the four places one may appear are ordinary text strings this tree can already decode. The fourth is the one that could change a *glyph*: Table 122 gives a CIDFont's descriptor a `/Lang`, and where a composite font is not embedded that is evidence about which installed face should stand in — the same debt §9.8.3's `/Style` and `/FD` carry, and the same answer: substitution quality, recorded rather than built."
-
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::an_empty_language_identifier_states_nothing"]
+note = "What a language identifier is: \"either be the empty text string, to indicate that the language is unknown, or a Language-Tag as defined in BCP 47\", compared case-insensitively, with \"zxx\" for non-linguistic content. The tag is carried as the file writes it and never parsed — a BCP 47 grammar would be a judgement about a registry this program does not hold — but the clause's one *semantic* rule about the value is honoured: an empty identifier states that the language is unknown, which is not a language, so it records nothing and leaves the enclosing statement in force. Three of the four places one may appear are ordinary text strings this tree decodes and now reads. The fourth is the one that could change a *glyph*: Table 122 gives a CIDFont's descriptor a `/Lang`, and where a composite font is not embedded that is evidence about which installed face should stand in — the same debt §9.8.3's `/Style` and `/FD` carry, and the same answer: substitution quality, recorded rather than built."
 [[clause]]
 clause = "14.9.2.3"
 title = "Language specification hierarchy"
-status = "silent"
-note = "The precedence: catalog, then structure element (inherited from an ancestor element that has one), then a nested element or marked-content sequence, with the structure element winning over surrounding unstructured content. A complete algorithm over structures this tree does not read. Worth noting for whoever does: it is the same shape as §7.7.3.4's page-attribute inheritance, which `page.rs` already implements for four keys."
-
+status = "implemented"
+code = ["crates/pdf-model/src/accessibility.rs", "crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::a_structure_element_inherits_a_language_from_its_ancestry"]
+note = "The precedence, in full: the catalog's default, overridden by a structure element's — inherited from the nearest ancestor element that states one, which `structure::language` walks `/P` for — overridden by a nested element's or a marked-content sequence's. The clause's closing rule, that a structure element's specification beats the unstructured content it sits inside, is the *innermost* statement winning rather than a special case, which is what its own EXAMPLE 3 shows and what `accessibility::speech` implements by nesting. The walk is bounded by `MAX_ANCESTRY` because `/P` is a reference a document controls and nothing forbids a cycle; reaching the bound answers \"no language stated\", which is the answer an untagged document gives."
 [[clause]]
 clause = "14.9.2.4"
 title = "Multi-language text arrays"
@@ -5499,23 +5499,24 @@ note = "Multi-language text arrays — `[(en-US) (My vacation) (fr) (mes vacance
 [[clause]]
 clause = "14.9.3"
 title = "Alternate descriptions"
-status = "silent"
-note = "`/Alt`, \"human-readable text that could, for example, be vocalised by a text-to-speech engine\", on a structure element, on a `Span` property list, or — for an annotation with no text of its own — its `/Contents`. That last is the one entry of the three this tree already resolves: `annotation.rs` reads `/Contents` when it constructs an appearance, and never as a description of the annotation. Nothing is spoken because nothing speaks."
-
+status = "partial"
+code = ["crates/pdf-model/src/accessibility.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::an_alternate_description_is_spoken_but_not_extracted"]
+note = "`/Alt`, \"human-readable text that could, for example, be vocalised by a text-to-speech engine\", read from both of the locations that reach a content stream: a `Span` property list and the structure element an `/MCID` names. It substitutes for the whole span it encloses when the page is *spoken* and changes nothing about what the page *extracts*, which is the distinction §14.9.4's NOTE 2 draws and the one that keeps a description out of what a person copies. The clause's word-break rule between consecutive descriptions is implemented by inserting one on each side of every phrase. `partial` for the third location: an annotation's `/Contents`, which `annotation.rs` reads when it constructs an appearance and never as a description of the annotation, and Table 232's `/TU` alternative field name beside it. 13 corpus page ones state an `/Alt`, and the shape they take is the clause's own example — `bug1937438_from_word.pdf` describes a summation as \"6 sum from n equals 1 to infinity of 1 over n squared , equals pi squared\"."
 [[clause]]
 clause = "14.9.4"
 title = "Replacement text"
 status = "partial"
-code = ["crates/pdf-model/src/content.rs"]
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/structure.rs"]
 test = ["crates/pdf-model/tests/text_render_modes.rs::actual_text_replaces_what_a_sequence_reads_back"]
-note = "Implemented for the half that reaches a content stream, since the fifty-fifth session: an `/ActualText` in a `Span` property list replaces the text its marked-content sequence reads back — \"a replacement, not a description, for the content\", a *character* substitution — which is extraction rather than drawing, so the marks are untouched. `issue13226.pdf` is the corpus witness and it is §14.8.2.3's soft hyphen written the way the clause describes: a space glyph whose `/ActualText` is U+00AD, read back before as `Mit arbei terinnen` and now with soft hyphens where the spaces were. The clause's own example is a hyphenated German `Druk-`/`ker` whose `/ActualText` is `c`. `partial` for two things, both named rather than hidden: the same entry on a *structure element*, which needs §14.7's tree, and the rule that consecutive sequences each carrying one \"shall be treated as if no word break is present between them\", which this tree's position-based word breaks do not know about. 5 corpus documents write one."
-
+note = "An `/ActualText` replaces the text its marked-content sequence reads back — \"a replacement, not a description, for the content\", a *character* substitution — which is extraction rather than drawing, so the marks are untouched. Both of the clause's locations are read: the `Span` property list since the fifty-fifth session and the structure element since the fifty-sixth, when §14.7.5.4's parent tree made one reachable. **This row said the structure-element half was owed for four sessions after it landed**, which is the ledger's own failure mode seen from the other side — a note describing what somebody found rather than what is there. `issue13226.pdf` is the corpus witness and it is §14.8.2.3's soft hyphen written the way the clause describes: a space glyph whose `/ActualText` is U+00AD, read back before as `Mit arbei terinnen` and now with soft hyphens where the spaces were. The clause's own example is a hyphenated German `Druk-`/`ker` whose `/ActualText` is `c`. `partial` for one thing: the rule that consecutive sequences each carrying one \"shall be treated as if no word break is present between them\", which this tree's position-based word breaks do not know about. 5 corpus documents write one."
 [[clause]]
 clause = "14.9.5"
 title = "Expansion of abbreviations and acronyms"
-status = "silent"
-note = "`/E`, an abbreviation's expansion, on a structure element or a `Span` property list. \"[A] word or phrase substitution for the tagged text and therefore shall be treated as if a word break separates it from any surrounding text\" — the opposite of §14.9.4's rule, and the distinction is the whole difference between the two entries. Nothing reads it."
-
+status = "implemented"
+code = ["crates/pdf-model/src/accessibility.rs"]
+test = ["crates/pdf-model/tests/accessibility.rs::an_expansion_is_spoken_in_place_of_its_abbreviation"]
+note = "`/E`, an abbreviation's expansion, read from both places the clause names — a `Span` property list and a structure element. \"[A] word or phrase substitution for the tagged text and therefore shall be treated as if a word break separates it from any surrounding text\" — the opposite of §14.9.4's rule, and the distinction is the whole difference between the two entries, so `/E` replaces the span in the *spoken* form with a break on each side while leaving the extracted text alone. The clause's own two-abbreviation example is the test. **No corpus document states one on page one**, which is measured rather than assumed and is why the test is the clause's example rather than a file."
 [[clause]]
 clause = "14.9.6"
 title = "Pronunciation hints"

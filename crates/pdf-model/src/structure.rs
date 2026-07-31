@@ -120,6 +120,16 @@ impl ParentTree {
     }
 }
 
+/// Deepest chain of `/P` links followed when a structure element inherits its language.
+///
+/// §14.9.2.3 makes the inheritance unbounded — an element "shall inherit its language from any
+/// parent element that has one" — and `/P` is a reference a document controls, so a file may
+/// state a cycle or a chain thousands deep. Real hierarchies are a handful of levels; this is
+/// far past any of them and is what makes the walk terminate. Reaching it answers "no language
+/// stated", which is the same answer an untagged document gives, because a language is not a
+/// mark on the page and refusing to speak would be worse than speaking in the default.
+const MAX_ANCESTRY: usize = 64;
+
 /// Table 355's `/ActualText` on a structure element, decoded.
 ///
 /// §14.9.4 puts replacement text in two places — a `Span` property list and a structure element
@@ -128,10 +138,72 @@ impl ParentTree {
 /// other, and it needs the parent tree to be reachable at all.
 #[must_use]
 pub fn actual_text(document: &Document, element: &Dictionary) -> Option<String> {
-    match document.get_key(element, "ActualText") {
-        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+    text_entry(document, element, "ActualText")
+}
+
+/// Table 355's `/Alt`, §14.9.3's alternate description of what the element contains.
+#[must_use]
+pub fn alternate_description(document: &Document, element: &Dictionary) -> Option<String> {
+    text_entry(document, element, "Alt")
+}
+
+/// Table 355's `/E`, §14.9.5's expansion of the abbreviation the element tags.
+#[must_use]
+pub fn expansion(document: &Document, element: &Dictionary) -> Option<String> {
+    text_entry(document, element, "E")
+}
+
+/// Table 355's `/Lang` on an element, or the nearest ancestor's.
+///
+/// §14.9.2.3 states both halves of this in one sentence:
+///
+/// > A structure element's language specification. If a structure element does not have a Lang
+/// > entry, the element shall inherit its language from any parent element that has one.
+///
+/// So the walk goes up `/P` until an element states one, the chain ends, or [`MAX_ANCESTRY`] is
+/// reached. `None` means no element in the chain said anything, which leaves the document
+/// catalog's default in force.
+#[must_use]
+pub fn language(document: &Document, element: &Dictionary) -> Option<String> {
+    let mut current = element.clone();
+    for _ in 0..MAX_ANCESTRY {
+        if let Some(tag) = text_entry(document, &current, "Lang") {
+            return Some(tag);
+        }
+        // The structure tree root is the one parent that is not an element, and it states no
+        // language of its own — §14.9.2.3 puts the document's default in the catalog instead.
+        current = document.get_key(&current, "P").as_dict()?.clone();
+    }
+    None
+}
+
+/// A text-string entry on a structure element, decoded and with an empty value discarded.
+///
+/// §14.9.2.2 gives the empty string a meaning for `/Lang` — it is how a file says "the language
+/// is unknown" — and that is the same answer as stating nothing, so both arrive here as `None`.
+/// For `/Alt`, `/E` and `/ActualText` an empty string states no substitution, and treating it
+/// as one would delete the text the element encloses.
+fn text_entry(document: &Document, element: &Dictionary, key: &str) -> Option<String> {
+    match document.get_key(element, key) {
+        Object::String(bytes) => {
+            let text = pdf_syntax::text_string(&bytes);
+            (!text.is_empty()).then_some(text)
+        }
         _ => None,
     }
+}
+
+/// The document catalog's `/Lang`, §14.9.2.3's default for everything in the file.
+///
+/// > The Lang entry in the document catalog dictionary shall specify the default natural
+/// > language for all text in the document.
+///
+/// It is read here rather than in `page.rs` because it is the top of §14.9.2's hierarchy and
+/// the rest of that hierarchy is this module's; 95 of the corpus's 974 documents state one.
+#[must_use]
+pub fn document_language(document: &Document) -> Option<String> {
+    let catalog = document.catalog().ok()?;
+    text_entry(document, &catalog, "Lang")
 }
 
 #[cfg(test)]

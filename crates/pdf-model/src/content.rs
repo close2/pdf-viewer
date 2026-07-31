@@ -216,9 +216,32 @@ pub struct Interpretation {
     /// does a glyph on a hidden optional-content layer. It is a count rather than a flag
     /// because "a page with three glyphs on it" and "a page of text" are different pages.
     pub glyphs: usize,
+    /// ISO 32000-2 §14.9's accessibility spans over [`Self::text`], in the order they closed.
+    ///
+    /// One entry per marked-content sequence stating an `/Alt`, an `/E` or a `/Lang`, in
+    /// either of the two places §14.9 puts them — the sequence's own property list or the
+    /// structure element a `/MCID` names. Empty for every page whose producer tagged nothing,
+    /// which is most of them.
+    ///
+    /// Kept as spans rather than as a second string because they answer a different question
+    /// from [`Self::text`]: that is what a person copying the page gets, and this is what a
+    /// text-to-speech engine gets. [`Self::speech`] combines the two.
+    pub described: Vec<crate::accessibility::Described>,
+    /// The document catalog's `/Lang`, §14.9.2.3's default for everything in the file.
+    pub language: Option<String>,
 }
 
 impl Interpretation {
+    /// The page as §14.9 says it should be vocalised: [`Self::text`] with the descriptions,
+    /// expansions and languages applied.
+    ///
+    /// Built on demand rather than during interpretation, because nothing that draws a page
+    /// needs it and the great majority of pages state nothing for it to do.
+    #[must_use]
+    pub fn speech(&self) -> Vec<crate::accessibility::Spoken> {
+        crate::accessibility::speech(&self.text, &self.described, self.language.as_deref())
+    }
+
     /// Returns `true` if everything on the page was drawn.
     ///
     /// The harness uses this to decide whether a page may be compared against a reference
@@ -270,16 +293,44 @@ enum PatternPaint {
 
 /// One open marked-content section, `BMC`/`BDC` to `EMC`.
 ///
-/// Two independent things hang off the same nesting, which is why this is a struct rather than
-/// a counter: §8.11.3.2's optional content decides whether what follows *marks the page*, and
-/// §14.9.4's replacement text decides what a reader *reads back* from it. A section may be
-/// either, both or neither.
+/// Three independent things hang off the same nesting, which is why this is a struct rather
+/// than a counter: §8.11.3.2's optional content decides whether what follows *marks the page*,
+/// §14.9.4's replacement text decides what a reader *reads back* from it, and §14.9.3's and
+/// §14.9.5's decide what a screen reader *says* about it. A section may be any, all or none.
 #[derive(Debug, Clone, Default)]
 struct Marked {
     /// Whether this section's optional content is turned off.
     hides: bool,
-    /// §14.9.4's `/ActualText`: where the section's text began, and what replaces it.
-    actual_text: Option<(usize, String)>,
+    /// Where in the readback this section's text began, for the two rules that need its extent.
+    starts_at: usize,
+    /// §14.9.4's `/ActualText`, which replaces what the section reads back.
+    actual_text: Option<String>,
+    /// §14.9.3's `/Alt` and §14.9.5's `/E`, which replace what it is *spoken* as, and
+    /// §14.9.2's `/Lang`, which says in what language.
+    ///
+    /// `None` where the section states none of the three, which is what keeps an untagged page
+    /// from allocating anything.
+    described: Option<Accessible>,
+}
+
+/// §14.9's three spoken-form entries as one section states them.
+#[derive(Debug, Clone, Default)]
+struct Accessible {
+    /// §14.9.3's `/Alt`.
+    alt: Option<String>,
+    /// §14.9.5's `/E`.
+    expansion: Option<String>,
+    /// §14.9.2's `/Lang`, already resolved through a structure element's ancestry.
+    language: Option<String>,
+}
+
+impl Accessible {
+    /// `None` where nothing was stated, so that a section with no accessibility entries costs
+    /// no allocation and produces no span.
+    fn or_nothing(self) -> Option<Self> {
+        let stated = self.alt.is_some() || self.expansion.is_some() || self.language.is_some();
+        stated.then_some(self)
+    }
 }
 
 /// A tiling pattern: a cell of content, and how to repeat it.
@@ -781,6 +832,7 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
         operations: 0,
         fonts: BTreeMap::new(),
         text: String::new(),
+        described: Vec::new(),
         text_cursor: None,
         base: base_transform(page),
         page: size,
@@ -828,11 +880,22 @@ pub fn interpret(document: &Document, page: &Page) -> Interpretation {
     }
     unsupported.sort_unstable();
 
+    // §14.9.2.3's default for everything in the file, and the only one of §14.9's entries with
+    // a document-wide statement. Read once per page rather than per section — and not at all
+    // for a page with nothing to say, which is the whole reason a document's language is
+    // wanted: it is the language of the text, and there is none.
+    let has_text = !interpreter.text.is_empty() || !interpreter.described.is_empty();
+    let language = has_text
+        .then(|| crate::structure::document_language(document))
+        .flatten();
+
     Interpretation {
         display_list: interpreter.list,
         unsupported,
         text: interpreter.text,
         glyphs: interpreter.glyphs,
+        described: interpreter.described,
+        language,
     }
 }
 
@@ -973,6 +1036,8 @@ struct Interpreter<'a> {
     output_intent: Option<ColourSpace>,
     /// The page's text, accumulated as the glyphs are placed.
     text: String,
+    /// §14.9's accessibility spans over [`Self::text`], pushed as each section closes.
+    described: Vec<crate::accessibility::Described>,
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
     /// The document's optional content configuration, if it has one (§8.11).
@@ -1588,19 +1653,25 @@ impl Interpreter<'_> {
                             self.unresolved_resource(resources, "Properties", &name)
                                 .is_some_and(|oc| !self.shows_optional_content(&oc))
                         });
+                    // §14.9's four entries, all from the one property list this section
+                    // names, so that a tagged page reads it once rather than four times.
+                    let (actual_text, described) = self.accessibility(resources, operands.get(1));
                     marked.push(Marked {
                         hides,
+                        starts_at: self.text.len(),
                         // §14.9.4's replacement text, which belongs to *extraction* and not to
                         // drawing: the marks are unchanged and what a reader copies is not.
-                        actual_text: self
-                            .replacement_text(resources, operands.get(1))
-                            .map(|text| (self.text.len(), text)),
+                        actual_text,
+                        described,
                     });
                     if hides {
                         self.hidden = self.hidden.saturating_add(1);
                     }
                 }
-                b"BMC" => marked.push(Marked::default()),
+                b"BMC" => marked.push(Marked {
+                    starts_at: self.text.len(),
+                    ..Marked::default()
+                }),
                 b"EMC" => {
                     if let Some(section) = marked.pop() {
                         if section.hides {
@@ -1609,11 +1680,22 @@ impl Interpreter<'_> {
                         // "The ActualText value shall be used as a replacement, not a
                         // description, for the content" — so whatever the enclosed operators
                         // read back is discarded and the stated text stands in its place.
-                        if let Some((from, replacement)) = section.actual_text
-                            && from <= self.text.len()
+                        if let Some(replacement) = section.actual_text
+                            && section.starts_at <= self.text.len()
                         {
-                            self.text.truncate(from);
+                            self.text.truncate(section.starts_at);
                             self.text.push_str(&replacement);
+                        }
+                        // §14.9.3's and §14.9.5's substitutions are recorded over the range
+                        // rather than applied to it: they are what the page is *spoken* as,
+                        // and the text a person copies is unchanged by either.
+                        if let Some(described) = section.described {
+                            self.described.push(crate::accessibility::Described {
+                                range: section.starts_at..self.text.len(),
+                                alt: described.alt,
+                                expansion: described.expansion,
+                                language: described.language,
+                            });
                         }
                     }
                 }
@@ -3724,22 +3806,68 @@ impl Interpreter<'_> {
         Some(self.document.resolve(value))
     }
 
-    /// §14.9.4's replacement text for a marked-content sequence, from either place it lives.
+    /// §14.9's four entries for a marked-content sequence, from either place each may live.
     ///
-    /// The clause puts `/ActualText` on a `Span` property list *and* on a structure element,
-    /// and says the same thing of both — it "shall be used as a replacement, not a
-    /// description, for the content". A sequence carrying an `/MCID` names its element through
-    /// §14.7.5.4's parent tree, so both are reachable from a `BDC`; the property list is asked
-    /// first because it is the more specific statement, attached to this sequence rather than
-    /// to the element the sequence belongs to.
-    fn replacement_text(&self, resources: &Dictionary, operand: Option<&Object>) -> Option<String> {
-        let list = self.property_list(resources, operand)?;
-        if let Object::String(bytes) = self.document.get_key(&list, "ActualText") {
-            return Some(pdf_syntax::text_string(&bytes));
+    /// The clause puts `/ActualText` (§14.9.4), `/Alt` (§14.9.3), `/E` (§14.9.5) and `/Lang`
+    /// (§14.9.2.1) on a `Span` property list *and* on a structure element, and says the same
+    /// thing of both. A sequence carrying an `/MCID` names its element through §14.7.5.4's
+    /// parent tree, so both are reachable from a `BDC`; **the property list is asked first for
+    /// each entry independently**, because it is the more specific statement — attached to
+    /// this sequence rather than to the element the sequence belongs to — and because a file
+    /// may put one entry in each place. Falling back per entry rather than per dictionary is
+    /// what makes §14.9.3's own example legal: `/Span <</Lang (en-us) /Alt (six-point star)>>`
+    /// beside an element that states only the language.
+    ///
+    /// The element is resolved at most once, and only for a sequence that named one. That
+    /// matters: `structure.rs` records that following every entry of the specification's own
+    /// first page costs 96 M instructions, so a lookup per entry would pay it four times.
+    fn accessibility(
+        &self,
+        resources: &Dictionary,
+        operand: Option<&Object>,
+    ) -> (Option<String>, Option<Accessible>) {
+        let Some(list) = self.property_list(resources, operand) else {
+            return (None, None);
+        };
+        let stated = |key: &str| match self.document.get_key(&list, key) {
+            Object::String(bytes) => {
+                let text = pdf_syntax::text_string(&bytes);
+                (!text.is_empty()).then_some(text)
+            }
+            _ => None,
+        };
+        let mut actual_text = stated("ActualText");
+        let mut described = Accessible {
+            alt: stated("Alt"),
+            expansion: stated("E"),
+            language: stated("Lang"),
+        };
+
+        // The structure element supplies only what the property list did not state, and is
+        // read only where one of the four is still missing *and* an `/MCID` names it.
+        let missing = actual_text.is_none()
+            || described.alt.is_none()
+            || described.expansion.is_none()
+            || described.language.is_none();
+        if missing
+            && let Some(mcid) = self.document.get_key(&list, "MCID").as_integer()
+            && let Some(element) = self.structure.element(self.document, mcid)
+        {
+            let document = self.document;
+            actual_text = actual_text.or_else(|| crate::structure::actual_text(document, &element));
+            described.alt = described
+                .alt
+                .or_else(|| crate::structure::alternate_description(document, &element));
+            described.expansion = described
+                .expansion
+                .or_else(|| crate::structure::expansion(document, &element));
+            // The one of the four that is inherited: §14.9.2.3 has an element take its
+            // language from "any parent element that has one".
+            described.language = described
+                .language
+                .or_else(|| crate::structure::language(document, &element));
         }
-        let mcid = self.document.get_key(&list, "MCID").as_integer()?;
-        let element = self.structure.element(self.document, mcid)?;
-        crate::structure::actual_text(self.document, &element)
+        (actual_text, described.or_nothing())
     }
 
     /// The property list a `BDC` operand names, inline or through `/Properties`.
