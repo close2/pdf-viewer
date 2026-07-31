@@ -2866,7 +2866,7 @@ title = "Overview of transparency"
 status = "implemented"
 code = ["crates/pdf-render/src/lib.rs", "crates/render-cpu/src/lib.rs"]
 test = ["crates/pdf-model/tests/transparency_groups.rs::a_group_is_composited_once_rather_than_object_by_object"]
-note = "The model's vocabulary — object, group, backdrop, shape, opacity, transparency stack — and this tree's display list is that stack: a flat sequence with `Command::Group` as the one nested command (ADR 0026). Alpha is one channel per pixel rather than shape and opacity separately, which §11.2.2 permits and ADR 0027 argues from `/AIS`: with one number, shape and opacity multiply to the same number."
+note = "The model's vocabulary — object, group, backdrop, shape, opacity, transparency stack — and this tree's display list is that stack: a flat sequence with `Command::Group` as the one nested command (ADR 0026). Alpha is one channel per pixel rather than shape and opacity separately, which §11.2 permits and ADR 0027 argues from `/AIS`: with one number, shape and opacity multiply to the same number."
 
 [[clause]]
 clause = "11.3"
@@ -4989,14 +4989,20 @@ note = "The clause decides which form a producer may use by what the list holds:
 [[clause]]
 clause = "14.7"
 title = "Logical structure"
-status = "silent"
-note = "Logical structure: a tree of elements over the content of a document, saying that this run of glyphs is a heading and that one a table cell. **This is the half of clause 14 `CLAUDE.md` puts in scope** — \"tagged PDF as far as accessibility needs it\" — and none of it is read. Nothing here is a rendering question: a document with a perfect structure tree and one with none draw identically, which is exactly why it is worth recording as debt rather than leaving as an absence."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::the_structure_tree_reads_its_children_and_maps_their_roles"]
+note = "Logical structure: a tree of elements over the content of a document, saying that this run of glyphs is a heading and that one a table cell. **This is the half of clause 14 `CLAUDE.md` puts in scope** — \"tagged PDF as far as accessibility needs it\". The tree is read in both directions (§14.7.2, §14.7.5.4), its types are role mapped in both of the standard's two systems (§14.7.3, §14.8.6.2), its content items are read in all three forms (§14.7.5.1.1), and its attributes and namespaces are read (§14.7.6, §14.7.4). **This row said \"none of it is read\" for two sessions after the seventy-eighth built the tree**, which is the understatement a ledger has no gate against. What is still owed is a *consumer*: nothing in this program hands a structure tree to anybody, and §14.8's vocabulary — what the types and attributes mean — is unread."
+
 
 [[clause]]
 clause = "14.7.1"
 title = "General"
-status = "silent"
-note = "The framing, and the sentence that decides how much of §14.6 has to work first: logical structure \"is independent of the content stream\" but is *attached* to it through marked-content sequences (§14.7.5.2), whose bracketing `content.rs` already maintains for optional content and for §12.7.4.3's splice. So the mechanism a structure tree hangs on exists; the tree does not."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_marked_content_identifier_finds_its_element"]
+note = "The framing, and the sentence that decides how much of §14.6 has to work first: logical structure \"is independent of the content stream\" but is *attached* to it through marked-content sequences (§14.7.5.2), whose bracketing `content.rs` maintains — for optional content, for §12.7.4.3's splice, and for the `/MCID` that reaches this tree. Both halves exist: the mechanism and the tree."
+
 
 [[clause]]
 clause = "14.7.2"
@@ -5017,32 +5023,47 @@ note = "An element's `/S` is read, and `Tree::role` maps it through §14.7.3's `
 [[clause]]
 clause = "14.7.4"
 title = "Namespaces"
-status = "silent"
-note = "Namespaces (PDF 2.0), which qualify a structure type so that a document may mix vocabularies."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_namespaces_own_role_map_is_the_one_that_applies"]
+note = "Namespaces (PDF 2.0), which qualify a structure type so that a document may mix vocabularies. Read in both places they are used: `structure::Namespace` is Table 356's dictionary, `Tree::namespace` answers which namespace an element is in, and `Tree::role` maps a type through the namespace's own `/RoleMapNS` — which is §14.8.6.2's rule and not §14.7.3's."
+
 
 [[clause]]
 clause = "14.7.4.1"
 title = "General"
-status = "silent"
-note = "The framing. New in PDF 2.0 and the reason §14.7.3's role map is no longer the only indirection between a document's type names and the standard's."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_role_map_may_lead_into_another_namespace"]
+note = "The framing. New in PDF 2.0 and the reason §14.7.3's role map is no longer the only indirection between a document's type names and the standard's: an element states `/NS`, and the map that applies is that namespace's."
+
 
 [[clause]]
 clause = "14.7.4.2"
 title = "Namespace dictionary"
-status = "silent"
-note = "Table 358's namespace dictionary: `/NS` the identifying URI, `/Schema`, `/RoleMapNS`."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_role_map_may_lead_into_another_namespace"]
+note = "Table 356's namespace dictionary: `/NS` the identifying name, `/Schema`, `/RoleMapNS`. Two of the three are used — the name identifies the namespace and the role map is followed, including its second form, \"an array where the first value shall be a structure element type name in a target namespace with the second value being an indirect reference to the target namespace dictionary\", which is how one vocabulary maps into another. `/Schema` is read and not fetched: it is a §7.11 file specification, which this reader has no filesystem to open, and NOTE 2 states no required format for it. The name is **not** parsed as a URI, because NOTE 1 says it is \"used for uniqueness\" and \"[i]t is not generally expected that a URI for a namespace name will resolve\"."
+
 
 [[clause]]
 clause = "14.7.5"
 title = "Structure content"
-status = "silent"
-note = "Structure content: how an element points at the marks on a page."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::the_structure_tree_reads_its_children_and_maps_their_roles"]
+note = "How an element points at the marks on a page, in both directions and in every form the subclauses define: §14.7.5.1.1's three kinds of content item, §14.7.5.2's marked-content sequences, §14.7.5.3's object references and §14.7.5.4's parent tree. See each."
+
 
 [[clause]]
 clause = "14.7.5.1"
 title = "General"
-status = "silent"
-note = "The framing."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::the_structure_tree_reads_its_children_and_maps_their_roles"]
+note = "The framing: content items \"exist in the document independently of the structure tree but are associated with structure elements\", which is what makes `structure::Child` an enum over the forms rather than a type of its own. §14.7.5.1.1 is where the forms are."
+
 
 [[clause]]
 clause = "14.7.5.1.1"
@@ -5055,14 +5076,20 @@ note = "The two kinds the clause names — marked-content sequences and complete
 [[clause]]
 clause = "14.7.5.2"
 title = "Marked-content sequences as content items"
-status = "silent"
-note = "Marked-content sequences as content items: `BDC` with a `/MCID` in its property list, matched to a structure element by that identifier. **`content.rs` already parses the property list this rides on**, because §8.11.3.3's `/OC` arrives the same way — an `/MCID` is one more entry it does not read."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/content.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_marked_content_identifier_finds_its_element", "crates/pdf-model/tests/accessibility.rs::a_structure_element_supplies_the_language_of_its_sequence"]
+note = "`BDC` with an `/MCID` in its property list, matched to a structure element by that identifier — `content.rs` reads the identifier as the property list is opened, which is where §8.11.3.3's `/OC` already arrives, and `ParentTree::element` is the match. Table 357's marked-content reference is the other direction and is `structure::Child::MarkedContent`, whose `/Pg` may move the sequence to another page."
+
 
 [[clause]]
 clause = "14.7.5.3"
 title = "PDF objects as content items"
-status = "silent"
-note = "PDF objects as content items: an object reference dictionary naming an annotation or an XObject as the content of an element. Table 362's `/Obj`, and §12.5's annotations are drawn here already — what is missing is the link back to the tree."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::the_structure_tree_reads_its_children_and_maps_their_roles"]
+note = "Table 358's object reference dictionary, naming an annotation or an XObject as the content of an element: `/Obj` is the object and `/Pg` the page, and both are read into `structure::Child::Object` with the element's own `/Pg` as the default. What such an item *is* for is the annotation's place in the reading order, which needs the consumer §14.7 owes."
+
 
 [[clause]]
 clause = "14.7.5.4"
@@ -5075,32 +5102,47 @@ note = "The last of the four rows the ledger found waiting on one data structure
 [[clause]]
 clause = "14.7.6"
 title = "Structure attributes"
-status = "silent"
-note = "Structure attributes: layout, list, table and printer's-mark properties hung on an element."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own"]
+note = "Layout, list, table and printer's-mark properties hung on an element, read through both routes the clause gives — the element's own `/A` and §14.7.6.2's `/ClassMap` — with both of its precedence rules applied. What an attribute *means* is §14.8.5's and is not read; what is here is which attribute objects are attached and which one wins."
+
 
 [[clause]]
 clause = "14.7.6.1"
 title = "General"
-status = "silent"
-note = "Table 363's attribute dictionaries and the `/O` owner that says which vocabulary an attribute belongs to."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own"]
+note = "Table 360's attribute object dictionaries and the `/O` owner that says which vocabulary an attribute belongs to, with PDF 2.0's `/NS` for an owner that is a namespace. `AttributeObject::get` refuses those two entries and answers every other, because the clause draws exactly that line: \"[o]ther entries, except the NS entry, shall represent the attributes\". An object with no `/O` is refused — a set of attributes whose vocabulary nobody named cannot be interpreted, and Table 360 makes the entry required."
+
 
 [[clause]]
 clause = "14.7.6.2"
 title = "Attribute classes"
-status = "silent"
-note = "Attribute classes: `/ClassMap` in the structure tree root, so that a set of attributes can be named once and referred to by many elements."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own"]
+note = "`/ClassMap` in the structure tree root, so that a set of attributes can be named once and referred to by many elements: an element's `/C` names classes, each class names an attribute object or an array of them, and both forms are read. The precedence rule is the clause's own — \"[i]f both the A and C entries are present and a given attribute is specified by both, the one specified by the A entry shall take precedence\" — which is why `Tree::attributes` returns the classes first and the element's own after them."
+
 
 [[clause]]
 clause = "14.7.6.3"
 title = "Attribute revision numbers"
-status = "silent"
-note = "Attribute revision numbers, which say that an attribute was updated after the content it describes — a *validity* mechanism, and one a reader that does not edit has nothing to do with."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own"]
+note = "Deprecated with PDF 2.0, and **read because it is what makes the `/A` and `/C` arrays parseable**: a revision is \"the second (when present)\" element of a pair inside the same array, so a reader that did not know about it would take an integer for an attribute object. NOTE 3 states that reasoning outright — \"since an attribute object reference is distinct from an integer, that distinction is used to determine whether the attribute object is represented in the array by a single or a pair of entries\". The number itself is a *validity* mechanism for a processor that edits, which this is not; it is carried on `AttributeObject::revision` and used by nothing."
+
 
 [[clause]]
 clause = "14.7.6.4"
 title = "User properties"
-status = "silent"
-note = "User properties: arbitrary application data attached to a structure element, which the clause is explicit have no standard meaning."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::user_properties_are_read_with_their_formatting_and_their_hidden_flag"]
+note = "Table 361's `/O /UserProperties` and Table 362's `/N`, `/V`, `/F` and `/H`, read as `structure::UserProperty`. The value is kept as the object the file wrote, because the clause tells a processor what to do with the types it does not display — \"they should not treat other values as errors\" — and a reader that coerced everything to a string would have decided that for the consumer. `/F` is kept beside `/V` rather than replacing it, which is the point of the example the clause gives: \"($123.45)\" for the number -123.45."
+
 
 [[clause]]
 clause = "14.7.7"
@@ -5451,26 +5493,38 @@ note = "Table 384's `/Type`, `/BBox` and `/Subtype` on an `Artifact` element, th
 [[clause]]
 clause = "14.8.6"
 title = "Standard structure namespaces"
-status = "silent"
-note = "Aggregate of the three below: which namespace a structure type's name belongs to, which is what makes two documents' tagsets comparable."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_namespaces_own_role_map_is_the_one_that_applies"]
+note = "Which namespace a structure type's name belongs to, which is what makes two documents' tagsets comparable. The three names are constants here and the mapping rule is implemented; what is `silent` is the *requirement* the clause states about them — that in a tagged document every element be in a standard namespace or role mapped into one — which is a validation this reader does not perform. See the three below."
+
 
 [[clause]]
 clause = "14.8.6.1"
 title = "Namespaces for standard structure types and attributes"
-status = "silent"
-note = "Two namespaces, named by URI: PDF 2.0's `http://iso.org/pdf2/ssn` and PDF 1.7's `http://iso.org/pdf/ssn`, with the **default being the older one** — \"[w]hen a namespace is not explicitly specified for a given structure element or attribute, it shall be assumed to be within this default standard structure namespace\". A reader that assumed the newest would misread every untagged-namespace element in every file written before 2020."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_namespaces_own_role_map_is_the_one_that_applies"]
+note = "Two namespaces, named by URI: PDF 2.0's `http://iso.org/pdf2/ssn` and PDF 1.7's `http://iso.org/pdf/ssn`, with the **default being the older one** — \"[w]hen a namespace is not explicitly specified for a given structure element or attribute, it shall be assumed to be within this default standard structure namespace\". A reader that assumed the newest would misread every untagged-namespace element in every file written before 2020. Both are constants in `structure.rs` and `Tree::namespace` returns the default for an element that states none."
+
 
 [[clause]]
 clause = "14.8.6.2"
 title = "Role maps and namespaces"
-status = "silent"
-note = "Role maps, and the rule §14.8.4.1 depends on: every structure element must reach a standard type, directly or through a mapping that \"can be applied transitively to allow a structure element to be mapped through multiple steps\". Transitive means a reader needs a cycle guard, which is the same shape as the guards `tree.rs` and `outline.rs` already carry. An element with no `/NS` uses the structure tree root's `/RoleMap`; one with a namespace uses that namespace's own."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_namespaces_own_role_map_is_the_one_that_applies", "crates/pdf-model/src/structure.rs::a_role_map_may_lead_into_another_namespace"]
+note = "Which map applies to which element, and it is not §14.7.3's: \"if the structure element does not explicitly identify its namespace using an NS entry, it should use the RoleMap entry in the Structure Tree Root dictionary … If the structure element is in an explicit namespace, then … the RoleMapNS entry within that namespace dictionary shall provide the role mapping\". `Tree::role` carries a name *and* a namespace through the walk for that reason, follows a mapping into a target namespace, and is bounded because \"applied transitively\" is an invitation to a cycle. What is not done is the clause's conformance requirement — that every element end in a standard namespace — which is a validator's job rather than a reader's."
+
 
 [[clause]]
 clause = "14.8.6.3"
 title = "Other namespaces"
-status = "silent"
-note = "The namespaces beyond the two standard ones — MathML and the PDF/UA and PDF/A schemas — which a document may use for elements that have no standard equivalent. The list is open, and the requirement is only that an element be in *one* of the recognised namespaces or role-mapped into one."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_role_map_may_lead_into_another_namespace"]
+note = "MathML 3.0 is the one namespace this subclause defines — \"MathML is the only domain-specific namespace defined in PDF 2.0\" — and it is a constant here, along with the exemption the clause gives it: a namespace named in this subclause \"[does] not require a RoleMapNS entry\", so an element in it keeps its own type. Any other namespace a document declares is read and carried as its name; what this reader does *not* do is check the requirement that it be role mapped into a standard one."
+
 
 [[clause]]
 clause = "14.9"
@@ -5594,7 +5648,7 @@ note = "MD5 over the source data, and for a page set over the source followed by
 clause = "14.10.3.4"
 title = "Unique name generation"
 status = "inapplicable"
-note = "How a captured link or form field is given a name that will not collide: the page set's digital identifier is appended to the original name, with Table 387 escaping NUL, PERIOD and REVERSE SOLIDUS — PERIOD because §12.7.3.2 makes it the separator in a field's fully qualified name. A field name gets a second encoding, one source byte to two, each 65 plus a nibble. Writer-side work described in a deprecated clause, and reading a name so constructed needs none of it."
+note = "How a captured link or form field is given a name that will not collide: the page set's digital identifier is appended to the original name, with Table 387 escaping NUL, PERIOD and REVERSE SOLIDUS — PERIOD because §12.7.4.2 makes it the separator in a field's fully qualified name. A field name gets a second encoding, one source byte to two, each 65 plus a nibble. Writer-side work described in a deprecated clause, and reading a name so constructed needs none of it."
 
 [[clause]]
 clause = "14.10.4"

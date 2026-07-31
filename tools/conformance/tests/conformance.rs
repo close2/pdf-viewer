@@ -340,3 +340,72 @@ fn by_clause(ledger: &Ledger) -> String {
     }
     out
 }
+
+/// The ledger's own prose names clauses and tables the standard has.
+///
+/// The notes are the densest writing about ISO 32000-2 in this project — one per subclause,
+/// most of them naming other clauses and numbered tables — and until the eighty-second session
+/// nothing read a word of them: the citation scan reads Rust sources and the ledger is TOML.
+/// The first run found **three wrong table numbers**, each of them ISO 32000-1's number for a
+/// table ISO 32000-2 renumbered: the namespace dictionary called Table 358, the attribute
+/// object dictionary called Table 363, and an object reference's `/Obj` called Table 362. All
+/// three read exactly like correct writing, which is the same shape as the `§9.3.6 Table 106`
+/// the thirteenth session found in the code.
+///
+/// The clause half is a stricter check than the table half for the same reason it is in the
+/// code: a wrong clause number names nothing, while a wrong table number names another table.
+/// So the tables are also *printed* with their titles, as they are for the tree.
+#[test]
+fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
+    let root = conformance::workspace_root();
+    let index = ClauseIndex::read(&root.join(conformance::STANDARD)).expect("the standard");
+    let ledger = Ledger::read(&root.join(conformance::LEDGER)).expect("the ledger");
+
+    let mut wrong = String::new();
+    let mut citations = 0usize;
+    let mut tables: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
+    for row in &ledger.rows {
+        let Some(note) = &row.note else { continue };
+        let scan = conformance::citation::scan_prose(note);
+        for citation in &scan.citations {
+            citations = citations.saturating_add(1);
+            if !index.contains(&citation.number) {
+                let _ = writeln!(
+                    wrong,
+                    "  the ledger's §{} row cites §{}, which is not a clause of ISO 32000-2",
+                    row.clause, citation.number
+                );
+            }
+        }
+        for foreign in &scan.foreign {
+            let _ = writeln!(
+                wrong,
+                "  the ledger's §{} row puts a `§` after {}, which is not ISO 32000-2",
+                row.clause, foreign.document
+            );
+        }
+        for table in &scan.tables {
+            match index.table_title(table.table) {
+                Some(title) => {
+                    tables
+                        .entry(table.table)
+                        .or_default()
+                        .insert(title.to_owned());
+                }
+                None => {
+                    let _ = writeln!(
+                        wrong,
+                        "  the ledger's §{} row names Table {}, which the standard does not have",
+                        row.clause, table.table
+                    );
+                }
+            }
+        }
+    }
+
+    assert!(wrong.is_empty(), "\n{wrong}");
+    println!(
+        "the ledger's notes name {citations} clauses and {} distinct tables, all of which exist",
+        tables.len()
+    );
+}

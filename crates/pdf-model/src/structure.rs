@@ -274,24 +274,160 @@ impl Tree {
     /// same bound the tree walk uses, and a name that maps to itself or into a cycle answers
     /// the last name reached rather than looping.
     ///
+    /// **Which map applies is §14.8.6.2's question, not §14.7.3's.** An element that names its
+    /// namespace is mapped by *that namespace's* `/RoleMapNS`: "if the structure element does
+    /// not explicitly identify its namespace using an `NS` entry, it should use the `RoleMap`
+    /// entry in the Structure Tree Root dictionary … If the structure element is in an
+    /// explicit namespace, then … the `RoleMapNS` entry within that namespace dictionary shall
+    /// provide the role mapping". A `/RoleMapNS` value may also name a *target namespace*
+    /// alongside the type, which is how one document's vocabulary maps into another's, and
+    /// this follows that too — the loop's state is a name **and** a namespace.
+    ///
     /// `None` for an element with no `/S`, which Table 355 makes required: a structure
     /// element that states no type says nothing about what it is, and inventing one would be
     /// the fallback-that-fills-the-page in another clause's clothing.
     #[must_use]
     pub fn role(&self, document: &Document, element: &Dictionary) -> Option<String> {
         let mut name = document.get_key(element, "S").as_name()?.clone();
-        let map = document.get_key(&self.root, "RoleMap");
-        let Some(map) = map.as_dict() else {
-            return Some(String::from_utf8_lossy(name.as_bytes()).into_owned());
-        };
+        // The element's own namespace, if it states one. `None` means §14.8.6.1's default
+        // standard structure namespace, which is where the root's `/RoleMap` applies.
+        let mut namespace = document.get_key(element, "NS").as_dict().cloned();
+
         for _ in 0..MAX_DEPTH {
-            let mapped = document.get_key(map, &String::from_utf8_lossy(name.as_bytes()));
-            match mapped.as_name() {
-                Some(next) if next != &name => name = next.clone(),
+            let key = String::from_utf8_lossy(name.as_bytes()).into_owned();
+            // §14.8.6.2 decides which of the two maps is consulted, and nothing else does:
+            // an element in an explicit namespace is mapped by that namespace's own.
+            let map = match &namespace {
+                Some(space) => document.get_key(space, "RoleMapNS"),
+                None => document.get_key(&self.root, "RoleMap"),
+            };
+            let mapped = map
+                .as_dict()
+                .map_or(Object::Null, |map| document.get_key(map, &key));
+            match mapped {
+                // "a single name identifying a structure element type in the default standard
+                // structure namespace" — so the mapping leaves whatever namespace it was in.
+                Object::Name(next) => {
+                    if next == name && namespace.is_none() {
+                        break;
+                    }
+                    name = next;
+                    namespace = None;
+                }
+                // "an array where the first value shall be a structure element type name in a
+                // target namespace with the second value being an indirect reference to the
+                // target namespace dictionary".
+                Object::Array(items) => {
+                    let Some(next) = items
+                        .first()
+                        .and_then(|item| document.resolve(item).as_name().cloned())
+                    else {
+                        break;
+                    };
+                    let target = items
+                        .get(1)
+                        .map(|item| document.resolve(item))
+                        .and_then(|object| object.as_dict().cloned());
+                    if next == name && target == namespace {
+                        break;
+                    }
+                    name = next;
+                    namespace = target;
+                }
                 _ => break,
             }
         }
         Some(String::from_utf8_lossy(name.as_bytes()).into_owned())
+    }
+
+    /// The namespace name an element is in, §14.8.6.1's default where it states none.
+    ///
+    /// > When a namespace is not explicitly specified for a given structure element or
+    /// > attribute, it shall be assumed to be within this default standard structure namespace.
+    ///
+    /// which is [`DEFAULT_STANDARD_NAMESPACE`]. An element that states a `/NS` whose dictionary
+    /// has no `/NS` string of its own has named a namespace this reader cannot identify, and
+    /// answers `None` rather than the default — Table 356 makes the entry required, so the
+    /// alternative would be to report a document's broken namespace as the standard one.
+    #[must_use]
+    pub fn namespace(&self, document: &Document, element: &Dictionary) -> Option<String> {
+        let stated = document.get_key(element, "NS");
+        let Some(space) = stated.as_dict() else {
+            return Some(DEFAULT_STANDARD_NAMESPACE.to_owned());
+        };
+        Namespace::read(document, space).map(|space| space.name)
+    }
+
+    /// Every attribute object attached to an element, in **increasing precedence order**.
+    ///
+    /// §14.7.6 attaches attributes by two routes and states which wins in each. Within an
+    /// element's `/A`, "[i]f a given attribute is specified more than once, the later (in array
+    /// order) entry shall take precedence"; between the two routes, "[i]f both the A and C
+    /// entries are present and a given attribute is specified by both, the one specified by
+    /// the A entry shall take precedence". So the list is the `/C` classes first and the `/A`
+    /// objects after them, each in array order, and the *last* object stating an attribute is
+    /// the one that holds — which is what [`Self::attribute`] does with it.
+    ///
+    /// Both entries carry §14.7.6.3's revision numbers, and reading them is not optional even
+    /// though the mechanism is deprecated in PDF 2.0 and useless to a reader that does not
+    /// edit: the revision is "the second (when present)" element of a *pair* inside the same
+    /// array, so a reader that did not know about it would take an integer for an attribute
+    /// object. The clause's own reason is in its NOTE 3 — "since an attribute object reference
+    /// is distinct from an integer, that distinction is used to determine whether the
+    /// attribute object is represented in the array by a single or a pair of entries".
+    #[must_use]
+    pub fn attributes(&self, document: &Document, element: &Dictionary) -> Vec<AttributeObject> {
+        let mut out = Vec::new();
+        for (name, revision) in paired(document, &document.get_key(element, "C")) {
+            let Object::Name(class) = name else { continue };
+            let map = document.get_key(&self.root, "ClassMap");
+            let Some(map) = map.as_dict() else { continue };
+            let named = document.get_key(map, &String::from_utf8_lossy(class.as_bytes()));
+            // "The corresponding value shall be an attribute object or an array of such
+            // objects" — and this array is a plain list, since §14.7.6.3 puts the revision
+            // beside the class *name* rather than beside the object it names.
+            match named {
+                Object::Array(items) => {
+                    for item in items.iter().take(MAX_CHILDREN) {
+                        if let Some(object) =
+                            AttributeObject::read(document, &document.resolve(item), revision)
+                        {
+                            out.push(object);
+                        }
+                    }
+                }
+                other => {
+                    if let Some(object) = AttributeObject::read(document, &other, revision) {
+                        out.push(object);
+                    }
+                }
+            }
+        }
+        for (object, revision) in paired(document, &document.get_key(element, "A")) {
+            if let Some(object) = AttributeObject::read(document, &object, revision) {
+                out.push(object);
+            }
+        }
+        out
+    }
+
+    /// One attribute's value, with §14.7.6's two precedence rules applied.
+    ///
+    /// `None` where no attribute object attached to the element states it. The owner is not
+    /// part of the question — §14.8.5's standard attributes are keyed by name within an owner,
+    /// and a caller that cares which vocabulary answered has [`Self::attributes`] and
+    /// [`AttributeObject::owner`].
+    #[must_use]
+    pub fn attribute(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+        name: &str,
+    ) -> Option<Object> {
+        self.attributes(document, element)
+            .iter()
+            .rev()
+            .find_map(|object| object.get(document, name))
     }
 
     /// Every descendant of the root, depth first, with its depth.
@@ -331,6 +467,246 @@ impl Tree {
             }
         }
     }
+}
+
+/// §14.8.6.1's default standard structure namespace, which is PDF 1.7's.
+///
+/// > To facilitate conversion of documents created against versions of the PDF standard
+/// > earlier than PDF 2.0, the default standard structure namespace shall be
+/// > "http://iso.org/pdf/ssn".
+#[expect(
+    clippy::doc_markdown,
+    reason = "a verbatim quotation: the bare URL is the standard's own text, and rustdoc's \
+              preferred `<…>` form would make the conformance gate's quotation check fail"
+)]
+pub const DEFAULT_STANDARD_NAMESPACE: &str = "http://iso.org/pdf/ssn";
+
+/// §14.8.6.1's standard structure namespace for PDF 2.0.
+///
+/// The two together are what the clause calls "the standard structure namespaces"; a tagged
+/// document's elements are required to be in one of them, in §14.8.6.3's `MathML` namespace, or
+/// role mapped into one.
+pub const STANDARD_NAMESPACE_2_0: &str = "http://iso.org/pdf2/ssn";
+
+/// §14.8.6.3's one domain-specific namespace: `MathML` 3.0.
+///
+/// "`MathML` is the only domain-specific namespace defined in PDF 2.0", and the clause exempts
+/// it from role mapping — a namespace named here "[does] not require a `RoleMapNS` entry".
+pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
+
+/// §14.7.4.2's namespace dictionary. Table 356.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Namespace {
+    /// `/NS`: "[t]he string defining the namespace name which this entry identifies
+    /// (conventionally a uniform resource identifier, or URI)".
+    ///
+    /// A string rather than a URI: NOTE 1 says "[i]t is not generally expected that a URI for
+    /// a namespace name will resolve. It is instead used for uniqueness", so parsing it would
+    /// answer a question nobody asks and could reject a name a document uses.
+    pub name: String,
+    /// `/Schema`: the file specification of the schema defining this namespace.
+    ///
+    /// Held as the raw object because §7.11's file specifications are refused by architecture
+    /// — this reader has no filesystem — and because NOTE 2 says the schema has no required
+    /// format. What a consumer can do with it is say that one exists.
+    pub schema: Option<Object>,
+    /// `/RoleMapNS`: this namespace's own role map, read by [`Tree::role`].
+    pub role_map: Option<Dictionary>,
+}
+
+impl Namespace {
+    /// Reads a namespace dictionary, or `None` where it states no name.
+    ///
+    /// Table 356 makes `/NS` required, and a namespace without one identifies nothing — the
+    /// entry is the whole point of the dictionary.
+    #[must_use]
+    pub fn read(document: &Document, dict: &Dictionary) -> Option<Self> {
+        let Object::String(bytes) = document.get_key(dict, "NS") else {
+            return None;
+        };
+        Some(Self {
+            name: pdf_syntax::text_string(&bytes),
+            schema: dict.get("Schema").cloned(),
+            role_map: document.get_key(dict, "RoleMapNS").as_dict().cloned(),
+        })
+    }
+
+    /// Whether this is one of §14.8.6.1's two standard structure namespaces.
+    #[must_use]
+    pub fn is_standard(&self) -> bool {
+        self.name == DEFAULT_STANDARD_NAMESPACE || self.name == STANDARD_NAMESPACE_2_0
+    }
+}
+
+/// §14.7.6.1's attribute object. Table 360.
+///
+/// > An attribute object shall be a dictionary or stream that includes an O entry … identifying
+/// > the conforming product that owns the attribute information. Other entries, except the NS
+/// > entry, shall represent the attributes
+///
+/// which is why this holds the dictionary rather than a map: the attribute names are whatever
+/// the owner defines, and the two entries that are *not* attributes are named by the clause.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttributeObject {
+    /// Table 360's `/O`: who owns these attributes.
+    ///
+    /// One of §14.8.5's standard owners, `UserProperties`, `NSO`, or a name registered under
+    /// Annex E. `NSO` means the owner is the namespace in [`Self::namespace`], which the
+    /// clause states in both directions: "[i]f the value for the O entry is NSO then the NS
+    /// entry shall be present", and §14.7.4.2 adds that a namespace name matching a standard
+    /// owner's "shall be considered equivalent".
+    pub owner: String,
+    /// Table 360's `/NS`, present exactly when `/O` is `NSO`, as the namespace it names.
+    pub namespace: Option<Namespace>,
+    /// §14.7.6.3's revision number: the one stated beside this object in the element's `/A` or
+    /// `/C` array, and **0 where none was**.
+    ///
+    /// "An attribute object or class name that is not followed by an integer array element
+    /// shall have a revision number of 0". Deprecated with PDF 2.0, and read because it is
+    /// what makes the arrays parseable at all.
+    pub revision: i64,
+    /// The dictionary itself, whose other entries are the attributes.
+    pub dict: Dictionary,
+}
+
+impl AttributeObject {
+    /// Reads one attribute object, or `None` for anything that is not one.
+    ///
+    /// Table 360 makes `/O` required, so a dictionary without one has not said whose
+    /// attributes these are — and since an attribute's meaning is its owner's, a reader that
+    /// took the entries anyway would be inventing a vocabulary.
+    fn read(document: &Document, object: &Object, revision: i64) -> Option<Self> {
+        let resolved = document.resolve(object);
+        let dict = resolved.as_dict()?;
+        let owner = document.get_key(dict, "O").as_name()?.clone();
+        let namespace = document
+            .get_key(dict, "NS")
+            .as_dict()
+            .and_then(|space| Namespace::read(document, space));
+        Some(Self {
+            owner: String::from_utf8_lossy(owner.as_bytes()).into_owned(),
+            namespace,
+            revision,
+            dict: dict.clone(),
+        })
+    }
+
+    /// One attribute's value, resolved.
+    ///
+    /// `/O` and `/NS` are not attributes and are not answered: the clause says the other
+    /// entries "shall represent the attributes", and these two identify the owner.
+    #[must_use]
+    pub fn get(&self, document: &Document, name: &str) -> Option<Object> {
+        if name == "O" || name == "NS" {
+            return None;
+        }
+        match document.get_key(&self.dict, name) {
+            Object::Null => None,
+            value => Some(value),
+        }
+    }
+
+    /// §14.7.6.4's user properties, where this object holds them.
+    ///
+    /// Empty unless `/O` is `UserProperties`, which Table 361 requires of an object carrying
+    /// a `/P` array — the entry name is one a standard owner could also use, and reading it
+    /// as user properties on any owner would be inventing the type of somebody else's
+    /// attribute.
+    #[must_use]
+    pub fn user_properties(&self, document: &Document) -> Vec<UserProperty> {
+        if self.owner != "UserProperties" {
+            return Vec::new();
+        }
+        let properties = document.get_key(&self.dict, "P");
+        let Some(items) = properties.as_array() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for item in items.iter().take(MAX_CHILDREN) {
+            let resolved = document.resolve(item);
+            let Some(dict) = resolved.as_dict() else {
+                continue;
+            };
+            let Object::String(name) = document.get_key(dict, "N") else {
+                continue;
+            };
+            let value = document.get_key(dict, "V");
+            if matches!(value, Object::Null) {
+                // Table 362 makes both `/N` and `/V` required; a property with no value
+                // states nothing about the object it is attached to.
+                continue;
+            }
+            out.push(UserProperty {
+                name: pdf_syntax::text_string(&name),
+                value,
+                formatted: match document.get_key(dict, "F") {
+                    Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+                    _ => None,
+                },
+                hidden: matches!(document.get_key(dict, "H"), Object::Boolean(true)),
+            });
+        }
+        out
+    }
+}
+
+/// §14.7.6.4's user property. Table 362.
+///
+/// The clause's own example is a CAD part: several transistors "might have the same appearance
+/// but different attributes such as type and part number". None of it is graphical, which is
+/// why this crate reads it and draws nothing with it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserProperty {
+    /// `/N`: the property's name.
+    pub name: String,
+    /// `/V`: its value, as the object the file states.
+    ///
+    /// Any PDF object: "PDF writers should use only text string, number, and boolean values.
+    /// PDF processors should display text, number and boolean values to users but need not
+    /// display values of other types; however, they should not treat other values as errors."
+    /// So the value arrives as it was written and the decision about what to show with it is
+    /// the consumer's.
+    pub value: Object,
+    /// `/F`: a formatted representation of the value, "for example \"($123.45)\" for the
+    /// number -123.45".
+    pub formatted: Option<String>,
+    /// `/H`: whether the property "shall not be shown in any user interface element that
+    /// presents the attributes of an object". Default false.
+    pub hidden: bool,
+}
+
+/// §14.7.6.3's pairing: each entry of an `/A` or `/C` array, with the revision beside it.
+///
+/// The array holds "a single or a pair of array elements, the first or only element shall
+/// contain the attribute object itself and the second (when present) shall contain the integer
+/// revision number" — so an integer *following* a value belongs to it, and an integer in any
+/// other position is not an entry. A single object rather than an array is one entry with
+/// revision 0, which is the form Table 355 allows for `/A` and `/C` alike.
+fn paired(document: &Document, entry: &Object) -> Vec<(Object, i64)> {
+    let Some(items) = entry.as_array() else {
+        return match entry {
+            Object::Null => Vec::new(),
+            single => vec![(single.clone(), 0)],
+        };
+    };
+    let mut out: Vec<(Object, i64)> = Vec::new();
+    for item in items.iter().take(MAX_CHILDREN) {
+        // The integer test is on the *unresolved* item: an indirect reference is an attribute
+        // object, and resolving first would turn a reference to an integer — which no valid
+        // file writes here — into a revision for the entry before it.
+        if let Object::Integer(revision) = item {
+            if let Some(last) = out.last_mut() {
+                last.1 = *revision;
+            }
+            continue;
+        }
+        let resolved = match item {
+            Object::Reference(_) => item.clone(),
+            other => document.resolve(other),
+        };
+        out.push((resolved, 0));
+    }
+    out
 }
 
 /// Deepest chain of `/P` links followed when a structure element inherits its language.
@@ -422,7 +798,7 @@ pub fn document_language(document: &Document) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{Child, ParentTree, Tree, actual_text};
-    use pdf_syntax::Document;
+    use pdf_syntax::{Document, Object};
 
     /// Builds a document from object bodies numbered from 1.
     fn document(objects: &[&str]) -> Document {
@@ -599,6 +975,193 @@ mod tests {
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
         ]);
         assert!(Tree::of(&untagged).is_none());
+    }
+
+    /// §14.7.6's attributes, through both routes, with both precedence rules.
+    ///
+    /// The fixture attaches three attribute objects to one element: a class from the
+    /// `/ClassMap` and two in the element's own `/A`, all three naming `/BackgroundColor`. The
+    /// clause decides the winner twice over — "[i]f a given attribute is specified more than
+    /// once, the later (in array order) entry shall take precedence" within `/A`, and "[i]f
+    /// both the A and C entries are present and a given attribute is specified by both, the
+    /// one specified by the A entry shall take precedence" between the two. So the answer is
+    /// the *last* object of `/A`, and an attribute only the class states is still found.
+    #[test]
+    fn an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R /ClassMap << /Warm 8 0 R >> >>",
+            "<< /Type /StructElem /S /P /C [/Warm 3] /A [6 0 R 7 0 R 4] >>",
+            "<< /O /Layout /BackgroundColor [0 0 1] >>",
+            "<< /O /Layout /BackgroundColor [0 1 0] /TextAlign /Center >>",
+            "<< /O /Layout /BackgroundColor [1 0 0] /Placement /Block >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(element)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element under the root");
+        };
+
+        let attached = tree.attributes(&doc, &element);
+        assert_eq!(
+            attached.len(),
+            3,
+            "one class and two of its own: {attached:?}"
+        );
+        assert_eq!(
+            attached.iter().map(|a| a.revision).collect::<Vec<_>>(),
+            vec![3, 0, 4],
+            "§14.7.6.3: the integer after an entry is its revision, and an entry without \
+             one is 0"
+        );
+
+        let colour = tree.attribute(&doc, &element, "BackgroundColor");
+        assert_eq!(
+            colour
+                .as_ref()
+                .and_then(Object::as_array)
+                .map(<[Object]>::to_vec),
+            Some(vec![
+                Object::Integer(0),
+                Object::Integer(1),
+                Object::Integer(0)
+            ]),
+            "the later of the two /A objects wins, and /A beats /C"
+        );
+        assert!(
+            tree.attribute(&doc, &element, "Placement").is_some(),
+            "an attribute only the class states is still attached"
+        );
+        assert!(
+            tree.attribute(&doc, &element, "O").is_none(),
+            "/O identifies the owner and is not an attribute"
+        );
+    }
+
+    /// §14.7.6.4's user properties, read from the clause's own example.
+    ///
+    /// The EXAMPLE at the end of §14.7.6.4 attaches four properties to a `Figure` — a part
+    /// name, a part number, a supplier marked `/H true`, and a price of -37.99 formatted as
+    /// `($37.99)`. Three of them are here, which are the three that state something a reader
+    /// has to decide about: a plain value, a hidden one, and one whose formatted form differs
+    /// from its value. That last is why the raw `/V` is kept beside `/F`.
+    #[test]
+    fn user_properties_are_read_with_their_formatting_and_their_hidden_flag() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R >>",
+            "<< /Type /StructElem /S /Figure /A 6 0 R >>",
+            "<< /O /UserProperties /P [ << /N (Part Name) /V (Framostat) >> \
+             << /N (Supplier) /V (Just Framostats) /H true >> \
+             << /N (Price) /V -37.99 /F ($37.99) >> ] >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(element)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element under the root");
+        };
+        let attached = tree.attributes(&doc, &element);
+        let [object] = attached.as_slice() else {
+            panic!("one attribute object: {attached:?}");
+        };
+        assert_eq!(object.owner, "UserProperties");
+
+        let properties = object.user_properties(&doc);
+        assert_eq!(properties.len(), 3);
+        assert_eq!(
+            properties.first().map(|p| p.name.as_str()),
+            Some("Part Name")
+        );
+        assert_eq!(
+            properties.get(1).map(|p| p.hidden),
+            Some(true),
+            "/H true hides the property from a panel"
+        );
+        assert_eq!(
+            properties.get(2).and_then(|p| p.formatted.clone()),
+            Some("$37.99".to_owned())
+        );
+        assert!(
+            tree.attributes(&doc, &element)
+                .iter()
+                .all(|object| object.get(&doc, "P").is_some()),
+            "the /P array is reachable as the attribute it is"
+        );
+    }
+
+    /// §14.8.6.2: an element in an explicit namespace is mapped by *that* namespace.
+    ///
+    /// > if the structure element does not explicitly identify its namespace using an NS
+    /// > entry, it should use the RoleMap entry in the Structure Tree Root dictionary … If the
+    /// > structure element is in an explicit namespace, then that namespace shall be identified
+    /// > in the structure tree root dictionary's Namespaces array entry and the RoleMapNS entry
+    /// > within that namespace dictionary shall provide the role mapping, if any.
+    ///
+    /// The fixture states both maps and they disagree on purpose: the root's `/RoleMap` would
+    /// take `/Recipe` to `/Div`, and the element's own namespace takes it to `/Sect`. A reader
+    /// that consulted the root would pass a test where only one map existed.
+    #[test]
+    fn a_namespaces_own_role_map_is_the_one_that_applies() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 7 0 R] /Namespaces [6 0 R] \
+             /RoleMap << /Recipe /Div >> >>",
+            "<< /Type /StructElem /S /Recipe /NS 6 0 R >>",
+            "<< /Type /Namespace /NS (http://example.invalid/cookbook) \
+             /RoleMapNS << /Recipe /Sect >> >>",
+            "<< /Type /StructElem /S /Recipe >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let children = tree.children(&doc, None);
+        let [Child::Element(in_namespace), Child::Element(plain)] = children.as_slice() else {
+            panic!("two elements: {children:?}");
+        };
+
+        assert_eq!(tree.role(&doc, in_namespace).as_deref(), Some("Sect"));
+        assert_eq!(
+            tree.namespace(&doc, in_namespace).as_deref(),
+            Some("http://example.invalid/cookbook")
+        );
+        assert_eq!(
+            tree.role(&doc, plain).as_deref(),
+            Some("Div"),
+            "an element with no /NS is mapped by the root's /RoleMap"
+        );
+        assert_eq!(
+            tree.namespace(&doc, plain).as_deref(),
+            Some(super::DEFAULT_STANDARD_NAMESPACE),
+            "§14.8.6.1: an element that names no namespace is in the default standard one"
+        );
+    }
+
+    /// A `/RoleMapNS` may map *into another namespace*, and the walk follows it.
+    ///
+    /// Table 356's second form: "an array where the first value shall be a structure element
+    /// type name in a target namespace with the second value being an indirect reference to
+    /// the target namespace dictionary". So one document's `/Ingredient` becomes another
+    /// namespace's `/ListItem`, which that namespace maps to the standard `/LI`.
+    #[test]
+    fn a_role_map_may_lead_into_another_namespace() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R /Namespaces [6 0 R 7 0 R] >>",
+            "<< /Type /StructElem /S /Ingredient /NS 6 0 R >>",
+            "<< /Type /Namespace /NS (http://example.invalid/cookbook) \
+             /RoleMapNS << /Ingredient [/ListItem 7 0 R] >> >>",
+            "<< /Type /Namespace /NS (http://example.invalid/lists) \
+             /RoleMapNS << /ListItem /LI >> >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(element)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element");
+        };
+        assert_eq!(tree.role(&doc, &element).as_deref(), Some("LI"));
     }
 
     /// A page with no `/StructParents` has no structure, and that is not a failure.

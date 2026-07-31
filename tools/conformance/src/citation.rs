@@ -181,6 +181,30 @@ pub fn scan(source: &str) -> Scan {
     scan
 }
 
+/// Reads the citations and table references in plain prose, outside any source file.
+///
+/// The conformance ledger's notes are the reason this exists. They are the densest prose about
+/// the standard this project has — 823 rows, most of them naming clauses and tables — and until
+/// the eighty-second session **nothing checked a word of it**: [`scan`] reads Rust sources, and
+/// the ledger is TOML. Three table numbers in it were wrong on the first run, all three by
+/// naming ISO 32000-1's number for a table ISO 32000-2 renumbered.
+///
+/// Quotations are deliberately not read. A ledger note quotes the standard constantly and also
+/// quotes this project's own past conclusions, and it has no blockquote syntax to tell the two
+/// apart — so a checker here would either report the second kind or have to guess.
+#[must_use]
+pub fn scan_prose(text: &str) -> Scan {
+    let mut scan = Scan::default();
+    for (index, line) in text.lines().enumerate() {
+        let line_number = index.saturating_add(1);
+        read_citations(line, line_number, &mut scan);
+        // `read_tables` reads the comment part of a source line; prose is all comment.
+        let commented = format!("//{line}");
+        read_tables(&commented, line_number, None, &mut scan);
+    }
+    scan
+}
+
 /// The text of a doc comment line, or `None` if the line is not one.
 fn doc_comment_body(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
