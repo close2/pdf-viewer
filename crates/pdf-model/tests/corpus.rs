@@ -484,7 +484,15 @@ const MAX_PAGELESS: usize = 11;
 /// `knockout_smask.pdf`, `knockout_inner_backdrop.pdf` and `issue18032.pdf` keep the report,
 /// each for the reason the clause gives — a nested group's shape reaches a backend as one
 /// alpha channel, and so does a mask's.
-const MAX_INCOMPLETE: usize = 95;
+///
+/// **95 to 90 in the seventy-second session**, from the two clauses that had been waiting on
+/// that one. §9.3.8 makes a text object with `Tk` true "equivalent to treating the entire text
+/// object as if it were a non-isolated knockout transparency group", and §11.6.2 says
+/// "[p]ortions of an object shall not be composited with one another" of a path filled and
+/// stroked by one operator — both are knockout groups the file does not state, and both are
+/// built now where the elements' shapes are the coverage they are drawn with. `TextKnockout`
+/// is gone from the corpus entirely and `CompositedInParts` is 2 of 4.
+const MAX_INCOMPLETE: usize = 90;
 
 /// How long one document may take before it counts as a failure.
 ///

@@ -397,7 +397,14 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// `pdf_font::LoadedFont::text_from_program`. The corpus went 96.5% to **97.8%** and no
 /// document moved the other way, which is the measurement that says this is not the
 /// fallback-that-fills-the-page.
-const TEXT_BELOW_FLOOR: [&str; 43] = [
+///
+/// # One joined in the seventy-second session, and it is the denominator moving
+///
+/// `issue17069.pdf` reads back 10 of the 12 words `pdftotext` finds, missing `rmX` and `teO`
+/// — and it is *new to this list without its readback changing at all*. It reported §9.3.8's
+/// text knockout until that clause was implemented, and only pages we draw completely are
+/// gated. A gate's numerator moves when its denominator does, and only one of those is news.
+const TEXT_BELOW_FLOOR: [&str; 44] = [
     "ArabicCIDTrueType.pdf",
     "PDFJS-7562-reduced.pdf",
     "Type3WordSpacing.pdf",
@@ -420,6 +427,7 @@ const TEXT_BELOW_FLOOR: [&str; 43] = [
     "issue15516_reduced.pdf",
     "issue16538.pdf",
     "issue16553.pdf",
+    "issue17069.pdf",
     "issue19182.pdf",
     "issue19802.pdf",
     "issue19971.pdf",

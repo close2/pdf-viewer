@@ -501,6 +501,12 @@ struct TextObject {
     composited: Vec<Option<Rect>>,
     /// Whether two of those glyphs were found to overlap, which is what `Tk` would change.
     knockout_owed: bool,
+    /// How many commands the display list held at this object's `BT`.
+    ///
+    /// §9.3.8 makes a text object with `Tk` true "equivalent to treating the entire text
+    /// object as if it were a non-isolated knockout transparency group", so what the group
+    /// contains is everything drawn between `BT` and `ET` — which is this mark to the end.
+    start: usize,
 }
 
 impl TextObject {
@@ -709,6 +715,23 @@ fn knockout_shape_is_coverage(commands: &[Command]) -> bool {
             _ => false,
         }
     })
+}
+
+/// Whether §11.4.6's rule can be *drawn* for a non-isolated knockout group's elements.
+///
+/// Two conditions, and the clause states both. The first is
+/// [`knockout_shape_is_coverage`]: a rasteriser has one number per pixel where the clause
+/// wants shape and opacity separately. The second is isolation, which §11.4.6 makes an
+/// independent attribute — "[a] non-isolated knockout group composites its topmost enclosing
+/// element with the group's backdrop" — and this renderer composites a group's elements onto
+/// transparency. The two coincide by §11.4.4's NOTE 3 wherever no element blends: the
+/// backdrop is composited in and removed again exactly, so it cancels. Where one blends it
+/// does not, and the caller reports instead.
+///
+/// The two callers are the places the specification itself makes a knockout group out of
+/// something that is not one: §9.3.8's text object and §11.6.2's one object in parts.
+fn knockout_is_drawable(commands: &[Command]) -> bool {
+    knockout_shape_is_coverage(commands) && !any_command(commands, &command_blends)
 }
 
 /// Whether §11.4.6's knockout could change a pixel of this group.
@@ -1543,7 +1566,10 @@ impl Interpreter<'_> {
                     // structure also discards any glyph outlines a malformed stream left
                     // unconsumed by an `ET`, which is the only state a second `BT` could
                     // otherwise carry into the text object it starts.
-                    text_object = TextObject::default();
+                    text_object = TextObject {
+                        start: self.list.command_count(),
+                        ..TextObject::default()
+                    };
                 }
                 b"ET" => {
                     in_text = false;
@@ -1928,6 +1954,8 @@ impl Interpreter<'_> {
             // `B` fills *and* strokes one path, and both commands then describe the same
             // geometry; sharing it means the copy happens once rather than twice.
             let shared = Arc::new(path.clone());
+            // Where the two portions start, for §11.6.2 below.
+            let mark = self.list.command_count();
 
             // A tiling pattern is not a paint: its cell is a content stream, replayed
             // across the area the path covers. Doing that here rather than in the display
@@ -1992,9 +2020,31 @@ impl Interpreter<'_> {
                 && marks(&state.stroke_paint())
                 && state.paint_composites()
             {
-                self.note(Unsupported::CompositedInParts {
-                    detail: "a path filled and stroked by one operator",
-                });
+                // The clause's own answer to "not composited with one another" is §11.4.6's:
+                // at any point the topmost portion contributes and the ones under it do not,
+                // which is what a knockout group of the two portions computes. `B` strokes
+                // after it fills, so the stroke is the topmost portion — the order the two
+                // commands are already in. The group is the object, so it takes the alpha
+                // and the blend mode that would have been applied to each portion: they are
+                // on the elements, and the group composites once at 1.0 under Normal.
+                let parts = self.list.split_off_commands(mark);
+                if knockout_is_drawable(&parts) {
+                    self.list.push(Command::Group {
+                        commands: parts,
+                        alpha: 1.0,
+                        clip: None,
+                        mask: None,
+                        blend: BlendMode::Normal,
+                        knockout: true,
+                    });
+                } else {
+                    for part in parts {
+                        self.list.push(part);
+                    }
+                    self.note(Unsupported::CompositedInParts {
+                        detail: "a path filled and stroked by one operator",
+                    });
+                }
             }
         }
 
@@ -3543,17 +3593,40 @@ impl Interpreter<'_> {
     fn end_text_object(&mut self, text: &mut TextObject, state: &mut GraphicsState) {
         // §9.3.8's knockout is a property of the finished object, so this is where it can be
         // judged: two or more glyphs marked the page under a paint that composites, and `Tk`
-        // asked for them to knock one another out instead. Reported rather than approximated
-        // — implementing it means §11.4.6's knockout groups, which is the same gap seen from
-        // clause 11 and the largest one left in this renderer.
+        // asked for them to knock one another out instead.
         //
-        // The condition is deliberately narrow. Reporting every text object drawn while `Tk`
-        // is true would report almost every page in the world, since true is the initial
-        // value, and would say nothing: with opaque glyphs and the Normal blend mode the two
-        // models produce identical pixels.
+        // The condition is deliberately narrow. Treating every text object drawn while `Tk`
+        // is true as a group would wrap almost every page in the world, since true is the
+        // initial value, and would say nothing: with opaque glyphs and the Normal blend mode
+        // the two models produce identical pixels.
+        //
+        // The clause states the construction exactly, and it is the one §11.4.6 built in the
+        // seventy-first session: "the behaviour shall be equivalent to treating the entire
+        // text object as if it were a non-isolated knockout transparency group … where each
+        // glyph is an individual element in that group's transparency stack", after which
+        // "the group results shall be composited with the backdrop, using the Normal blend
+        // mode and alpha and soft mask values of 1.0" — which is this command's four other
+        // fields. The graphics state is *not* reset for the elements, unlike §11.6.6's group
+        // XObject, and it is not: each glyph command already carries the alpha, mask and
+        // blend mode in force when it was shown.
         if text.knockout_owed {
             let glyphs = text.composited.len();
-            self.note(Unsupported::TextKnockout { glyphs });
+            let elements = self.list.split_off_commands(text.start);
+            if knockout_is_drawable(&elements) {
+                self.list.push(Command::Group {
+                    commands: elements,
+                    alpha: 1.0,
+                    clip: None,
+                    mask: None,
+                    blend: BlendMode::Normal,
+                    knockout: true,
+                });
+            } else {
+                for element in elements {
+                    self.list.push(element);
+                }
+                self.note(Unsupported::TextKnockout { glyphs });
+            }
         }
         text.knockout_owed = false;
         text.composited.clear();

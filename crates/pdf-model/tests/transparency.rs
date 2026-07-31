@@ -186,7 +186,7 @@ fn a_blend_mode_array_takes_the_first_name_this_reader_knows() {
     );
 }
 
-/// §11.6.2: a path filled *and* stroked composites in two parts, and that is reported.
+/// §11.6.2: a path filled *and* stroked is one object, on the pages where that shows.
 ///
 /// > Portions of an object shall not be composited with one another, even if they are
 /// > described in a way that would seem to cause overlaps (such as a self-intersecting path,
@@ -194,33 +194,37 @@ fn a_blend_mode_array_takes_the_first_name_this_reader_knows() {
 /// > fold-over).
 ///
 /// `B` is one object; a display list holding a `Fill` and a `Stroke` composites the band they
-/// share twice. Both halves of the condition are pinned here, because the report's whole
-/// value is that it names pages where the difference can be seen: an opaque `B` is silent,
-/// and so is one whose fill or stroke paints nothing at all.
+/// share twice. Since the seventy-second session the pair becomes one knockout group
+/// (§11.4.6), which is the clause's own construction for "not composited with one another" —
+/// and the *condition* is what is pinned here, because building a group for every `B` in
+/// every document would cost a buffer per path for a difference almost none of them can show:
+/// an opaque `B` paints the same either way, and so does one whose fill or stroke paints
+/// nothing at all. `tests/transparency_groups.rs` has the pixel this changes.
 #[test]
-fn a_filled_and_stroked_path_reports_only_where_it_can_show() {
-    let reported = |gs: &str, content: &str| {
+fn a_filled_and_stroked_path_is_one_object_only_where_it_can_show() {
+    let grouped = |gs: &str, content: &str| {
         let document = Document::open(fixture(gs, content)).expect("the fixture is a valid PDF");
         let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-        format!("{:?}", pdf_model::interpret(&document, &page).unsupported)
+        pdf_model::interpret(&document, &page)
+            .display_list
+            .commands()
+            .iter()
+            .any(|command| matches!(command, Command::Group { knockout: true, .. }))
     };
 
     assert!(
-        reported(
+        grouped(
             "/ca 0.5 /CA 0.5",
             "/GS gs 0 0 1 rg 1 0 0 RG 10 10 50 50 re B"
-        )
-        .contains("filled and stroked"),
-        "a compositing B paints its stroke over its own fill"
+        ),
+        "a compositing B would paint its stroke over its own fill"
     );
     assert!(
-        !reported("/ca 1 /CA 1", "/GS gs 0 0 1 rg 1 0 0 RG 10 10 50 50 re B")
-            .contains("filled and stroked"),
+        !grouped("/ca 1 /CA 1", "/GS gs 0 0 1 rg 1 0 0 RG 10 10 50 50 re B"),
         "an opaque B under the Normal blend mode draws the same either way"
     );
     assert!(
-        !reported("/ca 0 /CA 0.5", "/GS gs 0 0 1 rg 1 0 0 RG 10 10 50 50 re B")
-            .contains("filled and stroked"),
+        !grouped("/ca 0 /CA 0.5", "/GS gs 0 0 1 rg 1 0 0 RG 10 10 50 50 re B"),
         "a fill that paints nothing leaves one part, which cannot overlap itself"
     );
 }

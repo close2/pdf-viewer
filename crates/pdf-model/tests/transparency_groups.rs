@@ -326,6 +326,42 @@ fn a_knockout_group_paints_only_its_topmost_element() {
     assert_eq!(pixel(&ordinary, 15, 85), [255, 0, 0, 255]);
 }
 
+/// §11.6.2: a path filled *and* stroked by one operator composites once.
+///
+/// > Single graphics objects … shall be treated as elementary objects for transparency
+/// > compositing purposes … Portions of an object shall not be composited with one another,
+/// > even if they are described in a way that would seem to cause overlaps (such as a
+/// > self-intersecting path, combined fill and stroke of a path, or a shading pattern
+/// > containing an overlap or fold-over).
+///
+/// `B` fills and then strokes, and a stroke straddles its path — so the inner half of the
+/// stroke covers the fill. At half alpha that band came out at 0.75 where the clause asks
+/// for 0.5, which is the whole difference and is invisible to everything but a pixel.
+///
+/// The construction is §11.4.6's, and it is the clause's own: "[a]t any given point, only
+/// the topmost object enclosing the point shall contribute", the topmost portion here being
+/// the stroke, because `B` strokes second.
+#[test]
+fn a_filled_and_stroked_path_is_one_object() {
+    let painted = interpret(fixture(
+        "",
+        "[0 0 100 100]",
+        "",
+        "/GS gs 1 0 0 rg 1 0 0 RG 10 w 30 30 40 40 re B",
+    ));
+    assert!(painted.is_complete(), "{:?}", painted.unsupported);
+
+    // Device (35, 65) is page (35, 35): inside the stroke's inner half, which the fill also
+    // covers. Once at 0.5 over white is (255, 127, 127); twice would be (255, 63, 63).
+    assert_eq!(
+        pixel(&painted, 35, 65),
+        [255, 127, 127, 255],
+        "the band the two portions share is painted once"
+    );
+    // The fill's interior, which only one portion covers, is the same colour.
+    assert_eq!(pixel(&painted, 50, 50), [255, 127, 127, 255]);
+}
+
 /// §11.4.6's knockout is reported where a rasteriser cannot draw an element's *shape*.
 ///
 /// The clause states the reason itself:

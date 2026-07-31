@@ -57,7 +57,7 @@ fn fixture(content: &str) -> Vec<u8> {
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Resources << /Font << /F1 5 0 R /F0 6 0 R >> \
          /ExtGState << /Half << /ca 0.5 /CA 0.5 >> /Knock << /TK true >> \
-         /NoKnock << /TK false >> >> >> /Contents 4 0 R >>\nendobj\n\
+         /NoKnock << /TK false >> /Mult << /ca 0.5 /BM /Multiply >> >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
          6 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /TestCID /Encoding /Identity-H \
@@ -295,39 +295,73 @@ fn reports_knockout(content: &str) -> bool {
         .any(|item| matches!(item, pdf_model::Unsupported::TextKnockout { .. }))
 }
 
-/// §9.3.8 is reported where it could change the page, and nowhere else.
+/// Whether a content stream's text object became §9.3.8's knockout group.
+fn draws_knockout(content: &str) -> bool {
+    interpret(content)
+        .display_list
+        .commands()
+        .iter()
+        .any(|command| matches!(command, Command::Group { knockout: true, .. }))
+}
+
+/// §9.3.8 makes a text object a knockout group where it could change the page.
 ///
-/// `Tk`'s initial value is true, which the clause defines as treating the text object "as if
-/// it were a non-isolated knockout transparency group", so that "later glyphs shall overwrite
-/// ('knock out') earlier ones in the area of overlap". This renderer composites each glyph
-/// against what is already there, which is the `Tk` false model, and the two agree unless
-/// *both* of the clause's conditions hold: the paint composites, and two glyphs overlap.
+/// `Tk`'s initial value is true, and the clause defines that as treating the text object "as
+/// if it were a non-isolated knockout transparency group", so that "later glyphs shall
+/// overwrite ('knock out') earlier ones in the area of overlap". Since the seventy-second
+/// session the display list can say exactly that (§11.4.6), so the object becomes one
+/// `Command::Group` — but only where the two models differ, which needs *both* of the
+/// clause's conditions: the paint composites, and two glyphs overlap.
 ///
-/// The test drives all four combinations from one fixture, because the value of a report is
-/// entirely in its precision — one that fires on every page of text under a constant alpha
-/// would name a difference that cannot be on almost any of them, and would take pages out of
-/// the oracle's gated set for nothing. Two glyphs are overlapped by moving the text matrix
+/// The test drives all four combinations from one fixture, because the value of the
+/// condition is entirely in its precision — wrapping every page of text under a constant
+/// alpha would build a group for a difference that cannot be on almost any of them, and cost
+/// every one of those pages a buffer. Two glyphs are overlapped by moving the text matrix
 /// back by less than an advance.
 #[test]
-fn text_knockout_is_reported_only_where_the_two_models_differ() {
+fn text_knockout_becomes_a_group_only_where_the_two_models_differ() {
     let overlapping = "BT /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET";
     let apart = "BT /F1 24 Tf 10 50 Td (A) Tj 40 0 Td (A) Tj ET";
 
     assert!(
-        reports_knockout(&format!("/Half gs {overlapping}")),
+        draws_knockout(&format!("/Half gs {overlapping}")),
         "two overlapping glyphs at half alpha are where knockout shows"
     );
     assert!(
-        !reports_knockout(&format!("/Half gs {apart}")),
+        !draws_knockout(&format!("/Half gs {apart}")),
         "glyphs that do not overlap composite the same either way"
     );
     assert!(
-        !reports_knockout(overlapping),
+        !draws_knockout(overlapping),
         "opaque glyphs under the Normal blend mode overwrite what they cover either way"
     );
     assert!(
-        !reports_knockout(&format!("/Half gs /NoKnock gs {overlapping}")),
+        !draws_knockout(&format!("/Half gs /NoKnock gs {overlapping}")),
         "/TK false asks for exactly the model this renderer has"
+    );
+    assert!(
+        !reports_knockout(&format!("/Half gs {overlapping}")),
+        "and what is drawn is not also reported"
+    );
+}
+
+/// A text object whose glyphs *blend* keeps §9.3.8's report.
+///
+/// The clause makes the implicit group **non-isolated**, and this renderer composites a
+/// group's elements onto transparency. §11.4.4's NOTE 3 is what makes those the same
+/// computation — the backdrop is composited in and removed again — and it is only the same
+/// where every element blends Normal. A glyph with a blend mode is exactly the case where the
+/// group's own backdrop is load-bearing, so the object is drawn as it was before and says so.
+#[test]
+fn text_knockout_still_reports_where_a_glyph_blends() {
+    let overlapping = "BT /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET";
+    assert!(
+        reports_knockout(&format!("/Mult gs {overlapping}")),
+        "a non-isolated group whose elements blend needs the backdrop this one drops"
+    );
+    assert!(
+        !draws_knockout(&format!("/Mult gs {overlapping}")),
+        "and it is not drawn as one"
     );
 }
 
@@ -343,11 +377,11 @@ fn text_knockout_is_reported_only_where_the_two_models_differ() {
 #[test]
 fn a_text_knockout_set_inside_a_text_object_is_ignored() {
     assert!(
-        reports_knockout("/Half gs BT /NoKnock gs /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET"),
+        draws_knockout("/Half gs BT /NoKnock gs /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET"),
         "a /TK between BT and ET does not take effect"
     );
     assert!(
-        !reports_knockout("/Half gs /NoKnock gs BT /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET"),
+        !draws_knockout("/Half gs /NoKnock gs BT /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET"),
         "the same dictionary outside the text object does"
     );
 }

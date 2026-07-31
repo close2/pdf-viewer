@@ -2201,10 +2201,10 @@ note = "Trise is the f component of the glyph-space-to-text-space matrix, so it 
 [[clause]]
 clause = "9.3.8"
 title = "Text knockout"
-status = "reported"
+status = "implemented"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/text_state.rs::text_knockout_is_reported_only_where_the_two_models_differ", "crates/pdf-model/tests/text_state.rs::a_text_knockout_set_inside_a_text_object_is_ignored"]
-note = "Was this tree's third `silent` row; reported since the fourteenth session, and still owed. Tk has no operator and arrives only as /TK in an /ExtGState, which is now read — including the clause's rule that a value installed between BT and ET \"shall be ignored\". Its initial value is true, which makes a text object a non-isolated knockout group (§11.4.6) so a later glyph overwrites an earlier one where they overlap; we composite each glyph separately, which is exactly the Tk false model. The report fires only where both of the clause's conditions hold — the paint composites at all, and two glyphs of the object overlap — which is 2 corpus documents rather than the 7 a looser test named or the several hundred that a report on /TK alone would have. Implementing it belongs with knockout groups."
+test = ["crates/pdf-model/tests/text_state.rs::text_knockout_becomes_a_group_only_where_the_two_models_differ", "crates/pdf-model/tests/text_state.rs::text_knockout_still_reports_where_a_glyph_blends", "crates/pdf-model/tests/text_state.rs::a_text_knockout_set_inside_a_text_object_is_ignored"]
+note = "Was this tree's third `silent` row; `reported` from the fourteenth session; drawn since the seventy-second. Tk has no operator and arrives only as /TK in an /ExtGState, which is read — including the clause's rule that a value installed between BT and ET \"shall be ignored\". Its initial value is true, and the clause says what that means: \"the behaviour shall be equivalent to treating the entire text object as if it were a non-isolated knockout transparency group … where each glyph is an individual element in that group's transparency stack\", after which \"the group results shall be composited with the backdrop, using the Normal blend mode and alpha and soft mask values of 1.0\". So a text object becomes one `Command::Group` with `knockout` set, alpha 1, no mask and the Normal blend mode, and its glyphs keep the state they were shown under — the clause's first additional rule, that parameters are inherited and not reset, is the difference from §11.6.6's group XObject and is why nothing is initialised here. The group is built only where both of the older conditions hold — the paint composites at all, and two glyphs of the object overlap — so an ordinary page of opaque text is not wrapped in a buffer for a difference it cannot show. What still reports is the non-isolated half: a glyph that *blends* needs the group's own backdrop, which §11.4.4's NOTE 3 cancels only under Normal. 2 corpus documents drew this and both are complete now."
 
 [[clause]]
 clause = "9.4"
@@ -3104,10 +3104,10 @@ note = "One sentence of scope: the subclauses before it describe the model abstr
 [[clause]]
 clause = "11.6.2"
 title = "Specifying source and backdrop colours"
-status = "reported"
+status = "implemented"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/transparency.rs::a_filled_and_stroked_path_reports_only_where_it_can_show"]
-note = "\"Portions of an object shall not be composited with one another\" — and `B` and its three relatives paint one object as a `Fill` and a `Stroke`, so the band a centred stroke shares with the fill composites twice. Reported as of the fifteenth session, on the pages where it can show: the paint composites, and both parts mark the page. 4 corpus documents, of which `alphatrans.pdf` is the one drawn wrong. Implementing it means compositing the two parts into one element, which is §11.4.6's groups again. The clause's other two examples cost nothing here: a self-intersecting path is filled once under one winding rule, and a mesh shading is one paint. Source colour and backdrop colour are as the clause states them."
+test = ["crates/pdf-model/tests/transparency_groups.rs::a_filled_and_stroked_path_is_one_object"]
+note = "\"Portions of an object shall not be composited with one another\" — and `B` and its three relatives paint one object as a `Fill` and a `Stroke`, so the band a centred stroke shares with the fill composited twice. `reported` from the fifteenth session; drawn since the seventy-second, by the construction the clause itself points at: §11.4.6's knockout, where \"at any given point, only the topmost object enclosing the point shall contribute\", the topmost portion being the stroke because `B` strokes second. The pair becomes one `Command::Group` with `knockout` set wherever the report used to fire — the paint composites and both parts mark the page — and keeps the report where a portion's shape is not the coverage it is drawn with, which is `knockout_is_drawable`. 2 of the 4 corpus documents that reported this now draw with nothing reported. The clause's other two examples cost nothing here: a self-intersecting path is filled once under one winding rule, and a mesh shading is one paint. Source colour and backdrop colour are as the clause states them."
 
 [[clause]]
 clause = "11.6.3"
