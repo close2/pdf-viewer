@@ -102,6 +102,100 @@ fn blend_mode(mode: BlendMode) -> peniko::BlendMode {
     peniko::BlendMode::new(mix, peniko::Compose::SrcOver)
 }
 
+/// How an element of a group combines with the elements drawn before it.
+///
+/// ISO 32000-2 §11.4.6's two answers, and the same type as `render-cpu`'s `Compose` because
+/// the display list states one rule and two backends have to reach it. A knockout element
+/// "shall be composited with the group's initial backdrop rather than with the stack of
+/// preceding elements in the group", and the backdrop a group is built on is transparent —
+/// so the element replaces what is under it within its own shape, which is Porter-Duff
+/// Source, and its own blend mode has nothing to blend against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Compose {
+    /// §11.4.5: an element paints over the group's accumulated result.
+    Over,
+    /// §11.4.6: an element replaces it within its own coverage.
+    Knockout,
+}
+
+impl Compose {
+    /// The layer an element is drawn inside, or `None` to draw it straight into the scene.
+    ///
+    /// Vello composites a *layer* with its backdrop and has no per-draw blend parameter, so
+    /// a blend mode needs one. A knockout element needs none: what it needs is [`knock_out`]
+    /// run before it, after which it is painted over an area that has been emptied for it
+    /// and its own blend mode is irrelevant — its backdrop is transparent.
+    fn layer(self, blend: BlendMode) -> Option<peniko::BlendMode> {
+        match self {
+            Self::Knockout => None,
+            Self::Over if blend == BlendMode::Normal => None,
+            Self::Over => Some(blend_mode(blend)),
+        }
+    }
+}
+
+/// The refusal a group inside a knockout group meets.
+///
+/// Such a group would have to be composited by its *shape*, which arrives at a backend as
+/// one alpha channel and cannot be told from its opacity. `pdf-model` does not build that
+/// display list — see `Command::Group`'s `knockout` — and erroring keeps the assumption from
+/// becoming a silent approximation if it ever does.
+fn nested_group_in_knockout() -> GpuRasterError {
+    GpuRasterError::UnsupportedCommand(
+        "a group inside a knockout group has a shape this backend cannot separate from its \
+         opacity (ISO 32000-2 §11.4.6)"
+            .to_owned(),
+    )
+}
+
+/// Empties the area an element is about to knock out (§11.4.6).
+///
+/// # Why not `Compose::Copy`, which is the rule itself
+///
+/// Porter-Duff Source *is* what a knockout element does, and `render-cpu` says exactly that
+/// to `tiny-skia`. Vello cannot: a layer's compose runs over the layer's whole bounding box
+/// with the clip's coverage applied to the *source*, so `Compose::Copy` writes `area × src`
+/// everywhere in the box — which erases the destination wherever the shape does not reach,
+/// out to the box's edge. Measured, not assumed: the first version of this differed from the
+/// CPU backend along a whole rectangle edge, one row outside the shape.
+///
+/// `Compose::DestOut` is safe in the same place — at zero coverage it leaves the destination
+/// exactly — so the knockout is done in two steps: empty the shape, then paint the element
+/// over the emptied area with ordinary source-over.
+///
+/// # What the two steps cost, exactly
+///
+/// Where coverage is 0 or 1 the pair is the clause's arithmetic to the bit. At a partially
+/// covered pixel the destination keeps `(1 − a)(1 − a·αs)` of itself where §11.4.6 asks for
+/// `(1 − a)`, `a` being the coverage and `αs` the element's own alpha — the second factor is
+/// the source-over of the second step, which the one-step Source form does not have. It
+/// vanishes at both ends of the range and is bounded by a quarter of the destination at
+/// `a = αs = ½`, so it is an antialiasing difference along an element's outline and nothing
+/// more. The cross-backend scene draws a diagonal edge inside a knockout group precisely so
+/// that this is measured rather than assumed.
+fn knock_out(
+    scene: &mut vello::Scene,
+    at: kurbo::Affine,
+    rule: peniko::Fill,
+    shape: &impl kurbo::Shape,
+) {
+    scene.push_layer(
+        rule,
+        peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::DestOut),
+        1.0,
+        at,
+        shape,
+    );
+    scene.fill(
+        rule,
+        at,
+        &peniko::Brush::Solid(peniko::color::AlphaColor::new([0.0, 0.0, 0.0, 1.0])),
+        None,
+        shape,
+    );
+    scene.pop_layer();
+}
+
 /// Converts stroke parameters, resolving the width against the device.
 ///
 /// The width is [`Stroke::device_width`]'s rather than the field's, which is not a
@@ -223,9 +317,10 @@ fn encode_stroke(
     s: &Stroke,
     to_path: Transform,
     paint: &Paint,
-    blend: BlendMode,
+    (compose, blend): (Compose, BlendMode),
 ) -> Result<(), GpuRasterError> {
     let at = spaces.at;
+    let layer = compose.layer(blend);
     let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
     let width = s.device_width(to_path);
 
@@ -259,18 +354,30 @@ fn encode_stroke(
             scene.fill(peniko::Fill::NonZero, at, &brush, brush_at, &dots);
         }
     };
-    if blend == BlendMode::Normal {
-        draw(scene);
-    } else {
-        // Clipping the layer to the *unstroked* path would cut the stroke in half, since a
-        // stroke straddles its path. The stroke outline is used as the layer's clip shape
-        // instead, with the dots — which are already outlines — beside it, so that one layer
-        // carries the whole object and §11.6.2 composites it once.
+    // Clipping to the *unstroked* path would cut the stroke in half, since a stroke
+    // straddles its path. The stroke's own outline is the shape both a blend layer and
+    // §11.4.6's knockout need, with the dots — which are already outlines — beside it, so
+    // that one shape carries the whole object and §11.6.2 composites it once.
+    let outline = |shape: &kurbo::BezPath, dots: &kurbo::BezPath| {
         let mut outline = kurbo::stroke(shape.iter(), &style, &kurbo::StrokeOpts::default(), 0.1);
         outline.extend(dots.iter());
-        scene.push_layer(peniko::Fill::NonZero, blend_mode(blend), 1.0, at, &outline);
+        outline
+    };
+    if compose == Compose::Knockout {
+        knock_out(scene, at, peniko::Fill::NonZero, &outline(&shape, &dots));
+    }
+    if let Some(mode) = layer {
+        scene.push_layer(
+            peniko::Fill::NonZero,
+            mode,
+            1.0,
+            at,
+            &outline(&shape, &dots),
+        );
         draw(scene);
         scene.pop_layer();
+    } else {
+        draw(scene);
     }
     Ok(())
 }
@@ -321,17 +428,27 @@ fn encode_fill(
     spaces: Spaces,
     rule: peniko::Fill,
     paint: &Paint,
-    blend: BlendMode,
+    (compose, blend): (Compose, BlendMode),
     target: TargetSpec,
 ) -> Result<(), GpuRasterError> {
     let at = spaces.at;
+    let layer = compose.layer(blend);
+    if compose == Compose::Knockout {
+        knock_out(scene, at, rule, shape);
+    }
 
     // A mesh carries a colour per triangle corner, which no brush can express, so it is
     // drawn triangle by triangle inside a layer clipped to the shape.
     if let Paint::Shading(shading) = paint
         && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
     {
-        scene.push_layer(rule, blend_mode(blend), 1.0, at, shape);
+        // A mesh always needs a layer, because it is drawn as triangles clipped to the
+        // shape; source-over is what an unblended one composites through.
+        let mode = layer.unwrap_or(peniko::BlendMode::new(
+            peniko::Mix::Normal,
+            peniko::Compose::SrcOver,
+        ));
+        scene.push_layer(rule, mode, 1.0, at, shape);
         crate::shading::fill_mesh(
             scene,
             triangles,
@@ -348,12 +465,12 @@ fn encode_fill(
     // backdrop with the layer's blend mode, and there is no per-draw blend parameter. The
     // layer is clipped to the shape being drawn, so the blend applies exactly where paint
     // lands.
-    if blend == BlendMode::Normal {
-        scene.fill(rule, at, &brush, brush_at, shape);
-    } else {
-        scene.push_layer(rule, blend_mode(blend), 1.0, at, shape);
+    if let Some(mode) = layer {
+        scene.push_layer(rule, mode, 1.0, at, shape);
         scene.fill(rule, at, &brush, brush_at, shape);
         scene.pop_layer();
+    } else {
+        scene.fill(rule, at, &brush, brush_at, shape);
     }
     Ok(())
 }
@@ -425,6 +542,7 @@ pub(crate) fn build_commands(
             target,
             masks,
             depth: 0,
+            compose: Compose::Over,
         },
     )?;
     Ok(scene)
@@ -441,6 +559,8 @@ struct Spec<'a> {
     masks: &'a SoftMaskRasters,
     /// How many enclosing transparency groups; see [`MAX_GROUP_DEPTH`].
     depth: usize,
+    /// How the commands being encoded combine with each other (§11.4.6).
+    compose: Compose,
 }
 
 /// Encodes one sequence of commands, opening and closing clip layers as the chain changes.
@@ -509,7 +629,7 @@ fn encode(
                     Spaces::new(*transform, to_device)?,
                     fill_rule(*rule),
                     paint,
-                    *blend,
+                    (spec.compose, *blend),
                     spec.target,
                 )?;
             }
@@ -528,7 +648,7 @@ fn encode(
                     s,
                     transform.then(to_device),
                     paint,
-                    *blend,
+                    (spec.compose, *blend),
                 )?;
             }
             Command::Image {
@@ -537,13 +657,25 @@ fn encode(
                 alpha,
                 blend,
                 ..
-            } => draw_image(scene, image, transform.then(to_device), *alpha, *blend)?,
+            } => draw_image(
+                scene,
+                image,
+                transform.then(to_device),
+                *alpha,
+                (spec.compose, *blend),
+            )?,
             Command::Group {
                 commands,
                 alpha,
                 blend,
+                knockout,
                 ..
-            } => encode_group(scene, list, commands, (*alpha, *blend), spec)?,
+            } => {
+                if spec.compose == Compose::Knockout {
+                    return Err(nested_group_in_knockout());
+                }
+                encode_group(scene, list, commands, (*alpha, *blend), *knockout, spec)?;
+            }
             other => {
                 return Err(GpuRasterError::UnsupportedCommand(format!("{other:?}")));
             }
@@ -581,6 +713,7 @@ fn encode_group(
     list: &DisplayList,
     commands: &[Command],
     (alpha, blend): (f32, BlendMode),
+    knockout: bool,
     spec: Spec<'_>,
 ) -> Result<(), GpuRasterError> {
     let depth = spec.depth.saturating_add(1);
@@ -603,7 +736,21 @@ fn encode_group(
             f64::from(list.page_bounds().max.y),
         ),
     );
-    encode(scene, list, commands, Spec { depth, ..spec })?;
+    let compose = if knockout {
+        Compose::Knockout
+    } else {
+        Compose::Over
+    };
+    encode(
+        scene,
+        list,
+        commands,
+        Spec {
+            depth,
+            compose,
+            ..spec
+        },
+    )?;
     scene.pop_layer();
     Ok(())
 }
@@ -653,8 +800,9 @@ fn draw_image(
     image: &pdf_render::Image,
     placement: Transform,
     alpha: f32,
-    blend: BlendMode,
+    (compose, blend): (Compose, BlendMode),
 ) -> Result<(), GpuRasterError> {
+    let layer = compose.layer(blend);
     if !image.is_consistent() {
         return Err(GpuRasterError::InvalidImage {
             width: image.width,
@@ -703,13 +851,18 @@ fn draw_image(
         .with_alpha(alpha.clamp(0.0, 1.0))
         .with_quality(quality);
 
-    if blend == BlendMode::Normal {
-        scene.draw_image(&brush, at);
-    } else {
-        let unit = kurbo::Rect::new(0.0, 0.0, width, height);
-        scene.push_layer(peniko::Fill::NonZero, blend_mode(blend), 1.0, at, &unit);
+    let unit = kurbo::Rect::new(0.0, 0.0, width, height);
+    // An image's shape is the rectangle its samples cover, which is the unit square the
+    // command's transform places — the same shape a blend layer is clipped to below.
+    if compose == Compose::Knockout {
+        knock_out(scene, at, peniko::Fill::NonZero, &unit);
+    }
+    if let Some(mode) = layer {
+        scene.push_layer(peniko::Fill::NonZero, mode, 1.0, at, &unit);
         scene.draw_image(&brush, at);
         scene.pop_layer();
+    } else {
+        scene.draw_image(&brush, at);
     }
     Ok(())
 }

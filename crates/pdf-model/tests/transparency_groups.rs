@@ -42,13 +42,18 @@ fn fixture(group: &str, bbox: &str, form: &str, page: &str) -> Vec<u8> {
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BM /Multiply >> >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BM /Multiply >> \
+         /GM << /SMask << /S /Luminosity /G 6 0 R >> >> >> \
          /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox {bbox} {group} /Length {} >>\n\
-         stream\n{form}\nendstream\nendobj\n",
+         stream\n{form}\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceGray >> /Length {} >>\n\
+         stream\n{MASK}\nendstream\nendobj\n",
         page.len() + 1,
-        form.len() + 1
+        form.len() + 1,
+        MASK.len() + 1
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -92,6 +97,12 @@ fn pixel(interpretation: &pdf_model::Interpretation, x: u32, y: u32) -> [u8; 4] 
     let bytes = &raster.data[at..at + 4];
     [bytes[0], bytes[1], bytes[2], bytes[3]]
 }
+
+/// The luminosity group object 6 holds, for the `/GM` graphics state's soft mask.
+///
+/// A grey wedge rather than a constant, so that a mask applied where none was intended
+/// changes the picture: §11.6.5.1 makes the mask value the group's luminosity.
+const MASK: &str = "0.5 g 0 0 100 100 re f";
 
 /// Two overlapping opaque red squares, drawn inside the form.
 ///
@@ -270,15 +281,69 @@ fn a_forms_bounding_box_clips_what_it_draws() {
     );
 }
 
-/// §11.4.6's knockout is reported where it can show, and not where it cannot.
+/// §11.4.6's knockout is *drawn*: only the topmost element contributes.
 ///
 /// > In a knockout group, each individual element shall be composited with the group's
-/// > initial backdrop rather than with the stack of preceding elements in the group.
+/// > initial backdrop rather than with the stack of preceding elements in the group. …
+/// > At any given point, only the topmost object enclosing the point shall contribute to
+/// > the result colour and opacity of the group as a whole.
 ///
-/// Where the upper of two elements is opaque and blends Normal it overwrites the lower one
-/// under either model, and where two elements do not overlap there is nothing to knock out.
-/// A report on `/K true` alone would name every knockout group in the corpus for a
-/// difference most of them cannot show, which is the mistake §9.3.8's first draft made.
+/// The measurement is the overlap of a half-transparent blue over an opaque red, drawn onto
+/// a white page. Under knockout the red is not there for the blue to composite with, so the
+/// overlap is half blue over *white*; under the ordinary model it is half blue over red.
+/// The two are as far apart as a red channel can be, and nothing but a pixel distinguishes
+/// them — the display list holds the same four commands either way.
+#[test]
+fn a_knockout_group_paints_only_its_topmost_element() {
+    let form = "1 0 0 rg 10 10 50 50 re f /GS gs 0 0 1 rg 30 30 50 50 re f";
+    let knocked = interpret(fixture(
+        "/Group << /S /Transparency /I true /K true >>",
+        "[0 0 100 100]",
+        form,
+        "/Fm Do",
+    ));
+    assert!(knocked.is_complete(), "{:?}", knocked.unsupported);
+    let ordinary = interpret(fixture(
+        "/Group << /S /Transparency /I true >>",
+        "[0 0 100 100]",
+        form,
+        "/Fm Do",
+    ));
+
+    // Device (40, 50) is page (40, 50): inside both squares.
+    assert_eq!(
+        pixel(&knocked, 40, 50),
+        [127, 127, 255, 255],
+        "half blue over the page, because the red under it was knocked out"
+    );
+    assert_eq!(
+        pixel(&ordinary, 40, 50),
+        [127, 0, 128, 255],
+        "and half blue over the red, when it is not"
+    );
+    // Where only the lower element is, both models paint it.
+    assert_eq!(pixel(&knocked, 15, 85), [255, 0, 0, 255]);
+    assert_eq!(pixel(&ordinary, 15, 85), [255, 0, 0, 255]);
+}
+
+/// §11.4.6's knockout is reported where a rasteriser cannot draw an element's *shape*.
+///
+/// The clause states the reason itself:
+///
+/// > The existence of the knockout feature is the main reason for maintaining a separate
+/// > shape value rather than only a single alpha that combines shape and opacity.
+///
+/// A raster of premultiplied samples has one alpha and no shape, so knockout reaches the
+/// display list only where the two coincide — every element's transparency being an opacity
+/// rather than a shape. A soft mask is §11.6.4.1's opacity applied here as coverage, an
+/// image's own alpha may be either §8.9.6.2's stencil or §11.6.5.2's `/SMask`, and a nested
+/// group arrives as a raster. Those keep the report; the rest is drawn.
+///
+/// The second half of the condition is older and still stands: where the upper of two
+/// elements is opaque and blends Normal it overwrites the lower one under either model, and
+/// where two elements do not overlap there is nothing to knock out. A report on `/K true`
+/// alone would name every knockout group in the corpus for a difference most of them cannot
+/// show, which is the mistake §9.3.8's first draft made.
 #[test]
 fn a_knockout_group_reports_only_where_the_two_models_differ() {
     let reported = |group: &str, form: &str| {
@@ -290,12 +355,12 @@ fn a_knockout_group_reports_only_where_the_two_models_differ() {
     let knockout = "/Group << /S /Transparency /I true /K true >>";
 
     assert!(
-        reported(
+        !reported(
             knockout,
             "/GS gs 1 0 0 rg 10 10 50 50 re f 30 30 50 50 re f"
         )
         .contains("knockout"),
-        "a half-transparent element over another is knocked out or blended, differently"
+        "two fills have a shape a rasteriser draws, so the clause's rule is drawn"
     );
     assert!(
         !reported(knockout, TWO_SQUARES).contains("knockout"),
@@ -316,6 +381,14 @@ fn a_knockout_group_reports_only_where_the_two_models_differ() {
         )
         .contains("knockout"),
         "a group that is not a knockout group is drawn as it asks to be"
+    );
+    assert!(
+        reported(
+            knockout,
+            "1 0 0 rg 10 10 50 50 re f /GM gs 0 0 1 rg 30 30 50 50 re f"
+        )
+        .contains("knockout"),
+        "an element under a soft mask has an opacity this backend applies as a shape"
     );
 }
 

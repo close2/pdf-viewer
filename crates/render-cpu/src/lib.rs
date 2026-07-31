@@ -91,7 +91,7 @@ impl CpuRasterizer {
     fn paint<'a>(
         &self,
         paint: &Paint,
-        blend: pdf_render::BlendMode,
+        blend: tiny_skia::BlendMode,
         page_to_path: Transform,
         scratch: &'a mut Option<tiny_skia::Pixmap>,
     ) -> Result<tiny_skia::Paint<'a>, CpuRasterError> {
@@ -103,7 +103,7 @@ impl CpuRasterizer {
         };
         Ok(tiny_skia::Paint {
             shader,
-            blend_mode: convert::blend_mode(blend),
+            blend_mode: blend,
             anti_alias: self.anti_alias,
             ..tiny_skia::Paint::default()
         })
@@ -149,7 +149,15 @@ impl Rasterizer for CpuRasterizer {
         // the result — see `impose_on_medium`, which both backends end with.
 
         let mut masks = MaskCache::new(target, self.anti_alias);
-        self.encode(&mut pixmap, list, list.commands(), target, &mut masks, 0)?;
+        self.encode(
+            &mut pixmap,
+            list,
+            list.commands(),
+            target,
+            &mut masks,
+            0,
+            Compose::Over,
+        )?;
 
         // §11.4.7's page group is isolated, so the medium's colour is composited with the
         // finished page rather than being the backdrop its blend modes saw. Before the
@@ -231,7 +239,7 @@ impl CpuRasterizer {
         transform: Transform,
         stroke: &Stroke,
         paint: &Paint,
-        blend: pdf_render::BlendMode,
+        blend: tiny_skia::BlendMode,
         to_device: Transform,
         clip: Option<&tiny_skia::Mask>,
     ) -> Result<(), CpuRasterError> {
@@ -297,6 +305,12 @@ impl CpuRasterizer {
     ///
     /// Returns [`CpuRasterError`] for anything [`CpuRasterizer::draw`] rejects, for a clip
     /// chain that is dangling or cyclic, and for groups nested past the bound.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a display list, where it is drawn, and the two things a recursion carries \
+                  — how deep it is and how its elements combine. Grouping them would put \
+                  the target and the mask cache in a struct that exists once per call"
+    )]
     fn encode(
         &self,
         pixmap: &mut tiny_skia::Pixmap,
@@ -305,6 +319,7 @@ impl CpuRasterizer {
         target: TargetSpec,
         masks: &mut MaskCache,
         depth: usize,
+        compose: Compose,
     ) -> Result<(), CpuRasterError> {
         for command in commands {
             // A soft mask is evaluated before anything borrows the cache, because building
@@ -321,9 +336,22 @@ impl CpuRasterizer {
                 commands,
                 alpha,
                 blend,
+                knockout,
                 ..
             } = command
             {
+                // A group inside a knockout group would have to be composited by its
+                // *shape*, which reaches this backend as one alpha channel and so cannot be
+                // told from its opacity. `pdf-model` does not build that display list — see
+                // `Command::Group`'s `knockout` — and erroring is what keeps the assumption
+                // from becoming a silent approximation if it ever does.
+                if compose == Compose::Knockout {
+                    return Err(CpuRasterError::UnsupportedCommand(
+                        "a group inside a knockout group has a shape this backend cannot \
+                         separate from its opacity (ISO 32000-2 §11.4.6)"
+                            .to_owned(),
+                    ));
+                }
                 self.draw_group(
                     pixmap,
                     list,
@@ -333,6 +361,11 @@ impl CpuRasterizer {
                         blend: *blend,
                         clip: command.clip(),
                         mask: command.mask(),
+                        compose: if *knockout {
+                            Compose::Knockout
+                        } else {
+                            Compose::Over
+                        },
                     },
                     target,
                     masks,
@@ -361,14 +394,14 @@ impl CpuRasterizer {
             // is drawn onto transparency first and composited by `blend::composite`.
             // Drawing onto transparency loses nothing: with αb = 0 the compositing formula
             // collapses to the source, whatever the blend mode.
-            if let Some(mode) = blend::NonSeparable::of(command.blend()) {
+            if let Some(mode) = compose.non_separable(command.blend()) {
                 let mut layer = tiny_skia::Pixmap::new(target.width, band.height).ok_or(
                     CpuRasterError::Allocation {
                         width: target.width,
                         height: band.height,
                     },
                 )?;
-                self.draw(&mut layer.as_mut(), command, to_device, clip)?;
+                self.draw(&mut layer.as_mut(), command, to_device, clip, compose)?;
                 let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
                     width: target.width,
                     height: band.height,
@@ -382,7 +415,7 @@ impl CpuRasterizer {
                 height: band.height,
             })?;
 
-            self.draw(&mut surface, command, to_device, clip)?;
+            self.draw(&mut surface, command, to_device, clip, compose)?;
         }
         Ok(())
     }
@@ -430,7 +463,15 @@ impl CpuRasterizer {
                 height: target.height,
             },
         )?;
-        self.encode(&mut buffer, list, group.commands, target, masks, depth)?;
+        self.encode(
+            &mut buffer,
+            list,
+            group.commands,
+            target,
+            masks,
+            depth,
+            group.compose,
+        )?;
 
         // The elements may have evicted the soft mask this group is painted through, since
         // they share the cache; rebuilding it is what makes eviction safe here as it is for
@@ -540,7 +581,17 @@ impl CpuRasterizer {
                 height: target.height,
             },
         )?;
-        self.encode(&mut buffer, list, &mask.commands, target, masks, depth)?;
+        // A soft mask's group is evaluated as §11.4.5's ordinary group: `SoftMask` carries
+        // no knockout flag, and `pdf-model` reports a mask group that asks for one.
+        self.encode(
+            &mut buffer,
+            list,
+            &mask.commands,
+            target,
+            masks,
+            depth,
+            Compose::Over,
+        )?;
 
         // Straight alpha, which is what `SoftMask::value` is defined over and what the GPU
         // backend reads back; `tiny-skia` stores premultiplied, so the conversion happens
@@ -578,6 +629,7 @@ impl CpuRasterizer {
         command: &Command,
         to_device: Transform,
         clip: Option<&tiny_skia::Mask>,
+        compose: Compose,
     ) -> Result<(), CpuRasterError> {
         match command {
             Command::Fill {
@@ -604,7 +656,7 @@ impl CpuRasterizer {
                         convert::fill_rule(*fill_rule),
                         convert::transform(transform.then(to_device)),
                         clip,
-                        convert::blend_mode(*blend),
+                        compose.mode(*blend),
                         self.anti_alias,
                     );
                     return Ok(());
@@ -615,7 +667,12 @@ impl CpuRasterizer {
                 let mut scratch = None;
                 surface.fill_path(
                     &path,
-                    &self.paint(paint, *blend, page_to_path(*transform)?, &mut scratch)?,
+                    &self.paint(
+                        paint,
+                        compose.mode(*blend),
+                        page_to_path(*transform)?,
+                        &mut scratch,
+                    )?,
                     convert::fill_rule(*fill_rule),
                     convert::transform(transform.then(to_device)),
                     clip,
@@ -630,7 +687,14 @@ impl CpuRasterizer {
                 ..
             } => {
                 self.draw_stroke(
-                    surface, path, *transform, stroke, paint, *blend, to_device, clip,
+                    surface,
+                    path,
+                    *transform,
+                    stroke,
+                    paint,
+                    compose.mode(*blend),
+                    to_device,
+                    clip,
                 )?;
             }
             Command::Image {
@@ -643,7 +707,7 @@ impl CpuRasterizer {
                 let placement = ImagePlacement {
                     transform: *transform,
                     alpha: *alpha,
-                    blend: *blend,
+                    blend: compose.mode(*blend),
                     to_device,
                 };
                 self.draw_image(surface, image, placement, clip)?;
@@ -659,6 +723,47 @@ impl CpuRasterizer {
     }
 }
 
+/// How an element of a group combines with the elements drawn before it.
+///
+/// ISO 32000-2 §11.4.6's two answers. The ordinary one is over, and a knockout group's is
+/// that "each individual element shall be composited with the group's initial backdrop
+/// rather than with the stack of preceding elements in the group" — which, onto the
+/// transparent backdrop [`CpuRasterizer::draw_group`] builds, is the element itself
+/// replacing what is under it within its own coverage. That is Porter-Duff Source, which
+/// `tiny-skia` applies through the same coverage and clip mask as any other mode, so a
+/// knockout element needs no second raster and no shape channel.
+///
+/// An element's *own* blend mode disappears under knockout, and that is the clause rather
+/// than a shortcut: its backdrop is transparent, and §11.3.6's formula with αb = 0 is the
+/// source colour whatever the blend function is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Compose {
+    /// §11.4.5: an element paints over the group's accumulated result.
+    Over,
+    /// §11.4.6: an element replaces it within its own coverage.
+    Knockout,
+}
+
+impl Compose {
+    /// The `tiny-skia` mode an element painted under `blend` is drawn with.
+    fn mode(self, blend: pdf_render::BlendMode) -> tiny_skia::BlendMode {
+        match self {
+            Self::Over => convert::blend_mode(blend),
+            Self::Knockout => tiny_skia::BlendMode::Source,
+        }
+    }
+
+    /// Whether §11.3.5.3's four modes still need this backend's own compositing.
+    ///
+    /// Never under knockout: the element has no backdrop to blend with.
+    fn non_separable(self, blend: pdf_render::BlendMode) -> Option<blend::NonSeparable> {
+        match self {
+            Self::Over => blend::NonSeparable::of(blend),
+            Self::Knockout => None,
+        }
+    }
+}
+
 /// One transparency group, unpacked from its command.
 ///
 /// Grouped for the same reason as [`ImagePlacement`]: five values that always travel
@@ -670,6 +775,8 @@ struct Group<'a> {
     blend: pdf_render::BlendMode,
     clip: Option<ClipId>,
     mask: Option<SoftMaskId>,
+    /// How this group's own elements combine with each other (§11.4.6).
+    compose: Compose,
 }
 
 /// Where and how an image is placed.
@@ -680,7 +787,7 @@ struct Group<'a> {
 struct ImagePlacement {
     transform: Transform,
     alpha: f32,
-    blend: pdf_render::BlendMode,
+    blend: tiny_skia::BlendMode,
     to_device: Transform,
 }
 
@@ -780,7 +887,7 @@ impl CpuRasterizer {
                 alpha.clamp(0.0, 1.0),
                 convert::transform(to_unit),
             ),
-            blend_mode: convert::blend_mode(blend),
+            blend_mode: blend,
             anti_alias: self.anti_alias,
             ..tiny_skia::Paint::default()
         };

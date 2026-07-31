@@ -476,7 +476,15 @@ const MAX_PAGELESS: usize = 11;
 /// says the file is malformed, which is the pattern trap 5 lists four other instances of: the
 /// report accompanies the drawing rather than replacing it. The page's glyph count went 7 to 39
 /// and its extraction score 25% to 100%, which is how the pdf.js text gate found it.
-const MAX_INCOMPLETE: usize = 97;
+///
+/// **97 to 95 in the seventy-first session**, and this one is a feature: §11.4.6's knockout
+/// groups are drawn rather than reported wherever every element's shape is the coverage a
+/// rasteriser draws it with. `knockout_isolated_overlap.pdf` and `knockout_blend_multiply.pdf`
+/// draw with nothing reported; `knockout_nested.pdf`, `knockout_nested_group_alpha.pdf`,
+/// `knockout_smask.pdf`, `knockout_inner_backdrop.pdf` and `issue18032.pdf` keep the report,
+/// each for the reason the clause gives — a nested group's shape reaches a backend as one
+/// alpha channel, and so does a mask's.
+const MAX_INCOMPLETE: usize = 95;
 
 /// How long one document may take before it counts as a failure.
 ///

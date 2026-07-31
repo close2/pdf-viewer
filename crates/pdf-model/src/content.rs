@@ -667,6 +667,50 @@ fn command_bounds(command: &Command) -> Option<Rect> {
     }
 }
 
+/// Whether every element of a knockout group has a shape a rasteriser can draw.
+///
+/// §11.4.6 replaces the accumulated group result "by only a fraction of the result of
+/// compositing the object with the initial backdrop", and that fraction is the element's
+/// *shape*. A rasteriser draws with one number per pixel, the coverage, and the clause says
+/// in as many words why that is not enough in general:
+///
+/// > The existence of the knockout feature is the main reason for maintaining a separate
+/// > shape value rather than only a single alpha that combines shape and opacity.
+///
+/// So this is the condition under which the two coincide, and it is where the display list
+/// may carry `knockout` rather than a report:
+///
+/// - **No soft mask.** §11.6.4.1 makes a mask a source of *opacity*, and this renderer
+///   applies it as coverage — the one place the conflation is visible, and
+///   `knockout_smask.pdf` is the page that shows it.
+/// - **No per-sample alpha.** An image's transparency may be §8.9.6.2's stencil, which is
+///   shape, or §11.6.5.2's `/SMask`, which is opacity, and one RGBA raster cannot say which.
+///   A shading that does not extend leaves its region unpainted, which is a shape of zero.
+///   A *constant* alpha is unambiguously opacity, so it is allowed.
+/// - **No nested group.** A group's result reaches the backends as a raster, so its shape
+///   would be its alpha by construction — the same conflation one level down.
+///
+/// Anything this refuses keeps the report it has always had, which is the honest half: the
+/// page is drawn as an ordinary group and says so.
+fn knockout_shape_is_coverage(commands: &[Command]) -> bool {
+    commands.iter().all(|command| {
+        if command.mask().is_some() {
+            return false;
+        }
+        match command {
+            Command::Fill { paint, .. } | Command::Stroke { paint, .. } => match paint {
+                Paint::Solid(_) => true,
+                Paint::Shading(shading) => shading.is_opaque(),
+                // `Paint` is non-exhaustive; a paint whose shape is unknown is refused,
+                // which leaves the report standing.
+                _ => false,
+            },
+            Command::Image { image, .. } => image.is_opaque(),
+            _ => false,
+        }
+    })
+}
+
 /// Whether §11.4.6's knockout could change a pixel of this group.
 ///
 /// True when an element that composites overlaps an element painted before it. Where the
@@ -2218,7 +2262,10 @@ impl Interpreter<'_> {
         // departure, reported on the same conditions, rather than a second reading of the
         // same table.
         if let Some(group) = self.transparency_group(&request.group.dict) {
-            self.note_group_structure(&group, &commands);
+            // `false`: a mask's group is evaluated into a mask raster by
+            // `pdf_render::SoftMask`, which carries no knockout flag, so a knockout here is
+            // a departure whatever its elements are.
+            self.note_group_structure(&group, &commands, false);
         }
 
         let evaluated = pdf_render::SoftMask {
@@ -2535,7 +2582,22 @@ impl Interpreter<'_> {
             return;
         }
 
-        self.note_group_departures(group, &commands);
+        // §11.4.6's rule reaches the backends where every element's shape is the coverage a
+        // rasteriser draws it with, and stays a report where it does not.
+        //
+        // Isolation is a second condition and a different one. "[A] knockout group may be
+        // isolated or non-isolated; that is, isolated and knockout are independent
+        // attributes", and what this backend can composite onto is a transparent backdrop —
+        // §11.4.5's. For a *non-isolated* knockout group the initial backdrop is the
+        // group's own, and the two coincide by exactly the argument §11.4.4's NOTE 3 makes
+        // and this tree already relies on: with every element blending Normal the backdrop
+        // is composited in and removed again exactly, so it cancels. Where an element
+        // blends it does not, and that group is the one `note_group_structure` already
+        // names — so it keeps both reports rather than gaining a second departure.
+        let knockout = group.knockout
+            && knockout_shape_is_coverage(&commands)
+            && (group.isolated || !any_command(&commands, &command_blends));
+        self.note_group_departures(group, &commands, knockout);
         // §11.6.6's final compositing: the group's shape "shall then be painted into the
         // parent group or page, using the group's accumulated colour and opacity at each
         // point" — under the state in force at `Do`, which is where `ca` and `/BM` were left
@@ -2551,6 +2613,7 @@ impl Interpreter<'_> {
             // transparency group and apply the mask to the group as a whole."
             mask: outer.soft_mask,
             blend: outer.blend,
+            knockout,
         });
     }
 
@@ -2586,8 +2649,13 @@ impl Interpreter<'_> {
     /// ask for something else, and each is reported only where it can change a pixel —
     /// a report that fires where the output is provably identical costs the page its place
     /// in the oracle's comparison and buys nothing.
-    fn note_group_departures(&mut self, group: &TransparencyGroup, commands: &[Command]) {
-        self.note_group_structure(group, commands);
+    fn note_group_departures(
+        &mut self,
+        group: &TransparencyGroup,
+        commands: &[Command],
+        knockout_drawn: bool,
+    ) {
+        self.note_group_structure(group, commands, knockout_drawn);
 
         // §11.6.6: for an isolated group, a `/CS` means "all painting operators shall
         // convert source colours ... to the group colour space before compositing objects
@@ -2611,7 +2679,12 @@ impl Interpreter<'_> {
     /// `/CS` the space the mask's luminosity is computed in, where §11.6.6 makes a painted
     /// group's the space its elements are composited in. `crate::soft_mask` decides the
     /// first; this decides what the two share.
-    fn note_group_structure(&mut self, group: &TransparencyGroup, commands: &[Command]) {
+    fn note_group_structure(
+        &mut self,
+        group: &TransparencyGroup,
+        commands: &[Command],
+        knockout_drawn: bool,
+    ) {
         // §11.4.4 composites a non-isolated group's elements onto the group's backdrop and
         // then removes that backdrop's contribution again (its NOTE 3). Under the Normal
         // blend mode the removal is exact and the backdrop cancels, which is what §11.6.7's
@@ -2636,7 +2709,11 @@ impl Interpreter<'_> {
         // Normal it overwrites either way, so the two models differ only where a later
         // element that composites covers an earlier one — which is the condition below,
         // and the same shape as §9.3.8's for a text object.
-        if group.knockout && knockout_can_show(commands) {
+        // Since the seventy-first session the display list can carry the rule itself, for
+        // the groups whose elements have a shape a rasteriser can draw — see
+        // [`knockout_shape_is_coverage`], which is what `knockout_drawn` answers. What is
+        // left here is the population that condition refuses.
+        if group.knockout && !knockout_drawn && knockout_can_show(commands) {
             self.note(Unsupported::TransparencyGroup {
                 detail: "knockout, and an element composites over another".to_owned(),
             });

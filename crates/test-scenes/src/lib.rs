@@ -188,6 +188,97 @@ pub fn transparency_group() -> DisplayList {
         clip: None,
         mask: None,
         blend: BlendMode::Multiply,
+        knockout: false,
+    });
+
+    list
+}
+
+/// A knockout group whose elements overlap, half of them transparent (§11.4.6).
+///
+/// ISO 32000-2 §11.4.6: "[i]n a knockout group, each individual element shall be composited
+/// with the group's initial backdrop rather than with the stack of preceding elements in the
+/// group", so "[a]t any given point, only the topmost object enclosing the point shall
+/// contribute to the result colour and opacity of the group as a whole".
+///
+/// # What this scene can fail at, and what it cannot
+///
+/// Knockout and ordinary compositing agree wherever the upper element is opaque and blends
+/// Normal, which is why the report this implementation replaced fired on a narrower
+/// condition than "the group is a knockout group". A scene of opaque squares would therefore
+/// pass with knockout unimplemented — the shape of trap 2's magnitude lesson, one level up.
+///
+/// So the upper element of each overlapping pair *composites*: the first pair overlaps a
+/// half-transparent blue over an opaque red, where knockout shows the page through the
+/// overlap and ordinary compositing shows purple; the second overlaps a `Multiply` green
+/// over an opaque red, where knockout shows plain green and ordinary compositing shows the
+/// product. Both bands are ~150×150 points, which is tens of thousands of channels rather
+/// than an edge's worth.
+#[must_use]
+pub fn knockout_group() -> DisplayList {
+    /// A half-transparent blue: the alpha is *opacity*, which is what makes it legal to
+    /// draw a knockout element with Porter-Duff Source.
+    const HALF_BLUE: Color = Color {
+        r: 0.0,
+        g: 0.0,
+        b: 1.0,
+        a: 0.5,
+    };
+
+    let mut list = DisplayList::new(A4);
+
+    // A backdrop, so that "the page shows through" is a colour rather than nothing: the
+    // group's own initial backdrop is transparent either way, and this is what it is
+    // composited *onto* afterwards.
+    list.push(Command::Fill {
+        path: Arc::new(rect(40.0, 100.0, 555.0, 750.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(GREEN),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    let fill = |path, paint, blend| Command::Fill {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(paint),
+        clip: None,
+        mask: None,
+        blend,
+    };
+
+    // A diagonal edge, so that the comparison covers partially covered pixels rather than
+    // only pixel-aligned ones. Both backends reach §11.4.6 through their own library's
+    // arithmetic and they are not the same arithmetic at a fractional coverage — see
+    // `render-gpu`'s `knock_out` for the exact difference — so the scene has to contain an
+    // edge that is not axis-aligned or the agreement would be about the easy half.
+    let mut wedge = Path::new();
+    wedge.push(PathCommand::MoveTo(Point::new(430.0, 130.0)));
+    wedge.push(PathCommand::LineTo(Point::new(540.0, 430.0)));
+    wedge.push(PathCommand::LineTo(Point::new(430.0, 430.0)));
+    wedge.push(PathCommand::Close);
+
+    list.push(Command::Group {
+        commands: vec![
+            fill(rect(60.0, 450.0, 310.0, 700.0), RED, BlendMode::Normal),
+            fill(
+                rect(160.0, 550.0, 410.0, 730.0),
+                HALF_BLUE,
+                BlendMode::Normal,
+            ),
+            fill(rect(60.0, 130.0, 310.0, 380.0), RED, BlendMode::Normal),
+            fill(rect(160.0, 200.0, 410.0, 430.0), GREEN, BlendMode::Multiply),
+            fill(rect(420.0, 140.0, 550.0, 420.0), RED, BlendMode::Normal),
+            fill(wedge, HALF_BLUE, BlendMode::Normal),
+        ],
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        knockout: true,
     });
 
     list

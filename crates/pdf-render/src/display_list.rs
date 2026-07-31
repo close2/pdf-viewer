@@ -143,14 +143,16 @@ pub enum Command {
     /// That is the whole of what this command asks a backend for: draw `commands` onto a
     /// fully transparent backdrop, then paint the result once, under `alpha` and `blend`.
     ///
-    /// # Why no isolation or knockout flag
+    /// # Why isolation is not a flag and knockout is
     ///
     /// A backend is told to composite onto a transparent backdrop, which is §11.4.5's
-    /// isolated group. The two attributes that would ask for anything else are decided
-    /// before the command is built: `pdf-model` emits this command for a non-isolated
-    /// group only where the computation is provably the same one (every element blending
-    /// Normal — see ADR 0026), and reports the cases that are not. A flag no backend reads
-    /// would be a placeholder rather than a description.
+    /// isolated group. Isolation is decided before the command is built: `pdf-model` emits
+    /// this command for a non-isolated group only where the computation is provably the
+    /// same one (every element blending Normal — see ADR 0026), and reports the cases that
+    /// are not. A flag no backend reads would be a placeholder rather than a description.
+    ///
+    /// Knockout is a flag because the two models differ in the *elements'* compositing and
+    /// no rewriting of the element list can express it: see [`Self::knockout`].
     Group {
         /// The group's elements, in painting order.
         ///
@@ -173,6 +175,32 @@ pub enum Command {
         mask: Option<SoftMaskId>,
         /// How the composited group combines with its backdrop.
         blend: BlendMode,
+        /// Whether the elements knock each other out (§11.4.6).
+        ///
+        /// > In a knockout group, each individual element shall be composited with the
+        /// > group's initial backdrop rather than with the stack of preceding elements in
+        /// > the group.
+        ///
+        /// The backdrop this command composites onto is transparent, so compositing an
+        /// element with it yields the element itself — and the group's accumulated result
+        /// is then "replaced by only a fraction of the result", the fraction being the
+        /// element's *shape*. For a rasteriser that fraction is the coverage the element is
+        /// drawn with, so a knockout element is Porter-Duff Source modulated by coverage,
+        /// and its own blend mode has a transparent backdrop to blend against and therefore
+        /// no effect.
+        ///
+        /// # What a backend may assume, and who guarantees it
+        ///
+        /// The clause is explicit that shape and opacity are different quantities — "[t]he
+        /// existence of the knockout feature is the main reason for maintaining a separate
+        /// shape value" — and a raster of premultiplied
+        /// samples carries only the one. So `pdf-model` sets this **only** where every
+        /// element's shape is its coverage: no element carries a soft mask, no image or
+        /// shading contributes per-sample alpha, and no element is itself a group.
+        /// Everything else keeps the report §11.4.6 has had since ADR 0026. A backend
+        /// therefore implements one rule — draw each element with Source rather than over —
+        /// and needs no shape channel to be right.
+        knockout: bool,
     },
     /// Draws the outline of a path.
     Stroke {

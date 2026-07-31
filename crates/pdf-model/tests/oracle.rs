@@ -689,6 +689,11 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// knockout groups (§11.4.6), which the same session began reporting. They are still
 /// contradicted; they are no longer *judged*, which is the trade a report makes. Four for
 /// five now on this list's name failing to diagnose a member.
+///
+/// The seventy-first session implemented §11.4.6 for the elements whose shape a rasteriser
+/// can draw, and page 2 came from mean 5.07 to 3.08 without leaving the contradicted list —
+/// it still holds what that condition refuses. Page 1 of the same document became a page we
+/// draw completely and its mean fell 4.19 to 3.20.
 const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
     "bad-PageLabels.pdf page 1",
     "calrgb.pdf page 1",
@@ -734,7 +739,10 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
 /// **Five pages left in the seventeenth session and only one of them was fixed.** Four
 /// `knockout_*.pdf` are knockout transparency groups (§11.4.6), which that session began to
 /// *report* rather than to implement, so they left this list by leaving the comparison — the
-/// same trade §9.3.8 and §11.6.2 made before them. The fifth, `issue11279.pdf`, is a fix and
+/// same trade §9.3.8 and §11.6.2 made before them. **One of the four came back in the
+/// seventy-first session as an agreement**: `knockout_isolated_overlap.pdf` is drawn under
+/// the clause now and agrees with the reference consensus, which is the report being paid
+/// back rather than traded again. The fifth, `issue11279.pdf`, is a fix and
 /// had nothing to do with groups: it draws a form XObject that paints beyond its own `/BBox`,
 /// which §8.10.1 step c) says shall be clipped, and this tree clipped only an annotation's
 /// appearance. That was found by reading §8.10 because §11.6.6 sent a reader there, which is

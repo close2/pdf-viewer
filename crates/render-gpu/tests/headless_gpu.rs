@@ -188,6 +188,29 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
     );
 }
 
+/// §11.4.6's knockout is the same rule on both backends.
+///
+/// The clause's rule is one sentence and each backend reaches it through its own library's
+/// spelling of Porter-Duff Source: `tiny-skia` sets a per-draw blend mode, Vello has no such
+/// parameter and composites a layer clipped to the element's shape with `Compose::Copy`.
+/// Trap 2's question — what does every scene leave at its default — is what this answers for
+/// the group flag that was `false` in every scene until the seventy-first session.
+#[test]
+fn cpu_and_gpu_agree_on_a_knockout_group() {
+    let list = test_scenes::knockout_group();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+
+    assert_within_tolerance(
+        "knockout group",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
+
 /// Every one of §11.3.5's sixteen blend modes is the same function on both backends, to
 /// the channel.
 ///
