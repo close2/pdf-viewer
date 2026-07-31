@@ -5243,8 +5243,10 @@ note = "Table 361's `/O /UserProperties` and Table 362's `/N`, `/V`, `/F` and `/
 [[clause]]
 clause = "14.7.7"
 title = "Example of logical structure"
-status = "silent"
-note = "A worked example of a structure tree. Nothing normative; recorded so that the family has no gap in it."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/tests/logical_structure_example.rs::the_clauses_worked_example_reads_as_the_structure_it_describes"]
+note = "The clause is a worked example rather than a requirement, so it is a **test**: `tests/logical_structure_example.rs` is the example's own objects, at its own object numbers, and asserts that each mechanism it demonstrates is read. The role map takes `/Chap`, `/Head1` and `/Para` to `/Sect`, `/H` and `/P`; the class map's `/Normal` supplies a `/WritingMode` while the element's own `/A` overrides its `/TextAlign` (§14.7.6.2); the parent tree answers per page, with the second page's array naming one element twice; the `/IDTree` finds three elements by identifier; and the paragraph that \"spans pages\" resolves to one content item on each, the second through a marked-content reference that names the other page. It also carries the example's `101 1 obj` — the only non-zero generation number in this tree's tests, and exactly the sort of thing a reader assumes away."
 
 [[clause]]
 clause = "14.8"
@@ -5680,8 +5682,10 @@ note = "Table 381's `/ListNumbering`, which says how a list's labels were number
 [[clause]]
 clause = "14.8.5.6"
 title = "PrintField attributes"
-status = "silent"
-note = "Table 382's `/Role`, `/checked` and `/Desc` on a `Form` element — what kind of field the content depicts, and whether the check box shown is on. **This is the one attribute family with a rendering-adjacent question in it**, and the answer is that it has none: §12.7.4's appearance is what a widget draws, and `/checked` here is a *description* of that appearance for a processor exporting the form. If the two disagree the appearance wins, because the appearance is the page."
+status = "implemented"
+code = ["crates/pdf-model/src/structure.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_flattened_form_field_says_what_it_was"]
+note = "Table 383 whole, in `Tree::print_field`: `/Role` in all five of its values, `/Checked` in all three of its, and `/Desc`. The clause is the one part of §14.8.5 a *reader* can act on, and its own paragraph says why — a non-interactive form \"may have originally contained interactive fields such as text fields and radio buttons but were then converted into non-interactive PDF files\", so the widget is gone and this attribute is all that says the marks were a check box, whether it was ticked, and what the field was called. Both spellings of the state entry are read, the current one first: Table 383 lists \"Checked, checked\" and deprecates the lower-case form in PDF 2.0, which — like §12.2's `/ViewArea` — tells a *writer* what to stop doing. Table 383's default of `off` is applied here, because an unticked box is what a form full of them looks like. The `tv` role's value is deliberately not read from the attribute: \"[t]he text that is the value of the field shall be the content of the Form structure element\", which §14.8.2.5's logical order already returns. No corpus document states one."
 
 [[clause]]
 clause = "14.8.5.7"

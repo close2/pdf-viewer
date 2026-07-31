@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **ninety-fourth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **ninety-fifth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,27 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Ninety-second — what a unit of user space is worth.** §12.9's viewports and §12.10's geospatial
-dictionaries, read whole, with §12.9.2's formatting algorithm written from the clause's own worked
-example. ADR 0082.
-
-- **The viewport selection rule runs backwards** — "starting with the last one and iterating in
-  reverse" — because the `/VP` array is in drawing order. A forward search looks right on every
-  page with one viewport and is wrong inside every inset.
-- **A `/BBox` whose corner order is meaning**: Table 265 says the ordering "shall determine the
-  orientation of the measuring coordinate system", so this is the one rectangle in the tree that
-  is not normalised on read.
-- **§12.9.2's example is the test**: 1.4505 miles becomes `1 mi 2,378 ft 7 5/8 in`, and no corpus
-  document exercises one line of it.
-- **The boundary is stated rather than assumed**: §12.10's transformation is an EPSG registry and
-  ISO 19162's WKT, both outside this standard. The registration `/GPTS`–`/LPTS` states directly is
-  read; the projection is not.
-- The one corpus witness is a map whose viewport name is UTF-16 **little**-endian — an encoding
-  §7.9.2.2 has no case for — and whose `/BBox` Table 265 forbids. Both asserted, neither
-  accommodated.
-
-`silent` falls 86 → 77, the largest fall so far.
 
 **Ninety-third — a PDF that is a folder.** §12.3.5's portable collections, §12.3.6's navigators,
 §7.11.4.2's related files and §7.11.6's collection items. ADR 0083.
@@ -74,6 +53,22 @@ readback by recording which bytes each `/MCID` covered. ADR 0084.
   those pages, which turns a habit into a measured robustness measure.
 
 `silent` falls 71 → 66, and clause 14 has two rows left.
+
+**Ninety-fifth — what a flattened form was.** §14.8.5.6's `PrintField` and §14.7.7's worked
+example, which were clause 14's last two silences. ADR 0085.
+
+- **A form that was printed out still says what it was**: `/Role`, `/Checked` and `/Desc` on a
+  `Form` element are all that is left when the widget has been flattened away.
+- **Both spellings of `/Checked`** are read, the lower-case one deprecated in PDF 2.0 and still
+  written by files — deprecation binds a writer.
+- **§14.7.7's example is a document, so it is a test**: the role map, the class map under an
+  element's own override, the parent tree per page, the `/IDTree`, and a paragraph that spans two
+  pages through a marked-content reference. It found the one gap a corpus never would —
+  `Tree::element_by_id`, because no corpus document writes an `/IDTree`.
+- **Clause 14 reaches zero silences.** The ledger's silence is now two clauses: 62 rows of clause
+  12's interactive half and 2 of §9.8.3's substitution hints.
+
+`silent` falls 66 → 64.
 
 ## How the project got here
 
@@ -172,6 +167,7 @@ below rather than here.
 | 92 | §12.9's viewports and §12.10's geospatial dictionaries, and a formatting algorithm | ADR 0082 |
 | 93 | §12.3.5's collections, §12.3.6's navigators, and clause 7's last two silences | ADR 0083 |
 | 94 | §14.8.2.5's logical content order, and what a tagged page owes its reader | ADR 0084 |
+| 95 | §14.8.5.6's `PrintField` and §14.7.7's example: clause 14 reaches zero silences | ADR 0085 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -207,11 +203,11 @@ reads what a document says *about itself***: §14.7's logical structure entire, 
 vocabulary, §7.11.4's embedded files and §14.13's associated ones, §12.2's viewer preferences,
 §12.11's requirements and §7.12's extensions. It is not yet a
 PDF *viewer* in the full sense — nothing edits a field, asks a person for a password, speaks a
-page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: 66 of
+page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: 64 of
 the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **784 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **787 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all four fuzz targets
   clean at 50 000 runs apiece** — every one of those re-run in the eighty-sixth session rather
   than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -825,22 +821,21 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 340 | every normative requirement in the clause is executed |
+| `implemented` | 342 | every normative requirement in the clause is executed |
 | `partial` | 208 | some are; the note says which are not |
-| **`silent`** | **66** | not implemented, and nothing says so |
+| **`silent`** | **64** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 27 | not implemented, detected and named at runtime |
 | `writer-side` | 7 | addresses a PDF writer; we do not create files |
 
-**66 silences is the shape of the project**: it renders pages correctly and does very little
-when a person clicks on one. **62** of them are clause 12's interactive half, **2** are clause
-14's and **2** are §9.8.3's substitution hints — none of which changes a mark on a page, and
-**clause 7 has none at all**. The count is one line of `grep` over the ledger grouped
-by leading clause number, re-run in the ninety-fourth session; this file has twice carried numbers
+**64 silences is the shape of the project**, and they are in **two clauses**: **62** are clause
+12's interactive half and **2** are §9.8.3's substitution hints. Neither changes a mark on a page,
+and clauses 7, 8, 10, 11, 13 and **14** have none at all. The count is one line of `grep` over the
+ledger grouped by leading clause number, re-run in the ninety-fifth session; this file has twice carried numbers
 taken before the rows that closed them.
 
-**Fifteen sessions took it from 178 to 66**, and almost none of that was rendering: §12.6's remaining
+**Sixteen sessions took it from 178 to 64**, and almost none of that was rendering: §12.6's remaining
 actions, §12.2's viewer preferences, §14.7's attributes and namespaces, §14.8's vocabulary,
 §14.13's associated files, §7.11.4's attachments, §7.12's extensions and §12.11's requirements.
 Two of those ten sessions moved a *gate* — §12.5.6.7's leader lines took the corpus's incomplete
@@ -910,7 +905,7 @@ all. The ledger's own notes are the detail; this is the shape.
 | 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group, and **§11.4.6's knockout wherever an element's shape is the coverage it is drawn with**. Left and reported: a knockout element whose shape is not, a non-isolated group whose elements blend, a blending space that is not the device's. |
 | 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, thumbnails, and the six §12.6.4 actions a viewer can perform** — a go-to, a set-OCG-state, a hide, §12.6.4.12's four page commands, §12.6.4.8's URI, resolved against Table 211's `/Base` and printed rather than opened (ADR 0070), and §12.6.4.7's thread action, which needed §12.4.3's articles built before it could be performed (ADR 0080) — and the whole of §12.4.4's presentation read and none of it played, §12.4.3's articles read as threads of beads, §12.3.4's thumbnails decoded with the eighteen entries §12.3.4 makes insignificant dropped (ADR 0081), §12.9's viewports and §12.10's geospatial dictionaries including §12.9.2's formatting algorithm (ADR 0082), §12.3.5's portable collections with §12.3.6's named layouts (ADR 0083), and §12.6.3's trigger events with the appearance each one asks for. 62 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events, and the presentation mode §12.4.4 asks for. |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. The rows carry the exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
-| 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7's structure tree in both directions **with its attributes, classes and namespaces** (ADR 0072) and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. **§14.8.4's forty-one standard structure types** (ADR 0078), §14.8.5's attribute mechanism (ADR 0079), §14.13's associated files (ADR 0077) and **§14.8.2.5's logical content order, which is a second reading of every tagged page** (ADR 0084). 2 rows `silent`: §14.8.5.6's `PrintField` and §14.7.7's worked example — 12 of §14.8.5's 16 rows are `inapplicable`, because a layout attribute describes the process that made an appearance this reader already has. |
+| 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7's structure tree in both directions **with its attributes, classes and namespaces** (ADR 0072) and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. **§14.8.4's forty-one standard structure types** (ADR 0078), §14.8.5's attribute mechanism (ADR 0079), §14.13's associated files (ADR 0077) and **§14.8.2.5's logical content order, which is a second reading of every tagged page** (ADR 0084). **§14.8.5.6's `PrintField`, which says what a flattened form field was** (ADR 0085). **No row of this clause is `silent`**, and §14.7.7's worked example is a test rather than a row — 12 of §14.8.5's 16 rows are `inapplicable`, because a layout attribute describes the process that made an appearance this reader already has. |
 
 So: the parts of the standard that decide whether a page is drawn correctly are largely done; the
 parts that make a document *interactive* have just started.
@@ -950,7 +945,7 @@ parts that make a document *interactive* have just started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
-rows in the fifty-sixth session, so the specification track is now its **66 `silent` rows and 27
+rows in the fifty-sixth session, so the specification track is now its **64 `silent` rows and 27
 `reported` ones**, each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -978,17 +973,15 @@ file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
   streams, which it needs first, are read as of the eighty-sixth session (ADR 0076)**, so what a
   `GoToE` still wants is a way to *open* an embedded document, which is a second `Document` inside
   the first rather than a filesystem.
-- **Clause 14's structure, 2 rows**, and both are small. §14.7 is read whole — the tree in both
-  directions, its content items, attributes, classes and namespaces (ADR 0072) — §14.8.4's
-  forty-one standard types are read (ADR 0078), §14.8.2's artifacts and reversed show strings are
-  (ADR 0073), §14.13's associated files are (ADR 0077), §14.8.5's mechanism is (ADR 0079) with
-  twelve of its sixteen rows `inapplicable`, and §14.8.2.5's **logical content order** is, joined
-  to the readback by `Interpretation::marked` (ADR 0084). What is left is §14.8.5.6's `PrintField`
-  and §14.7.7's worked example. **The thing worth doing before either is a consumer**:
-  `Interpretation::speech()` returns runs of text with languages, `Tree::logical_text` now returns
-  a page in the order its author meant, `Tree::standard_role` says what each element is, and
-  nothing hands any of them to AccessKit — which is the one change that would make five sessions
-  of reading visible.
+- **Clause 14 is closed.** §14.7 is read whole — the tree in both directions, its content items,
+  attributes, classes, namespaces and now its `/IDTree` — §14.8.4's forty-one standard types,
+  §14.8.2's artifacts and reversed show strings, §14.8.2.5's logical content order, §14.8.5's
+  attribute mechanism with §14.8.5.6's `PrintField`, §14.13's associated files, and §14.7.7's
+  worked example as a test (ADRs 0072, 0073, 0078, 0079, 0084, 0085). **What it owes is a
+  consumer**: `Interpretation::speech()` returns runs of text with languages, `Tree::logical_text`
+  returns a page in the order its author meant, `Tree::standard_role` says what each element is,
+  and nothing hands any of them to AccessKit — which is the one change that would make six
+  sessions of reading visible.
 - **Substitution quality**, §9.8.3's `/Style /Panose` and `/FD`: the oldest silence in the
   ledger and the one no gate can score.
 
@@ -1013,7 +1006,7 @@ corpus's own issue trackers says most of that is glyph rasterisation on files ch
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
-and the debt is the 93 rows above — **66 `silent` and 27 `reported`, down from 201 fifteen sessions ago**.
+and the debt is the 91 rows above — **64 `silent` and 27 `reported`, down from 201 sixteen sessions ago**.
 
 ### 0. The ledger, and where a false claim can still hide
 

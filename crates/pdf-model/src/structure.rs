@@ -508,6 +508,81 @@ impl Tree {
         out
     }
 
+    /// §14.8.5.6's `PrintField` attributes, for a `Form` element of a non-interactive form.
+    ///
+    /// The clause explains what the attribute is *for*, and it is the only place in §14.8.5 that
+    /// describes something a reader could act on: a form
+    ///
+    /// > may have originally contained interactive fields such as text fields and radio buttons
+    /// > but were then converted into non-interactive PDF files, or they may have been designed
+    /// > to be printed out and filled in manually.
+    ///
+    /// So the widget is gone and the marks are all that is left, and this attribute is what says
+    /// the marks were a check box, whether it was ticked, and what the field was called. A
+    /// screen reader that skipped it would read a form as a page of unlabelled boxes.
+    ///
+    /// `None` where the element states no `PrintField` attributes, which is every element of
+    /// every corpus document — measured.
+    ///
+    /// Which attribute objects may carry it is stated by the clause and applied by
+    /// [`Self::attribute`] already: it "may only be defined in attribute objects whose O (owner)
+    /// entry has the value `PrintField` or whose owner is any other owner excluding `Layout`,
+    /// `List`, `Table` and `Artifact`" — a paraphrase in this crate's own spelling of the names.
+    #[must_use]
+    pub fn print_field(&self, document: &Document, element: &Dictionary) -> Option<PrintField> {
+        let role = self
+            .attribute(document, element, "Role")
+            .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()));
+        // Table 383 gives this entry two spellings and deprecates one of them: "Checked,
+        // checked … lower case form is deprecated in PDF 2.0", with NOTE 2 explaining that the
+        // old case "did not conform to the same conventions used elsewhere in this standard".
+        // Both are read, the current spelling first, because deprecation tells a *writer* what
+        // to stop doing — the same reading §12.2's `/ViewArea` gets.
+        let checked = self
+            .attribute(document, element, "Checked")
+            .or_else(|| self.attribute(document, element, "checked"))
+            .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()));
+        let description = match self.attribute(document, element, "Desc") {
+            Some(Object::String(bytes)) => Some(pdf_syntax::text_string(&bytes)),
+            _ => None,
+        };
+        if role.is_none() && checked.is_none() && description.is_none() {
+            return None;
+        }
+        Some(PrintField {
+            role: role.as_deref().and_then(FieldRole::read),
+            // "Default value: off ." — applied here rather than left to a caller, because the
+            // clause states it and an unticked box is what a form full of them looks like.
+            checked: checked
+                .as_deref()
+                .and_then(Checked::read)
+                .unwrap_or(Checked::Off),
+            description,
+        })
+    }
+
+    /// The structure element a `/ID` names, through §14.7.2's Table 354 `/IDTree`.
+    ///
+    /// > A name tree (see 7.9.6, "Name trees") that maps element identifiers (see "Table 355 -
+    /// > Entries in a structure element dictionary") to the structure elements they denote.
+    ///
+    /// The identifiers are the `/ID` entries §14.7.2 puts on elements, and the tree is
+    /// `pdf-syntax`'s: §7.9.6's keys are byte strings compared by code, which is what
+    /// [`pdf_syntax::tree::lookup`] does. §14.7.7's worked example carries one, mapping `Chap1`,
+    /// `Sec1.1`, `Sec1.2` and `Sec1.3` to four elements.
+    ///
+    /// `None` for a document with no `/IDTree` — 89 of the corpus's 89 tagged ones — or an
+    /// identifier it does not hold.
+    #[must_use]
+    pub fn element_by_id(&self, document: &Document, id: &[u8]) -> Option<Dictionary> {
+        let tree = document.get_key(&self.root, "IDTree");
+        let tree = tree.as_dict()?;
+        let found = tree::lookup(tree, &tree::TreeKey::Name(id), &|object| {
+            document.resolve(object)
+        })?;
+        document.resolve(&found).as_dict().cloned()
+    }
+
     /// §14.8.2.5.1's logical content order, for one page.
     ///
     /// > Logical content order -the ordering for semantic purposes -shall be defined by a
@@ -606,6 +681,81 @@ impl Tree {
                 self.descend(document, Some(&dict), depth.saturating_add(1), out, seen);
             }
         }
+    }
+}
+
+/// §14.8.5.6's `PrintField` attributes: what a non-interactive form field *was*. Table 383.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrintField {
+    /// `/Role`, "[t]he type of form field represented".
+    ///
+    /// `None` is Table 383's own default — "[d]efault value: None specified" — which is an
+    /// element carrying the other two entries and not saying what kind of field it was.
+    pub role: Option<FieldRole>,
+    /// `/Checked` (or the deprecated `/checked`), "[t]he state of a radio button or check box
+    /// field". Table 383's default is [`Checked::Off`].
+    pub checked: Checked,
+    /// `/Desc`, "[t]he alternate name of the field", which NOTE 3 likens to an interactive
+    /// field's `/TU`.
+    pub description: Option<String>,
+}
+
+/// Table 383's five field roles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldRole {
+    /// `rb`: a radio button.
+    RadioButton,
+    /// `cb`: a check box.
+    CheckBox,
+    /// `pb`: a push button.
+    PushButton,
+    /// `tv`: a text-value field.
+    ///
+    /// The clause says where its value is, and it is not in the attribute: "[t]he text that is
+    /// the value of the field shall be the content of the Form structure element", so a
+    /// consumer reads the element's own text — which §14.8.2.5's logical order already gives it.
+    TextValue,
+    /// `lb`: a listbox field.
+    ListBox,
+}
+
+impl FieldRole {
+    /// One of Table 383's five names, or `None` for anything else.
+    #[must_use]
+    pub fn read(name: &[u8]) -> Option<Self> {
+        Some(match name {
+            b"rb" => Self::RadioButton,
+            b"cb" => Self::CheckBox,
+            b"pb" => Self::PushButton,
+            b"tv" => Self::TextValue,
+            b"lb" => Self::ListBox,
+            _ => return None,
+        })
+    }
+}
+
+/// Table 383's `/Checked`: the state of a box that cannot be clicked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Checked {
+    /// `on`.
+    On,
+    /// `off`, the table's default.
+    #[default]
+    Off,
+    /// `neutral` — neither on nor off, which a printed form leaves possible.
+    Neutral,
+}
+
+impl Checked {
+    /// One of Table 383's three names, or `None` for anything else.
+    #[must_use]
+    pub fn read(name: &[u8]) -> Option<Self> {
+        Some(match name {
+            b"on" => Self::On,
+            b"off" => Self::Off,
+            b"neutral" => Self::Neutral,
+            _ => return None,
+        })
     }
 }
 
@@ -1461,7 +1611,7 @@ pub fn document_language(document: &Document) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Child, ParentTree, Tree, actual_text};
+    use super::{Checked, Child, FieldRole, ParentTree, Tree, actual_text};
     use pdf_syntax::{Document, Object};
 
     /// Builds a document from object bodies numbered from 1.
@@ -2050,5 +2200,86 @@ mod tests {
             Some(b"Start".to_vec()),
             "an element that states its own is not overridden by its parent's"
         );
+    }
+
+    /// §14.8.5.6's `PrintField`: what a form field was, after the field itself was flattened.
+    ///
+    /// Three elements, one per way Table 383 can be written: a check box that is ticked, a
+    /// radio button using the **deprecated lower-case** `/checked`, and a text-value field with
+    /// only a `/Desc`. The last one also pins the table's default — an element that states no
+    /// state is `off`, which is what an unticked box on a printed form looks like.
+    #[test]
+    fn a_flattened_form_field_says_what_it_was() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R] >>",
+            "<< /Type /StructElem /S /Form /Pg 3 0 R              /A << /O /PrintField /Role /cb /Checked /on /Desc (Agree to the terms) >> >>",
+            "<< /Type /StructElem /S /Form /Pg 3 0 R              /A << /O /PrintField /Role /rb /checked /neutral >> >>",
+            "<< /Type /StructElem /S /Form /Pg 3 0 R              /A << /O /PrintField /Role /tv /Desc (Surname) >> >>",
+            "<< /Type /StructElem /S /P /Pg 3 0 R >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let elements: Vec<_> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+
+        let box_ticked = tree
+            .print_field(&doc, &elements[0])
+            .expect("a check box's attributes");
+        assert_eq!(box_ticked.role, Some(FieldRole::CheckBox));
+        assert_eq!(box_ticked.checked, Checked::On);
+        assert_eq!(
+            box_ticked.description.as_deref(),
+            Some("Agree to the terms")
+        );
+
+        let button = tree
+            .print_field(&doc, &elements[1])
+            .expect("a radio button's attributes");
+        assert_eq!(button.role, Some(FieldRole::RadioButton));
+        assert_eq!(
+            button.checked,
+            Checked::Neutral,
+            "the lower-case /checked is deprecated in PDF 2.0 and still read"
+        );
+
+        let text = tree
+            .print_field(&doc, &elements[2])
+            .expect("a text-value field's attributes");
+        assert_eq!(text.role, Some(FieldRole::TextValue));
+        assert_eq!(
+            text.checked,
+            Checked::Off,
+            "Table 383's default for a field that states no state"
+        );
+
+        assert!(
+            tree.print_field(&doc, &elements[3]).is_none(),
+            "an element with no PrintField attributes has none"
+        );
+    }
+
+    /// §14.7.2's `/IDTree`: an element found by the identifier it states.
+    #[test]
+    fn an_element_is_found_by_its_identifier() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /IDTree 6 0 R >>",
+            "<< /Type /StructElem /S /Sect /ID (Chap1) >>",
+            "<< /Names [(Chap1) 5 0 R] >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let found = tree.element_by_id(&doc, b"Chap1").expect("the element");
+        assert_eq!(tree.role(&doc, &found).as_deref(), Some("Sect"));
+        assert!(tree.element_by_id(&doc, b"Chap2").is_none());
     }
 }
