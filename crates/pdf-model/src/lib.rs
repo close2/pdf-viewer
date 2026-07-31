@@ -32,6 +32,7 @@ pub mod function;
 pub mod icc;
 pub mod image;
 pub mod inline_image;
+pub mod link;
 pub mod mesh;
 pub mod optional_content;
 pub mod outline;

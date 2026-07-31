@@ -869,6 +869,20 @@ fn rotated_size(page: &Page) -> Size {
     }
 }
 
+/// Maps a point in the *page's* space — the display list's, and the raster's — back to default
+/// user space.
+///
+/// The inverse of the transform every page is drawn under, which is what a caller needs to turn
+/// a click into a place in the document: §12.5.2 states an annotation's `/Rect` "in default user
+/// space units", and §7.7.3.3's `/Rotate` and `/CropBox` are exactly what stand between that and
+/// a pixel. Returns `None` for a page whose transform is degenerate, which a zero-sized crop box
+/// would produce.
+#[must_use]
+pub fn user_space_at(page: &Page, x: f32, y: f32) -> Option<(f32, f32)> {
+    let point = base_transform(page).invert()?.apply(Point::new(x, y));
+    Some((point.x, point.y))
+}
+
 /// Builds the transform from PDF user space to the page's own space.
 ///
 /// Two things fold in here. The crop box may not start at the origin, so content is

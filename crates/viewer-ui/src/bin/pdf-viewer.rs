@@ -33,7 +33,7 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu::CurrentSurfaceTexture;
 use vello::{AaConfig, AaSupport, Renderer, RendererOptions, wgpu};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
@@ -129,6 +129,16 @@ struct App {
     /// Once rather than per page turn: the tree is a handful of ranges and reading it costs
     /// one walk, where doing it per page would put a number-tree walk on every arrow key.
     labels: pdf_model::page_label::PageLabels,
+    /// Where the pointer last was, in window pixels.
+    ///
+    /// `winit` reports movement and clicks as separate events, so following a link needs the
+    /// position remembered from the last `CursorMoved` — the click itself carries none.
+    cursor: (f64, f64),
+    /// The scale the last render used, which is what maps a window pixel back to the page.
+    ///
+    /// Recomputed per frame from the window size, so it is read from the frame that is on the
+    /// screen rather than from one this handler computes for itself.
+    scale: f32,
     /// §12.3.3's outline, read once for the same reason.
     ///
     /// There is no panel to show it in. What it is used for is the one question a viewer
@@ -168,10 +178,55 @@ impl App {
             title,
             labels,
             outline,
+            cursor: (0.0, 0.0),
+            scale: 1.0,
             page_count,
             page_index,
             state: None,
         }
+    }
+
+    /// Follows the §12.5.6.5 link under the pointer, if there is one that leads somewhere.
+    ///
+    /// Returns whether the page changed. A click on nothing, on a link whose action this
+    /// program will not perform — a URI needs a network it does not have, and §12.6.4.5's
+    /// launch action is absent for the reason principle 3 gives — or on a link to the page
+    /// already shown, all leave the view where it is.
+    fn follow_link(&mut self) -> bool {
+        let pages = Pages::new(&self.document);
+        let Some(page) = pages.get(self.page_index) else {
+            return false;
+        };
+        // The window pixel to the page's own space, then to default user space, which is
+        // where §12.5.2 puts an annotation's rectangle. The scale is the one the frame on
+        // screen was drawn with.
+        if self.scale <= 0.0 {
+            return false;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a window coordinate is a small number of pixels"
+        )]
+        let (x, y) = (
+            self.cursor.0 as f32 / self.scale,
+            self.cursor.1 as f32 / self.scale,
+        );
+        let Some((x, y)) = pdf_model::content::user_space_at(&page, x, y) else {
+            return false;
+        };
+
+        let links = pdf_model::link::links(&self.document, &page);
+        let Some(link) = pdf_model::link::at(&links, x, y) else {
+            return false;
+        };
+        let Some(target) = pdf_model::link::target(&self.document, &pages, link) else {
+            return false;
+        };
+        if target == self.page_index || target >= self.page_count {
+            return false;
+        }
+        self.page_index = target;
+        true
     }
 
     /// Moves by `delta` pages, clamped to the document.
@@ -278,6 +333,22 @@ impl ApplicationHandler for App {
                 }
             }
 
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor = (position.x, position.y);
+            }
+
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                if self.follow_link()
+                    && let Some(state) = self.state.as_ref()
+                {
+                    state.window.request_redraw();
+                }
+            }
+
             WindowEvent::Resized(size) => {
                 if let Some(state) = self.state.as_mut() {
                     self.context.resize_surface(
@@ -298,7 +369,7 @@ impl ApplicationHandler for App {
                     .outline
                     .section_at(&self.document, &Pages::new(&self.document), index)
                     .map(ToOwned::to_owned);
-                let report = render(
+                let (report, scale) = render(
                     &self.context,
                     state,
                     &self.document,
@@ -310,6 +381,7 @@ impl ApplicationHandler for App {
                 state
                     .window
                     .set_title(&format!("{} — {report}", self.title));
+                self.scale = scale;
             }
 
             _ => {}
@@ -317,7 +389,11 @@ impl ApplicationHandler for App {
     }
 }
 
-/// Renders the current page and presents it, returning a short status for the title bar.
+/// Renders the current page and presents it.
+///
+/// Returns a short status for the title bar and the scale it drew at — the second because a
+/// click has to be mapped back through exactly the transform the frame on screen was drawn
+/// with, and that scale is computed here from the window's own size.
 fn render(
     context: &RenderContext,
     state: &mut State,
@@ -326,12 +402,15 @@ fn render(
     page_count: usize,
     labels: &pdf_model::page_label::PageLabels,
     section: Option<&str>,
-) -> String {
+) -> (String, f32) {
     let width = state.surface.config.width;
     let height = state.surface.config.height;
 
     let Some(page) = Pages::new(document).get(page_index) else {
-        return format!("page {} could not be read", page_index.saturating_add(1));
+        return (
+            format!("page {} could not be read", page_index.saturating_add(1)),
+            1.0,
+        );
     };
     let interpretation = pdf_model::interpret(document, &page);
     let list = &interpretation.display_list;
@@ -347,56 +426,21 @@ fn render(
     let scale = scale as f32;
 
     let Ok(target) = TargetSpec::for_page(list, scale, MAX_PIXELS) else {
-        return format!(
-            "page {} is too large to render",
-            page_index.saturating_add(1)
+        return (
+            format!(
+                "page {} is too large to render",
+                page_index.saturating_add(1)
+            ),
+            scale,
         );
     };
 
     let handle = &context.devices[state.surface.dev_id];
-
-    // §11.5's soft masks are rendered first, each into a texture of its own: a mask is a
-    // transparency group evaluated at device resolution, so it cannot be part of the scene
-    // that uses it. Costs nothing on a page with no mask.
-    let Ok(masks) = render_gpu::evaluate_soft_masks(
-        &handle.device,
-        &handle.queue,
-        &mut state.renderer,
-        list,
-        target,
-    ) else {
-        return format!(
-            "page {} has a soft mask this build cannot evaluate",
-            page_index.saturating_add(1)
+    if let Err(problem) = draw(context, state, list, target, width, height) {
+        return (
+            format!("page {}: {problem}", page_index.saturating_add(1)),
+            scale,
         );
-    };
-
-    // The same translation the headless tests exercise, so what the window shows cannot
-    // drift from what CI checks.
-    let Ok(scene) = render_gpu::build_scene(list, target, &masks) else {
-        return format!(
-            "page {} contains content this build cannot draw",
-            page_index.saturating_add(1)
-        );
-    };
-
-    if state
-        .renderer
-        .render_to_texture(
-            &handle.device,
-            &handle.queue,
-            &scene,
-            &state.surface.target_view,
-            &vello::RenderParams {
-                base_color: vello::peniko::Color::WHITE,
-                width,
-                height,
-                antialiasing_method: AaConfig::Area,
-            },
-        )
-        .is_err()
-    {
-        return "rendering failed".to_owned();
     }
 
     // `get_current_texture` reports swapchain state rather than returning a Result, and the
@@ -407,12 +451,20 @@ fn render(
         CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
             context.configure_surface(&state.surface);
             state.window.request_redraw();
-            return describe(page_index, page_count, labels, section, &interpretation);
+            return (
+                describe(page_index, page_count, labels, section, &interpretation),
+                scale,
+            );
         }
         CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => {
-            return describe(page_index, page_count, labels, section, &interpretation);
+            return (
+                describe(page_index, page_count, labels, section, &interpretation),
+                scale,
+            );
         }
-        CurrentSurfaceTexture::Validation => return "swapchain validation failed".to_owned(),
+        CurrentSurfaceTexture::Validation => {
+            return ("swapchain validation failed".to_owned(), scale);
+        }
     };
 
     let mut encoder = handle
@@ -431,7 +483,58 @@ fn render(
     handle.queue.submit(Some(encoder.finish()));
     frame.present();
 
-    describe(page_index, page_count, labels, section, &interpretation)
+    (
+        describe(page_index, page_count, labels, section, &interpretation),
+        scale,
+    )
+}
+
+/// Builds the scene and renders it into the surface's texture.
+///
+/// Split out of [`render`] because it is the part with no *document* in it: everything here is
+/// this build's GPU path, and the caller's job is deciding what to say when it fails.
+fn draw(
+    context: &RenderContext,
+    state: &mut State,
+    list: &pdf_render::DisplayList,
+    target: TargetSpec,
+    width: u32,
+    height: u32,
+) -> Result<(), &'static str> {
+    let handle = &context.devices[state.surface.dev_id];
+
+    // §11.5's soft masks are rendered first, each into a texture of its own: a mask is a
+    // transparency group evaluated at device resolution, so it cannot be part of the scene
+    // that uses it. Costs nothing on a page with no mask.
+    let masks = render_gpu::evaluate_soft_masks(
+        &handle.device,
+        &handle.queue,
+        &mut state.renderer,
+        list,
+        target,
+    )
+    .map_err(|_| "has a soft mask this build cannot evaluate")?;
+
+    // The same translation the headless tests exercise, so what the window shows cannot
+    // drift from what CI checks.
+    let scene = render_gpu::build_scene(list, target, &masks)
+        .map_err(|_| "contains content this build cannot draw")?;
+
+    state
+        .renderer
+        .render_to_texture(
+            &handle.device,
+            &handle.queue,
+            &scene,
+            &state.surface.target_view,
+            &vello::RenderParams {
+                base_color: vello::peniko::Color::WHITE,
+                width,
+                height,
+                antialiasing_method: AaConfig::Area,
+            },
+        )
+        .map_err(|_| "could not be rendered")
 }
 
 /// Builds the title-bar status, naming what could not be drawn.

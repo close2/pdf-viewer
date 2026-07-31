@@ -3537,9 +3537,9 @@ note = "A text annotation 'shall appear as an icon' whose name comes from Table 
 clause = "12.5.6.5"
 title = "Link annotations"
 status = "partial"
-code = ["crates/pdf-model/src/appearance.rs"]
-test = ["crates/pdf-model/tests/annotations.rs::a_link_border_is_drawn_inside_its_rectangle_in_its_own_colour"]
-note = "A link's visible part is its border, and this is the one subtype whose appearance is stated outside its own subclause: Table 166 makes /C 'a colour used for ... The border of a link annotation' and /Border the rounded rectangle it is drawn as, and §12.5.4 puts it inside /Rect. Both are implemented, including the corner radii and Table 176's /BS. A link with no /C draws nothing, which is a documented choice rather than a derivation — Table 166 gives an *empty* /C the meaning 'No colour; transparent' and states no default for an absent one, and inventing black would put a box around every link whose file says nothing about its colour. Not implemented, and not visible: /A, /Dest and /PA are navigation, /QuadPoints bounds the activation region rather than the drawing (with one exception this crate cannot reach, 'such as when applying an underline border style'), and /H's highlighting mode is a response to a mouse. Four corpus pages are contradicted for drawing this border at all; oracle.rs's CONTRADICTED_LINK_BORDER has the analysis, and neither silent reference is reading the clause differently."
+code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/link.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_link_border_is_drawn_inside_its_rectangle_in_its_own_colour", "crates/pdf-model/src/link.rs::quad_points_narrow_the_region_and_a_stray_one_is_ignored"]
+note = "**Followed since the fifty-seventh session**: a click resolves the link under it through §12.3.2's destinations and turns the page, which is what §12.5.6.5's first sentence is about — a link \"represents either a hypertext link to a destination elsewhere in the document … or an action to be performed\". `/QuadPoints` bounds the activation region and Table 176's third condition is honoured exactly: coordinates that \"lie outside the region specified by Rect\" send the *whole* annotation back to its rectangle rather than widening it. `/H`'s highlighting mode is still a response to a mouse this program does not draw, and a link whose action is a URI or a launch leads nowhere here by design (principle 3). 54 corpus documents have a link on page one — 33 125 of them, 32 768 in one stress-test file — and 36 lead to a page of their own document. A link's visible part is its border, and this is the one subtype whose appearance is stated outside its own subclause: Table 166 makes /C 'a colour used for ... The border of a link annotation' and /Border the rounded rectangle it is drawn as, and §12.5.4 puts it inside /Rect. Both are implemented, including the corner radii and Table 176's /BS. A link with no /C draws nothing, which is a documented choice rather than a derivation — Table 166 gives an *empty* /C the meaning 'No colour; transparent' and states no default for an absent one, and inventing black would put a box around every link whose file says nothing about its colour. Not implemented, and not visible: /A, /Dest and /PA are navigation, /QuadPoints bounds the activation region rather than the drawing (with one exception this crate cannot reach, 'such as when applying an underline border style'), and /H's highlighting mode is a response to a mouse. Four corpus pages are contradicted for drawing this border at all; oracle.rs's CONTRADICTED_LINK_BORDER has the analysis, and neither silent reference is reading the clause differently."
 
 [[clause]]
 clause = "12.5.6.6"
@@ -3725,8 +3725,10 @@ note = "The list of types and the rule that a processor \"shall ignore\" an acti
 [[clause]]
 clause = "12.6.4.2"
 title = "Go-To actions"
-status = "silent"
-note = "Go-To: a destination in this document (§12.3.2). The most common action in existence and the one a link annotation carries; this tree draws the link's border and ignores where it points."
+status = "implemented"
+code = ["crates/pdf-model/src/link.rs", "crates/pdf-model/src/outline.rs", "crates/pdf-model/src/destination.rs"]
+test = ["crates/pdf-model/src/link.rs::a_rectangle_is_the_region_and_it_has_edges", "crates/pdf-model/tests/links.rs::a_links_region_is_found_and_its_destination_resolves"]
+note = "Go-To: \"a destination that shall be displayed\" in this document, which is Table 206's `/D` read as §12.3.2's destination. Every place the standard puts one is read — a link annotation's `/A`, an outline item's, and the catalog's `/OpenAction` — and each turns the page. The action *dictionary* is the whole of this subclause: what to do with the destination is §12.3.2's, and what a viewer does with the view within the page is stated on §12.3.2.1's row. `/SD`, the structure destination alternative, resolves through §12.3.2.3 like any other."
 
 [[clause]]
 clause = "12.6.4.3"

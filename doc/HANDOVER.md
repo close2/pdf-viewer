@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-sixth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **fifty-seventh** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,60 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the fifty-sixth session changed
+## What the fifty-seventh session changed
+
+**A click follows a link.** ADR 0062, and it is the first thing this program does *because
+somebody pointed at something*.
+
+With the ledger at zero unreviewed rows, the specification track is now its **195 `silent`
+rows**, and almost all of clause 12's are one shape: pages render correctly and nothing happens
+when a person clicks on one. §12.5.6.5's first sentence is where that starts — a link "represents
+either a hypertext link to a destination elsewhere in the document … or an action to be
+performed" — and everything underneath was already built: destinations resolve to a page index
+(ADR 0054) and the viewer turns pages.
+
+`pdf_model::link` is the region and the target, tested headlessly; `viewer-ui` is a cursor
+position, a scale and a page number. Three things the clause decides, each in the model:
+
+- **The activation region is `/QuadPoints` where the clause admits them**, and Table 176's third
+  condition is the one a lenient reader gets wrong: "if any coordinates in the QuadPoints array
+  lie outside the region specified by Rect then the activation region … shall be defined by its
+  Rect entry". A stray quadrilateral is not a wider region — it is **no** region, and the
+  rectangle stands.
+- **`/Dest` and `/A` are exclusive**, and a URI, launch or ECMAScript action leads nowhere here
+  by design: principle 3's sandbox is why §12.6.4.5 is absent.
+- **Overlapping links resolve to the last one**, because the clause states no rule and the
+  annotation drawn on top is the one under the cursor.
+
+**Mapping a click back to the page is one function**, `user_space_at`, the inverse of the
+transform every page is drawn under. §12.5.2 puts a `/Rect` "in default user space units" and
+§7.7.3.3's `/Rotate` and `/CropBox` stand between that and a pixel — so a viewer that inverted
+the *scale* alone would work on every unrotated page and fail on every rotated one.
+
+| | |
+|---|---|
+| documents with a link on page one | **54**, holding **33 125** links |
+| of those links, in one file | **32 768** — `bug1978317.pdf` is a stress test for exactly that; the other 53 documents share 357 |
+| links leading to a page of their own document | **36**; the rest are URIs, which is what a web page printed to PDF produces |
+
+| | before | now |
+|---|---|---|
+| §12.6.4.2's go-to action | `silent` | **`implemented`** — a link's `/A`, an outline item's and the catalog's `/OpenAction`, all three |
+| ledger rows owing something in silence | 195 | **193** |
+| pages agreeing with the reference consensus | 821 | **821** |
+| **tests** | 643 | **646** |
+
+What it taught:
+
+- **The interesting half of a "viewer feature" is usually a clause.** Of this change, the mouse
+  is four lines and the rest is Table 176's three conditions, §12.5.2's coordinate space and
+  §7.7.3.3's rotation. Putting the region and the target in `pdf-model` is what let all of it be
+  tested without a window — which matters here, because nothing in CI can open one.
+- **A gate cannot ratchet what has no consumer.** §12.3.2's destinations were `partial` for three
+  sessions with `/OpenAction` as their only user, and the corpus number that mattered — 36 links
+  leading somewhere — could not be measured until something asked the question.
+
+### The fifty-sixth session, in brief
 
 **Every one of ISO 32000-2's 823 technical subclauses has been read against this code.**
 `UNREVIEWED_CEILING` is **0**, and the assertion that guarded it is now an equality: a row that
@@ -1475,13 +1528,13 @@ appearance streams and constructed where the standard states one — on a CPU an
 with JBIG2 and JPEG 2000 decoded in a confined worker, encrypted files decrypted at every
 revision and method §7.6 states, **a form field's value laid out from its `/DA` string**, a page's
 own label from §12.4.2 shown in the title bar, **§12.3.2's destinations**, which decide the page a
-document opens at, and — since the fiftieth session — **§12.3.3's outline**, which names the
-section the page being shown is in. It is not yet a PDF *viewer* in the
-full sense — nothing edits a field, follows a link or asks a person for a password — and the gap
-is now measured *by clause* as well as by corpus: 195 of the ledger's rows are `silent`, and
+document opens at, **§12.3.3's outline**, which names the section the page being shown is in, and
+— since the fifty-seventh session — **§12.5.6.5's links, which a click follows**. It is not yet a
+PDF *viewer* in the full sense — nothing edits a field or asks a person for a password — and the gap
+is now measured *by clause* as well as by corpus: 193 of the ledger's rows are `silent`, and
 almost every one of them is a viewer rather than a renderer.
 
-- **643 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **646 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -2249,7 +2302,7 @@ usage dictionaries, vertical writing and Table 57's `/Font` off it, and what is 
 corpus document names is a licensing decision (predefined `CMap`s, 12), `viewer-ui` work (a
 password prompt, 8), substitution quality (24 fonts), and three transparency-group departures
 that need a second raster format or a backdrop. *Spec-driven* is what the ledger and
-§6.3.2.2's ranking name — and as of the fifty-sixth session **that track has no unread clause left: 0 of 823 subclauses are `unreviewed`, and what remains is 195 `silent` rows and 30 `reported` ones, each naming what it owes**. A project running only the
+§6.3.2.2's ranking name — and as of the fifty-sixth session **that track has no unread clause left: 0 of 823 subclauses are `unreviewed`, and what remains is 193 `silent` rows and 30 `reported` ones, each naming what it owes**. A project running only the
 first track finishes when the corpus goes quiet, which can happen with a great deal of the
 standard unimplemented and nothing able to say which parts.
 
@@ -2306,7 +2359,7 @@ eight documents need a password prompt and five write a `/DA` naming a font thei
 not define. **A shading's `/BBox`, `/UserUnit` and `/MissingWidth` are the three rendering
 items that came back onto it and off it again** in the twenty-eighth, twenty-ninth and
 thirtieth sessions, and none was announced by a document: all three were found by reading a
-clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **0 of 823 subclauses remain unread**; the debt is now 195 `silent` rows and 30 `reported` ones, each of which names what it owes.
+clause family, and each fixed a page the gate had been carrying (ADRs 0037, 0038, 0039). The one-line version of the spec track: **`REVIEW_OWED` is empty**, and **0 of 823 subclauses remain unread**; the debt is now 193 `silent` rows and 30 `reported` ones, each of which names what it owes.
 
 **The corpus has gone quiet, and the nine sessions from the thirtieth to the thirty-eighth are
 what that looks like when the two-track rule is followed.** Everything that moved a gate number
@@ -2330,7 +2383,10 @@ program fell through to substitution, and substitution says nothing.
   clause the code cites and nobody has read is the cheapest debt this project can accrue, and
   the list now fails the build the moment one appears. Every clearing of it has produced
   findings the demand item could not have reached — most recently §10.4.2.5.
-- **The ledger is complete: no `unreviewed` row anywhere in the standard** (ADR 0061). What replaces "read the next family" is **the 195 `silent` rows**, which say what is owed and where; and `FILE_ONLY_EVIDENCE_CEILING`, 58 `implemented` rows whose evidence is a whole test file rather than a test, which is where a false claim can still hide. Every other technical clause — 7, 8, 9, 10, 11,
+- **The ledger is complete: no `unreviewed` row anywhere in the standard** (ADR 0061). What replaces "read the next family" is **the 193 `silent` rows**, which say what is owed and where — the fifty-seventh session took
+  §12.5.6.5's and §12.6.4.2's off that list by making a click follow a link, and the same shape
+  is left for §12.6.4.13's `/SetOCGState` over §8.11, §12.6.4.9's `/Hide` over §12.5.3's flag and
+  §12.4.4's page transitions, each of whose machinery is already built; and `FILE_ONLY_EVIDENCE_CEILING`, 58 `implemented` rows whose evidence is a whole test file rather than a test, which is where a false claim can still hide. Every other technical clause — 7, 8, 9, 10, 11,
   12 and 13 — has no `unreviewed` row, and clause 7 became true rather than claimed in the
   forty-ninth session (§7.11 and §7.12; the count is taken by grouping the ledger's `unreviewed`
   rows by leading clause number, never by what a session touched). What remains is **§14.8's
