@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **forty-fifth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **forty-sixth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,7 +12,73 @@ Each session's own reasoning lives in its ADR. This file keeps a lesson exactly 
 if it changes how you write code, in "Habits" if it changes how you work, and in the numbers if
 it is a fact about today.
 
-## What the forty-fifth session changed
+## What the forty-sixth session changed
+
+**Clause 12 is complete as a review — 166 rows, none `unreviewed`.** Seven of the standard's
+eight technical clauses now have no unread row: 7, 8, 9, 10, 11, 12 and 13's exclusions. Only
+clause 14 is left, and it is 152 rows of tagged PDF, metadata and web capture.
+
+The seventy rows this session added are form actions, FDF, digital signatures, measurement
+properties, geospatial features and document requirements — and **the shape of the answer
+matters more than the count**. Three things came out of reading them:
+
+- **A signed document renders correctly and completely.** A signature's *appearance* is an
+  ordinary widget annotation, drawn by §12.5 like any other; what is missing is the assertion
+  that the file has not changed. And the one place signatures touch rendering is already right
+  and was already measured — §7.6.2's exemption of a signature's `/Contents` from decryption,
+  which eight corpus documents would need and none of them is encrypted.
+- **§12.11's document requirements are the closest thing in the standard to principle 3's own
+  rule.** `/Requirements` is a document stating what a processor must be able to do, with a
+  penalty if it cannot. This tree reports what it cannot *draw*, per feature, and does not read
+  the document's own claim — putting the two side by side would be cheap and nobody has.
+- **§12.7.6.3's reset-form and §12.6.4.13's `/SetOCGState` are two actions whose machinery is
+  entirely built.** Resetting a field to its `/DV` reaches §12.7.4.3's layout, which already
+  rebuilds an appearance under `/NeedAppearances`; setting an optional-content group's state
+  reaches §8.11, which is implemented in full. In both, what is missing is the value changing.
+
+**And the median page was profiled, which the handover has asked for since the seventh
+session.** `hayro-speed` over the corpus: **median 2.12× slower** across the 853 pages we draw
+completely, our total 8.28 s. Callgrind on `examples/callgrind_interpret` says where
+interpretation goes, and the answer is not what the "small and text-heavy" guess suggested:
+
+| | share |
+|---|---|
+| `zlib_rs::inflate` | **28.9%** |
+| `Interpreter::show_text` | 6.7% |
+| `read_fonts::ps::agl::name_to_char` | 4.3% |
+| `Lexer::next_token` | 4.2% |
+| `inflate_table` | 4.2% |
+
+**Nearly a third of interpreting a page is inflating it**, which is a dependency doing exactly
+its job and is the answer to "where does the time go" for the typical page. The AGL entry is
+ours and was a repeated search: §9.10.2's second method asks a four-thousand-entry list for
+every character a page shows in a font with no `/ToUnicode`, and a font has at most 256 codes.
+Resolving each code once is **2 013.8 M instructions to 1 989.1 M**, 1.2% of the whole, and the
+AGL's share falls from 4.26% to 3.35% — what remains is §9.6.5.4's load-time route, which is
+already once per font.
+
+| | before | now |
+|---|---|---|
+| **clauses with no `unreviewed` row** | 7–11, 13 | **7–13** |
+| **ledger subclauses nobody has read** | 225 | **155** |
+| interpreting the specification's page | 2 013.8 M | **1 989.1 M** |
+| median page against `hayro` | 2.14× (818 pages) | **2.12× (853 pages)** |
+| corpus documents drawing with nothing reported | 858 | 858 |
+| pages agreeing with the reference consensus | 816 | 816 |
+
+What it taught:
+
+- **The guess about where the time goes was wrong, and it was in this file.** "The typical page
+  is small and text-heavy, so the candidates are parsing, font loading and per-page setup rather
+  than rasterisation, but that is a guess" — the largest single item is `flate2`'s inflate at
+  28.9%, which is neither, and the largest item that is *ours* was a cache nobody had noticed
+  was missing.
+- **A count of `silent` rows is a map of a project's shape.** Clause 12 finished with 113 of
+  them, and every one is a *viewer* rather than a clause: this program renders pages correctly
+  and does nothing when a person clicks on one. That is a true summary of the project, and it
+  did not exist as a number until the rows were written.
+
+### The forty-fifth session, in brief
 
 **A page's label was wrong and the measurement that replaced it says which renderer is right.**
 `issue9915_reduced.pdf`'s entry had said, since the thirty-first session, that "our letters sit
@@ -618,6 +684,7 @@ below rather than here.
 | 43 | One mesh raster instead of 4096 flat triangles; §12.3 reviewed, and `silent` is 15 | ADR 0051 |
 | 44 | A font's own tables say which way round its offsets are; §12.1, §12.2 and §12.4 reviewed | ADR 0052 |
 | 45 | A contradicted page's label measured and replaced; §12.6's actions reviewed | — |
+| 46 | Clause 12 completed as a review; the median page profiled at last | — |
 
 The contradicted count has gone 174 → 120 → 108 → 106 → 104 → 108 → 103 → 103 → 104 → 103 → 100
 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102 → 102 → 101 → 101 → 99 → 88 across
@@ -1231,10 +1298,12 @@ called clause 9's encoding algorithms "implemented in full" while §9.6.5.4 was 
 about one and a half of its five routes, and the feature table said Type 3 fonts were reported for
 two sessions in which they were not. Both errors were found by pixels.
 
-**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **225
-of 823 subclauses are `unreviewed`**, and 598 have been read against this code — 86 of those
-carrying principle 5's exclusions, all but four of them clause 13. So the honest summary is that the
-project has measured 73% of its clause coverage — up from 37% fifteen sessions ago, and **six
+**The fourth is the conformance ledger**, and its headline is a count of unasked questions: **155
+of 823 subclauses are `unreviewed`**, and 668 have been read against this code — 86 of those
+carrying principle 5's exclusions, all but four of them clause 13, and **113 of them `silent`**,
+which is a fact about this project's shape: it renders pages correctly and does nothing when a
+person clicks on one. So the honest summary is that the
+project has measured 81% of its clause coverage — up from 37% sixteen sessions ago, and **six
 clauses now have no `unreviewed` row at all**: 7, 8, 9, 10, 11 and 13's exclusions — everything
 that decides whether a page is drawn correctly, plus the syntax it is read from. What remains is concentrated in
 clause 12's interactive half and clause 14, which are the parts this tree has not built.
@@ -1355,7 +1424,7 @@ where the two disagree the ledger is the one that had to name a code site.
 | 9 Text | 65 | **Complete as a review**, all 65 rows — §9.2, §9.3, §9.4, §9.6, §9.8, §9.9 and the whole of §9.7 as families. Simple and composite fonts through **every font program Table 124 defines** — TrueType, CFF, OpenType and, from the thirty-first session, the bare Type 1 of `/FontFile`; the standard 14 by substitution; `/ToUnicode`; Type 3 fonts; all eight text rendering modes; both simple-font encoding algorithms in full; §9.7's two mappings in full. An embedded program's own built-in encoding is the base encoding Table 112 says it is, and `/MissingWidth` defaults to Table 120's 0 (ADR 0039). Both writing modes, from §9.2.4's two sets of metrics (ADR 0045). A `CIDFont` embedding a bare Type 1 program indexes its charstrings by CID, which §9.7.4.2 states of a non-CID-keyed CFF and §9.6.2.1's NOTE 1 makes the same format (ADR 0049). §9.10's extraction is read: `/ToUnicode` then the Adobe Glyph List, in the priority the clause gives. Missing: Table 116's predefined `CMap`s and the `registry-ordering-UCS2` files §9.10.2's third method needs, text knockout (§9.3.8, reported), and §9.8.3's `/Style` and `/FD`, which are the ledger's two `silent` rows and reach nothing but a substitute's choice. |
 | 10 Rendering | 36 | **Complete as a review**, all 36 rows. 19 of them are `inapplicable`, because halftoning and transfer functions describe a marking device and `/TR` is deprecated in PDF 2.0 besides; 1 is `reported`, §10.8.3's separation simulation, which a *document* cannot ask for. **§10.4.2.5 defines the `DeviceCMYK` → RGB conversion this project spent thirty-two sessions saying the standard does not** — and §10.4.2.1 ranks it below §10.3's ICC route, which is the one this tree is on (ADR 0042). Colour management and rendering intents are done. **Flatness is not "inapplicable"**: §10.7.2 makes ignoring it an explicit permission, which is a better answer. §10.7.4 is `partial` with three deliberate departures named — anti-aliasing twice over and area averaging — and §10.7.5 with a fourth. |
 | 11 Transparency | 58 | **Complete as a review**, all 58 rows. All sixteen blend modes reach both backends, including §11.6.3's rule for choosing among an array of names — including Table 135's four non-separable ones, which are `render-cpu`'s own arithmetic since the thirty-ninth session — three of them were 113 of 255 wrong while `tiny-skia` computed them, found by writing the cross-backend scene clause 11 had never had (ADRs 0046, 0047). `ca` and `CA` reach a shading as well as a colour; an image's `/SMask` supplies alpha at any resolution with `/Matte` undone; a `/Group` is composited as one object with the page itself an isolated group; a graphics-state `/SMask` is a group evaluated for alpha or luminosity with `/BC` and `/TR`. Left: knockout, a non-isolated group whose elements blend, and a blending space that is not the device's — all reported. **Overprinting (§11.7.4) was six `silent` rows and is not a gap.** `/AIS` is argued in ADR 0027: with one alpha per pixel, shape and opacity multiply to the same number. |
-| 12 Interactive features | 166 | **Appearances, constructed ones, and a field's own text**: 95 rows reviewed, of which 40 are `silent` and 4 `out-of-scope` — clause 12's whole navigation half (§12.1 to §12.4) was read in the forty-third and forty-fourth sessions and not one subclause of it is implemented — the whole of §12.5, and the whole of §12.7.4 and §12.7.5 with §12.7 to §12.7.3 above them. An annotation is placed and drawn from `/AP` (§12.5.5) with §12.5.3's flags and §8.11.3.3's `/OC` honoured; one with no `/AP` is constructed from its subtype's clause or refused with the reason named (ADR 0030); and a field's value, caption or free text is laid out from its `/DA` by §12.7.4.3 (ADR 0032). What does not exist is *behaviour*: no actions (§12.7.6), no FDF (§12.7.8), no navigation, no signature validation (§12.8). |
+| 12 Interactive features | 166 | **Complete as a review**, all 166 rows — and 113 of them `silent`, which is the honest shape of this project: it renders a page correctly and does nothing when a person clicks on it. **Appearances, constructed ones, and a field's own text** are what is implemented — clause 12's whole navigation half (§12.1 to §12.4) was read in the forty-third and forty-fourth sessions and not one subclause of it is implemented — the whole of §12.5, and the whole of §12.7.4 and §12.7.5 with §12.7 to §12.7.3 above them. An annotation is placed and drawn from `/AP` (§12.5.5) with §12.5.3's flags and §8.11.3.3's `/OC` honoured; one with no `/AP` is constructed from its subtype's clause or refused with the reason named (ADR 0030); and a field's value, caption or free text is laid out from its `/DA` by §12.7.4.3 (ADR 0032). What does not exist is *behaviour*: no actions (§12.7.6), no FDF (§12.7.8), no navigation, no signature validation (§12.8). |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. Its rows carry that exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
 | 14 Document interchange | 152 | **Output intents, and marked content as a bracket**, 15 rows reviewed — §14.1 to §14.6 in the forty-second session, most of them `inapplicable` on the clause's own words: procedure sets are for a PostScript device, page-piece dictionaries hold data the clause says a general processor may ignore, metadata is interchange. §14.4's file identifier is `implemented` because §7.6.4.3.2 takes `/ID[0]` into the encryption key. No tagged PDF, no metadata, no marked-content *semantics* — but §14.6.1's nesting rule is now read twice over: `BDC`/`EMC` maintain the optional-content stack, and §12.7.4.3's splice has to find the `EMC` matching a `/Tx BMC`, which is the same sentence as an algorithm. §14.3.2 is read only as far as Table 21's `/EncryptMetadata` needs. |
 
@@ -1520,10 +1589,12 @@ Five small items, listed before the big lists because they are small:
   renderer still runs in the main process, which is the half of principle 3 not yet built. The
   protocol would have to carry a display list rather than an image, which is a real design
   question.
-- **Profile the median page.** We are 1.66× slower than `hayro` on the typical corpus page and
-  nobody has looked at why — the seventh session's two fixes were both to outliers and moved the
-  median not at all. The typical page is small and text-heavy, so the candidates are parsing, font
-  loading and per-page setup rather than rasterisation, but that is a guess.
+- **The median page has been profiled** (forty-sixth session) and what is left of it is not
+  obviously ours: 28.9% of interpretation is `zlib_rs` inflating the page. The next-largest
+  items are `show_text` at 6.7% and the lexer at 4.2%, and the one avoidable item found — a
+  repeated Adobe Glyph List search — was worth 1.2%. Anyone returning to this should start by
+  asking whether the *decompression* can be avoided rather than made faster: a content stream is
+  inflated once per interpretation and nothing caches it between the corpus gate's two passes.
 - **Carry an image and its sampling intent to the backends, rather than a finished raster.** One
   `pdf-render` change that unblocks three items on this list, and the reason they are one question
   rather than three: reduction happens at *decode* resolution today (`Image::area_averaged` works
@@ -1604,9 +1675,9 @@ with both, alternating, best of N.
 
 | | |
 |---|---|
-| total, ours | **7.1 s** against `hayro`'s 32–41 s, over 818 complete pages |
-| **median page** | **2.14× slower** |
-| worst page | 32× (was 34×, was 225×) |
+| total, ours | **8.28 s** against `hayro`'s 112.7 s, over 853 complete pages |
+| **median page** | **2.12× slower** |
+| worst page | 56×, and it is `issue19176.pdf` at 532 µs against 9.5 µs — a 9x11-point page where the absolute numbers are too small to mean anything |
 
 **The totals and the median answer different questions and only quoting both is honest.** In
 aggregate we are 4.5× to 5.8× faster — the range is `hayro`'s own run-to-run variance on this
@@ -1632,6 +1703,24 @@ dash. `callgrind_rasterise.rs` exists because
 the first example stops at the display list, so a backend change measures as exactly zero there;
 area averaging cost between −2.4% and +9.0% depending on the page, and the corpus gate could not
 see the difference.
+
+**Where interpretation goes on the median page, measured in the forty-sixth session** — the
+first time anybody looked, and the guess this file carried was wrong. `callgrind_interpret`
+over the specification's own page:
+
+| | share |
+|---|---|
+| `zlib_rs::inflate` | **28.9%** |
+| `Interpreter::show_text` | 6.7% |
+| `read_fonts::ps::agl::name_to_char` | 4.3%, now 3.35% |
+| `Lexer::next_token` | 4.2% |
+| `inflate_table` | 4.2% |
+
+**Nearly a third of interpreting a page is inflating it.** That is `flate2` doing its job and is
+the answer for the typical page; the guess in this file had been "parsing, font loading and
+per-page setup". The one item that was *ours* and avoidable was the AGL: §9.10.2's second method
+searched a four-thousand-entry list per character shown, in a font with at most 256 codes, and a
+cache took the whole of interpretation from 2 013.8 M instructions to 1 989.1 M.
 
 **Still open, and the largest items.** This profile predates two fixes and its shading half is
 still live:

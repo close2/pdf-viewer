@@ -295,6 +295,24 @@ pub struct LoadedFont {
     /// constructed appearance (§12.7.4.3) writes a string this crate has to encode, and a
     /// document may load hundreds of fonts without containing one form field.
     codes_by_character: OnceCell<BTreeMap<char, u8>>,
+    /// Each code's character through the Adobe Glyph List, resolved once.
+    ///
+    /// §9.10.2's second method — a glyph name looked up in the AGL — runs for every character
+    /// a page shows in a font with no `/ToUnicode`, and `read_fonts::ps::agl::name_to_char`
+    /// searches a four-thousand-entry list before trying the specification's algorithmic
+    /// forms. A font has at most 256 codes and a page shows thousands of characters, so the
+    /// same searches were being repeated all day.
+    ///
+    /// **Measured, on `examples/callgrind_interpret`**: 2 013.8 M instructions before,
+    /// 1 989.1 M after — 1.2% of the whole of interpretation for a cache of 256 entries.
+    /// The AGL's own share went from 4.26% to 3.35%, and what remains is *not* this path: it
+    /// is §9.6.5.4's, which asks the list once per code when a `TrueType` font is loaded, and
+    /// which is already once per font.
+    ///
+    /// Lazy rather than built at load, because a font whose `/ToUnicode` covers its codes
+    /// never reaches the list at all, and 256 AGL searches is not a cost to pay on the page-one
+    /// path for nothing (`CLAUDE.md` principle 2).
+    agl_by_code: OnceCell<Box<[Option<char>; 256]>>,
 }
 
 impl std::fmt::Debug for LoadedFont {
@@ -436,18 +454,14 @@ impl LoadedFont {
             }
         };
 
-        let widths = simple_widths(
-            document,
-            dict,
-            SimpleMetrics {
-                substituted,
-                names: names.as_ref(),
-                data: &data,
-                mapping: &mapping,
-                units_per_em,
-            },
-        );
-
+        let metrics = SimpleMetrics {
+            substituted,
+            names: names.as_ref(),
+            data: &data,
+            mapping: &mapping,
+            units_per_em,
+        };
+        let widths = simple_widths(document, dict, metrics);
         let default_width = missing_width(document, descriptor);
 
         Ok(Self {
@@ -465,6 +479,7 @@ impl LoadedFont {
             glyph_names: names,
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
+            agl_by_code: OnceCell::new(),
         })
     }
 
@@ -573,6 +588,7 @@ impl LoadedFont {
             units_per_em,
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
+            agl_by_code: OnceCell::new(),
         })
     }
 
@@ -601,15 +617,23 @@ impl LoadedFont {
         let Some(names) = self.glyph_names.as_ref() else {
             return false;
         };
-        let Some(name) = usize::try_from(code.value())
+        let table = self.agl_by_code.get_or_init(|| {
+            let mut table = Box::new([None; 256]);
+            for (code, slot) in table.iter_mut().enumerate() {
+                *slot = names
+                    .get(code)
+                    .map(Cow::as_ref)
+                    .filter(|name| !name.is_empty())
+                    .and_then(read_fonts::ps::agl::name_to_char);
+            }
+            table
+        });
+        match usize::try_from(code.value())
             .ok()
-            .and_then(|code| names.get(code))
-            .map(Cow::as_ref)
-            .filter(|name| !name.is_empty())
-        else {
-            return false;
-        };
-        match read_fonts::ps::agl::name_to_char(name) {
+            .and_then(|code| table.get(code))
+            .copied()
+            .flatten()
+        {
             Some(character) => {
                 out.push(character);
                 true

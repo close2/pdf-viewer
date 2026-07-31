@@ -3903,102 +3903,122 @@ note = "A signature field is drawn from its `/AP` and from nothing else, which i
 [[clause]]
 clause = "12.7.6"
 title = "Form actions"
-status = "unreviewed"
+status = "silent"
+note = "Form actions: submit, reset and import. `CLAUDE.md` puts field *behaviour* outside what this tree builds while keeping field *appearance* inside it, and these three are behaviour in its purest form — they move a field's value somewhere or replace it. Unimplemented and unreported, which is what `silent` records; nothing here reads an `/A` on a widget at all (§12.6)."
 
 [[clause]]
 clause = "12.7.6.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing: these actions are triggered from a widget and act on the interactive form as a whole."
 
 [[clause]]
 clause = "12.7.6.2"
 title = "Submit-form action"
-status = "unreviewed"
+status = "silent"
+note = "Submit-form: Table 239's `/F` file specification and Table 240's flags, sending field values as FDF, HTML, XFDF or the whole PDF. A network request initiated by a document, so it belongs with `/Launch` and `/URI` — the missing feature is also a refusal, and principle 3's sandbox is the argument for keeping it one."
 
 [[clause]]
 clause = "12.7.6.3"
 title = "Reset-form action"
-status = "unreviewed"
+status = "silent"
+note = "Reset-form: set the named fields back to their `/DV` default values. **The one action in this family whose effect is entirely local and entirely visible**, and everything under it exists: §12.7.4.3's layout builds a field's appearance from its value, and `/NeedAppearances` already makes this tree rebuild one. What is missing is the value changing."
 
 [[clause]]
 clause = "12.7.6.4"
 title = "Import-data action"
-status = "unreviewed"
+status = "silent"
+note = "Import-data: fill the form from an FDF file (§12.7.8), which is `silent` with it."
 
 [[clause]]
 clause = "12.7.7"
 title = "Named pages"
-status = "unreviewed"
+status = "silent"
+note = "Named pages: `/Pages` in the name tree, used by an FDF `/Pages` entry to add a template page to a document. Needs the name tree §12.3.2.4 and §12.4.2 also need, which is this project's third row waiting on one data structure."
 
 [[clause]]
 clause = "12.7.8"
 title = "Forms data format"
-status = "unreviewed"
+status = "silent"
+note = "Forms data format: a whole file format, with its own header, body, trailer and catalog, carrying field values and annotations in and out of a document. Read by nothing here. Its subclauses are recorded individually rather than as one row because the format is a document type in its own right and the ledger's unit is a subclause."
 
 [[clause]]
 clause = "12.7.8.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing: FDF exchanges a form's data with a server or another document."
 
 [[clause]]
 clause = "12.7.8.2"
 title = "FDF file structure"
-status = "unreviewed"
+status = "silent"
+note = "An FDF file's structure, which is clause 7's with three differences the subclauses below name."
 
 [[clause]]
 clause = "12.7.8.2.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing. Worth one sentence for whoever builds it: an FDF file is read by the *same* lexer, parser and cross-reference machinery as a PDF, all of which exist here — what is missing is the semantics on top."
 
 [[clause]]
 clause = "12.7.8.2.2"
 title = "FDF header"
-status = "unreviewed"
+status = "silent"
+note = "The header is `%FDF-1.n` rather than `%PDF-n.m`. §7.5.2's rule that byte offsets are measured from the percent sign applies unchanged, and `xref.rs` implements that — but it recognises only `%PDF-`, so an FDF file would be scanned rather than read from its table."
 
 [[clause]]
 clause = "12.7.8.2.3"
 title = "FDF body"
-status = "unreviewed"
+status = "silent"
+note = "The body is one FDF catalog and the objects it reaches."
 
 [[clause]]
 clause = "12.7.8.2.4"
 title = "FDF trailer"
-status = "unreviewed"
+status = "silent"
+note = "The trailer's `/Root` names the FDF catalog. As §7.5.5, with one required key instead of several."
 
 [[clause]]
 clause = "12.7.8.3"
 title = "FDF catalog"
-status = "unreviewed"
+status = "silent"
+note = "The FDF catalog and its `/FDF` dictionary."
 
 [[clause]]
 clause = "12.7.8.3.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Table 243's entries: `/F` and `/ID` naming the document this data belongs to, `/Fields`, `/Pages`, `/Status`, `/Annots`, `/JavaScript`. That last is `out-of-scope` where it appears in a *PDF*; here it is one entry of a format this tree does not read at all, so the row records the whole format's absence rather than splitting the exclusion out."
 
 [[clause]]
 clause = "12.7.8.3.2"
 title = "FDF fields"
-status = "unreviewed"
+status = "silent"
+note = "Table 244's field dictionary: a fully qualified `/T`, a `/V`, and the same appearance-affecting entries §12.7.4 defines — which is why importing data would reach code that already exists, `variable_text.rs`, rather than needing new layout."
 
 [[clause]]
 clause = "12.7.8.3.3"
 title = "FDF pages"
-status = "unreviewed"
+status = "silent"
+note = "FDF pages: template pages to be added to the document. Needs §12.7.7's named pages."
 
 [[clause]]
 clause = "12.7.8.3.4"
 title = "FDF annotation dictionaries"
-status = "unreviewed"
+status = "silent"
+note = "FDF annotations: annotation dictionaries carried in the data file, with a `/Page` saying where each belongs. Their *appearances* are §12.5's and are implemented; what is missing is the route that would put them on a page."
 
 [[clause]]
 clause = "12.7.9"
 title = "Non-interactive forms"
-status = "unreviewed"
+status = "silent"
+note = "Non-interactive forms: a document that looks like a form and carries no `/AcroForm`, so its fields are ordinary page content. **Nothing is missing here at all** — such a document is drawn correctly by this tree because there is nothing interactive in it — but the clause states a *recommendation* to producers and a note about how a processor should treat one, and neither is implemented as a decision. Recorded rather than claimed."
 
 [[clause]]
 clause = "12.8"
 title = "Digital signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the whole family, and this row carries the argument the subclauses share. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.1"
@@ -4011,252 +4031,302 @@ note = "Read only as far as §7.6.2's exception needs: a signature dictionary's 
 [[clause]]
 clause = "12.8.2"
 title = "Transform methods"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — transform methods, which say what a signature covers. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.2.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the framing of the four transform methods. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.2.2"
 title = "DocMDP"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — `DocMDP`, which certifies a document and states what changes are permitted after it. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.2.2.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — `DocMDP`'s `/P` levels: no change, form filling, or form filling and annotation. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.2.2.2"
 title = "Validating signatures that use the DocMDP transform method"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — validating a `DocMDP` signature, which needs the incremental-update history §7.5.6 records — the one part of this family whose *input* this tree already has, since `xref.rs` follows the `/Prev` chain and could in principle say which objects each update touched. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.2.3"
 title = "UR"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — `UR`, usage rights, deprecated in PDF 2.0. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.2.4"
 title = "FieldMDP"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — `FieldMDP`, which locks named form fields. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3"
 title = "Signature interoperability"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — signature interoperability: which cryptographic containers a handler shall understand. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the framing. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.2"
 title = "PKCS #1 signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — PKCS #1 signatures, deprecated in PDF 2.0. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.3"
 title = "CMS (PKCS #7) signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — CMS (PKCS #7) signatures, RFC 5652. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.3.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the CMS container and the digest it carries. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.3.2"
 title = "Revocation of CMS-based signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — revocation checking for CMS signatures, which needs OCSP or a CRL and therefore a network. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4"
 title = "CAdES signatures as used in PDF"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — CAdES signatures as PDF uses them. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the framing. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4.2"
 title = "Signature dictionary for PAdES signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the signature dictionary for a PAdES signature. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4.3"
 title = "Attributes for PAdES signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the attributes a PAdES signature carries. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4.4"
 title = "Profiles of ETSI.CAdES.detached"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the profiles of `ETSI.CAdES.detached`. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4.5"
 title = "Requirements for validation of PAdES signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — what validating a PAdES signature requires. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4.6"
 title = "Signature revocation checking model for PAdES signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the revocation model. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4.7"
 title = "Revocation checking PAdES signatures at the current time"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — revocation checking at the current time. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.3.4.8"
 title = "Revocation checking PAdES signatures at a time in the past"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — revocation checking at a time in the past, which is what a DSS is for. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.4"
 title = "Long term validation of signatures"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — long-term validation: keeping enough material in the file to validate later. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.4.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the framing. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.4.2"
 title = "Introduction to the document security store (DSS)"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — an introduction to the document security store. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.4.3"
 title = "Document Security Store (DSS)"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the DSS dictionary itself. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.4.4"
 title = "Validation-related information (VRI)"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — validation-related information, keyed by signature. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.4.5"
 title = "Usage of the DSS VRI"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — how a DSS's VRI is used. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.5"
 title = "Document timestamp (DTS) dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — document timestamps. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.5.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the framing. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.5.2"
 title = "Initial document timestamp dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the initial document timestamp dictionary. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.5.3"
 title = "Subsequent document timestamp dictionaries"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — subsequent document timestamp dictionaries. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.6"
 title = "Permissions"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — the `/Perms` dictionary, which a *certified* document uses to state what a processor may do — and which, unlike §7.6's Table 22 permissions, is enforced by a signature rather than by a promise. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.8.7"
 title = "Legal content attestations"
-status = "unreviewed"
+status = "silent"
+note = "Digital signatures — legal content attestations, `/Legal`, which lists the constructs in a document that could change what a signer sees — an honesty aid for a signing tool rather than a renderer. Nothing in this tree validates a signature. Two things are worth stating once here rather than on every row. First, this is **not** clause 12's interactive half in the sense the others are: a signature's *appearance* is an ordinary widget annotation and is drawn by §12.5 like any other, so a signed document renders correctly and completely; what is missing is the assertion that it has not changed. Second, §7.6.2's signature exception is implemented — `document.rs` exempts a signature dictionary's `/Contents` from decryption, because that value is a digest over the file's own bytes — so the one place signatures touch *rendering* is already right, and it was measured: eight corpus documents carry a signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjoint."
 
 [[clause]]
 clause = "12.9"
 title = "Measurement properties"
-status = "unreviewed"
+status = "silent"
+note = "Measurement properties: `/Measure` on a viewport, saying how many real-world units a PDF user-space unit stands for. Read by nothing. A reading rather than a rendering feature — no mark on the page depends on it — and it belongs to the same family as §12.10's geospatial dictionaries, which are the same idea for a map."
 
 [[clause]]
 clause = "12.9.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing, and the one sentence worth keeping: this exists so \"users of interactive PDF processors [can] perform measurements that yield results in the units intended by the creator\". A viewer with a measuring tool; this one has no tools."
 
 [[clause]]
 clause = "12.9.2"
 title = "Algorithm: Use of a number format array to create a formatted text string"
-status = "unreviewed"
+status = "silent"
+note = "The number format array and the algorithm that turns a value into a string with units, a precision and a rounding rule. Self-contained arithmetic that would be straightforward to write and has nothing to call it."
 
 [[clause]]
 clause = "12.10"
 title = "Geospatial features"
-status = "unreviewed"
+status = "silent"
+note = "Geospatial features — the family. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
 
 [[clause]]
 clause = "12.10.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Geospatial features — the framing. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
 
 [[clause]]
 clause = "12.10.2"
 title = "Geospatial measure dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Geospatial features — Table 269's geospatial measure dictionary. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
 
 [[clause]]
 clause = "12.10.3"
 title = "Geographic coordinate system dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Geospatial features — the geographic coordinate system dictionary, an EPSG code or a WKT string. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
 
 [[clause]]
 clause = "12.10.4"
 title = "Projected coordinate system dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Geospatial features — the projected coordinate system dictionary. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
 
 [[clause]]
 clause = "12.10.5"
 title = "Point data dictionary"
-status = "unreviewed"
+status = "silent"
+note = "Geospatial features — the point data dictionary. A map's coordinates rather than a page's: `/GPTS`, `/LPTS` and a coordinate system that ties PDF user space to the earth. Nothing here reads one, and nothing about a page's *appearance* depends on it — this is §12.9's measurement idea with a datum attached, and the same viewer tool would consume both."
 
 [[clause]]
 clause = "12.11"
 title = "Document requirements"
-status = "unreviewed"
+status = "silent"
+note = "Document requirements — the family. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
 
 [[clause]]
 clause = "12.11.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "Document requirements — the framing. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
 
 [[clause]]
 clause = "12.11.2"
 title = "Requirement types"
-status = "unreviewed"
+status = "silent"
+note = "Document requirements — Table 271's requirement types — `EnableJavaScripts`, `Attachment`, `Encryption`, `OCInteract` and the rest, several of which name things principle 5 excludes and several of which this tree implements. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
 
 [[clause]]
 clause = "12.11.3"
 title = "Requirement penalty values"
-status = "unreviewed"
+status = "silent"
+note = "Document requirements — the penalty a processor incurs by not meeting a requirement, 0 to 100. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
 
 [[clause]]
 clause = "12.11.4"
 title = "Requirement versions"
-status = "unreviewed"
+status = "silent"
+note = "Document requirements — requirement versions. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
 
 [[clause]]
 clause = "12.11.5"
 title = "Requirement handlers"
-status = "unreviewed"
+status = "silent"
+note = "Document requirements — requirement handlers. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
 
 [[clause]]
 clause = "12.11.6"
 title = "Requirements processing"
-status = "unreviewed"
+status = "silent"
+note = "Document requirements — how a processor is meant to process the array — which is the sentence worth reading before building it. The catalog's `/Requirements` names what a processor must be able to do for the document to work as intended, with a penalty if it cannot. **This is the one family in clause 12 that is about *this program's own honesty*, and it is the closest thing in the standard to `CLAUDE.md` principle 3's rule that unsupported input must stay loud.** A processor that cannot meet a requirement is meant to say so; this one reports what it cannot *draw*, per feature, and does not read the document's own statement of what it needs. Reading `/Requirements` would be cheap and would put a document's own claim beside our per-feature reports — worth doing, and not done."
 
 [[clause]]
 clause = "13.1"
