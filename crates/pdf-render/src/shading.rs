@@ -328,6 +328,59 @@ impl Ramp {
     /// cost is one array of this length per shading, built once.
     pub const RESOLUTION: usize = 256;
 
+    /// The most samples a ramp will carry, whatever a document asks for.
+    ///
+    /// ISO 32000-2 §10.7.3 lets a document state a smoothness tolerance and says in the same
+    /// breath that "each output device may have internal limits". This is that limit, and it
+    /// is a bound on *work* rather than a fidelity choice: a tolerance of 1/4096 already
+    /// samples sixteen times more finely than the eight bits a channel is drawn with.
+    pub const MAX_RESOLUTION: usize = 4096;
+
+    /// How many samples §10.7.3's smoothness tolerance asks for.
+    ///
+    /// > Smoothness is the allowable colour error between a shading approximated by
+    /// > piecewise linear interpolation and the true value of a (possibly nonlinear) shading
+    /// > function.
+    ///
+    /// The tolerance is "expressed as a fraction of the range of the colour component, from
+    /// 0.0 to 1.0", so a tolerance of `t` is honoured by sampling the colour function at
+    /// least `1/t` times. This device's
+    /// own limit is [`Self::RESOLUTION`], and it applies in one direction only:
+    ///
+    /// - A **coarser** tolerance than that — 0.02 is what the corpus states most often, five
+    ///   times coarser — asks for a *maximum* error and is met by a finer answer. Coarsening
+    ///   would trade fidelity for work on a page nobody measured, so it is not taken, and
+    ///   §10.7.3's own sentence about internal limits is what permits keeping ours.
+    /// - A **finer** one is honoured up to [`Self::MAX_RESOLUTION`]. 5 corpus documents state
+    ///   0.002, which is finer than 1/256, and before this they got 1/256 and nothing said so.
+    ///
+    /// What the finer sampling buys is *detail*, not smoothness: ADR 0068 drops every stop
+    /// that lies within half an eight-bit level of the line its neighbours draw, so extra
+    /// samples of a smooth function are discarded again immediately. It is a feature narrower
+    /// than 1/256 of the domain — a type 0 function with thousands of samples, a stitching
+    /// function with narrow sub-domains — that a coarser sampling misses altogether.
+    ///
+    /// A tolerance outside `0.0..=1.0` is not a tolerance: Table 57 makes it a fraction, and
+    /// one corpus document writes `/SM 6`. It is ignored, which is the same answer as absent.
+    #[must_use]
+    pub fn resolution_for(tolerance: Option<f32>) -> usize {
+        /// [`Ramp::MAX_RESOLUTION`] as the float the comparison needs, written out because
+        /// `usize as f32` is a lossy cast on a 64-bit target and this number is neither.
+        const MAX_AS_FLOAT: f32 = 4096.0;
+
+        let Some(tolerance) = tolerance.filter(|t| t.is_finite() && *t > 0.0 && *t <= 1.0) else {
+            return Self::RESOLUTION;
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the reciprocal of a positive fraction, clamped to MAX_RESOLUTION before \
+                      it is narrowed"
+        )]
+        let wanted = (1.0 / tolerance).ceil().min(MAX_AS_FLOAT) as usize;
+        wanted.max(Self::RESOLUTION)
+    }
+
     /// Builds a ramp by sampling a colour function evenly over `0.0..=1.0`.
     ///
     /// The function is called [`Self::RESOLUTION`] times and never afterwards, which is
@@ -349,7 +402,20 @@ impl Ramp {
     /// gets fewer samples inside each interval rather than more stops overall, because the
     /// stops are what a rasteriser walks per pixel batch.
     #[must_use]
-    pub fn sample_across(breaks: &[f32], mut colour_at: impl FnMut(f32) -> Color) -> Self {
+    pub fn sample_across(breaks: &[f32], colour_at: impl FnMut(f32) -> Color) -> Self {
+        Self::sample_across_at(Self::RESOLUTION, breaks, colour_at)
+    }
+
+    /// The same, at a resolution §10.7.3's smoothness tolerance chose.
+    ///
+    /// `resolution` comes from [`Self::resolution_for`]; every other caller wants
+    /// [`Self::sample_across`], which is this at the device's own.
+    #[must_use]
+    pub fn sample_across_at(
+        resolution: usize,
+        breaks: &[f32],
+        mut colour_at: impl FnMut(f32) -> Color,
+    ) -> Self {
         /// How far either side of a break the two stops are sampled.
         ///
         /// Small enough that a continuous function's two values are the same colour to eight
@@ -367,9 +433,9 @@ impl Ramp {
         // Samples per interval, so that the whole ramp is about RESOLUTION stops however many
         // intervals there are. Three is the floor: the ends of the interval and its middle.
         let intervals = edges.len().saturating_add(1);
-        let per_interval = Self::RESOLUTION.checked_div(intervals).unwrap_or(3).max(3);
+        let per_interval = resolution.checked_div(intervals).unwrap_or(3).max(3);
 
-        let mut stops: Vec<Stop> = Vec::with_capacity(Self::RESOLUTION.saturating_add(8));
+        let mut stops: Vec<Stop> = Vec::with_capacity(resolution.saturating_add(8));
         let mut low = 0.0f32;
         for index in 0..intervals {
             let high = edges.get(index).copied().unwrap_or(1.0);
@@ -377,7 +443,7 @@ impl Ramp {
             for step in 0..per_interval {
                 #[expect(
                     clippy::cast_precision_loss,
-                    reason = "step and per_interval are bounded by RESOLUTION"
+                    reason = "step and per_interval are bounded by MAX_RESOLUTION"
                 )]
                 let fraction = step as f32 / (per_interval.saturating_sub(1).max(1)) as f32;
                 let at = low + span * fraction;
@@ -898,5 +964,71 @@ mod tests {
         let tiny_and_varied = spanning(0.25, 0.25);
         assert!(!tiny_and_varied.is_flat(1.0 / 512.0));
         assert!(tiny_and_varied.is_subpixel());
+    }
+
+    /// §10.7.3's smoothness tolerance moves the sampling in one direction only.
+    ///
+    /// The clause states a *maximum* error and says "each output device may have internal
+    /// limits", so a request coarser than this device's own is met by keeping ours — a
+    /// tolerance is not an instruction to be less accurate. A finer one is honoured, which
+    /// is what 5 corpus documents asking for 0.002 were not getting.
+    #[test]
+    fn a_smoothness_tolerance_only_ever_asks_for_more_samples() {
+        assert_eq!(Ramp::resolution_for(None), Ramp::RESOLUTION);
+        assert_eq!(
+            Ramp::resolution_for(Some(0.02)),
+            Ramp::RESOLUTION,
+            "coarser than this device draws is met by drawing finer"
+        );
+        assert_eq!(
+            Ramp::resolution_for(Some(0.002)),
+            500,
+            "finer is honoured, at the reciprocal the clause defines"
+        );
+        assert_eq!(
+            Ramp::resolution_for(Some(1e-9)),
+            Ramp::MAX_RESOLUTION,
+            "and bounded, because the clause permits an internal limit"
+        );
+        for absurd in [Some(0.0), Some(-1.0), Some(6.0), Some(f32::NAN)] {
+            assert_eq!(
+                Ramp::resolution_for(absurd),
+                Ramp::RESOLUTION,
+                "Table 57 makes it a fraction; {absurd:?} is not one"
+            );
+        }
+    }
+
+    /// A finer tolerance reaches the stops only where the function has detail to find.
+    ///
+    /// This is the interaction between §10.7.3 and ADR 0068, and it is worth pinning because
+    /// it is not obvious: `simplify` drops every stop that lies within half an eight-bit
+    /// level of the line its neighbours draw, so sampling a *smooth* function a thousand
+    /// times yields the same stops as sampling it 256 times — the extra samples land on the
+    /// curve the survivors already describe. What a finer tolerance buys is a feature
+    /// narrower than the default sampling, which is exactly what it is for: a type 0
+    /// function with thousands of samples, or a stitching function with narrow sub-domains.
+    #[test]
+    fn a_finer_tolerance_reaches_the_stops_only_where_there_is_detail_to_find() {
+        // A ramp that changes direction 400 times: features far narrower than 1/256.
+        let detailed = |t: f32| Color::rgb((t * 400.0).sin().mul_add(0.5, 0.5), 0.0, 0.0);
+        let coarse = Ramp::sample_across_at(Ramp::RESOLUTION, &[], detailed);
+        let fine = Ramp::sample_across_at(2000, &[], detailed);
+        assert!(
+            fine.stops.len() > coarse.stops.len(),
+            "detail below the default sampling is what a finer tolerance recovers: {} \
+             against {}",
+            fine.stops.len(),
+            coarse.stops.len()
+        );
+
+        let smooth = |t: f32| Color::rgb(t * t * t, 0.0, 0.0);
+        assert_eq!(
+            Ramp::sample_across_at(2000, &[], smooth).stops.len(),
+            Ramp::sample_across_at(Ramp::RESOLUTION, &[], smooth)
+                .stops
+                .len(),
+            "and a smooth curve is already described to within half a level"
+        );
     }
 }

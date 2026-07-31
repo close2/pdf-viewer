@@ -407,6 +407,11 @@ struct GraphicsState {
     fill_space: ColourSpace,
     /// As above, for stroking.
     stroke_space: ColourSpace,
+    /// Table 57's `/SM`, §10.7.3's smoothness tolerance, if the file states one.
+    ///
+    /// `None` is the initial value in the sense that matters: no document has asked for
+    /// anything, so this device's own resolution stands. See `Ramp::resolution_for`.
+    smoothness: Option<f32>,
     /// Text state, which `q`/`Q` saves and restores along with everything else.
     text: TextState,
 }
@@ -821,6 +826,7 @@ impl GraphicsState {
             transform: base,
             clip: None,
             soft_mask: None,
+            smoothness: None,
             fill: Color::BLACK,
             fill_pattern: None,
             stroke_pattern: None,
@@ -2162,6 +2168,15 @@ impl Interpreter<'_> {
         // different route; ADR 0028 has that argument and the ledger's §10.7.5 row records it.
         if let Object::Boolean(adjust) = self.document.get_key(dict, "SA") {
             state.stroke.adjust = adjust;
+        }
+        // Table 57's `/SM`: §10.7.3's smoothness tolerance, "the maximum error tolerance for
+        // rendering shadings", expressed "as a fraction of the range of each colour
+        // component". It decides how finely a shading's colour function is sampled, and only
+        // upwards — see `Ramp::resolution_for`, where the clause's own "each output device
+        // may have internal limits" is what keeps this device's 1/256 for the coarser
+        // requests. 23 corpus documents state one; most say 0.02 and five say 0.002.
+        if let Some(tolerance) = self.document.get_key(dict, "SM").as_number() {
+            state.smoothness = Some(narrow(tolerance));
         }
         // Table 57's `/OP`, `/op` and `/OPM`: overprint and overprint mode, deliberately not
         // read, which §8.6.7 is explicit about rather than silent on. Overprinting decides
@@ -3860,10 +3875,13 @@ impl Interpreter<'_> {
             self.rect_clip(corners, state.transform, state.clip)
                 .or(state.clip)
         });
-        match self
-            .shadings
-            .build(self.document, &object, resources, state.transform)
-        {
+        match self.shadings.build(
+            self.document,
+            &object,
+            resources,
+            state.transform,
+            state.smoothness,
+        ) {
             Ok(shading) => {
                 let mut path = Path::new();
                 path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
@@ -3939,6 +3957,7 @@ impl Interpreter<'_> {
             &shading_object,
             resources,
             matrix.then(self.base),
+            state.smoothness,
         ) {
             Ok(shading) => Some(PatternPaint::Shading(
                 Arc::new(shading),

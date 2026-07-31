@@ -68,7 +68,7 @@ pub enum ShadingError {
 pub struct Cache {
     /// The kind and the shading's own matrix, which is `/Matrix` for a type 1 and the
     /// identity for every other type.
-    built: BTreeMap<ObjectId, (Arc<ShadingKind>, Transform)>,
+    built: BTreeMap<(ObjectId, usize), (Arc<ShadingKind>, Transform)>,
 }
 
 impl Cache {
@@ -89,7 +89,12 @@ impl Cache {
         object: &Object,
         resources: &Dictionary,
         transform: Transform,
+        smoothness: Option<f32>,
     ) -> Result<Shading, ShadingError> {
+        // §10.7.3's tolerance is part of the key rather than of the object: the same shading
+        // painted under two `/SM` values is two sets of colours, and a page that changes it
+        // between paintings has said so.
+        let resolution = Ramp::resolution_for(smoothness);
         let key = object.as_reference().filter(|_| {
             // A `/ColorSpace` stated as a *name* is the one thing about a shading that is
             // not a property of the object alone: §8.6.5.1 resolves it through the resource
@@ -101,17 +106,18 @@ impl Cache {
             !matches!(space, Some(Object::Name(_)))
         });
         if let Some(id) = key
-            && let Some((kind, own)) = self.built.get(&id)
+            && let Some((kind, own)) = self.built.get(&(id, resolution))
         {
             return Ok(Shading {
                 kind: Arc::clone(kind),
                 transform: own.then(transform),
             });
         }
-        let (kind, own) = kind_of(document, object, resources)?;
+        let (kind, own) = kind_of(document, object, resources, resolution)?;
         let kind = Arc::new(kind);
         if let Some(id) = key {
-            self.built.insert(id, (Arc::clone(&kind), own));
+            self.built
+                .insert((id, resolution), (Arc::clone(&kind), own));
         }
         Ok(Shading {
             kind,
@@ -145,7 +151,7 @@ pub fn build(
     resources: &Dictionary,
     transform: Transform,
 ) -> Result<Shading, ShadingError> {
-    let (kind, own) = kind_of(document, object, resources)?;
+    let (kind, own) = kind_of(document, object, resources, Ramp::RESOLUTION)?;
     Ok(Shading {
         kind: Arc::new(kind),
         transform: own.then(transform),
@@ -161,6 +167,7 @@ fn kind_of(
     document: &Document,
     object: &Object,
     resources: &Dictionary,
+    resolution: usize,
 ) -> Result<(ShadingKind, Transform), ShadingError> {
     let resolved = document.resolve(object);
     let dict = match &resolved {
@@ -194,8 +201,14 @@ fn kind_of(
             function_based(document, &dict, &space)?,
             matrix_of(document, &dict, "Matrix"),
         ),
-        2 => (axial(document, &dict, &space)?, Transform::IDENTITY),
-        3 => (radial(document, &dict, &space)?, Transform::IDENTITY),
+        2 => (
+            axial(document, &dict, &space, resolution)?,
+            Transform::IDENTITY,
+        ),
+        3 => (
+            radial(document, &dict, &space, resolution)?,
+            Transform::IDENTITY,
+        ),
         4..=7 => (
             mesh(document, &resolved, &dict, &space, kind)?,
             Transform::IDENTITY,
@@ -284,7 +297,12 @@ fn domain(document: &Document, dict: &Dictionary) -> (f32, f32) {
 }
 
 /// Samples a shading's colour function across its domain into a ramp.
-fn ramp(document: &Document, dict: &Dictionary, space: &ColourSpace) -> Result<Ramp, ShadingError> {
+fn ramp(
+    document: &Document,
+    dict: &Dictionary,
+    space: &ColourSpace,
+    resolution: usize,
+) -> Result<Ramp, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
             ShadingError::Malformed {
@@ -315,7 +333,7 @@ fn ramp(document: &Document, dict: &Dictionary, space: &ColourSpace) -> Result<R
         }
     }
 
-    Ok(Ramp::sample_across(&breaks, |t| {
+    Ok(Ramp::sample_across_at(resolution, &breaks, |t| {
         let parameter = low + t * (high - low);
         colour_from(&functions, &[parameter], space)
     }))
@@ -337,6 +355,7 @@ fn axial(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
+    resolution: usize,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 4).ok_or_else(|| ShadingError::Malformed {
         detail: "an axial shading needs four /Coords".to_owned(),
@@ -344,7 +363,7 @@ fn axial(
     Ok(ShadingKind::Axial {
         start: Point::new(coords[0], coords[1]),
         end: Point::new(coords[2], coords[3]),
-        ramp: ramp(document, dict, space)?,
+        ramp: ramp(document, dict, space, resolution)?,
         extend: extend(document, dict),
     })
 }
@@ -353,6 +372,7 @@ fn radial(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
+    resolution: usize,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 6).ok_or_else(|| ShadingError::Malformed {
         detail: "a radial shading needs six /Coords".to_owned(),
@@ -368,7 +388,7 @@ fn radial(
         start_radius: coords[2],
         end: Point::new(coords[3], coords[4]),
         end_radius: coords[5],
-        ramp: ramp(document, dict, space)?,
+        ramp: ramp(document, dict, space, resolution)?,
         extend: extend(document, dict),
     })
 }

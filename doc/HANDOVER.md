@@ -175,6 +175,29 @@ path.** `Function::parse` runs **7000+ times** on that page: the pattern path ru
   the test that proves it works asserts *pointer identity*, because no measurement of the output
   could.
 
+**Seventy-fourth — §10.7.3's smoothness tolerance, which was a silence inside a `partial` row.**
+`/SM` was read nowhere. The clause bounds "the allowable colour error between a shading
+approximated by piecewise linear interpolation and the true value", and this renderer had one
+fixed internal bound — a `Ramp`'s 256 samples — where the clause asks for a per-document one.
+
+- **It moves the sampling in one direction only, and that is the clause rather than a
+  convenience.** A tolerance is a *maximum* error, so a coarser request than 1/256 is met by
+  drawing finer; "each output device may have internal limits on the maximum and minimum
+  tolerances attainable" is what permits keeping ours instead of coarsening on request. A finer
+  request is honoured to 4096 samples, which is the same sentence's internal limit.
+- **5 corpus documents ask for 0.002** — finer than 1/256 — and had been getting 1/256 in
+  silence. 21 ask for 0.02, which is five times coarser than we draw. One writes `/SM 6`, which
+  Table 57 makes a fraction, so it is ignored.
+- **What a finer sampling buys is detail, not smoothness**, and the interaction with ADR 0068 is
+  worth knowing: `simplify` drops every stop within half an eight-bit level of the line its
+  neighbours draw, so extra samples of a *smooth* function are discarded again immediately. What
+  survives is a feature narrower than 1/256 of the domain — a type 0 function with thousands of
+  samples, a stitching function with narrow sub-domains. Both halves are a test.
+- **Meshes need nothing**: `MeshRaster` evaluates Gouraud interpolation per device pixel (ADR
+  0051), so there is no piecewise approximation left to bound. Neither gate moves; the tolerance
+  is part of `shading::Cache`'s key, because the same shading under two `/SM` values is two sets
+  of colours.
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -251,6 +274,7 @@ below rather than here.
 | 71 | §11.4.6's knockout groups, drawn where a shape is a coverage | — |
 | 72 | §9.3.8's text knockout and §11.6.2's one object in parts, on it | — |
 | 73 | One shading object, built once: a fifth of the corpus's worst page | ADR 0069 |
+| 74 | §10.7.3's `/SM`, the silence that was hiding inside a `partial` row | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -282,7 +306,7 @@ page or runs a slide show — and the gap is now measured *by clause* as well as
 the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **701 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **703 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -869,7 +893,6 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 | Optional content: the interactive half | — | Small | §8.11 is honoured wherever it decides what is *drawn*, and since the thirty-fifth session that includes §8.11.4.4's `/AS` usage application dictionaries for the `View` event (ADRs 0017, 0044). **What feeds a layer panel is read since the sixty-seventh session** — `/Order` as a tree with the clause's label-against-nesting distinction, `/ListMode`, `/Locked`, `/RBGroups` and a group's `/Name` — and `ViewState::set_group` is the switch, so what is missing is the panel itself. Still unread: alternate `/Configs`, which exist to be chosen between and need someone to choose, and the two usage categories that are questions about this processor rather than about the document, `/User` and `/Language`, which are reported. |
 | Transparency group and mask departures (§11.4, §11.5.3) | 22 | Medium | What is left of Table 145's answers after the seventy-first session drew §11.4.6, each reported where it can change a pixel (ADR 0026): **a knockout element whose shape is not its coverage** (§11.4.6, 5 documents — a soft mask, an image's own alpha, a nested group, or a non-isolated group that also blends; the clause's own sentence about a separate shape value is the reason), **non-isolated with a blend mode inside it** (§11.4.4, 9 documents; without one the two computations are provably identical), and **a blending colour space that is not the device's three components** (§11.6.6, 4 documents, all `/DeviceCMYK`, which means a second raster format). Plus **a soft mask's group with such a space** (§11.5.3, 7 documents). |
 | Grid-fitting a stroke's coordinates (`/SA`, §10.7.5) | — | Small | The clause's single-pixel rule is implemented; adjusting "the line width and the coordinates of a stroke … to produce lines of uniform thickness" is a **documented departure**, because the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from by anti-aliasing. Nothing reports it: there is no page on which this device could do better. |
-| Smoothness tolerance (`/SM`, §10.7.3) | 23 | Small | Read nowhere. This renderer has one fixed internal bound — a 256-sample `Ramp`, and `Triangle::is_subpixel` — where the clause asks for a per-document one, and "each output device may have internal limits" contemplates that. A document asking for a *coarser* shading gets a finer one; one asking for finer than 1/256 of a component is not honoured and nothing says so. That silence hides inside a `partial` row. |
 | Image `/Mask` on a filtered image, `/Matte` outside the device spaces | 0 | Small | What is left of §8.9.6 and §11.6.5.2 after ADRs 0023 and 0024, and no corpus document writes any of it. A colour key is a test on the samples a filter delivers, and a `DCTDecode` or `JPXDecode` image has become RGBA before the unpacker sees it — the clause's own NOTE 2 names that pair as the one lossy coding makes unreliable. A `/Mask` stream that is not an image mask is here too, which Table 87 excludes and 1 document writes. So is a `/Matte` on an image whose space is not `DeviceGray` or `DeviceRGB`: §11.6.5.2 requires the pre-blending to be undone *before* colour conversion, and this crate holds one RGBA raster per image, so the inversion is exact only where that conversion was the identity on components. |
 | A font selected by `/ExtGState` `/Font` (§8.4.5) | 1 | Small | Table 57's `/Font` is `[font size]` with the font an **indirect reference**, where `Tf` and this crate's font cache are both keyed by a resource *name*. `extgstate.pdf` writes one, and what it decides is which glyphs the page draws, so it is reported rather than passed over. Closing it means a font cache keyed by object identity as well as by name. |
 | A degenerate subpath's single device pixel (§8.5.3.3.1) | — | Small | "[A] degenerate subpath … shall be considered to enclose the single device pixel lying under that point" when *filled* — distinct from §8.5.3.2's stroking rule, which is implemented. Neither backend paints it, and the clause calls the result "device-dependent and not generally useful" in the same breath. Recorded in the ledger rather than reported, because a report would name pages on which no reader could tell. |
@@ -897,8 +920,8 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 272 | every normative requirement in the clause is executed |
-| `partial` | 164 | some are; the note says which are not |
+| `implemented` | 273 | every normative requirement in the clause is executed |
+| `partial` | 163 | some are; the note says which are not |
 | **`silent`** | **178** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -970,7 +993,7 @@ all. The ledger's own notes are the detail; this is the shape.
 | 7 Syntax | 138 | Objects, **every standard filter**, both xref forms, object streams, incremental updates, recovery by scanning, and **encryption at every revision and method §7.6 states**. §7.11's file specifications are refused by architecture (no filesystem, no network) and §7.12's extensions dictionary is unread. |
 | 8 Graphics | 128 | The clause with the most coverage: the whole graphics state, path construction and painting, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, masking, ICC colour management, optional content. |
 | 9 Text | 65 | Simple and composite fonts through **every font program Table 124 defines**, the standard 14 by substitution, Type 3, all eight rendering modes, all nine text state parameters, both encoding algorithms, §9.7's two mappings, both writing modes. Missing: Table 116's predefined `CMap`s (a licensing decision) and §9.8.3's substitution hints. |
-| 10 Rendering | 36 | 19 rows `inapplicable` — halftones and transfer functions describe a marking device. Colour management and rendering intents are done; §10.7 carries four deliberate departures, all licensed by §10.7.1's NOTE and each named. |
+| 10 Rendering | 36 | 19 rows `inapplicable` — halftones and transfer functions describe a marking device. Colour management, rendering intents and §10.7.3's smoothness tolerance are done; §10.7 carries four deliberate departures, all licensed by §10.7.1's NOTE and each named. |
 | 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group, and **§11.4.6's knockout wherever an element's shape is the coverage it is drawn with**. Left and reported: a knockout element whose shape is not, a non-isolated group whose elements blend, a blending space that is not the device's. |
 | 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, the three §12.6.4 actions that change what is displayed** — a go-to, a set-OCG-state and a hide — and the whole of §12.4.4's presentation read and none of it played. 93 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events, and the presentation mode §12.4.4 asks for. |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. The rows carry the exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
@@ -1001,7 +1024,7 @@ parts that make a document *interactive* have just started.
 | Transparency groups | §11.6.6's `/Group` with the blend mode and both alphas reset inside, and §11.4.7's page group, which is why a page is drawn onto transparency and imposed on the medium afterwards. |
 | Sample decoding (§8.9.5.2) | The clause's linear map in full, per component, with Table 88's defaults — including `Lab`'s `[0 100 …]` and `Indexed`'s `[0 2^n − 1]` — and its closing clamp. One lookup table per component, built once per image, so the unpacker's arms do not know what a `/Decode` array is. Applied on all five routes, `DCTDecode` included. |
 | Image resampling | Magnification is §8.9.5.3's `/Interpolate`; reduction is §10.7.4's, and is the one place this tree knowingly does what a clause forbids (ADR 0025). Both decisions live in `pdf-render`. |
-| Scan conversion (§10.7) | **Four** deliberate departures, all licensed by §10.7.1's NOTE — anti-aliasing twice over, area averaging, and §10.7.5's grid-fitting. `/FL` is ignored by the clause's own permission; `/SM` is read nowhere; `/SA`'s single-pixel rule **is** implemented. |
+| Scan conversion (§10.7) | **Four** deliberate departures, all licensed by §10.7.1's NOTE — anti-aliasing twice over, area averaging, and §10.7.5's grid-fitting. `/FL` is ignored by the clause's own permission; `/SM` decides a ramp's sampling, upwards only; `/SA`'s single-pixel rule **is** implemented. |
 | Line width (§8.4.3.2) | A zero width is one device pixel on both backends, in `Stroke::device_width` alongside §10.7.5's rule, because the clause's own NOTE makes them the same width. |
 | Overprint control (§8.6.7, §11.7.4) | Ignored, and the clause says to. Special colourants `/All` and `/None` are honoured before the alternate space and tint transform are parsed. |
 | Font descriptors (§9.8) | Table 120's `/Flags`, `/MissingWidth` — default 0, not a guess — and the three `/FontFile` entries, plus `/FontWeight` and `/ItalicAngle` for choosing a substitute. Table 121's Symbolic bit decides §9.6.5.4's route, and §9.8.2's "historical accident" paragraph decides a descriptor that sets Symbolic and Nonsymbolic together. The dimensional metrics are unread because this tree selects an installed face rather than synthesising one. |
@@ -1076,8 +1099,10 @@ and the debt is the 205 rows above.
   differently — §10.7.5's `/SA` was implemented in the half a display can state and recorded as a
   departure in the half it cannot, and §11.7.4's overprinting was six rows a reading of Table 146
   removed altogether.
-- **A `partial` row's note describes what somebody found, not what is there.** One silence still
-  hides inside one: §10.7.3's `/SM`.
+- **A `partial` row's note describes what somebody found, not what is there.** The one silence
+  that was hiding inside one — §10.7.3's `/SM` — was closed in the seventy-fourth session, and
+  the note had named it exactly. There is no known second; that is not the same as there being
+  none.
 
 Four items that are small, listed before the big lists because they are small:
 
