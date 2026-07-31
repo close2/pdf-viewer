@@ -1196,6 +1196,9 @@ impl Interpreter<'_> {
         // unsupported *input* is deliberately silent, and it is silent because the file said
         // in advance that ignoring it is the appropriate thing to do.
         let mut compatibility = 0usize;
+        // How many `[` are open. An array is *one* operand, so nothing inside it is an
+        // operator; see the keyword arm below.
+        let mut array_depth = 0usize;
 
         while let Some(token) = lexer.next_token() {
             self.operations = self.operations.saturating_add(1);
@@ -1208,8 +1211,34 @@ impl Interpreter<'_> {
 
             // Operands accumulate until an operator consumes them.
             let operator = match token {
+                // §7.8.2's grammar puts an operator *after* its operands, and §7.3.6 makes an
+                // array "a one-dimensional collection of objects arranged sequentially" — so a
+                // keyword between two elements of an array is neither an element (it is not an
+                // object) nor an operator (an array is one operand, and an operator cannot be
+                // inside one). `operator-in-TJ-array.pdf` writes exactly that:
+                // `[(Grandes) 0.0 Tc -250.0 (Clientèles,) 0.0 Tc … ] TJ`, and dispatching those
+                // `Tc`s consumed the runs before them — the page drew one word of five.
+                //
+                // The recovery is to skip the keyword and keep the array, *and say so*: the
+                // file is malformed and the standard states no reading for it, so drawing the
+                // text without a word would be the silent-fallback failure this project
+                // forbids, and refusing the text would lose what the file plainly states.
+                pdf_syntax::Token::Keyword(word) if array_depth > 0 => {
+                    self.note(Unsupported::Operator {
+                        operator: format!(
+                            "{} inside an array, which §7.3.6 admits only objects into",
+                            String::from_utf8_lossy(&word)
+                        ),
+                    });
+                    continue;
+                }
                 pdf_syntax::Token::Keyword(word) => word,
                 other => {
+                    if matches!(other, pdf_syntax::Token::ArrayOpen) {
+                        array_depth = array_depth.saturating_add(1);
+                    } else if matches!(other, pdf_syntax::Token::ArrayClose) {
+                        array_depth = array_depth.saturating_sub(1);
+                    }
                     if operands.len() < MAX_OPERANDS {
                         // An inline dictionary is one operand, assembled here because the
                         // content lexer yields tokens rather than objects. §14.6.2: "[i]f all
@@ -1236,6 +1265,10 @@ impl Interpreter<'_> {
                         self.note(Unsupported::LimitReached {
                             limit: "MAX_OPERANDS",
                         });
+                        // An unclosed `[` would otherwise suppress every operator for the
+                        // rest of the stream, which on a fuzzed file means a blank page. One
+                        // operand cap's worth of tokens is as far as an array is believed.
+                        array_depth = 0;
                     }
                     continue;
                 }

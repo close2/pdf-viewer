@@ -466,7 +466,17 @@ const MAX_PAGELESS: usize = 11;
 /// reaching the operator dispatch one token at a time, so `issue7821.pdf` and `issue17069.pdf`
 /// were reporting `true` and `false` as unknown operators. `/ActualText` arrived on the same
 /// change; see §14.9.4's ledger row.
-const MAX_INCOMPLETE: usize = 96;
+///
+/// **96 to 97 in the sixty-third session, and it is a new report on a page that now draws
+/// *more*.** `operator-in-TJ-array.pdf` writes `[(Grandes) 0.0 Tc -250.0 (Clientèles,) 0.0 Tc
+/// … ] TJ` — an operator between two elements of an array. §7.3.6 makes an array "a
+/// one-dimensional collection of objects arranged sequentially" and §7.8.2 puts an operator
+/// after its operands, so a keyword inside an array is neither; dispatching those `Tc`s
+/// consumed the runs before them and the page drew one word of five. It now draws all four and
+/// says the file is malformed, which is the pattern trap 5 lists four other instances of: the
+/// report accompanies the drawing rather than replacing it. The page's glyph count went 7 to 39
+/// and its extraction score 25% to 100%, which is how the pdf.js text gate found it.
+const MAX_INCOMPLETE: usize = 97;
 
 /// How long one document may take before it counts as a failure.
 ///

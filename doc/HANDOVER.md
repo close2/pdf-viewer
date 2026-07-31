@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-second** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-third** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -113,6 +113,33 @@ gates, every other test and the viewer's first frame mean exactly what they mean
   is what the two tracks are for. Neither gate moves.
 
 
+**Sixty-third — a third gate: the text, over the whole corpus** (ADR 0066). Two gates ask
+whether a page *draws* and whether it looks like the references'; neither can police whether the
+letters are the right ones, because the reference renderers disagree with each other above the
+signal on any text page. `text_extraction.rs` has compared `Interpretation::text` against
+`pdftotext` over the 14 specification PDFs since the fifth session; it now does it over **974
+documents in 30 seconds**, and the handover has been calling that an opportunity since the
+thirty-first.
+
+- **96.5% of the words `pdftotext` finds**, over the pages we claim to draw completely, with 46
+  named and ratcheted in both directions. Only complete pages are gated — the oracle's
+  denominator rule, and its warning with it.
+- **It found a defect on its first run.** `operator-in-TJ-array.pdf` writes an operator *between
+  two elements of an array*, and the interpreter flattens arrays, so each `Tc` reached the
+  operator dispatch and ate the runs before it: the page drew one word of five. §7.3.6 admits
+  only objects into an array and §7.8.2 puts an operator after its operands, so a keyword there
+  is neither. Skipped and reported now; 7 glyphs became 39.
+- **Two foldings, both arguments rather than conveniences** — the Alphabetic Presentation Forms
+  (a `/ToUnicode` naming a ligature is *correct*, and so is one naming its two letters) and
+  hyphens (nothing in a content stream says which hyphens a line break introduced). They took
+  the corpus 94.4% → 96.5% and the list 56 → 47.
+- **31 of the 46 are one thing**: fonts where all three of §9.10.2's methods fail, which the
+  clause itself describes — `issue918.pdf` draws 1327 glyphs whose Type 3 names are `/a45`,
+  `/a66`, `/a97`, the character code in decimal, and states no `/ToUnicode`. Seven more are
+  right-to-left text read back in painting order. **Seven are undiagnosed and are the list worth
+  working.**
+
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -178,6 +205,7 @@ below rather than here.
 | 60 | §14.9's four accessibility entries, in both places each may sit | ADR 0063 |
 | 61 | The page's top edge is raster row zero; 11 contradicted pages agree | ADR 0064 |
 | 62 | §12.6's actions, and the third input a viewer has | ADR 0065 |
+| 63 | A third gate: the text, over the whole corpus | ADR 0066 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -216,14 +244,14 @@ page — and the gap is now measured *by clause* as well as by corpus: 188 of th
   **100% of the words `pdftotext` finds**.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open except ten that are
   encrypted — 8 waiting for a password, 2 by something §7.6 does not specify or we do not
-  implement — 953 reach page one, **858 draw with nothing reported**, and everything the other 96
+  implement — 953 reach page one, **857 draw with nothing reported**, and everything the other 97
   cannot draw is named. 1501 of 1501 PDF functions parse; all 1793 shadings build, mesh types
   included. The whole gate runs in **~2 s** with no named slow document left. Counts are
   ratcheted.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1654 pages we claim to draw completely, **832 agree with the reference
+  (ADR 0020). Of the 1653 pages we claim to draw completely, **831 agree with the reference
   consensus, 65 are contradicted and 747 are pages the references cannot agree about among
   themselves**. The 65 are named, grouped and ratcheted in both directions. Twenty-five pages
   do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
@@ -342,6 +370,8 @@ cargo run -p conformance --bin ledger      # regenerates the rows, keeps every s
 cargo build --release -p pdf-sandbox --bins
 cargo test --release -p pdf-model --test corpus -- --ignored --nocapture   # 974 docs, ~2 s
 cargo test --release -p pdf-model --test oracle -- --ignored --nocapture   # 1794 pages, ~35 s
+# The third gate: the text, against pdftotext, over the same 974 documents (ADR 0066).
+cargo test --release -p pdf-model --test text_extraction -- --ignored --nocapture  # ~30 s
 # The first oracle run on a fresh build directory is ~95 s and writes 319 MB of remembered
 # reference renders; every run after it is the ~30 s above. Read the printed hit rate rather than
 # the clock. Two environment variables matter:
@@ -835,8 +865,8 @@ Over the 974-document pdf.js corpus, page one:
 |---|---|---|
 | opens | 964 | 99% — the other 10 are 8 needing a password and 2 encrypted beyond us |
 | reaches page one | 953 | 98% |
-| **draws with nothing reported** | **858** | **88%** |
-| draws, with something reported | 96 | 10% |
+| **draws with nothing reported** | **857** | **88%** |
+| draws, with something reported | 97 | 10% |
 
 **This number measures honesty, and honesty can fall as capability rises.** It fell from 72% in
 the eighth session when 24 documents began saying they carry a Type 3 font; it rose by twenty in
@@ -852,7 +882,7 @@ completely:
 
 | | count | share |
 |---|---|---|
-| agree with the reference consensus | 832 | 50% |
+| agree with the reference consensus | 831 | 50% |
 | **contradicted by it** | **65** | **4%** |
 | the references cannot agree among themselves | 747 | 45% |
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
@@ -1202,7 +1232,7 @@ each `/Font` resource and its `/DescendantFonts` for `/FontFile`, `/FontFile2` o
 **The annotation subtype breakdown** comes free from the corpus gate's own output:
 `grep -o 'Annotation { detail: "[^"]*"' | sort | uniq -c`.
 
-### 5. What the two gates report today
+### 5. What the three gates report today
 
 Corpus, ratcheted in `crates/pdf-model/tests/corpus.rs`; the numbers only go down, except where a
 rise is a new report and is written down as one.
@@ -1213,7 +1243,7 @@ rise is a new report and is written down as one.
 | needs a password | 8 | §7.6.4.1's prompt is the missing piece, not the clause |
 | encrypted beyond this reader | 2 | 1 is `/R` 5, which the standard states no algorithm for; 1 is a file whose `/Encrypt` does not resolve to a dictionary |
 | no page one | 11 | `corpus.rs` has what each one is, looked up in the fifty-ninth session: one prototypes a filter the standard does not define yet, three are recovered by `ghostscript` and not by us, four are fuzzer crashers every reference refuses, and two are encrypted with a key length the file states and Acrobat pads |
-| draws incompletely | 96 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, and 4 in the thirty-second when the last three bit depths did |
+| draws incompletely | 97 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, and 4 in the thirty-second when the last three bit depths did |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 - **The `Content` row was 10 and is 1, and the `Operator` row 12 and is 9** (ADR 0031). Nine of
@@ -1242,11 +1272,18 @@ rise is a new report and is written down as one.
 - **The shading row is gone.** It held 28 documents and every one was a soft mask in an
   `/ExtGState`, filed under shading because nothing else fitted.
 
+**Text, ratcheted in `crates/pdf-model/tests/text_extraction.rs`** and new in the sixty-third
+session (ADR 0066): `Interpretation::text` against `pdftotext` over the same 974 documents,
+30 seconds, **96.5% of the reference's words** over the pages we draw completely, with 46 named
+below the 0.90 floor. 31 of those are fonts where all three of §9.10.2's methods fail, 7 are
+right-to-left text read back in painting order, 1 is a Symbol font naming Greek glyphs, and
+**7 are undiagnosed**. The 14 specification PDFs keep their own 0.99 floor and still score 100%.
+
 Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both directions.
 
 | of the 1654 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 832 | |
+| agree with the reference consensus | 831 | |
 | **contradicted** | **65** | 4 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 14 substituted fonts, **25 unexplained** |
 | ambiguous | 747 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
@@ -1767,11 +1804,13 @@ space and §7.7.3.3's rotation.
   corpus before assuming the volume is manageable.
 - **`Interpretation::text` is a readback of what was drawn**, accumulated by the same loop that
   places the glyphs, and `crates/pdf-model/tests/text_extraction.rs` compares it against
-  `pdftotext` over the 14 specification PDFs. It is the only check that catches a code reaching a
-  *plausible* wrong glyph, and it is known to bite: reverting the operand-cap fix scores 93.2%,
-  and shifting every `/ToUnicode` entry by one code scores 58.7%. Extending it to the pdf.js
-  corpus is a real opportunity — 974 documents against 14, needing only a tolerance, since
-  `pdftotext` supplies the reference for each.
+  `pdftotext` — over the 14 specification PDFs, held to 0.99, **and since the sixty-third session
+  over all 974 pdf.js documents in 30 seconds**, held to 0.90 with 46 named (ADR 0066). It is
+  the only check that catches a code reaching a *plausible* wrong glyph, and it is known to
+  bite: reverting the operand-cap fix scores 93.2%, shifting every `/ToUnicode` entry by one
+  code scores 58.7%, and the pdf.js run found a real defect on its first pass. The corpus
+  number is **96.5%**, and 31 of the 46 below the floor are §9.10.2's own "there is no way to
+  determine what the character code represents".
 - **`doc/md/` is the specification, in a form code can read.** Markdown conversions of the 14
   specification PDFs, with real tables, committed — so a test may depend on it without a skip path.
   `ISO_32000-2_sponsored_EC3.md` is 24 MB and its 860 `##` headings give a clause number, a title
