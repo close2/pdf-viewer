@@ -150,6 +150,39 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 4] = [
     "issue19505.pdf page 1",
 ];
 
+/// Contradicted, where the difference is this tree's own anti-aliasing at a shape's edge.
+///
+/// 2 pages, and they are the first entries named for **§10.7.4's first departure** rather than
+/// for anything on the page. `colors.pdf` pages 1 and 2 are grids of flat colour swatches, and
+/// every pixel of every swatch's interior is identical in all five renderers. What differs is
+/// the boundary between two swatches, where the rectangle edge falls inside a pixel:
+///
+/// | | pixels differing from `poppler` | mean absolute difference |
+/// |---|---|---|
+/// | `ghostscript` | 3461 | 0.17 |
+/// | `mupdf` | 4054 | 0.29 |
+/// | `hayro` | 4647 | 0.28 |
+/// | ours | 4054 | 0.33 |
+///
+/// So the five sit on a *spectrum of edge softness* with `poppler` at one end, and the pair the
+/// gate votes with is the pair nearest that end. At one sampled edge pixel `poppler` paints the
+/// swatch colour outright — `(255, 153, 0)` — `ghostscript` gives `(253, 166, 41)`, `mupdf`
+/// `(253, 175, 63)` and we give `(254, 184, 87)`.
+///
+/// **`poppler` is the one closest to the clause.** §10.7.4: "[a] shape shall be scan-converted
+/// by painting any pixel whose half-open square region intersects the shape, no matter how small
+/// the intersection is." That is a hard edge, and this tree's anti-aliasing is a *documented
+/// departure* from it — the first of the four §10.7.4's ledger row records, licensed by
+/// §10.7.1's NOTE that the algorithm is not part of PDF. So this entry is not a defect to fix
+/// and is not a page to chase: it is the departure being visible, on the one kind of page where
+/// nothing else is.
+///
+/// The bound is what makes it fail at all, and it is trap 12's shape: mean 0.25 against 1.00 and
+/// worst tile 2.79 against 5.00 both pass with room, and structural similarity fails at 0.9857
+/// against **0.9886** — a bound the two least-anti-aliased renderers set for each other on a
+/// page that is nothing but edges.
+const CONTRADICTED_ANTIALIASED_EDGES: [&str; 2] = ["colors.pdf page 1", "colors.pdf page 2"];
+
 /// Contradicted, where the difference is a `CalRGB` space converted rather than assumed.
 ///
 /// 1 page. `issue9940.pdf` draws its cover art through
@@ -901,7 +934,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
 ///
-/// # Five left in the sixty-first session, and the top of the list is why
+/// # Seven left in the sixty-first and sixty-eighth sessions, and the top of the list is why
 ///
 /// `issue3694_reduced.pdf` ranked first at 1.81, and opening its artefact found a defect in
 /// the *device transform* rather than anything on the page: a crop box 272.595 x 56.122 tall,
@@ -918,6 +951,14 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
 /// bound of 5.00, 8.93% of pixels differing — which is a page of hairline-outlined display
 /// type at seventeen pixels against two references that share `FreeType`.
 ///
+/// `bug1175962.pdf` at 1.61 was measured in the sixty-eighth session and is the same shape as
+/// `colors.pdf` one step along: a 220x180 page of runic display type at about five pixels, where
+/// the whole page is glyph edges. Total ink is ours 1 026 676, `poppler` 1 017 828, `mupdf`
+/// 1 019 826 and `ghostscript` 939 960 — so the voting pair are within 0.2% of each other and
+/// `ghostscript`, which links the *same* `libfreetype`, is 8% lighter than either. **Sharing a
+/// font rasteriser is not what makes two references agree**; sharing its settings is, and trap 9
+/// is the more careful statement of that than "they share code".
+///
 /// `issue7891_bc1.pdf` is now the top of the list at 1.78, and it was measured in the same
 /// session without being fixed. Its difference is one word inside a luminosity soft mask whose
 /// group draws a 676x436 greyscale image reduced 2.8-fold; the column centroids of the five
@@ -926,15 +967,13 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
 /// any printed metric. That is trap 12's shape rather than a defect: the bound is 6.04 because
 /// two references agree very closely, and no reading of a clause chooses between five
 /// resamplings of one image.
-const CONTRADICTED_UNEXPLAINED: [&str; 25] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 23] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
     "bug1252420.pdf page 1",
     "bug894572.pdf page 1",
-    "colors.pdf page 1",
-    "colors.pdf page 2",
     "freeculture.pdf page 313",
     "issue2017r.pdf page 1",
     "issue3207r.pdf page 1",
@@ -1682,6 +1721,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_REFERENCES_DREW_NOTHING)
         .chain(&CONTRADICTED_LINK_BORDER)
         .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
+        .chain(&CONTRADICTED_ANTIALIASED_EDGES)
         .chain(&CONTRADICTED_SYMBOLIC_FONT_FLAGS)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)
         .chain(&CONTRADICTED_UNEXPLAINED)

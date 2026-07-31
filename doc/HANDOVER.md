@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-seventh** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-eighth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -278,6 +278,7 @@ below rather than here.
 | 65 | A ramp is not a gradient: 144 G instructions become 54 G | ADR 0068 |
 | 66 | §14.9 completed, and the text gate's remaining list is all naming | — |
 | 67 | Table 99's layer-panel half: `/Order`, `/ListMode`, `/Locked` | — |
+| 68 | Two contradicted pages are §10.7.4's own departure, measured | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -960,7 +961,7 @@ completely:
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
 
 **One page in twenty-five that we say we drew completely, two independent implementations say we
-did not.** All 65 are named and grouped in `oracle.rs`; §5 below has the breakdown, and 25 of
+did not.** All 65 are named and grouped in `oracle.rs`; §5 below has the breakdown, and 23 of
 them have nothing on the page to explain it.
 
 **Read the 45% ambiguous with care.** It is not "half the corpus is unsettled": 372 of those
@@ -1064,10 +1065,10 @@ it is the clause. Conversely **a demand curve cannot rank a requirement no file 
 notice one a *fallback* hides: `/FontFile` sat at a corpus count of zero while 57 documents
 embedded one and drew a substitute in silence.
 
-**The one-line version of each track.** Demand: **65 pages we claim to draw are contradicted, 25
+**The one-line version of each track.** Demand: **65 pages we claim to draw are contradicted, 23
 of them for no reason visible on the page** — and the fifty-ninth session's reading of the
-corpus's own issue trackers says most of that 25 is glyph rasterisation on files chosen for
-having hard fonts. The largest item any corpus document still names is §9.7.5.2's predefined
+corpus's own issue trackers says most of that is glyph rasterisation on files chosen for having
+hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
 and the debt is the 211 rows above.
@@ -1112,7 +1113,7 @@ Four items that are small, listed before the big lists because they are small:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 25 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 23 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. **Read trap 9 before starting**, because an entry may be any of its three shapes, and
 checking costs a web search of the other project's source.
@@ -1129,9 +1130,19 @@ that, five entries lighter:
 | | ratio | |
 |---|---|---|
 | `issue7891_bc1.pdf` page 1 | 1.78 | tile 10.76 against 6.04. **Measured in the sixty-first session and not a defect**: one word inside a luminosity soft mask over a 676×436 image reduced 2.8-fold, five renderers' column centroids spanning 0.76 px, the voting pair 0.25 apart, and our own two resampling strategies moving the raster without moving a printed metric. Trap 12. |
-| `bug1175962.pdf` page 1 | 1.61 | mean 8.05 against 5.00, 12.20% differing — now the largest untouched entry |
-| `colors.pdf` pages 1 and 2 | 1.31, 1.25 | the tight-bound shape: mean 0.21 against 1.00 with a tile of 3.81 against 5.00, failing on SSIM alone |
+| `bug1175962.pdf` page 1 | 1.61 | mean 8.05 against 5.00, 12.20% differing. **Measured in the sixty-eighth session**: a page that is entirely glyph edges at five pixels, where our ink is within 0.9% of `poppler`'s and `mupdf`'s and `ghostscript` — which links the same `libfreetype` — is 8% lighter than any of them. Sharing a rasteriser is not what makes two references agree; sharing its settings is. |
 | the remaining 21 | 1.27 down to 0.22 | mostly text pages against two references that share `FreeType` |
+
+**`colors.pdf` pages 1 and 2 left this list in the sixty-eighth session and are not fixed.**
+They are grids of flat swatches whose interiors all five renderers agree about to the byte, and
+whose *boundaries* put the five on a spectrum of edge softness — `poppler` hardest, then
+`ghostscript`, then `mupdf` and `hayro`, then us. §10.7.4 asks for the hard edge ("painting any
+pixel whose half-open square region intersects the shape, no matter how small the intersection
+is"), this tree's anti-aliasing is the first of that subclause's four documented departures, and
+the pair the gate votes with is the pair nearest the clause. So the departure now has a corpus
+witness and its own group, `CONTRADICTED_ANTIALIASED_EDGES`. **A page can be contradicted by a
+departure this project decided on purpose**, and that is a different thing from an unexplained
+one.
 
 `issue6231_1.pdf` was the 3.17 at the top of this list until the fifty-second session; it was a
 whole surface drawn 180 points from where it belonged (ADR 0057). **A worst tile far above its
@@ -1370,7 +1381,7 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 | of the 1654 pages we call complete | count | |
 |---|---|---|
 | agree with the reference consensus | 831 | |
-| **contradicted** | **65** | 4 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 14 substituted fonts, **25 unexplained** |
+| **contradicted** | **65** | 4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured), 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 14 substituted fonts, **23 unexplained** |
 | ambiguous | 747 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
