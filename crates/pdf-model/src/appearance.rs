@@ -796,19 +796,34 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
     Ok(Painted::DRAWN)
 }
 
-/// Draws §12.5.6.7's single straight line, between `/L`'s two points.
+/// Draws §12.5.6.7's single straight line, with the leader lines Table 178 states.
 ///
-/// Three of the clause's entries change where the line goes or what is written along it, and
-/// none of the three can be derived: `/LL` makes `/L` "represent the endpoints of the leader
-/// lines rather than the endpoints of the line itself", so drawing `/L` would put the line in
-/// the wrong place; `/LE`'s endings have no stated size; `/Cap` replicates `/Contents` as a
-/// caption, which is text. Each is refused rather than approximated.
+/// `/L` is normally the line's own endpoints. With `/LL` it is not: the entry makes `/L`
+/// "represent the endpoints of the leader lines rather than the endpoints of the line itself",
+/// and the clause then states exactly where the line goes —
+///
+/// > The length of leader lines in default user space that extend from each endpoint of the
+/// > line perpendicular to the line itself
+///
+/// — with the sign deciding which side: "[a] positive value shall mean that the leader lines
+/// appear in the direction that is clockwise when traversing the line from its starting point
+/// to its ending point (as specified by L); a negative value shall indicate the opposite
+/// direction." `/LLE` extends each leader "from the line proper 180 degrees from the leader
+/// lines", and `/LLO` is "the amount of empty space between the endpoints of the annotation and
+/// the beginning of the leader lines". That is a complete construction, and this draws it.
+///
+/// **It was refused on the true observation that `/L` is not the line** — which is a reason to
+/// compute the line rather than a reason to decline, and is the same shape as the text-markup
+/// refusal ADR 0043 removed. The refusal also fired on the entry's *presence* rather than on
+/// its value, so `annotation-line-without-appearance.pdf`, which states `/LL 0` — Table 178's
+/// own "no leader lines" — was declined for asking for nothing.
+///
+/// Two entries are still refused and each states a different kind of nothing: `/LE`'s endings
+/// name shapes with no size (Table 179 says "[a] square", "[t]wo short lines meeting in an
+/// acute angle" — re-read in the eighty-fifth session and it still states no dimension), and
+/// `/Cap` replicates `/Contents` as a caption, which needs a font no entry of a line annotation
+/// supplies.
 fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
-    if document.get_key(annotation, "LL").as_number().is_some() {
-        return Err(Refusal::NotDerivable(
-            "§12.5.6.7's /LL makes /L the leader lines' endpoints rather than the line's",
-        ));
-    }
     if matches!(document.get_key(annotation, "Cap"), Object::Boolean(true)) {
         return Err(Refusal::NotDerivable(
             "§12.5.6.7's /Cap asks for /Contents as a caption along the line",
@@ -819,7 +834,7 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     }
 
     let ends = points(document, annotation, "L").unwrap_or_default();
-    let (Some(start), Some(end)) = (ends.first(), ends.get(1)) else {
+    let (Some(start), Some(end)) = (ends.first().copied(), ends.get(1).copied()) else {
         return Err(Refusal::Missing("/L"));
     };
     let border = Border::read(document, annotation, annotation, "C")?;
@@ -827,10 +842,64 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
         return Ok(Painted::EMPTY);
     }
     border.apply(stream);
-    stream.move_to(*start);
-    stream.line_to(*end);
+
+    let leader = entry_number(document, annotation, "LL").unwrap_or(0.0);
+    let Some(offset) = perpendicular(start, end) else {
+        // A line of no length has no direction to be perpendicular to, so its leader lines
+        // have nowhere to go; the degenerate line itself is still §8.5.3.2's business.
+        stream.move_to(start);
+        stream.line_to(end);
+        stream.paint(false, true);
+        return Ok(Painted::DRAWN);
+    };
+
+    if leader == 0.0 {
+        stream.move_to(start);
+        stream.line_to(end);
+        stream.paint(false, true);
+        return Ok(Painted::DRAWN);
+    }
+
+    // "A non-negative number": a negative `/LLE` or `/LLO` states no length, so it is dropped
+    // rather than reflected — the sign the clause gives a meaning to is `/LL`'s.
+    let extension = entry_number(document, annotation, "LLE")
+        .unwrap_or(0.0)
+        .max(0.0);
+    let gap = entry_number(document, annotation, "LLO")
+        .unwrap_or(0.0)
+        .max(0.0);
+    let away = if leader < 0.0 { -1.0 } else { 1.0 };
+
+    let along = |point: [f32; 2], distance: f32| {
+        [
+            distance.mul_add(offset[0], point[0]),
+            distance.mul_add(offset[1], point[1]),
+        ]
+    };
+    // The line proper, at the leader lines' far end.
+    stream.move_to(along(start, leader));
+    stream.line_to(along(end, leader));
+    // Each leader: from the offset the annotation states to the line, and `/LLE` past it.
+    for point in [start, end] {
+        stream.move_to(along(point, away * gap));
+        stream.line_to(along(point, away.mul_add(extension, leader)));
+    }
     stream.paint(false, true);
     Ok(Painted::DRAWN)
+}
+
+/// The unit vector §12.5.6.7 calls clockwise from `start` to `end`, or `None` for no direction.
+///
+/// This space is PDF's y-up default user space, so a clockwise quarter turn takes `(dx, dy)` to
+/// `(dy, -dx)` — the same sign question §7.7.3.3's `/Rotate` asks, and the one a reader working
+/// in a y-down raster gets backwards.
+fn perpendicular(start: [f32; 2], end: [f32; 2]) -> Option<[f32; 2]> {
+    let (dx, dy) = (end[0] - start[0], end[1] - start[1]);
+    let length = dx.hypot(dy);
+    if !length.is_finite() || length <= 0.0 {
+        return None;
+    }
+    Some([dy / length, -dx / length])
 }
 
 /// Draws §12.5.6.19's widget: Table 192's background and border, then §12.7.4.3's text.
@@ -1779,6 +1848,12 @@ fn numbers(document: &Document, values: &[Object]) -> Option<Vec<f32>> {
         .iter()
         .map(|value| number(document, Some(value)))
         .collect()
+}
+
+/// Resolves one dictionary entry to a finite `f32`.
+fn entry_number(document: &Document, dict: &Dictionary, key: &str) -> Option<f32> {
+    let narrowed = narrow(document.get_key(dict, key).as_number()?);
+    narrowed.is_finite().then_some(narrowed)
 }
 
 /// Resolves one array entry to a finite `f32`.

@@ -801,3 +801,91 @@ fn with_down_appearance(bytes: Vec<u8>) -> Vec<u8> {
     );
     out.into_bytes()
 }
+
+/// §12.5.6.7's leader lines: `/L` is where the leaders start, not where the line is.
+///
+/// Table 178 makes `/L` "the endpoints of the leader lines rather than the endpoints of the
+/// line itself" whenever `/LL` is present, and states where the line goes: the leaders "extend
+/// from each endpoint of the line perpendicular to the line itself", and a positive `/LL`
+/// "shall mean that the leader lines appear in the direction that is clockwise when traversing
+/// the line from its starting point to its ending point".
+///
+/// The fixture states a horizontal `/L` from (20, 50) to (80, 50) with `/LL 20`. Traversing
+/// left to right in this y-up space, clockwise is *downwards* — the same quarter turn
+/// §7.7.3.3's `/Rotate` takes — so the line proper is at y = 30 and nothing is drawn along
+/// y = 50 except the two leaders at its ends. Drawing `/L` itself —
+/// which is what this tree did until the eighty-fifth session, by refusing — would paint the
+/// middle of y = 50 and leave y = 30 blank, so the two assertions are the two readings.
+#[test]
+fn a_line_annotations_leader_lines_put_the_line_where_the_clause_says() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] /BS << /W 2 >> \
+         /L [20 50 80 50] /LL 20 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+
+    assert!(
+        painted(&raster, 50, 30),
+        "the line proper is 20 units clockwise of /L, which is below it in a y-up space"
+    );
+    assert!(
+        !painted(&raster, 50, 50),
+        "and /L itself is not the line: only its two leaders touch that row"
+    );
+    assert!(
+        painted(&raster, 20, 48),
+        "the first leader starts at /L and runs from there"
+    );
+    assert!(painted(&raster, 80, 40), "and runs to the line proper");
+}
+
+/// A negative `/LL` puts the line on the other side, which is the entry's whole sign rule.
+///
+/// "[A] negative value shall indicate the opposite direction." Same fixture, same geometry,
+/// one minus sign — and a reader that took the absolute value would pass the test above and
+/// fail this one.
+#[test]
+fn a_negative_leader_length_reverses_the_side() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] /BS << /W 2 >> \
+         /L [20 50 80 50] /LL -20 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(painted(&raster, 50, 70), "20 units anticlockwise of /L");
+    assert!(!painted(&raster, 50, 30), "and not on the clockwise side");
+}
+
+/// `/LLE` extends each leader past the line, and `/LLO` leaves a gap before it starts.
+///
+/// Table 178: `/LLE` is "the length of leader line extensions that extend from the line proper
+/// 180 degrees from the leader lines", and `/LLO` "the amount of empty space between the
+/// endpoints of the annotation and the beginning of the leader lines". So with `/LL 20`,
+/// `/LLE 10` and `/LLO 5` the leader occupies the band 5 to 30 units below `/L` — y = 45 down
+/// to y = 20 — and the rows either side of that band are blank.
+#[test]
+fn a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] /BS << /W 2 >> \
+         /L [20 50 80 50] /LL 20 /LLE 10 /LLO 5 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !painted(&raster, 20, 49),
+        "/LLO leaves the first units below /L empty"
+    );
+    assert!(
+        painted(&raster, 20, 40),
+        "the leader runs from there to the line"
+    );
+    assert!(
+        painted(&raster, 20, 22),
+        "/LLE carries it past the line at y = 30"
+    );
+    assert!(
+        !painted(&raster, 20, 15),
+        "and it stops: 20 + 10 units from /L is as far as the clause states"
+    );
+}

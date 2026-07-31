@@ -492,7 +492,16 @@ const MAX_PAGELESS: usize = 11;
 /// stroked by one operator — both are knockout groups the file does not state, and both are
 /// built now where the elements' shapes are the coverage they are drawn with. `TextKnockout`
 /// is gone from the corpus entirely and `CompositedInParts` is 2 of 4.
-const MAX_INCOMPLETE: usize = 90;
+///
+/// **90 to 89 in the eighty-fifth session**, from a refusal that was reading the clause
+/// correctly and drawing the wrong conclusion: §12.5.6.7's `/LL` makes `/L` "the endpoints of
+/// the leader lines rather than the endpoints of the line itself", which is a reason to compute
+/// where the line is rather than a reason to decline, and Table 178 states the computation.
+/// The document it names is `annotation-line-without-appearance.pdf`, and it states `/LL 0` —
+/// which Table 178 defines as "no leader lines", so the refusal was firing on the *presence* of
+/// an entry whose value says there is nothing to do. It draws with nothing reported now and the
+/// oracle's agreeing set gains it: 836 pages to 837.
+const MAX_INCOMPLETE: usize = 89;
 
 /// How long one document may take before it counts as a failure.
 ///
