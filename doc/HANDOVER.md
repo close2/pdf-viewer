@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-eighth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-ninth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -208,6 +208,30 @@ panel is the panel.
   two mistakes, a panel that hides a group nobody asked it to hide is the worse one.
 
 
+**Sixty-ninth — §12.4.4.2's sub-page navigation, on the control two sessions built.** The
+ledger's row for this subclause has said since the fifty-fourth session that it was "the one
+presentation row whose missing piece is a control rather than a renderer". The sixty-second and
+sixty-seventh sessions built the control; this is the list.
+
+- **A navigation node is a pair of §12.6 actions**, and the clause's own NOTE 1 says what a page
+  state is made of — bullet points "represented by optional content", each state "represented as
+  a navigation node". So `navigation::steps` reads `/PresSteps` into a list and
+  `ViewState::perform_all` walks it. The clause's example is the test.
+- **Only `/Next` is walked.** Table 165 makes the nodes one doubly linked list, so `/Prev` is
+  that order read backwards; a file whose two chains disagree has stated two orders with no rule
+  to choose between them. A ring is bounded by visiting each node once.
+- **Nothing turns a presentation on**, and NOTE 3 is why that is a coherent place to stop: nodes
+  need be respected "only when in presentation mode". §12.4.4.1's `/Trans` and `/Dur` are
+  animations and are still owed. NOTE 2's obligation to save and restore the optional content
+  states around presentation mode is the reason `ViewState` is a value a caller owns and is
+  `Clone`.
+- **No corpus document states one** — neither `PresSteps` nor `NavNode` occurs in the raw bytes
+  of any of the 974 — so this is the specification track, and the count is measured rather than
+  guessed.
+
+`silent` falls 181 → 179.
+
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -279,6 +303,7 @@ below rather than here.
 | 66 | §14.9 completed, and the text gate's remaining list is all naming | — |
 | 67 | Table 99's layer-panel half: `/Order`, `/ListMode`, `/Locked` | — |
 | 68 | Two contradicted pages are §10.7.4's own departure, measured | — |
+| 69 | §12.4.4.2's sub-page navigation, on the control two sessions built | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -307,7 +332,7 @@ PDF *viewer* in the full sense — nothing edits a field, asks a person for a pa
 page — and the gap is now measured *by clause* as well as by corpus: 188 of the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **689 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **692 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -436,7 +461,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 1649 citations, 166 quotations, 95 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 1789 citations, 177 quotations, 100 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -907,16 +932,16 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 269 | every normative requirement in the clause is executed |
-| `partial` | 161 | some are; the note says which are not |
-| **`silent`** | **181** | not implemented, and nothing says so |
+| `implemented` | 270 | every normative requirement in the clause is executed |
+| `partial` | 162 | some are; the note says which are not |
+| **`silent`** | **179** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 30 | not implemented, detected and named at runtime |
 | `writer-side` | 7 | addresses a PDF writer; we do not create files |
 
-**188 silences is the shape of the project**: it renders pages correctly and does very little
-when a person clicks on one. **103** of them are clause 12's interactive half and **71** are clause
+**179 silences is the shape of the project**: it renders pages correctly and does very little
+when a person clicks on one. **94** of them are clause 12's interactive half and **71** are clause
 14's structure, neither of which changes a mark on a page. (This file said 112 and 76 for four
 sessions; both were counted before the rows that closed them, and one line of `grep` over the
 ledger grouped by leading clause number is what says so — the same check the fifty-third session
@@ -982,7 +1007,7 @@ all. The ledger's own notes are the detail; this is the shape.
 | 9 Text | 65 | Simple and composite fonts through **every font program Table 124 defines**, the standard 14 by substitution, Type 3, all eight rendering modes, both encoding algorithms, §9.7's two mappings, both writing modes. Missing: Table 116's predefined `CMap`s (a licensing decision) and §9.8.3's substitution hints. |
 | 10 Rendering | 36 | 19 rows `inapplicable` — halftones and transfer functions describe a marking device. Colour management and rendering intents are done; §10.7 carries four deliberate departures, all licensed by §10.7.1's NOTE and each named. |
 | 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group. Left and reported: knockout, a non-isolated group whose elements blend, a blending space that is not the device's. |
-| 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation and — since the sixty-second session — the three §12.6.4 actions that change what is displayed**: a go-to, a set-OCG-state and a hide. 97 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events. |
+| 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, the three §12.6.4 actions that change what is displayed** — a go-to, a set-OCG-state and a hide — and §12.4.4.2's sub-page navigation over them. 94 rows `silent`, and what does not exist is the rest of *behaviour*: form submission, FDF, signature validation, trigger events, and the presentation mode §12.4.4 asks for. |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. The rows carry the exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
 | 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7.5.4's parent tree and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. 71 rows `silent`: the structure tree as data, and tagged PDF's types and attributes. |
 
@@ -1024,7 +1049,7 @@ parts that make a document *interactive* have just started.
 **Two tracks, and the discipline is to take from both in every session.** *Demand-driven* is
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
-rows in the fifty-sixth session, so the specification track is now its **188 `silent` rows and 30
+rows in the fifty-sixth session, so the specification track is now its **179 `silent` rows and 30
 `reported` ones**, each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -1032,7 +1057,7 @@ file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
 
 **Where the silence is**, and it is the map for the next several sessions:
 
-- **Clause 12's interactive half, 97 rows.** Nothing edits a field, shows a panel, or answers a
+- **Clause 12's interactive half, 94 rows.** Nothing edits a field, shows a panel, or answers a
   trigger event. Two things are now built that the rest hangs off: §12.6's actions and
   `view::ViewState`, the per-document state a viewer holds (ADR 0065). What is nearest:
   **§12.4.4's page transitions**, **a layer panel** — whose whole data model is read as of the
@@ -1071,7 +1096,7 @@ corpus's own issue trackers says most of that is glyph rasterisation on files ch
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
-and the debt is the 211 rows above.
+and the debt is the 209 rows above.
 
 ### 0. The ledger, and where a false claim can still hide
 

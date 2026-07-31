@@ -3432,9 +3432,10 @@ note = "Articles: `/Threads` in the catalog, each a chain of beads tying regions
 [[clause]]
 clause = "12.4.4"
 title = "Presentations"
-status = "silent"
-note = "Presentations: full-screen page transitions, `/Trans` on a page and `/Dur` for an automatic advance. Table 165's thirteen transition styles are animations, which is nearer clause 13's exclusion than anything else in clause 12 — but again the exclusion list is closed and this is not on it, so it is debt."
-
+status = "partial"
+code = ["crates/pdf-model/src/navigation.rs"]
+test = ["crates/pdf-model/src/navigation.rs::a_page_of_bullets_walks_its_states"]
+note = "Presentations: full-screen page transitions, `/Trans` on a page and `/Dur` for an automatic advance, and §12.4.4.2's sub-page navigation. The last is implemented; the first two are not, and are the two rows below. Table 165's thirteen transition styles are animations, which is nearer clause 13's exclusion than anything else in clause 12 — but the exclusion list is closed and this is not on it, so it stays debt rather than becoming `out-of-scope` by convenience."
 [[clause]]
 clause = "12.4.4.1"
 title = "General"
@@ -3444,9 +3445,10 @@ note = "The transition dictionary and its duration. As above."
 [[clause]]
 clause = "12.4.4.2"
 title = "Sub-page navigation"
-status = "silent"
-note = "Sub-page navigation: `/PresSteps`, which walks a page's optional-content states one at a time as a presentation advances. The *state* half of that is §8.11, which is implemented in full — so this is the one presentation row whose missing piece is a control rather than a renderer."
-
+status = "implemented"
+code = ["crates/pdf-model/src/navigation.rs"]
+test = ["crates/pdf-model/src/navigation.rs::a_page_of_bullets_walks_its_states"]
+note = "Sub-page navigation: `/PresSteps` on a page, and Table 165's navigation nodes, which \"form a doubly linked list by means of their Next and Prev entries\". Each node is a pair of §12.6 actions, so what walking a page's states takes is the list and a `ViewState` to perform them against — and this row has said since the fifty-fourth session that it was \"the one presentation row whose missing piece is a control rather than a renderer\". The sixty-second and sixty-seventh sessions built the control and the sixty-ninth the list. Only `/Next` is walked: the clause makes the nodes one doubly linked list, so `/Prev` is the same order read backwards, and a file whose two chains disagree has stated two orders with no rule to choose between them. The ring a `/Next` chain may close is bounded by visiting each node once. **Nothing turns a presentation on** — NOTE 3 says nodes need be respected \"only when in presentation mode\", which this program has not got, so what is built is the list and a caller with a presentation mode drives it. NOTE 2's obligation to save and restore the optional content states across presentation mode is why `ViewState` is a value a caller owns and is `Clone`. Neither `PresSteps` nor `NavNode` occurs in the raw bytes of any of the 974 corpus documents."
 [[clause]]
 clause = "12.5"
 title = "Annotations"
