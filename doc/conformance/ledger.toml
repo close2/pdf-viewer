@@ -3435,12 +3435,14 @@ title = "Presentations"
 status = "partial"
 code = ["crates/pdf-model/src/navigation.rs"]
 test = ["crates/pdf-model/src/navigation.rs::a_page_of_bullets_walks_its_states"]
-note = "Presentations: full-screen page transitions, `/Trans` on a page and `/Dur` for an automatic advance, and §12.4.4.2's sub-page navigation. The last is implemented; the first two are not, and are the two rows below. Table 165's thirteen transition styles are animations, which is nearer clause 13's exclusion than anything else in clause 12 — but the exclusion list is closed and this is not on it, so it stays debt rather than becoming `out-of-scope` by convenience."
+note = "Presentations: full-screen page transitions, `/Trans` on a page and `/Dur` for an automatic advance, and §12.4.4.2's sub-page navigation. All three are read as of the seventieth session and none is *played*: this program has no presentation mode, and a transition is an animation between two pages, which a display list cannot express and a window's event loop can. `partial` for that reason rather than for a missing reader. Table 164's twelve transition styles are animations, which is nearer clause 13's exclusion than anything else in clause 12 — but the exclusion list is closed and this is not on it, so it stays debt rather than becoming `out-of-scope` by convenience. (This row said \"Table 165's thirteen\" for sixteen sessions; the table is 164 and the styles are twelve.)"
 [[clause]]
 clause = "12.4.4.1"
 title = "General"
-status = "silent"
-note = "The transition dictionary and its duration. As above."
+status = "partial"
+code = ["crates/pdf-model/src/navigation.rs"]
+test = ["crates/pdf-model/src/navigation.rs::the_clauses_own_example_page_states_a_split_and_five_seconds"]
+note = "Table 164's transition dictionary and the page's `/Dur`, both read from the page's own dictionary — §7.7.3.4 makes four entries inheritable and neither of these is among them, so a `/Pages` node stating one states nothing. Every entry of Table 164 is read with the table's own default where the file states none: `/S` as twelve named styles plus a variant carrying a thirteenth name the file wrote, `/D`, `/Dm`, `/M`, `/Di` as degrees or the name `None`, `/SS` and `/B`. `R`'s row states an obligation rather than an appearance — \"the D entry shall be ignored\" — so a replacement's duration is zero whatever `/D` says. No `/Dur` at all is the clause's \"the page shall not advance automatically\" and not an advance of zero, which is why it answers `Option`. `partial` because nothing plays any of it: there is no presentation mode, no clock and no animation, and the row above says why that is a coherent place to stop. Demand measured over every page of all 964 openable corpus documents: **not one states a `/Trans` or a `/Dur`**. One finding about the sources rather than the code: `doc/md/`'s conversion of Table 164 drops `/Di`'s \"Default value: 0.\", which the standard's own PDF states — the conversion caveat, met in the wild."
 
 [[clause]]
 clause = "12.4.4.2"
