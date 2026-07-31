@@ -921,6 +921,7 @@ pub fn interpret_with(
         text_cursor: None,
         base: base_transform(page),
         page: size,
+        shadings: crate::shading::Cache::default(),
         structure: crate::structure::ParentTree::for_page(document, &page.dict),
         output_intent: output_intent_space(document),
         optional_content: state.optional_content().cloned(),
@@ -1106,6 +1107,13 @@ struct Interpreter<'a> {
     base: Transform,
     /// The page's extent, used to bound a shading painted by `sh`.
     page: Size,
+    /// Shadings already built, by the object that states them (§8.7, ADR 0069).
+    ///
+    /// A page paints one shading object many times — a pattern under every cell of a chart,
+    /// an `sh` inside a form invoked per data point — and the colours it carries are the
+    /// same every time. This is what keeps `Function::parse` from running once per painting
+    /// operation; `shading::Cache` has the measurement and the one case it refuses.
+    shadings: crate::shading::Cache,
     /// §14.7.5.4's structural parent tree for this page, empty for most documents.
     ///
     /// Read once when the page is interpreted, because the lookup it answers — a
@@ -3833,7 +3841,7 @@ impl Interpreter<'_> {
         if self.is_hidden() {
             return;
         }
-        let Some(object) = self.resource(resources, "Shading", name) else {
+        let Some(object) = self.resource_entry(resources, "Shading", name) else {
             self.note(Unsupported::Shading {
                 name: format!("/{name} is not in /Shading"),
             });
@@ -3852,7 +3860,10 @@ impl Interpreter<'_> {
             self.rect_clip(corners, state.transform, state.clip)
                 .or(state.clip)
         });
-        match crate::shading::build(self.document, &object, resources, state.transform) {
+        match self
+            .shadings
+            .build(self.document, &object, resources, state.transform)
+        {
             Ok(shading) => {
                 let mut path = Path::new();
                 path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
@@ -3919,9 +3930,11 @@ impl Interpreter<'_> {
         // transform in force where it is used. Getting this wrong moves every gradient on
         // the page by whatever the current transform happened to be.
         let matrix = crate::shading::matrix_of(self.document, &dict, "Matrix");
-        let shading_object = self.document.get_key(&dict, "Shading");
+        // Unresolved on purpose: `shading::Cache` is keyed by the reference, and a pattern
+        // painted a thousand times states the same one every time.
+        let shading_object = dict.get("Shading").cloned().unwrap_or(Object::Null);
 
-        match crate::shading::build(
+        match self.shadings.build(
             self.document,
             &shading_object,
             resources,
@@ -4078,10 +4091,21 @@ impl Interpreter<'_> {
 
     /// Looks up a named resource of a given category.
     fn resource(&self, resources: &Dictionary, category: &str, name: &str) -> Option<Object> {
+        Some(
+            self.document
+                .resolve(&self.resource_entry(resources, category, name)?),
+        )
+    }
+
+    /// The same lookup, *unresolved*: the reference a resource dictionary states.
+    ///
+    /// Almost every caller wants the object; a cache keyed by identity wants the name of it,
+    /// and resolving first throws that away. `shading::Cache` is the one caller — a page may
+    /// paint one shading object thousands of times, and only the reference says they are the
+    /// same one.
+    fn resource_entry(&self, resources: &Dictionary, category: &str, name: &str) -> Option<Object> {
         let table = self.document.get_key(resources, category);
-        let table = table.as_dict()?;
-        let value = table.get(name)?;
-        Some(self.document.resolve(value))
+        table.as_dict()?.get(name).cloned()
     }
 
     /// §14.9's four entries for a marked-content sequence, from either place each may live.

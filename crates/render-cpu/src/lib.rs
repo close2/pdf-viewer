@@ -646,7 +646,7 @@ impl CpuRasterizer {
                 // express, so it is drawn triangle by triangle inside the shape rather
                 // than as a paint over it.
                 if let Paint::Shading(shading) = paint
-                    && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
+                    && let pdf_render::ShadingKind::Mesh { triangles } = shading.kind.as_ref()
                 {
                     shading::fill_mesh(
                         surface,

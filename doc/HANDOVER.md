@@ -148,6 +148,33 @@ the fourteenth and fifteenth sessions with the same sentence beside them: implem
   10 of 12 words and has always done; it was not *gated* until the page stopped reporting. The
   list is 44 and the corpus is still 97.8%.
 
+**Seventy-third — one shading object, built once** (ADR 0069). The handover has asked since the
+forty-sixth session whether `bug1721218_reduced.pdf`'s shadings "are 3576 distinct functions or
+one re-parsed", and the sixty-fifth session answered it by instrumenting the *pattern* path,
+counting eight, and writing "parsing was never the cost". **The measurement was on the wrong
+path.** `Function::parse` runs **7000+ times** on that page: the pattern path runs once and the
+`sh` operator 3576 times, each rebuilding the same gradient's colours from the same objects.
+
+- **A shading's colours are a property of the object, its placement is not.**
+  `pdf_model::shading::Cache` holds an `Arc<ShadingKind>` per `ObjectId`, and
+  `pdf_render::Shading::kind` became an `Arc` so the sharing reaches the display list — a mesh's
+  triangles must not be copied per painting.
+- **53.96 G → 43.13 G on that page, a fifth of it**, with `Function::parse`, `Function::eval` and
+  `shading::ramp` all gone from the profile. Over the corpus it is invisible and should be: 6.92 s
+  → 6.91 s over the 858 complete pages, and 8.19 s → 7.55 s over all 946, where the difference is
+  that one page.
+- **The key is an identity, and a named colour space is the one thing it cannot be.** §8.6.5.1
+  resolves a space name through the resources in force, and §8.6.5.6's `/DefaultRGB` does the
+  same for the device names — so one object under two resource dictionaries can be two sets of
+  colours. Those are not cached at all, and the fixture that proves it (a page inking `/Space`
+  red and a form inking it blue) was confirmed to fail without the refusal.
+- **Reaching the identity took one change nobody would have looked for**: `Interpreter::resource`
+  resolved a reference before returning it, which throws away the only thing that says two
+  paintings are of one object.
+- Both pixel gates are unchanged to the verdict, which is the property a cache has to have — so
+  the test that proves it works asserts *pointer identity*, because no measurement of the output
+  could.
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -223,6 +250,7 @@ below rather than here.
 | 70 | §12.4.4.1's page transitions, read from Table 164 and played by nobody | — |
 | 71 | §11.4.6's knockout groups, drawn where a shape is a coverage | — |
 | 72 | §9.3.8's text knockout and §11.6.2's one object in parts, on it | — |
+| 73 | One shading object, built once: a fifth of the corpus's worst page | ADR 0069 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -254,7 +282,7 @@ page or runs a slide show — and the gap is now measured *by clause* as well as
 the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **699 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **701 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -1261,15 +1289,30 @@ bits, so a `/FunctionType 2` with `/N 1` is **two stops instead of 256** (ADR 00
 | `Function::parse` | 3.6 G (2.5%) | 3.6 G (6.7%) |
 
 Two of the old profile's claims did not survive the re-measurement, and both are worth keeping
-as warnings. `Function::parse` was recorded at **23.2%** and is 2.5% of the larger page — the
-profile had aged past its conclusion. And the question the file asked next, whether the page's
-"3576" shadings are distinct functions or one re-parsed, had the wrong premise: instrumenting the
-pattern path counts **eight** shadings on page one. Parsing was never the cost.
+as warnings. `Function::parse` was recorded at **23.2%** and was 2.5% of the larger page — the
+profile had aged past its conclusion.
 
-What is left on that page, in order: `Function::parse` 6.7%, `Mask::intersect_path` 6.4%,
-`build_soft_mask` 6.4%, `fill_path_impl` 5.1%. The next item is the one already listed above —
-the CPU backend gives every transparency group a page-sized pixmap — and this is the page that
-would show it. One caution about the old table's fourth row: `to_rgb_at` was 2.6% when `CalGray`
+**And the second correction was itself wrong, which is the sharper lesson.** The file asked
+whether the page's "3576" shadings are distinct functions or one re-parsed; the sixty-fifth
+session instrumented the *pattern* path, counted eight, and wrote "parsing was never the cost".
+Instrumenting `Function::parse` itself counts **7000+ calls**, and instrumenting both call sites
+says why: the pattern path runs once and `sh` runs 3576 times. **A count taken at one call site
+is not a count** — the same shape as the `unreviewed` rows counted over the families a session
+had touched. The seventy-third session cached the built shading per object and the page went
+**53.96 G → 43.13 G** (ADR 0069):
+
+| on `bug1721218_reduced.pdf` | before ADR 0069 | after |
+|---|---|---|
+| whole page | 53.96 G | **43.13 G** |
+| `Function::parse` | 3.61 G (6.7%) | gone |
+| `Function::eval` | 2.23 G (4.1%) | gone |
+| `pdf_model::shading::ramp` | 1.72 G (3.2%) | gone |
+
+What is left on that page, in order: `tiny_skia::pipeline::lowp::gradient` 36.6%,
+`Mask::intersect_path` 8.1%, `build_soft_mask` 8.0%, `fill_path_impl` 6.4%, `calloc` 4.5%. The
+next item is the one already listed above — the CPU backend gives every transparency group a
+page-sized pixmap — and this is the page that would show it: `calloc` and `Mask::intersect_path`
+between them are an eighth of it. One caution about the old table's fourth row: `to_rgb_at` was 2.6% when `CalGray`
 was a pass-through; it now runs a Bradford adaptation and a matrix per colour, and per *sample*
 for a Cal-space image.
 
@@ -1628,6 +1671,11 @@ before you ask whether the number is.
 
 **A gate's numerator moves when its denominator does, and only one of those is news.** Keep the
 denominator beside the numerator, and say which pages moved and why.
+
+**A count taken at one call site is not a count.** "Parsing was never the cost" was written
+after instrumenting the pattern path, which runs once on that page while `sh` runs 3576 times —
+so the number was right about where it was taken and wrong about the page. Instrument the
+*function you are accusing*, not one of its callers.
 
 **A profile ages past its conclusion, and the conclusion is what survives being read.** This
 file carried one profile of `bug1721218_reduced.pdf` for nineteen sessions. Re-measured, its

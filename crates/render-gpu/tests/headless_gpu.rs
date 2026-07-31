@@ -503,7 +503,7 @@ fn shaded_page(kind: pdf_render::ShadingKind) -> pdf_render::DisplayList {
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(std::sync::Arc::new(Shading {
-            kind,
+            kind: std::sync::Arc::new(kind),
             transform: Transform::IDENTITY,
         })),
         clip: None,

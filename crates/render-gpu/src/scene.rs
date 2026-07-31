@@ -440,7 +440,7 @@ fn encode_fill(
     // A mesh carries a colour per triangle corner, which no brush can express, so it is
     // drawn triangle by triangle inside a layer clipped to the shape.
     if let Paint::Shading(shading) = paint
-        && let pdf_render::ShadingKind::Mesh { triangles } = &shading.kind
+        && let pdf_render::ShadingKind::Mesh { triangles } = shading.kind.as_ref()
     {
         // A mesh always needs a layer, because it is drawn as triangles clipped to the
         // shape; source-over is what an unblended one composites through.

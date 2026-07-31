@@ -99,6 +99,114 @@ const RED_TO_BLUE: &str = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0
                            /Function << /FunctionType 2 /Domain [0 1] \
                            /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >>";
 
+/// One shading object painted twice is built once (ADR 0069).
+///
+/// A shading's colours are the whole cost of building it — every `/Function` parsed and a
+/// [`pdf_render::Ramp`] of 256 evaluations of them — and none of that depends on where it is
+/// painted. `bug1721218_reduced.pdf` runs `sh` 3576 times over three function objects, and
+/// building for each one was a fifth of that page.
+///
+/// The assertion is pointer identity, which is the only thing that distinguishes a cache
+/// from a fast rebuild, and it is checked through the display list rather than through the
+/// cache's own API: what matters is that the two commands *share* their colours.
+///
+/// The colour space here is an array rather than the name `/DeviceRGB` on purpose — a name
+/// is resolved through the resource dictionary in force (§8.6.5.1, and §8.6.5.6 for the
+/// device names), so `shading::Cache` refuses to key one by the object alone. The next test
+/// is that refusal.
+#[test]
+fn one_shading_object_painted_twice_is_built_once() {
+    let shading = "<< /ShadingType 2 /ColorSpace [/CalRGB << /WhitePoint [0.9505 1 1.089] >>] \
+                   /Coords [0 0 100 0] /Extend [true true] \
+                   /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >>";
+    let document =
+        Document::open(pdf_with(shading, "q /Sh0 sh Q q 1 0 0 1 0 20 cm /Sh0 sh Q")).expect("PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+
+    let kinds: Vec<_> = list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            pdf_render::Command::Fill {
+                paint: pdf_render::Paint::Shading(shading),
+                ..
+            } => Some(std::sync::Arc::clone(&shading.kind)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kinds.len(), 2, "two `sh` operators, two commands");
+    assert!(
+        std::sync::Arc::ptr_eq(&kinds[0], &kinds[1]),
+        "and one set of colours between them"
+    );
+}
+
+/// A shading whose colour space is a *name* is not shared between resource dictionaries.
+///
+/// §8.6.5.1 resolves a colour space name through the `/ColorSpace` subdictionary of the
+/// resources in force, so one shading object under two resource dictionaries can be two
+/// different sets of colours. This fixture is that file: `/Sh0` names `/Space`, the page
+/// defines it as a `Separation` inked red and the form defines the same name as one inked
+/// blue, and the two paintings must not agree.
+///
+/// A cache keyed by the object alone would answer the first colour twice. This is the case
+/// that decides the key, and it is worth a fixture rather than a comment because nothing
+/// else in the tree would notice.
+#[test]
+fn a_named_colour_space_is_resolved_against_the_resources_that_paint_it() {
+    let separation = |tint: &str| {
+        format!(
+            "[/Separation /Ink /DeviceRGB << /FunctionType 2 /Domain [0 1] \
+             /C0 [1 1 1] /C1 {tint} /N 1 >>]"
+        )
+    };
+    let page = "q /Sh0 sh Q q 1 0 0 1 0 50 cm /Fm Do Q";
+    let form = "/Sh0 sh";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /Shading << /Sh0 5 0 R >> /XObject << /Fm 6 0 R >> \
+         /ColorSpace << /Space {} >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /ShadingType 2 /ColorSpace /Space /Coords [0 0 100 0] \
+         /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] \
+         /C0 [1] /C1 [1] /N 1 >> >>\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] \
+         /Resources << /Shading << /Sh0 5 0 R >> /ColorSpace << /Space {} >> >> \
+         /Length {} >>\nstream\n{form}\nendstream\nendobj\n",
+        separation("[1 0 0]"),
+        page.len().saturating_add(1),
+        separation("[0 0 1]"),
+        form.len().saturating_add(1),
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+
+    let raster = render(out.into_bytes());
+    // Device row 75 is the page's own `sh`, row 25 the form's; both are painted at full tint.
+    assert_eq!(pixel(&raster, 50, 75).0, 255, "the page's ink is red");
+    assert_eq!(pixel(&raster, 50, 75).2, 0);
+    assert_eq!(pixel(&raster, 50, 25).2, 255, "the form's is blue");
+    assert_eq!(pixel(&raster, 50, 25).0, 0);
+}
+
 #[test]
 fn an_axial_shading_runs_from_its_first_colour_to_its_second() {
     // `sh` paints the whole clip, so the page is covered by the gradient.

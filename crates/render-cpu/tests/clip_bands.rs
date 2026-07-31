@@ -52,12 +52,12 @@ fn gradient_page(list: &mut DisplayList, clip: Option<ClipId>) {
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(Shading {
-            kind: ShadingKind::Axial {
+            kind: Arc::new(ShadingKind::Axial {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(0.0, PAGE),
                 ramp: Ramp::sample(|t| Color::rgb(1.0 - t, 0.0, t)),
                 extend: (true, true),
-            },
+            }),
             transform: Transform::IDENTITY,
         })),
         clip,

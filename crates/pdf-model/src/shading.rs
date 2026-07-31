@@ -12,8 +12,11 @@
 //! it is also what lets the result be shared and compared — a display list holding a
 //! closure could be neither.
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use pdf_render::{Color, Point, Ramp, Shading, ShadingKind, Transform};
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::colour::ColourSpace;
 use crate::function::Function;
@@ -42,9 +45,96 @@ pub enum ShadingError {
     },
 }
 
+/// Shadings already built, keyed by the object that states them.
+///
+/// # Why this exists, with the measurement that asked for it
+///
+/// A shading's colours cost the whole of its construction: every `/Function` is parsed —
+/// which for a type 0 function means inflating a stream and decoding its samples — and a
+/// [`Ramp`] is then 256 evaluations of it. None of that depends on *where* the shading is
+/// painted, and the same object is commonly painted many times: `bug1721218_reduced.pdf`
+/// runs `sh` 3576 times over three function objects, and rebuilding for each one was
+/// `Function::parse` 6.7%, `Function::eval` 4.1% and `shading::ramp` 3.2% of a 54 G
+/// instruction page. Caching the kind removed all of it (ADR 0069).
+///
+/// # What is not cached, and why the key is not just an identity
+///
+/// A shading's `/ColorSpace` may be a *name*, which §8.6.5.1 resolves through the resource
+/// dictionary in force — so one object can mean two things under two resource dictionaries.
+/// Those are not cached at all, which is exact rather than approximately right: the six
+/// named spaces are not cached at all, which is exact rather than approximately right. An
+/// array or a stream states the space in the object itself and is cached.
+#[derive(Debug, Default)]
+pub struct Cache {
+    /// The kind and the shading's own matrix, which is `/Matrix` for a type 1 and the
+    /// identity for every other type.
+    built: BTreeMap<ObjectId, (Arc<ShadingKind>, Transform)>,
+}
+
+impl Cache {
+    /// Builds a shading, reusing an earlier build of the same object where it is sound to.
+    ///
+    /// `transform` maps the shading's own coordinates into the space the caller will draw
+    /// in, and is the one part of the answer that is not cached — it is why the same
+    /// shading painted twice is two commands.
+    ///
+    /// # Errors
+    ///
+    /// See [`ShadingError`]. A failed build is not remembered: it is rare, it is reported
+    /// once by the caller's own deduplication, and remembering an error would mean deciding
+    /// whether the error is a property of the object or of the moment.
+    pub fn build(
+        &mut self,
+        document: &Document,
+        object: &Object,
+        resources: &Dictionary,
+        transform: Transform,
+    ) -> Result<Shading, ShadingError> {
+        let key = object.as_reference().filter(|_| {
+            // A `/ColorSpace` stated as a *name* is the one thing about a shading that is
+            // not a property of the object alone: §8.6.5.1 resolves it through the resource
+            // dictionary in force, and even the device names go through §8.6.5.6's
+            // `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` there. So a named space is
+            // not cached at all, which is exact; an array or a stream is the object's own.
+            let space =
+                dictionary_of(document, object).map(|dict| document.get_key(&dict, "ColorSpace"));
+            !matches!(space, Some(Object::Name(_)))
+        });
+        if let Some(id) = key
+            && let Some((kind, own)) = self.built.get(&id)
+        {
+            return Ok(Shading {
+                kind: Arc::clone(kind),
+                transform: own.then(transform),
+            });
+        }
+        let (kind, own) = kind_of(document, object, resources)?;
+        let kind = Arc::new(kind);
+        if let Some(id) = key {
+            self.built.insert(id, (Arc::clone(&kind), own));
+        }
+        Ok(Shading {
+            kind,
+            transform: own.then(transform),
+        })
+    }
+}
+
+/// The shading dictionary of an object, whether it is a dictionary or a stream.
+fn dictionary_of(document: &Document, object: &Object) -> Option<Dictionary> {
+    match document.resolve(object) {
+        Object::Dictionary(dict) => Some(dict),
+        Object::Stream(stream) => Some(stream.dict.clone()),
+        _ => None,
+    }
+}
+
 /// Builds a shading from its dictionary.
 ///
 /// `transform` maps the shading's own coordinates into the space the caller will draw in.
+///
+/// Callers that paint many shadings should hold a [`Cache`] and use [`Cache::build`]; this
+/// is the uncached spelling, kept for callers with one shading to build.
 ///
 /// # Errors
 ///
@@ -55,6 +145,23 @@ pub fn build(
     resources: &Dictionary,
     transform: Transform,
 ) -> Result<Shading, ShadingError> {
+    let (kind, own) = kind_of(document, object, resources)?;
+    Ok(Shading {
+        kind: Arc::new(kind),
+        transform: own.then(transform),
+    })
+}
+
+/// The half of a shading that depends on the object alone: its colours and its own matrix.
+///
+/// # Errors
+///
+/// See [`ShadingError`].
+fn kind_of(
+    document: &Document,
+    object: &Object,
+    resources: &Dictionary,
+) -> Result<(ShadingKind, Transform), ShadingError> {
     let resolved = document.resolve(object);
     let dict = match &resolved {
         Object::Dictionary(dict) => dict.clone(),
@@ -96,10 +203,7 @@ pub fn build(
         other => return Err(ShadingError::UnsupportedType { kind: other }),
     };
 
-    Ok(Shading {
-        kind,
-        transform: own.then(transform),
-    })
+    Ok((kind, own))
 }
 
 /// ISO 32000-2 §8.7.4.3 Table 77's `/BBox`, if the shading dictionary states one.

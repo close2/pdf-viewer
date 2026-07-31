@@ -58,7 +58,7 @@ pub(crate) fn shader<'a>(
 ) -> Option<tiny_skia::Shader<'a>> {
     let transform = crate::convert::transform(shading.transform.then(page_to_path));
 
-    match &shading.kind {
+    match shading.kind.as_ref() {
         ShadingKind::Axial {
             start,
             end,
@@ -141,7 +141,7 @@ fn sampled_shader<'a>(
         width,
         height,
         pixels,
-    } = &shading.kind
+    } = shading.kind.as_ref()
     else {
         return None;
     };

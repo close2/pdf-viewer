@@ -42,7 +42,7 @@ pub(crate) fn brush(
     shading: &Shading,
     page_to_path: Transform,
 ) -> Option<(peniko::Brush, Option<vello::kurbo::Affine>)> {
-    let gradient = match &shading.kind {
+    let gradient = match shading.kind.as_ref() {
         ShadingKind::Axial {
             start,
             end,

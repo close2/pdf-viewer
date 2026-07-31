@@ -30,7 +30,14 @@ use crate::paint::Color;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shading {
     /// The geometry of the transition, in the shading's own coordinates.
-    pub kind: ShadingKind,
+    ///
+    /// Shared rather than owned because one shading object is commonly painted many times —
+    /// a pattern filling every cell of a chart, or an `sh` inside a form invoked once per
+    /// data point — and each of those is the same colours under a different transform.
+    /// `bug1721218_reduced.pdf` paints 3576 of them from three function objects, which is
+    /// why this is an `Arc` and `pdf_model::shading::Cache` exists: building the kind again
+    /// per use was 14% of that page (ADR 0069).
+    pub kind: Arc<ShadingKind>,
     /// Maps the shading's own coordinates into the space the command is drawn in.
     ///
     /// Separate from the drawn path's transform because they are genuinely different: a
@@ -51,7 +58,7 @@ impl Shading {
     #[must_use]
     pub fn is_opaque(&self) -> bool {
         let opaque = |colour: &Color| colour.a >= 1.0;
-        match &self.kind {
+        match self.kind.as_ref() {
             ShadingKind::Axial { ramp, .. } | ShadingKind::Radial { ramp, .. } => {
                 ramp.stops.iter().all(|stop| opaque(&stop.colour))
             }
@@ -89,7 +96,7 @@ impl Shading {
                 })
                 .collect(),
         };
-        let kind = match &self.kind {
+        let kind = match self.kind.as_ref() {
             ShadingKind::Axial {
                 start,
                 end,
@@ -138,7 +145,7 @@ impl Shading {
             },
         };
         Self {
-            kind,
+            kind: Arc::new(kind),
             transform: self.transform,
         }
     }
