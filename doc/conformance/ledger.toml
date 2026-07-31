@@ -3622,117 +3622,144 @@ note = "3D and RichMedia annotations are defined by §13.6.2 and §13.7.2, which
 [[clause]]
 clause = "12.6"
 title = "Actions"
-status = "unreviewed"
+status = "silent"
+note = "Actions — what a PDF *does* when something is triggered. `CLAUDE.md` splits this family down the middle: \"[f]ield *appearance* is not excluded; field *behaviour* is\", and \"JavaScript and script-driven form behaviour\" is on principle 5's closed exclusion list by name. So §12.6.4.17's ECMAScript actions are `out-of-scope` and every other action type is `silent` — unimplemented, unreported, and owed. Nothing in this tree reads an `/A` entry on anything."
 
 [[clause]]
 clause = "12.6.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The framing, and the one sentence with a consequence for a *renderer*: an action is performed in response to a trigger, and \"[a]ctions may be chained together\" through `/Next`, breadth-first, with the clause warning that a cycle is possible. Nothing here follows one, so nothing here can loop on one either."
 
 [[clause]]
 clause = "12.6.2"
 title = "Action dictionaries"
-status = "unreviewed"
+status = "silent"
+note = "Table 196's action dictionary: `/Type`, `/S`, `/Next`. Unread. The shape is worth recording because it is the same one §12.5's annotation dictionary has — a `/S` subtype selecting a table of additional entries — and `appearance.rs` already dispatches on exactly that pattern for annotations."
 
 [[clause]]
 clause = "12.6.3"
 title = "Trigger events"
-status = "unreviewed"
+status = "silent"
+note = "Trigger events: Table 197's `/AA` on a page, an annotation or a field, and Table 198's `/E`, `/X`, `/D`, `/U`, `/Fo`, `/Bl`, `/PO`, `/PC`, `/PV`, `/PI`. Every one of them needs an input device or a page-visibility notion this program does not have. Two are worth naming for the day it does: `/D` and `/U` are what make a widget's `/AP /D` *down* appearance visible, and §12.5.5's placement of that appearance is already implemented — so the appearance exists and nothing can ask for it."
 
 [[clause]]
 clause = "12.6.4"
 title = "Action types"
-status = "unreviewed"
+status = "silent"
+note = "Table 199's eighteen action types. The rows below take them one at a time; the summary is that this tree implements none and that three of them would change what is *drawn* rather than where the reader goes — `/SetOCGState`, `/Trans` and `/Hide`."
 
 [[clause]]
 clause = "12.6.4.1"
 title = "General"
-status = "unreviewed"
+status = "silent"
+note = "The list of types and the rule that a processor \"shall ignore\" an action whose `/S` it does not recognise, which is the same compatibility principle §7.8.2's `BX`/`EX` states for operators and Annex I states for the file as a whole. Ignoring is what this tree does, though by never looking rather than by deciding."
 
 [[clause]]
 clause = "12.6.4.2"
 title = "Go-To actions"
-status = "unreviewed"
+status = "silent"
+note = "Go-To: a destination in this document (§12.3.2). The most common action in existence and the one a link annotation carries; this tree draws the link's border and ignores where it points."
 
 [[clause]]
 clause = "12.6.4.3"
 title = "Remote Go-To actions"
-status = "unreviewed"
+status = "silent"
+note = "Remote Go-To: a destination in *another* file, whose `page` is an integer index rather than a page object. Opening a second document is a `viewer-ui` question and a security one — §7.11's file specification can name any path."
 
 [[clause]]
 clause = "12.6.4.4"
 title = "Embedded Go-To actions"
-status = "unreviewed"
+status = "silent"
+note = "Embedded Go-To: a destination inside an embedded file, reached through a `/T` target chain of parent and child relationships. Needs §7.11.4's embedded file streams, which nothing here reads."
 
 [[clause]]
 clause = "12.6.4.5"
 title = "GoToDp action"
-status = "unreviewed"
+status = "silent"
+note = "GoToDp: navigate to a document part (§14.12), which is `unreviewed` in clause 14 and unbuilt."
 
 [[clause]]
 clause = "12.6.4.6"
 title = "Launch actions"
-status = "unreviewed"
+status = "silent"
+note = "Launch: run an application or open a file. **The one action in this family whose absence is a security property rather than a gap**, and it should stay absent until somebody writes the argument — principle 3's sandbox exists so that a document cannot reach the machine, and this action is a document asking to."
 
 [[clause]]
 clause = "12.6.4.7"
 title = "Thread actions"
-status = "unreviewed"
+status = "silent"
+note = "Thread: jump to an article bead (§12.4.3), which is `silent` for the same reason."
 
 [[clause]]
 clause = "12.6.4.8"
 title = "URI actions"
-status = "unreviewed"
+status = "silent"
+note = "URI: resolve a uniform resource identifier. Same shape as `/Launch` — the missing feature is also a refusal, and a viewer that gains it needs a confirmation step rather than a handler."
 
 [[clause]]
 clause = "12.6.4.9"
 title = "Sound actions"
-status = "unreviewed"
+status = "silent"
+note = "Sound: play a sound object. Adjacent to clause 13's exclusion and not covered by it, because §12.6.4.9 is in clause 12; recorded as debt, like §12.3.6's navigators."
 
 [[clause]]
 clause = "12.6.4.10"
 title = "Movie actions"
-status = "unreviewed"
+status = "silent"
+note = "Movie: play a movie annotation. Deprecated in PDF 2.0 in favour of §13.2's screen annotations and rendition actions, which principle 5 *does* exclude — so this row is one deprecation away from being out of scope, and saying so is cheaper than arguing it."
 
 [[clause]]
 clause = "12.6.4.11"
 title = "Hide actions"
-status = "unreviewed"
+status = "silent"
+note = "Hide: set or clear the Hidden flag on named annotations or fields. **This one changes what is drawn.** §12.5.3's Hidden flag is implemented — `annotation.rs` honours it — so the mechanism exists and only the trigger that would flip it does not."
 
 [[clause]]
 clause = "12.6.4.12"
 title = "Named actions"
-status = "unreviewed"
+status = "silent"
+note = "Named: `/NextPage`, `/PrevPage`, `/FirstPage`, `/LastPage` and any registered name. `viewer-ui` already does all four from the keyboard; what is missing is a document being able to ask for them."
 
 [[clause]]
 clause = "12.6.4.13"
 title = "Set-OCG-state actions"
-status = "unreviewed"
+status = "silent"
+note = "Set-OCG-state: turn optional content groups on, off or to the opposite of their current state. **This one changes what is drawn**, and everything under it is implemented: §8.11's configuration, membership and visibility expressions are read in full and `optional_content.rs` answers \"is this layer on\" for every mark. What is missing is the ability to *change* the answer after the page is built."
 
 [[clause]]
 clause = "12.6.4.14"
 title = "Rendition actions"
-status = "unreviewed"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+note = "Rendition actions control a media player — a rendition, a screen annotation and a playback state. Principle 5's closed list excludes \"Clause 13, multimedia and 3D — a media engine, not a rendering question\", and this action's whole subject is clause 13's; the clause number is in 12 only because that is where actions live."
 
 [[clause]]
 clause = "12.6.4.15"
 title = "Transition actions"
-status = "unreviewed"
+status = "silent"
+note = "Transition: run a page transition (§12.4.4) in the middle of a presentation. Debt, with §12.4.4."
 
 [[clause]]
 clause = "12.6.4.16"
 title = "Go-To-3D-View actions"
-status = "unreviewed"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+note = "Go-To-3D-View sets the view of a 3D annotation, which is §13.6's. Excluded by the same entry as §12.6.4.14."
 
 [[clause]]
 clause = "12.6.4.17"
 title = "ECMAScript actions"
-status = "unreviewed"
+status = "out-of-scope"
+exclusion = "script-behaviour"
+note = "ECMAScript actions run a script. Principle 5's closed list excludes \"JavaScript and script-driven form behaviour — a sandboxed script engine is a separate project with its own security argument\". This is the row that exclusion was written for, and the one place in clause 12 where being unimplemented is a decision rather than a debt."
 
 [[clause]]
 clause = "12.6.4.18"
 title = "Rich-Media-Execute actions"
-status = "unreviewed"
+status = "out-of-scope"
+exclusion = "clause-13-multimedia"
+note = "Rich-Media-Execute sends a command to a rich media annotation's Flash or 3D content, which is §13.7's. Excluded by the multimedia entry."
 
 [[clause]]
 clause = "12.7"

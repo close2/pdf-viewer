@@ -186,6 +186,34 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 8] = [
 /// space never reaches a device colourant, so it always reverts.
 const CONTRADICTED_CALIBRATED_COLOUR: [&str; 1] = ["issue9940.pdf page 1"];
 
+/// Contradicted, where the references space the glyphs by no width the document states.
+///
+/// 1 page. `issue9915_reduced.pdf` shows `ISSUE 9915` in an `OCRB` `CIDFontType0` whose
+/// `/Encoding` is an embedded `CMap` with eight `cidrange`s, and whose `/W` is
+/// `[32 [719] 0 180 719 181 [878] 182 65534 719]` — every CID 719 except 181.
+///
+/// # The measurement, which is what settles it
+///
+/// The `CMap` sends the shown codes to CIDs 1, 38, 42, 52, 54, 18, 22 and 26, every one of
+/// them inside `0 180 719`. So one width applies to the whole line, and **our glyph origins
+/// are 14.38 pt apart at 20 pt, which is exactly 719/1000** — measured off the display list,
+/// not inferred. `ghostscript`'s ink columns are ours to the pixel: 27, 42, 56, 70, 85 against
+/// our 28, 42, 56, 70, 85.
+///
+/// `poppler` and `mupdf` put the five letters at 28, 47, 67, 87, 107 — **20 pt apart, which is
+/// the `/DW` default of 1000 that this font does not state** — and then the four digits at 141,
+/// 155, 171, 185, about 15 apart, which is 719 again. **Their spacing is not consistent with
+/// any single reading of this `/W`**, and ours is exactly one reading of it. §9.7.4.3 makes the
+/// array the source of a CID's width, so this is not a tie.
+///
+/// This entry used to say "our letters sit about 1.39× closer together … which is 1000/719"
+/// and left the question open with "[s]omebody is not reading `/W`; the clause says which of us
+/// should be." The ratio is 1.20 over the ink span rather than 1.39, the inconsistency inside
+/// the references' own line is the fact that decides it, and both took ten minutes with the
+/// rasters and the display list. **Measure an entry before believing its label** — including
+/// one this project wrote.
+const CONTRADICTED_REFERENCE_GLYPH_WIDTHS: [&str; 1] = ["issue9915_reduced.pdf page 1"];
+
 /// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.
 ///
 /// 4 pages in 3 documents, and the group with the most evidence behind it of any here —
@@ -690,11 +718,10 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// 25 pages left `ambiguous` because a bound wide enough for glyph hinting is one two
 /// references can agree inside — 19 of them agree with us and 7 do not. **A page that was
 /// unjudgeable and is now contradicted is not a regression; it is a page that was already
-/// wrong and could not be said to be.** `issue9915_reduced.pdf` is the one with a visible
-/// story: its `/OCRB` CIDFont writes `/W [32 [719] 0 180 719 181 [878] 182 65534 719]`, and
-/// our letters sit about 1.39× closer together than `poppler`'s and `mupdf`'s — which is
-/// 1000/719, the ratio between §9.7.4.3's `/DW` default and the width that array states.
-/// Somebody is not reading `/W`; the clause says which of us should be.
+/// wrong and could not be said to be.** `issue9915_reduced.pdf` was the one with a visible
+/// story, and the forty-fifth session measured it and moved it to
+/// `CONTRADICTED_REFERENCE_GLYPH_WIDTHS` — see there for what the measurement says, and for
+/// the arithmetic this comment used to carry, which was wrong.
 ///
 /// # One left in the forty-fourth session, and the file told us the answer
 ///
@@ -754,7 +781,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 38] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 37] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -788,7 +815,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 38] = [
     "issue7901.pdf page 1",
     "issue8097_reduced.pdf page 1",
     "issue8570.pdf page 1",
-    "issue9915_reduced.pdf page 1",
     "openoffice.pdf page 1",
     "pattern_text_embedded_font.pdf page 1",
     "tiling-pattern-large-steps.pdf page 1",
@@ -1514,6 +1540,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         .chain(&CONTRADICTED_SHARED_JBIG2_DECODER)
         .chain(&CONTRADICTED_IMAGE_RESAMPLING)
         .chain(&CONTRADICTED_CALIBRATED_COLOUR)
+        .chain(&CONTRADICTED_REFERENCE_GLYPH_WIDTHS)
         .chain(&CONTRADICTED_DEVICE_CMYK_CONVERSION)
         .chain(&CONTRADICTED_SUBPIXEL_IMAGE)
         .chain(&CONTRADICTED_MASK_QUANTISATION)
