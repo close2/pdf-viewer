@@ -36,10 +36,12 @@ pub struct TargetSpec {
 
 /// Largest permitted raster dimension, in pixels.
 ///
-/// `2^24` is the largest integer that `f32` represents exactly, and a raster
-/// dimension is converted to `f32` when the target transform is built. Capping here
-/// makes that conversion provably lossless rather than merely unlikely to lose
-/// precision — which is the difference between a guarantee and a hope.
+/// `2^24` is the largest integer that `f32` represents exactly, and the page's extent in
+/// device units is converted to `f32` when the target transform is built. Capping here keeps
+/// that conversion inside the range where an `f32` still resolves a fraction of a pixel —
+/// which is the difference between a guarantee and a hope, and which the y flip depends on:
+/// see [`TargetSpec::for_page`] on why it translates by the page's height and not the
+/// raster's.
 pub const MAX_EXTENT: u32 = 1 << 24;
 
 /// Composites a rendered page onto the colour of the medium it is imposed on.
@@ -135,8 +137,9 @@ impl TargetSpec {
     /// Callers must pass a real `max_pixels` bound. Page dimensions come from the
     /// document, so an unbounded scale multiplication is a memory-exhaustion vector.
     pub fn for_page(list: &DisplayList, scale: f32, max_pixels: u64) -> Result<Self, BackendError> {
+        let exact_height = f64::from(list.page_size.height) * f64::from(scale);
         let width = pixel_extent(f64::from(list.page_size.width) * f64::from(scale))?;
-        let height = pixel_extent(f64::from(list.page_size.height) * f64::from(scale))?;
+        let height = pixel_extent(exact_height)?;
 
         // Integer arithmetic throughout, so the limit check needs no floating-point
         // reasoning at all.
@@ -158,10 +161,41 @@ impl TargetSpec {
             height,
             // Scale, then flip y about the page's top edge: PDF places the origin at
             // the bottom left, a raster at the top left.
+            //
+            // **About the page's top edge, not the raster's bottom row.** The two are the
+            // same number only when the page's height in device units is a whole number of
+            // pixels, and `pixel_extent` rounds *up* so that the raster contains the page —
+            // so a page 56.122 units tall gets 57 rows and the leftover 0.878 has to go
+            // somewhere. Translating by the raster's height puts it at the top and pushes
+            // every mark on the page down by that fraction; translating by the page's own
+            // height puts it at the bottom, where the x axis already puts its own leftover
+            // because nothing flips x. Anchoring both axes at the crop box's top-left corner
+            // is the only choice that treats them alike.
+            //
+            // ISO 32000-2 states none of this — §10.7 leaves scan conversion to the device
+            // and says nothing about a page whose size is not a whole number of pixels — so
+            // it is a documented choice. What it is not is invisible: `issue3694_reduced.pdf`
+            // is 272.595 x 56.122, and until the sixty-first session its content sat one row
+            // below where all four reference renderers put it, *including the one whose
+            // raster is the same size as ours*. See ADR 0064.
             transform: Transform::scale(scale, -scale)
-                .then(Transform::translate(0.0, extent_as_f32(height))),
+                .then(Transform::translate(0.0, height_as_f32(exact_height))),
         })
     }
+}
+
+/// The page's height in device units, for the y flip to translate by.
+///
+/// No validity check of its own: `pixel_extent` has already refused anything that is not
+/// finite, is under one pixel, or exceeds [`MAX_EXTENT`], and it was handed this exact value.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "pixel_extent has already bounded this value to 1.0..=MAX_EXTENT = 2^24, which \
+              f32 represents with room to spare"
+)]
+fn height_as_f32(exact: f64) -> f32 {
+    debug_assert!(exact.is_finite() && exact > 0.0, "checked by pixel_extent");
+    exact as f32
 }
 
 /// Rounds a computed pixel extent up to a raster dimension.
@@ -183,20 +217,6 @@ fn pixel_extent(value: f64) -> Result<u32, BackendError> {
         });
     }
     Ok(value as u32)
-}
-
-/// Converts a raster dimension to `f32` for use in a transform.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "MAX_EXTENT is 2^24, the largest integer f32 represents exactly, and \
-              pixel_extent rejects anything larger, so this conversion is lossless"
-)]
-fn extent_as_f32(extent: u32) -> f32 {
-    debug_assert!(
-        extent <= MAX_EXTENT,
-        "extent must be bounded by pixel_extent"
-    );
-    extent as f32
 }
 
 /// A rendered image.
@@ -321,6 +341,40 @@ mod tests {
             "page bottom belongs at the last raster row"
         );
         assert_eq!(top_left.y, 0.0, "page top belongs at raster row zero");
+    }
+
+    /// The same rule on a page that is not a whole number of pixels tall.
+    ///
+    /// A4 is 842 units high and the flip is 842 whichever edge it is anchored to, so the test
+    /// above passes under both conventions and passed under the wrong one for the project's
+    /// whole life. `issue3694_reduced.pdf`'s crop box is 272.595 x 56.122: the raster gets 57
+    /// rows because [`pixel_extent`] rounds up so the page fits, and the leftover 0.878 of a
+    /// row goes to the *bottom*, because nothing flips x and the leftover 0.405 of a column
+    /// already goes to the right. Anchoring y to the raster's last row instead pushed every
+    /// mark on such a page down by that fraction, which was 11 of the corpus's contradicted
+    /// pages. ADR 0064.
+    #[test]
+    fn a_fractional_page_still_starts_at_raster_row_zero() {
+        let list = DisplayList::new(Size::new(272.595, 56.122));
+        let spec = TargetSpec::for_page(&list, 1.0, GENEROUS).unwrap();
+        assert_eq!(
+            (spec.width, spec.height),
+            (273, 57),
+            "the raster rounds up so that it contains the page"
+        );
+
+        let top_left = spec.transform.apply(Point::new(0.0, 56.122));
+        let bottom_left = spec.transform.apply(Point::new(0.0, 0.0));
+        assert!(
+            top_left.y.abs() < 1e-3,
+            "page top belongs at raster row zero, not at {}",
+            top_left.y
+        );
+        assert!(
+            (bottom_left.y - 56.122).abs() < 1e-3,
+            "the spare fraction of a row belongs below the page, not above it: {}",
+            bottom_left.y
+        );
     }
 
     #[test]

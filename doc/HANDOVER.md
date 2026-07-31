@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **sixtieth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-first** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -19,16 +19,6 @@ the lesson belongs in Traps or Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Fifty-eighth — ten sessions of changes measured, and the one regression attributed.**
-Interpretation of the specification's own page costs **2 094.9 M** instructions against
-**1 989.5 M** ten sessions earlier, and the whole rise is one feature: with §14.7.5.4's parent
-tree stubbed out it is 2 003.9 M, so **reading a page's structure costs 4.5% and everything else
-those sessions added costs 0.7% together**. Almost none of it is the tree descent — the nodes
-carry `/Limits` — it is that structure elements live in object streams the drawing path never
-touches. The cost is on `structure.rs`'s doc comment with the two ways to get it back, both API
-changes. Against `hayro` our total fell 8.28 s → **7.13 s** while theirs fell 112.7 s → 39.03 s,
-so the median ratio's rise from 2.12× to **2.29×** is the denominator moving, not us.
 
 **Fifty-ninth — the corpus's own bug trackers read.** Every file in the corpus is named after a
 pdf.js issue or a Mozilla bug, and that bibliography had never been used. Four results, all now
@@ -70,6 +60,33 @@ so they are recorded as spans over that string and applied by `Interpretation::s
   before the change. 89 of 953 corpus page ones state a document `/Lang` and 35 carry §14.9
   spans — 13 `/Alt`, 702 `/Lang`, **no `/E` anywhere in the corpus**. `silent` falls 193 → 188.
   What is still owed is a *consumer*: nothing hands these runs to AccessKit.
+
+**Sixty-first — the page's top edge is raster row zero** (ADR 0064). The demand track, worked
+exactly as this file prescribes: rank `CONTRADICTED_UNEXPLAINED` by our worst measurement over
+its bound, open the artefact at the top. `issue3694_reduced.pdf` at 1.81 turned out not to be
+about anything on the page — its crop box is 272.595 × 56.122, and the y flip translated by the
+*raster's* 57 rows instead of the page's own 56.122, so every mark sat 0.878 of a row too low.
+**11 of the 76 contradicted pages agree after one line: 76 → 65, and 821 → 832 agreeing.**
+
+- **What named it was `ghostscript`'s raster being the same size as ours** — 273×56 — with its
+  content one row higher. A one-pixel offset reads as a rounding difference right up to the
+  moment you notice the renderer that rounded the same way disagrees anyway.
+- **`CONTRADICTED_PAGE_ROUNDING` was halved, 8 → 4, and its name was true of every member.**
+  All eight really do have a fractional page box and really do round differently from two
+  references. For four of them that was never the cause. A group's name goes on explaining its
+  members after it has stopped being the explanation.
+- **Nothing in the tree failed**, and there *was* a test asserting "page top belongs at raster
+  row zero" — on A4, whose height is 842 units and 842 pixels, where the two conventions are
+  the same number.
+- **`issue20232.pdf` left a list without being fixed.** Its entry — a symbolic subset embedding
+  an empty outline where the drawing's `/Differences` names a diameter sign — is still true, and
+  the page still reads `56` where three references read `⌀56`. The entry is kept, empty, saying
+  so.
+- **`issue7891_bc1.pdf` was measured and not fixed**, and is now the top of the list at 1.78:
+  one word inside a luminosity soft mask over a 676×436 image reduced 2.8-fold, where the five
+  renderers' column centroids span 0.76 px, the two the gate votes with are 0.25 apart, and
+  swapping our own reduction between area averaging and point sampling changes the raster
+  without changing any printed metric. Trap 12's shape, not a defect.
 
 
 ## How the project got here
@@ -135,11 +152,12 @@ below rather than here.
 | 58 | Everything re-measured, and one feature's cost attributed | — |
 | 59 | The corpus's own bug trackers read; a written conclusion corrected | — |
 | 60 | §14.9's four accessibility entries, in both places each may sit | ADR 0063 |
+| 61 | The page's top edge is raster row zero; 11 contradicted pages agree | ADR 0064 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
 → 102 → 101 → 101 → 99 → 88 over sessions 6 to 31, then 87 → 86 → 83 → 82 (steady to 50) → 81 →
-78 → 77 → **76** over 41 to 59. Corpus documents drawing incompletely: 291 → 368 → 250 → 290 →
+78 → 77 → 76 (steady to 60) → **65** over 41 to 61. Corpus documents drawing incompletely: 291 → 368 → 250 → 290 →
 283 → 263 → 251 → 235 → 232 → 231 → 231 → 237 → 220 → 220 → 189 → 147 → 137 → 129 → 130 (steady)
 → 110 → 106 → 105 → 97 → 94 → 95 → 97 → **96**.
 
@@ -162,7 +180,7 @@ PDF *viewer* in the full sense — nothing edits a field, asks a person for a pa
 page — and the gap is now measured *by clause* as well as by corpus: 188 of the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **663 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **664 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -179,9 +197,9 @@ page — and the gap is now measured *by clause* as well as by corpus: 188 of th
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~26–33 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1654 pages we claim to draw completely, **821 agree with the reference
-  consensus, 76 are contradicted and 747 are pages the references cannot agree about among
-  themselves**. The 76 are named, grouped and ratcheted in both directions. Twenty-five pages
+  (ADR 0020). Of the 1654 pages we claim to draw completely, **832 agree with the reference
+  consensus, 65 are contradicted and 747 are pages the references cannot agree about among
+  themselves**. The 65 are named, grouped and ratcheted in both directions. Twenty-five pages
   do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
   target size is degenerate or past the pixel limit. **None is a page we decline to draw** —
   the last four of those left in the twenty-fourth session (ADR 0033). ADR 0011.
@@ -808,14 +826,14 @@ completely:
 
 | | count | share |
 |---|---|---|
-| agree with the reference consensus | 821 | 50% |
-| **contradicted by it** | **76** | **5%** |
+| agree with the reference consensus | 832 | 50% |
+| **contradicted by it** | **65** | **4%** |
 | the references cannot agree among themselves | 747 | 45% |
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
 
-**One page in twenty that we say we drew completely, two independent implementations say we did
-not.** All 76 are named and grouped in `oracle.rs`; §5 below has the breakdown, and 30 of them
-have nothing on the page to explain it.
+**One page in twenty-five that we say we drew completely, two independent implementations say we
+did not.** All 65 are named and grouped in `oracle.rs`; §5 below has the breakdown, and 25 of
+them have nothing on the page to explain it.
 
 **Read the 45% ambiguous with care.** It is not "half the corpus is unsettled": 372 of those
 pages are two long books whose text uses fonts nobody embedded, so each renderer substitutes
@@ -917,9 +935,9 @@ it is the clause. Conversely **a demand curve cannot rank a requirement no file 
 notice one a *fallback* hides: `/FontFile` sat at a corpus count of zero while 57 documents
 embedded one and drew a substitute in silence.
 
-**The one-line version of each track.** Demand: **76 pages we claim to draw are contradicted, 30
+**The one-line version of each track.** Demand: **65 pages we claim to draw are contradicted, 25
 of them for no reason visible on the page** — and the fifty-ninth session's reading of the
-corpus's own issue trackers says most of that 30 is glyph rasterisation on files chosen for
+corpus's own issue trackers says most of that 25 is glyph rasterisation on files chosen for
 having hard fonts. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
@@ -965,7 +983,7 @@ Four items that are small, listed before the big lists because they are small:
 
 ### 1. Work the unexplained list
 
-`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 30 pages carrying no undrawn annotation, no hidden
+`CONTRADICTED_UNEXPLAINED` in `oracle.rs`: 25 pages carrying no undrawn annotation, no hidden
 optional content and no substituted font, so the difference is in something we believe we
 implement. **Read trap 9 before starting**, because an entry may be any of its three shapes, and
 checking costs a web search of the other project's source.
@@ -974,18 +992,25 @@ checking costs a web search of the other project's source.
 — the largest of mean, worst tile and SSIM.** The fifty-first session did that and the top of
 the list was a different *kind* of thing from the rest: `tiling-pattern-large-steps.pdf` at
 **25.7×** against a 3.2× runner-up, and it was a rule nobody had implemented rather than a page
-needing a careful eye (ADR 0056). The ranking as it stands after that page left:
+needing a careful eye (ADR 0056). **It paid a second time in the sixty-first**: the 1.81 at the
+top was `issue3694_reduced.pdf`, and what was wrong with it was the device transform rather than
+anything on the page — 11 pages agreed after one line (ADR 0064). The ranking as it stands after
+that, five entries lighter:
 
 | | ratio | |
 |---|---|---|
-| `issue3694_reduced.pdf` page 1 | 1.81 | 12.47% of pixels differing, the largest share on the list |
-| `issue7891_bc1.pdf` page 1 | 1.78 | tile 10.76 against 6.04, and `mupdf` and `ghostscript` are the pair that agree |
-| the remaining 27 | 1.6 down to 0.22 | mostly text pages against two references that share `FreeType` |
+| `issue7891_bc1.pdf` page 1 | 1.78 | tile 10.76 against 6.04. **Measured in the sixty-first session and not a defect**: one word inside a luminosity soft mask over a 676×436 image reduced 2.8-fold, five renderers' column centroids spanning 0.76 px, the voting pair 0.25 apart, and our own two resampling strategies moving the raster without moving a printed metric. Trap 12. |
+| `bug1175962.pdf` page 1 | 1.61 | mean 8.05 against 5.00, 12.20% differing — now the largest untouched entry |
+| `colors.pdf` pages 1 and 2 | 1.31, 1.25 | the tight-bound shape: mean 0.21 against 1.00 with a tile of 3.81 against 5.00, failing on SSIM alone |
+| the remaining 21 | 1.27 down to 0.22 | mostly text pages against two references that share `FreeType` |
 
 `issue6231_1.pdf` was the 3.17 at the top of this list until the fifty-second session; it was a
 whole surface drawn 180 points from where it belonged (ADR 0057). **A worst tile far above its
 bound with a small mean is the signature worth chasing**: it is a
 region drawn by one implementation and not by another, and on a large page the mean hides it.
+**And the signature that named the sixty-first session's defect was different again** — a
+reference whose *raster is the same size as ours* putting the content somewhere else. Compare
+the sizes before believing "one pixel out" is about rounding.
 
 The one cause that was identified, measured and live is **closed**: the subdivision lattice
 took `mesh_shading_empty.pdf`, `issue2948.pdf` and `issue18816.pdf` with it in the forty-third
@@ -1193,8 +1218,8 @@ Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both dire
 
 | of the 1654 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 821 | |
-| **contradicted** | **76** | 8 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 1 a symbolic font reaching an empty glyph, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 15 substituted fonts, **30 unexplained** |
+| agree with the reference consensus | 832 | |
+| **contradicted** | **65** | 4 page rounding, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 14 substituted fonts, **25 unexplained** |
 | ambiguous | 747 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
@@ -1346,8 +1371,15 @@ pages sorted themselves into one group from a table of pairwise means — two cl
 fact about the question, not about the page.
 
 **Rank the suspects by a ratio, not a distance** — our worst measurement over the bound it is
-held to. Four times in five sessions it has chosen the next item before an artefact was opened,
-and at 25.7× against a 3.2× runner-up the top of the list was a rule nobody had implemented.
+held to. Five times now it has chosen the next item before an artefact was opened: at 25.7×
+against a 3.2× runner-up the top of the list was a rule nobody had implemented, and at 1.81 it
+was the device transform, worth 11 pages.
+
+**Before believing "one pixel out" is a rounding difference, compare the raster sizes.** Four
+renderers put `issue3694_reduced.pdf`'s type a row above ours and one of them produced a raster
+*the same size as ours*, which no disagreement about how many rows a page gets can explain.
+A whole group of eight was named for page rounding and half of it was our own y flip (ADR
+0064).
 
 **An inconsistency inside a reference's own output outranks any distance from it.** Two renderers
 spacing one line of one font at two different widths cannot both be reading the document's `/W`;
@@ -1424,7 +1456,11 @@ into the oracle's judged set and showed one of them was drawing nothing.
 
 **A page can leave the contradicted list without a pixel moving.** The oracle picks a tolerance
 class from whether text read back, so anything improving extraction can loosen a bound. Take the
-raster's digest before writing "fixed".
+raster's digest before writing "fixed". **And the converse: a page can leave with pixels moving
+and still be wrong.** `issue20232.pdf` agreed once the y flip was fixed and still draws `56`
+where three references draw `⌀56`; its list is kept, empty, saying so. The gate answers "within
+the bound the references set for each other", which on a 595×842 drawing one glyph never
+reached.
 
 **A page can be visibly wrong inside a verdict the gate cannot fail on.** `issue7406.pdf` drew a
 JPEG cyan-on-black against four references and its verdict was `ambiguous` before and after —

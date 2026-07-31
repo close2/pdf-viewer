@@ -87,16 +87,30 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// Pages we claim to draw completely, and which two independent reference renderers
 /// contradict: pages whose raster is one pixel smaller than the references'.
 ///
-/// 7 pages, and the whole group is one arithmetic difference. Each has a page box whose
-/// size is fractional, and at 72 dpi we and `ghostscript` produce a raster of one size while
-/// `poppler` and `mupdf` produce one a pixel wider, taller, or both. `bug1922766.pdf` is
-/// 383x72 for us and for `ghostscript`, 384x73 for `poppler`. Nothing in ISO 32000-2 says
-/// how a fractional page becomes an integer number of pixels; it is a rasterisation choice
-/// and all four are defensible.
+/// 4 pages. Each has a page box whose size is fractional, and at 72 dpi we and `ghostscript`
+/// produce a raster of one size while `poppler` and `mupdf` produce one a pixel wider, taller,
+/// or both. Nothing in ISO 32000-2 says how a fractional page becomes an integer number of
+/// pixels; it is a rasterisation choice and all four are defensible.
 ///
 /// It only reaches this list because the pages are small — 72 rows, 62 rows — so a one-row
 /// shift moves everything on them and the structural-similarity bound sees a page-wide
 /// change. On a 792-row page the same difference disappears into the noise.
+///
+/// # Half of this group was our defect, and the group's own name is what hid it
+///
+/// It held 8 pages until the sixty-first session, and 4 of them left when one line changed:
+/// the y flip translated by the *raster's* height rather than by the page's own, so on a page
+/// whose height is not a whole number of pixels every mark sat a fraction of a row too low
+/// (ADR 0064). `bug1065245.pdf`, `bug1922766.pdf`, `bug1934157.pdf` and `issue12963.pdf`
+/// page 6 all agree now, and none of them was ever about which way anybody rounded.
+///
+/// The tell was there to be read and nobody read it: on `issue3694_reduced.pdf` — which was
+/// in `CONTRADICTED_UNEXPLAINED`, not here — `ghostscript`'s raster is *the same size as
+/// ours*, 273x56, and its content sat one row above ours. A rounding difference cannot do
+/// that. **A group whose name explains the page size will keep explaining it after the page
+/// size has stopped being the difference**, which is the ninth time a group's name has failed
+/// to diagnose one of its members, and the first where the name was true of every member and
+/// causal for only half.
 ///
 /// # How these lists work
 ///
@@ -113,54 +127,26 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// artefacts settle it. What every entry does establish is that two implementations sharing
 /// no code agree about this page and we do not.
 ///
-/// This first group used to be the largest, at 47 pages carrying an annotation appearance
-/// we did not draw. Drawing them removed 45, and the two that stayed turned out never to
-/// have been about annotations at all — they are the rounding difference described above,
-/// which is exactly what the previous handover said their staying would mean.
-/// `issue12963.pdf page 6` joined the group when JBIG2 started decoding: it is a scanned
-/// Russian tax form, ours and `ghostscript`'s rasters are 595x841 and `poppler`'s and
-/// `mupdf`'s are 596x842, and a one-pixel shift under two percent ink is a page-wide
-/// structural change. The JBIG2 decode itself is not in question — see
-/// `CONTRADICTED_SHARED_JBIG2_DECODER` and `tests/jbig2.rs` for why.
-/// `bug1065245.pdf` and `french_diacritics.pdf` joined for the same reason one session
-/// later, when inline images started drawing (§8.9.7) and their pages became comparable at
-/// all. Both are one pixel out and the pair that agrees is the pair that rounded the other
-/// way: on `bug1065245.pdf` we and `ghostscript` produce 596x842 while `poppler` and `mupdf`
-/// produce 596x843, and on `french_diacritics.pdf` we and `ghostscript` produce 595x842
-/// against `poppler`'s and `mupdf`'s 596. A row of glyphs shifted by one pixel is a
-/// page-wide structural change on a page that is mostly white.
+/// The four that remain are the ones whose story is still only about rounding.
+/// `colorkeymask.pdf` became comparable when §8.9.6.4's colour key masking landed and is the
+/// 595-against-596 split, ours and `ghostscript`'s against `poppler`'s and `mupdf`'s; its
+/// difference is three vertical lines one pixel wide at the three band edges of a page whose
+/// only content is two coloured bands. `issue21346.pdf` is 178x178 where `poppler`'s and
+/// `mupdf`'s is 179, its colour is identical to `poppler`'s, `ghostscript`'s and `hayro`'s at
+/// every point sampled — mean 0.70, worst tile 0.96, both inside their bounds — and what fails
+/// is structural similarity, 0.9830 against 0.9900, which is what a one-pixel edge does to a
+/// page that is one flat square.
 ///
-/// **`french_diacritics.pdf` has now left, and not by being rounded differently.** It agrees
-/// as of the sixteenth session, because area averaging replaced the four-tap filter that was
+/// **`french_diacritics.pdf` left this group in the sixteenth session and not by being rounded
+/// differently.** It agrees because area averaging replaced the four-tap filter that was
 /// drawing its reduced inline images (ADR 0025) — worst tile 12.60 against a bound of 5.89
 /// before, inside the bound after. Its raster really is 595x842 against `poppler`'s and
 /// `mupdf`'s 596, which is what put it here; that was true and was not what the references
-/// were disagreeing about. **The fourth time a group's name has turned out not to be a
-/// diagnosis of one of its members**, after Type 3 fonts, `/Rotate`, and `alphatrans.pdf`'s
-/// gradient. Read the rest of this comment with that in mind: it is a hypothesis about seven
-/// pages, and it has now been wrong about one of the eight it used to hold.
-///
-/// `colorkeymask.pdf` is the fourteenth session's, and the third arrival of the same shape:
-/// its page became comparable when §8.9.6.4's colour key masking landed, and it is the same
-/// 595-against-596 split, ours and `ghostscript`'s against `poppler`'s and `mupdf`'s. The
-/// masking itself is not in question — the difference is three vertical lines one pixel
-/// wide, at the three band edges, on a page whose only content is two coloured bands. The
-/// heatmap says so in one look, which is what the artefacts are for.
-/// `issue21346.pdf` is the eighteenth session's, and the fourth arrival of that shape: it
-/// became comparable when a soft mask in an `/ExtGState` stopped being reported (§11.5), and
-/// its page is 178x178 where `poppler`'s and `mupdf`'s is 179. Its colour is *identical* to
-/// `poppler`'s, `ghostscript`'s and `hayro`'s at every point sampled — mean error 0.70 and
-/// worst tile 0.96, both inside their bounds — and what fails is structural similarity,
-/// 0.9830 against 0.9900, which is what a one-pixel edge does to a page that is one flat
-/// square.
-const CONTRADICTED_PAGE_ROUNDING: [&str; 8] = [
-    "bug1065245.pdf page 1",
+/// were disagreeing about.
+const CONTRADICTED_PAGE_ROUNDING: [&str; 4] = [
     "colorkeymask.pdf page 1",
     "issue21346.pdf page 1",
     "bug1669097.pdf page 1",
-    "bug1922766.pdf page 1",
-    "bug1934157.pdf page 1",
-    "issue12963.pdf page 6",
     "issue19505.pdf page 1",
 ];
 
@@ -601,11 +587,24 @@ const CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR: [&str; 0] = [];
 /// are not described here" — and the clause's escape hatch does not open, because it is for a
 /// character that "cannot be mapped", and this one is mapped, to a blank. Listed, with the
 /// reading that produces the blank written down, rather than fixed by copying a heuristic.
-const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 1] = ["issue20232.pdf page 1"];
+///
+/// # The list is empty and the glyph is still missing
+///
+/// `issue20232.pdf` left in the sixty-first session, and **not because anything above was
+/// fixed**: its crop box is fractional, so it was one of the eleven pages the y-flip defect
+/// moved a row (ADR 0064), and with the row back where it belongs the one absent glyph is
+/// inside the bound. The drawing still reads `56` where three references read `⌀56`.
+///
+/// So this entry is kept, empty, as the record of a difference the gate can no longer see.
+/// **A page leaving a contradicted list is not the same as a page being right** — the gate
+/// answers "within the bound the references set for each other", and a single missing glyph on
+/// a 595x842 engineering drawing was always going to be near it. The reading is unchanged and
+/// so is the file.
+const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 25 pages. The weakest entries here, because the difference need not be anyone's defect:
+/// 14 pages. The weakest entries here, because the difference need not be anyone's defect:
 /// every renderer substitutes, and where two references happen to choose the same system
 /// font and we choose another, the consensus is about their font rather than about the page.
 /// `pdf-font`'s `substitute` module is the only machine-dependent code in the tree, so this
@@ -657,9 +656,8 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 1] = ["issue20232.pdf page 1"];
 /// knockout groups (§11.4.6), which the same session began reporting. They are still
 /// contradicted; they are no longer *judged*, which is the trade a report makes. Four for
 /// five now on this list's name failing to diagnose a member.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
     "bad-PageLabels.pdf page 1",
-    "bug1671312_reduced.pdf page 1",
     "calrgb.pdf page 1",
     "calrgb.pdf page 11",
     "calrgb.pdf page 12",
@@ -902,21 +900,42 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 15] = [
 /// read only the empty case — and both backends had implemented dashing all along. It is
 /// this file's own warning about a gap *inside* an implemented feature, found by a page that
 /// draws the standard's own simple graphics example (Annex H.4) with `[4 6] 0 d` in it.
-const CONTRADICTED_UNEXPLAINED: [&str; 30] = [
+///
+/// # Five left in the sixty-first session, and the top of the list is why
+///
+/// `issue3694_reduced.pdf` ranked first at 1.81, and opening its artefact found a defect in
+/// the *device transform* rather than anything on the page: a crop box 272.595 x 56.122 tall,
+/// a raster of 57 rows, and the y flip anchored to the raster's last row instead of the page's
+/// own top edge, so every mark sat 0.878 of a row too low (ADR 0064). `bug1650302_reduced.pdf`,
+/// `freeculture.pdf` pages 67, 76 and 339, and `issue1002.pdf` went with it, along with six
+/// pages from three other groups — 11 in all, 76 contradicted pages down to 65.
+///
+/// What settled it was not the heatmap but *`ghostscript`'s raster being the same size as
+/// ours* and its content sitting one row higher. A one-pixel offset reads as a rounding
+/// difference until you notice that the renderer which rounded the same way disagrees anyway.
+///
+/// `issue3694_reduced.pdf` stays on this list at 0.60 instead of 1.81 — mean 3.02 against a
+/// bound of 5.00, 8.93% of pixels differing — which is a page of hairline-outlined display
+/// type at seventeen pixels against two references that share `FreeType`.
+///
+/// `issue7891_bc1.pdf` is now the top of the list at 1.78, and it was measured in the same
+/// session without being fixed. Its difference is one word inside a luminosity soft mask whose
+/// group draws a 676x436 greyscale image reduced 2.8-fold; the column centroids of the five
+/// renderers span 0.76 of a pixel, the pair the gate votes with are 0.25 apart, and switching
+/// our own reduction between area averaging and point sampling moves the raster without moving
+/// any printed metric. That is trap 12's shape rather than a defect: the bound is 6.04 because
+/// two references agree very closely, and no reading of a clause chooses between five
+/// resamplings of one image.
+const CONTRADICTED_UNEXPLAINED: [&str; 25] = [
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
     "bug1252420.pdf page 1",
-    "bug1650302_reduced.pdf page 1",
     "bug894572.pdf page 1",
     "colors.pdf page 1",
     "colors.pdf page 2",
     "freeculture.pdf page 313",
-    "freeculture.pdf page 339",
-    "freeculture.pdf page 67",
-    "freeculture.pdf page 76",
-    "issue1002.pdf page 1",
     "issue2017r.pdf page 1",
     "issue3207r.pdf page 1",
     "issue3405r.pdf page 1",
