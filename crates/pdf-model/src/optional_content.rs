@@ -132,6 +132,18 @@ pub struct OptionalContent {
     /// in determining visibility; therefore, all content shall be considered visible." An
     /// empty array is not the same as an absent entry, which means `View`.
     everything_visible: bool,
+    /// Table 99's `/Order`: how a user interface presents the groups, as a tree.
+    ///
+    /// Empty for a document that states none, which §8.11.4.3 makes decisive for the default
+    /// configuration: "[i]n the default configuration dictionary, the default value shall be an
+    /// empty array", and "[a]ny groups not listed in this array shall not be presented in any
+    /// user interface that uses the configuration". So an empty `/Order` is a document saying
+    /// its layers are not a person's business, and is not the same as a missing panel.
+    order: Vec<Presented>,
+    /// Table 99's `/Locked`: groups a user interface may not change.
+    locked: BTreeSet<ObjectId>,
+    /// Table 99's `/ListMode`, which decides which of `/Order`'s groups are shown.
+    list_mode: ListMode,
     /// Table 99's `/RBGroups`: collections in which at most one group may be on.
     ///
     /// Read but never applied when the document is opened, and that is the clause's own
@@ -233,13 +245,72 @@ impl OptionalContent {
             })
             .unwrap_or_default();
 
+        let order = presentation(document, &configuration, &states, 0);
+        let locked: BTreeSet<ObjectId> = listed(document, &configuration, "Locked")
+            .into_iter()
+            .collect();
+        // "AllPages Display all groups in the Order array. VisiblePages Display only those
+        // groups in the Order array that are referenced by one or more visible pages." The
+        // clause names two values and no default; an absent entry is read as `AllPages`,
+        // because a panel that hides a group nobody asked it to hide is the worse of the two
+        // mistakes, and `VisiblePages` is a question about which pages are on screen that this
+        // module cannot answer at all.
+        let list_mode = match document
+            .get_key(&configuration, "ListMode")
+            .as_name()
+            .map(Name::as_bytes)
+        {
+            Some(b"VisiblePages") => ListMode::VisiblePages,
+            _ => ListMode::AllPages,
+        };
+
         Some(Self {
             states,
             disregarded,
             unresolved,
             everything_visible,
+            order,
+            locked,
+            list_mode,
             radio_buttons,
         })
+    }
+
+    /// Table 99's `/Order`, as the tree a layer panel shows.
+    #[must_use]
+    pub fn presentation(&self) -> &[Presented] {
+        &self.order
+    }
+
+    /// Whether Table 99's `/Locked` forbids a *user interface* changing this group.
+    ///
+    /// §8.11.4.3, of a locked group:
+    ///
+    /// > The state of a locked group cannot be changed through the user interface of an
+    /// > interactive PDF processor.
+    ///
+    /// A locked group is not a constant: the clause's own next sentence says a processor "may
+    /// allow the states of optional content groups to be changed by means other than the user
+    /// interface, such as ECMAScript or items in the AS entry", so §12.6.4.13's action is not
+    /// bound by this and [`Self::apply`] does not consult it.
+    #[must_use]
+    pub fn is_locked(&self, group: ObjectId) -> bool {
+        self.locked.contains(&group)
+    }
+
+    /// Table 99's `/ListMode`.
+    #[must_use]
+    pub fn list_mode(&self) -> ListMode {
+        self.list_mode
+    }
+
+    /// A group's `/Name`, which Table 96 makes required and a panel displays.
+    #[must_use]
+    pub fn name(&self, document: &Document, group: ObjectId) -> Option<String> {
+        match document.get_key(document.get(group).as_dict()?, "Name") {
+            Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+            _ => None,
+        }
     }
 
     /// Applies §12.6.4.13's state changes, in the order the action states them.
@@ -443,6 +514,110 @@ impl OptionalContent {
                 .unwrap_or(true),
         )
     }
+}
+
+/// One entry of Table 99's `/Order`, as a layer panel would show it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Presented {
+    /// A group, "whose Name entry shall be displayed in the user interface".
+    Group(ObjectId),
+    /// A nested array, with the optional text string the clause allows as its first element.
+    ///
+    /// §8.11.4.3 distinguishes the two shapes and says what each means, which is why the label
+    /// is an `Option` rather than a `String`: "[t]ext labels in nested arrays shall be used to
+    /// present collections of related optional content groups, and not to communicate actual
+    /// nesting of content inside multiple layers of groups", and "[t]o reflect actual nesting of
+    /// groups in the content, such as for layers with sublayers, nested arrays of groups
+    /// without a text label shall be used". A panel that drew both the same way would tell a
+    /// person that a heading is a layer.
+    Collection {
+        /// The non-selectable label, where the array opens with one.
+        label: Option<String>,
+        /// What the collection holds.
+        children: Vec<Presented>,
+    },
+}
+
+/// Table 99's `/ListMode`: which of `/Order`'s groups a panel shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListMode {
+    /// "Display all groups in the Order array."
+    AllPages,
+    /// "Display only those groups in the Order array that are referenced by one or more
+    /// visible pages."
+    ///
+    /// Carried and not acted on: which pages are visible is a question about a window, and this
+    /// crate has none. A panel that has one answers it; one that does not shows every group,
+    /// which is `AllPages`.
+    VisiblePages,
+}
+
+/// Deepest nesting of `/Order` that is read.
+///
+/// The array is a document's, and §8.11.4.3 puts no bound on how deep the nesting goes. Real
+/// documents nest two or three levels — a drawing's layers and their sublayers — and a panel
+/// that recursed on a file's word would be a stack the file controls.
+const MAX_ORDER_DEPTH: usize = 16;
+
+/// Reads Table 99's `/Order` into the tree a panel shows.
+fn presentation(
+    document: &Document,
+    configuration: &Dictionary,
+    states: &BTreeMap<ObjectId, bool>,
+    depth: usize,
+) -> Vec<Presented> {
+    let entry = document.get_key(configuration, "Order");
+    let Some(items) = entry.as_array().map(<[Object]>::to_vec) else {
+        return Vec::new();
+    };
+    order_items(document, &items, states, depth)
+}
+
+/// The elements of one `/Order` array, or of one of its nested arrays.
+fn order_items(
+    document: &Document,
+    items: &[Object],
+    states: &BTreeMap<ObjectId, bool>,
+    depth: usize,
+) -> Vec<Presented> {
+    let mut out = Vec::new();
+    for item in items {
+        match item {
+            // A group the properties dictionary never declared is not one of the document's
+            // groups (§8.11.3.2), so presenting it would offer a switch that governs nothing.
+            Object::Reference(id) if states.contains_key(id) => out.push(Presented::Group(*id)),
+            Object::Reference(id) => {
+                if let Object::Array(nested) = document.get(*id) {
+                    out.extend(collection(document, &nested, states, depth));
+                }
+            }
+            Object::Array(nested) => out.extend(collection(document, nested, states, depth)),
+            // A text string that is not the first element of its array labels nothing; the
+            // clause admits one only "as its first element".
+            _ => {}
+        }
+    }
+    out
+}
+
+/// One nested array of `/Order`, with the label the clause allows it to open with.
+fn collection(
+    document: &Document,
+    nested: &[Object],
+    states: &BTreeMap<ObjectId, bool>,
+    depth: usize,
+) -> Option<Presented> {
+    if depth >= MAX_ORDER_DEPTH {
+        return None;
+    }
+    let (label, rest) = match nested.split_first() {
+        Some((Object::String(bytes), rest)) => (Some(pdf_syntax::text_string(bytes)), rest),
+        _ => (None, nested),
+    };
+    Some(Presented::Collection {
+        label,
+        children: order_items(document, rest, states, depth.saturating_add(1)),
+    })
 }
 
 /// `/BaseState`, and which of `/ON` and `/OFF` it leaves to be applied.

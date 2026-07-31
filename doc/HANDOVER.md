@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-sixth** working session. Read
+Written 2026-07-26, updated 2026-07-31 at the end of the **sixty-seventh** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -184,6 +184,30 @@ requirements and one cheap measurement.
   renumbering. The old builder made object 6 mean two different things in two tests.
 
 
+**Sixty-seventh — Table 99's other half, the one a layer panel reads.** §8.11.4.3 has ten
+entries and four decided the initial state; `/RBGroups` joined them in the sixty-second session
+when `/PreserveRB` made it load-bearing. `/Order`, `/ListMode`, `/Locked` and a group's `/Name`
+are read now, over the `ViewState` the sixty-second session built, so what is missing for a layer
+panel is the panel.
+
+- **`/Order` is kept as a tree with the clause's own distinction preserved.** A nested array
+  opening with a text string is a *label* — "used to present collections of related optional
+  content groups, and not to communicate actual nesting" — and one without a label is nesting,
+  "such as for layers with sublayers". The clause's EXAMPLE 1 and EXAMPLE 2 are the two shapes
+  and both are tests. A panel that drew them alike would tell a person that a heading is a layer.
+- **`/Locked` binds a panel and deliberately not §12.6.4.13's action**, which is the clause's own
+  division: a locked group "cannot be changed through the user interface", and a processor "may
+  allow the states … to be changed by means other than the user interface, such as ECMAScript or
+  items in the AS entry". `ViewState::set_group` refuses; `Action::SetOcgState` does not.
+- **Radio-button collections apply either way.** `/PreserveRB` is a *set-OCG-state action's*
+  entry with no counterpart for a person, and Table 99 states the paradigm unconditionally — so a
+  panel that let two members of one collection be on would be showing a state the configuration
+  says cannot exist.
+- **`/ListMode`'s `VisiblePages` is carried and not acted on**, because which pages are visible is
+  a question about a window this crate does not have. An absent entry reads as `AllPages`: of the
+  two mistakes, a panel that hides a group nobody asked it to hide is the worse one.
+
+
 ## How the project got here
 
 One line per session; the argument is in the ADR, and every durable lesson is in Traps or Habits
@@ -253,6 +277,7 @@ below rather than here.
 | 64 | §9.10.2's closing sentence is a permission, and three documents took it | ADR 0067 |
 | 65 | A ramp is not a gradient: 144 G instructions become 54 G | ADR 0068 |
 | 66 | §14.9 completed, and the text gate's remaining list is all naming | — |
+| 67 | Table 99's layer-panel half: `/Order`, `/ListMode`, `/Locked` | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -281,7 +306,7 @@ PDF *viewer* in the full sense — nothing edits a field, asks a person for a pa
 page — and the gap is now measured *by clause* as well as by corpus: 188 of the ledger's rows are
 `silent`, and almost every one of them is a viewer rather than a renderer.
 
-- **685 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **689 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks — verified by running them, not
   assumed. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
@@ -848,7 +873,7 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 | Annotation icons (§12.5.6.4, .12, .15, .16) | 2 | Small | A `Text`, `Stamp`, `FileAttachment` or `Sound` annotation with no `/AP` displays an icon whose artwork no clause states. Refused and named. Every stamp in the corpus carries an `/AP`, which is what a producer who cares has to do. |
 | Predefined `CMap`s (§9.7.5.2) | 12 | Medium | 15 fonts name one of Table 116's registered `CMap` files (`90ms-RKSJ-H`, `UniJIS-UTF16-H`, …), which are not in the tree. Vendoring them is a licensing decision; guessing draws plausible text that says something else. The machinery they would plug into exists. |
 | Text: a substitute that cannot be addressed | 42 | Medium | Counting *fonts*: 27 composite fonts with no `/ToUnicode`, so a CID cannot be taken to a character a substitute could draw, and 23 whose substitute draws none of the declared codes. Honest refusals rather than clause gaps; closing them means better substitution. |
-| Optional content: the interactive half | — | Medium | §8.11 is honoured wherever it decides what is *drawn*, and since the thirty-fifth session that includes §8.11.4.4's `/AS` usage application dictionaries for the `View` event (ADRs 0017, 0044). Missing: a layer panel and what feeds it — `/Order`, `/ListMode`, `/RBGroups`, `/Locked` and alternate `/Configs` — and the two usage categories that are questions about this processor rather than about the document, `/User` and `/Language`, which are reported. |
+| Optional content: the interactive half | — | Small | §8.11 is honoured wherever it decides what is *drawn*, and since the thirty-fifth session that includes §8.11.4.4's `/AS` usage application dictionaries for the `View` event (ADRs 0017, 0044). **What feeds a layer panel is read since the sixty-seventh session** — `/Order` as a tree with the clause's label-against-nesting distinction, `/ListMode`, `/Locked`, `/RBGroups` and a group's `/Name` — and `ViewState::set_group` is the switch, so what is missing is the panel itself. Still unread: alternate `/Configs`, which exist to be chosen between and need someone to choose, and the two usage categories that are questions about this processor rather than about the document, `/User` and `/Language`, which are reported. |
 | Text knockout (`Tk`, §9.3.8) | 1 | Medium | Table 102's ninth text state parameter, and the only one absent. Its initial value is `true`, which makes a text object a non-isolated knockout group; we composite each glyph separately, which is indistinguishable while glyphs are opaque under Normal. Reported where both of the clause's conditions hold. Implementing it is §11.4.6's knockout groups seen from clause 9. |
 | Compositing an object in parts (§11.6.2) | 3 | Medium | "Portions of an object shall not be composited with one another", and `B` paints one object as a `Fill` and a `Stroke`, so the band they share composites twice. Reported where the paint composites and both parts mark the page. The fix is the same as `Tk`'s. |
 | Transparency group and mask departures (§11.4, §11.5.3) | 24 | Medium | Three answers a `/Group` may give that are drawn as the isolated, non-knockout group instead, each reported where it can change a pixel (ADR 0026): **knockout** (§11.4.6, 6 documents; for an isolated knockout group the implementation is a Porter-Duff Source composite modulated by coverage and nothing more), **non-isolated with a blend mode inside it** (§11.4.4, 9 documents; without one the two computations are provably identical), and **a blending colour space that is not the device's three components** (§11.6.6, 4 documents, all `/DeviceCMYK`, which means a second raster format). Plus **a soft mask's group with such a space** (§11.5.3, 7 documents). |
@@ -1009,9 +1034,8 @@ file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
 - **Clause 12's interactive half, 97 rows.** Nothing edits a field, shows a panel, or answers a
   trigger event. Two things are now built that the rest hangs off: §12.6's actions and
   `view::ViewState`, the per-document state a viewer holds (ADR 0065). What is nearest:
-  **§12.4.4's page transitions**, **a layer panel** over `ViewState` (§8.11.4.5's manual half,
-  and `/Order`, `/ListMode`, `/RBGroups`, `/Locked`, `/Configs` with it), and **§12.6.3's `/AA`
-  trigger events**, which are what make a widget's `/AP /D` down-appearance reachable — the
+  **§12.4.4's page transitions**, **a layer panel** — whose whole data model is read as of the
+  sixty-seventh session, so what is left is `viewer-ui` — and **§12.6.3's `/AA` trigger events**, which are what make a widget's `/AP /D` down-appearance reachable — the
   appearance is already placed by §12.5.5 and nothing can ask for it. **The corpus's own action
   census, taken in the sixty-second session by walking every object of all 964 openable
   documents:** `GoTo` 269 actions in 138 documents, `JavaScript` 234 in 55 (excluded by principle

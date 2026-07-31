@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
-use crate::action::{Action, Hide, HideTarget};
+use crate::action::{Action, Change, Hide, HideTarget};
 use crate::destination::Destination;
 use crate::optional_content::OptionalContent;
 
@@ -93,6 +93,37 @@ impl ViewState {
         } else {
             None
         }
+    }
+
+    /// Sets a group's state the way a *layer panel* does, and answers whether it changed.
+    ///
+    /// This is §8.11.4.5's other half — "[t]he user may manipulate optional content group states
+    /// manually or by triggering set-OCG-state actions" — and the two differ in exactly one
+    /// respect, which is why they are two functions. Table 99's `/Locked` says "[t]he state of a
+    /// locked group cannot be changed through the user interface of an interactive PDF
+    /// processor", and the clause's next sentence permits the other route: "[a]n interactive PDF
+    /// processor may allow the states of optional content groups to be changed by means other
+    /// than the user interface, such as ECMAScript or items in the AS entry". So a lock stops
+    /// this and does not stop [`Action::SetOcgState`].
+    ///
+    /// Radio-button collections apply either way. `/PreserveRB` is a set-OCG-state action's
+    /// entry and has no counterpart for a person; Table 99 states the paradigm unconditionally,
+    /// so a panel that let two members of one collection be on would be showing a state the
+    /// configuration says cannot exist.
+    ///
+    /// `false` for a group the document never declared, one the configuration's `/Intent` does
+    /// not cover, and one `/Locked` names — three different reasons a switch does nothing, and
+    /// a panel that wants to distinguish them has [`OptionalContent::is_locked`] and
+    /// [`OptionalContent::state`].
+    pub fn set_group(&mut self, group: ObjectId, on: bool) -> bool {
+        let Some(content) = self.optional_content.as_mut() else {
+            return false;
+        };
+        if content.is_locked(group) || content.state(group).is_none_or(|was| was == on) {
+            return false;
+        }
+        content.apply(&[(group, if on { Change::On } else { Change::Off })], true);
+        true
     }
 
     /// Performs one action, and answers the destination it asks to be displayed.
@@ -255,6 +286,7 @@ fn qualified_name(document: &Document, dict: &Dictionary, prefix: &str) -> Strin
 mod tests {
     use super::{ViewState, widgets_by_field_name};
     use crate::action::read;
+    use crate::optional_content::{ListMode, OptionalContent, Presented};
     use pdf_syntax::{Document, Object, ObjectId};
 
     fn document(objects: &[&str]) -> Document {
@@ -415,6 +447,124 @@ mod tests {
         state.perform_all(&doc, &read(&doc, &Object::Reference(id(3))));
         assert_eq!(state.annotation_hidden(id(5)), Some(true));
         assert_eq!(state.annotation_hidden(id(6)), Some(true));
+    }
+
+    /// Table 99's `/Locked` stops a panel and not §12.6.4.13's action.
+    ///
+    /// The two halves of §8.11.4.5's interactive paragraph, and the clause draws the line
+    /// itself: a locked group "cannot be changed through the user interface", and a processor
+    /// "may allow the states … to be changed by means other than the user interface".
+    #[test]
+    fn a_locked_group_refuses_a_panel_and_not_an_action() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [4 0 R] \
+             /D << /Locked [4 0 R] >> >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /S /SetOCGState /State [/OFF 4 0 R] >>",
+            "<< /Type /OCG /Name (layer) >>",
+        ]);
+        let mut state = ViewState::of(&doc);
+        assert!(
+            state
+                .optional_content()
+                .is_some_and(|oc| oc.is_locked(id(4)))
+        );
+        assert!(!state.set_group(id(4), false), "a panel is refused");
+        assert_eq!(
+            state.optional_content().and_then(|oc| oc.state(id(4))),
+            Some(true)
+        );
+
+        state.perform_all(&doc, &read(&doc, &Object::Reference(id(3))));
+        assert_eq!(
+            state.optional_content().and_then(|oc| oc.state(id(4))),
+            Some(false),
+            "the action is not bound by the lock"
+        );
+    }
+
+    /// A panel honours Table 99's radio-button collections without being asked to.
+    ///
+    /// `/PreserveRB` is a *set-OCG-state action's* entry; Table 99 states the paradigm
+    /// unconditionally, so a panel that let two members of one collection be on at once would
+    /// be showing a state the configuration says cannot exist.
+    #[test]
+    fn a_panel_keeps_a_radio_button_collection_to_one() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [3 0 R 4 0 R] \
+             /D << /BaseState /OFF /ON [3 0 R] /RBGroups [[3 0 R 4 0 R]] >> >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Type /OCG /Name (first) >>",
+            "<< /Type /OCG /Name (second) >>",
+        ]);
+        let mut state = ViewState::of(&doc);
+        assert!(state.set_group(id(4), true));
+        assert_eq!(
+            (
+                state.optional_content().and_then(|oc| oc.state(id(3))),
+                state.optional_content().and_then(|oc| oc.state(id(4))),
+            ),
+            (Some(false), Some(true))
+        );
+        assert!(!state.set_group(id(4), true), "already on: nothing changed");
+    }
+
+    /// §8.11.4.3's EXAMPLE 1 and EXAMPLE 2, which are the two shapes `/Order` has.
+    ///
+    /// EXAMPLE 1 labels its nested arrays — `[(Frog Anatomy) 1 0 R 2 0 R]` — and the clause says
+    /// those labels "shall be used to present collections of related optional content groups,
+    /// and not to communicate actual nesting". EXAMPLE 2 nests without a label, which is what
+    /// "actual nesting of groups in the content, such as for layers with sublayers" looks like.
+    /// A panel that drew both the same way would tell a person that a heading is a layer, which
+    /// is why the label is an `Option` and not a `String`.
+    #[test]
+    fn the_order_array_keeps_a_label_apart_from_a_nesting() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [3 0 R 4 0 R 5 0 R] \
+             /D << /Order [[(Frog Anatomy) 3 0 R 4 0 R] 5 0 R [3 0 R]] >> >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Type /OCG /Name (Skin) >>",
+            "<< /Type /OCG /Name (Bones) >>",
+            "<< /Type /OCG /Name (Layer 1) >>",
+        ]);
+        let state = ViewState::of(&doc);
+        let content = state.optional_content().expect("a configuration");
+        assert_eq!(
+            content.presentation(),
+            [
+                Presented::Collection {
+                    label: Some("Frog Anatomy".to_owned()),
+                    children: vec![Presented::Group(id(3)), Presented::Group(id(4))],
+                },
+                Presented::Group(id(5)),
+                Presented::Collection {
+                    label: None,
+                    children: vec![Presented::Group(id(3))],
+                },
+            ]
+        );
+        assert_eq!(content.name(&doc, id(5)).as_deref(), Some("Layer 1"));
+        assert_eq!(content.list_mode(), ListMode::AllPages);
+    }
+
+    /// A group `/Order` names that the document never declared governs nothing and is not shown.
+    ///
+    /// §8.11.3.2 makes membership of `/OCGs` the test for whether content is optional content at
+    /// all, so a switch for a group outside it would do nothing at all when a person moved it.
+    #[test]
+    fn an_undeclared_group_is_not_presented() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [3 0 R] \
+             /D << /Order [3 0 R 4 0 R] >> >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Type /OCG /Name (declared) >>",
+            "<< /Type /OCG /Name (not declared) >>",
+        ]);
+        let state = ViewState::of(&doc);
+        assert_eq!(
+            state.optional_content().map(OptionalContent::presentation),
+            Some([Presented::Group(id(3))].as_slice())
+        );
     }
 
     /// A cycle in `/Kids` terminates rather than exhausting the stack.
