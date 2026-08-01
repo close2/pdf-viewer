@@ -158,6 +158,65 @@ pub(crate) struct LaidOut {
     pub content: String,
     /// What could not be shown, if anything.
     pub owed: Option<Owed>,
+    /// A font dictionary this module invented, to be added to the appearance's `/Resources`
+    /// under the name the `/DA` used.
+    ///
+    /// Present only where `/DR` defines no font under that name — see [`substituted_font`]. The
+    /// stream this module writes says `/{name} {size} Tf`, so the resource has to exist by the
+    /// time the interpreter runs it or the appearance would name nothing.
+    pub font: Option<(pdf_syntax::Name, Dictionary)>,
+}
+
+/// Finds the `/DA`'s font in `/DR`, or stands one in; the flag says which happened.
+///
+/// A name `/DR` does not define is the document breaking §12.7.4.3's own `shall`, and
+/// [`substituted_font`] is why that is answered with a stand-in and a report rather than with a
+/// blank field.
+fn resolve_font(document: &Document, resources: &Dictionary, name: &str) -> (Dictionary, bool) {
+    let fonts = document.get_key(resources, "Font");
+    let entry = fonts
+        .as_dict()
+        .and_then(|fonts| fonts.get(name))
+        .map(|font| document.resolve(font));
+    match entry.as_ref().and_then(|font| font.as_dict()) {
+        Some(dict) => (dict.clone(), false),
+        None => (substituted_font(name), true),
+    }
+}
+
+/// A font dictionary standing in for one Table 224's `/DR` does not define.
+///
+/// §12.7.4.3 requires the document to define it — "[t]he specified font value shall match a
+/// resource name in the Font entry of the default resource dictionary" — and six corpus
+/// documents do not, five of them naming `/Helv`. Refusing them drew **nothing**: a free text
+/// annotation's text is the whole of its appearance, so `freetext_no_appearance.pdf` came out
+/// as an empty page. That is ADR 0106's rule: an optional detail must not erase what the clause
+/// requires, and here what the clause requires is the value on the page.
+///
+/// **The resource name is passed on as the base font name, and that is a hint rather than a
+/// derivation.** A resource name is arbitrary — `/F1` as often as `/Helv` — so nothing here
+/// claims it names a typeface. It is handed to `pdf_font`'s substitution because that is where
+/// a name is *ranked* against the other evidence (ADR 0086) and where a name it does not
+/// recognise costs nothing: `/F1` matches no family and falls through to the default, which is
+/// the same answer as passing no name at all. What is never done is silence — the report says
+/// which name `/DR` failed to define, so the page says the document is malformed while still
+/// showing what the document says.
+fn substituted_font(name: &str) -> Dictionary {
+    let entry = |key: &str, value: &str| {
+        (
+            pdf_syntax::Name::new(key.as_bytes().to_vec()),
+            Object::Name(pdf_syntax::Name::new(value.as_bytes().to_vec())),
+        )
+    };
+    let mut dict = Dictionary::new();
+    for (key, value) in [
+        entry("Type", "Font"),
+        entry("Subtype", "Type1"),
+        entry("BaseFont", name),
+    ] {
+        dict.insert(key, value);
+    }
+    dict
 }
 
 /// The ratio of one line's height to the font size, when the `/DA` sets no leading.
@@ -222,15 +281,8 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         return Err(Owed::NoFont);
     };
 
-    let fonts = document.get_key(request.resources, "Font");
-    let entry = fonts
-        .as_dict()
-        .and_then(|fonts| fonts.get(&font_name))
-        .map(|font| document.resolve(font));
-    let Some(dict) = entry.as_ref().and_then(|font| font.as_dict()) else {
-        return Err(Owed::FontNotInResources(font_name));
-    };
-    let font = pdf_font::LoadedFont::load(document, dict, &font_name)
+    let (dict, stood_in) = resolve_font(document, request.resources, &font_name);
+    let font = pdf_font::LoadedFont::load(document, &dict, &font_name)
         .map_err(|error| Owed::FontUnusable(error.to_string()))?;
 
     if !font.addresses_characters() {
@@ -243,9 +295,24 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         )));
     }
 
-    let metrics = Metrics::read(document, dict);
+    let metrics = Metrics::read(document, &dict);
     let runs = encode(&font, request.text);
-    let mut owed = if runs.truncated {
+    if stood_in && !runs.missing.is_empty() {
+        // **A font this crate invented may not fall short.** `freetext_no_appearance.pdf` is
+        // the reason the rule is asymmetric: its value is a paragraph of Arabic, and a Latin
+        // stand-in draws its spaces and full stops and nothing else — a scatter of dots on an
+        // otherwise empty page, which is trap 1's archetype and worse than the blank the
+        // refusal leaves. Where the *document* names the font, a code it lacks is reported and
+        // the rest is drawn, because there the shortfall is the document's own choice; here it
+        // is ours, and the only honest thing an invention can do is decline.
+        return Err(Owed::FontNotInResources(font_name));
+    }
+    let mut owed = if stood_in {
+        // Named ahead of the two below: a value laid out in a font the document did not name
+        // is a different statement from one whose length fell short, and it is the one that
+        // explains the other when it follows from it.
+        Some(Owed::FontNotInResources(font_name.clone()))
+    } else if runs.truncated {
         Some(Owed::Truncated(MAX_CODES))
     } else {
         (!runs.missing.is_empty()).then_some(Owed::CharactersNotInFont(runs.missing))
@@ -324,6 +391,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     Ok(LaidOut {
         content: stream,
         owed,
+        font: stood_in.then(|| (pdf_syntax::Name::new(font_name.into_bytes()), dict)),
     })
 }
 

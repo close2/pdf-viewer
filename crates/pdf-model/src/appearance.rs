@@ -1102,7 +1102,10 @@ fn widget(
     };
 
     stream.text.push_str(&laid_out.content);
-    stream.resources = Some(default_resources(document));
+    stream.resources = Some(with_stand_in_font(
+        default_resources(document),
+        laid_out.font,
+    ));
     rotation.end(stream);
     Ok(Painted {
         drawn: true,
@@ -1361,7 +1364,7 @@ fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) 
     };
     let laid_out = variable_text::lay_out(document, &request).map_err(Refusal::Text)?;
     stream.text.push_str(&laid_out.content);
-    stream.resources = Some(resources);
+    stream.resources = Some(with_stand_in_font(resources, laid_out.font));
 
     let bordered =
         Border::read(document, annotation, annotation, "C").is_ok_and(|border| border.width > 0.0);
@@ -1373,6 +1376,34 @@ fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) 
             ))
         }),
     })
+}
+
+/// Adds the font [`variable_text::lay_out`] invented, if it invented one, to `/DR`'s resources.
+///
+/// §12.7.4.3 makes a constructed appearance's `/Resources` "created using resources from the
+/// interactive form dictionary's DR entry", and this is the one addition to that rule: a `/DA`
+/// naming a font `/DR` does not define leaves the stream saying `/Name … Tf` for a name nothing
+/// answers, so the stand-in has to arrive with it or the interpreter would report a missing
+/// resource instead of the missing definition. `/DR`'s own entry always wins, because there is
+/// only a stand-in where `/DR` had none.
+fn with_stand_in_font(
+    mut resources: Dictionary,
+    font: Option<(pdf_syntax::Name, Dictionary)>,
+) -> Dictionary {
+    let Some((name, dict)) = font else {
+        return resources;
+    };
+    let mut fonts = resources
+        .get("Font")
+        .and_then(Object::as_dict)
+        .cloned()
+        .unwrap_or_default();
+    fonts.insert(name, Object::Dictionary(dict));
+    resources.insert(
+        pdf_syntax::Name::new(b"Font".to_vec()),
+        Object::Dictionary(fonts),
+    );
+    resources
 }
 
 /// Shrinks a rectangle on all four sides, stopping at its centre line.

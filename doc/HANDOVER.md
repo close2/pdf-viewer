@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-second** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-third** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,26 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-twentieth — a *shall* about a picture the standard never draws.** ADR 0109.
-
-- **§12.5.6.4's seven icons are drawn.** `CLAUDE.md` names a text annotation's icon as its
-  standing example of a place the specification defines nothing, and that is true of the
-  *artwork* and of nothing else in the sentence: Table 175 says a processor "**shall** provide
-  predefined icon appearances for at least the following standard names". Refusing a `shall` is
-  a conformance failure, not restraint.
-- **The three neighbouring icon clauses say *should*, and one `match` arm over all four
-  subtypes had hidden the difference** — §12.5.6.12's stamp, §12.5.6.15's file attachment and
-  §12.5.6.16's sound stay refused, in the same commit, which is the control on the argument.
-- **`icon.rs` holds artwork and no PDF; `appearance::text_icon` holds the document's half** —
-  Table 175's `/Name` and Table 166's `/C`, "The background of the annotation's icon when
-  closed". A `/Name` outside the seven is reported by name rather than drawn as the default.
-- **No corpus page witnesses it, and the row that said one did was counting the wrong thing.**
-  A walk over every annotation of all 974 documents: exactly one text annotation lacks an `/AP`
-  and its `/Rect` has zero area. All 19 stamps, the 1 file attachment and the 1 sound annotation
-  carry one.
-
-`reported` falls **35 → 34**; tests 876 → 885; no gate moved.
 
 **Hundred-and-twenty-first — a clause with two populations, and a row that described one.**
 ADR 0110.
@@ -84,6 +64,30 @@ ADR 0110.
   *permits*, so a font stating it means it, and falling back would draw wrong glyphs in silence.
 
 Incomplete **90 → 89**, agreeing **840 → 841**; tests 889 → 890.
+
+**Hundred-and-twenty-third — a stand-in may not fall short.** ADR 0112.
+
+- **Half the corpus's annotation row is one thing**: a `/DA` naming a font `/DR` does not
+  define. §12.7.4.3 makes that the *writer's* `shall` and states no recovery, and this tree
+  refused the whole construction — which on a free text annotation is a blank page, because
+  §12.5.6.6 makes the text the whole of the appearance.
+- **A stand-in font is synthesised and the report names the font that was missing.** The
+  resource name is carried through as a base font name, which is a **hint rather than a
+  derivation**: a resource name is arbitrary, and `pdf_font`'s substitution ranks a name it does
+  not recognise no higher than no name at all.
+- **Then the page was looked at, and the first version was wrong.** With the stand-in in place
+  `freetext_no_appearance.pdf` drew six dots on an empty page — its value is Arabic and a Latin
+  stand-in has codes for the spaces and full stops and nothing else. **Trap 1's archetype, built
+  fresh.**
+- **So the rule is asymmetric, and that is the finding.** Where the *document* names the font, a
+  character it lacks is reported and the rest is drawn. Where *this crate* invented the font, one
+  character it cannot address declines the whole thing: an invention that cannot show what the
+  document says has no claim to be on the page.
+- **Two of the six documents now draw their fields**; four keep the blank. No gate moved, on
+  purpose — the reports stay, so the pages stay out of the judged set and the picture is the
+  only instrument that could see the change.
+
+Tests 890 → 891; no gate moved.
 
 ## How the project got here
 
@@ -210,6 +214,7 @@ below rather than here.
 | 120 | §12.5.6.4's seven icons: the *shall* hiding behind a silence about artwork | ADR 0109 |
 | 121 | §11.7.4.4's other half: a glyph filled and stroked is one object too | ADR 0110 |
 | 122 | A sweep for entries claimed unread; an `/Encoding` name that erased a font | ADR 0111 |
+| 123 | A `/DA` font `/DR` lacks is stood in for — and the stand-in must not fall short | ADR 0112 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -257,10 +262,10 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 33 `reported` rows and the notes on 242 `partial`
 ones.
 
-- **890 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **891 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece** — the fuzzers and `cargo deny` last re-run in the
-  hundred-and-nineteenth session, the rest in the hundred-and-twenty-second. (The thirteenth session found this line had been *wrong*: eleven warnings had
+  hundred-and-nineteenth session, the rest in the hundred-and-twenty-third. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
   functions.)
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and 101 318
@@ -393,7 +398,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2814 citations, 304 quotations, 180 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2817 citations, 304 quotations, 180 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -616,7 +621,7 @@ found the same shape one level up — Table 57's `/LC`, `/LJ` and `/ML` read not
 wrong caps and joins. **Where a clause gives a parameter two routes, implementing one of them is
 the failure mode that reports nothing.**
 
-There are now five places where a report accompanies drawing rather than replacing it, each
+There are now six places where a report accompanies drawing rather than replacing it, each
 deliberate. An `/AcroForm` setting `/NeedAppearances` says its stored appearances may be stale and
 we draw them anyway, because they are all the file offers (§12.7.4.3). §11.6.5.2's `/Matte` in a
 colour space whose pre-blending cannot be undone after conversion is applied, because refusing it
@@ -627,7 +632,11 @@ configuration set it and say so, because switching it off would answer a questio
 machine that nobody asked (ADR 0044). The fifth is §12.5.6.7's `/LE` and `/Cap`, which decorate
 a line the clause makes *required* while being optional themselves — **so the question to ask of
 a refusal is whether the entry it refuses is additive or substitutive**, and a cloudy `/BE`
-stays a whole refusal because a different border is not an extra mark (ADR 0106). Two different true statements; suppressing either loses
+stays a whole refusal because a different border is not an extra mark (ADR 0106). The sixth is a
+`/DA` naming a font `/DR` does not define: the value is laid out in a stand-in and the missing
+font is named, **and the stand-in declines where it cannot draw the whole value** — which is the
+half of ADR 0112 worth carrying, because the first version of it drew six dots of Arabic
+punctuation on an otherwise empty page. Two different true statements; suppressing either loses
 information. Do not generalise
 it further without the same argument.
 
@@ -1456,8 +1465,10 @@ rise is a new report and is written down as one.
   appearance stream with no `/BBox`, 1 an unknown subtype whose clause states no geometry, 1 a
   `Line` whose line endings state no size (Table 179), 1 an `Ink` with no usable `/Rect`.
   **Nothing on it is a `/NeedAppearances`, nothing is a field value, and nothing is text markup
-  any more.**
-- **The font row was 100 before ADR 0029, then 67, and is 42 documents** — recounted from the gate's own output in the eighty-ninth session. Nothing on it is a
+  any more.** The five `/DA` rows still report and **no longer draw nothing**: since the
+  hundred-and-twenty-third session the value is laid out in a stand-in wherever the stand-in can
+  show all of it, and two of the six documents gained their fields (ADR 0112).
+- **The font row was 100 before ADR 0029, then 67, and is 41 documents** — recounted from the gate's own output in the eighty-ninth session. Nothing on it is a
   `CMap` question and nothing on it is a Type 1 program: what is left is fonts with no
   `/ToUnicode` so a substitute cannot be addressed, substitutes that draw none of their declared
   codes, the 13 naming a predefined `CMap`, and malformed programs — recounted from the gate's

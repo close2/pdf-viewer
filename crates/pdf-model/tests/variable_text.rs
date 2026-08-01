@@ -346,15 +346,17 @@ fn the_default_appearance_strings_colour_is_the_texts_colour() {
     );
 }
 
-/// A `/DA` naming a font the `/DR` does not define is refused by name.
+/// A `/DA` naming a font the `/DR` does not define draws the value anyway, and says so.
 ///
 /// §12.7.4.3 makes the match a requirement — "The specified font value shall match a resource
-/// name in the Font entry of the default resource dictionary" — and states no recovery. This
-/// is the same answer a content stream naming an absent font already gets, and the reason it
-/// is a *report* rather than a substitution is that nothing maps a resource name to a typeface.
+/// name in the Font entry of the default resource dictionary" — and states no recovery for a
+/// document that breaks it. What it *does* state is that the value goes on the page, so the
+/// field is drawn in a stand-in and the report names the font the `/DR` lacked: two true
+/// statements where the refusal that stood until the hundred-and-twenty-third session made one
+/// false page. Six corpus documents write such a `/DA`, five of them naming `/Helv`.
 #[test]
-fn a_font_the_default_resources_lack_is_reported_rather_than_invented() {
-    let (reports, _) = draw(pdf_with(
+fn a_font_the_default_resources_lack_is_stood_in_for_and_named() {
+    let (reports, raster) = draw(pdf_with(
         "",
         "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
          /T (field) /V (Hi) /DA (/Nope 12 Tf 0 g) >>",
@@ -363,6 +365,32 @@ fn a_font_the_default_resources_lack_is_reported_rather_than_invented() {
     assert!(
         reports[0].contains("/Nope") && reports[0].contains("/DR"),
         "the report must name the font and where it was looked for: {reports:?}"
+    );
+    assert!(
+        !inked_columns(&raster).is_empty(),
+        "and the value must still be on the page"
+    );
+}
+
+/// A stand-in that cannot draw the value declines instead of drawing part of it.
+///
+/// The asymmetry is the finding, and `freetext_no_appearance.pdf` is where it came from: its
+/// value is a paragraph of Arabic, and a Latin stand-in draws its spaces and full stops and
+/// nothing else — a scatter of dots on an otherwise empty page, which is trap 1's archetype and
+/// worse than the blank a refusal leaves. Where the *document* names the font, a code it lacks
+/// is reported and the rest is drawn, because there the shortfall is the document's own choice.
+#[test]
+fn a_stand_in_that_cannot_draw_the_value_declines() {
+    let (reports, raster) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V <FEFF0627064406220646> /DA (/Nope 12 Tf 0 g) >>",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("/Nope"), "{reports:?}");
+    assert!(
+        inked_columns(&raster).is_empty(),
+        "a value a stand-in cannot show may not be shown in part"
     );
 }
 
