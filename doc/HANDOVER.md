@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-eighteenth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-nineteenth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,25 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-sixteenth — an optional entry must not erase what the clause states.** ADR 0106.
-
-- **A line annotation naming a `/LE` ending was declined whole**, so a file asking for an arrow
-  got no line — and Table 178 makes `/L` required and `/LE` optional with a default of
-  `[/None /None]`. Same for `/Cap` and for a polyline's `/LE`. All three are now named beside
-  the drawn line rather than instead of it: **trap 5's fifth deliberate report-with-drawing**.
-- **This is ADR 0075's correction one entry over**, in the same clause: a refusal on the true
-  observation that something cannot be derived is a reason to draw the part that can be.
-- **A cloudy `/BE` stays a whole refusal, and the difference is the rule**: an ending is an
-  extra mark, a cloudy border is a *different* border, and drawing a straight one would put a
-  shape on the page the file did not describe. **Ask whether the entry being refused is
-  additive or substitutive.**
-- **The corpus's one witness cannot show it.** `issue13447.pdf`'s arrow-ended line states an
-  `/L` a hundred points outside its own `/Rect`, so §12.5.5 clips away exactly what is now
-  drawn — two more display-list commands, a byte-identical raster, checked by stashing the
-  change. The change stands on the clause.
-
-Tests 870 → 871; no gate moved.
 
 **Hundred-and-seventeenth — a pattern is a group, and the alpha belongs to it.** ADR 0107.
 
@@ -80,6 +61,25 @@ Tests 871 → 873; no gate moved.
   own clause.
 
 `reported` falls **36 → 35**; tests 873 → 876; no gate moved.
+
+**Hundred-and-nineteenth — everything re-verified after nine sessions of change.** No ADR: a
+verification session that finds nothing has nothing to argue.
+
+- **Every gate re-run rather than inherited.** 876 tests, `clippy` silent under `pedantic` +
+  `unwrap_used`/`panic`/`arithmetic_side_effects`, `cargo fmt --check` clean, `cargo deny` clean
+  on all four checks, **all five fuzz targets clean at 50 000 runs apiece**, and the four
+  censuses unmoved: 90 incomplete of 974, 840 agreeing and 65 contradicted of 1666, 97.9% of
+  `pdftotext`'s words, 1545 dates.
+- **The two performance numbers are at their drift floors and are quoted as such.**
+  Interpretation is **2 119.5 M** against the 2 110.6 M recorded in the hundred-and-sixth
+  session — +0.42%, which is exactly the floor this file measured for *the same commit rebuilt*.
+  Against `hayro`: our total **7.08 s over 864 complete pages** against 6.99 s over 862, on an
+  afternoon when `hayro`'s own total moved 39.59 s → 41.28 s with nothing here touching it.
+  Median 2.13× against 2.14×.
+- **Nine sessions, and not one moved a gate**, which is the honest shape of what they were:
+  four ledger audits, two corrections of a refusal that was drawing nothing where a clause
+  states something, one clause read whole, one implicit group, one action. Every one of them
+  was measured on the corpus and every one of them was found by *reading*, not by a picture.
 
 ## How the project got here
 
@@ -202,6 +202,7 @@ below rather than here.
 | 116 | §12.5.6.7's `/LE` and `/Cap` named beside the line rather than instead of it | ADR 0106 |
 | 117 | §11.6.7's implicit group: a pattern's alpha belongs to the pattern | ADR 0107 |
 | 118 | §12.6.4.5's `GoToDp`, and a sweep for reasons that had expired | ADR 0108 |
+| 119 | Everything re-verified: four gates, five fuzzers, both performance numbers | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -247,8 +248,8 @@ ones.
 
 - **876 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
-  clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
-  hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
+  clean at 50 000 runs apiece** — every one of those re-run in the hundred-and-nineteenth
+  session rather than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
   functions.)
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and 101 318
@@ -1066,7 +1067,7 @@ notice one a *fallback* hides: `/FontFile` sat at a corpus count of zero while 5
 embedded one and drew a substitute in silence.
 
 **The one-line version of each track.** Demand: **65 pages we claim to draw are contradicted, 15
-of them for no reason visible on the page, and none of those is above its bound**, and **86 of
+of them for no reason visible on the page, and none of those is above its bound**, and **90 of
 974 documents still draw incompletely**, of which 42 are fonts, 13 transparency and 10
 annotations — and the fifty-ninth session's reading of the
 corpus's own issue trackers says most of that is glyph rasterisation on files chosen for having
@@ -1086,8 +1087,14 @@ the notes on 240 `partial` rows, which is where the next map has to be drawn fro
   row arriving with a whole file for evidence fails the build. What it does *not* say is that
   the right test was named — the gate cannot tell whether a named test covers the clause, and
   three of the four false claims this population hid were caught by the oracle rather than by a
-  row. **The population with no gate at all is the 235 `partial` rows**, whose notes say what
-  each owes and which nothing checks; that is where the next map has to be drawn from.
+  row.
+- **The population with no gate at all is the 240 `partial` rows**, and reading them has now
+  paid three sessions running. What to look for, in the order the findings came: a note that
+  *understates* what the code does (five in the hundred-and-fifteenth), a note whose **reason**
+  has expired — "while §X does not exist", "needs §Y" — which is the class no gate can watch
+  (the hundred-and-seventeenth and hundred-and-eighteenth), and a note whose "what IS done" half
+  is simply wrong, which is the one that costs pixels and has not yet been found in this
+  population. Roughly 190 rows remain unread against the code.
 - **A silence is not the same as a gap**, and the first move on one is neither a report nor a
   feature: work out what the clause asks *of this device*. The nineteenth session closed two
   differently — §10.7.5's `/SA` was implemented in the half a display can state and recorded as a
@@ -1228,12 +1235,18 @@ with both, alternating, best of N.
 Measured again in the **seventy-third** session, on either side of one change in one sitting —
 which is the only way this number means anything:
 
-| | hundred-and-sixth | ninety-ninth | seventy-third | sixty-fifth | fifty-eighth |
-|---|---|---|---|---|---|
-| total, ours | **6.99 s** over 862 complete pages | 7.08 s over 859 | 6.91 s over 858 | 6.20 s over 852 | 7.13 s over 852 |
-| total, `hayro` | 39.59 s | 49.03 s | 41.87 s | 34.93 s | 39.03 s |
-| **median page** | **2.14×** slower | 2.15× | 2.14× | 2.15× | 2.29× |
-| worst page | 68×, `issue19176.pdf` at 642 µs against 9.4 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 50× | 63× | 56× | |
+| | hundred-and-nineteenth | hundred-and-sixth | ninety-ninth | seventy-third | sixty-fifth | fifty-eighth |
+|---|---|---|---|---|---|---|
+| total, ours | **7.08 s** over 864 complete pages | 6.99 s over 862 | 7.08 s over 859 | 6.91 s over 858 | 6.20 s over 852 | 7.13 s over 852 |
+| total, `hayro` | 41.28 s | 39.59 s | 49.03 s | 41.87 s | 34.93 s | 39.03 s |
+| **median page** | **2.13×** slower | 2.14× | 2.15× | 2.14× | 2.15× | 2.29× |
+| worst page | 65×, `issue19176.pdf` at 1.06 ms against 16.3 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 68× | 50× | 63× | 56× | |
+
+**The hundred-and-nineteenth session's 7.08 s is not a regression against the 6.99 s beside it
+and is not comparable to it**, which is this table's standing caution rather than a new one: two
+more complete pages, a different afternoon, and `hayro`'s own total moved 39.59 s → 41.28 s with
+nothing in this tree touching it. Thirteen sessions of reading went into the interval and the one
+that touched a drawing path — §11.6.7's implicit group — is reached by no corpus page at all.
 
 **The hundred-and-sixth session's 6.99 s fell while the page count *rose*** — three pages joined
 the complete set in the hundred-and-third (ADR 0093) and the total still went down, which is that
@@ -1299,7 +1312,8 @@ is one feature — measured rather than guessed, by stubbing it out and running 
 | at the start of the seventieth-to-seventy-ninth run (`dd49639`) | 1 989.5 M |
 | with §14.7.5.4's parent tree stubbed out | 2 003.9 M — **everything else those sessions added costs 0.7% together** |
 | as the seventy-ninth session shipped it (`a9d423e`) | 2 094.9 M as measured then, **2 103.8 M when the same commit was rebuilt in the eighty-sixth** |
-| today, after ten more sessions | **2 110.6 M** — +0.33% over that rebuilt baseline, at the drift floor |
+| the hundred-and-sixth session | 2 110.6 M — +0.33% over that rebuilt baseline, at the drift floor |
+| today, after thirteen more sessions | **2 119.5 M** — +0.42% over the same baseline, still at it |
 
 **0.42% of drift on one commit with no code between two measurements** is the second time this
 project has caught its own performance number moving under it, and it widens the 0.23% floor the
