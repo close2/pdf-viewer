@@ -37,9 +37,13 @@ pub enum Location {
 }
 
 /// The cross-reference table: object numbers to locations, plus the trailer.
+///
+/// An entry may be `None`, which is a *deletion* rather than an absence: §7.5.4's `f` entries
+/// and §7.5.8.3's type 0 both say the object number names nothing, and recording that is what
+/// makes §7.5.6's "most recent copy" rule apply to a removal as well as to a replacement.
 #[derive(Debug, Clone, Default)]
 pub struct XrefTable {
-    entries: BTreeMap<u32, Location>,
+    entries: BTreeMap<u32, Option<Location>>,
     trailer: Dictionary,
     /// How the table was obtained, for diagnostics and for the comparison report.
     recovered_by_scan: bool,
@@ -49,7 +53,7 @@ impl XrefTable {
     /// Returns the location of an object, if known.
     #[must_use]
     pub fn location(&self, number: u32) -> Option<Location> {
-        self.entries.get(&number).copied()
+        self.entries.get(&number).copied().flatten()
     }
 
     /// Returns the trailer dictionary.
@@ -59,20 +63,31 @@ impl XrefTable {
     }
 
     /// Returns the number of known objects.
+    ///
+    /// A number the newest section deleted is not one of them.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries
+            .values()
+            .filter(|entry| entry.is_some())
+            .count()
     }
 
     /// Returns `true` if no objects are known.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.values().all(Option::is_none)
     }
 
     /// Returns every known object number, ascending.
+    ///
+    /// A deleted number names nothing, so it is not yielded: every caller of this is walking
+    /// the file's objects to ask each one a question.
     pub fn object_numbers(&self) -> impl Iterator<Item = u32> {
-        self.entries.keys().copied()
+        self.entries
+            .iter()
+            .filter(|(_, entry)| entry.is_some())
+            .map(|(number, _)| *number)
     }
 
     /// Returns `true` if this table was rebuilt by scanning rather than read from the file.
@@ -89,7 +104,13 @@ impl XrefTable {
     ///
     /// First writer wins, which is what makes the layered read order correct: the newest
     /// cross-reference section is read first, and older sections must not overwrite it.
-    fn add(&mut self, number: u32, location: Location) {
+    ///
+    /// `location` is `None` for a free entry, and recording that is the point rather than an
+    /// artefact of the signature. §7.5.6 says "the most recent copy of each object shall be the
+    /// one accessed from the PDF file"; an update that *deletes* an object writes a free entry
+    /// over an in-use one, so dropping free entries here would let the older section's offset
+    /// win and resurrect the object.
+    fn add(&mut self, number: u32, location: Option<Location>) {
         self.entries.entry(number).or_insert(location);
     }
 
@@ -284,7 +305,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
 
 /// One cross-reference section's entries and trailer.
 struct Section {
-    entries: Vec<(u32, Location)>,
+    entries: Vec<(u32, Option<Location>)>,
     trailer: Dictionary,
 }
 
@@ -343,14 +364,25 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                         return Some(finish(entries, input, entry_at, limits));
                     };
 
-                    // `f` marks a free entry, which names no object.
-                    if kind == b"n"
-                        && let (Ok(number), Ok(position)) = (
-                            u32::try_from(u64::from(first).saturating_add(u64::from(index))),
-                            usize::try_from(position),
-                        )
-                    {
-                        entries.push((number, Location::Offset(position.saturating_add(base))));
+                    // `f` marks a free entry: the object number names nothing *in this
+                    // section*, and it is recorded as such so that an older section cannot
+                    // fill it back in (§7.5.6). The free list's own chain — the next free
+                    // object's number, which is what `position` holds here — is a writer's
+                    // structure and nothing a reader resolves consults it.
+                    let Ok(number) =
+                        u32::try_from(u64::from(first).saturating_add(u64::from(index)))
+                    else {
+                        continue;
+                    };
+                    if kind == b"n" {
+                        if let Ok(position) = usize::try_from(position) {
+                            entries.push((
+                                number,
+                                Some(Location::Offset(position.saturating_add(base))),
+                            ));
+                        }
+                    } else if kind == b"f" {
+                        entries.push((number, None));
                     }
                 }
             }
@@ -374,7 +406,12 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
 }
 
 /// Builds a section, looking for a trailer from `offset` onwards.
-fn finish(entries: Vec<(u32, Location)>, input: &[u8], offset: usize, limits: Limits) -> Section {
+fn finish(
+    entries: Vec<(u32, Option<Location>)>,
+    input: &[u8],
+    offset: usize,
+    limits: Limits,
+) -> Section {
     let trailer = find_trailer_from(input, offset, limits).unwrap_or_default();
     Section { entries, trailer }
 }
@@ -456,56 +493,12 @@ fn read_xref_stream(
             };
             cursor = cursor.saturating_add(row);
 
-            let mut fields = [1u64, 0, 0];
-            let mut at = 0usize;
-            for (slot, &width) in widths.iter().enumerate().take(3) {
-                if width == 0 {
-                    // A zero width means "use the default", which is 1 for the type field
-                    // and 0 for the others.
-                    continue;
-                }
-                let bytes = record.get(at..at.saturating_add(width))?;
-                at = at.saturating_add(width);
-                let mut value = 0u64;
-                for &byte in bytes {
-                    value = value.saturating_mul(256).saturating_add(u64::from(byte));
-                }
-                if let Some(field) = fields.get_mut(slot) {
-                    *field = value;
-                }
-            }
-
             let Ok(number) =
                 u32::try_from(u64::from(first).saturating_add(u64::try_from(offset).unwrap_or(0)))
             else {
                 continue;
             };
-
-            match fields[0] {
-                // Type 1: an object at a byte offset.
-                1 => {
-                    if let Ok(position) = usize::try_from(fields[1]) {
-                        entries.push((number, Location::Offset(position.saturating_add(base))));
-                    }
-                }
-                // Type 2: an object inside an object stream.
-                2 => {
-                    if let (Ok(stream_number), Ok(index_in_stream)) =
-                        (u32::try_from(fields[1]), u32::try_from(fields[2]))
-                    {
-                        entries.push((
-                            number,
-                            Location::InStream {
-                                stream: stream_number,
-                                index: index_in_stream,
-                            },
-                        ));
-                    }
-                }
-                // Type 0 is a free object, and any other type is undefined and ignored
-                // per the specification's forward-compatibility rule.
-                _ => {}
-            }
+            entries.push((number, entry_location(record, &widths, base)?.location()));
         }
     }
 
@@ -513,6 +506,74 @@ fn read_xref_stream(
         entries,
         trailer: stream.dict.clone(),
     })
+}
+
+/// Reads one Table 18 record.
+///
+/// `None` is malformation — a record shorter than `/W` says it is — and is distinct from the
+/// record saying the number names nothing, which is `Entry::Deleted`. §7.5.8.2's Table 17 gives
+/// the defaults: "[a] value of zero for an element in the W array indicates that the
+/// corresponding field shall not be present in the stream, and the default value shall be used,
+/// if there is one", and of the first field specifically, "[i]f the first element is zero, the
+/// type field shall not be present, and shall default to Type 1".
+fn entry_location(record: &[u8], widths: &[usize], base: usize) -> Option<Entry> {
+    let mut fields = [1u64, 0, 0];
+    let mut at = 0usize;
+    for (slot, &width) in widths.iter().enumerate().take(3) {
+        if width == 0 {
+            continue;
+        }
+        let bytes = record.get(at..at.saturating_add(width))?;
+        at = at.saturating_add(width);
+        let mut value = 0u64;
+        for &byte in bytes {
+            value = value.saturating_mul(256).saturating_add(u64::from(byte));
+        }
+        if let Some(field) = fields.get_mut(slot) {
+            *field = value;
+        }
+    }
+
+    Some(match fields[0] {
+        // Type 1: an object at a byte offset.
+        1 => usize::try_from(fields[1]).map_or(Entry::Deleted, |position| {
+            Entry::At(Location::Offset(position.saturating_add(base)))
+        }),
+        // Type 2: an object inside an object stream.
+        2 => match (u32::try_from(fields[1]), u32::try_from(fields[2])) {
+            (Ok(stream), Ok(index)) => Entry::At(Location::InStream { stream, index }),
+            _ => Entry::Deleted,
+        },
+        // Type 0 is Table 18's free object, and of every other value §7.5.8.3 says "[a]ny other
+        // value shall be interpreted as a reference to the null object, thus permitting new entry
+        // types to be defined in the future". Both are recorded rather than skipped: an entry
+        // that resolves to null is a statement this section makes, and skipping it would let an
+        // older section answer instead.
+        _ => Entry::Deleted,
+    })
+}
+
+/// What one cross-reference entry says about an object number.
+///
+/// Written out rather than as an `Option<Location>` because the distinction the reader needs is
+/// between "this section has no opinion" — which is a number absent from the section altogether —
+/// and "this section says nothing is there", and only the second is an `Entry`.
+enum Entry {
+    /// The object is at this location.
+    At(Location),
+    /// The number names nothing: §7.5.4's `f`, Table 18's type 0, or a type this version of PDF
+    /// has no meaning for.
+    Deleted,
+}
+
+impl Entry {
+    /// The location this entry names, if it names one.
+    fn location(self) -> Option<Location> {
+        match self {
+            Self::At(location) => Some(location),
+            Self::Deleted => None,
+        }
+    }
 }
 
 /// Decodes a stream using only direct values from its own dictionary.
@@ -653,7 +714,7 @@ fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
     }
 
     for (number, offset) in latest {
-        table.entries.insert(number, Location::Offset(offset));
+        table.entries.insert(number, Some(Location::Offset(offset)));
     }
     table
 }

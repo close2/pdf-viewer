@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-ninth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-tenth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,24 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-seventh — a table that parses is not a table that works.** Two recovery rules, both
-from the file's own declarations, and the corpus's biggest movement in twenty sessions. ADR 0097.
-
-- **§7.5.5: a cross-reference table that leads to no catalog has been disproved by the file
-  itself.** `xref::read` scanned only when the table was *absent, unreadable or empty*, which left
-  the case a hand edit produces — complete, self-consistent, and pointing a few bytes wrong.
-  `Document::open` now rebuilds once and keeps the result only if it does better.
-- **Table 31: a page is an object that says it is one.** Where the *tree* yields nothing, every
-  object declaring `/Type /Page` is asked instead, with §7.7.3.4's inheritance applied up its own
-  `/Parent` — the tree failing downwards does not stop `/Parent` working upwards, and that is
-  where a recovered page's `/MediaBox` and `/Resources` come from.
-- **11 → 5 documents with no page one**; the oracle's `no render` count 25 → 19; agreeing
-  839 → 840 with `issue18986.pdf` joining it; contradicted 65 unchanged.
-- **86 → 90 incomplete, and the rise is the point** — four of the new pages report something and
-  they are pages that were not being counted at all.
-- **`corpus.rs` had named and priced this four sessions before anybody took it**, which is the
-  read-your-own-lists habit paying again.
 
 **Hundred-and-eighth — auditing the population where a false claim can hide.** ADR 0098.
 
@@ -72,6 +54,29 @@ from the file's own declarations, and the corpus's biggest movement in twenty se
   *table* rather than the clause title is what tells those apart.
 
 `reported` falls 49 → 48.
+
+**Hundred-and-tenth — a deletion is a copy of an object.** The §7.5 half of the file-only
+evidence population audited, and the audit found code rather than prose. ADR 0100.
+
+- **§7.5.6's "most recent copy" rule was applied to two of the three things an update section can
+  say.** The clause's own list is "changed, replaced, or deleted", and a deletion is a free entry
+  over an in-use one while "[d]eleted objects shall be left unchanged in the PDF file" — so the
+  bytes are still there. Free entries were not recorded at all, so they were a *silence* rather
+  than an answer, and the older section filled the gap: **the reader resurrected what the file had
+  deleted.**
+- **§7.5.8.3's "[a]ny other value shall be interpreted as a reference to the null object" had
+  the same defect and the same cause.** Skipping such an entry hands the question to an older
+  section, which is not the null object. An entry is now `Option<Location>`, and `None` blocks an
+  older section exactly as a location does.
+- **Three corpus documents delete an object and none of the three still references it**, so all
+  three pages are byte-identical either way — checked by rendering with the change stashed.
+  `prefilled_f1040.pdf` deletes three form-field appearance streams and `issue13520.pdf` an
+  image, which is what the defect looked like when it was invisible.
+- **§7.5.8.4's hybrid ordering is the one place §7.5.6's rule must *not* apply**, and the two
+  compose for free: the free entry is in a section the ordering reaches after the stream.
+- **Ten tests, seven of them confirmed to fail by breaking the thing they guard.**
+
+`FILE_ONLY_EVIDENCE_CEILING` falls **49 → 40**; tests 840 → 850.
 
 ## How the project got here
 
@@ -185,6 +190,7 @@ below rather than here.
 | 107 | Two recovery rules from the file's own declarations: 11 pageless → 5 | ADR 0097 |
 | 108 | §7.10 audited out of the file-only evidence population, and two claims corrected | ADR 0098 |
 | 109 | §12.6.4.15's transition action, which is §12.4.4's table at a different moment | ADR 0099 |
+| 110 | §7.5's free entries: an update that deletes an object is no longer undone | ADR 0100 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -227,7 +233,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 48 `reported` rows and the notes on 235 `partial`
 ones.
 
-- **840 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **850 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
   hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -361,7 +367,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2623 citations, 252 quotations, 168 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2672 citations, 266 quotations, 172 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -409,7 +415,7 @@ the exception with its reasoning. Nothing to chase.
 | Crate | Does | Notes |
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
-| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `date.rs` is §7.9.4's date string — beside `text_string.rs` because NOTE 1 makes a date a *text string* that happens to spell one, with an ordering by the instant because §12.3.5.1's Table 156 sorts a collection by one (ADR 0092). `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees, one module because the second clause defines itself as the first with integer keys — `lookup` for a caller with a key, `name_pairs`/`number_pairs` for one without, and `name_entries` for §12.7.7's named pages, which need the leaf's *reference* rather than what it resolves to — the component the conformance ledger found by four `silent` rows in two clauses naming it (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings. `object.rs` is §7.3.1's nine basic types plus the reference that labels any of them, and `parser.rs` is where §7.3.7 drops a null-valued entry and keeps the first of a duplicated key. `filter.rs` is §7.4's ten standard filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately answered `None` so a *content* stream naming one is visibly unsupported |
+| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `date.rs` is §7.9.4's date string — beside `text_string.rs` because NOTE 1 makes a date a *text string* that happens to spell one, with an ordering by the instant because §12.3.5.1's Table 156 sorts a collection by one (ADR 0092). `crypt.rs` is §7.6's standard security handler — every algorithm the clause numbers, written against its own subclause; `document.rs` is where §7.6.2 decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees, one module because the second clause defines itself as the first with integer keys — `lookup` for a caller with a key, `name_pairs`/`number_pairs` for one without, and `name_entries` for §12.7.7's named pages, which need the leaf's *reference* rather than what it resolves to — the component the conformance ledger found by four `silent` rows in two clauses naming it (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is a code-to-Unicode table and so belongs here rather than beside `pdf-font`'s glyph-name encodings. `object.rs` is §7.3.1's nine basic types plus the reference that labels any of them, and `parser.rs` is where §7.3.7 drops a null-valued entry and keeps the first of a duplicated key. `filter.rs` is §7.4's ten standard filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately answered `None` so a *content* stream naming one is visibly unsupported. `xref.rs` is §7.5 whole, and the one thing to know about it is that an entry is an `Option<Location>`: a free entry and an entry type this version of PDF has no meaning for both *record* that the number names nothing, because §7.5.6 makes a deletion the most recent copy of an object and skipping it would let an older section answer instead (ADR 0100) |
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3 fonts, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` is where a missing appearance is *constructed* from what its subtype's clause states, where a stored one is *spliced* under `/NeedAppearances`, and where the refusals are argued (ADRs 0030, 0032). `named_page.rs` is §12.7.7's two page-naming trees — the one place a page reaches this program from outside the page tree, with the clause's own four invariants checked against the document (ADR 0091). `action.rs` is §12.6's twenty action types, ten of which are performed — the seventh, §12.7.6.3's reset, being the first whose effect is ink rather than which page is shown (ADR 0087), and the eighth, §12.7.6.4's import, being the first that needs a *second file* — with `forms_data.rs` holding §12.7.8's Forms Data Format, which is that file: Tables 244 to 254 read through the same lexer and parser a PDF uses, since §12.7.8.1's four differences from clause 7 are all relaxations, and the values matched to widgets by §12.7.4.2's fully qualified name (ADR 0090). `uri.rs` sits beside them holding RFC 3986's reference resolution and no PDF at all (ADR 0070), `requirements.rs` is §12.11's requirements and §7.12's extensions — what a document says it needs, printed when it opens rather than reported per page, for the reason §12.11.6's own NOTE 1 gives (ADR 0074), `navigation.rs` is §12.4.4's whole presentation — Table 164's transition, `/Dur` and the `/PresSteps` list — read as data because a slide show is a window's job and its input is the document's, and `view.rs` is the `ViewState` that performs them — the one thing in this crate that is neither the document nor the page, because a layer a click switched off is not in the file (ADR 0065). `structure.rs` is §14.7 whole — the parent tree upwards, `Tree` downwards, §14.7.6's attributes with both of their precedence rules, PDF 2.0's namespaces with §14.8.6.2's role mapping, §14.8.2.2's artifacts, and §14.8.2.5's logical content order, which is the *other* order a tagged page has and the one its author meant (ADRs 0072, 0073, 0084). `accessibility.rs` is §14.9 and holds no PDF at all — it is the three substitution rules and §14.9.2.3's language hierarchy over spans, which is where they belong because the clause states them over *adjacency* and a concatenated string has thrown that away (ADR 0063). `variable_text.rs` is §12.7.4.3 and the one place in the tree that writes a content stream rather than reading one — it knows nothing about annotations or field types, only about a string, a box and a `/DA`. `soft_mask.rs` reads Table 142 and nothing else. `optional_content.rs` answers "is this layer on". `type3.rs` reads a font whose glyphs are content streams. `inline_image.rs` turns `BI` … `EI` into the stream an image `XObject` would have been. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused; its `Decode` is §8.9.5.2's map held as one table per component and its `Conversion` is an *exact* per-image memo, which is what makes converting every image through its real colour space affordable (ADRs 0034, 0035). `page.rs` is §7.7.3: the tree walk, the four inheritable entries and the twelve that are not, `/UserUnit` (ADR 0038), and §14.11.2's five boundaries — of which `display_box` and `clip_box` are the two §12.2's `/ViewArea` and `/ViewClip` name, read by `viewer_preferences.rs` (ADR 0071). `signature.rs` is §12.8's signatures read and never verified — Table 255, §12.8.6's permissions, and `coverage`, which compares a `/ByteRange` with the file's length and is the one thing a renderer can say about a signature on its own evidence (ADR 0088). `attachment.rs` is §7.11.4's embedded files and §14.13's associated ones, listed and never written out (ADRs 0076, 0077). `collection.rs` is §12.3.5's portable collections — the columns, the sort, the folder tree, and §12.3.5.2's convention of writing a folder's identifier into an embedded file's *name* (ADR 0083). `measurement.rs` is §12.9's viewports and §12.10's geospatial dictionaries — the scale a drawing is at and the earth a map is of, with §12.9.2's five-step formatting algorithm and no transformation, because a projection is an EPSG registry and ISO 19162 rather than a clause (ADR 0082). `thumbnail.rs` is §12.3.4's `/Thumb` — the one image in this tree decoded from a dictionary with entries *removed*, since the clause makes eighteen of Table 87's insignificant (ADR 0081). `article.rs` is §12.4.3's threads — the one linked list in this tree that is a *ring*, so the visited set is how a well-formed walk ends rather than how a broken one is survived, and Table 31's page `/B` is read only to be checked against it (ADR 0080). `page_label.rs` is §12.4.2 in full over `pdf-syntax`'s number tree — the clause's four traps are no default numbering style, letters that repeat rather than carry, subtractive Roman numerals and a `/St` floor of 1, and its own worked example is the test |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2 for name-keyed programs, §9.6.5.4 for `TrueType`, ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code — glyph by name, glyph by built-in code, and that code's name — and `cff.rs` and `type1.rs` each produce one, because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is §9.9's `/FontFile` and is the one program kept *parsed*, measured: re-parsing per distinct glyph put 11 ms on `tracemonkey.pdf`. `simple_code_table` takes no font descriptor, which is the shape of ADR 0039's finding: Table 112 makes an *embedded* program's own built-in encoding the base, and the Symbolic flag decides only among the cases where nothing is embedded. `DEFAULT_WIDTH` is Table 120's 0 rather than a preference. `code_for` is the one *backwards* route — a character to the code that draws it — and it is built by running the forward mapping over every code the font defines, so the two cannot disagree. `cff.rs` adapts `read-fonts`; `encoding.rs` is Annex D data; `substitute.rs` is the only machine-dependent code in the tree, and it now ranks three sources of a substitution request with an argument for the ranking — the font's name, then §9.8.3.2's PANOSE classification in `panose.rs`, then Table 121's flags, which producers set carelessly (ADR 0086). `cmap.rs` is §9.7's composite encoding, where `Code` carries a value *and* a length because the clause looks a code up "in the character code mappings for codes of that length" (ADR 0029). Deliberately not `tounicode.rs`: same file format, different destination. A Type 3 font is refused here |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot make them differently: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `soft_mask.rs` turns rendered pixels into §11.5's mask values. `Command::Group` is the one nested command (ADR 0026) and `impose_on_medium` is §11.4.7. `Path::extend_transformed` is the one place geometry moves rather than travelling with a transform (§9.3.6, ADR 0022). `MeshRaster` is §8.7.4.5.5's Gouraud interpolation, evaluated per device pixel and shared by both backends because neither rasteriser has the primitive and a second copy would only drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
@@ -646,6 +652,12 @@ signature dictionary, twenty-six carry an `/Encrypt`, and the two sets are disjo
 thing defending it is one synthetic test. **That turns "the corpus does not cover this" from a
 suspicion into a fact — sometimes for the price of a gate run, sometimes for the price of a
 question about what the corpus contains.**
+
+**And there is a fourth shape: a rule the corpus *does* exercise and cannot show you.** Three
+documents delete an object in an incremental update (§7.5.6) and none of the three still
+references what it deleted, so a reader that resurrects a deleted object renders all three
+byte-identically. `crates/pdf-syntax/tests/cross_references.rs` is where §7.5's rules are pinned
+by hand for that reason, each as a *pair* of files differing only in the rule.
 
 This trap is why `CLAUDE.md` principle 5 defines *done* against the specification with a closed
 exclusion list, and why the conformance ledger exists. A caution that changes no plan changes
@@ -1054,11 +1066,15 @@ the notes on 235 `partial` rows, which is where the next map has to be drawn fro
 - **Keep `REVIEW_OWED` empty.** A clause the code cites and nobody has read is the cheapest debt
   this project can accrue, and the list fails the build the moment one appears.
 - **`FILE_ONLY_EVIDENCE_CEILING` is the ledger's own next piece of work, and it has started.**
-  **49** `implemented` rows name a whole test *file* as their evidence, which passes whatever it
-  contains — down from 58 in the hundred-and-eighth session, which audited §7.10's ten and found
-  the sampled-function row wrong twice (ADR 0098). Three rows found wrong before that all had this
-  shape and all three were caught by the oracle; the fourth was a `/Order` nothing draws, which no
-  page could ever have caught. The number may only fall.
+  **40** `implemented` rows name a whole test *file* as their evidence, which passes whatever it
+  contains — down from 58 over the hundred-and-eighth and hundred-and-tenth sessions, which
+  audited §7.10's ten and §7.5's nine and found something wrong in each (ADRs 0098, 0100). Three
+  rows found wrong before those all had this shape and all three were caught by the oracle; the
+  fourth was a `/Order` nothing draws and the fifth was §7.5.6's rule not reaching a deletion,
+  and **no page could ever have caught either**. The number may only fall. What is left, by
+  clause: **8** has seventeen (four in §8.6's colour spaces, six in §8.7's shadings, five in
+  §8.9's images, `8.6.6.2` and `8.11.3`), **7** has thirteen (`7.3`'s objects, `7.4`'s filters,
+  `7.7`'s page tree), **11** four, **9** three, **14** two, **10** one.
 - **A silence is not the same as a gap**, and the first move on one is neither a report nor a
   feature: work out what the clause asks *of this device*. The nineteenth session closed two
   differently — §10.7.5's `/SA` was implemented in the half a display can state and recorded as a
@@ -1850,6 +1866,13 @@ cache timeouts is unarguable in principle and left two pages accounting for 46 o
 *subsystem* reports, because whoever decided not to build it wrote the report. What ships is the
 gap *inside* something implemented — `Tr` with four modes silently absent, `/Decode` read on four
 routes out of five. **A fast path inherits none of the rules of the path it skips.**
+
+**A "nothing here" is data, and dropping it is not the same as recording it.** §7.5's free
+entries and §7.5.8.3's undefined entry types both say an object number names nothing; both were
+*skipped* rather than recorded, so the question fell through to an older cross-reference section
+and the reader resurrected objects their own file had deleted. Neither could be seen on a page,
+because the next thing to run produced a plausible answer. Ask what a `continue`, a dropped
+branch or an unmatched arm hands the question *to*. ADR 0100.
 
 **The archetype is the `d` operator.** Every layer of dashing existed and one line read only the
 *empty* array, so not one dashed line in 974 documents. When a feature looks finished, check the
