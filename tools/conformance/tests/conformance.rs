@@ -53,7 +53,16 @@ const UNREVIEWED_CEILING: usize = 0;
 /// row naming `file.rs` is a claim nothing checks. The gate cannot tell whether a named test
 /// *covers* the clause, so this is a count rather than a rule; what it does is keep the
 /// population where a false claim can hide from growing, and say how large it is.
-const FILE_ONLY_EVIDENCE_CEILING: usize = 58;
+///
+/// **58 to 49 in the hundred-and-eighth session, and the eight audited were not merely renamed.**
+/// §7.10's ten rows all named `tests/shadings.rs`; `function.rs` already had unit tests for the
+/// exponential, stitching and PostScript halves, which only had to be *cited*. The sampled half
+/// had none, and writing one found the row wrong twice over: it claimed "all five of Table 39's
+/// sample widths" where the table lists **eight**, and Table 39's `/Order` — "1 and 3, specifying
+/// linear and cubic spline interpolation" — turned out to be read nowhere at all, a silent
+/// departure inside a row that said `implemented`. That is the third time this population has
+/// hidden a false claim, and the first time an audit rather than the oracle found one.
+const FILE_ONLY_EVIDENCE_CEILING: usize = 49;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///

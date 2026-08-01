@@ -1373,6 +1373,83 @@ mod tests {
         assert!(function.breakpoints().is_empty());
     }
 
+    /// Table 39's eight `/BitsPerSample` widths, each read back as the value it encodes.
+    ///
+    /// §7.10.2, Table 39:
+    ///
+    /// > Valid values shall be 1 , 2 , 4 , 8 , 12 , 16 , 24 , and 32 .
+    ///
+    /// **Eight**, and the ledger's row said five for several sessions — which is the shape a row
+    /// naming a whole test *file* as its evidence lets through, and why this test exists. Each
+    /// width is checked at both ends of a two-sample table, because the sample-to-output map is
+    /// `Interpolate(sample, 0, 2^BitsPerSample − 1, …)` and a width read wrongly moves the
+    /// divisor rather than the samples: the endpoints are exactly where that shows.
+    ///
+    /// A width the clause does not list is refused rather than rounded to the nearest one.
+    #[test]
+    fn every_width_table_39_lists_is_read_and_no_other() {
+        /// Two samples, first all zero bits and second all one bits, at `bits` wide.
+        fn two_samples(bits: u32) -> String {
+            // `0` then `2^bits − 1`, packed big-endian and byte-aligned at the end: for every
+            // width the clause lists, two samples occupy a whole number of bytes.
+            let total = (bits as usize).saturating_mul(2).div_ceil(8);
+            let mut bytes = vec![0u8; total];
+            // The second sample's bits are the trailing `bits` of the buffer.
+            for index in 0..bits as usize {
+                let at = (bits as usize).saturating_add(index);
+                if let Some(byte) = bytes.get_mut(at / 8) {
+                    *byte |= 0x80 >> (at % 8);
+                }
+            }
+            bytes.iter().fold(String::new(), |mut out, byte| {
+                use std::fmt::Write as _;
+                let _ = write!(out, "{byte:02X}");
+                out
+            })
+        }
+
+        for bits in [1u32, 2, 4, 8, 12, 16, 24, 32] {
+            let hex = two_samples(bits);
+            let source = format!(
+                "%PDF-1.7\n1 0 obj\n<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] \
+                 /BitsPerSample {bits} /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\n\
+                 endstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n",
+                hex.len().saturating_add(1)
+            );
+            let document = pdf_syntax::Document::open(source.into_bytes()).expect("opens");
+            let object = document.get(pdf_syntax::ObjectId {
+                number: 1,
+                generation: 0,
+            });
+            let function = Function::parse(&document, &object)
+                .unwrap_or_else(|error| panic!("/BitsPerSample {bits}: {error}"));
+            assert_eq!(
+                function.eval(&[0.0]),
+                vec![0.0],
+                "{bits} bits at the low end"
+            );
+            assert_eq!(
+                function.eval(&[1.0]),
+                vec![1.0],
+                "{bits} bits at the high end"
+            );
+        }
+
+        // Not a value the clause lists, so not a function.
+        let source = "%PDF-1.7\n1 0 obj\n<< /FunctionType 0 /Domain [0 1] /Range [0 1] \
+                      /Size [2] /BitsPerSample 5 /Length 1 >>\nstream\n\x00\nendstream\nendobj\n\
+                      trailer\n<< /Root 1 0 R >>\n";
+        let document = pdf_syntax::Document::open(source.as_bytes().to_vec()).expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 1,
+            generation: 0,
+        });
+        assert!(
+            Function::parse(&document, &object).is_err(),
+            "5 is not a width"
+        );
+    }
+
     /// A nested stitching function's bounds come back in the *outer* domain.
     ///
     /// This is `issue10572.pdf`'s shape reduced to two bands: an outer type 3 over `[-2, 2]`

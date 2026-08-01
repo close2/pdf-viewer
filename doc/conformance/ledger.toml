@@ -901,7 +901,7 @@ clause = "7.10"
 title = "Functions"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/src/function.rs::every_width_table_39_lists_is_read_and_no_other", "crates/pdf-model/tests/shadings.rs"]
 note = "All four function types, which this tree needs more than most readers do: §8.7's shadings evaluate one per sample, §8.6.6's `Separation` and `DeviceN` tint transforms are functions, and §10.5's transfer functions and §11.5's `/TR` are too. **1501 of 1501 functions in the corpus parse**, which the corpus gate asserts by name. The clause's own framing is what makes them cacheable: \"[f]unctions in PDF represent static, self-contained numerical transformations\" — no state, so `Ramp` can sample one 256 times and keep the answers."
 
 [[clause]]
@@ -909,23 +909,23 @@ clause = "7.10.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/src/function.rs::an_exponential_function_interpolates_between_its_endpoints", "crates/pdf-model/tests/shadings.rs"]
 note = "The framing, `/Domain` and `/Range`, and the clipping rule they carry: an input outside `/Domain` is clipped to it before evaluation and an output outside `/Range` is clipped after. Both are applied to every type here, which is where a first implementation loses a shading's end colours."
 
 [[clause]]
 clause = "7.10.2"
 title = "Type 0 (sampled) functions"
-status = "implemented"
+status = "partial"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
-note = "Type 0, sampled: `/Size`, `/BitsPerSample`, `/Encode`, `/Decode` and the samples themselves, with multilinear interpolation between them. All five of Table 39's sample widths are read, as §8.9.5.1's Table 87 widths are for an image, and for the same reason — a bit depth nobody writes is still a bit depth the clause permits."
+test = ["crates/pdf-model/src/function.rs::every_width_table_39_lists_is_read_and_no_other", "crates/pdf-model/tests/shadings.rs"]
+note = "Type 0, sampled: `/Size`, `/BitsPerSample`, `/Encode`, `/Decode` and the samples themselves. **This row said `implemented` and named a whole test file, and auditing that population in the hundred-and-eighth session found two things wrong with it.** It said \"all five of Table 39's sample widths\"; the table says \"[v]alid values shall be 1 , 2 , 4 , 8 , 12 , 16 , 24 , and 32\", which is **eight**, and the code reads all eight — now checked by a test that encodes two samples at each width and reads both ends back. And Table 39's `/Order` is **not read at all**: \"[v]alid values shall be 1 and 3, specifying linear and cubic spline interpolation\", and this tree interpolates multilinearly whatever the entry says. That is a departure rather than a refusal, because the clause names a *cubic spline* and states no spline — refusing would lose a valid document over an entry whose algorithm the standard does not give. Measured over the corpus: **956 type-0 functions in 26 documents, 955 at 8 bits and 1 at 16, and not one states `/Order 3`** — so the departure is invisible in every file we have, which is why it is recorded here rather than reported per page."
 
 [[clause]]
 clause = "7.10.3"
 title = "Type 2 (exponential interpolation) functions"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/src/function.rs::an_exponential_function_interpolates_between_its_endpoints", "crates/pdf-model/tests/shadings.rs"]
 note = "Type 2, exponential interpolation: `/C0`, `/C1` and `/N`, which is the two-colour ramp most axial and radial shadings are made of. One line of arithmetic and the most frequently evaluated function in the corpus."
 
 [[clause]]
@@ -933,7 +933,7 @@ clause = "7.10.4"
 title = "Type 3 (stitching) functions"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/src/function.rs::a_nested_stitching_functions_steps_map_to_the_outer_domain", "crates/pdf-model/tests/shadings.rs"]
 note = "Type 3, stitching: `/Functions`, `/Bounds` and `/Encode`, a one-input function assembled from a row of others. The subclause's own edge — a subdomain of zero width, where two bounds coincide — is what a naive implementation divides by."
 
 [[clause]]
@@ -941,7 +941,7 @@ clause = "7.10.5"
 title = "Type 4 (PostScript calculator) functions"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/src/function.rs::arithmetic_follows_postscript_stack_order", "crates/pdf-model/tests/shadings.rs"]
 note = "Type 4, the PostScript calculator: a small language, evaluated here rather than approximated. It is what `Separation` and `DeviceN` tint transforms are usually written in, and `postscript_type4_many_outputs.pdf` is the corpus's controlled experiment on it (see `oracle.rs`'s `CONTRADICTED_DEVICE_CMYK_CONVERSION`, which used it to prove something about `DeviceCMYK` instead)."
 
 [[clause]]
@@ -949,7 +949,7 @@ clause = "7.10.5.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/src/function.rs::a_program_with_an_unknown_operator_is_refused", "crates/pdf-model/tests/shadings.rs"]
 note = "The framing: a program in braces, with the input on the stack and the output taken from the top."
 
 [[clause]]
@@ -957,7 +957,7 @@ clause = "7.10.5.2"
 title = "Operators and operands"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/src/function.rs::stack_operators_move_what_they_say", "crates/pdf-model/tests/shadings.rs"]
 note = "Table 42's operators, which is the whole language: arithmetic, the relational and boolean set, `if` and `ifelse`, and the stack operators `dup`, `exch`, `pop`, `copy`, `index` and `roll`. The clause bounds the stack at 100 entries, which is a bound this tree applies rather than a suggestion — a program that pushes without limit is a decompression bomb written in another notation."
 
 [[clause]]
@@ -965,7 +965,7 @@ clause = "7.10.5.3"
 title = "Type 4 function dictionary"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/src/function.rs::a_tint_transform_shaped_program_evaluates", "crates/pdf-model/tests/shadings.rs"]
 note = "The type 4 function's own dictionary, which is a stream: `/Domain`, `/Range` and the program as the stream's data. `/Range` is *required* here and is not for every type, and it is what says how many of the stack's values are outputs — which `postscript_type4_many_outputs.pdf` is named after, since its program leaves more values than its `/Range` takes."
 
 [[clause]]

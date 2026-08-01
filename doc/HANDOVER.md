@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-seventh** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-eighth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,23 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-fifth — which way up a widget is, and what a redaction is not.** Two rows of
-§12.5.6, and they are opposite kinds of thing. ADR 0095.
-
-- **Table 192's `/R` is drawn.** A constructed appearance is in the page's own space, so the turn
-  is a `cm` in the stream rather than a `/Matrix`; the contents are laid out in a box at the
-  origin whose sides are `/Rect`'s *swapped*, so §12.7.4.3's wrapping sees the width the text
-  actually has. A value that is not a multiple of 90 is refused rather than rounded.
-- **§12.5.6.23's overlay is not an appearance.** Every one of Table 195's six overlay entries says
-  "after the affected content has been removed", and the clause makes removal a rewrite of the
-  document — which `CLAUDE.md` excludes. The row had it backwards for several sessions and so did
-  this file.
-- **The row cited Table 193, which exists and is the watermark annotation's.** The checker now
-  prints every table the *ledger* cites with its title, which is the twentieth session's mechanism
-  applied to the one input it had been left out of.
-
-`reported` falls 50 → 49. No gate moved.
 
 **Hundred-and-sixth — a fifth fuzzer, and everything re-run.** ADR 0096.
 
@@ -68,6 +51,24 @@ from the file's own declarations, and the corpus's biggest movement in twenty se
   they are pages that were not being counted at all.
 - **`corpus.rs` had named and priced this four sessions before anybody took it**, which is the
   read-your-own-lists habit paying again.
+
+**Hundred-and-eighth — auditing the population where a false claim can hide.** ADR 0098.
+
+- **§7.10's ten rows all named `tests/shadings.rs`**, which is `FILE_ONLY_EVIDENCE_CEILING`'s
+  whole subject: "[a] row naming `file.rs::a_test` is a claim something would fail if it stopped
+  being true. A row naming `file.rs` is a claim nothing checks."
+- **The sampled-function row was wrong twice.** It said "all five of Table 39's sample widths"
+  where the table lists **eight**; and Table 39's `/Order` — linear or cubic spline — is read
+  **nowhere at all**, a silent departure inside a row that said `implemented`.
+- **The departure stays a departure**: the clause names a cubic spline and states no spline, and
+  refusing would lose a valid document. Measured first — 956 type-0 functions in 26 documents,
+  955 at eight bits and one at sixteen, **not one stating `/Order 3`** — so it is recorded rather
+  than reported.
+- **Three false claims in this population were found by the oracle, on a page. This one no page
+  could have caught**, and the only instrument for those is reading the row against the clause and
+  then against the code.
+
+`FILE_ONLY_EVIDENCE_CEILING` falls **58 → 49**.
 
 ## How the project got here
 
@@ -179,6 +180,7 @@ below rather than here.
 | 105 | Table 192's `/R` drawn; §12.5.6.23's overlay read as writer-side | ADR 0095 |
 | 106 | A fifth fuzz target for §12.7.8 and §7.9.4; everything re-verified | ADR 0096 |
 | 107 | Two recovery rules from the file's own declarations: 11 pageless → 5 | ADR 0097 |
+| 108 | §7.10 audited out of the file-only evidence population, and two claims corrected | ADR 0098 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -218,10 +220,10 @@ vocabulary, §7.11.4's embedded files and §14.13's associated ones, §12.2's vi
 PDF *viewer* in the full sense — nothing edits a field, asks a person for a password, speaks a
 page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: **not
 one of the ledger's 823 rows is `silent`**, so nothing in the eight technical clauses is missing
-without the tree saying so. What is owed is 49 `reported` rows and the notes on 233 `partial`
+without the tree saying so. What is owed is 49 `reported` rows and the notes on 234 `partial`
 ones.
 
-- **838 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **839 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
   hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -848,8 +850,8 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 359 | every normative requirement in the clause is executed |
-| `partial` | 233 | some are; the note says which are not |
+| `implemented` | 358 | every normative requirement in the clause is executed |
+| `partial` | 234 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -859,7 +861,7 @@ this code.
 **The `silent` count is zero**, for the first time since the ledger was built in the ninth
 session. Read it narrowly, because it is a narrow claim: **there is no requirement in the eight
 technical clauses that this program fails without saying so.** It is not "the standard is
-implemented" — `partial` and `reported` are 282 rows between them and each names what it owes.
+implemented" — `partial` and `reported` are 283 rows between them and each names what it owes.
 
 **These counts come from `cargo run -p conformance --bin ledger`, which prints them, and not from
 arithmetic in this file**: the ninety-ninth session's entry said fourteen silences where the
@@ -978,7 +980,7 @@ parts that make a document *interactive* have just started.
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
 rows in the fifty-sixth session, and reached zero `silent` ones in the hundred-and-first — so the
-specification track is now its **49 `reported` rows and the notes on its 233 `partial` ones**,
+specification track is now its **49 `reported` rows and the notes on its 234 `partial` ones**,
 each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -1041,15 +1043,18 @@ hard fonts, which the sixty-eighth session then measured on one of them. The lar
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
 and the debt is **0 `silent` and 49 `reported`, down from 201 twenty-five sessions ago** — plus
-the notes on 233 `partial` rows, which is where the next map has to be drawn from.
+the notes on 234 `partial` rows, which is where the next map has to be drawn from.
 
 ### 0. The ledger, and where a false claim can still hide
 
 - **Keep `REVIEW_OWED` empty.** A clause the code cites and nobody has read is the cheapest debt
   this project can accrue, and the list fails the build the moment one appears.
-- **`FILE_ONLY_EVIDENCE_CEILING` is the ledger's own next piece of work.** 58 `implemented` rows
-  name a whole test *file* as their evidence, which passes whatever it contains — and three rows
-  found wrong in this run all had that shape. The number may only fall.
+- **`FILE_ONLY_EVIDENCE_CEILING` is the ledger's own next piece of work, and it has started.**
+  **49** `implemented` rows name a whole test *file* as their evidence, which passes whatever it
+  contains — down from 58 in the hundred-and-eighth session, which audited §7.10's ten and found
+  the sampled-function row wrong twice (ADR 0098). Three rows found wrong before that all had this
+  shape and all three were caught by the oracle; the fourth was a `/Order` nothing draws, which no
+  page could ever have caught. The number may only fall.
 - **A silence is not the same as a gap**, and the first move on one is neither a report nor a
   feature: work out what the clause asks *of this device*. The nineteenth session closed two
   differently — §10.7.5's `/SA` was implemented in the half a display can state and recorded as a
