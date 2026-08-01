@@ -16,3 +16,9 @@
 
 # Claude Code local settings (per-user, not shared).
 .claude/settings.local.json
+
+# A local checkout of another renderer, kept beside the tree for comparison and not
+# vendored into it: 93 218 lines of third-party source with C, CUDA and Vulkan
+# dependencies this project does not take. What was measured from it is in ADR 0136,
+# which is the part that has to survive the directory being deleted.
+/doc/rasterrocket

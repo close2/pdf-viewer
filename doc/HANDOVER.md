@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fifty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-fifty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -65,7 +65,7 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything in this row re-run in session 153, the fuzzers included |
+| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | the fuzzers and `deny` last in session 153; tests, `clippy` and `fmt` re-run in 154, where `--all-targets` found one warning in `glyph_reuse.rs` that session 153 had claimed away |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 11 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -548,8 +548,11 @@ diagnose may be a font nobody has looked up.**
 
 ### 4. Performance
 
-**One fair comparison exists.** Every other renderer here is C; `hayro` is Rust, forbids unsafe,
-and rasterises on the CPU single-threaded as we do.
+**One fair comparison exists, and a second Rust renderer was tried and is not one.** Every other
+renderer here is C; `hayro` is Rust, forbids unsafe, and rasterises on the CPU single-threaded as
+we do. `rasterrocket` is Rust too and fails all three of the other conditions — 335 `unsafe` sites,
+CUDA and Vulkan, and no way to start the clock inside its process. ADR 0136, and the summary is
+below.
 
 | | 139th | 125th | 119th | 106th | 99th | 73rd | 65th | 58th |
 |---|---|---|---|---|---|---|---|---|
@@ -565,6 +568,41 @@ which is also why the 6.04 s was never an improvement on the 7.08 s beside it. I
 render, because their distribution has a long tail and ours no longer does; the totals and the
 median answer different questions and only quoting both is honest. We are faster on 103 of the
 863.
+
+**`rasterrocket` compared, in the hundred-and-fifty-fourth session, and the whole of it is ADR
+0136.** It is an OCR front-end rather than a viewer, so most of what differs is two programs asked
+different questions. Three things survive that:
+
+- **It is slower, and its own shape says why.** Measured over 91 of a 98-document sample through
+  `hayro-speed --per-document` joined to its CLI's timings, on the pages where its work clears its
+  own 7.35 ms process floor: at 72 dpi **4.52× the median** and 859 ms against our 147; at 150 dpi
+  **1.70×** and 1118 ms against our 462. The ratio halves because **our page-one time grows with
+  the pixels and theirs does not move at all** — `tracemonkey.pdf` costs it 106.4 ms at 72 dpi and
+  106.4 ms at 150, against our 18.6 and 34.6. A viewer is asked for the same page at many
+  resolutions, so that is the axis the comparison actually measured.
+- **It draws no path fills in this build and says nothing.** `alphatrans.pdf` loses three
+  rectangles and a shading; a four-object hand-made document that `pdftoppm` marks 3267 sampled
+  pixels of comes back blank. Exit 0 both times. Its golden-image harness has an empty case list,
+  which is how 1330 passing tests coexist with that. **This is the strongest external evidence
+  this project has that the corpus and the oracle are what make a correctness claim mean
+  anything.**
+- **It is not going in the oracle**, on four grounds in ADR 0136, three of which are traps already
+  in this file: a reference that draws nothing votes for nothing (trap 9), its font module says it
+  mirrors poppler's `getFTLoadFlags` exactly so on text it is a fourth vote from a reference we
+  have (trap 9 again), and it is not in this repository so a gate on it would skip silently.
+
+**What the comparison names for us is parallel rasterisation, and the first number is in.** Session
+153 measured a dense text page spending four to six times as long being drawn as being read; their
+fixed per-page cost against our resolution-proportional one says the same thing from outside.
+`render-cpu` draws single-threaded, `Band` (ADR 0010) already has the geometry, and rayon is
+already here. **The cost of the naive form is measured**: page 101's rasterisation re-measured at
+**4 993 M** (session 153's 4 990 M reproduces), of which `CpuRasterizer::draw` is 4 104 M, and
+inside it `render_cpu::convert::path` 405 M, `Rect::from_points` 218 M and
+`RasterPipelineBlitter::new` 164 M are **787 M — 19% of the render — of per-command work that does
+not shrink with the band**, and that a strip replay repeats once per strip a command touches. **So
+the question that decides this is how many strips a command touches**, which is not yet measured
+and is a counter like `examples/glyph_reuse`, not a patch. On a page of small glyphs the answer
+may be "one", and then there is no duplication at all and the bound is load imbalance instead.
 
 **Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 137.7 M** in session 153, of which
 the text layer is 35.8 M (session 133's A/B, below). The six sessions from the hundred-and-thirty-
@@ -734,6 +772,8 @@ valgrind --tool=callgrind --callgrind-out-file=/dev/null \
 cargo run --release -p pdf-model --example glyph_reuse -- [file.pdf] [page] [scale]  # ADR 0131
 cargo build --release -p hayro-compare --bins && \
   cargo run --release -p hayro-compare --bin hayro-speed -- doc/pdf.js/test/pdfs/*.pdf   # ~45 min
+cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # one line per file,
+  # which is how a renderer that is a *program* rather than a crate is joined to the table (ADR 0136)
 cd fuzz && cargo +nightly fuzz run lexer         -- -runs=50000   # needs nightly
 cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap parser
 cd fuzz && cargo +nightly fuzz run crypt         -- -runs=50000   # §7.6's algorithms
@@ -1209,6 +1249,11 @@ anchor that makes it checkable.
   after the states had been replaced by a stream. `matches!(x, Object::Dictionary(_))` is the
   assertion; the way it was found is the next line. ADR 0130.
 - **A discriminating test has to discriminate; check by breaking the thing.**
+- **Count a suite's *cases*, not its tests.** `rasterrocket` has 1330 passing tests over 93 218
+  lines and a golden-image harness whose case list is the comment "CASES is empty until fixture
+  PDFs are added" — and it draws no path fill at all, silently, on a document `pdftoppm` renders.
+  Ask of any suite: which of them renders the artefact the program exists to produce, and compares
+  it to something? ADR 0136.
 - **A constant that is right for the hand-built fixture is a landmine when a real file arrives.**
   `incremental_update.rs` replaced "object 1, the catalog", true of the file the test builds
   itself; in `bug900822.pdf` object 1 is the *encryption dictionary*, and the update wrote a
@@ -1723,3 +1768,4 @@ above rather than here.
 | 151 | The ledger re-read against seven sessions of new capability | — |
 | 152 | §7.6.4.3.2 step (a): the Annex D table this crate said it did not hold | — |
 | 153 | Everything re-verified after ten sessions of change | — |
+| 154 | `rasterrocket` measured rather than read: not an oracle, and what it names for us | 0136 |

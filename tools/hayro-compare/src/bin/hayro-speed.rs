@@ -1,7 +1,8 @@
 //! How long we take to put a page on screen, against how long `hayro` takes.
 //!
 //! ```text
-//! cargo run --release -p hayro-compare --bin hayro-speed -- [--scale N] [--repeats N] <file.pdf>...
+//! cargo run --release -p hayro-compare --bin hayro-speed -- [--scale N] [--repeats N]
+//!     [--per-document] <file.pdf>...
 //! ```
 //!
 //! # Why this comparison is fair, and where it is not
@@ -50,6 +51,12 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 struct Options {
     scale: f32,
     repeats: usize,
+    /// Print one tab-separated line per document as well as the summary.
+    ///
+    /// The summary compares two renderers because two are linked in. A *third* renderer —
+    /// one that is a separate program rather than a crate — can only be compared by running
+    /// it separately and joining on the document name, which needs this.
+    per_document: bool,
     files: Vec<PathBuf>,
 }
 
@@ -68,10 +75,11 @@ fn main() -> std::process::ExitCode {
         Err(message) => {
             eprintln!("{message}");
             eprintln!(
-                "usage: hayro-speed [--scale N] [--repeats N] <file.pdf>...\n\
+                "usage: hayro-speed [--scale N] [--repeats N] [--per-document] <file.pdf>...\n\
                  \n\
                  Renders page one of each file with this project and with hayro, and reports\n\
-                 time to first page for both."
+                 time to first page for both. --per-document adds one tab-separated line per\n\
+                 file, which is how a third renderer's own measurements are joined to these."
             );
             return std::process::ExitCode::from(2);
         }
@@ -93,6 +101,7 @@ fn main() -> std::process::ExitCode {
 fn parse_arguments() -> Result<Options, String> {
     let mut scale = 1.0;
     let mut repeats = 3;
+    let mut per_document = false;
     let mut files = Vec::new();
 
     let mut arguments = std::env::args().skip(1);
@@ -111,6 +120,7 @@ fn parse_arguments() -> Result<Options, String> {
                     .filter(|value| *value > 0)
                     .ok_or("--repeats needs a positive integer")?;
             }
+            "--per-document" => per_document = true,
             other if other.starts_with("--") => return Err(format!("unknown option {other}")),
             other => files.push(PathBuf::from(other)),
         }
@@ -122,6 +132,7 @@ fn parse_arguments() -> Result<Options, String> {
     Ok(Options {
         scale,
         repeats,
+        per_document,
         files,
     })
 }
@@ -223,6 +234,26 @@ fn report(measured: &[Measured], options: &Options) {
         options.scale,
         options.repeats
     );
+
+    if options.per_document {
+        println!("# name\tours_ms\thayro_ms\tcomplete");
+        for entry in measured {
+            let milliseconds = |taken: Option<Duration>| {
+                taken.map_or_else(
+                    || "-".to_owned(),
+                    |taken| format!("{:.2}", taken.as_secs_f64() * 1e3),
+                )
+            };
+            println!(
+                "{}\t{}\t{}\t{}",
+                entry.name,
+                milliseconds(entry.ours),
+                milliseconds(entry.theirs),
+                entry.complete
+            );
+        }
+        println!();
+    }
 
     if both.len() != measured.len() {
         println!(

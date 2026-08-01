@@ -26,6 +26,7 @@
 )]
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 
 /// One cache entry as this counts them: outline identity, the transform's linear part, and the
 /// two quantised phases.
@@ -147,12 +148,15 @@ fn chain_shape(list: &DisplayList, leaf: pdf_render::ClipId) -> String {
             break;
         }
         let Some(clip) = list.clip(id) else { break };
-        out.push_str(&format!(
+        let written = write!(
+            out,
             "{:?}|{:?}|{:?};",
             clip.path.commands(),
             clip.transform,
             clip.fill_rule
-        ));
+        );
+        // Writing into a `String` cannot fail: `fmt::Write for String` never returns `Err`.
+        debug_assert!(written.is_ok());
         current = clip.parent;
     }
     out
