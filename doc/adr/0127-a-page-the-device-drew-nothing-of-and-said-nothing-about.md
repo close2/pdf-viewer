@@ -90,6 +90,18 @@ black page was on the path the fix did not yet cover.
 it. The error's own sentence is what gets printed, so what reaches the person names the buffer
 that ran out. What was a black page is now a page, slightly slower, with the reason named.
 
+**Watched happen**, in a real window under `Xvfb` at 1200×1700 — the resolution matters, since the
+overflow is a property of the scene rather than of the driver, and it reproduces on all three
+adapters this machine can offer:
+
+```
+note: page 6: the graphics device could not draw a 1200x1700 scene: it needs more room than
+Vello's tile buffer has, so the device drew nothing, so it was drawn on the processor instead
+```
+
+with the window's own pixels back at mean 0.946 and standard deviation 0.204 — text on white. A
+black page is mean 0.
+
 ## The gate that was missing, and now is not
 
 `headless_gpu.rs` compares the two backends over `test-scenes`: a gradient, a knockout group,
