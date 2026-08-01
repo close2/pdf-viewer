@@ -73,16 +73,28 @@
 //! elsewhere moves the *whole* `Viewer` to another thread, which the message vocabulary is
 //! designed to allow and a callback trait would not.
 
+//! # Nothing here is `#[non_exhaustive]`
+//!
+//! Deliberately, and it is the same argument as trap 5. A `#[non_exhaustive]` message type
+//! forces every host to write a catch-all arm, and a catch-all arm is where a message this crate
+//! adds later goes to be ignored in silence. Leaving the enums closed means a new [`Event`]
+//! *fails to compile* in every consumer until somebody decides what it should do there — which
+//! is the loud failure this project prefers everywhere else. The cost is that adding a variant is
+//! a breaking change for out-of-tree consumers, and that cost is paid deliberately until there
+//! are any.
+
 #![forbid(unsafe_code)]
 
 mod command;
 mod event;
+mod interact;
+mod notes;
 mod open;
 mod query;
 mod report;
 mod viewer;
 
-pub use command::{Command, PageTarget, Rendered, Zoom};
+pub use command::{Command, PageTarget, PointerAction, Purpose, Rendered, Zoom};
 pub use event::{Event, RenderRequest};
 pub use query::{Answer, FrameView, Layer, PageGeometry, Query};
 pub use viewer::{DocumentId, RenderToken, Viewer};

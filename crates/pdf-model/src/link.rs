@@ -27,6 +27,14 @@ use crate::page::{Page, Pages};
 /// A link's activation region and where it leads.
 #[derive(Debug, Clone)]
 pub struct Link {
+    /// The annotation's own object, where the page names it by reference.
+    ///
+    /// §12.5.5 states three appearances chosen by where the pointer is, and
+    /// `crate::view::ViewState::set_pointer` keys them by object — so a viewer that wants to
+    /// show a rollover appearance under the cursor needs the link to say *which annotation* it
+    /// came from. `None` for a page that states its annotation dictionary inline, which has no
+    /// identity to name and which no corpus document does.
+    pub id: Option<pdf_syntax::ObjectId>,
     /// The activation region, in default user space, as one or more quadrilaterals.
     ///
     /// Quadrilaterals rather than a rectangle because the clause's region is a set of them —
@@ -75,6 +83,7 @@ pub fn links(document: &Document, page: &Page) -> Vec<Link> {
     };
     let mut out = Vec::new();
     for annotation in annotations {
+        let id = annotation.as_reference();
         let annotation = document.resolve(annotation);
         let Some(annotation) = annotation.as_dict() else {
             continue;
@@ -94,6 +103,7 @@ pub fn links(document: &Document, page: &Page) -> Vec<Link> {
             annotation.get("A").unwrap_or(&pdf_syntax::Object::Null),
         );
         out.push(Link {
+            id,
             region: region(document, annotation, rect),
             rect,
             destination: destination(document, annotation, &actions),

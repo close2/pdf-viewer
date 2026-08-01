@@ -20,7 +20,9 @@ use std::path::{Path, PathBuf};
 
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
-use viewer_core::{Answer, Command, DocumentId, Event, PageTarget, Query, Rendered, Viewer, Zoom};
+use viewer_core::{
+    Answer, Command, DocumentId, Event, PageTarget, PointerAction, Query, Rendered, Viewer, Zoom,
+};
 
 /// A document committed in `doc/`, which every checkout has.
 ///
@@ -45,6 +47,11 @@ const DOCUMENT: DocumentId = DocumentId(1);
 
 /// How many pages that document has.
 const PAGES: usize = 5;
+
+/// A point on `basicapi.pdf`'s first-page link, in device pixels of an 800×1000 viewport.
+///
+/// Found by asking [`Query::LinkAt`] over a grid, which is how a host would find it too.
+const ON_LINK: (f32, f32) = (120.0, 830.0);
 
 /// Opens the specification note into a viewport of the given size, draining the events.
 fn opened(width: u32, height: u32) -> (Viewer, Vec<Event>) {
@@ -164,6 +171,37 @@ fn a_frame_comes_back_and_the_viewer_hands_it_out_again() {
             .any(|event| matches!(event, Event::NeedsRender(_))),
         "a settled viewer asks for nothing"
     );
+}
+
+#[test]
+fn a_tier_two_host_is_not_asked_to_draw_the_same_frame_twice() {
+    // A host that draws onto its own surface hands back no pixels, so the viewer holds nothing
+    // — and if that were also taken to mean "nothing is on the screen", the scheduler would ask
+    // for the same frame again the moment it was told the last one was drawn, for ever. What
+    // `Rendered::Presented` says is *what is on the screen*, which is a different fact from
+    // *what the viewer is holding*.
+    let (mut viewer, events) = opened(800, 1000);
+    let token = request(&events).token;
+    let after: Vec<_> = viewer
+        .handle(Command::RenderReady {
+            token,
+            rendered: Rendered::Presented,
+        })
+        .collect();
+    assert!(
+        !after
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "the page that was just drawn is the page that should be drawn: {after:?}"
+    );
+    assert!(
+        matches!(viewer.query(Query::Frame), Answer::None),
+        "and the viewer holds no pixels of its own"
+    );
+
+    // It is asked again as soon as what should be on the screen changes.
+    let turned: Vec<_> = viewer.handle(Command::GoTo(PageTarget::Next)).collect();
+    assert_eq!(request(&turned).page, 1);
 }
 
 #[test]
@@ -404,4 +442,163 @@ fn a_request_can_be_sent_to_another_thread() {
         })
         .for_each(drop);
     assert!(matches!(viewer.query(Query::Frame), Answer::Frame(_)));
+}
+
+#[test]
+fn a_click_on_a_link_shows_the_page_it_names() {
+    // §12.5.6.5's link, §12.5.2's coordinate space and §12.3.2's destination, end to end from a
+    // point in a window. `basicapi.pdf`'s first page carries a link into its third.
+    let Some(bytes) = corpus_bytes("basicapi.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    assert!(
+        matches!(viewer.query(Query::LinkAt(ON_LINK)), Answer::Link(true)),
+        "a host asks this on every pointer move, to choose a cursor"
+    );
+    assert!(matches!(
+        viewer.query(Query::LinkAt((5.0, 5.0))),
+        Answer::Link(false)
+    ));
+
+    viewer
+        .handle(Command::Pointer {
+            at: ON_LINK,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: ON_LINK,
+            action: PointerAction::Released,
+        })
+        .collect();
+    let changed = events.iter().find_map(|event| match event {
+        Event::PageChanged { index, section, .. } => Some((*index, section.clone())),
+        _ => None,
+    });
+    assert_eq!(changed, Some((2, Some("Paragraph 1.1".to_owned()))));
+    assert_eq!(request(&events).page, 2, "and the page it named is drawn");
+}
+
+#[test]
+fn a_press_dragged_off_a_link_does_not_activate_it() {
+    // The clause states no rule for this — §12.5.5 describes appearances, not activation — so it
+    // is a choice, and it is the one every pointing interface makes.
+    let Some(bytes) = corpus_bytes("basicapi.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Pointer {
+            at: ON_LINK,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: (5.0, 5.0),
+            action: PointerAction::Released,
+        })
+        .collect();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { .. })),
+        "{events:?}"
+    );
+    let Answer::Page { index, .. } = viewer.query(Query::CurrentPage) else {
+        panic!("a document is open");
+    };
+    assert_eq!(index, 0);
+}
+
+#[test]
+fn a_uri_is_handed_over_rather_than_opened() {
+    // §12.6.4.8. The string is one the *document* controls, and handing it to a browser is a
+    // decision about this machine — so it leaves as an event and the host decides.
+    let Some(bytes) = corpus_bytes("TAMReview.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    let at = (210.0, 400.0);
+    viewer
+        .handle(Command::Pointer {
+            at,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at,
+            action: PointerAction::Released,
+        })
+        .collect();
+    let uri = events.iter().find_map(|event| match event {
+        Event::OpenUri { uri, .. } => Some(uri.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        uri.as_deref(),
+        Some("http://creativecommons.org/licenses/by-nc-nd/3.0/")
+    );
+}
+
+#[test]
+fn a_document_says_what_it_carries_before_a_page_is_drawn() {
+    // §12.11's requirements, §12.8's signatures and §7.11.4's embedded files are claims about the
+    // *file*, and a person deciding whether to trust what they are looking at needs them before
+    // any page is drawn. That is why they arrive with no page number.
+    let Some(bytes) = corpus_bytes("attachment.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<_> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .collect();
+    let about: Vec<&String> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Reported {
+                page: None, notes, ..
+            } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(
+        about
+            .iter()
+            .any(|note| note.contains("carries an embedded file")),
+        "this document carries one: {about:?}"
+    );
 }

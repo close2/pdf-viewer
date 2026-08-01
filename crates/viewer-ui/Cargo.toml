@@ -8,13 +8,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-pdf-model.workspace = true
 pdf-render.workspace = true
 pdf-sandbox.workspace = true
-pdf-syntax.workspace = true
 pollster.workspace = true
 render-gpu.workspace = true
 vello.workspace = true
+viewer-core.workspace = true
 winit.workspace = true
 
 # The interactive spike example needs a scene, a target and a device. These are

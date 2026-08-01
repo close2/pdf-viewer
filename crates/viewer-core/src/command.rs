@@ -12,7 +12,6 @@ use crate::viewer::{DocumentId, RenderToken};
 
 /// One thing a host asks the viewer to do.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum Command {
     /// Open a document from bytes, under a host-chosen identity.
     ///
@@ -76,6 +75,34 @@ pub enum Command {
         /// Whether it is on.
         on: bool,
     },
+    /// The pointer moved, or a button went down or up, at a point in the viewport.
+    ///
+    /// Device pixels, measured from the viewport's top-left corner — what a host has, rather
+    /// than what the document uses; the viewer maps it back through the transform the frame on
+    /// the screen was drawn with.
+    ///
+    /// One button, because that is all §12.5.5 assumes. NOTE 2 of that clause: "the term mouse
+    /// denotes a generic pointing device that controls the location of a cursor on the screen
+    /// and has at least one button". A host with several sends the primary one and keeps the
+    /// rest for its own menus.
+    Pointer {
+        /// Where, in device pixels from the viewport's top-left corner.
+        at: (f32, f32),
+        /// What the pointer did.
+        action: PointerAction,
+    },
+    /// The bytes the viewer asked for with [`crate::Event::NeedsFile`].
+    ///
+    /// `None` is a host that will not or cannot supply them, which is a legitimate answer and
+    /// not an error: the policy about which files a document may name belongs to whoever owns
+    /// the filesystem, and by rule 2 that is never this crate. The refusal is said out loud
+    /// rather than swallowed.
+    Supply {
+        /// What the bytes were wanted for.
+        purpose: Purpose,
+        /// The file, or nothing.
+        bytes: Option<Vec<u8>>,
+    },
     /// A worker finished — or failed — the request it was handed.
     ///
     /// A token that does not match the request outstanding is **dropped**, which is the whole
@@ -89,6 +116,36 @@ pub enum Command {
     },
 }
 
+/// What the pointer did.
+///
+/// Three, because §12.5.5 names three situations and two of them are the ends of a press: "[t]he
+/// normal appearance shall be used when the annotation is not interacting with the user … [t]he
+/// rollover appearance shall be used when the user moves the cursor into the annotation's active
+/// area without pressing the mouse button … [t]he down appearance shall be used when the mouse
+/// button is pressed or held down within the annotation's active area".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerAction {
+    /// The pointer moved with no button down.
+    Moved,
+    /// The button went down.
+    Pressed,
+    /// The button came up.
+    ///
+    /// **This is what activates a link**, and only where the button went down on the same
+    /// annotation it came up on. The clause states no rule for that — it describes appearances,
+    /// not activation — so this is a choice, and it is the one every pointing interface makes:
+    /// a press that is dragged away before release is a press the person changed their mind
+    /// about.
+    Released,
+}
+
+/// What a file the viewer asks a host for is wanted for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    /// §12.7.6.4's import-data action: the file holds §12.7.8's form data.
+    ImportData,
+}
+
 /// What a worker did with a [`crate::RenderRequest`].
 ///
 /// Three outcomes rather than a `Result<Raster, E>`, because a host that draws straight to its
@@ -96,7 +153,6 @@ pub enum Command {
 /// between tier 1 and tier 2 of this project's three pixel tiers, and it is the only place in
 /// the protocol where the two differ.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum Rendered {
     /// Tier 1: the pixels, for the viewer to hold and the host to blit when it is told to.
     ///

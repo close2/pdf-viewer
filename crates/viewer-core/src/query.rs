@@ -14,8 +14,7 @@ use pdf_syntax::ObjectId;
 use crate::viewer::DocumentId;
 
 /// A question about the viewer's state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Query {
     /// How many pages the focused document has.
     PageCount,
@@ -33,6 +32,12 @@ pub enum Query {
     Layers,
     /// §7.11.4's embedded files, listed rather than extracted.
     Attachments,
+    /// Whether activating at this viewport point would follow a §12.5.6.5 link.
+    ///
+    /// What a host needs to choose a cursor, which it does on every pointer move — so this is a
+    /// query and not a command, and it is the reason the second channel exists. Device pixels
+    /// from the viewport's top-left corner.
+    LinkAt((f32, f32)),
     /// The pixels the viewer is holding for the focused document, if any.
     ///
     /// [`Answer::None`] for a tier-2 host, which draws its own and hands the viewer nothing.
@@ -49,7 +54,6 @@ pub enum Query {
 /// Borrowed where the viewer already holds the answer and owned where it has to build one, so
 /// that asking a question at pointer speed does not allocate at pointer speed.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum Answer<'a> {
     /// There is nothing to answer with: no document is focused, or the question named a page
     /// that is not showing.
@@ -75,6 +79,8 @@ pub enum Answer<'a> {
     Layers(Vec<Layer>),
     /// §7.11.4's embedded files.
     Attachments(Vec<pdf_model::attachment::Attachment>),
+    /// Whether a link is under the point asked about.
+    Link(bool),
     /// The pixels the viewer holds, and where they belong on the screen.
     Frame(FrameView<'a>),
     /// What the current page could not draw.

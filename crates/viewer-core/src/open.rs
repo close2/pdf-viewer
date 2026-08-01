@@ -16,6 +16,9 @@ use pdf_syntax::Document;
 
 use crate::command::Zoom;
 use crate::viewer::RenderToken;
+use pdf_model::action::ImportData;
+use pdf_model::view::Pointer;
+use pdf_syntax::ObjectId;
 
 /// The zoom a document opens at.
 ///
@@ -71,10 +74,28 @@ pub(crate) struct Open {
     /// costs to hold rather than before. What this *does* buy is the case it was kept for: a
     /// zoom or a scroll re-rasterises without re-interpreting.
     pub(crate) interpreted: Option<Interpreted>,
+    /// The page and resolution the host last drew, whichever tier it is.
+    ///
+    /// Separate from [`Self::frame`] because a tier-2 host hands back no pixels: it draws onto
+    /// its own surface and says so, and without this the scheduler would see nothing on the
+    /// screen and ask for the same frame again, for ever.
+    pub(crate) shown: Option<(usize, TargetSpec)>,
     /// The pixels a tier-1 host handed back, and what they are of.
     pub(crate) frame: Option<Frame>,
     /// The render that is outstanding, if one is.
     pub(crate) pending: Option<Pending>,
+    /// Which annotation the pointer is interacting with, and how (§12.5.5).
+    ///
+    /// Kept beside [`Self::view`] rather than read back out of it because the question asked
+    /// here is "has this changed", and the answer decides whether the page has to be
+    /// interpreted again. Set only for an annotation that *has* the appearance in question:
+    /// re-interpreting a page because the cursor crossed a link with one appearance stream
+    /// would put 2 000 M instructions on a mouse move.
+    pub(crate) pointer: Option<(ObjectId, Pointer)>,
+    /// The annotation a press went down on, if the button is still down.
+    pub(crate) pressed: Option<ObjectId>,
+    /// §12.7.6.4's import, waiting for the host to supply the file.
+    pub(crate) importing: Option<ImportData>,
 }
 
 /// A page, interpreted.
@@ -122,11 +143,19 @@ impl Open {
         bytes: Vec<u8>,
         password: Option<&str>,
     ) -> Result<Self, pdf_syntax::SyntaxError> {
-        let document = Document::open_with_password(
+        Ok(Self::around(Document::open_with_password(
             bytes,
             pdf_syntax::Limits::DEFAULT,
             password.unwrap_or_default(),
-        )?;
+        )?))
+    }
+
+    /// Everything the viewer derives from a document, read once.
+    ///
+    /// Separate from [`Self::new`] because §12.6.4.4's embedded go-to produces a `Document` that
+    /// was never a file: it comes out of §7.11.4's embedded file stream inside the document
+    /// already open, and everything below it is the same.
+    pub(crate) fn around(document: Document) -> Self {
         let pages = Pages::new(&document);
         let page_count = pages.len();
         let labels = PageLabels::read(&document);
@@ -141,7 +170,7 @@ impl Open {
             .unwrap_or(0);
         drop(pages);
         let view = ViewState::of(&document);
-        Ok(Self {
+        Self {
             document,
             view,
             labels,
@@ -151,9 +180,20 @@ impl Open {
             zoom: INITIAL_ZOOM,
             scroll: (0.0, 0.0),
             interpreted: None,
+            shown: None,
             frame: None,
             pending: None,
-        })
+            pointer: None,
+            pressed: None,
+            importing: None,
+        }
+    }
+
+    /// How many pages there are now, which §12.7.8.3.3's imported templates may have changed.
+    pub(crate) fn recount(&mut self) {
+        self.page_count = Pages::new(&self.document)
+            .len()
+            .saturating_add(self.view.appended_pages().len());
     }
 
     /// The page at `index`, counting §12.7.8.3.3's imported template pages after the

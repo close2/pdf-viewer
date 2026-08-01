@@ -3073,14 +3073,13 @@ dependencies = [
 name = "viewer-ui"
 version = "0.1.0"
 dependencies = [
- "pdf-model",
  "pdf-render",
  "pdf-sandbox",
- "pdf-syntax",
  "pollster",
  "render-gpu",
  "test-scenes",
  "vello",
+ "viewer-core",
  "winit",
 ]
 

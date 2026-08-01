@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use pdf_render::{DisplayList, Rect, TargetSpec};
 
+use crate::command::Purpose;
 use crate::viewer::{DocumentId, RenderToken};
 
 /// One thing the viewer tells its host.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum Event {
     /// A document opened, and this is how many pages it has.
     Opened {
@@ -67,6 +67,42 @@ pub enum Event {
     /// the request it kept. The rectangle is a bound on what changed and not a promise that
     /// everything inside it did.
     Damage(Rect),
+    /// §12.6.4.8: a link asks for this URI to be resolved.
+    ///
+    /// Handed over rather than opened, and that is not squeamishness: the string is one the
+    /// *document* controls, and handing it to a browser is a decision about this machine. The
+    /// URI arrives resolved — against the document's `/Base` where it states one, and with
+    /// `/IsMap`'s cursor coordinates already appended.
+    OpenUri {
+        /// Which document asked.
+        document: DocumentId,
+        /// The resolved URI.
+        uri: String,
+    },
+    /// The document asks for a file. Answer with [`crate::Command::Supply`].
+    ///
+    /// The name is the document's own words and is **not** a path: resolving it — or refusing
+    /// to — is the host's decision, because a document naming a file is a document asking this
+    /// machine for something and this crate has no filesystem (rule 2).
+    NeedsFile {
+        /// Which document asked.
+        document: DocumentId,
+        /// What the bytes are wanted for.
+        purpose: Purpose,
+        /// The file specification's name, as the document wrote it.
+        name: String,
+    },
+    /// §12.4.4: show the page using this transition.
+    ///
+    /// Named rather than played, because a transition is a sequence of frames and this crate has
+    /// no clock (rule 3). A host with one plays it; a host without one draws the page, which is
+    /// the transition's own end state.
+    Transition {
+        /// Which document.
+        document: DocumentId,
+        /// Table 164's style, duration and direction.
+        transition: pdf_model::navigation::Transition,
+    },
     /// What could not be drawn on the page that was just interpreted.
     ///
     /// Trap 5's channel: every layer of this program reports what it could not handle rather
@@ -75,8 +111,13 @@ pub enum Event {
     Reported {
         /// Which document.
         document: DocumentId,
-        /// Which page, zero-based.
-        page: usize,
+        /// Which page, zero-based, or `None` for something said about the document itself.
+        ///
+        /// Both exist and they are different statements. §12.11's requirements, §12.8's
+        /// signatures and §7.11.4's attachments are claims about the *file*, and a person
+        /// deciding whether to trust what they are looking at needs them before any page is
+        /// drawn; everything else here is about the page on the screen.
+        page: Option<usize>,
         /// One sentence per distinct thing, already worded for a person.
         notes: Vec<String>,
     },

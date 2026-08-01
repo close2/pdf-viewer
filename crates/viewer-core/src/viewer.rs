@@ -4,11 +4,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pdf_model::optional_content::{OptionalContent, Presented};
+use pdf_model::view::Pointer;
 use pdf_render::{Point, Rect, TargetSpec};
 use pdf_syntax::SyntaxError;
 
-use crate::command::{Command, PageTarget, Rendered, Zoom};
+use crate::command::{Command, PageTarget, PointerAction, Purpose, Rendered, Zoom};
 use crate::event::{Event, RenderRequest};
+use crate::interact;
 use crate::open::{Frame, Interpreted, Open, Pending};
 use crate::query::{Answer, FrameView, Layer, PageGeometry, Query};
 
@@ -104,6 +106,11 @@ impl Viewer {
             Query::Attachments => {
                 Answer::Attachments(pdf_model::attachment::attachments(&open.document))
             }
+            Query::LinkAt(at) => Answer::Link(
+                self.user_space(open, at)
+                    .and_then(|(x, y)| interact::link_at(open, x, y))
+                    .is_some(),
+            ),
             Query::Frame => open.frame.as_ref().map_or(Answer::None, |frame| {
                 Answer::Frame(FrameView {
                     page: frame.page,
@@ -202,6 +209,8 @@ impl Viewer {
                     open.interpreted = None;
                 }
             }
+            Command::Pointer { at, action } => self.pointer(at, action, events),
+            Command::Supply { purpose, bytes } => self.supply(purpose, bytes.as_deref(), events),
             Command::RenderReady { token, rendered } => self.rendered(token, rendered, events),
         }
     }
@@ -217,12 +226,20 @@ impl Viewer {
         match Open::new(bytes, password) {
             Ok(open) => {
                 let pages = open.page_count;
+                let notes = crate::notes::about(&open.document);
                 self.documents.insert(id, open);
                 self.focused = Some(id);
                 events.push(Event::Opened {
                     document: id,
                     pages,
                 });
+                if !notes.is_empty() {
+                    events.push(Event::Reported {
+                        document: id,
+                        page: None,
+                        notes,
+                    });
+                }
                 self.announce_page(events);
             }
             // §7.6.4.1's prompt, and the reason this is not an `OpenFailed`: a document that
@@ -255,6 +272,7 @@ impl Viewer {
         match rendered {
             Rendered::Raster(raster) => {
                 open.clamp_scroll(viewport, (pending.target.width, pending.target.height));
+                open.shown = Some((pending.page, pending.target));
                 open.frame = Some(Frame {
                     page: pending.page,
                     target: pending.target,
@@ -263,14 +281,175 @@ impl Viewer {
                 events.push(damage(viewport));
             }
             // Tier 2: the host drew it onto its own surface, so there is nothing here to hold
-            // and nothing to repaint from.
-            Rendered::Presented => open.frame = None,
+            // and nothing to repaint from — but it *is* on the screen, and saying so is what
+            // stops the scheduler asking for it again.
+            Rendered::Presented => {
+                open.shown = Some((pending.page, pending.target));
+                open.frame = None;
+            }
             Rendered::Failed(reason) => events.push(Event::Reported {
                 document: id,
-                page: pending.page,
+                page: Some(pending.page),
                 notes: vec![reason],
             }),
         }
+    }
+
+    /// §12.5.5's three appearances, and what a release activates.
+    ///
+    /// The pointer state is only changed for an annotation that *states* the appearance in
+    /// question, because changing it invalidates the page's display list: a cursor crossing a
+    /// link whose only appearance stream is `/N` would otherwise re-interpret the page — 2 000 M
+    /// instructions — for a picture that cannot differ.
+    fn pointer(&mut self, at: (f32, f32), action: PointerAction, events: &mut Vec<Event>) {
+        let Some(id) = self.focused else { return };
+        let point = self.focused().and_then(|open| self.user_space(open, at));
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let under = point.and_then(|(x, y)| interact::link_at(open, x, y));
+
+        let wanted = match action {
+            PointerAction::Moved => under.map(|annotation| (annotation, Pointer::Over)),
+            PointerAction::Pressed => under.map(|annotation| (annotation, Pointer::Down)),
+            // Back to hovering: the button is up and the cursor is still where it was.
+            PointerAction::Released => under.map(|annotation| (annotation, Pointer::Over)),
+        };
+        let wanted = wanted.filter(|(annotation, pointer)| {
+            interact::has_appearance(&open.document, *annotation, *pointer)
+        });
+        if open.pointer != wanted {
+            open.pointer = wanted;
+            open.view.set_pointer(wanted);
+            open.interpreted = None;
+        }
+
+        match action {
+            PointerAction::Moved => {}
+            PointerAction::Pressed => open.pressed = under,
+            PointerAction::Released => {
+                let pressed = open.pressed.take();
+                // A press dragged off the annotation before release is a press the person
+                // changed their mind about; see `PointerAction::Released`.
+                if pressed.is_none() || pressed != under {
+                    return;
+                }
+                let Some((x, y)) = point else { return };
+                let outcome = interact::activate(open, x, y);
+                self.apply(id, outcome, events);
+            }
+        }
+    }
+
+    /// Takes the bytes a host was asked for, or says that it declined.
+    fn supply(&mut self, purpose: Purpose, bytes: Option<&[u8]>, events: &mut Vec<Event>) {
+        let Some(id) = self.focused else { return };
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let outcome = match (purpose, bytes) {
+            (Purpose::ImportData, Some(bytes)) => interact::import(open, bytes),
+            // Trap 5 on the one path where a *host* declines: a click that silently does
+            // nothing is indistinguishable from a click on nothing.
+            (Purpose::ImportData, None) => {
+                let named = open
+                    .importing
+                    .take()
+                    .map_or_else(String::new, |import| format!(" {}", import.file));
+                let mut outcome = interact::Outcome::default();
+                outcome
+                    .notes
+                    .push(format!("import-data: declined —{named} was not supplied"));
+                outcome
+            }
+        };
+        self.apply(id, outcome, events);
+    }
+
+    /// Turns what a click asked for into events, and does the parts that are this crate's.
+    fn apply(&mut self, id: DocumentId, outcome: interact::Outcome, events: &mut Vec<Event>) {
+        let page = self.focused().map(|open| open.page_index);
+        if !outcome.notes.is_empty() {
+            events.push(Event::Reported {
+                document: id,
+                page,
+                notes: outcome.notes,
+            });
+        }
+        for uri in outcome.uris {
+            events.push(Event::OpenUri { document: id, uri });
+        }
+        if let Some((purpose, name)) = outcome.needs_file {
+            events.push(Event::NeedsFile {
+                document: id,
+                purpose,
+                name,
+            });
+        }
+        for transition in outcome.transitions {
+            events.push(Event::Transition {
+                document: id,
+                transition,
+            });
+        }
+
+        // §12.6.4.4 replaces the document every other request was about, so a page named by one
+        // of them is a page of a document that is no longer open.
+        if let Some(replacement) = outcome.replacement {
+            let pages = replacement.page_count;
+            let notes = crate::notes::about(&replacement.document);
+            self.documents.insert(id, *replacement);
+            events.push(Event::Opened {
+                document: id,
+                pages,
+            });
+            if !notes.is_empty() {
+                events.push(Event::Reported {
+                    document: id,
+                    page: None,
+                    notes,
+                });
+            }
+            self.announce_page(events);
+            return;
+        }
+
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        if outcome.redraw {
+            open.interpreted = None;
+        }
+        if let Some(target) = outcome.target
+            && target != open.page_index
+        {
+            open.page_index = target;
+            open.scroll = (0.0, 0.0);
+            self.announce_page(events);
+        }
+    }
+
+    /// Maps a viewport point to default user space on the page being shown.
+    ///
+    /// Through the transform the frame on the screen was drawn with, and not one this function
+    /// invents: §12.5.2 states an annotation's rectangle "in default user space", and getting
+    /// there means undoing the centring, the magnification, the crop box's origin and
+    /// §7.7.3.3's rotation in that order. The last two are
+    /// [`pdf_model::content::user_space_at`]'s.
+    fn user_space(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
+        let magnification = open.magnification(self.viewport, self.scale)?;
+        if magnification <= 0.0 {
+            return None;
+        }
+        let interpreted = open.interpreted.as_ref()?;
+        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
+        let origin = open.origin(self.viewport, (target.width, target.height));
+        let page = open.page(open.page_index)?;
+        pdf_model::content::user_space_at(
+            &page,
+            (at.0 - origin.0) / magnification,
+            (at.1 - origin.1) / magnification,
+        )
     }
 
     /// Resolves a zoom command into the magnification it lands on.
@@ -341,7 +520,7 @@ impl Viewer {
             if !reports.is_empty() {
                 events.push(Event::Reported {
                     document: id,
-                    page,
+                    page: Some(page),
                     notes: reports.clone(),
                 });
             }
@@ -366,7 +545,7 @@ impl Viewer {
             Err(error) => {
                 events.push(Event::Reported {
                     document: id,
-                    page,
+                    page: Some(page),
                     notes: vec![format!("this page cannot be drawn at this size: {error}")],
                 });
                 return;
@@ -374,10 +553,7 @@ impl Viewer {
         };
         open.clamp_scroll(viewport, (target.width, target.height));
 
-        let showing = open
-            .frame
-            .as_ref()
-            .is_some_and(|frame| frame.page == page && frame.target == target);
+        let showing = open.shown == Some((page, target));
         let asked = open
             .pending
             .as_ref()
