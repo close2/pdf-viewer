@@ -308,7 +308,14 @@ impl ClauseIndex {
     pub fn table_title(&self, table: u16) -> Option<&str> {
         let caption = format!("Table {table} -");
         self.text.lines().find_map(|line| {
-            line.strip_prefix(&caption)
+            // The conversion promotes an occasional caption to a markdown heading — Table 246's
+            // is `## Table 246 -Entries in the FDF dictionary` and every other table in the same
+            // subclause is a bare line. That is an artefact of `doc/md/` rather than anything
+            // the standard did, so the leading hashes are dropped before the caption is matched:
+            // without this the checker calls a table the standard has one it does not.
+            line.trim_start_matches('#')
+                .trim_start()
+                .strip_prefix(&caption)
                 .map(str::trim)
                 .filter(|title| !title.is_empty())
         })

@@ -120,18 +120,20 @@ const MAX_XREF_SECTIONS: usize = 1024;
 ///
 /// # Errors
 ///
-/// [`SyntaxError::NoHeader`] if the file has no `%PDF-` header *and* no objects could be
+/// [`SyntaxError::NoHeader`] if the file has neither header *and* no objects could be
 /// found either, and [`SyntaxError::NoCrossReferences`] if neither the table nor a scan
 /// yields any object.
 pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     // The header may be preceded by junk — files served through mail gateways acquire it —
     // so the specification's "first line" is relaxed to "somewhere near the start".
     let header_window = input.len().min(1024);
-    let header_at = input
-        .get(..header_window)
-        .unwrap_or_default()
-        .windows(5)
-        .position(|window| window == b"%PDF-");
+    let start = input.get(..header_window).unwrap_or_default();
+    // §12.7.8.2.2 gives an FDF file a header of its own — `%FDF-1.n` where a PDF writes
+    // `%PDF-n.m` — and §12.7.8.2.1 makes the rest of the file structure clause 7's, §7.5.2's
+    // offset rule below included. So the *second* marker is searched for only where the first
+    // is absent: a PDF whose first kilobyte happens to contain `%FDF-` is still measured from
+    // its own header, and an FDF file stops being measured from byte zero by accident.
+    let header_at = position_of(start, *b"%PDF-").or_else(|| position_of(start, *b"%FDF-"));
 
     if let Some(table) = read_from_startxref(input, header_at.unwrap_or(0), limits)
         && !table.is_empty()
@@ -178,6 +180,11 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     }
 
     Ok(table)
+}
+
+/// Where `marker` first appears in `window`, or `None`.
+fn position_of(window: &[u8], marker: [u8; 5]) -> Option<usize> {
+    window.windows(marker.len()).position(|at| at == marker)
 }
 
 /// Follows `startxref` and the `/Prev` chain.

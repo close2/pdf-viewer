@@ -38,8 +38,8 @@ pub enum SyntaxError {
         /// Which bound, named as its field in `Limits`.
         limit: &'static str,
     },
-    /// The file does not begin with a PDF header.
-    #[error("not a PDF: no %PDF- header in the first {searched} bytes")]
+    /// The file begins with neither a PDF header (§7.5.2) nor an FDF one (§12.7.8.2.2).
+    #[error("not a PDF: no %PDF- or %FDF- header in the first {searched} bytes")]
     NoHeader {
         /// How far the search went.
         searched: usize,

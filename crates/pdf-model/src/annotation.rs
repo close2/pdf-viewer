@@ -138,19 +138,21 @@ const FLAG_NO_VIEW: i64 = 1 << 5;
 
 /// Decides what, if anything, an annotation contributes to the page.
 ///
-/// `shown_by_action` is set where §12.6.4.11's hide action with `/H false` named this
-/// annotation. The clause makes the two the same bit — the action "hides or shows one or more
-/// annotations on the screen by setting or clearing their Hidden flags" — so an action that
-/// clears it beats what the file wrote, and this program clears it for the session rather than
-/// in the file. `NoView` is deliberately *not* covered: Table 167 makes it a separate bit
-/// about the device rather than about the annotation's state, and §12.6.4.11 names only the
-/// Hidden flag.
+/// `view` carries what the viewer's state says about this annotation and nothing about the
+/// document; [`crate::view::AnnotationView::default`] is what every annotation gets in a
+/// document nothing has interacted with, and produces the file's own answer to all four
+/// questions.
+///
+/// `hidden_by_action` being `Some(false)` is §12.6.4.11's hide action with `/H false`. The
+/// clause makes the two the same bit — the action "hides or shows one or more annotations on
+/// the screen by setting or clearing their Hidden flags" — so an action that clears it beats
+/// what the file wrote, and this program clears it for the session rather than in the file.
+/// `NoView` is deliberately *not* covered: Table 167 makes it a separate bit about the device
+/// rather than about the annotation's state, and §12.6.4.11 names only the Hidden flag.
 pub(crate) fn decide(
     document: &Document,
     annotation: &Dictionary,
-    shown_by_action: bool,
-    showing: crate::view::Appearance,
-    reset: bool,
+    view: crate::view::AnnotationView<'_>,
 ) -> Decision {
     let subtype = document
         .get_key(annotation, "Subtype")
@@ -165,11 +167,20 @@ pub(crate) fn decide(
         return Decision::Nothing;
     }
 
-    let flags = document
+    // §12.7.8's Table 249: an imported `/F` "shall replace that of the F entry in the form's
+    // corresponding annotation dictionary", and `/SetF` and `/ClrF` modify it — so where an FDF
+    // file has said something about this widget's flags, that is the answer and the file's `/F`
+    // is what it was applied to.
+    let stated = document
         .get_key(annotation, "F")
         .as_integer()
         .unwrap_or_default();
-    if (flags & FLAG_HIDDEN != 0 && !shown_by_action) || flags & FLAG_NO_VIEW != 0 {
+    let flags = view
+        .flags
+        .map_or(stated, |change| change.applied_to(stated));
+    if (flags & FLAG_HIDDEN != 0 && view.hidden_by_action != Some(false))
+        || flags & FLAG_NO_VIEW != 0
+    {
         return Decision::Nothing;
     }
     if flags & FLAG_INVISIBLE != 0 && !STANDARD_SUBTYPES.contains(&subtype.as_slice()) {
@@ -186,9 +197,11 @@ pub(crate) fn decide(
         return Decision::Nothing;
     }
 
-    let stored = match stored_appearance(document, annotation, showing) {
+    let stored = match stored_appearance(document, annotation, view.appearance) {
         Normal::Stream(stream) => stream,
-        Normal::Absent => return construct(document, annotation, &subtype, &name, rect, reset),
+        Normal::Absent => {
+            return construct(document, annotation, &subtype, &name, rect, view.value);
+        }
         Normal::StateNotDefined => return Decision::Nothing,
     };
 
@@ -208,7 +221,7 @@ pub(crate) fn decide(
     let mut content = Content::Stored(Arc::clone(&stored));
     if crate::appearance::regenerates(document, annotation, &subtype)
         && let Some(regenerated) =
-            crate::appearance::regenerate(document, annotation, &stored, bbox, reset)
+            crate::appearance::regenerate(document, annotation, &stored, bbox, view.value)
     {
         owed = regenerated.report.map(|detail| format!("{name}: {detail}"));
         content = Content::Constructed {
@@ -246,7 +259,7 @@ fn construct(
     subtype: &[u8],
     name: &str,
     rect: [f32; 4],
-    reset: bool,
+    value: crate::view::FieldValue<'_>,
 ) -> Decision {
     // §12.5.6.14: a popup is the window belonging to some *other* annotation, and §12.5.6.24's
     // projection is a measurement inside an activated 3D model — clause 13, which principle 5
@@ -256,7 +269,7 @@ fn construct(
         return Decision::Nothing;
     }
 
-    let constructed = crate::appearance::construct(document, annotation, subtype, reset);
+    let constructed = crate::appearance::construct(document, annotation, subtype, value);
     let owed = constructed.report.map(|detail| format!("{name}: {detail}"));
     let Some(content) = constructed.content else {
         return match owed {

@@ -59,6 +59,7 @@ use pdf_syntax::{Dictionary, Document, Object};
 use std::fmt::Write as _;
 
 use crate::variable_text::{self, Owed, Quadding, Request, Shape};
+use crate::view::FieldValue;
 
 /// How many `/Parent` links a field's inheritable entry is followed through.
 ///
@@ -183,7 +184,7 @@ pub(crate) fn construct(
     document: &Document,
     annotation: &Dictionary,
     subtype: &[u8],
-    reset: bool,
+    value: FieldValue<'_>,
 ) -> Constructed {
     let mut stream = Stream::new();
     let outcome = match subtype {
@@ -192,7 +193,7 @@ pub(crate) fn construct(
         b"Polygon" | b"PolyLine" => polygon(document, annotation, &mut stream, subtype),
         b"Ink" => ink(document, annotation, &mut stream),
         b"Line" => line(document, annotation, &mut stream),
-        b"Widget" => widget(document, annotation, &mut stream, reset),
+        b"Widget" => widget(document, annotation, &mut stream, value),
         b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => {
             text_markup(document, annotation, &mut stream, subtype)
         }
@@ -275,7 +276,7 @@ pub(crate) fn regenerate(
     annotation: &Dictionary,
     stored: &pdf_syntax::Stream,
     bbox: [f32; 4],
-    reset: bool,
+    value: FieldValue<'_>,
 ) -> Option<Regenerated> {
     let data = document.decoded_stream_data(stored)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
@@ -286,7 +287,7 @@ pub(crate) fn regenerate(
 
     // §12.7.4.3 puts the appearance stream's `/BBox` at the origin, so the text is laid out in
     // the stream's own space rather than the page's.
-    let (marks, report) = match field_text(document, annotation, source, inset(bbox, width), reset)
+    let (marks, report) = match field_text(document, annotation, source, inset(bbox, width), value)
     {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
         // A field with no value has no marks, and an empty marked-content region is the
@@ -458,7 +459,7 @@ pub(crate) fn regenerates(document: &Document, annotation: &Dictionary, subtype:
         return false;
     }
     matches!(
-        Field::read(document, annotation, false).kind,
+        Field::read(document, annotation, FieldValue::Stored).kind,
         Some(FieldKind::Text | FieldKind::Choice { .. })
     )
 }
@@ -921,7 +922,7 @@ fn widget(
     document: &Document,
     annotation: &Dictionary,
     stream: &mut Stream,
-    reset: bool,
+    value: FieldValue<'_>,
 ) -> Outcome {
     let rect = rectangle(document, annotation)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
@@ -948,7 +949,7 @@ fn widget(
     // where text can go without being struck through by its own frame. Nothing states a
     // further margin and none is added.
     let inner = inset(rect, border.width);
-    let laid_out = match field_text(document, annotation, source, inner, reset) {
+    let laid_out = match field_text(document, annotation, source, inner, value) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
             return Ok(Painted {
@@ -993,9 +994,9 @@ fn field_text(
     annotation: &Dictionary,
     characteristics: &Dictionary,
     box_: [f32; 4],
-    reset: bool,
+    value: FieldValue<'_>,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
-    let field = Field::read(document, annotation, reset);
+    let field = Field::read(document, annotation, value);
     if field.too_deep {
         return Err(Refusal::NotDerivable(
             "its field's /Parent chain is longer than this crate follows, so what it holds is \
@@ -1204,8 +1205,13 @@ struct Field {
     ancestry: Vec<Dictionary>,
     /// Whether the `/Parent` chain ran past [`MAX_FIELD_ANCESTRY`].
     too_deep: bool,
-    /// Whether §12.7.6.3's reset-form action has been performed on this widget.
-    reset: bool,
+    /// Whether the value above is the file's own `/V`, or something that replaced it.
+    ///
+    /// Two clauses replace it and both have the same consequence for a check box, which is why
+    /// this is one flag rather than two: §12.7.6.3's reset makes the value `/DV`, §12.7.8's
+    /// import makes it another file's, and in either case the `/AS` in the document describes
+    /// the state that was replaced.
+    overridden: bool,
 }
 
 impl Field {
@@ -1218,14 +1224,30 @@ impl Field {
     ///
     /// One walk rather than one per entry, because the chain is the same for all of them and
     /// [`MAX_FIELD_ANCESTRY`] should bound the work once rather than once per key.
-    fn read(document: &Document, annotation: &Dictionary, reset: bool) -> Self {
+    fn read(document: &Document, annotation: &Dictionary, source: FieldValue<'_>) -> Self {
         let mut field = Self {
             kind: None,
             flags: 0,
-            value: None,
+            // §12.7.8.3.2's "replace" is done here and not by a walk: an imported value comes
+            // from another file, so there is nothing in this document's `/Parent` chain to read
+            // it from, and an FDF field stating no `/V` leaves the widget with no value at all.
+            value: match source {
+                FieldValue::Imported { value, .. } => value.cloned(),
+                FieldValue::Stored | FieldValue::Default => None,
+            },
             ancestry: Vec::new(),
             too_deep: false,
-            reset,
+            overridden: !matches!(source, FieldValue::Stored),
+        };
+        let stated_value = match source {
+            FieldValue::Stored => Some("V"),
+            // §12.7.6.3: the action "shall set the value of the V entry in the field dictionary
+            // to that of the DV entry … If no default value is defined for a field, its V entry
+            // shall be removed". So the *same* walk reads a different entry, and a field with no
+            // `/DV` anywhere in its ancestry ends with no value at all — which is what the
+            // clause's "removed" means for a program that does not write to the file.
+            FieldValue::Default => Some("DV"),
+            FieldValue::Imported { .. } => None,
         };
         let mut current = annotation.clone();
         let mut flags = None;
@@ -1240,14 +1262,10 @@ impl Field {
             if flags.is_none() {
                 flags = document.get_key(&current, "Ff").as_integer();
             }
-            if field.value.is_none() {
-                // §12.7.6.3, where a reset-form action has touched this widget: the action
-                // "shall set the value of the V entry in the field dictionary to that of the DV
-                // entry … If no default value is defined for a field, its V entry shall be
-                // removed". So the *same* walk reads a different entry, and a field with no
-                // `/DV` anywhere in its ancestry ends with no value at all — which is what the
-                // clause's "removed" means for a program that does not write to the file.
-                let value = document.get_key(&current, if reset { "DV" } else { "V" });
+            if let Some(key) = stated_value
+                && field.value.is_none()
+            {
+                let value = document.get_key(&current, key);
                 if !value.is_null() {
                     field.value = Some(value);
                 }
@@ -1255,7 +1273,16 @@ impl Field {
             let parent = document.get_key(&current, "Parent").as_dict().cloned();
             field.ancestry.push(current);
             let Some(parent) = parent else {
-                field.flags = flags.unwrap_or_default();
+                // Table 249's `/Ff` "shall replace that of the Ff entry in the form's
+                // corresponding field dictionary", and `/SetFf` and `/ClrFf` modify it — so the
+                // import applies to whatever §12.7.4.1's inheritance produced, which is exactly
+                // the flag word this walk has just finished computing.
+                field.flags = match source {
+                    FieldValue::Imported { flags: change, .. } => {
+                        change.applied_to(flags.unwrap_or_default())
+                    }
+                    FieldValue::Stored | FieldValue::Default => flags.unwrap_or_default(),
+                };
                 field.kind = FieldKind::of(kind.as_deref(), field.flags);
                 return field;
             };
@@ -1303,11 +1330,11 @@ impl Field {
     /// there is one. Either way `Off` is the off state, which §12.7.5.2.3 names and
     /// §12.7.5.2.4 gives as the default.
     fn is_on(&self, document: &Document, annotation: &Dictionary) -> bool {
-        // §12.7.6.3 again: after a reset the file's `/AS` describes the state the widget was
-        // *saved* in, which is exactly the value the action replaced. So a reset widget answers
-        // from its `/DV` alone, and a check box whose default is unstated is off — which
-        // §12.7.5.2.4 gives as the default anyway.
-        if self.reset {
+        // §12.7.6.3 and §12.7.8 again: once the value has been replaced, the file's `/AS`
+        // describes the state the widget was *saved* in, which is exactly what was replaced. So
+        // such a widget answers from its new value alone, and a check box whose replacement is
+        // unstated is off — which §12.7.5.2.4 gives as the default anyway.
+        if self.overridden {
             return self
                 .value
                 .as_ref()

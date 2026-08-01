@@ -3243,32 +3243,18 @@ impl Interpreter<'_> {
             // §12.5.3 defines and overrides what the file wrote there. Silent for the same
             // reason the line above is: an annotation something switched off is not one this
             // program failed to draw.
-            let by_action = entry
+            // Everything the view state says about this annotation, in one call: whether a hide
+            // action named it, which of §12.5.5's three appearances the pointer asks for, and —
+            // for a widget — where its value comes from, which §12.7.6.3's reset and §12.7.8's
+            // import each change and which decides what §12.7.4.3 lays out.
+            let view = entry
                 .as_reference()
-                .and_then(|id| self.view.annotation_hidden(id));
-            if by_action == Some(true) {
+                .map(|id| self.view.annotation(id))
+                .unwrap_or_default();
+            if view.hidden_by_action == Some(true) {
                 continue;
             }
-            // §12.5.5's three appearances: which one this annotation is showing is a
-            // property of the pointer, which is a `ViewState` question rather than a document
-            // one. Every annotation the pointer is not on answers `Normal`.
-            let showing = entry
-                .as_reference()
-                .map_or(crate::view::Appearance::Normal, |id| {
-                    self.view.appearance_for(id)
-                });
-            // §12.7.6.3: a reset-form action performed on this widget makes its value the
-            // one the file states as the *default*, which changes what §12.7.4.3 lays out.
-            let reset = entry
-                .as_reference()
-                .is_some_and(|id| self.view.is_reset(id));
-            match crate::annotation::decide(
-                self.document,
-                dict,
-                by_action == Some(false),
-                showing,
-                reset,
-            ) {
+            match crate::annotation::decide(self.document, dict, view) {
                 crate::annotation::Decision::Nothing => {}
                 crate::annotation::Decision::Unsupported(detail) => {
                     self.note(Unsupported::Annotation { detail });

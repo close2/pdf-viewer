@@ -199,7 +199,16 @@ fn main() {
     // time, and a spinning loop would drain a battery for nothing.
     event_loop.set_control_flow(ControlFlow::Wait);
 
-    let mut app = App::new(document, path.to_string_lossy().into_owned(), page_count);
+    let mut app = App::new(
+        document,
+        path.to_string_lossy().into_owned(),
+        // §12.7.6.4's import-data action names a file, and this is the only place that name is
+        // allowed to mean anything: a *sibling of the document being shown*. See `import_data`.
+        std::path::Path::new(&path)
+            .parent()
+            .map(std::path::Path::to_path_buf),
+        page_count,
+    );
     event_loop.run_app(&mut app).expect("event loop failed");
 }
 
@@ -207,6 +216,13 @@ struct App {
     context: RenderContext,
     document: Document,
     title: String,
+    /// The directory the open document is in, where one can be named.
+    ///
+    /// The whole of this program's answer to "which files may a document ask for". §12.7.6.4's
+    /// import-data action carries a file specification the *document* wrote, so honouring it
+    /// unrestricted would let a PDF read any path this process can — and the clause states no
+    /// policy, because a policy is a property of the processor. See `import_data`.
+    directory: Option<std::path::PathBuf>,
     /// What §12.6.4's actions have changed since the document opened.
     ///
     /// Held here rather than rebuilt per frame because that is what it *is*: a layer a click
@@ -246,7 +262,12 @@ struct State {
 }
 
 impl App {
-    fn new(document: Document, title: String, page_count: usize) -> Self {
+    fn new(
+        document: Document,
+        title: String,
+        directory: Option<std::path::PathBuf>,
+        page_count: usize,
+    ) -> Self {
         let labels = pdf_model::page_label::PageLabels::read(&document);
         let outline = pdf_model::outline::Outline::read(&document, &Pages::new(&document));
         // §12.3.2.1: "the optional OpenAction entry in a document's catalog dictionary may
@@ -266,6 +287,7 @@ impl App {
             context: RenderContext::new(),
             document,
             title,
+            directory,
             view,
             labels,
             outline,
@@ -331,13 +353,13 @@ impl App {
             }
         }
         let requests = self.view.perform_all(&self.document, &link.actions);
-        let changed_here = self.view != before;
 
         // The first request that names a page wins, because a chain that jumps twice has
         // shown the second page either way and §12.6.2 states no rule for the pair.
         let mut target = link
             .destination
             .and_then(|destination| destination.page_index(&self.document, &pages));
+        let mut imports = Vec::new();
         for request in &requests {
             match request {
                 Request::Display(destination) => {
@@ -349,6 +371,10 @@ impl App {
                 Request::Resolve(uri) => {
                     println!("link: {}", uri.at_position((x, y), link.rect));
                 }
+                // Deferred rather than performed here: reading the file needs `&mut self`
+                // and `pages` still borrows the document. Nothing is lost by the wait —
+                // §12.6.2 makes a chain a sequence, and an import changes no page number.
+                Request::Import(import) => imports.push(import.clone()),
                 Request::Thread(jump) => {
                     // §12.4.3's threads are read *here* rather than when the document opens:
                     // an article is a list nothing else in this program consults, and
@@ -364,11 +390,108 @@ impl App {
         }
         let target =
             target.filter(|target| *target != self.page_index && *target < self.page_count);
+        for import in &imports {
+            self.import_data(import);
+        }
+        // After the imports, not before: §12.7.8's values are what §12.7.4.3 lays out, so a
+        // successful import changes this page's ink and the page has to be redrawn.
+        let changed_here = self.view != before;
         if let Some(target) = target {
             self.page_index = target;
             return true;
         }
         changed_here
+    }
+
+    /// Performs §12.7.6.4's import-data action, which is the half `pdf_model` cannot.
+    ///
+    /// The clause says a processor "shall import data … from a specified file", and specifies
+    /// nothing about *which* files a document may name — because that is a property of the
+    /// processor rather than of the document. So this states the policy, and it is the narrowest
+    /// one that still performs the action:
+    ///
+    /// - the name must be a single path component, so `../…` and any absolute path are refused;
+    /// - it is resolved against the directory the open document is in, and nowhere else;
+    /// - only §12.7.8's FDF is read. ISO 19444-1's XFDF is the same data in XML and would need
+    ///   an XML parser, which is a dependency and a decision rather than a clause.
+    ///
+    /// Every refusal is printed, which is trap 5 on the one path where a click can decline.
+    fn import_data(&mut self, import: &pdf_model::action::ImportData) {
+        use pdf_model::action::DataFormat;
+        use pdf_model::forms_data::FormsData;
+
+        if import.format != DataFormat::Fdf {
+            println!(
+                "import-data: declined — {} is not §12.7.8's FDF, and no other data format is read",
+                import.file
+            );
+            return;
+        }
+        let Some(directory) = self.directory.as_ref() else {
+            println!("import-data: declined — the document is not in a known directory");
+            return;
+        };
+        // One component, checked as a path rather than as a string, so that a separator this
+        // platform recognises and this program does not cannot slip through.
+        let named = std::path::Path::new(&import.file);
+        let mut components = named.components();
+        let (Some(std::path::Component::Normal(single)), None) =
+            (components.next(), components.next())
+        else {
+            println!(
+                "import-data: declined — {} is not a plain file name beside the document",
+                import.file
+            );
+            return;
+        };
+        let path = directory.join(single);
+
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                println!("import-data: cannot read {}: {error}", path.display());
+                return;
+            }
+        };
+        let opened = match Document::open(bytes) {
+            Ok(opened) => opened,
+            Err(error) => {
+                println!("import-data: cannot open {}: {error}", path.display());
+                return;
+            }
+        };
+        let data = match FormsData::read(&opened) {
+            Ok(data) => data,
+            Err(error) => {
+                println!("import-data: {}: {error}", path.display());
+                return;
+            }
+        };
+
+        // §14.4's file identifier, where both files state one: an FDF exported from a different
+        // document is imported anyway — the clause states no rule against it and a form's fields
+        // may legitimately be shared — but a person deserves to be told.
+        if data.belongs_to(&self.document) == Some(false) {
+            println!("import-data: this FDF file's /ID names a different document");
+        }
+        // Table 246's `/Status` is "a status string that shall be displayed"; this window has no
+        // place to display one, and stdout is where every other such answer goes.
+        if let Some(status) = &data.status {
+            println!("import-data: status — {status}");
+        }
+        for owed in &data.owed {
+            println!("import-data: not applied — {owed}");
+        }
+        let outcome = self.view.import(&self.document, &data);
+        println!(
+            "import-data: {} field(s) from {}, into {} widget(s)",
+            data.fields.len(),
+            path.display(),
+            outcome.widgets
+        );
+        for name in &outcome.unmatched {
+            println!("import-data: this document has no field named {name}");
+        }
     }
 
     /// Moves by `delta` pages, clamped to the document.

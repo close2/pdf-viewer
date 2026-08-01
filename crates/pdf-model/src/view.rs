@@ -25,9 +25,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::action::{
-    Action, Change, Hide, HideTarget, Named, ResetForm, ResetTarget, ThreadJump, Uri,
+    Action, Change, Hide, HideTarget, ImportData, Named, ResetForm, ResetTarget, ThreadJump, Uri,
 };
 use crate::destination::Destination;
+use crate::forms_data::Import;
 use crate::optional_content::OptionalContent;
 
 /// Deepest nesting of `/Kids` walked when a field name is resolved.
@@ -38,7 +39,7 @@ use crate::optional_content::OptionalContent;
 const MAX_FIELD_DEPTH: usize = 32;
 
 /// The document state a viewer holds and §12.6.4's actions change.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ViewState {
     /// §8.11's layers, in the state the document opened in plus every change performed since.
     ///
@@ -66,6 +67,14 @@ pub struct ViewState {
     /// rather than a map of new values, because the clause makes the new value a property of
     /// the *field* — its `/DV`, or nothing — rather than of the action.
     reset: BTreeSet<ObjectId>,
+    /// Widgets §12.7.8's imported form data has given a new value, by object identity.
+    ///
+    /// A map rather than a set, which is the whole difference between this and `reset`: a
+    /// reset's new value is a property of the field — its own `/DV` — and an import's comes
+    /// from another file, so it has to be carried. Kept disjoint from `reset` by construction,
+    /// in [`ViewState::import`] and [`ViewState::reset_form`], because both answer the same
+    /// question about one widget and the answer is whichever was performed last.
+    imported: BTreeMap<ObjectId, Import>,
     /// Which annotation the pointer is over or pressing, if any (§12.5.5).
     ///
     /// One annotation rather than a set, because a pointer is in one place. `None` is what
@@ -113,6 +122,80 @@ pub enum Request {
     /// page tree and this needs [`crate::article::Articles`], and neither is part of the state a
     /// click changes. [`crate::action::ThreadJump::bead_in`] turns it into a bead.
     Thread(ThreadJump),
+    /// §12.7.6.4: import this file's form data, which means finding and reading it.
+    ///
+    /// The same division as [`Self::Resolve`], and for the same reason: a document naming a file
+    /// is a document asking this machine for something, and whether to give it is not a
+    /// rendering decision. A caller that has the bytes hands them to
+    /// [`crate::forms_data::FormsData::read`] and then to [`ViewState::import`], which is where
+    /// the values become ink.
+    Import(ImportData),
+}
+
+/// Which statement about a field's value a widget is currently showing.
+///
+/// Three, and each is a different clause saying where a value comes from. The default is the
+/// file's own, which is every widget in every document until something is performed.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum FieldValue<'a> {
+    /// Table 226's `/V`, read up §12.7.4.1's `/Parent` chain.
+    #[default]
+    Stored,
+    /// §12.7.6.3: `/DV` instead, because a reset-form action named this widget.
+    Default,
+    /// §12.7.8: a value from an FDF file, which replaces `/V` (§12.7.8.3.2).
+    Imported {
+        /// Table 249's `/V`.
+        ///
+        /// `None` is an FDF field that states no `/V` at all, which "replace" makes a field
+        /// whose value is *removed* — the same state a reset leaves a field with no `/DV` in,
+        /// and drawn the same way. It is a different thing from [`Self::Stored`], which is a
+        /// widget nothing has imported into.
+        value: Option<&'a Object>,
+        /// Table 249's `/Ff`, `/SetFf` and `/ClrFf` over Table 227's field flags.
+        ///
+        /// Carried with the value because the flags decide how the value is *drawn*: Table 231's
+        /// multiline, comb and password bits each change §12.7.4.3's layout of the same string.
+        flags: crate::forms_data::FlagChange,
+    },
+}
+
+/// What one import of one FDF file did to this document.
+///
+/// Both halves matter to a caller and neither is an error. §12.7.8.3.2 matches by fully
+/// qualified name, so a name the form has not got is either the wrong FDF for this document or
+/// a form that has changed since the data was exported — and only somebody who can see both
+/// files can say which.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Imported {
+    /// How many widget annotations took a value.
+    pub widgets: usize,
+    /// Fully qualified names the FDF file states that this document has no field for.
+    pub unmatched: Vec<String>,
+}
+
+/// Everything this state says about one annotation, gathered in one walk.
+///
+/// A struct rather than four arguments because the four are asked together, once per annotation
+/// per page, and because three of them default to "the file's own answer" — which is what
+/// [`Default`] here means and what every annotation in a document nothing has interacted with
+/// gets.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AnnotationView<'a> {
+    /// §12.6.4.11: `Some(true)` where a hide action hid this annotation, `Some(false)` where one
+    /// showed it, `None` where none named it.
+    pub hidden_by_action: Option<bool>,
+    /// Which of Table 170's three appearances §12.5.5 asks for, given where the pointer is.
+    pub appearance: Appearance,
+    /// Where this widget's value comes from.
+    pub value: FieldValue<'a>,
+    /// §12.7.8's `/F`, `/SetF` and `/ClrF`, where an FDF file stated one of them.
+    ///
+    /// `None` is not "no flags": it is *this state has nothing to say*, and the annotation's own
+    /// `/F` stands unchanged. The change is carried rather than the result because Table 249's
+    /// two modifying entries are defined *against* the flags the document states, which only the
+    /// reader of that dictionary has.
+    pub flags: Option<crate::forms_data::FlagChange>,
 }
 
 /// Which of Table 170's appearances an annotation shows.
@@ -139,6 +222,7 @@ impl ViewState {
             hidden: BTreeSet::new(),
             shown: BTreeSet::new(),
             reset: BTreeSet::new(),
+            imported: BTreeMap::new(),
             pointer: None,
         }
     }
@@ -186,6 +270,58 @@ impl ViewState {
             Some(false)
         } else {
             None
+        }
+    }
+
+    /// Everything this state says about one annotation, gathered once.
+    ///
+    /// The four questions are asked together, per annotation and per page, so asking them in one
+    /// call is one lookup per set rather than four walks of the page's annotation array.
+    #[must_use]
+    pub fn annotation(&self, annotation: ObjectId) -> AnnotationView<'_> {
+        AnnotationView {
+            hidden_by_action: self.annotation_hidden(annotation),
+            appearance: self.appearance_for(annotation),
+            value: if let Some(import) = self.imported.get(&annotation) {
+                FieldValue::Imported {
+                    value: import.value.as_ref(),
+                    flags: import.field_flags,
+                }
+            } else if self.reset.contains(&annotation) {
+                FieldValue::Default
+            } else {
+                FieldValue::Stored
+            },
+            flags: self.imported.get(&annotation).and_then(|import| {
+                (!import.annotation_flags.is_unchanged()).then_some(import.annotation_flags)
+            }),
+        }
+    }
+
+    /// Imports one FDF file's field values into this view of the document (§12.7.8).
+    ///
+    /// §12.7.8.3.2 states the operation in one sentence — "importing a field causes the values
+    /// of the entries in the FDF field dictionary to replace those of the corresponding entries
+    /// in the field with the same fully qualified name in the target document" — and every word
+    /// of it is here. *Replace*: an imported widget's value is the FDF file's, whatever the
+    /// document's own `/V` says and whatever a reset said before. *The same fully qualified
+    /// name*: the pairing runs through the same §12.7.4.2 name table §12.6.4.11's hide action
+    /// and §12.7.6.3's reset use, so all three agree about what a field is called.
+    ///
+    /// Nothing is written to the file, for [`Self::reset_form`]'s reason: this is a viewer's
+    /// state and an FDF import that reached the document would be this program creating a PDF.
+    pub fn import(&mut self, document: &Document, data: &crate::forms_data::FormsData) -> Imported {
+        let table = widgets_by_field_name(document);
+        let (matched, unmatched) = crate::forms_data::match_to_document(data, &table);
+        for (widget, import) in &matched {
+            // The two sets answer the same question, so a widget belongs to exactly one of
+            // them: an import after a reset is the later statement about this field's value.
+            self.reset.remove(widget);
+            self.imported.insert(*widget, import.clone());
+        }
+        Imported {
+            widgets: matched.len(),
+            unmatched,
         }
     }
 
@@ -237,6 +373,7 @@ impl ViewState {
             Action::Named(named) => return Some(Request::Page(*named)),
             Action::Uri(uri) => return Some(Request::Resolve(uri.clone())),
             Action::Thread(jump) => return Some(Request::Thread(jump.clone())),
+            Action::ImportData(import) => return Some(Request::Import(import.clone())),
             Action::SetOcgState(state) => {
                 if let Some(content) = self.optional_content.as_mut() {
                     content.apply(&state.changes, state.preserve_radio_buttons);
@@ -305,6 +442,7 @@ impl ViewState {
         let table = widgets_by_field_name(document);
         if action.fields.is_empty() {
             self.reset.extend(table.values().flatten().copied());
+            self.imported.clear();
             return;
         }
         let named: BTreeSet<ObjectId> = action
@@ -333,6 +471,11 @@ impl ViewState {
         } else {
             self.reset.extend(named);
         }
+        // §12.7.8's import and this are two statements about one field's value, so the later
+        // one stands alone — see the `imported` field. A reset performed after an import is the
+        // person asking for the document's own defaults back.
+        self.imported
+            .retain(|widget, _| !self.reset.contains(widget));
     }
 
     /// Whether this widget's value has been reset to its default (§12.7.6.3).

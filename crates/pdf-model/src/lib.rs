@@ -33,6 +33,7 @@ pub mod collection;
 pub mod colour;
 pub mod content;
 pub mod destination;
+pub mod forms_data;
 pub mod function;
 pub mod icc;
 pub mod image;

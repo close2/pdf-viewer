@@ -16,10 +16,11 @@
 //! | `URI` | §12.6.4.8 | yes — the URI, resolved; opening it is the caller's |
 //! | `Thread` | §12.6.4.7 | yes — a bead on §12.4.3's article thread, in this file |
 //! | `ResetForm` | §12.7.6.3 | yes — a field's value becomes its `/DV`, which changes what is drawn |
+//! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8) |
 //! | everything else | | [`Action::Refused`], by name |
 //!
-//! The refusals are not laziness and they are not uniform. `GoToR`, `GoToE`, `Launch`,
-//! `ImportData` and `SubmitForm` want a file system or a network, which principle 3's sandbox
+//! The refusals are not laziness and they are not uniform. `GoToR`, `GoToE`, `Launch` and
+//! `SubmitForm` want a file system or a network, which principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
 //! same list; `Trans` and `GoToDp` are viewer behaviour this program has not built yet. A `Thread` action naming *another file* joins the first group, for the
@@ -80,6 +81,8 @@ pub enum Action {
     Thread(ThreadJump),
     /// §12.7.6.3: reset form fields to the values the document says they start at.
     ResetForm(ResetForm),
+    /// §12.7.6.4: import form data from the file Table 243 names.
+    ImportData(ImportData),
     /// An action type this program recognises and does not perform, named.
     ///
     /// A `&'static str` rather than the file's own bytes: the name is one of Table 201's
@@ -235,6 +238,54 @@ pub enum ResetTarget {
     Field(ObjectId),
     /// "[A] text string representing the fully qualified name of a field" (PDF 1.3).
     Name(String),
+}
+
+/// §12.7.6.4's import-data action. Table 243.
+///
+/// The clause is one sentence:
+///
+/// > Upon invocation of an import-data action, a PDF processor shall import data … from Forms
+/// > Data Format (FDF), XFDF (XMLbased Forms Data Format according to ISO 19444-1) or any other
+/// > data format that it supports into the document's interactive form from a specified file.
+///
+/// This action is read here and performed nowhere, for §12.6.4.8's URI's reason (ADR 0070): the
+/// two things it needs are a file this program has no filesystem to open and a decision about
+/// *which* files a document may name, and both belong to a caller rather than to a renderer.
+/// What this crate can do is everything else — [`crate::forms_data::FormsData::read`] reads the
+/// file's bytes once somebody has them, and [`crate::view::ViewState::import`] applies it.
+///
+/// "[O]r any other data format that it supports" is what makes [`Self::format`] worth stating
+/// rather than guessing: this program supports FDF and not XFDF, which is ISO 19444-1 and an XML
+/// parser rather than a clause of this standard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportData {
+    /// Table 243's `/F`, "[t]he FDF, XFDF or any other data format file from which to import the
+    /// data", as the file names it.
+    ///
+    /// §7.11.3 makes a file specification "either a string or a dictionary", and both are read
+    /// into this — `/UF` first for the dictionary form, which Table 43 makes the Unicode one. It
+    /// is a name for a caller to resolve, never a path this crate opens.
+    pub file: String,
+    /// Which format the name says it is, from nothing more than the file name's extension.
+    ///
+    /// §12.7.8.1 is where the extension comes from — "[o]n the Microsoft Windows and UNIX
+    /// platforms, FDF files shall have the extension .fdf" — and it is a *hint*: the clause
+    /// states no way for the action itself to say which format its file is in, so a caller that
+    /// opens the file learns the truth from [`crate::forms_data::FormsData::read`], which
+    /// answers [`crate::forms_data::FormsDataError::NotFormsData`] for anything that is not one.
+    pub format: DataFormat,
+}
+
+/// What an import-data action's file name suggests it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DataFormat {
+    /// `.fdf` — §12.7.8's Forms Data Format, which [`crate::forms_data`] reads.
+    Fdf,
+    /// `.xfdf` — ISO 19444-1's XML spelling of the same data, which this program does not read.
+    Xfdf,
+    /// Anything else, which §12.7.6.4's "any other data format that it supports" permits and
+    /// this program supports none of.
+    Other,
 }
 
 /// §12.6.4.7's thread action. Table 209.
@@ -548,6 +599,7 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         b"URI" => Action::Uri(uri(document, dict)?),
         b"Thread" => thread(document, dict)?,
         b"ResetForm" => Action::ResetForm(reset_form(document, dict)),
+        b"ImportData" => import_data(document, dict)?,
         other => Action::Refused(refused(other)?),
     })
 }
@@ -582,6 +634,42 @@ fn reset_form(document: &Document, dict: &Dictionary) -> ResetForm {
             .as_integer()
             .is_some_and(|flags| flags & 1 != 0),
     }
+}
+
+/// Table 243's `/F`, in both the forms §7.11.3 gives a file specification.
+///
+/// `None` where the entry is absent or is neither — the table makes `/F` required, so an
+/// import-data action naming no file has stated nothing to import, which is a dictionary rather
+/// than an action.
+fn import_data(document: &Document, dict: &Dictionary) -> Option<Action> {
+    let stated = document.get_key(dict, "F");
+    let file = match &stated {
+        // §7.11.3: "a file specification shall be either a string or a dictionary". The string
+        // form is the whole specification; the dictionary form puts it under `/UF` or `/F`, and
+        // Table 43 makes `/UF` the Unicode one and therefore the one to prefer.
+        Object::String(bytes) => pdf_syntax::text_string(bytes),
+        Object::Dictionary(specification) => ["UF", "F"].iter().find_map(|key| {
+            document
+                .get_key(specification, key)
+                .as_string()
+                .map(pdf_syntax::text_string)
+        })?,
+        _ => return None,
+    };
+    // The extension, case-insensitively: §12.7.8.1 states the letters and nothing about their
+    // case, and a file specification is written by whichever platform exported the data.
+    let extension = std::path::Path::new(&file)
+        .extension()
+        .map(|extension| extension.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let format = if extension.eq_ignore_ascii_case("fdf") {
+        DataFormat::Fdf
+    } else if extension.eq_ignore_ascii_case("xfdf") {
+        DataFormat::Xfdf
+    } else {
+        DataFormat::Other
+    };
+    Some(Action::ImportData(ImportData { file, format }))
 }
 
 /// Table 209's `/D` and `/B`, with `/F` deciding that this is another file's thread.
@@ -797,7 +885,6 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
             "RichMediaExecute: clause 13's multimedia, excluded by CLAUDE.md principle 5"
         }
         b"SubmitForm" => "SubmitForm: §12.7.6.2's submission, which needs a network",
-        b"ImportData" => "ImportData: §12.7.6.4's FDF import, which needs a filesystem",
         _ => return None,
     })
 }
