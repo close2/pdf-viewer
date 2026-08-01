@@ -593,6 +593,17 @@ of the page tree — 988 items over 1023 pages, `O(items × pages)`, on the path
 gate turns a page in a viewer and the specification's own PDF is in none of them — and the two
 regression tests are *ratios* against a walk the test performs itself.
 
+**The GPU backend's own question is open and has a plan** (ADR 0128, session 143). Page 6 is 5933
+fills of **107 distinct outlines**, and Vello re-flattens all 5933 every frame; a glyph atlas is
+therefore the largest single optimisation available to this program, and it is not reachable from
+outside Vello. The plan is deliberately ordered so each step prices the next: stale-frame zoom
+(perceived latency, host-side, judged *ugly but acceptable for now* by the owner), then **a glyph
+coverage cache in `render-cpu`** — the same insight in the backend that is both oracle and startup
+path, which prices the atlas before anyone writes a shader — then a moving window of interpreted
+pages, then a spike of our own backend against Vello and `vello_hybrid`. A whole document cannot be
+resident: 70 MB of draw records is affordable, the **4.0 s** to interpret 1023 pages is not, and
+the startup rule decides it.
+
 **Still open, priced or unpriced**: colour-managing an image in parallel (`issue19971.pdf`'s
 3.4-megapixel photograph went 30 ms → 120 ms when `ICCBased` images began converting through their
 profile; the loop is embarrassingly parallel apart from its memo and rayon is already here, and
