@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fiftieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-fifty-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -70,7 +70,7 @@ answers with.
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 11 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
-| conformance | 3067 citations, 318 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3166 citations, 323 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -485,7 +485,7 @@ next to what it covers.
   validation needing a trust store or network, 5 need a second file, a media engine or a network,
   3 are icon clauses whose own verb is *should*, and the rest name a device or a user control this
   program does not have. That population is worked out.
-- **The 242 `partial` rows are the population with no gate**, and reading them has paid four
+- **The 243 `partial` rows are the population with no gate**, and reading them has paid four
   sessions running. What to look for, in the order the findings came: a note that *understates*
   the code (five in session 115); a note whose **reason** has expired — "while §X does not
   exist", "needs §Y" — which no gate can watch (117, 118); a note claiming an entry is *unread*
@@ -707,7 +707,7 @@ documents, and it prints what it gave up.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
-cargo test -p conformance -- --nocapture   # 3067 citations, 318 quotations, 181 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 3166 citations, 323 quotations, 181 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's (trap 10).
@@ -1281,7 +1281,10 @@ anchor that makes it checkable.
 - **A note that gives a reason gives a trigger, and nothing fires it.** "While §11.4.6 does not
   exist" expired forty-six sessions before anyone noticed. ADR 0107. **A row that names a
   *blocker* rather than a gap is the class no gate can watch** — one regular expression over the
-  notes finds them in twenty minutes. ADR 0108.
+  notes finds them in twenty minutes. ADR 0108. **The same regular expression paid again in the
+  hundred-and-fifty-first**: §11.3.7.2 said a group's shape "needs §11.4.6", which the
+  seventy-first session built — three sessions after the note was written, unnoticed for eighty.
+  What §11.4.6 needed turned out not to be that shape at all.
 - **A warning written into a ledger note before the code exists is a warning nobody reads when the
   code arrives.** §7.11.2.1's row named a defect three call sites had for as long as they existed.
   ADR 0104.
@@ -1701,3 +1704,4 @@ above rather than here.
 | 148 | §9.6.2.2's fourteen font programs compiled in, and the notices that go with them | 0133 |
 | 149 | §14.7's structure tree reaches a consumer: `Query::AccessibilityTree` | 0134 |
 | 150 | §12.4.4.1's `/Dur`: a state machine with no clock is told the time | 0135 |
+| 151 | The ledger re-read against seven sessions of new capability | — |
