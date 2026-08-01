@@ -272,6 +272,43 @@ pub struct Interpretation {
     pub associated_files: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
     /// The document catalog's `/Lang`, §14.9.2.3's default for everything in the file.
     pub language: Option<String>,
+    /// Where each code's readback sits on the page, in the order it was shown.
+    ///
+    /// The geometry [`Self::text`] does not have. One entry per character code the page showed,
+    /// carrying the range of [`Self::text`] that code produced and the quadrilateral its glyph
+    /// occupies — so a point on the page finds a position in the text, and a range of the text
+    /// finds the shapes to draw over.
+    ///
+    /// **Nothing in ISO 32000-2 asks for this.** Selecting text is not a thing the standard
+    /// describes; what it describes is where a glyph is drawn (§9.4.4's text rendering matrix)
+    /// and how tall the font's glyphs are (Table 122's `/Ascent` and `/Descent`), and this is
+    /// those two, per code, kept rather than discarded.
+    ///
+    /// Includes text in rendering modes 3 and 7 — the invisible ones — because that is exactly
+    /// the OCR layer under a scanned page, and it is the text a person most wants to select.
+    /// Excludes text on an optional-content layer that is switched off, which is not on the page.
+    pub text_layer: Vec<Placed>,
+}
+
+/// One character code's readback, and where its glyph sits on the page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Placed {
+    /// The range of [`Interpretation::text`] this code produced.
+    ///
+    /// May be empty: a code whose glyph is drawn but that no `/ToUnicode`, glyph name or
+    /// `cmap` can name reads back as nothing, and it still occupies space on the page.
+    pub span: std::ops::Range<usize>,
+    /// The glyph's box, in the display list's own coordinates.
+    ///
+    /// `[x0, y0, x1, y1, x2, y2, x3, y3]`, going round the quadrilateral: the corners are
+    /// (0, descent), (advance, descent), (advance, ascent) and (0, ascent) in glyph space,
+    /// mapped through §9.4.4's text rendering matrix and the page's own transform. A
+    /// quadrilateral rather than a rectangle because the text matrix may rotate, shear or
+    /// mirror, and a rectangle could only describe the cases where it does not.
+    ///
+    /// The same space the display list is in, so a consumer that knows what scale a page was
+    /// rasterised at knows where these are on the screen.
+    pub quad: [f32; 8],
 }
 
 /// One §14.8.2.2 artifact, and the range of [`Interpretation::text`] it covers.
@@ -1090,6 +1127,7 @@ pub fn interpret_with(
         artifacts: Vec::new(),
         marked: Vec::new(),
         inferred_separators: 0,
+        text_layer: Vec::new(),
         associated: Vec::new(),
         reversed_chars: 0,
         text_cursor: None,
@@ -1169,6 +1207,7 @@ pub fn interpret_with(
         inferred_separators: interpreter.inferred_separators,
         associated_files: interpreter.associated,
         language,
+        text_layer: interpreter.text_layer,
     }
 }
 
@@ -1190,6 +1229,27 @@ enum FontKey {
     /// NOTE 1 makes alternatives — arrive here differently and only this says they are the
     /// same thing when they name the same object.
     Referenced(pdf_syntax::ObjectId),
+}
+
+/// A glyph's box, mapped by §9.4.4's text rendering matrix.
+///
+/// The corners in glyph space are (0, descent), (advance, descent), (advance, ascent) and
+/// (0, ascent) — the advance along the baseline and the font's own reach above and below it —
+/// and they go round the quadrilateral in that order so that a consumer can draw it as a
+/// polygon without sorting.
+fn glyph_quad(advance: f32, extent: (f32, f32), transform: Transform) -> [f32; 8] {
+    let (ascent, descent) = extent;
+    let corner = |x: f32, y: f32| {
+        let point = transform.apply(Point::new(x, y));
+        (point.x, point.y)
+    };
+    let (a, b, c, d) = (
+        corner(0.0, descent),
+        corner(advance, descent),
+        corner(advance, ascent),
+        corner(0.0, ascent),
+    );
+    [a.0, a.1, b.0, b.1, c.0, c.1, d.0, d.1]
 }
 
 /// The page's extent as it is displayed: after §7.7.3.3's `/Rotate`, and in `/UserUnit`s.
@@ -1216,14 +1276,20 @@ pub fn displayed_size(page: &Page) -> Size {
     }
 }
 
-/// Maps a point in the *page's* space — the display list's, and the raster's — back to default
-/// user space.
+/// Maps a point in the **display list's** space back to default user space.
 ///
 /// The inverse of the transform every page is drawn under, which is what a caller needs to turn
 /// a click into a place in the document: §12.5.2 states an annotation's `/Rect` "in default user
 /// space units", and §7.7.3.3's `/Rotate` and `/CropBox` are exactly what stand between that and
 /// a pixel. Returns `None` for a page whose transform is degenerate, which a zero-sized crop box
 /// would produce.
+///
+/// **The display list's space is not the raster's**, and this doc comment said it was for
+/// seventy-five sessions. PDF's y axis points up and a raster's points down, and the flip
+/// between them belongs to [`pdf_render::TargetSpec::for_page`] rather than to the page — see
+/// [`base_transform`]. A caller holding a pixel position therefore subtracts it from the page's
+/// height *in the same units* before calling this, which is what `viewer-core` does; one that
+/// did not was mirroring every click about the middle of the page. ADR 0118.
 #[must_use]
 pub fn user_space_at(page: &Page, x: f32, y: f32) -> Option<(f32, f32)> {
     let point = base_transform(page).invert()?.apply(Point::new(x, y));
@@ -1342,6 +1408,8 @@ struct Interpreter<'a> {
     reversed_chars: usize,
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
+    /// Where each shown code's readback sits on the page; see [`Interpretation::text_layer`].
+    text_layer: Vec<Placed>,
     /// How many separators [`Interpreter::separate_text`] inferred from position.
     inferred_separators: usize,
     /// The document's optional content configuration, if it has one (§8.11).
@@ -3758,6 +3826,13 @@ impl Interpreter<'_> {
     /// The clause makes each behave as it would for a path: "Stroking, filling, and clipping
     /// shall have the same effects for a text object as they do for a path object … although
     /// they are specified in an entirely different way."
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one pass over a show string's codes, and every step of it is a clause: the \
+                  readback, the text layer's geometry, the two kinds of glyph and §9.3's four \
+                  spacing parameters. Splitting it would need nine parameters to carry the \
+                  loop's state into the piece that was moved"
+    )]
     fn show_text(
         &mut self,
         bytes: &[u8],
@@ -3812,7 +3887,18 @@ impl Interpreter<'_> {
         // against the writing direction, where a gap means nothing.
         let reversing = self.reversed_chars > 0;
         let mut pieces: Vec<String> = Vec::new();
+        // The quadrilaterals of a reversed string, in the order the glyphs were *placed*, so
+        // that they can be paired with their pieces when those are appended backwards.
+        let mut reversed_quads: Vec<[f32; 8]> = Vec::new();
         let mut first = true;
+
+        // Table 122's `/Ascent` and `/Descent`, which say how tall this font's line is. Read
+        // once per show operation: they are a property of the font. Table 122 requires neither
+        // of a Type 3 font, so its box is the em box.
+        let extent = match &font {
+            Font::Program(program) => program.extent(),
+            Font::Type3(_) => (1.0, 0.0),
+        };
 
         for code in font.decode(bytes) {
             let advance_em = font.advance(code);
@@ -3827,18 +3913,30 @@ impl Interpreter<'_> {
                 self.separate_text(text.matrix, size, word_gap, vertical);
             }
             first = false;
+            let start = self.text.len();
             self.read_back(&font, code, reversing.then_some(&mut pieces));
 
-            if (fills || strokes || clipping) && size != 0.0 {
-                // Glyph space to text space: scale by the font size, apply horizontal
-                // scaling and rise, then the text matrix and the current transform. §9.4.4
-                // calls this the text rendering matrix, and both kinds of glyph are placed
-                // by it — the difference is only what is placed.
-                let glyph_to_text =
-                    Self::glyph_to_text(size, scale, state.text.rise, program_metrics.1);
-                let glyph_to_user = glyph_to_text.then(text.matrix);
-                let transform = glyph_to_user.then(state.transform);
+            // Glyph space to text space: scale by the font size, apply horizontal scaling and
+            // rise, then the text matrix and the current transform. §9.4.4 calls this the text
+            // rendering matrix, and both kinds of glyph are placed by it — the difference is
+            // only what is placed.
+            //
+            // Computed here rather than inside the branch below because the *text layer* wants
+            // it for every code, including the ones rendering modes 3 and 7 draw nothing for:
+            // an OCR layer under a scanned page is invisible text that a person still selects.
+            let glyph_to_text =
+                Self::glyph_to_text(size, scale, state.text.rise, program_metrics.1);
+            let glyph_to_user = glyph_to_text.then(text.matrix);
+            let transform = glyph_to_user.then(state.transform);
+            let quad = glyph_quad(advance_em, extent, transform);
+            if reversing {
+                reversed_quads.push(quad);
+            } else {
+                let span = start..self.text.len();
+                self.text_layer.push(Placed { span, quad });
+            }
 
+            if (fills || strokes || clipping) && size != 0.0 {
                 let glyph_fill_clip = self.paint_clip(state, true);
                 match &font {
                     Font::Program(program) => {
@@ -3905,11 +4003,22 @@ impl Interpreter<'_> {
             self.text_cursor = Some((text.matrix.e, text.matrix.f));
         }
 
-        // The string's own readback, backwards. Nothing about the *drawing* changed: the
-        // glyphs were placed where their positions put them, and what §14.8.2.5.3 reverses
-        // is what a reader extracts or hears.
-        for piece in pieces.iter().rev() {
+        self.append_reversed(&pieces, reversed_quads);
+    }
+
+    /// §14.8.2.5.3's reversal: one show string's readback, appended backwards.
+    ///
+    /// Nothing about the *drawing* changed — the glyphs were placed where their positions put
+    /// them, and what the clause reverses is what a reader extracts or hears — so each piece
+    /// keeps the quadrilateral of the glyph that produced it and only their order changes.
+    fn append_reversed(&mut self, pieces: &[String], quads: Vec<[f32; 8]>) {
+        for (piece, quad) in pieces.iter().zip(quads).rev() {
+            let start = self.text.len();
             self.text.push_str(piece);
+            self.text_layer.push(Placed {
+                span: start..self.text.len(),
+                quad,
+            });
         }
     }
 

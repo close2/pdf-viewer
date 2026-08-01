@@ -433,9 +433,16 @@ impl Viewer {
     ///
     /// Through the transform the frame on the screen was drawn with, and not one this function
     /// invents: §12.5.2 states an annotation's rectangle "in default user space", and getting
-    /// there means undoing the centring, the magnification, the crop box's origin and
-    /// §7.7.3.3's rotation in that order. The last two are
+    /// there means undoing the centring, the magnification, **the y axis**, the crop box's
+    /// origin and §7.7.3.3's rotation, in that order. The last two are
     /// [`pdf_model::content::user_space_at`]'s.
+    ///
+    /// **The y axis is the one that was wrong.** A raster's y points down from its top row and
+    /// PDF's points up from the bottom of the page; the flip between them lives in
+    /// `TargetSpec::for_page` rather than in the page's own transform, so undoing it is this
+    /// function's job. It is undone about the *page's* height rather than the raster's, because
+    /// that is what the forward transform translates by — a raster is rounded up to contain the
+    /// page and the leftover fraction of a row is at the bottom. ADR 0118.
     fn user_space(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
         let magnification = open.magnification(self.viewport, self.scale)?;
         if magnification <= 0.0 {
@@ -445,10 +452,11 @@ impl Viewer {
         let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
         let origin = open.origin(self.viewport, (target.width, target.height));
         let page = open.page(open.page_index)?;
+        let size = open.page_size(open.page_index)?;
         pdf_model::content::user_space_at(
             &page,
             (at.0 - origin.0) / magnification,
-            (at.1 - origin.1) / magnification,
+            size.height - (at.1 - origin.1) / magnification,
         )
     }
 

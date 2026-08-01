@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-thirty-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-thirty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -51,12 +51,12 @@ rather than architecture.
 
 | gate | number | where |
 |---|---|---|
-| tests | **912**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 132, fuzzers in 129 |
+| tests | **916**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 133, fuzzers in 129 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
-| conformance | 2874 citations, 307 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 2918 citations, 309 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -212,9 +212,10 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 
 #### What is still owed, in the order to do it
 
-1. **The two artefacts below** — a text layer and an edit log. They are what selection and
-   editing need, they change `pdf-model`'s output shape and where mutation may live, and those
-   are the two things expensive to retrofit.
+1. **The edit log**, the second of the two artefacts below — the text layer landed in session
+   133. It changes where mutation may live, which is the thing expensive to retrofit.
+   `Query::TextIn`, `Query::QuadsFor` and `Command::Select` sit on the text layer and are a
+   session's work now that the geometry exists.
 2. **The rest of the vocabulary, as its feature arrives.** `Command::Tick { millis }` for
    §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves);
    `Command::Select`, `Command::Edit`, `Undo`, `Redo`; `Query::TextIn`, `QuadsFor`,
@@ -292,16 +293,14 @@ hand over finished pixels. It also means a slow render never blocks feedback.
 
 #### Two artefacts that do not exist yet
 
-**A text layer.** `Interpretation` today is `{ display_list, unsupported, text: String, glyphs }`
-— the text is a flat string with **no per-glyph geometry**; `text_cursor` exists only to infer
-word breaks and is discarded. Selection needs device point → text position, text range → quads,
-and a stable order. So interpretation gains a per-run layer: the Unicode, its quadrilateral in
-page space, its index in logical order. **Build it once and three consumers appear** — selection,
-search, and §14.9's accessibility consumer. `Tree::logical_text` already supplies the *order*
-(§14.8.2.5, session 94); this is geometry attached to it. **It is not free**: `Interpretation::text`
-is built unconditionally today, so expect a flag on `interpret` and a `callgrind_interpret`
-measurement before it becomes the default — the discipline §14.7.5.4's parent tree got, which was
-measured at 4.5% and kept with the cost written down.
+**A text layer — done in the hundred-and-thirty-third session (ADR 0118).**
+`Interpretation::text_layer` is one `Placed` per character code: the range of the readback it
+produced and the quadrilateral its glyph occupies, in the display list's coordinates. The box is
+the glyph's advance by Table 122's `/Ascent` and `/Descent`, and it is built for rendering modes
+3 and 7 too, because an OCR layer under a scanned page is exactly the text a person selects.
+Measured at **+1.69%** of interpretation by an A/B in one sitting, and kept unconditional with the
+cost written down. What is *not* built on it yet: `Query::TextIn`, `Query::QuadsFor`,
+`Command::Select`, and search.
 
 **An edit log.** `Edits` as a third explicit input to `interpret`. Three things fall out: undo and
 redo *are* the log, so they belong in the core rather than being reimplemented per host; saving
@@ -501,7 +500,8 @@ machine. In aggregate we are 5.5× faster than `hayro` because their distributio
 and ours no longer does; the totals and the median answer different questions and only quoting
 both is honest.
 
-**Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 122.8 M** today. Session
+**Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 150.7 M** today, of which
+the text layer is 35.8 M (session 133's A/B, below). Session
 124 rebuilt `0723cda` in the same sitting and got **2 119 519 869** against the 2 119.5 M session
 119 recorded for the same commit — a *repeat*, not a drift. **So the 0.42% "drift floor" this file
 used to quote is drift between machines and builds; an A/B in one sitting resolves far below it.**
@@ -510,7 +510,8 @@ Four sessions of change cost 3.3 M (+0.16%), of which §11.7.4.4's per-glyph boo
 
 Per-feature interpretation costs, measured the same way and kept because they are the only honest
 scale for "what a feature costs": text rendering modes +0.46%, composite fonts +0.44%,
-constructed appearances +0.34%, variable text +0.31%, masking +0.12%, soft masks +0.05%, §14.7's
+constructed appearances +0.34%, variable text +0.31%, **the text layer +1.69%** (2 114.8 M →
+2 150.7 M, an A/B in one sitting), masking +0.12%, soft masks +0.05%, §14.7's
 parent tree **+4.5%** (object streams the drawing path never touches; 885 of 974 documents pay one
 dictionary lookup), and §8.4/§8.5's path rules **−0.21%** — collapsing consecutive `m` operators
 leaves fewer commands to build than the rules cost to apply.
@@ -869,6 +870,23 @@ A condition worked out for a report is worth keeping when the feature lands. And
 is real: **a report can hide another report** — `knockout_smask.pdf`'s knockout gap was covered by
 its soft-mask report for four sessions.
 
+### 12a. The display list's space is not the raster's, and a doc comment said it was
+
+PDF's y axis points up from the bottom of the page; a raster's points down from its top row. The
+flip lives in `TargetSpec::for_page` — "the page's top edge is raster row zero", ADR 0064 — and
+**not** in `base_transform`, so a caller holding a pixel position must subtract it from the page's
+height before asking `user_space_at` anything.
+
+`user_space_at`'s own doc comment said it took a point in "the page's space — the display list's,
+and the raster's" for seventy-five sessions, and **every click followed that sentence into the
+mirror of the point it meant**. No gate clicks, so nothing saw it; the tests written for it took
+their point from a grid scan of the broken mapping and asked whether *a* link was there, and on
+the test document the mirror of a link is another link. ADR 0118.
+
+Two rules out of it: **flip about the *page's* height, not the raster's** — the raster is rounded
+up to contain the page and the spare fraction of a row is at the bottom — and **when a test needs
+a point, take it from the document rather than from the code under test**.
+
 ### 12. A bound derived from two agreeing references is tighter than the arithmetic
 
 `oracle.rs` judges us relative to how far the consensus references sit from one another. That is
@@ -1044,8 +1062,8 @@ anchor that makes it checkable.
 - **A number in this file is a claim, and attributing it is a second claim.** `calloc` was 4.5% of
   a page and this file said it was the group's pixmap; `Pixmap::new` is 0.14%. Ask
   `callgrind_annotate --tree=caller`. ADR 0103.
-- **Three plausible optimisations, three counts, three refusals — and counting was cheaper than
-  any of them**: 0%, 1.3%, 2.5%.
+- **Four plausible optimisations, four counts, four refusals — and counting was cheaper than
+  any of them**: 0%, 1.3%, 2.5%, and a `Vec::reserve` per show string that *cost* 0.47%.
 - **A profile ages past its conclusion, and the conclusion is what survives being read.** One
   profile was carried nineteen sessions; re-measured, its largest item was *four times* the share
   recorded and the sentence beside it had named the fix correctly the whole time.
@@ -1430,3 +1448,4 @@ above rather than here.
 | 130 | MIT; `CLAUDE.md`'s writer exclusion amended; §0's UI boundary specified | — |
 | 131 | `viewer-core` is real: a vocabulary, a scheduler, and a consumer with no display | 0116 |
 | 132 | The window becomes a consumer; a locked file is asked for its password at last | 0117 |
+| 133 | The text layer, and the click that had been mapped to the wrong half of the page | 0118 |

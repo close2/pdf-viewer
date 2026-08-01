@@ -274,6 +274,8 @@ pub struct LoadedFont {
     widths: BTreeMap<u32, f32>,
     /// Advance for a code with no entry.
     default_width: f32,
+    /// Table 122's `/Ascent` and `/Descent`, in ems.
+    extent: (f32, f32),
     /// §9.7.4.3's second set of metrics, for a composite font in writing mode 1.
     vertical: Option<Vertical>,
     units_per_em: f32,
@@ -477,6 +479,7 @@ impl LoadedFont {
             mapping,
             widths,
             default_width,
+            extent: vertical_extent(document, descriptor),
             // §9.2.4: a second set of metrics "is available only for composite fonts".
             vertical: None,
             units_per_em,
@@ -591,6 +594,7 @@ impl LoadedFont {
             glyph_names: None,
             widths: composite_widths(document, &descendant),
             default_width,
+            extent: vertical_extent(document, descriptor),
             vertical: vertical.then(|| Vertical::read(document, &descendant)),
             units_per_em,
             outlines: RefCell::new(BTreeMap::new()),
@@ -598,6 +602,14 @@ impl LoadedFont {
             agl_by_code: OnceCell::new(),
             post_by_code: OnceCell::new(),
         })
+    }
+
+    /// Table 122's `/Ascent` and `/Descent`, in ems, for a caller measuring a line's height.
+    ///
+    /// See [`vertical_extent`], including what a font that states neither gets and why.
+    #[must_use]
+    pub fn extent(&self) -> (f32, f32) {
+        self.extent
     }
 
     /// Whether these glyphs stand in for a font the document did not embed.
@@ -1666,6 +1678,40 @@ struct SimpleMetrics<'a> {
 ///
 /// Resolved once here rather than at each lookup, so [`LoadedFont::advance`] stays free of
 /// work and of allocation on the per-character path.
+/// How far a font's glyphs reach above and below the baseline, in ems.
+///
+/// ISO 32000-2 §9.8.1's Table 122 requires both entries of every font descriptor. `/Ascent`:
+///
+/// > The maximum height above the baseline reached by glyphs in this font. The height of glyphs
+/// > for accented characters shall be excluded.
+///
+/// and `/Descent`:
+///
+/// > The maximum depth below the baseline reached by glyphs in this font. The value shall be a
+/// > negative number.
+///
+/// Glyph space, so both are divided by a thousand (§9.2.2: "1/1000 of a unit in text space").
+///
+/// **This is not used to place anything.** It answers a question the standard does not ask —
+/// how tall is a line of this text — which a viewer needs to lay a selection highlight over a
+/// run of glyphs. Where a font states neither entry (the standard 14, which need no descriptor,
+/// and every malformed file) the answer is the em box, 1 above the baseline and 0 below: that is
+/// a *defined* quantity rather than a guess, and it is the one place a fallback here could
+/// invent a number.
+fn vertical_extent(document: &Document, descriptor: Option<&Dictionary>) -> (f32, f32) {
+    let entry = |key: &str| {
+        descriptor
+            .map(|descriptor| document.get_key(descriptor, key))
+            .and_then(|value| value.as_number())
+            .map(narrow)
+            .filter(|value| value.is_finite())
+    };
+    match (entry("Ascent"), entry("Descent")) {
+        (Some(ascent), Some(descent)) if ascent > descent => (ascent / 1000.0, descent / 1000.0),
+        _ => (1.0, 0.0),
+    }
+}
+
 /// The width of every code the font dictionary's `/Widths` does not cover.
 ///
 /// §9.6.2's Table 109 names `/MissingWidth` for exactly that, and Table 120 gives it a

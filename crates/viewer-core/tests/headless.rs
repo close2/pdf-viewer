@@ -48,10 +48,33 @@ const DOCUMENT: DocumentId = DocumentId(1);
 /// How many pages that document has.
 const PAGES: usize = 5;
 
-/// A point on `basicapi.pdf`'s first-page link, in device pixels of an 800×1000 viewport.
+/// `basicapi.pdf`'s second first-page link, `[60.62, 697.08, 141.95, 709.88]` in user space.
 ///
-/// Found by asking [`Query::LinkAt`] over a grid, which is how a host would find it too.
-const ON_LINK: (f32, f32) = (120.0, 830.0);
+/// Written as the document states it rather than as a device point, so that
+/// [`device_point`] has to do the mapping and the test cannot be satisfied by a mirror of it.
+const LINK_RECT: [f32; 4] = [60.62, 697.08, 141.95, 709.88];
+
+/// The centre of a user-space rectangle, in device pixels, from the geometry the viewer reports.
+///
+/// This is the arithmetic a host does to draw anything over a page, so a test that does it
+/// independently is a test of the whole mapping: the magnification, the centring, and the y axis
+/// PDF measures up and a raster measures down.
+fn device_point(viewer: &Viewer, rect: [f32; 4], page_height: f32) -> (f32, f32) {
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    let (x, y) = (
+        f32::midpoint(rect[0], rect[2]),
+        f32::midpoint(rect[1], rect[3]),
+    );
+    (
+        geometry.origin.0 + x * geometry.scale,
+        geometry.origin.1 + (page_height - y) * geometry.scale,
+    )
+}
+
+/// `basicapi.pdf`'s page height, which the y flip is measured about.
+const PAGE_HEIGHT: f32 = 841.89;
 
 /// Opens the specification note into a viewport of the given size, draining the events.
 fn opened(width: u32, height: u32) -> (Viewer, Vec<Event>) {
@@ -460,24 +483,32 @@ fn a_click_on_a_link_shows_the_page_it_names() {
             password: None,
         })
         .for_each(drop);
+    let on_link = device_point(&viewer, LINK_RECT, PAGE_HEIGHT);
     assert!(
-        matches!(viewer.query(Query::LinkAt(ON_LINK)), Answer::Link(true)),
-        "a host asks this on every pointer move, to choose a cursor"
+        matches!(viewer.query(Query::LinkAt(on_link)), Answer::Link(true)),
+        "a host asks this on every pointer move, to choose a cursor: {on_link:?}"
     );
     assert!(matches!(
         viewer.query(Query::LinkAt((5.0, 5.0))),
         Answer::Link(false)
     ));
+    // The same point mirrored about the middle of the page, which is where a click landed for
+    // the seventy-five sessions this mapping had the y axis upside down. Nothing is there.
+    let mirrored = (on_link.0, 1000.0 - on_link.1);
+    assert!(
+        matches!(viewer.query(Query::LinkAt(mirrored)), Answer::Link(false)),
+        "the mirror of a link is not a link: {mirrored:?}"
+    );
 
     viewer
         .handle(Command::Pointer {
-            at: ON_LINK,
+            at: on_link,
             action: PointerAction::Pressed,
         })
         .for_each(drop);
     let events: Vec<_> = viewer
         .handle(Command::Pointer {
-            at: ON_LINK,
+            at: on_link,
             action: PointerAction::Released,
         })
         .collect();
@@ -505,9 +536,10 @@ fn a_press_dragged_off_a_link_does_not_activate_it() {
             password: None,
         })
         .for_each(drop);
+    let on_link = device_point(&viewer, LINK_RECT, PAGE_HEIGHT);
     viewer
         .handle(Command::Pointer {
-            at: ON_LINK,
+            at: on_link,
             action: PointerAction::Pressed,
         })
         .for_each(drop);
@@ -545,7 +577,8 @@ fn a_uri_is_handed_over_rather_than_opened() {
             password: None,
         })
         .for_each(drop);
-    let at = (210.0, 400.0);
+    // §12.6.4.8's link on `TAMReview.pdf`'s first page, as the document states it.
+    let at = device_point(&viewer, [134.0, 331.0, 449.2, 343.0], 842.0);
     viewer
         .handle(Command::Pointer {
             at,
