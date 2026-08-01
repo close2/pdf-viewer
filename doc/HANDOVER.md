@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-ninth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-thirtieth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,31 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-twenty-seventh — a resource name is scoped to the dictionary that defines it.**
-ADR 0115.
-
-- **Found by measuring something else.** Counting every `decoded_stream_data` call on the
-  benchmark page — the handover's standing question about `zlib_rs` being 28% of interpretation
-  — showed one 88 501-byte stream inflated **twice** per page. Its dictionary has `/Length1`:
-  an embedded font program.
-- **The font cache was keyed by the resource *name*.** §8.10.1 gives a form `XObject` its own
-  `/Resources`, so a page's `/F1` and a form's `/F1` are two fonts as often as they are one —
-  and the second was being handed the first's glyphs **with nothing reported**. Trap 1's
-  archetype, word for word, in the tree since the cache was added thirty-one sessions ago.
-- **Keyed by the font dictionary's object identity now**, which `shading::Cache` has done since
-  the seventy-third session for the same reason. A directly-stated font dictionary has no
-  identity and is loaded afresh; no corpus document states one.
-- **Incomplete rises 89 → 91 and it is trap 5's rise**: `issue17492.pdf` and `issue19182.pdf`
-  were drawing another font's glyphs silently and now name what they actually ask for. Agreeing
-  falls 841 → 839 — a smaller denominator, not a worse renderer.
-- **A text shortfall nobody had diagnosed was a font nobody had looked up.** `issue19971.pdf`
-  sat at 83% among "six partial for reasons nobody has diagnosed further" and is above the floor;
-  the list is 44 → 42.
-- **The perf item that led here is unfinished**: two distinct font dictionaries share one
-  `/FontFile2` in that file, which this key does not collapse.
-
-Tests 894 → 895; incomplete **89 → 91**, agreeing **841 → 839**, text list **44 → 42**.
 
 **Hundred-and-twenty-eighth — every other cache's key, and a to-do item priced.** No ADR: a
 session that confirms and measures has nothing to argue.
@@ -81,6 +56,28 @@ verification session that finds nothing has nothing to argue.
   most was found by *measuring something else*. Against the nine before them, which moved none:
   the difference is that these read the code against the clause rather than the ledger against
   the clause.
+
+**Hundred-and-thirtieth — the licence, and what may be shipped with it.** No ADR: a decision the
+owner took and an investigation that changed no code.
+
+- **This project is MIT**, relicensed from MPL-2.0 by the owner. `LICENSE` is at the root and
+  `deny.toml`'s allow-list dropped MPL with it — nothing in the graph needed a file-level
+  copyleft. One author in the whole history, so the relicence needed nobody else's consent.
+- **The third-party data this tree has been declining to ship for eighty sessions is not
+  blocked by any licence**, and the terms were read off three independently redistributed copies
+  on this machine rather than recalled: Adobe's `CMap`s and the Foxit standard-14 programs are
+  **BSD-3-Clause**, Liberation Sans is **OFL 1.1**. §2a has the table, the sizes, what four other
+  projects do, and the one real trap — poppler's `cidToUnicode` is **GPL**, is not Adobe's, and
+  has a BSD equivalent in Adobe's own `-UCS2` `CMap`s.
+- **Nothing was vendored yet, on purpose.** Both licences oblige a *binary* distribution to carry
+  their notices and this program has nowhere to put one, so the order is: attribution surface —
+  a `NOTICE`, a `--licences` flag, and the menu and About panel the owner has asked for — then
+  the 14 fonts, then the `CMap`s. §2a argues that order.
+- **The fonts are the bigger win of the two and the smaller download.** 804 KB ends
+  `substitute.rs`'s standing description of itself as "the only machine-dependent code in the
+  tree", and would have let the hundred-and-twenty-fifth session *see* its own fix.
+
+No gate moved; no code changed outside `Cargo.toml` and `deny.toml`.
 
 ## How the project got here
 
@@ -214,6 +211,7 @@ below rather than here.
 | 127 | The font cache was keyed by a resource *name*; a form's `/F1` is not a page's | ADR 0115 |
 | 128 | Every other cache's key checked; the decompression item priced and found small | — |
 | 129 | Everything re-verified after ten sessions of change | — |
+| 130 | MIT; the third-party data licences read and the order to ship them in | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -1283,12 +1281,135 @@ specification, and "make it match mupdf" is exactly the failure this project for
   went from 30 ms to 120 ms. The loop is embarrassingly parallel apart from its memo, one cache
   per row band would keep it exact, and this tree already has rayon. Nobody has tried it, and
   the sixteenth session's lesson about benchmarks that measure nothing applies.
-- **Predefined `CMap`s** (12 documents) are a decision about vendoring third-party data and its
-  licence, not an algorithm — and 13 corpus fonts ask for one, of which exactly **one** names a
-  vertical `CMap`. **Vertical writing itself landed in the thirty-sixth session**; this line said
-  otherwise until the hundred-and-twenty-second (ADR 0111).
+- **Predefined `CMap`s** (13 corpus fonts, of which exactly **one** names a vertical one) were
+  filed here for eighty sessions as "a decision about vendoring third-party data and its
+  licence, not an algorithm". **The licence question is now answered — see §6 below — and the
+  answer is that there is no obstacle.** What is left is the algorithm-free part: where the
+  bytes live, how big they are, and when they are decompressed. **Vertical writing itself landed
+  in the thirty-sixth session**; this line said otherwise until the hundred-and-twenty-second
+  (ADR 0111).
   **Type 1 fonts landed in the thirty-first session** and were the opposite of small: the entry
   above them said "no corpus page one reaches one", and 57 do.
+
+### 2a. Third-party data: what may be shipped, and what it would buy
+
+**This project is MIT** as of the hundred-and-thirtieth session, relicensed from MPL-2.0 by the
+owner's decision; `LICENSE` is at the root and `deny.toml`'s allow-list dropped MPL with it.
+Nothing in the dependency graph needed the file-level copyleft, and a permissive licence keeps
+the answer to "what may I do with a build of this?" one sentence long. The whole history has one
+author, so the relicence needed nobody's consent but his.
+
+That decision is what makes the rest of this section actionable, and the owner has asked for the
+data to be brought in. **None of it is blocked by a licence.** What follows was measured on this
+machine rather than recalled, and is the whole of what a reader needs before writing any of it.
+
+#### What the licences actually say
+
+| data | source examined | terms |
+|---|---|---|
+| Adobe's predefined `CMap`s | `/usr/share/licenses/poppler-data/COPYING.adobe` (1990–2019), `doc/pdf.js/external/bcmaps/LICENSE` (1990–2009), `hayro-cmap-0.1.0/assets/LICENSE.txt` (1990–2023) | **BSD-3-Clause** |
+| The Foxit standard-14 programs | `doc/pdf.js/external/standard_fonts/LICENSE_FOXIT`, from PDFium | **BSD-3-Clause** |
+| Liberation Sans (the Helvetica family) | `doc/pdf.js/external/standard_fonts/LICENSE_LIBERATION` | **SIL OFL 1.1** |
+| poppler's `cidToUnicode`, `nameToUnicode`, `unicodeMap` | `/usr/share/licenses/poppler-data/COPYING` | **GPL-2 or GPL-3** — Glyph & Cog, *not* Adobe |
+
+`BSD-3-Clause` was already in `deny.toml`'s allow-list. The three obligations BSD-3 places on a
+*binary* distribution are the whole of the cost: reproduce the copyright notice and disclaimer
+"in the documentation and/or other materials provided with the distribution", keep them in
+source form, and never use Adobe's or Google's name to endorse this. OFL 1.1 adds one more that
+matters — a **reserved font name**: the Liberation faces may be shipped and used, and may not be
+*modified* and still called Liberation.
+
+**The trap is the last row, and it is the reason not to vendor "poppler-data" as a unit.**
+`poppler-data` is two data sets under two licences and its own `COPYING` says so. A `CMap` gets
+code → CID; getting a CID to a glyph in a **non-embedded** CJK font needs CID → Unicode, and
+that is the GPL half. The permissive route to the same answer is Adobe's own `Adobe-Japan1-UCS2`,
+`Adobe-GB1-UCS2`, `Adobe-CNS1-UCS2` and `Adobe-KR-UCS2`, which are BSD files inside the `cMap`
+directory — counted, they are there. For an *embedded* CIDFont none of this is needed at all:
+the font's own charset or `/CIDToGIDMap` already answers.
+
+#### Sizes, measured
+
+| set | files | raw | compressed |
+|---|---|---|---|
+| the 14 standard fonts (10 Foxit `.pfb` + 4 Liberation `.ttf`) | 14 | **804 KB** | 177 KB, `gzip -9`, the `.pfb`s alone |
+| Adobe `CMap`s, poppler's copy | 248 | **13 MB** | ~1.6 MB as one `zstd -19` archive |
+| Adobe `CMap`s, `hayro`'s compacted blob | one | — | **250 KB** brotli, `include_bytes!` |
+| Adobe `CMap`s, pdf.js's per-file binary form | 169 | 1.7 MB | — |
+
+#### How four other projects carry it
+
+- **poppler** — a separate optional package (`poppler-data`), read from a filesystem path at
+  runtime, licence files split by data set.
+- **ghostscript** — on Arch, `/usr/share/ghostscript/Resource/CMap` is a *symlink* to
+  poppler-data's, and the package depends on it. Upstream ships its own copy.
+- **pdf.js** — vendors pre-compiled binary `CMap`s in-tree and fetches them lazily
+  (`cMapUrl`/`cMapPacked`), with the Adobe notice beside them.
+- **`hayro`** — the Rust one this tree benchmarks against: a crate of its own, MIT/Apache for the
+  code, the Adobe data as **one 250 KB brotli blob behind a default-on `embed-cmaps` cargo
+  feature**, with `assets/LICENSE.txt` carrying the notice and `assets/README.md` naming the fork
+  that generated it. **The closest precedent by a distance**, and worth reading before choosing.
+
+#### The order to do it in, and why that order
+
+**1. The attribution surface comes first, before any byte of data lands.** BSD-3 and OFL both
+oblige a *binary* distribution to carry the notices, and this program has nowhere to put them:
+`viewer-ui` is a window with a title bar and no menu. The owner has asked for a menu whose
+about/info panel discharges exactly this. Three pieces, and the first two are cheap:
+
+- a `NOTICE` file at the root, assembled from the vendored licence files;
+- `pdf-viewer --licences`, which prints it — this is the piece the licence text literally asks
+  for, it is testable, and it works headless;
+- a **menu**, and an About panel behind it, showing the same text on screen. There is no UI
+  toolkit here and adding one is a dependency decision; the alternative is to draw it with what
+  the tree already has — `pdf-font` for glyph outlines and `pdf-render`'s display list for the
+  marks — which is a few dozen lines and no new dependency, and becomes possible as soon as step
+  2 lands. **Do not ship the data before this exists.**
+
+**2. The 14 standard fonts, and they are the bigger win of the two.** 804 KB, and they end the
+tree's one machine dependency: `substitute.rs`'s doc comment calls itself "the only
+machine-dependent code in the tree", the standard 14 are embedded in no file anywhere, and the
+oracle's 14 `CONTRADICTED_SUBSTITUTED_FONTS` pages plus `text_render_modes.rs`'s "install a font
+or run this where one exists" panic are both downstream of that. It is also what stopped the
+hundred-and-twenty-fifth session seeing its own fix: `checkbox-bad-appearance.pdf`'s tick is
+`/ZapfDingbats`, and this machine has no face for it — `FoxitDingbats.pfb` is exactly that face.
+The integration point is `pdf_font::substitute::find`, which already ranks a request and returns
+bytes; the compiled-in set becomes a source it consults, and the open question is whether it
+consults it *first* (deterministic, and every render reproducible anywhere) or *last* (a user's
+own fonts win). **Recommend first, with the machine's fonts kept for everything outside the
+standard 14** — the argument being that §9.6.2.2's fourteen are the only faces a *document* names
+without supplying, so they are the only ones where the file's intent is known and a substitute is
+not a guess.
+
+**3. The predefined `CMap`s, which need a form as well as a licence.** 13 corpus fonts, the
+largest single item the corpus still names, and §9.7.5.2 states it as a `shall`: "A PDF
+processor shall support Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7 and Adobe-KR-9 character
+collections." Two constraints shape it and neither is legal:
+
+- **Principle 2.** 13 MB decompressed at first use is not "nothing eager" in any honest reading,
+  so the compiled-in form has to be *per-`CMap`*: a compiled-in index of name → (offset, length)
+  into a blob of individually-compressed entries, so that naming `90ms-RKSJ-H` decodes one entry
+  and not 248. That is pdf.js's shape and `hayro`'s, arrived at independently by both.
+- **The parser already exists.** `pdf_font::cmap::CMap::parse` reads the same PostScript syntax
+  these files are written in — it has to, because §9.7.5.4's embedded `CMap` streams use it — so
+  the data can be shipped *as the files are* and parsed by the code that is already tested. That
+  is the cheap first version, and it is worth measuring against a compacted binary form before
+  building one: `hayro`'s 250 KB against poppler's 1.6 MB is the size of the prize.
+- **`usecmap` chains and the `-UCS2` set.** Whatever subset ships must be transitively closed
+  under `usecmap`, and should include the four `Adobe-*-UCS2` files, which are the BSD answer to
+  the CID → Unicode question the GPL data above would otherwise be reached for.
+
+**4. What none of this fixes.** 27 corpus documents report "no `/ToUnicode`, so a substitute
+cannot be addressed"; some are composite fonts whose `/CIDSystemInfo` names one of the four
+collections, and those the `-UCS2` `CMap`s answer. The rest name `Identity` orderings, where the
+codes are indices into a font nobody supplied and no data set can help.
+
+**Provenance is a principle-4 question, not a licensing one.** The tree already has one
+generated-data precedent — `pdf-spec`'s Arlington tables, built by `build.rs` from a pinned
+submodule. Vendored data should arrive the same way: a checked-in tool, a pinned upstream
+revision recorded beside the bytes, and the licence file copied verbatim next to what it covers.
+**`cargo deny` cannot see any of this** — it reads Cargo metadata — so the check that the notices
+are present and current has to be a test of this tree's own, which is what `deny.toml`'s comment
+now says.
 
 ### 3. Where the time went, and where it still goes
 
