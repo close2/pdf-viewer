@@ -196,22 +196,48 @@ pub(crate) fn decide(
     } else {
         String::from_utf8_lossy(&subtype).into_owned()
     };
-    let Some(rect) = rectangle(document, annotation, "Rect") else {
-        return Decision::Unsupported(format!("{name}: no usable /Rect"));
-    };
-    // An annotation covering no area cannot show anything, whether its appearance is stored or
-    // constructed — and Table 166 excuses a writer from supplying one for exactly that shape.
-    if rect[2] - rect[0] <= 0.0 || rect[3] - rect[1] <= 0.0 {
-        return Decision::Nothing;
-    }
-
+    let stated_rect = rectangle(document, annotation, "Rect");
     let stored = match stored_appearance(document, annotation, view.appearance) {
         Normal::Stream(stream) => stream,
         Normal::Absent => {
+            // With no stored stream there is nothing whose own box could stand in for a missing
+            // rectangle, and every construction in `crate::appearance` is written into one. So
+            // this is where a `/Rect` Table 166 makes required is still refused.
+            let Some(rect) = stated_rect else {
+                return Decision::Unsupported(format!("{name}: no usable /Rect"));
+            };
+            if is_empty(rect) {
+                return Decision::Nothing;
+            }
             return construct(document, annotation, &subtype, &name, rect, view.value);
         }
         Normal::StateNotDefined => return Decision::Nothing,
     };
+
+    // §12.5.5's algorithm maps the appearance's transformed bounding box onto `/Rect`, and the
+    // two are the same kind of thing: a box in a coordinate space. **A missing operand makes
+    // the map the identity, whichever operand it is.** The hundred-and-twenty-fifth session
+    // established that in one direction — no `/BBox`, so §12.7.4.3's default box, which is
+    // `/Rect`'s dimensions at the origin (ADR 0113) — and this is the same rule the other way:
+    // no `/Rect`, so the appearance's own box, mapped through its `/Matrix`, is where it goes.
+    //
+    // `issue14438.pdf` is the witness, and what it settles is which entry to *name*: four of its
+    // ink annotations state no `/Rect` at all and appearance streams whose `/BBox` is
+    // `[0 0 0 0]`, so the file has stated an appearance covering no area. That draws nothing by
+    // the file's own arithmetic, which is Table 166's excuse rather than a gap — and reporting a
+    // missing rectangle for it named the one entry that could not have changed the picture.
+    let matrix = matrix(document, &stored.dict);
+    let stated_bbox = rectangle(document, &stored.dict, "BBox");
+    let rect = match (stated_rect, stated_bbox) {
+        (Some(rect), _) => rect,
+        (None, Some(bbox)) => transformed(bbox, matrix),
+        (None, None) => return Decision::Unsupported(format!("{name}: no usable /Rect")),
+    };
+    // An annotation covering no area cannot show anything, whether its appearance is stored or
+    // constructed — and Table 166 excuses a writer from supplying one for exactly that shape.
+    if is_empty(rect) {
+        return Decision::Nothing;
+    }
 
     // §8.10.2 makes `/BBox` required of a form `XObject`, and §12.5.5's algorithm starts by
     // transforming it — so a stream without one states no box to map onto `/Rect`, and the
@@ -236,9 +262,7 @@ pub(crate) fn decide(
     // `checkbox-bad-appearance.pdf` is the corpus's one witness: its check box's `/AP` draws
     // `(4)` in ZapfDingbats at `0 0 Td`, which under this box is the tick's own corner and
     // under any other reading is the corner of the page.
-    let stated_bbox = rectangle(document, &stored.dict, "BBox");
     let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
-    let matrix = matrix(document, &stored.dict);
     let missing_bbox = stated_bbox
         .is_none()
         .then(|| format!("{name}: appearance stream has no /BBox"));
@@ -456,6 +480,28 @@ fn placement(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
         .then(scale)
         .then(Transform::translate(rect[0], rect[1]));
     matrix.then(align)
+}
+
+/// Whether a rectangle covers no area, in either axis.
+fn is_empty(rect: [f32; 4]) -> bool {
+    rect[2] - rect[0] <= 0.0 || rect[3] - rect[1] <= 0.0
+}
+
+/// The axis-aligned box around a box a transform has moved — §12.5.5's step 1.
+fn transformed(box_: [f32; 4], matrix: Transform) -> [f32; 4] {
+    let corners = [
+        Point::new(box_[0], box_[1]),
+        Point::new(box_[2], box_[1]),
+        Point::new(box_[2], box_[3]),
+        Point::new(box_[0], box_[3]),
+    ]
+    .map(|corner| matrix.apply(corner));
+    let (mut low, mut high) = (corners[0], corners[0]);
+    for corner in corners {
+        low = Point::new(low.x.min(corner.x), low.y.min(corner.y));
+        high = Point::new(high.x.max(corner.x), high.y.max(corner.y));
+    }
+    [low.x, low.y, high.x, high.y]
 }
 
 /// Reads a `/Matrix` entry, defaulting to the identity.

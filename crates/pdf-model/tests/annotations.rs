@@ -248,6 +248,45 @@ fn an_appearance_with_no_bounding_box_is_placed_by_the_clauses_default() {
     assert_eq!(extent(&raster), (20, 30, 29, 39));
 }
 
+/// An annotation with no `/Rect` is placed where its appearance's own box puts it.
+///
+/// The mirror of the test above, and the same rule read the other way: §12.5.5 maps the
+/// appearance's transformed bounding box onto `/Rect`, the two are the same kind of thing, and
+/// a missing operand makes the map the identity whichever operand it is. Here the stream draws
+/// a 20×30 rectangle at (10, 20) in its own space and says so in its `/BBox`, and that is where
+/// it lands — where a reader that refused would leave the page blank.
+#[test]
+fn an_annotation_with_no_rectangle_is_placed_by_its_appearances_box() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Square /F 4 /AP << /N 6 0 R >> >>",
+        "/BBox [10 20 30 50]",
+        "0 0 1 rg 10 20 20 30 re f",
+    ));
+    assert_eq!(extent(&raster), (10, 20, 29, 49));
+}
+
+/// An appearance whose own box covers no area draws nothing, and says nothing.
+///
+/// `issue14438.pdf` states four ink annotations with no `/Rect` and appearance streams whose
+/// `/BBox` is `[0 0 0 0]`, and it used to be reported for the missing rectangle — the one entry
+/// that could not have changed the picture. Table 166 excuses a writer from supplying an
+/// appearance for an annotation covering no area, and this is that case reached through the
+/// appearance's own box instead of through `/Rect`.
+#[test]
+fn an_appearance_box_covering_no_area_draws_nothing_and_reports_nothing() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Ink /F 4 /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 0 0]",
+        "0 0 1 rg 10 20 20 30 re f",
+    ));
+    assert!(interpretation.display_list.commands().is_empty());
+    assert!(
+        interpretation.is_complete(),
+        "an annotation the file gives no area is not a gap: {:?}",
+        interpretation.unsupported
+    );
+}
+
 /// The `Hidden` and `NoView` flags mean nothing is drawn, and nothing is reported.
 ///
 /// Table 167 bit 2 is "do not render the annotation ... regardless of its annotation type",

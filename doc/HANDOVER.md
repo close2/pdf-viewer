@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-fifth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-sixth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,30 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-twenty-third — a stand-in may not fall short.** ADR 0112.
-
-- **Half the corpus's annotation row is one thing**: a `/DA` naming a font `/DR` does not
-  define. §12.7.4.3 makes that the *writer's* `shall` and states no recovery, and this tree
-  refused the whole construction — which on a free text annotation is a blank page, because
-  §12.5.6.6 makes the text the whole of the appearance.
-- **A stand-in font is synthesised and the report names the font that was missing.** The
-  resource name is carried through as a base font name, which is a **hint rather than a
-  derivation**: a resource name is arbitrary, and `pdf_font`'s substitution ranks a name it does
-  not recognise no higher than no name at all.
-- **Then the page was looked at, and the first version was wrong.** With the stand-in in place
-  `freetext_no_appearance.pdf` drew six dots on an empty page — its value is Arabic and a Latin
-  stand-in has codes for the spaces and full stops and nothing else. **Trap 1's archetype, built
-  fresh.**
-- **So the rule is asymmetric, and that is the finding.** Where the *document* names the font, a
-  character it lacks is reported and the rest is drawn. Where *this crate* invented the font, one
-  character it cannot address declines the whole thing: an invention that cannot show what the
-  document says has no claim to be on the page.
-- **Two of the six documents now draw their fields**; four keep the blank. No gate moved, on
-  purpose — the reports stay, so the pages stay out of the judged set and the picture is the
-  only instrument that could see the change.
-
-Tests 890 → 891; no gate moved.
 
 **Hundred-and-twenty-fourth — everything re-verified, and the drift floor turns out to be
 between sittings.** No ADR: a verification session that finds nothing has nothing to argue.
@@ -99,6 +75,23 @@ No gate moved.
   rasterising path.
 
 Tests 891 → 892; no gate moved.
+
+**Hundred-and-twenty-sixth — a missing operand makes the map the identity.** ADR 0114.
+
+- **The same rule as the previous session, read the other way.** §12.5.5 maps the appearance's
+  transformed `/BBox` onto `/Rect`; the two are the same kind of thing, so a missing operand
+  makes the map the identity *whichever* operand it is. No `/BBox` → §12.7.4.3's default box
+  (ADR 0113); no `/Rect` → the appearance's own box through its `/Matrix`.
+- **Where there is no stored appearance the refusal stands**, and the boundary is the argument:
+  every construction in `crate::appearance` is *written into* the rectangle, so nothing else's
+  box could stand in for it.
+- **What the witness says is the finding.** `issue14438.pdf`'s four ink annotations state no
+  `/Rect` and appearance streams whose `/BBox` is `[0 0 0 0]` — an appearance covering no area,
+  which Table 166 already excuses. The old report named the missing `/Rect`, **the one entry
+  that could not have changed the picture**. A report can name a true absence and still be
+  about the wrong thing.
+
+Tests 892 → 894; no gate moved.
 
 ## How the project got here
 
@@ -228,6 +221,7 @@ below rather than here.
 | 123 | A `/DA` font `/DR` lacks is stood in for — and the stand-in must not fall short | ADR 0112 |
 | 124 | Everything re-verified; the interpretation drift floor measured as an A/B | — |
 | 125 | An appearance with no `/BBox` gets §12.7.4.3's default box rather than a refusal | ADR 0113 |
+| 126 | And the same rule the other way: no `/Rect`, so the appearance's own box | ADR 0114 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -275,7 +269,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 33 `reported` rows and the notes on 242 `partial`
 ones.
 
-- **892 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **894 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece** — every one of those re-run in the hundred-and-twenty-fourth
   session rather than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -411,7 +405,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2824 citations, 305 quotations, 180 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2828 citations, 305 quotations, 180 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -1486,12 +1480,15 @@ rise is a new report and is written down as one.
   ciphertext, and three of the operator reports were the same ciphertext lexing as operator names.
   Six of those twelve documents now draw with nothing reported and six say they need a password.
   Nothing on either row is a feature.
-- **The annotation row was 67, then 24, then 17, and is 10 reports over 10 documents** — counted
-  from the gate's own output in the eighty-fifth session, where this file had said 17 with a
-  breakdown that no longer matched anything: 5 a `/DA` naming a font the `/DR` does not define
-  (4 `FreeText`, 1 `Widget`), 1 a check box the file calls on with no mark stated for it, 1 an
-  appearance stream with no `/BBox`, 1 an unknown subtype whose clause states no geometry, 1 a
-  `Line` whose line endings state no size (Table 179), 1 an `Ink` with no usable `/Rect`.
+- **The annotation row was 67, then 24, then 17, and is 10 reports over 9 documents** —
+  recounted from the gate's own output in the hundred-and-twenty-sixth session: 7 a `/DA` naming
+  a font the `/DR` does not define (5 `FreeText`, 2 `Widget`), 1 a check box the file calls on
+  with no mark stated for it, 1 an appearance stream with no `/BBox`, 1 an annotation with no
+  `/Subtype` at all, 1 a `Line` whose line endings state no size (Table 179). **Not one of them
+  now draws nothing where the clause states something**: the `/DA` seven lay their value out in
+  a stand-in where one can show it (ADR 0112), the `/BBox` one is placed by §12.7.4.3's default
+  box (ADR 0113), and `Ink: no usable /Rect` left the list altogether in the
+  hundred-and-twenty-sixth (ADR 0114).
   **Nothing on it is a `/NeedAppearances`, nothing is a field value, and nothing is text markup
   any more.** The five `/DA` rows still report and **no longer draw nothing**: since the
   hundred-and-twenty-third session the value is laid out in a stand-in wherever the stand-in can
