@@ -17,9 +17,10 @@
 //! | `Thread` | §12.6.4.7 | yes — a bead on §12.4.3's article thread, in this file |
 //! | `ResetForm` | §12.7.6.3 | yes — a field's value becomes its `/DV`, which changes what is drawn |
 //! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8) |
+//! | `GoToE` | §12.6.4.4 | yes — where the target is embedded in this file, which needs no filesystem |
 //! | everything else | | [`Action::Refused`], by name |
 //!
-//! The refusals are not laziness and they are not uniform. `GoToR`, `GoToE`, `Launch` and
+//! The refusals are not laziness and they are not uniform. `GoToR`, `Launch` and
 //! `SubmitForm` want a file system or a network, which principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
@@ -64,6 +65,14 @@ use crate::destination::Destination;
 /// asking for something.
 const MAX_ACTIONS: usize = 256;
 
+/// How many Table 205 target dictionaries are followed from one embedded go-to action.
+///
+/// §12.6.4.4's NOTE asks for exactly this: "[i]t is an error for a target dictionary to have an
+/// infinite cycle (for example, one where a target dictionary refers to itself). Interactive PDF
+/// processors need to attempt to detect such cases and refuse to execute the action if one is
+/// found." A path this long describes a document nested deeper than any real collection.
+const MAX_TARGET_DEPTH: usize = 32;
+
 /// What one action does, as far as this program can do it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -83,6 +92,8 @@ pub enum Action {
     ResetForm(ResetForm),
     /// §12.7.6.4: import form data from the file Table 243 names.
     ImportData(ImportData),
+    /// §12.6.4.4: go to a destination in a document embedded in this one.
+    GoToE(EmbeddedGoTo),
     /// An action type this program recognises and does not perform, named.
     ///
     /// A `&'static str` rather than the file's own bytes: the name is one of Table 201's
@@ -286,6 +297,301 @@ pub enum DataFormat {
     /// Anything else, which §12.7.6.4's "any other data format that it supports" permits and
     /// this program supports none of.
     Other,
+}
+
+/// §12.6.4.4's embedded go-to action. Tables 204 and 205.
+///
+/// The clause's own vocabulary is worth carrying, because every entry is defined in it:
+///
+/// > The source is the document containing the embedded go-to action. … The target is the
+/// > document in which the destination lives. … The T entry in the action dictionary is a target
+/// > dictionary that locates the target in relation to the source, in much the same way that a
+/// > relative path describes the physical relationship between two files in a file system.
+///
+/// **This is the one action of Table 201's twenty that names another document and needs no
+/// filesystem to reach it.** A `GoToR` names a file on a disk; a `GoToE` names a file that is
+/// *inside the one already open* — §7.11.4's embedded file streams, read since the eighty-sixth
+/// session (ADR 0076) — so the whole of the path is bytes this program already holds.
+///
+/// The destination is deliberately unresolved. §12.3.2's `/D` here is a destination "in the
+/// target", and a named one is looked up in the *target's* `/Dests`, so resolving it against the
+/// source would answer about the wrong document. [`EmbeddedGoTo::target_in`] opens the target and
+/// the caller reads the destination there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbeddedGoTo {
+    /// Table 204's `/D`, "[t]he destination in the target to jump to", as the file states it.
+    pub destination: Object,
+    /// Table 204's `/T`, flattened into the steps it nests.
+    ///
+    /// Empty where `/F` is present and `/T` is not, which the table permits: "[o]ptional if F is
+    /// present; otherwise required". An empty path with no `/F` is an action naming no target.
+    pub path: Vec<TargetStep>,
+    /// Table 204's `/F`, "[t]he root document of the target relative to the root document of the
+    /// source", where the action names one.
+    ///
+    /// `None` is the table's own default — "[i]f this entry is absent, the source and target
+    /// share the same root document" — and is the only case this program can perform, because
+    /// any other root is a file on a disk. Named rather than silently ignored.
+    pub root: Option<String>,
+    /// Table 204's `/NewWindow`.
+    ///
+    /// The table makes it a *should* and states the fallback: "[i]f this entry is absent, the
+    /// interactive PDF processor should act according to its preference." This program has one
+    /// window, so its preference is to replace — and it says so rather than pretending.
+    pub new_window: Option<bool>,
+}
+
+/// One element of Table 205's path from the source to the target.
+///
+/// §12.6.4.4, Table 205:
+///
+/// > R … Specifies the relationship between the current document and the target (which may be an
+/// > intermediate target). Valid values are P (the target is the parent of the current document)
+/// > and C (the target is a child of the current document).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TargetStep {
+    /// `/R /P`: "the target is the parent of the current document".
+    Parent,
+    /// `/R /C` with `/N`: a child "located in the `EmbeddedFiles` name tree", by its key there.
+    NamedChild(String),
+    /// `/R /C` with `/P` and `/A`: a child "associated with a file attachment annotation".
+    AttachedChild {
+        /// Table 205's `/P`, which page the attachment annotation is on.
+        page: AttachmentPage,
+        /// Table 205's `/A`, which annotation on that page it is.
+        annotation: AttachmentIndex,
+    },
+}
+
+/// Table 205's `/P`, in both the forms the table gives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachmentPage {
+    /// "[I]t specifies the page number (zero-based) in the current document".
+    Index(usize),
+    /// "[I]t specifies a named destination in the current document that provides the page
+    /// number of the file attachment annotation."
+    Named(String),
+}
+
+/// Table 205's `/A`, in both the forms the table gives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachmentIndex {
+    /// "[T]he index (zero-based) of the annotation in the Annots array".
+    Index(usize),
+    /// "[T]he value of NM in the annotation dictionary".
+    Name(String),
+}
+
+/// Why an embedded go-to action's target could not be opened.
+///
+/// Each is a *different* thing a caller may want to say, and none of them is this program
+/// failing at something it implements: two are the file naming something it does not contain,
+/// one is a file on a disk, and one is the bound §12.6.4.4's own NOTE asks for.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TargetError {
+    /// Table 204's `/F` names a root document other than this one's.
+    #[error("the target is in {0}, which this reader has no filesystem to open")]
+    AnotherRoot(String),
+    /// A `/R /P` step from a document with no parent in this file.
+    #[error("§12.6.4.4's path leaves the document this reader opened, which has no parent here")]
+    NoParent,
+    /// The current document embeds no such file.
+    #[error("this document embeds no file called {0}")]
+    NoSuchChild(String),
+    /// The step names a page or an annotation the current document does not have.
+    #[error("§12.6.4.4's path names an attachment this document does not have")]
+    NoSuchAttachment,
+    /// The embedded bytes are not a PDF this reader can open.
+    #[error("the embedded file could not be opened as a PDF: {0}")]
+    Unopenable(String),
+    /// The action states no path at all.
+    #[error("§12.6.4.4's action states neither /F nor /T, so it names no target")]
+    NoPath,
+}
+
+impl EmbeddedGoTo {
+    /// Opens the document Table 205's path leads to, starting from `source`.
+    ///
+    /// The path is walked one step at a time and the *current document* is what each step is
+    /// relative to, which is the clause's own model: "[a]s the hierarchy is navigated, each
+    /// intermediate target shall be referred to as the current document. Initially, the source
+    /// is the current document."
+    ///
+    /// A `/R /P` step pops back to the document the walk descended from, which is the only
+    /// parent this program can have: an embedded file's parent is the file it was taken out of,
+    /// and the document a person opened has no parent inside itself. That is
+    /// [`TargetError::NoParent`], and it is the sibling case of §12.6.4.4's EXAMPLE — `/R /P`
+    /// then `/R /C` — being performable only from a document that is already a child.
+    ///
+    /// # Errors
+    ///
+    /// Every one of [`TargetError`]'s cases, each naming what the file asked for.
+    pub fn target_in(&self, source: &Document) -> Result<Document, TargetError> {
+        if let Some(root) = &self.root {
+            return Err(TargetError::AnotherRoot(root.clone()));
+        }
+        if self.path.is_empty() {
+            return Err(TargetError::NoPath);
+        }
+        // The documents descended into, in order. The current document is the last of these, or
+        // `source` where none has been opened yet — which is what makes a `Parent` step a pop
+        // and makes the cycle §12.6.4.4's NOTE warns about impossible: the path is a finite list
+        // read once, and each step opens at most one document.
+        let mut descended: Vec<Document> = Vec::new();
+        for step in &self.path {
+            let current = descended.last().unwrap_or(source);
+            match step {
+                TargetStep::Parent => {
+                    if descended.pop().is_none() {
+                        return Err(TargetError::NoParent);
+                    }
+                }
+                TargetStep::NamedChild(name) => {
+                    let attachment = crate::attachment::attachments(current)
+                        .into_iter()
+                        .find(|attachment| attachment.name == *name)
+                        .ok_or_else(|| TargetError::NoSuchChild(name.clone()))?;
+                    descended.push(open_embedded(current, &attachment)?);
+                }
+                TargetStep::AttachedChild { page, annotation } => {
+                    let attachment = attached_file(current, page, annotation)
+                        .ok_or(TargetError::NoSuchAttachment)?;
+                    descended.push(open_embedded(current, &attachment)?);
+                }
+            }
+        }
+        descended.pop().ok_or(TargetError::NoParent)
+    }
+}
+
+/// Decodes an embedded file stream and opens it as a document.
+///
+/// The limits are the parent's, so a document nested three deep is held to the same bounds as
+/// the one a person opened — which is the whole of what stops a file that embeds itself from
+/// being a decompression bomb with extra steps.
+fn open_embedded(
+    current: &Document,
+    attachment: &crate::attachment::Attachment,
+) -> Result<Document, TargetError> {
+    let data = current
+        .decoded_stream_data(&attachment.stream)
+        .ok_or_else(|| TargetError::Unopenable("the stream did not decode".to_owned()))?;
+    Document::open_with_limits(data.to_vec(), current.limits())
+        .map_err(|error| TargetError::Unopenable(error.to_string()))
+}
+
+/// Table 205's `/P` and `/A`: the file attachment annotation a child is associated with.
+fn attached_file(
+    document: &Document,
+    page: &AttachmentPage,
+    annotation: &AttachmentIndex,
+) -> Option<crate::attachment::Attachment> {
+    let pages = crate::page::Pages::new(document);
+    let index = match page {
+        AttachmentPage::Index(index) => *index,
+        // "[I]t specifies a named destination in the current document that provides the page
+        // number of the file attachment annotation" — so the string is looked up as a
+        // destination and only its *page* is used, which is all Table 205 asks of it.
+        AttachmentPage::Named(name) => {
+            Destination::read(document, &Object::String(name.clone().into_bytes().into()))?
+                .page_index(document, &pages)?
+        }
+    };
+    let page = pages.get(index)?;
+    let annots = document.get_key(&page.dict, "Annots");
+    let annots = annots.as_array()?;
+    let found =
+        match annotation {
+            AttachmentIndex::Index(at) => document.resolve(annots.get(*at)?),
+            AttachmentIndex::Name(name) => annots
+                .iter()
+                .map(|entry| document.resolve(entry))
+                .find(|entry| {
+                    entry.as_dict().is_some_and(|dict| {
+                        document
+                            .get_key(dict, "NM")
+                            .as_string()
+                            .is_some_and(|stated| pdf_syntax::text_string(stated) == *name)
+                    })
+                })?,
+        };
+    let dict = found.as_dict()?;
+    // §12.5.6.15's `/FS` is the file specification the annotation refers to.
+    let specification = document.get_key(dict, "FS");
+    crate::attachment::read(document, specification.as_dict()?, String::new())
+}
+
+/// Tables 204 and 205, read into [`EmbeddedGoTo`].
+///
+/// `None` where `/D` is absent, which the table makes required: an action naming no destination
+/// has stated nothing to jump to, whatever path it gives.
+fn embedded_go_to(document: &Document, dict: &Dictionary) -> Option<Action> {
+    let destination = dict.get("D").cloned()?;
+    if destination.is_null() {
+        return None;
+    }
+    let mut path = Vec::new();
+    let mut target = document.get_key(dict, "T").as_dict().cloned();
+    for _ in 0..MAX_TARGET_DEPTH {
+        let Some(step) = target else { break };
+        let relationship = document.get_key(&step, "R");
+        let Some(relationship) = relationship.as_name() else {
+            break;
+        };
+        match relationship.as_bytes() {
+            b"P" => path.push(TargetStep::Parent),
+            b"C" => match child_step(document, &step) {
+                Some(child) => path.push(child),
+                // A `/R /C` naming neither a name nor a page-and-annotation pair states no
+                // child; the path stops here rather than silently skipping an element, because
+                // a shortened path would land in the wrong document.
+                None => return Some(Action::Refused(refused(b"GoToE")?)),
+            },
+            _ => break,
+        }
+        target = document.get_key(&step, "T").as_dict().cloned();
+    }
+    Some(Action::GoToE(EmbeddedGoTo {
+        destination,
+        path,
+        root: file_specification(document, dict, "F"),
+        new_window: match document.get_key(dict, "NewWindow") {
+            Object::Boolean(value) => Some(value),
+            _ => None,
+        },
+    }))
+}
+
+/// Table 205's `/R /C`, in whichever of its two forms the step states.
+fn child_step(document: &Document, step: &Dictionary) -> Option<TargetStep> {
+    if let Some(name) = document.get_key(step, "N").as_string() {
+        return Some(TargetStep::NamedChild(pdf_syntax::text_string(name)));
+    }
+    let page = match document.get_key(step, "P") {
+        Object::Integer(index) => AttachmentPage::Index(usize::try_from(index).ok()?),
+        Object::String(bytes) => AttachmentPage::Named(pdf_syntax::text_string(&bytes)),
+        _ => return None,
+    };
+    let annotation = match document.get_key(step, "A") {
+        Object::Integer(index) => AttachmentIndex::Index(usize::try_from(index).ok()?),
+        Object::String(bytes) => AttachmentIndex::Name(pdf_syntax::text_string(&bytes)),
+        _ => return None,
+    };
+    Some(TargetStep::AttachedChild { page, annotation })
+}
+
+/// §7.11.3's file specification under `key`, in both the forms the clause gives one.
+fn file_specification(document: &Document, dict: &Dictionary, key: &str) -> Option<String> {
+    match &document.get_key(dict, key) {
+        Object::String(bytes) => Some(pdf_syntax::text_string(bytes)),
+        Object::Dictionary(specification) => ["UF", "F"].iter().find_map(|name| {
+            document
+                .get_key(specification, name)
+                .as_string()
+                .map(pdf_syntax::text_string)
+        }),
+        _ => None,
+    }
 }
 
 /// §12.6.4.7's thread action. Table 209.
@@ -600,6 +906,7 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         b"Thread" => thread(document, dict)?,
         b"ResetForm" => Action::ResetForm(reset_form(document, dict)),
         b"ImportData" => import_data(document, dict)?,
+        b"GoToE" => embedded_go_to(document, dict)?,
         other => Action::Refused(refused(other)?),
     })
 }
@@ -869,7 +1176,6 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"GoToR" => {
             "GoToR: a destination in another file, which this reader has no filesystem to open"
         }
-        b"GoToE" => "GoToE: a destination in an embedded file",
         b"GoToDp" => "GoToDp: a document part, which needs §14.12's part hierarchy",
         b"Launch" => "Launch: running an application, which the sandbox withholds",
         b"Thread" => {
@@ -891,7 +1197,10 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Action, BeadTarget, Change, HideTarget, Named, ThreadTarget, read};
+    use super::{
+        Action, AttachmentIndex, AttachmentPage, BeadTarget, Change, HideTarget, Named,
+        TargetError, TargetStep, ThreadTarget, read,
+    };
     use pdf_syntax::{Document, Object, ObjectId};
 
     /// Builds a document from object bodies numbered from 1.
@@ -1295,5 +1604,103 @@ mod tests {
             panic!("one refusal, got {actions:?}");
         };
         assert!(why.starts_with("Thread:"), "{why}");
+    }
+    /// §12.6.4.4's own EXAMPLE, all three relationships, read as the paths they describe.
+    ///
+    /// The clause writes them out as three action dictionaries — a child, the parent, and a
+    /// sibling reached by going up and back down — and the third is the one that shows why a
+    /// path is a *list*: `/T` nests, and nesting is the only way a target dictionary states more
+    /// than one step.
+    #[test]
+    fn the_clauses_three_example_relationships_read_as_paths() {
+        let paths = |target: &str| {
+            let document =
+                document(&[
+                    format!("<< /Type /Action /S /GoToE /D (Chapter 1) /T {target} >>").as_str(),
+                ]);
+            let catalog = document.get(ObjectId::new(1, 0));
+            match read(&document, &catalog).as_slice() {
+                [Action::GoToE(target)] => target.path.clone(),
+                other => panic!("one embedded go-to, got {other:?}"),
+            }
+        };
+
+        assert_eq!(
+            paths("<< /R /C /N (Embedded document) >>"),
+            [TargetStep::NamedChild("Embedded document".to_owned())]
+        );
+        assert_eq!(paths("<< /R /P >>"), [TargetStep::Parent]);
+        assert_eq!(
+            paths("<< /R /P /T << /R /C /N (Another embedded document) >> >>"),
+            [
+                TargetStep::Parent,
+                TargetStep::NamedChild("Another embedded document".to_owned())
+            ],
+            "a sibling is the parent and then a child"
+        );
+    }
+
+    /// Table 205's other child form: an attachment annotation, named by page and index or by
+    /// `/NM`, in either of the two spellings the table gives each.
+    #[test]
+    fn a_child_may_be_named_by_the_annotation_it_is_attached_to() {
+        let step = |entries: &str| {
+            let document = document(&[format!(
+                "<< /Type /Action /S /GoToE /D (d) /T << /R /C {entries} >> >>"
+            )
+            .as_str()]);
+            let catalog = document.get(ObjectId::new(1, 0));
+            match read(&document, &catalog).as_slice() {
+                [Action::GoToE(target)] => target.path.first().cloned(),
+                other => panic!("one embedded go-to, got {other:?}"),
+            }
+        };
+
+        assert_eq!(
+            step("/P 2 /A 0"),
+            Some(TargetStep::AttachedChild {
+                page: AttachmentPage::Index(2),
+                annotation: AttachmentIndex::Index(0)
+            })
+        );
+        assert_eq!(
+            step("/P (start) /A (the file)"),
+            Some(TargetStep::AttachedChild {
+                page: AttachmentPage::Named("start".to_owned()),
+                annotation: AttachmentIndex::Name("the file".to_owned())
+            })
+        );
+    }
+
+    /// A path this reader cannot walk is named rather than performed, and each reason is its
+    /// own: a root on a disk, a parent this file does not contain, a child it does not embed.
+    #[test]
+    fn a_target_this_file_does_not_contain_is_named() {
+        let action = |entries: &str| {
+            let document =
+                document(&[format!("<< /Type /Action /S /GoToE /D (d) {entries} >>").as_str()]);
+            let catalog = document.get(ObjectId::new(1, 0));
+            let read = read(&document, &catalog);
+            match read.as_slice() {
+                [Action::GoToE(target)] => (target.clone(), document),
+                other => panic!("one embedded go-to, got {other:?}"),
+            }
+        };
+
+        let refusal = |entries: &str| {
+            let (target, document) = action(entries);
+            target.target_in(&document).err()
+        };
+
+        assert_eq!(
+            refusal("/F (elsewhere.pdf) /T << /R /C /N (x) >>"),
+            Some(TargetError::AnotherRoot("elsewhere.pdf".to_owned()))
+        );
+        assert_eq!(refusal("/T << /R /P >>"), Some(TargetError::NoParent));
+        assert_eq!(
+            refusal("/T << /R /C /N (absent.pdf) >>"),
+            Some(TargetError::NoSuchChild("absent.pdf".to_owned()))
+        );
+        assert_eq!(refusal(""), Some(TargetError::NoPath));
     }
 }

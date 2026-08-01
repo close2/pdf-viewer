@@ -25,7 +25,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::action::{
-    Action, Change, Hide, HideTarget, ImportData, Named, ResetForm, ResetTarget, ThreadJump, Uri,
+    Action, Change, EmbeddedGoTo, Hide, HideTarget, ImportData, Named, ResetForm, ResetTarget,
+    ThreadJump, Uri,
 };
 use crate::destination::Destination;
 use crate::forms_data::Import;
@@ -133,6 +134,13 @@ pub enum Request {
     /// page tree and this needs [`crate::article::Articles`], and neither is part of the state a
     /// click changes. [`crate::action::ThreadJump::bead_in`] turns it into a bead.
     Thread(ThreadJump),
+    /// §12.6.4.4: show a destination in a document embedded in this one.
+    ///
+    /// Unresolved for [`Self::Display`]'s reason, twice over: the target document has to be
+    /// *opened* before its destination means anything, and which document is on screen is the
+    /// window's business rather than this state's.
+    /// [`crate::action::EmbeddedGoTo::target_in`] opens it.
+    Embedded(EmbeddedGoTo),
     /// §12.7.6.4: import this file's form data, which means finding and reading it.
     ///
     /// The same division as [`Self::Resolve`], and for the same reason: a document naming a file
@@ -450,6 +458,7 @@ impl ViewState {
             Action::Uri(uri) => return Some(Request::Resolve(uri.clone())),
             Action::Thread(jump) => return Some(Request::Thread(jump.clone())),
             Action::ImportData(import) => return Some(Request::Import(import.clone())),
+            Action::GoToE(target) => return Some(Request::Embedded(target.clone())),
             Action::SetOcgState(state) => {
                 if let Some(content) = self.optional_content.as_mut() {
                     content.apply(&state.changes, state.preserve_radio_buttons);

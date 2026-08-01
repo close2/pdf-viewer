@@ -370,6 +370,7 @@ impl App {
             .destination
             .and_then(|destination| destination.page_index(&self.document, &pages));
         let mut imports = Vec::new();
+        let mut embedded = Vec::new();
         for request in &requests {
             match request {
                 Request::Display(destination) => {
@@ -385,6 +386,8 @@ impl App {
                 // and `pages` still borrows the document. Nothing is lost by the wait —
                 // §12.6.2 makes a chain a sequence, and an import changes no page number.
                 Request::Import(import) => imports.push(import.clone()),
+                // Deferred for the same reason: opening the target needs `&mut self`.
+                Request::Embedded(target) => embedded.push(target.clone()),
                 Request::Thread(jump) => {
                     // §12.4.3's threads are read *here* rather than when the document opens:
                     // an article is a list nothing else in this program consults, and
@@ -403,14 +406,76 @@ impl App {
         for import in &imports {
             self.import_data(import);
         }
+        // §12.6.4.4 last, because it replaces the document every earlier request was about.
+        // The first that opens wins, for the reason two destinations do: a chain that jumps
+        // twice has shown the second either way and §12.6.2 states no rule for the pair.
+        let opened = embedded.iter().any(|target| self.open_embedded(target));
         // After the imports, not before: §12.7.8's values are what §12.7.4.3 lays out, so a
         // successful import changes this page's ink and the page has to be redrawn.
         let changed_here = self.view != before;
+        if opened {
+            return true;
+        }
         if let Some(target) = target {
             self.page_index = target;
             return true;
         }
         changed_here
+    }
+
+    /// Performs §12.6.4.4's embedded go-to, which is the one action that changes the document.
+    ///
+    /// The target is *inside the file already open* — §7.11.4's embedded file streams — so this
+    /// needs no filesystem and no permission of any kind, which is what separates it from
+    /// §12.6.4.3's remote go-to standing beside it and refused.
+    ///
+    /// Table 204's `/NewWindow` is a *should* and this program has one window, so the target
+    /// replaces the source and says so. Everything derived from the document is rebuilt with it,
+    /// and the directory is deliberately **not** inherited: an embedded document is not a file on
+    /// this disk, so §12.7.6.4's import policy has nothing beside it to name.
+    ///
+    /// Returns whether the window now shows something else.
+    fn open_embedded(&mut self, target: &pdf_model::action::EmbeddedGoTo) -> bool {
+        let opened = match target.target_in(&self.document) {
+            Ok(opened) => opened,
+            Err(error) => {
+                println!("link: declined — GoToE: {error}");
+                return false;
+            }
+        };
+        let pages = Pages::new(&opened);
+        let page_count = pages.len();
+        if page_count == 0 {
+            println!("link: declined — GoToE: the embedded document has no pages");
+            return false;
+        }
+        // The destination is read in the *target*, because a named one is looked up in the
+        // target's own tables and §12.3.2.2 makes an explicit one's first element a page number
+        // there rather than a reference here.
+        let page_index = pdf_model::destination::Destination::read(&opened, &target.destination)
+            .and_then(|destination| destination.page_index_in_target(&opened, &pages))
+            .filter(|index| *index < page_count)
+            .unwrap_or(0);
+        if target.new_window == Some(true) {
+            println!(
+                "note: this link asks for a new window; this program has one, so the embedded                  document replaces what was open"
+            );
+        }
+        println!(
+            "link: opened an embedded document, {page_count} page(s), at page {}",
+            page_index.saturating_add(1)
+        );
+
+        self.labels = pdf_model::page_label::PageLabels::read(&opened);
+        self.outline = pdf_model::outline::Outline::read(&opened, &pages);
+        self.view = pdf_model::view::ViewState::of(&opened);
+        self.title = format!("{} ▸ embedded", self.title);
+        self.directory = None;
+        self.page_count = page_count;
+        self.page_index = page_index;
+        drop(pages);
+        self.document = opened;
+        true
     }
 
     /// Performs §12.7.6.4's import-data action, which is the half `pdf_model` cannot.

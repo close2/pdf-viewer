@@ -393,3 +393,77 @@ fn a_uri_action_arrives_at_the_viewer_already_resolved() {
     assert_eq!(uri.uri, "http://example.com/other/b.html#top");
     assert!(!uri.relative);
 }
+
+/// §12.6.4.4's embedded go-to, against the one corpus document that writes one.
+///
+/// `issue17056.pdf` states 30 of them, each `/T << /R /C /N (destination-doc.pdf) >>` with an
+/// explicit destination `[n /Fit]` — the child form of Table 205, and §12.3.2.2's integer page
+/// number, which is the form the clause reserves for a destination in *another* document.
+///
+/// The assertion is that the target opens and its pages are there. That is the whole of what
+/// separates this action from `GoToR` beside it: the target is bytes this file already holds.
+#[test]
+#[ignore = "needs the pdf.js submodule"]
+fn an_embedded_go_to_opens_the_document_inside_this_one() {
+    use pdf_model::action::{Action, EmbeddedGoTo, TargetStep};
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/issue17056.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("the pdf.js submodule is not checked out; skipping");
+        return;
+    };
+    let document = Document::open(bytes).expect("issue17056.pdf opens");
+
+    // Every embedded go-to in the document, found the way a link would find one.
+    let mut actions: Vec<EmbeddedGoTo> = Vec::new();
+    let count = u32::try_from(document.xref().len()).unwrap_or(u32::MAX);
+    for number in 1..=count {
+        let object = document.get(ObjectId::new(number, 0));
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        if document
+            .get_key(dict, "S")
+            .as_name()
+            .is_none_or(|kind| kind.as_bytes() != b"GoToE")
+        {
+            continue;
+        }
+        let read = pdf_model::action::read(&document, &Object::Dictionary(dict.clone()));
+        let [Action::GoToE(target)] = read.as_slice() else {
+            panic!("a GoToE dictionary reads as one embedded go-to, got {read:?}");
+        };
+        actions.push(target.clone());
+    }
+    assert_eq!(actions.len(), 30, "the document states 30 of them");
+
+    let first = actions.first().expect("at least one");
+    assert_eq!(
+        first.path,
+        [TargetStep::NamedChild("destination-doc.pdf".to_owned())],
+        "Table 205's child form, by its key in the EmbeddedFiles name tree"
+    );
+    assert_eq!(first.root, None, "the target shares this document's root");
+    assert_eq!(first.new_window, Some(true));
+
+    let opened = first.target_in(&document).expect("the target opens");
+    let pages = pdf_model::Pages::new(&opened);
+    assert!(pages.len() > 1, "the embedded document has pages");
+
+    // §12.3.2.2's integer form: the destination names a page *number* in the target, and every
+    // one of the 30 names a different one.
+    let mut indices: Vec<usize> = actions
+        .iter()
+        .filter_map(|action| {
+            pdf_model::destination::Destination::read(&opened, &action.destination)?
+                .page_index_in_target(&opened, &pages)
+        })
+        .collect();
+    indices.sort_unstable();
+    indices.dedup();
+    assert!(
+        indices.len() > 1,
+        "the actions name more than one page of the target: {indices:?}"
+    );
+}

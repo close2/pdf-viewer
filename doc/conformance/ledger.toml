@@ -3812,10 +3812,10 @@ note = "Remote Go-To: a destination in *another* file, whose `page` is an intege
 [[clause]]
 clause = "12.6.4.4"
 title = "Embedded Go-To actions"
-status = "reported"
-code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
-test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
-note = "Embedded Go-To: a destination inside an embedded file, reached through a `/T` target chain of parent and child relationships. Needs §7.11.4's embedded file streams, which nothing here reads. **Refused by name and said out loud**: `action.rs` answers \"GoToE: a destination in an embedded file\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
+status = "partial"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/destination.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::the_clauses_three_example_relationships_read_as_paths", "crates/pdf-model/src/action.rs::a_target_this_file_does_not_contain_is_named", "crates/pdf-model/tests/actions.rs::an_embedded_go_to_opens_the_document_inside_this_one"]
+note = "**Performed.** This is the one action of Table 201's twenty that names another document and needs no filesystem to reach it: a `GoToR` names a file on a disk, a `GoToE` names a file *inside the one already open*, and §7.11.4's embedded file streams have been read since the eighty-sixth session (ADR 0076). Tables 204 and 205 whole — `/T` flattened into a path of steps, `/R /P` popping back to the document the walk descended from and `/R /C` opening a child by its `EmbeddedFiles` key or by the file attachment annotation Table 205's `/P` and `/A` name, in both spellings each. §12.6.4.4's NOTE asks for a cycle check and `MAX_TARGET_DEPTH` is it: the path is a finite list read once, and each step opens at most one document, with the parent's `Limits` inherited so a document nested three deep is bounded like the one a person opened. `/D` is deliberately left unresolved and read in the *target*, because §12.3.2.2 makes its first element a page **number** there — \"[t]he first page shall be numbered 0\" (Table 203) — and a named destination is looked up in the target's own tables; `Destination::page_index_in_target` is that difference. Table 204's `/NewWindow` is a *should* and this program has one window, so the target replaces the source and says so. Refused by name, each separately: an `/F` naming another root document, a `/R /P` from the document a person opened, and a child this file does not embed. Measured: `issue17056.pdf` states 30 of these actions, all of the child-by-name form, and all 30 open."
 
 [[clause]]
 clause = "12.6.4.5"

@@ -318,6 +318,31 @@ impl Destination {
                 }
             })
     }
+
+    /// The page this destination names, read in the document it was *written for*.
+    ///
+    /// The difference from [`Self::page_index`] is one case, and it is the case §12.6.4.3's and
+    /// §12.6.4.4's destinations are made of. §12.3.2.2:
+    ///
+    /// > No page object can be specified for a destination associated with a remote go-to action
+    /// > … because the destination page is in a different PDF document. In this case, the page
+    /// > parameter specifies an integer page number within the remote document instead of a page
+    /// > object in the current document.
+    ///
+    /// and its NOTE says "[t]he above paragraph was corrected to also include embedded go-to
+    /// actions (2020)". Table 203 gives the numbering: "[t]he first page shall be numbered 0."
+    ///
+    /// So [`Target::Number`] *is* an index here, where in [`Self::page_index`] it is a number
+    /// about a file this reader does not have. Both are answered because a destination reached
+    /// through §12.6.4.4 may equally be an indirect reference: the target is a whole document,
+    /// and a reference in it is resolved against it.
+    #[must_use]
+    pub fn page_index_in_target(&self, target: &Document, pages: &Pages<'_>) -> Option<usize> {
+        match self.target {
+            Target::Number(number) => usize::try_from(number).ok(),
+            Target::Object(_) => self.page_index(target, pages),
+        }
+    }
 }
 
 /// Whether a dictionary is a structure element, for §12.3.2.3's fallback.
