@@ -33,18 +33,21 @@
 //! - `Text`, `FileAttachment`, `Sound` and `Stamp` display an *icon*. §12.5.6.4 requires a
 //!   processor to "provide predefined icon appearances" for seven names and says nothing about
 //!   what any of them is. The artwork is the processor's, not the document's.
-//! - `Highlight`, `Underline`, `StrikeOut` and `Squiggly` (§12.5.6.10) state their
-//!   `/QuadPoints` and the edge the text is oriented against, and *no* mark: not the thickness
-//!   of an underline, not where in the quadrilateral a strikeout crosses, not how a highlight
-//!   keeps the text under it visible. Table 182 does not even admit a `/BS` to take a width
-//!   from.
 //! - `Caret`, `Redact`, `Screen`, `Movie`, `PrinterMark`, `TrapNet` and `Watermark` state no
 //!   geometry of their own.
 //!
-//! Guessing at any of those would put marks on the page the document never described, which is
-//! the failure principle 5 exists to prevent — and the corpus says the guesses do differ: the
-//! three reference renderers draw three different pictures of
-//! `annotation-highlight-without-appearance.pdf`.
+//! Guessing at either would put marks on the page the document never described, which is the
+//! failure principle 5 exists to prevent.
+//!
+//! **This list used to include §12.5.6.10's four text markup subtypes, and had since before
+//! [`text_markup`] was written.** The thirty-fourth session read the clause again and found it
+//! states four things — the mark's kind, its region, its orientation and Table 166's colour —
+//! and leaves only a thickness, which the quadrilateral's own height supplies as a fraction
+//! (ADR 0043). The refusal that stood for thirteen sessions had said the clause states nothing.
+//! A comment naming a refusal outlived the refusal by eighty sessions; the ledger row did the
+//! same, and both were corrected in the hundred-and-fifteenth. The corpus is still what says
+//! the *thickness* is a choice rather than a derivation: the three reference renderers draw
+//! three different pictures of `annotation-highlight-without-appearance.pdf`.
 //!
 //! # Text is a different kind of construction
 //!

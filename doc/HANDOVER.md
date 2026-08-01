@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-fourteenth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-fifteenth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,24 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-twelfth — the file-only evidence population reaches zero.** ADR 0102.
-
-- **The last twenty-three rows audited, and `FILE_ONLY_EVIDENCE_CEILING` is `== 0` rather than
-  `<= n`.** A new `implemented` row arriving with a file for evidence now fails the build.
-- **Most only had to be *cited*** — somebody had already written the test that would fail, for
-  another reason. Four had nothing at all, and those are the session's work: §7.4.1's filter
-  *cascade* and its `/DecodeParms` array, §7.4.4.4's two predictor groups (the PNG type byte is
-  per *row*, and TIFF Predictor 2 has none), §7.7.3's page-tree *walk* — four tests about a
-  page's entries and none about the tree — and §10.7.2's flatness, whose content is a permission
-  nothing held us to.
-- **All four audits paid.** 58 → 0 over four sessions, and each one found a false or unheld
-  claim; the record is the argument for having finished rather than stopped at a small number.
-- **Two ledger ratchets now sit at zero and they answer different questions**: `unreviewed`
-  says every subclause has been read, file-only evidence says every `implemented` row names
-  something that would fail. Neither says the *right* test was named.
-
-Tests 853 → 860; every gate unmoved.
 
 **Hundred-and-thirteenth — the item that was priced a hundred-fold wrong.** ADR 0103.
 
@@ -80,6 +62,23 @@ No code path changed and no gate moved: the output is four numbers and two corre
   cheapest kind of clause to implement correctly.
 
 `reported` falls **48 → 41**; tests 860 → 869; no gate moved.
+
+**Hundred-and-fifteenth — five rows that said less than the code does.** ADR 0105.
+
+- **The first pass over the `reported` population, and it found the opposite defect.** Five of
+  the 41 rows *understate*: §12.5.6.10's four text markup subtypes have been drawn since the
+  thirty-fourth session and the row said they were refused, §12.5.6.6's free text since the
+  twenty-third, §12.7.5.4's combo box draws while its list box is refused, §9.7.5.2 builds two
+  of Table 116's entries, and §12.7.8.3.4 reads Table 254.
+- **`appearance.rs`'s own module comment listed the four markup subtypes among its refusals**,
+  three hundred lines above the function that draws them, for eighty sessions. **A comment that
+  names a refusal outlives the refusal**, and a module header is where a reader learns what a
+  module refuses.
+- **Nothing fails when a row claims *less* than the code does.** `FILE_ONLY_EVIDENCE_CEILING`
+  counts where an overstatement can hide; an understatement has no gate at all, ever, because a
+  status of "not implemented" is never contradicted by a passing test.
+
+`reported` falls **41 → 36**, `partial` 236 → 240; one new test; no gate moved.
 
 ## How the project got here
 
@@ -198,6 +197,7 @@ below rather than here.
 | 112 | The file-only evidence population reaches zero, over four audits | ADR 0102 |
 | 113 | A to-do item measured at a hundredth of its listed price, and removed | ADR 0103 |
 | 114 | §7.11's file specifications, read whole and opened never | ADR 0104 |
+| 115 | Five `reported` rows that understated what the tree already does | ADR 0105 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -237,10 +237,10 @@ vocabulary, §7.11.4's embedded files and §14.13's associated ones, §12.2's vi
 PDF *viewer* in the full sense — nothing edits a field, asks a person for a password, speaks a
 page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: **not
 one of the ledger's 823 rows is `silent`**, so nothing in the eight technical clauses is missing
-without the tree saying so. What is owed is 41 `reported` rows and the notes on 236 `partial`
+without the tree saying so. What is owed is 36 `reported` rows and the notes on 240 `partial`
 ones.
 
-- **869 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **870 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
   hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -374,7 +374,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2732 citations, 289 quotations, 177 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2733 citations, 290 quotations, 177 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -873,12 +873,12 @@ this code.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 364 | every normative requirement in the clause is executed |
-| `partial` | 236 | some are; the note says which are not |
+| `implemented` | 365 | every normative requirement in the clause is executed |
+| `partial` | 240 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
-| `reported` | 41 | not implemented, detected and named at runtime |
+| `reported` | 36 | not implemented, detected and named at runtime |
 | `writer-side` | 7 | addresses a PDF writer; we do not create files |
 
 **The `silent` count is zero**, for the first time since the ledger was built in the ninth
@@ -982,7 +982,7 @@ parts that make a document *interactive* have just started.
 | Text rendering modes | **8 of 8** in §9.3.6 Table 104: fill, stroke in user space, both per glyph, invisible, and the four that add glyphs to the clipping path at `ET`. An operand outside 0..7 is reported. |
 | Text state parameters | **9 of Table 102's 9**. `Tk` (§9.3.8) was the last, and it is a text object becoming §11.4.6's knockout group where the two models can differ. |
 | Word spacing (§9.3.3) | A property of the *code's encoded length*, not of the font: an embedded `CMap` may define codes of several lengths in one font and four of the corpus's do. |
-| Annotations | Placed by §12.5.5, drawn from `/AP` — **the one of Table 170's three the pointer asks for** — and **constructed** where there is none: a link's border, a square, a circle, a polygon, a polyline, an ink scribble, a line **with §12.5.6.7's leader lines** (ADR 0075), a widget's `/MK` frame, and **its field's text** (ADRs 0030, 0032, 0043). Icons are refused and named, and so are the two entries that state an effect with no shape: Table 179's line endings and a line's `/Cap` caption. |
+| Annotations | Placed by §12.5.5, drawn from `/AP` — **the one of Table 170's three the pointer asks for** — and **constructed** where there is none: a link's border, a square, a circle, a polygon, a polyline, an ink scribble, a line **with §12.5.6.7's leader lines** (ADR 0075), §12.5.6.10's four text markup subtypes, a widget's `/MK` frame, and **its field's text** (ADRs 0030, 0032, 0043). Icons are refused and named, and so are the two entries that state an effect with no shape: Table 179's line endings and a line's `/Cap` caption. |
 | Form fields (§12.7.4.3) | A text field's `/V`, a choice field's selection, a button's Table 192 caption and a `FreeText`'s `/Contents`, laid out from a `/DA` string resolved in `/DR`: quadding, auto-sizing, wrapping, Table 232's comb cells, and a password field's bullets. `/NeedAppearances` splices the `/Tx` region of a stored stream and keeps the rest. |
 | Text strings (§7.9.2.2) | All three encodings, chosen by the clause's prefix, with surrogate pairs paired, §7.9.2.2.2's language escapes removed and Annex D Table D.3 compiled in. |
 | Image masking | All four mechanisms an image can carry plus the graphics state's own, combined on the finer of the two grids with a bound on the growth; a graphics-state mask is combined at *device* resolution. §11.6.4.3's precedence decides which wins. |
@@ -1003,7 +1003,7 @@ parts that make a document *interactive* have just started.
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
 rows in the fifty-sixth session, and reached zero `silent` ones in the hundred-and-first — so the
-specification track is now its **41 `reported` rows and the notes on its 236 `partial` ones**,
+specification track is now its **36 `reported` rows and the notes on its 240 `partial` ones**,
 each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -1014,7 +1014,7 @@ several sessions:
 
 - **Every row of clause 12 is read, performed, or *reported* by name.** So the
   specification track's map
-  is no longer "which clauses are unread" nor "which are silent" — it is the **41 `reported` rows
+  is no longer "which clauses are unread" nor "which are silent" — it is the **36 `reported` rows
   and what each would
   take**, and the three nearest are `viewer-ui` work rather than clause work: **a field a person
   can edit**, which §12.7.6.3 has now proved the machinery for (a changed value redraws
@@ -1065,8 +1065,8 @@ corpus's own issue trackers says most of that is glyph rasterisation on files ch
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
-and the debt is **0 `silent` and 41 `reported`, down from 201 thirty-two sessions ago** — plus
-the notes on 236 `partial` rows, which is where the next map has to be drawn from.
+and the debt is **0 `silent` and 36 `reported`, down from 201 thirty-three sessions ago** — plus
+the notes on 240 `partial` rows, which is where the next map has to be drawn from.
 
 ### 0. The ledger, and where a false claim can still hide
 
@@ -1787,6 +1787,12 @@ right. One `grep` for the old wording. ADR 0101.
 `/ShadingType 1`, so the row's evidence passed on every run while asserting nothing about the
 row. That is what `FILE_ONLY_EVIDENCE_CEILING` counts, stated as a failure mode rather than as a
 number.
+
+**A comment that names a refusal outlives the refusal.** `appearance.rs`'s module header listed
+§12.5.6.10's four text markup subtypes among the things that "state no mark" for eighty sessions
+after the same file started drawing all four, through several reviews of that module. A header is
+where a reader learns what a module refuses, which is where a stale refusal does most damage; the
+check is one `grep` for the subtype in the same file. ADR 0105.
 
 **A stale row can understate as well as overstate, and only the overstatements have a gate.**
 §14.9.4's note said its structure-element half was owed for four sessions after the fifty-sixth

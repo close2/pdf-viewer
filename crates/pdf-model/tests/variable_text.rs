@@ -653,3 +653,51 @@ fn span(values: &[u32]) -> u32 {
     };
     high.saturating_sub(*low)
 }
+
+/// ISO 32000-2 §12.7.5.4: a combo box draws its value and a list box is refused.
+///
+/// > A choice field shall have a field type of Ch that contains several text items, one or more
+/// > of which shall be selected as the field value. The items may be presented to the user in
+/// > one of the following two forms:
+///
+/// Half the clause draws and half does not, and the two halves are one bit apart — which is
+/// exactly why they are one test. A combo box shows its value in an edit box, so it is a text
+/// field with a different `/FT`; a list box shows a *selection* out of `/Opt`, and the clause
+/// states no highlight colour, no rule and no metric for one. Drawing a list box as unmarked
+/// text would put every option on the page with nothing saying which is chosen, which is worse
+/// than refusing and is the plausible-looking wrong page trap 1 is about.
+///
+/// The refusal is checked by name rather than by count: a report that fired for some other
+/// reason would satisfy "something was reported".
+#[test]
+fn a_combo_box_draws_its_value_and_a_list_box_says_it_cannot() {
+    let choice = |flags: &str| {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Ch \
+                 /T (choice) /V (Beta) /Opt [(Alpha) (Beta) (Gamma)] /DA (/Helv 12 Tf 0 g) \
+                 {flags} >>"
+            ),
+        )
+    };
+
+    // Bit 18 is the combo flag, which is 1 << 17.
+    let (reports, raster) = draw(choice("/Ff 131072"));
+    assert!(
+        !inked_columns(&raster).is_empty(),
+        "a combo box draws its value like a text field: {reports:?}"
+    );
+    assert!(
+        reports.is_empty(),
+        "and reports nothing while doing it: {reports:?}"
+    );
+
+    let (reports, raster) = draw(choice(""));
+    assert!(
+        inked_columns(&raster).is_empty(),
+        "a list box draws nothing, because the clause states no appearance for a selection"
+    );
+    let named = reports.iter().any(|report| report.contains("list box"));
+    assert!(named, "and says so by name: {reports:?}");
+}

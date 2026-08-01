@@ -2478,10 +2478,10 @@ note = "Both of the two forms the clause names are recognised — a predefined n
 [[clause]]
 clause = "9.7.5.2"
 title = "Predefined CMaps"
-status = "reported"
-code = ["crates/pdf-font/src/cmap.rs", "crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-model/tests/composite_fonts.rs::a_predefined_cmap_is_refused_by_name"]
-note = "Table 116's two Identity CMaps are built — as one two-byte range rather than 65 536 entries, which is what the table's own sentence describes — and every other name is refused and reported: 15 corpus fonts across 11 documents. Those names stand for registered CMap *files*, so this is a licensing decision about vendoring data rather than a coding one, and the clause's requirement that a processor \"shall support Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7 and Adobe-KR-9 character collections\" cannot be met without them. Guessing would map codes to plausible wrong glyphs, which is the failure trap 1 exists for."
+status = "partial"
+code = ["crates/pdf-font/src/cmap.rs"]
+test = ["crates/pdf-font/src/cmap.rs::identity_maps_two_byte_codes_to_themselves"]
+note = "Table 116's two Identity CMaps are built — as one two-byte range rather than 65 536 entries, which is what the table's own sentence describes — and every other name is refused and reported: 15 corpus fonts across 11 documents. `partial` rather than `reported` since the hundred-and-fifteenth session, because two of the table's entries are implemented and the row read as though none were. The rest stand for registered CMap *files*, so what is left is a licensing decision about vendoring data rather than a coding one, and the clause's requirement that a processor \"shall support Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7 and Adobe-KR-9 character collections\" cannot be met without them. Guessing would map codes to plausible wrong glyphs, which is the failure trap 1 exists for."
 
 [[clause]]
 clause = "9.7.5.3"
@@ -3617,8 +3617,10 @@ note = "**Followed since the fifty-seventh session**: a click resolves the link 
 [[clause]]
 clause = "12.5.6.6"
 title = "Free text annotations"
-status = "reported"
-note = "A free text annotation 'display[s] text directly on the page' out of /Contents, laid out by the /DA appearance string and /Q quadding of §12.7.4.3, with Table 177's /RC rich text, /DS default style, /CL callout line and /IT intent on top. The text is the annotation, so there is nothing to draw without §12.7.4.3's variable text: refused and named in crate::appearance. 4 corpus documents."
+status = "partial"
+code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/variable_text.rs"]
+test = ["crates/pdf-model/tests/variable_text.rs::a_free_text_annotation_draws_its_contents"]
+note = "A free text annotation \"display[s] text directly on the page\" out of `/Contents`, laid out by the `/DA` appearance string and `/Q` quadding of §12.7.4.3 — **which `appearance::free_text` does, and has since the twenty-third session.** This row said \"refused and named\" until the hundred-and-fifteenth, which is the ledger understating what the code does, and the four corpus documents it counted are refused for a different reason: their `/DA` names a font the `/DR` does not define, which is §12.7.4.3's malformed-file case. `/RD` insets the box, as §12.5.6.8's does. `partial` for the rest of Table 177: `/CL`'s callout line and `/IT`'s intent are unread, `/BS`'s border is reported because no clause states its colour, and `/RC` and `/DS` are XFA rich text, which principle 5 excludes."
 
 [[clause]]
 clause = "12.5.6.7"
@@ -3647,8 +3649,10 @@ note = "Table 181's /Vertices and PDF 2.0's /Path are both built — the second 
 [[clause]]
 clause = "12.5.6.10"
 title = "Text markup annotations"
-status = "reported"
-note = "The four text markup subtypes are refused and named, and this row is the clearest case in the family of a clause that describes an appearance without stating it. §12.5.6.10 gives the /QuadPoints of Table 182 — each quadrilateral 'encompasses a word or group of contiguous words', oriented against the edge from (x1, y1) to (x2, y2) — and then says only that such annotations 'shall appear as highlights, underlines, strikeouts ... or jagged ('squiggly') underlines'. Nothing states an underline's thickness or offset, where in the quadrilateral a strikeout crosses, a squiggle's amplitude or period, or how a highlight keeps the text under it legible, and Table 182 does not even admit a /BS to take a width from. The corpus shows the guesses differ: on annotation-highlight-without-appearance.pdf the three reference renderers draw three different pictures. 13 corpus documents."
+status = "implemented"
+code = ["crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::each_text_markup_draws_its_own_mark"]
+note = "The four text markup subtypes are drawn, and **this row said they were refused for eighty sessions after they stopped being** — so did `appearance.rs`'s own module comment, and both were corrected in the hundred-and-fifteenth session. What the clause states is more than the first reading found (ADR 0043): the mark's kind — they \"shall appear as highlights, underlines, strikeouts (all PDF 1.3), or jagged (\"squiggly\") underlines\" — its region, Table 182's `/QuadPoints`, its orientation, \"[t]he text shall be oriented with respect to the edge connecting points ( x 1 , y 1 ) and ( x 2 , y 2 )\", and Table 166's `/C` for the colour. What it leaves is a *thickness*, and the quadrilateral supplies the only length there is: its own height, since it \"shall encompass a word or group of contiguous words\". A sixteenth of that for a bar, a twelfth and a third for a squiggle's amplitude and wavelength, and a strikeout across the middle — fractions rather than constants, so they are right at every font size. A highlight is filled under `Multiply`, which §11.3.5.2 makes the one blend mode whose \"result colour is always at least as dark as either of the two constituent colours\" and therefore the standard's own guarantee that the text under the wash survives it. The corpus is what says the thickness is a *choice*: three references draw three pictures of `annotation-highlight-without-appearance.pdf`."
 
 [[clause]]
 clause = "12.5.6.11"
@@ -4070,9 +4074,10 @@ note = "The clause's own sentence is the implementation: the value 'shall be use
 [[clause]]
 clause = "12.7.5.4"
 title = "Choice fields"
-status = "reported"
+status = "partial"
 code = ["crates/pdf-model/src/appearance.rs"]
-note = "Half the clause draws and half is refused. A combo box shows its value, which the clause makes a text string — or the first of an array where several are selected — and that goes through §12.7.4.3 like a text field's. A **list box** does not: the clause says which items are selected and states nothing about how a selection *looks*, no highlight colour and no rule, so it is refused and named rather than drawn as unmarked text. Table 234's `/Opt`, `/TI` and `/I` are read nowhere for the same reason — they order and index a list nothing draws. No corpus document reaches either path with no appearance stream, so the refusal is currently a statement about the clause rather than about any page."
+test = ["crates/pdf-model/tests/variable_text.rs::a_combo_box_draws_its_value_and_a_list_box_says_it_cannot"]
+note = "Half the clause draws and half is refused, one flag bit apart. A **combo box** shows its value, which the clause makes a text string — or the first of an array where several are selected — and that goes through §12.7.4.3 like a text field's. A **list box** does not: the clause says which items are selected and states nothing about how a selection *looks*, no highlight colour and no rule, so it is refused and named rather than drawn as unmarked text, which would put every option on the page with nothing saying which is chosen. Table 234's `/Opt`, `/TI` and `/I` are read nowhere for the same reason — they order and index a list nothing draws. `partial` rather than `reported` since the hundred-and-fifteenth session: the drawing half is drawn. No corpus document reaches either path with no appearance stream, so the refusal is a statement about the clause rather than about any page."
 
 [[clause]]
 clause = "12.7.5.5"
@@ -4221,10 +4226,10 @@ note = "Tables 251, 252 and 253 read, and a template page **added**: the referen
 [[clause]]
 clause = "12.7.8.3.4"
 title = "FDF annotation dictionaries"
-status = "reported"
+status = "partial"
 code = ["crates/pdf-model/src/forms_data.rs"]
-test = ["crates/pdf-model/src/forms_data.rs::what_is_not_applied_is_named"]
-note = "Table 254's `/Page` and each annotation's own dictionary are read into `FdfAnnotation` and drawn by nothing, which is said out loud. Their *appearances* are §12.5's and are implemented; what is missing is that an FDF annotation's `/AP` resolves in the FDF file's object space while the page it belongs to is in the target document's, so drawing one means a second `Document` reaching the interpreter — a design question rather than an oversight."
+test = ["crates/pdf-model/tests/forms_data.rs::an_imported_annotation_flag_hides_a_widget"]
+note = "Table 254's `/Page` and each annotation's own dictionary are read into `FdfAnnotation` and drawn by nothing, which is said out loud. `partial` rather than `reported` since the hundred-and-fifteenth session: the table is read, and a row that said otherwise understated it. Their *appearances* are §12.5's and are implemented; what is missing is that an FDF annotation's `/AP` resolves in the FDF file's object space while the page it belongs to is in the target document's, so drawing one means a second `Document` reaching the interpreter — a design question rather than an oversight."
 
 [[clause]]
 clause = "12.7.9"
