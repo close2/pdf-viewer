@@ -971,38 +971,50 @@ note = "The type 4 function's own dictionary, which is a stream: `/Domain`, `/Ra
 [[clause]]
 clause = "7.11"
 title = "File specifications"
-status = "reported"
-note = "Aggregate of the ten below. **Nothing in this tree parses a file specification**, and the sentence that decides why is §7.11.1's: a file specification refers to a file \"external to the PDF file\" *in either case*, embedded or not. `CLAUDE.md` principle 3 gives the renderer no filesystem and no network, so following one is refused by architecture rather than unimplemented by accident — and every path in this tree that meets one already refuses out loud: §7.3.8's external stream data, §8.10.4's reference XObject drawn as its proxy, and §12.5.6.15's file attachment icon. What is owed in silence is on the two `silent` rows below, and it is a viewer's list of attachments rather than anything on a page."
+status = "implemented"
+code = ["crates/pdf-model/src/file_spec.rs", "crates/pdf-model/src/attachment.rs"]
+test = ["crates/pdf-model/src/file_spec.rs::a_relative_specification_replaces_the_containing_files_name", "crates/pdf-model/src/file_spec.rs::the_unicode_name_is_used_instead_of_the_byte_string"]
+note = "Aggregate of the ten below. **A file specification is now read whole and opened never** (hundred-and-fourteenth session): `file_spec.rs` is §7.11.1's two forms, §7.11.2's string format, Table 43 and §7.11.5's URL form, and the sentence the family turns on is still §7.11.1's — a file specification refers to a file \"external to the PDF file\" *in either case*, embedded or not. `CLAUDE.md` principle 3 gives the renderer no filesystem and no network, so *following* one stays refused by architecture; what this row used to record as unread was the difference between refusing a file and being unable to name it. Every path in this tree that meets a specification now names it out of one reader rather than three: §7.3.8's external stream data, §8.10.4's reference XObject drawn as its proxy, §12.5.6.15's file attachment icon, §12.6.4.4's embedded go-to and §12.7.6.4's import."
 
 [[clause]]
 clause = "7.11.1"
 title = "General"
-status = "reported"
-note = "The two forms — a simple specification as a string or a dictionary, a full one as a dictionary only — and the sentence this family turns on: \"[t]he file is considered external to the PDF file in either case.\" So an *embedded* file is still an external file with its bytes carried along, which is why reading one is an attachment feature and never a rendering one. Refusals, not silence: see §7.11's row for the three places this tree meets a specification and names it."
+status = "implemented"
+code = ["crates/pdf-model/src/file_spec.rs"]
+test = ["crates/pdf-model/src/file_spec.rs::the_unicode_name_is_used_instead_of_the_byte_string"]
+note = "The two forms — a simple specification as a string or a dictionary, a full one as a dictionary only — read by `FileSpec::parse`, which answers `None` for an object that is neither. The sentence this family turns on is \"[t]he file is considered external to the PDF file in either case\", so an *embedded* file is still an external file with its bytes carried along, which is why reading one is an attachment feature and never a rendering one. Refusals, not silence: see §7.11's row for the places this tree meets a specification and names it."
 
 [[clause]]
 clause = "7.11.2"
 title = "File specification strings"
-status = "reported"
-note = "Aggregate of the two below: how a simple file specification's string spells a path."
+status = "implemented"
+code = ["crates/pdf-model/src/file_spec.rs"]
+test = ["crates/pdf-model/src/file_spec.rs::a_escaped_solidus_is_part_of_a_component_rather_than_a_separator", "crates/pdf-model/src/file_spec.rs::an_absolute_specification_starts_at_the_root"]
+note = "Aggregate of the two below: how a simple file specification's string spells a path, in `FileSpec::components`, `is_absolute` and `resolve_against`."
 
 [[clause]]
 clause = "7.11.2.1"
 title = "General"
-status = "reported"
-note = "The string form: SOLIDUS as \"a generic component separator that shall be mapped to the appropriate platform-specific separator\", a literal SOLIDUS escaped by REVERSE SOLIDUS, and components that \"shall be stored as bytes and shall be passed to the operating system without interpretation or conversion of any sort\". None of it is computed here, and the reason is one level up: this program never turns a specification into a path, because it has no filesystem to hand one to. The clause is worth having read for the last sentence — a reader that decoded these bytes as text would corrupt a file name in every locale where they are not UTF-8."
+status = "implemented"
+code = ["crates/pdf-model/src/file_spec.rs"]
+test = ["crates/pdf-model/src/file_spec.rs::a_escaped_solidus_is_part_of_a_component_rather_than_a_separator", "crates/pdf-model/src/file_spec.rs::an_empty_component_is_a_component"]
+note = "The string form: SOLIDUS as \"a generic component separator\", a literal SOLIDUS escaped by REVERSE SOLIDUS, empty components kept because \"[a]ny of the components may be empty\", and the clause's own EXAMPLE `(in\\/out)` as the test. **The closing sentence is what decides the type**: \"[t]he component substrings shall be stored as bytes and shall be passed to the operating system without interpretation or conversion of any sort\", so `components` is `Vec<Vec<u8>>` and stays that way. `FileSpec::display_name` is the one place a `/F` becomes text, which is a *display* decision made where it can be seen — three call sites in `pdf-model` used to make it silently, and this row warned against exactly that before anybody read it."
 
 [[clause]]
 clause = "7.11.2.2"
 title = "Absolute and relative file specifications"
-status = "reported"
-note = "Absolute and relative specifications, RFC 3986's resolution for a URL-based file system, and the `..` rule for every other. Unimplemented for §7.11.2.1's reason, and worth one note for whoever implements it: the clause forbids more than it permits — a URL-based relative specification \"shall be limited to paths\", with \"[t]he scheme, network location/login, fragment identifier, query information, and parameter sections\" not allowed. That is a security rule wearing a syntax rule's clothes, and principle 3 would want it enforced rather than assumed."
+status = "implemented"
+code = ["crates/pdf-model/src/file_spec.rs"]
+test = ["crates/pdf-model/src/file_spec.rs::a_relative_specification_replaces_the_containing_files_name", "crates/pdf-model/src/file_spec.rs::two_periods_cancel_the_component_before_them", "crates/pdf-model/src/file_spec.rs::a_relative_url_specification_may_be_a_path_and_nothing_else"]
+note = "Absolute and relative specifications, and the clause states its answers rather than only its rules — both of its EXAMPLEs are tests. `resolve_against` removes the containing file's own name and appends, and cancels a `..` against the component before it \"when the component immediately preceding .. is not another . .\"; a `..` with nothing to cancel is *kept*, a documented choice, because dropping it would silently move the target to the root. The URL half is `crate::uri`'s RFC 3986 rather than this module's, and what is stated here is the restriction on top of it: a URL-based relative specification \"shall be limited to paths\", with \"[t]he scheme, network location/login, fragment identifier, query information, and parameter sections\" not allowed — **a security rule wearing a syntax rule's clothes**, checked by `is_valid_relative_url` rather than assumed."
 
 [[clause]]
 clause = "7.11.3"
 title = "File specification dictionaries"
-status = "reported"
-note = "Table 43's dictionary — `/FS`, `/F`, `/UF`, the three deprecated platform keys, `/ID`, `/V`, `/EF`, `/RF`, `/Desc`, `/CI`, `/AFRelationship`. Unread, for §7.11's reason. One requirement is worth writing down before anybody reads it, because it is the kind a first implementation inverts: \"[a] PDF reader shall use the value of the UF key, when present, instead of the F key\" — `/UF` is a *text string* by §7.9.2.2 and `/F` a byte string, so the two are not interchangeable and the newer one wins."
+status = "partial"
+code = ["crates/pdf-model/src/file_spec.rs", "crates/pdf-model/src/attachment.rs", "crates/pdf-model/src/collection.rs"]
+test = ["crates/pdf-model/src/file_spec.rs::the_unicode_name_is_used_instead_of_the_byte_string"]
+note = "Table 43, read across three modules that each own what they point at: `file_spec.rs` reads `/FS`, `/F`, `/UF`, the three deprecated platform keys, `/ID`, `/V`, `/Desc` and the *presence* of `/EF`; `attachment.rs` reads `/EF`, `/RF` and `/AFRelationship`; `collection.rs` reads `/CI`. The requirement a first implementation inverts is honoured and tested — \"[a] PDF reader shall use the value of the UF key, when present, instead of the F key\" — and it matters because `/UF` is a *text string* by §7.9.2.2 and `/F` a byte string, so the two are not interchangeable. `partial` for two entries nothing consumes: `/Thumb`, which §12.3.4's thumbnail reader could decode for a specification but is only defined for a *page*, and `/EP`, §7.6.7's encrypted payload, which needs a cryptographic filter this tree refuses by name."
 
 [[clause]]
 clause = "7.11.4"
@@ -1031,8 +1043,10 @@ note = "§7.11.4.2's related files array, in `attachment::related`. The shape is
 [[clause]]
 clause = "7.11.5"
 title = "URL specifications"
-status = "reported"
-note = "`/FS /URL` makes `/F` a uniform resource locator rather than a path. **This one is a security property rather than a gap**, in the same way §12.6.4.5's launch action is: principle 3 gives the renderer no network, so a document asking this program to fetch a URL gets nothing, and that is the intended answer rather than a missing feature. The clause's own encoding note is small and exact — 7-bit US-ASCII is a strict subset of PDFDocEncoding, so a URL is already a text string under §7.9.2.2's third encoding."
+status = "implemented"
+code = ["crates/pdf-model/src/file_spec.rs"]
+test = ["crates/pdf-model/src/file_spec.rs::a_url_specification_is_not_split_into_components"]
+note = "`/FS /URL` makes `/F` a uniform resource locator rather than a path, which `FileSpec::url` returns and `FileSpec::components` refuses to split — a URL is not a path and applying §7.11.2.1's separator rule to one would invent components out of its scheme. **Reading it is not fetching it**: principle 3 gives the renderer no network, so a document asking this program to fetch a URL still gets nothing, and that is the intended answer rather than a missing feature — the same position §12.6.4.8's URI action takes, which resolves and prints rather than opens. The clause's own encoding note is small and exact — 7-bit US-ASCII is a strict subset of PDFDocEncoding, so a URL is already a text string under §7.9.2.2's third encoding."
 
 [[clause]]
 clause = "7.11.6"

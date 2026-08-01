@@ -199,13 +199,9 @@ pub fn associated(document: &Document, dict: &Dictionary) -> Vec<Attachment> {
         let Some(specification) = resolved.as_dict() else {
             continue;
         };
-        let name = match document.get_key(specification, "UF") {
-            Object::String(bytes) => pdf_syntax::text_string(&bytes),
-            _ => match document.get_key(specification, "F") {
-                Object::String(bytes) => pdf_syntax::text_string(&bytes),
-                _ => String::new(),
-            },
-        };
+        let name = crate::file_spec::FileSpec::from_dictionary(document, specification)
+            .display_name()
+            .unwrap_or_default();
         if let Some(attachment) = read(document, specification, name) {
             out.push(attachment);
         }
@@ -325,7 +321,8 @@ pub fn read(document: &Document, specification: &Dictionary, name: String) -> Op
     Some(Attachment {
         name,
         relationship: Relationship::read(document, specification),
-        file_name: text(specification, "UF").or_else(|| text(specification, "F")),
+        file_name: crate::file_spec::FileSpec::from_dictionary(document, specification)
+            .display_name(),
         description: text(specification, "Desc"),
         media_type: document
             .get_key(&stream.dict, "Subtype")

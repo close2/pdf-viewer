@@ -588,18 +588,14 @@ fn child_step(document: &Document, step: &Dictionary) -> Option<TargetStep> {
     Some(TargetStep::AttachedChild { page, annotation })
 }
 
-/// §7.11.3's file specification under `key`, in both the forms the clause gives one.
+/// §7.11's file specification under `key`, named rather than opened.
+///
+/// One line, because [`crate::file_spec`] is where §7.11.1's two forms and Table 43's rule that
+/// `/UF` outranks `/F` are read. This used to be three separate readers of the same two keys in
+/// two files, each decoding `/F` as a text string — see that module for why the distinction
+/// between a text string and a byte string is not cosmetic.
 fn file_specification(document: &Document, dict: &Dictionary, key: &str) -> Option<String> {
-    match &document.get_key(dict, key) {
-        Object::String(bytes) => Some(pdf_syntax::text_string(bytes)),
-        Object::Dictionary(specification) => ["UF", "F"].iter().find_map(|name| {
-            document
-                .get_key(specification, name)
-                .as_string()
-                .map(pdf_syntax::text_string)
-        }),
-        _ => None,
-    }
+    crate::file_spec::FileSpec::parse(document, &document.get_key(dict, key))?.display_name()
 }
 
 /// §12.6.4.7's thread action. Table 209.
@@ -960,20 +956,8 @@ fn reset_form(document: &Document, dict: &Dictionary) -> ResetForm {
 /// import-data action naming no file has stated nothing to import, which is a dictionary rather
 /// than an action.
 fn import_data(document: &Document, dict: &Dictionary) -> Option<Action> {
-    let stated = document.get_key(dict, "F");
-    let file = match &stated {
-        // §7.11.3: "a file specification shall be either a string or a dictionary". The string
-        // form is the whole specification; the dictionary form puts it under `/UF` or `/F`, and
-        // Table 43 makes `/UF` the Unicode one and therefore the one to prefer.
-        Object::String(bytes) => pdf_syntax::text_string(bytes),
-        Object::Dictionary(specification) => ["UF", "F"].iter().find_map(|key| {
-            document
-                .get_key(specification, key)
-                .as_string()
-                .map(pdf_syntax::text_string)
-        })?,
-        _ => return None,
-    };
+    // §7.11.1's two forms and Table 43's `/UF`-over-`/F` rule are `file_spec`'s.
+    let file = file_specification(document, dict, "F")?;
     // The extension, case-insensitively: §12.7.8.1 states the letters and nothing about their
     // case, and a file specification is written by whichever platform exported the data.
     let extension = std::path::Path::new(&file)
