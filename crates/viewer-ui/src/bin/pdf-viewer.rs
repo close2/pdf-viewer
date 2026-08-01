@@ -5,7 +5,8 @@
 //! ``
 //!
 //! Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, `a`
-//! selects the whole page and dragging selects part of it, Escape quits. The window title shows
+//! selects the whole page and dragging selects part of it, `s` saves what was changed beside the
+//! document, Escape quits. The window title shows
 //! the page's own label where the document states one (§12.4.2), the page number, and how many
 //! things on the page could not be drawn; the things themselves are printed.
 //!
@@ -141,7 +142,7 @@ fn usage() {
     eprintln!("usage: pdf-viewer [--no-sandbox] <document.pdf>");
     eprintln!();
     eprintln!("Arrows, Page Up/Down or Space turn pages; Home and End jump; + and - zoom;");
-    eprintln!("drag to select text, a selects the page, Escape quits.");
+    eprintln!("drag to select text, a selects the page, s saves, Escape quits.");
     eprintln!();
     eprintln!("  --no-sandbox  decode JBIG2 and JPEG 2000 images in this process rather than");
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
@@ -298,6 +299,16 @@ impl App {
                  without animating it",
                 transition.style, transition.duration
             ),
+            // Rule 2 in one arm: the core produced the bytes and the host owns the filesystem.
+            // Written beside the document with `.edited.pdf` appended rather than over it,
+            // because overwriting somebody's file is a decision this program has not been given.
+            Event::Saved { bytes, .. } => {
+                let path = self.path.with_extension("edited.pdf");
+                match std::fs::write(&path, &bytes) {
+                    Ok(()) => println!("saved {} bytes to {}", bytes.len(), path.display()),
+                    Err(error) => println!("note: cannot write {}: {error}", path.display()),
+                }
+            }
             // What a host does with this is mark its window and ask before closing. This one
             // has no dialogue to ask with, so it marks the title and says so on the way past.
             Event::Dirty { dirty, .. } => {
@@ -657,6 +668,7 @@ fn key_command(key: &Key<&str>) -> Option<Command> {
         Key::Character("-") => Command::Zoom(Zoom::Out),
         Key::Character("0") => Command::Zoom(Zoom::FitPage),
         Key::Character("a") => Command::Select(Selection::All),
+        Key::Character("s") => Command::Save,
         // A page taller than the window: the scroll is in device pixels, so this is about a
         // fifteenth of a fitted A4 page and the same on any display.
         Key::Named(NamedKey::ArrowDown) => Command::Scroll { dx: 0.0, dy: 60.0 },

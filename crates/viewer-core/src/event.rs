@@ -113,6 +113,17 @@ pub enum Event {
         /// Whether anything is unsaved.
         dirty: bool,
     },
+    /// The document, with §7.5.6's update appended. Write it somewhere.
+    ///
+    /// The whole file rather than the update alone, because §7.5.6's update is only meaningful
+    /// after the bytes it chains to — and because a host that had to concatenate them could get
+    /// it wrong. The original bytes are the first part of it, unchanged.
+    Saved {
+        /// Which document.
+        document: DocumentId,
+        /// The file.
+        bytes: Vec<u8>,
+    },
     /// What could not be drawn on the page that was just interpreted.
     ///
     /// Trap 5's channel: every layer of this program reports what it could not handle rather

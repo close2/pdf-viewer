@@ -891,3 +891,71 @@ fn a_click_finds_the_field_it_landed_on() {
         Answer::None
     ));
 }
+
+#[test]
+fn a_saved_document_carries_the_edit_and_the_file_under_it() {
+    // §7.5.6's incremental update, end to end from a keystroke: what a person typed comes back
+    // out of the *saved* bytes, read by a viewer that has never seen the edit — and the original
+    // file is still there underneath, which is the clause's whole point.
+    let Some(bytes) = corpus_bytes("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.clone(),
+            password: None,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: "Text1".to_owned(),
+            value: Some("Ada Lovelace".to_owned()),
+        }))
+        .for_each(drop);
+
+    let events: Vec<_> = viewer.handle(Command::Save).collect();
+    let saved = events
+        .iter()
+        .find_map(|event| match event {
+            Event::Saved { bytes, .. } => Some(bytes.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{events:?}"));
+    assert!(
+        saved.starts_with(&bytes),
+        "§7.5.6 appends, leaving the original contents intact"
+    );
+
+    // A second viewer, which knows nothing of the edit, opens the saved bytes and draws the
+    // value — which is the only statement about a save worth making.
+    let mut reader = Viewer::new(800, 1000, 1.0);
+    let events: Vec<_> = reader
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: saved,
+            password: None,
+        })
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Opened { .. })),
+        "{events:?}"
+    );
+    let request = request(&events).clone();
+    serve(&mut reader, &request);
+    reader
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let Answer::Selected(selection) = reader.query(Query::Selection) else {
+        panic!("the reopened page has text on it");
+    };
+    assert!(
+        selection.text.contains("Ada Lovelace"),
+        "the saved value is drawn: {:?}",
+        selection.text
+    );
+}

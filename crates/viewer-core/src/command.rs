@@ -77,6 +77,13 @@ pub enum Command {
     /// A new edit after an undo discards what was undone, which is what a single log with a
     /// cursor means and what every editor does.
     Redo,
+    /// Write §7.5.6's incremental update for everything the log holds.
+    ///
+    /// Answered with [`crate::Event::Saved`] carrying the bytes, or with
+    /// [`crate::Event::Reported`] naming why not. The *host* writes them somewhere: rule 2 says
+    /// this crate has no filesystem, which is also what lets a confined process with none still
+    /// produce a saved file.
+    Save,
     /// Select something, or stop selecting.
     ///
     /// A drag is [`Self::Pointer`]'s business; this is what a menu item or a keystroke asks for.

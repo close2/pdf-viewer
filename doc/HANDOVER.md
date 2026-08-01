@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-thirty-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-thirty-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -42,8 +42,7 @@ three things a person can do are new: **a locked document asks for its password*
 knows what it is over and §12.5.5's rollover appearances are chosen at last, and the page zooms
 and scrolls.
 
-It is **not yet a viewer** in the full sense: nothing speaks a page, runs a slide show or saves
-what was changed — though since the hundred-and-thirty-fourth session a drag **selects text**, and the shapes
+It is **not yet a viewer** in the full sense: nothing speaks a page or runs a slide show — though since the hundred-and-thirty-fourth session a drag **selects text**, and the shapes
 cross to the host as geometry so that it draws them in its own colour (ADR 0119). Every one of those was blocked on the same missing interface, which is why
 §0 below is the headline; the interface now exists, has two consumers, and the rest are features
 rather than architecture.
@@ -52,12 +51,12 @@ rather than architecture.
 
 | gate | number | where |
 |---|---|---|
-| tests | **925**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 135, fuzzers in 129 |
+| tests | **932**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 136, fuzzers in 129 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
-| conformance | 2965 citations, 311 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3012 citations, 315 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -193,9 +192,11 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   trip**, which is why the second channel is not a command.
 - `Command`: `Open { id, bytes, password }`, `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, `Pointer { at, action }`, `Select`,
-  `Edit(Edit)`, `Undo`, `Redo`, `Supply { purpose, bytes }`, `RenderReady { token, rendered }`.
+  `Edit(Edit)`, `Undo`, `Redo`, `Save`, `Supply { purpose, bytes }`,
+  `RenderReady { token, rendered }`.
 - `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
-  `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`,
+  `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`, `Dirty`,
+  `Saved { bytes }`,
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
@@ -215,8 +216,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 
 #### What is still owed, in the order to do it
 
-1. **§7.5.6's incremental update**: `Edits → Vec<u8>`, `Event::Saved`, and the host writes the
-   bytes. Both artefacts below now exist and this is what the second one is *for*.
+1. **The two costs §7.5.6's writer records**: encryption on the way out (§7.6.2 applies to every
+   string this writes), and regenerated appearance streams instead of `/NeedAppearances`. Both
+   are named in ADR 0121 and neither is architectural.
 2. **The rest of the vocabulary, as its feature arrives.** `Command::Tick { millis }` for
    §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves);
    `Command::Select`, `Command::Edit`, `Undo`, `Redo`; `Query::TextIn`, `QuadsFor`,
@@ -316,10 +318,13 @@ the moment two edits touched one field. `ViewState::set_field` is the fourth sta
 field's value beside Table 226's `/V`, §12.7.6.3's `/DV` and §12.7.8's imported one, and the last
 one made stands.
 
-**What is left of it is saving.** `ViewState::edits` hands out what changed; turning that into
-§7.5.6's incremental update — the one form of writing `CLAUDE.md` permits — is a session's work
-and nothing else in the architecture has to move for it. A confined process with no filesystem
-can still produce those bytes, which is the point of the host writing them.
+**And it is saved** since the hundred-and-thirty-sixth session (ADR 0121): `ViewState::save`
+produces the file with §7.5.6's incremental update appended, the host writes the bytes, and
+`pdftotext` and `mutool` both read the value back out of what it wrote. The producer's bytes are
+still there underneath, which is the clause's whole point. **Two costs are written down**: a
+widget's stored appearance is not regenerated — Table 224's `/NeedAppearances` is set instead, so
+a reader that ignores the flag shows the old value — and an *encrypted* document is refused,
+because §7.6 has to run on the way out and does not yet.
 
 #### The prize: one boundary, not two
 
@@ -648,7 +653,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | Crate | Does | Notes |
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
-| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler, every algorithm against its own subclause; `document.rs` decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `xref.rs` is §7.5 whole, and the thing to know is that an entry is an `Option<Location>`: a free entry and an unknown entry type both *record* that the number names nothing, because §7.5.6 makes a deletion the most recent copy of an object (ADR 0100). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees in one module, because the second clause defines itself as the first with integer keys (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is *not* ISO Latin 1. `date.rs` is §7.9.4, beside it because NOTE 1 makes a date a text string that happens to spell one (ADR 0092). `filter.rs` is §7.4's ten filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately `None` so a *content* stream naming one is visibly unsupported |
+| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption, §7.5.6's writer | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler, every algorithm against its own subclause; `document.rs` decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `xref.rs` is §7.5 whole, and the thing to know is that an entry is an `Option<Location>`: a free entry and an unknown entry type both *record* that the number names nothing, because §7.5.6 makes a deletion the most recent copy of an object (ADR 0100). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees in one module, because the second clause defines itself as the first with integer keys (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is *not* ISO Latin 1. `date.rs` is §7.9.4, beside it because NOTE 1 makes a date a text string that happens to spell one (ADR 0092). `write.rs` is the *only* writing in the tree: clause 7's syntax on the way out and §7.5.6's incremental update, which appends and never rewrites (ADR 0121). `write.rs` is the *only* writing in the tree: clause 7's syntax on the way out and §7.5.6's incremental update, which appends and never rewrites (ADR 0121). `filter.rs` is §7.4's ten filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately `None` so a *content* stream naming one is visibly unsupported |
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` constructs what a subtype's clause states, splices under `/NeedAppearances`, and argues the refusals (ADRs 0030, 0032); `icon.rs` beside it is the one module that is pure invention and says so (ADR 0109). `view.rs` is the `ViewState` §12.6.4's actions change — **the precedent the edit log will follow**. `variable_text.rs` is §12.7.4.3 and the one place this tree *writes* a content stream. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused, its `Decode` one table per component and its `Conversion` an *exact* per-image memo (ADRs 0034, 0035). `page.rs` is §7.7.3 and §14.11.2's five boundaries. `accessibility.rs`, `uri.rs` and `file_spec.rs` hold no PDF at all. Then one module per clause family: `action.rs`, `forms_data.rs`, `named_page.rs`, `structure.rs`, `article.rs`, `collection.rs`, `measurement.rs`, `thumbnail.rs`, `signature.rs`, `attachment.rs`, `page_label.rs`, `navigation.rs`, `requirements.rs`, `document_part.rs`, `viewer_preferences.rs` |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2, §9.6.5.4 — ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code, and `cff.rs` and `type1.rs` each produce one because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is the one program kept *parsed*, measured: re-parsing per glyph put 11 ms on `tracemonkey.pdf`. `cmap.rs` is §9.7, where `Code` carries a value *and* a length. `substitute.rs` is **the only machine-dependent code in the tree** and ranks three sources of a request with an argument: the name, then §9.8.3.2's PANOSE, then Table 121's flags, which producers set carelessly (ADR 0086) |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
@@ -1461,3 +1466,4 @@ above rather than here.
 | 133 | The text layer, and the click that had been mapped to the wrong half of the page | 0118 |
 | 134 | Text is selected, and the shapes cross as geometry for the host to draw | 0119 |
 | 135 | An edit is a log beside the document; a replaced value was not being drawn | 0120 |
+| 136 | §7.5.6's incremental update: the one kind of writing this project does | 0121 |

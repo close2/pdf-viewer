@@ -1,0 +1,501 @@
+//! Objects back to bytes, and ISO 32000-2 §7.5.6's incremental update.
+//!
+//! # What this is for, and what it is not
+//!
+//! `CLAUDE.md` excludes *authoring* a document: linearisation, object-stream packing, and
+//! everything else whose requirements fall on a generator. It permits exactly one kind of
+//! writing, and this is it — §7.5.6's incremental update, which appends what a person did to
+//! the file they did it to:
+//!
+//! > The contents of a PDF file can be updated incrementally without rewriting the entire file.
+//! > When updating a PDF file incrementally, changes shall be appended to the end of the file,
+//! > leaving its original contents intact.
+//!
+//! The producer's bytes stay in the file, byte for byte, under whatever was added. That is what
+//! makes this the one form of writing this tree is placed to get right: nothing here decides how
+//! a document should be laid out, only how to say "this object now reads like this".
+//!
+//! # The two halves
+//!
+//! [`object`] writes one object in the syntax clause 7 defines for it. [`incremental_update`]
+//! writes the section §7.5.6 describes: the new objects, a cross-reference section covering
+//! them, and a trailer whose `/Prev` chains to what was there before.
+
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+
+use crate::object::{Dictionary, Name, Object, ObjectId};
+
+/// Why an incremental update could not be written.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum UpdateError {
+    /// The document's own cross-reference table was rebuilt by scanning.
+    ///
+    /// §7.5.6 makes an update a *chain*: the new section's `/Prev` names the offset of the one
+    /// before it. A file whose table had to be reconstructed has no offset worth chaining to,
+    /// and an update that pointed at a broken table would be as unusable as the table.
+    #[error(
+        "this file's cross-reference table was rebuilt by scanning, so an update has nothing to chain to"
+    )]
+    Recovered,
+    /// The document is encrypted.
+    ///
+    /// §7.6.2 has every string and stream in an encrypted document encrypted with the
+    /// document's key, so writing plaintext into one would produce a file whose new objects
+    /// decrypt to nonsense. Refused by name rather than written wrong.
+    #[error("this file is encrypted, and writing into it needs §7.6's algorithms on the way out")]
+    Encrypted,
+    /// The file does not end with the `startxref` §7.5.5 requires.
+    #[error("this file states no startxref, so there is no cross-reference section to chain to")]
+    NoStartxref,
+    /// The trailer states no `/Root`, which §7.5.5 makes required.
+    #[error("this file's trailer states no /Root")]
+    NoRoot,
+}
+
+/// Writes one object in the syntax of clause 7.
+///
+/// Not a formatter for a whole file: this is what an indirect object's body looks like, and
+/// [`incremental_update`] is what puts `N G obj` … `endobj` around it.
+pub fn object(value: &Object, out: &mut Vec<u8>) {
+    match value {
+        Object::Null => out.extend_from_slice(b"null"),
+        Object::Boolean(true) => out.extend_from_slice(b"true"),
+        Object::Boolean(false) => out.extend_from_slice(b"false"),
+        Object::Integer(value) => {
+            let mut text = String::new();
+            let _ = write!(text, "{value}");
+            out.extend_from_slice(text.as_bytes());
+        }
+        Object::Real(value) => out.extend_from_slice(real(*value).as_bytes()),
+        Object::String(bytes) => string(bytes, out),
+        Object::Name(name) => write_name(name, out),
+        Object::Array(items) => {
+            out.push(b'[');
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push(b' ');
+                }
+                object(item, out);
+            }
+            out.push(b']');
+        }
+        Object::Dictionary(dict) => dictionary(dict, out),
+        Object::Stream(stream) => {
+            dictionary(&stream.dict, out);
+            out.extend_from_slice(b"\nstream\n");
+            out.extend_from_slice(&stream.data);
+            out.extend_from_slice(b"\nendstream");
+        }
+        Object::Reference(id) => {
+            let mut text = String::new();
+            let _ = write!(text, "{} {} R", id.number, id.generation);
+            out.extend_from_slice(text.as_bytes());
+        }
+    }
+}
+
+/// §7.3.7's dictionary: `<<` key value … `>>`.
+fn dictionary(dict: &Dictionary, out: &mut Vec<u8>) {
+    out.extend_from_slice(b"<<");
+    for (key, value) in dict.iter() {
+        out.push(b' ');
+        write_name(key, out);
+        out.push(b' ');
+        object(value, out);
+    }
+    out.extend_from_slice(b" >>");
+}
+
+/// §7.3.5's name: a solidus, and `#xx` for anything that is not a regular character.
+///
+/// > When writing a name in a PDF file, a SOLIDUS (2Fh) (/) shall be used to introduce a name.
+/// > The SOLIDUS is not part of the name but is a prefix indicating that what follows is a
+/// > sequence of characters representing the name in the PDF file and shall follow these rules:
+///
+/// The rule taken is the clause's own escape: any character may be written as a number sign
+/// followed by two hexadecimal digits.
+///
+/// The escape is applied to every delimiter and white-space character and to the number sign
+/// itself, which is the closed set of characters that would otherwise end the name or be read as
+/// an escape.
+fn write_name(name: &Name, out: &mut Vec<u8>) {
+    out.push(b'/');
+    for byte in name.as_bytes() {
+        if byte.is_ascii_graphic() && !b"#()<>[]{}/%".contains(byte) {
+            out.push(*byte);
+        } else {
+            let _ = write!(HexSink(out), "#{byte:02X}");
+        }
+    }
+}
+
+/// §7.3.4.3's hexadecimal string, which needs no escaping rules at all.
+///
+/// The literal form of §7.3.4.2 is shorter for text and needs three characters escaped, a
+/// balanced-parenthesis rule, and a decision about what to do with a byte that is not printable.
+/// The hexadecimal form is twice the length and has none of that, and what this writes are form
+/// field values: a person's name, not a page of content.
+fn string(bytes: &[u8], out: &mut Vec<u8>) {
+    out.push(b'<');
+    for byte in bytes {
+        let _ = write!(HexSink(out), "{byte:02X}");
+    }
+    out.push(b'>');
+}
+
+/// A `fmt::Write` that appends to a byte vector, for the two places a number is formatted.
+struct HexSink<'a>(&'a mut Vec<u8>);
+
+impl std::fmt::Write for HexSink<'_> {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        self.0.extend_from_slice(text.as_bytes());
+        Ok(())
+    }
+}
+
+/// §7.3.3's real number, written so that it reads back as itself.
+///
+/// The clause's own note on precision — "a conforming writer shall not use an exponential
+/// format" — rules out `{:e}`, and an integral value is written without a fractional part
+/// because that is what every producer does and what the type in a dictionary usually is.
+fn real(value: f64) -> String {
+    if !value.is_finite() {
+        // §7.3.3 has no spelling for an infinity or a NaN, and a file containing one would be
+        // a file this program wrote and could not read. Zero is the only value that is
+        // certainly writable, and the alternative — refusing — would fail a save over a value
+        // no document states.
+        return "0".to_owned();
+    }
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        let mut text = String::new();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "guarded by the fract() and magnitude test immediately above"
+        )]
+        let integral = value as i64;
+        let _ = write!(text, "{integral}");
+        return text;
+    }
+    let mut text = format!("{value:.6}");
+    while text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.pop();
+    }
+    text
+}
+
+/// Appends ISO 32000-2 §7.5.6's incremental update to a document's own bytes.
+///
+/// `replacements` are the objects that now read differently. Each is written as an indirect
+/// object with the generation the document's own table gives it, followed by a cross-reference
+/// section covering exactly those objects and a trailer chaining to what was there.
+///
+/// The result is the **whole file**: the original bytes, unchanged, with the update after them.
+/// That is what §7.5.6 describes and it is what makes this safe — the producer's bytes are still
+/// there, and a reader that cannot make sense of the update can still read the file that was
+/// signed or archived.
+///
+/// # The cross-reference section's form
+///
+/// The same kind the file already uses. A document whose last section is §7.5.8's cross-reference
+/// *stream* gets one of those, and one with §7.5.4's table gets a table. Nothing in the standard
+/// requires them to match — a PDF 1.5 reader handles both — but a file whose sections are all one
+/// kind is a file whose next reader has one thing to do, and the cost is forty lines.
+///
+/// # Errors
+///
+/// [`UpdateError`], which names the four documents this refuses: one whose table was rebuilt by
+/// scanning, one that is encrypted, one with no `startxref`, and one whose trailer has no
+/// `/Root`.
+pub fn incremental_update(
+    document: &crate::Document,
+    replacements: &BTreeMap<ObjectId, Object>,
+) -> Result<Vec<u8>, UpdateError> {
+    if document.was_recovered() {
+        return Err(UpdateError::Recovered);
+    }
+    if document.is_encrypted() {
+        return Err(UpdateError::Encrypted);
+    }
+    let previous = startxref(document.bytes()).ok_or(UpdateError::NoStartxref)?;
+    let root = document
+        .trailer()
+        .get("Root")
+        .cloned()
+        .ok_or(UpdateError::NoRoot)?;
+
+    let mut out = document.bytes().to_vec();
+    // §7.5.6's own requirement on what precedes an update: the file it appends to ends with
+    // `%%EOF`, and a file that does not end with a line break would run the first new object
+    // into it.
+    if !out.ends_with(b"\n") && !out.ends_with(b"\r") {
+        out.push(b'\n');
+    }
+
+    let mut offsets: Vec<(ObjectId, usize)> = Vec::new();
+    for (id, value) in replacements {
+        offsets.push((*id, out.len()));
+        let mut header = String::new();
+        let _ = writeln!(header, "{} {} obj", id.number, id.generation);
+        out.extend_from_slice(header.as_bytes());
+        object(value, &mut out);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+
+    let highest = offsets
+        .iter()
+        .map(|(id, _)| id.number)
+        .max()
+        .unwrap_or_default();
+    let size = u64::from(highest)
+        .saturating_add(1)
+        .max(size_of_document(document));
+
+    let stream_form = document
+        .trailer()
+        .get("Type")
+        .and_then(Object::as_name)
+        .is_some_and(|name| name.as_bytes() == b"XRef");
+    if stream_form {
+        cross_reference_stream(&mut out, &offsets, size, previous, &root, document);
+    } else {
+        cross_reference_table(&mut out, &offsets, size, previous, &root, document);
+    }
+    Ok(out)
+}
+
+/// The `/Size` the document's own trailer states, which the update may only raise.
+fn size_of_document(document: &crate::Document) -> u64 {
+    document
+        .trailer()
+        .get("Size")
+        .and_then(Object::as_integer)
+        .and_then(|size| u64::try_from(size).ok())
+        .unwrap_or_default()
+}
+
+/// §7.5.4's cross-reference table, in subsections of consecutive object numbers.
+fn cross_reference_table(
+    out: &mut Vec<u8>,
+    offsets: &[(ObjectId, usize)],
+    size: u64,
+    previous: usize,
+    root: &Object,
+    document: &crate::Document,
+) {
+    let at = out.len();
+    let mut text = String::from("xref\n");
+    for run in subsections(offsets) {
+        let _ = writeln!(text, "{} {}", run[0].0.number, run.len());
+        for (id, offset) in run {
+            // §7.5.4's entry is exactly twenty bytes, and the clause spells out both halves:
+            // ten digits of offset, five of generation, `n` for an in-use object, and a
+            // two-character end-of-line marker.
+            let _ = writeln!(text, "{offset:010} {:05} n ", id.generation);
+        }
+    }
+    out.extend_from_slice(text.as_bytes());
+
+    let mut trailer = Dictionary::new();
+    trailer.insert(Name::new(&b"Size"[..]), Object::Integer(as_integer(size)));
+    trailer.insert(Name::new(&b"Root"[..]), root.clone());
+    trailer.insert(
+        Name::new(&b"Prev"[..]),
+        Object::Integer(as_integer(previous as u64)),
+    );
+    carry_forward(document, &mut trailer);
+    identify(document, &mut trailer, out);
+
+    out.extend_from_slice(b"trailer\n");
+    object(&Object::Dictionary(trailer), out);
+    let mut tail = String::new();
+    let _ = write!(tail, "\nstartxref\n{at}\n%%EOF\n");
+    out.extend_from_slice(tail.as_bytes());
+}
+
+/// §7.5.8's cross-reference stream, uncompressed, with the three-field entries of Table 18.
+fn cross_reference_stream(
+    out: &mut Vec<u8>,
+    offsets: &[(ObjectId, usize)],
+    size: u64,
+    previous: usize,
+    root: &Object,
+    document: &crate::Document,
+) {
+    // The stream is itself an object, and its own entry has to be in it — so it takes the next
+    // number after everything else, and its offset is where it is about to be written.
+    let stream_number = u32::try_from(size).unwrap_or(u32::MAX);
+    let at = out.len();
+
+    let mut entries: Vec<(u32, u64, u16)> = offsets
+        .iter()
+        .map(|(id, offset)| (id.number, *offset as u64, id.generation))
+        .collect();
+    entries.push((stream_number, at as u64, 0));
+    entries.sort_unstable();
+
+    let mut index = Vec::new();
+    let mut data = Vec::new();
+    for run in runs(&entries) {
+        index.push(Object::Integer(as_integer(u64::from(run[0].0))));
+        index.push(Object::Integer(as_integer(run.len() as u64)));
+        for (_, offset, generation) in run {
+            // Table 18's type 1: an uncompressed object. `/W [1 4 2]` is the width of the three
+            // fields, which is what says how to read these bytes.
+            data.push(1);
+            data.extend_from_slice(&u32::try_from(*offset).unwrap_or(u32::MAX).to_be_bytes());
+            data.extend_from_slice(&generation.to_be_bytes());
+        }
+    }
+
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"XRef"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Size"[..]),
+        Object::Integer(as_integer(u64::from(stream_number).saturating_add(1))),
+    );
+    dict.insert(
+        Name::new(&b"W"[..]),
+        Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(4),
+            Object::Integer(2),
+        ]),
+    );
+    dict.insert(Name::new(&b"Index"[..]), Object::Array(index));
+    dict.insert(Name::new(&b"Root"[..]), root.clone());
+    dict.insert(
+        Name::new(&b"Prev"[..]),
+        Object::Integer(as_integer(previous as u64)),
+    );
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(as_integer(data.len() as u64)),
+    );
+    carry_forward(document, &mut dict);
+    identify(document, &mut dict, out);
+
+    let mut header = String::new();
+    let _ = writeln!(header, "{stream_number} 0 obj");
+    out.extend_from_slice(header.as_bytes());
+    object(
+        &Object::Stream(std::sync::Arc::new(crate::object::Stream {
+            dict,
+            data: data.into(),
+            decryption_failed: false,
+        })),
+        out,
+    );
+    let mut tail = String::new();
+    let _ = write!(tail, "\nendobj\nstartxref\n{at}\n%%EOF\n");
+    out.extend_from_slice(tail.as_bytes());
+}
+
+/// §14.4's file identifier, updated as the clause requires.
+///
+/// > The first byte string shall be a permanent identifier based on the contents of the PDF file
+/// > at the time it was originally created and shall not change when the PDF file is updated.
+///
+/// So the first element is carried through unchanged and the second is derived from the bytes
+/// this update is appending to — which is what "based on the file's contents" means and, being a
+/// function of those bytes alone, is the same answer every time the same edit is saved. That
+/// determinism is deliberate: rule 3 says this crate has no clock, and a test that saves twice
+/// and compares is worth more than a timestamp.
+fn identify(document: &crate::Document, trailer: &mut Dictionary, so_far: &[u8]) {
+    let permanent = document
+        .trailer()
+        .get("ID")
+        .and_then(Object::as_array)
+        .and_then(<[Object]>::first)
+        .cloned();
+    let digest = <md5::Md5 as md5::Digest>::digest(so_far);
+    let changing = Object::String(digest.to_vec().into());
+    trailer.insert(
+        Name::new(&b"ID"[..]),
+        Object::Array(vec![
+            permanent.unwrap_or_else(|| changing.clone()),
+            changing,
+        ]),
+    );
+}
+
+/// The trailer entries an update must repeat because a reader stops at the first section.
+///
+/// §7.5.5 makes `/Encrypt` and `/Info` properties of the *file*, and a reader that took the
+/// newest trailer as the whole answer would find neither. `/Root` and `/Size` are written by the
+/// caller because they are computed rather than copied.
+fn carry_forward(document: &crate::Document, trailer: &mut Dictionary) {
+    for key in ["Encrypt", "Info"] {
+        if let Some(value) = document.trailer().get(key) {
+            trailer.insert(Name::new(key.as_bytes()), value.clone());
+        }
+    }
+}
+
+/// Consecutive object numbers, which is what a cross-reference subsection is.
+fn subsections(offsets: &[(ObjectId, usize)]) -> Vec<&[(ObjectId, usize)]> {
+    let mut out: Vec<&[(ObjectId, usize)]> = Vec::new();
+    let mut start = 0;
+    for index in 1..offsets.len() {
+        let (previous, current) = (offsets[index.saturating_sub(1)].0, offsets[index].0);
+        if current.number != previous.number.saturating_add(1) {
+            out.push(&offsets[start..index]);
+            start = index;
+        }
+    }
+    if start < offsets.len() {
+        out.push(&offsets[start..]);
+    }
+    out
+}
+
+/// The same runs, over the cross-reference stream's own triples.
+fn runs(entries: &[(u32, u64, u16)]) -> Vec<&[(u32, u64, u16)]> {
+    let mut out: Vec<&[(u32, u64, u16)]> = Vec::new();
+    let mut start = 0;
+    for index in 1..entries.len() {
+        if entries[index].0 != entries[index.saturating_sub(1)].0.saturating_add(1) {
+            out.push(&entries[start..index]);
+            start = index;
+        }
+    }
+    if start < entries.len() {
+        out.push(&entries[start..]);
+    }
+    out
+}
+
+/// A count as the integer a dictionary holds, saturating rather than wrapping.
+fn as_integer(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+/// The offset §7.5.5's `startxref` states, read from the end of the file.
+///
+/// > The last line of the file shall contain only the end-of-file marker, %%EOF. The two
+/// > preceding lines shall contain, one per line and in order, the keyword startxref and the byte
+/// > offset in the decoded stream from the beginning of the PDF file to the beginning of the xref
+/// > keyword in the last cross-reference section.
+///
+/// Searched from the end rather than parsed from a fixed position, because a file with trailing
+/// bytes after `%%EOF` is common and the clause's "last line" is then not the last line.
+fn startxref(bytes: &[u8]) -> Option<usize> {
+    let tail_from = bytes.len().saturating_sub(2048);
+    let tail = bytes.get(tail_from..)?;
+    let at = tail.windows(9).rposition(|window| window == b"startxref")?;
+    let after = tail.get(at.saturating_add(9)..)?;
+    let digits: Vec<u8> = after
+        .iter()
+        .skip_while(|byte| byte.is_ascii_whitespace())
+        .take_while(|byte| byte.is_ascii_digit())
+        .copied()
+        .collect();
+    std::str::from_utf8(&digits).ok()?.parse().ok()
+}

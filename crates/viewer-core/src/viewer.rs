@@ -214,6 +214,7 @@ impl Viewer {
             Command::Edit(edit) => self.edit(edit, events),
             Command::Undo => self.move_cursor(-1, events),
             Command::Redo => self.move_cursor(1, events),
+            Command::Save => self.save(events),
             Command::Select(selection) => {
                 let viewport = self.viewport;
                 let Some(open) = self.focused_mut() else {
@@ -487,6 +488,25 @@ impl Viewer {
             open.page_index = target;
             open.scroll = (0.0, 0.0);
             self.announce_page(events);
+        }
+    }
+
+    /// Writes §7.5.6's incremental update, or says why it could not be written.
+    fn save(&mut self, events: &mut Vec<Event>) {
+        let Some(id) = self.focused else { return };
+        let Some(open) = self.focused() else { return };
+        match open.view.save(&open.document) {
+            Ok(bytes) => events.push(Event::Saved {
+                document: id,
+                bytes,
+            }),
+            // Trap 5 on the one path where a *file* can refuse to be written: a save that
+            // quietly did nothing is a person's work lost without a word.
+            Err(error) => events.push(Event::Reported {
+                document: id,
+                page: None,
+                notes: vec![format!("this document cannot be saved: {error}")],
+            }),
         }
     }
 

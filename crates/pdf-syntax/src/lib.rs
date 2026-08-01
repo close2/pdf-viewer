@@ -34,6 +34,7 @@ pub mod object;
 pub mod parser;
 pub mod text_string;
 pub mod tree;
+pub mod write;
 pub mod xref;
 
 pub use crypt::Permissions;

@@ -22,7 +22,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pdf_syntax::{Dictionary, Document, Object, ObjectId};
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use crate::action::{
     Action, Change, EmbeddedGoTo, Hide, HideTarget, ImportData, Named, ResetForm, ResetTarget,
@@ -446,6 +446,66 @@ impl ViewState {
         widgets.len()
     }
 
+    /// §7.5.6's incremental update for everything a person changed.
+    ///
+    /// The bytes of the *whole file*: the document as it was opened, unchanged, with an update
+    /// appended. `CLAUDE.md` permits exactly this form of writing — the producer's bytes stay in
+    /// the file, byte for byte, under what the person added — and the host writes them somewhere.
+    ///
+    /// # What is written
+    ///
+    /// One replacement object per field a value was typed into, carrying Table 226's `/V`, and
+    /// the interactive form dictionary with Table 224's `/NeedAppearances` set true.
+    ///
+    /// **The flag is the honest half of this, and it is a decision with a cost.** A widget's
+    /// appearance stream still says what the field said before, and a writer has two ways to fix
+    /// that: regenerate every affected stream, or tell the next reader to. Table 224 exists for
+    /// the second — "a flag specifying whether to construct appearance streams and appearance
+    /// dictionaries for all widget annotations in the document" — and it is what this writes,
+    /// because regenerating means writing content streams into somebody else's file and this
+    /// program's own reading of them is what it would be writing. The cost, written down: a
+    /// reader that ignores the flag shows the value the field had before. Every reader this
+    /// project compares against honours it.
+    ///
+    /// # Errors
+    ///
+    /// [`pdf_syntax::write::UpdateError`], which names every document this refuses: one whose
+    /// cross-reference table was rebuilt by scanning, an encrypted one, and one whose trailer is
+    /// missing what §7.5.5 requires.
+    pub fn save(&self, document: &Document) -> Result<Vec<u8>, pdf_syntax::write::UpdateError> {
+        let mut replacements = BTreeMap::new();
+        for (widget, value) in self.edits() {
+            let Some(dict) = document.get(widget).as_dict().cloned() else {
+                continue;
+            };
+            // §12.7.4.1's `/V` is inheritable, so the field that *holds* the value may be an
+            // ancestor of the widget — and writing it onto the widget would leave the ancestor's
+            // stale value inherited by the field's other widgets. The value goes where the
+            // document already keeps one, or on the widget where the document keeps none.
+            let (id, mut field) = holder(document, widget, dict);
+            match value {
+                Some(text) => {
+                    field.insert(
+                        Name::new(&b"V"[..]),
+                        Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
+                    );
+                }
+                // §12.7.6.3's own words for a value that is gone: "its V entry shall be removed".
+                None => {
+                    field.remove("V");
+                }
+            }
+            replacements.insert(id, Object::Dictionary(field));
+        }
+        if !replacements.is_empty()
+            && let Some((id, mut form)) = interactive_form(document)
+        {
+            form.insert(Name::new(&b"NeedAppearances"[..]), Object::Boolean(true));
+            replacements.insert(id, Object::Dictionary(form));
+        }
+        pdf_syntax::write::incremental_update(document, &replacements)
+    }
+
     /// Forgets every value a person typed, leaving the file's own and whatever actions did.
     ///
     /// What a replay of the edit log starts from: an undo re-applies the log's surviving prefix
@@ -784,6 +844,47 @@ fn qualified_name(document: &Document, dict: &Dictionary, prefix: &str) -> Strin
     } else {
         format!("{prefix}.{partial}")
     }
+}
+
+/// The object a widget's value belongs on, walking §12.7.4.1's `/Parent` chain.
+///
+/// Two stopping conditions, in this order. A dictionary that already states a `/V` is the one
+/// whose value the inheritance is reading, so replacing it is replacing what the widget shows. A
+/// dictionary that states a `/FT` is the *field* — Table 226 makes the type an entry of the
+/// field rather than of its widgets — and where nothing in the chain has a value yet, the field
+/// is where one belongs: writing it onto one widget of a field with several would leave the
+/// others reading the old inheritance.
+///
+/// The bound is this module's own, for the reason §12.7.4.1's row gives: a `/Parent` chain in a
+/// hostile file can be a cycle, and a chain nobody can reach the top of stops rather than being
+/// followed for ever.
+fn holder(document: &Document, widget: ObjectId, dict: Dictionary) -> (ObjectId, Dictionary) {
+    let (mut id, mut current) = (widget, dict);
+    for _ in 0..MAX_FIELD_DEPTH {
+        if !document.get_key(&current, "V").is_null() || current.get("FT").is_some() {
+            break;
+        }
+        let Some(parent) = current.get("Parent").and_then(Object::as_reference) else {
+            break;
+        };
+        let Some(next) = document.get(parent).as_dict().cloned() else {
+            break;
+        };
+        (id, current) = (parent, next);
+    }
+    (id, current)
+}
+
+/// The catalog's `/AcroForm`, with the object it is, where the document states one indirectly.
+///
+/// An interactive form stated *directly* in the catalog has no identity of its own to replace, so
+/// it answers `None` and the flag is not written — which leaves the appearance streams as the
+/// file's own. §12.7.3 makes `/AcroForm` a dictionary rather than a reference in principle; every
+/// real document writes it indirectly, and 0 of the 974 corpus documents do otherwise.
+fn interactive_form(document: &Document) -> Option<(ObjectId, Dictionary)> {
+    let catalog = document.catalog().ok()?;
+    let id = catalog.get("AcroForm").and_then(Object::as_reference)?;
+    Some((id, document.get(id).as_dict().cloned()?))
 }
 
 /// Whether Table 227's `ReadOnly` flag reaches this widget, through §12.7.4.1's inheritance.
