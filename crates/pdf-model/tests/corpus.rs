@@ -540,7 +540,18 @@ const MAX_PAGELESS: usize = 5;
 /// all for it. It draws with nothing reported now and the oracle's agreeing set gains it: 840
 /// pages to 841. `MacExpertEncoding` keeps its refusal, because that name *is* one Table 112
 /// permits and a font that states it means it.
-const MAX_INCOMPLETE: usize = 89;
+///
+/// **89 to 91 in the hundred-and-twenty-seventh session, and it is a rise on purpose** — trap
+/// 5's kind, and the sharpest instance this file records. The interpreter's font cache was keyed
+/// by the *resource name* a content stream used, and §8.10.1 gives a form `XObject` a
+/// `/Resources` of its own: a page's `/F1` and a form's `/F1` are two fonts as often as they are
+/// one, and the second was being handed the first's glyphs with nothing reported. `issue17492.pdf`
+/// names a `/Helvetica` resource its own dictionary does not define and `issue19182.pdf` names
+/// a predefined `CMap` this tree refuses; both were drawing some other font's glyphs in silence
+/// and now say so. The cache is keyed by the font dictionary's object identity (ADR 0115), and
+/// `issue19971.pdf` — whose readback was 83% and undiagnosed — rose above the text gate's floor
+/// for the same reason.
+const MAX_INCOMPLETE: usize = 91;
 
 /// How long one document may take before it counts as a failure.
 ///

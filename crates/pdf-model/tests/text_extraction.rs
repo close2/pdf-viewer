@@ -377,11 +377,19 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// code to the *glyph's* name and each glyph is a Greek letter. Both readbacks are defensible
 /// and the clause is about naming what was drawn, which is what ours does.
 ///
-/// The remaining six are partial for reasons nobody has diagnosed further: `issue13211.pdf`,
-/// `issue16538.pdf`, `issue16553.pdf`, `issue19182.pdf`, `issue19971.pdf` and
-/// `bug1392647.pdf`. **All six agree with the reference consensus on pixels**, measured in the
-/// sixty-sixth session with one filtered oracle run, so every one of them draws a picture two
-/// independent renderers accept and fails only at naming what it drew. The whole of what is left
+/// The remaining four are partial for reasons nobody has diagnosed further: `issue13211.pdf`,
+/// `issue16538.pdf`, `issue16553.pdf` and `bug1392647.pdf`. **All of them agree with the
+/// reference consensus on pixels**, measured in the sixty-sixth session with one filtered
+/// oracle run, so every one of them draws a picture two independent renderers accept and fails
+/// only at naming what it drew.
+///
+/// **Two left this list in the hundred-and-twenty-seventh session and neither was diagnosed
+/// here**: `issue19182.pdf` and `issue19971.pdf` were reading a font the font *cache* had
+/// handed them, keyed by the resource name `/C2_0` or `/F1` rather than by the font's identity,
+/// so a form `XObject`'s font was answering the page's question. The first now reports the
+/// predefined `CMap` it actually names and leaves this gate's population; the second rose above
+/// the floor. **A text-extraction shortfall nobody could diagnose was a font nobody had
+/// looked up** — worth remembering before spending a session on §9.10.2 for the four left. The whole of what is left
 /// on this list is §9.10.2, and none of it is a drawing defect — which is worth knowing before
 /// spending a session on any of them, and is the cheapest thing to check about an entry here.
 ///
@@ -404,7 +412,7 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// — and it is *new to this list without its readback changing at all*. It reported §9.3.8's
 /// text knockout until that clause was implemented, and only pages we draw completely are
 /// gated. A gate's numerator moves when its denominator does, and only one of those is news.
-const TEXT_BELOW_FLOOR: [&str; 44] = [
+const TEXT_BELOW_FLOOR: [&str; 42] = [
     "ArabicCIDTrueType.pdf",
     "PDFJS-7562-reduced.pdf",
     "Type3WordSpacing.pdf",
@@ -428,9 +436,7 @@ const TEXT_BELOW_FLOOR: [&str; 44] = [
     "issue16538.pdf",
     "issue16553.pdf",
     "issue17069.pdf",
-    "issue19182.pdf",
     "issue19802.pdf",
-    "issue19971.pdf",
     "issue2017r.pdf",
     "issue2537r.pdf",
     "issue2884_reduced.pdf",

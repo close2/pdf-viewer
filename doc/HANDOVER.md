@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-sixth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-seventh** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,35 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-twenty-fourth — everything re-verified, and the drift floor turns out to be
-between sittings.** No ADR: a verification session that finds nothing has nothing to argue.
-
-- **Every gate re-run rather than inherited.** 891 tests, `clippy` silent, `cargo fmt --check`
-  clean, `cargo deny` clean on all four checks, **all five fuzz targets clean at 50 000 runs
-  apiece** — `variable_text` first, because the hundred-and-twenty-third session changed it — and
-  the four censuses: 89 incomplete of 974, 841 agreeing and 65 contradicted of 1667, 97.9% of
-  `pdftotext`'s words, 1545 dates.
-- **The interpretation number was measured as an A/B in one sitting, and that changes what the
-  drift floor means.** `0723cda` rebuilt today gives **2 119 519 869** instructions against the
-  2 119.5 M the hundred-and-nineteenth session recorded for the same commit — a *repeat*, not a
-  drift. So the 0.42% this file has been quoting is drift between machines and builds, and an
-  A/B in one sitting resolves far below it: the four sessions since cost **3.3 M (+0.16%)**, of
-  which §11.7.4.4's per-glyph bookkeeping is **1.1 M (0.05%)**, measured by stubbing exactly
-  that out.
-- **§12.5.6.11's caret was reconsidered against ADR 0109's rule and the refusal stands.** The
-  tempting reading is §12.5.6.10's — a clause that names the mark — but §12.5.6.11 never says
-  the annotation shall appear as a caret; it says it *is* "a visual symbol", and a subtype name
-  is not a statement of artwork. Recorded in the row so the question is not reopened blind.
-- **The `hayro` totals are *not* re-measured here and are therefore not quoted.** The comparison
-  renders page one of 974 files best-of-N with both programs and takes the better part of an
-  hour; it did not finish inside this session. The one number that did come out is the worst
-  page, `issue19176.pdf` at **67.78×** — 520.92 µs against 7.68 µs — against 65× in the
-  hundred-and-nineteenth, on a 9×11-point page where the absolute numbers are too small to mean
-  anything. **A total not taken today is a total this file does not print**, which is the same
-  rule that governs the table below.
-
-No gate moved.
 
 **Hundred-and-twenty-fifth — the only default bounding box the standard states.** ADR 0113.
 
@@ -92,6 +63,31 @@ Tests 891 → 892; no gate moved.
   about the wrong thing.
 
 Tests 892 → 894; no gate moved.
+
+**Hundred-and-twenty-seventh — a resource name is scoped to the dictionary that defines it.**
+ADR 0115.
+
+- **Found by measuring something else.** Counting every `decoded_stream_data` call on the
+  benchmark page — the handover's standing question about `zlib_rs` being 28% of interpretation
+  — showed one 88 501-byte stream inflated **twice** per page. Its dictionary has `/Length1`:
+  an embedded font program.
+- **The font cache was keyed by the resource *name*.** §8.10.1 gives a form `XObject` its own
+  `/Resources`, so a page's `/F1` and a form's `/F1` are two fonts as often as they are one —
+  and the second was being handed the first's glyphs **with nothing reported**. Trap 1's
+  archetype, word for word, in the tree since the cache was added thirty-one sessions ago.
+- **Keyed by the font dictionary's object identity now**, which `shading::Cache` has done since
+  the seventy-third session for the same reason. A directly-stated font dictionary has no
+  identity and is loaded afresh; no corpus document states one.
+- **Incomplete rises 89 → 91 and it is trap 5's rise**: `issue17492.pdf` and `issue19182.pdf`
+  were drawing another font's glyphs silently and now name what they actually ask for. Agreeing
+  falls 841 → 839 — a smaller denominator, not a worse renderer.
+- **A text shortfall nobody had diagnosed was a font nobody had looked up.** `issue19971.pdf`
+  sat at 83% among "six partial for reasons nobody has diagnosed further" and is above the floor;
+  the list is 44 → 42.
+- **The perf item that led here is unfinished**: two distinct font dictionaries share one
+  `/FontFile2` in that file, which this key does not collapse.
+
+Tests 894 → 895; incomplete **89 → 91**, agreeing **841 → 839**, text list **44 → 42**.
 
 ## How the project got here
 
@@ -222,6 +218,7 @@ below rather than here.
 | 124 | Everything re-verified; the interpretation drift floor measured as an A/B | — |
 | 125 | An appearance with no `/BBox` gets §12.7.4.3's default box rather than a refusal | ADR 0113 |
 | 126 | And the same rule the other way: no `/Rect`, so the appearance's own box | ADR 0114 |
+| 127 | The font cache was keyed by a resource *name*; a form's `/F1` is not a page's | ADR 0115 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -233,8 +230,9 @@ did not move. Corpus documents drawing incompletely: 291 → 368 → 250 → 290
 283 → 263 → 251 → 235 → 232 → 231 → 231 → 237 → 220 → 220 → 189 → 147 → 137 → 129 → 130 (steady)
 → 110 → 106 → 105 → 97 → 94 → 95 → 97 → 96 (steady to 70) → 95 → 90 over 71 and 72,
 **89** in the eighty-fifth, **86** in the hundred-and-third, back to **90** in the
-hundred-and-seventh where six pageless documents joined it, and **89** in the
-hundred-and-twenty-second.
+hundred-and-seventh where six pageless documents joined it, **89** in the
+hundred-and-twenty-second, and **91** in the hundred-and-twenty-seventh — where two documents
+that had been drawing the wrong font in silence started saying so.
 
 Both move in both directions on purpose: a rise in the first can mean pages *joined* the
 comparison, and a rise in the second is honesty when a silence ends. The sections below say
@@ -269,7 +267,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 33 `reported` rows and the notes on 242 `partial`
 ones.
 
-- **894 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **895 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece** — every one of those re-run in the hundred-and-twenty-fourth
   session rather than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -280,14 +278,14 @@ ones.
   **100% of the words `pdftotext` finds**.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open except ten that are
   encrypted — 8 waiting for a password, 2 by something §7.6 does not specify or we do not
-  implement — **959 reach page one**, 870 draw with nothing reported, and everything the other 89
+  implement — **959 reach page one**, 868 draw with nothing reported, and everything the other 91
   cannot draw is named. 1501 of 1501 PDF functions parse; all 1793 shadings build, mesh types
   included. The whole gate runs in **~2 s** with no named slow document left. Counts are
   ratcheted.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~35 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1667 pages we claim to draw completely, **841 agree with the reference
+  (ADR 0020). Of the 1665 pages we claim to draw completely, **839 agree with the reference
   consensus, 65 are contradicted and 750 are pages the references cannot agree about among
   themselves**. The 65 are named, grouped and ratcheted in both directions. Nineteen pages
   do not rasterise at all: 7 documents that have no such page, 10 encrypted ones, and 2 whose
@@ -405,7 +403,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2828 citations, 305 quotations, 180 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2833 citations, 305 quotations, 180 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -953,8 +951,8 @@ Over the 974-document pdf.js corpus, page one:
 |---|---|---|
 | opens | 964 | 99% — the other 10 are 8 needing a password and 2 encrypted beyond us |
 | reaches page one | 959 | 98% |
-| **draws with nothing reported** | **870** | **89%** |
-| draws, with something reported | 89 | 9% |
+| **draws with nothing reported** | **868** | **89%** |
+| draws, with something reported | 91 | 9% |
 
 **This number measures honesty, and honesty can fall as capability rises.** It fell from 72% in
 the eighth session when 24 documents began saying they carry a Type 3 font; it rose by twenty in
@@ -965,12 +963,12 @@ project got here".
 
 ### By what an independent renderer sees
 
-This is the number to worry about. Over all 1794 pages compared, of the 1667 we claim to draw
+This is the number to worry about. Over all 1794 pages compared, of the 1665 we claim to draw
 completely:
 
 | | count | share |
 |---|---|---|
-| agree with the reference consensus | 841 | 50% |
+| agree with the reference consensus | 839 | 50% |
 | **contradicted by it** | **65** | **4%** |
 | the references cannot agree among themselves | 750 | 45% |
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
@@ -1096,8 +1094,8 @@ notice one a *fallback* hides: `/FontFile` sat at a corpus count of zero while 5
 embedded one and drew a substitute in silence.
 
 **The one-line version of each track.** Demand: **65 pages we claim to draw are contradicted, 15
-of them for no reason visible on the page, and none of those is above its bound**, and **89 of
-974 documents still draw incompletely**, of which 41 are fonts, 13 transparency and 10
+of them for no reason visible on the page, and none of those is above its bound**, and **91 of
+974 documents still draw incompletely**, of which 43 are fonts, 13 transparency and 9
 annotations — and the fifty-ninth session's reading of the
 corpus's own issue trackers says most of that is glyph rasterisation on files chosen for having
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
@@ -1472,7 +1470,7 @@ rise is a new report and is written down as one.
 | needs a password | 8 | §7.6.4.1's prompt is the missing piece, not the clause |
 | encrypted beyond this reader | 2 | 1 is `/R` 5, which the standard states no algorithm for; 1 is a file whose `/Encrypt` does not resolve to a dictionary |
 | no page one | 5 | 11 until the hundred-and-seventh session, whose two recovery rules took six of them (ADR 0097). What is left is refused by every reference too or is not a PDF defect at all: one prototypes the `/BrotliDecode` filter the PDF Association is standardising, three are fuzzer crashers kept as regression fixtures, and one is a Firefox worker-shutdown bug |
-| draws incompletely | 89 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, 4 in the thirty-second when the last three bit depths did, 2 in the seventy-first when §11.4.6's knockout was drawn, 5 in the seventy-second when §9.3.8 and §11.6.2 followed it, 1 in the eighty-fifth when §12.5.6.7's leader lines stopped being refused, and 3 in the hundred-and-third when §11.4.4's NOTE 5 stopped a non-isolated group being built (ADR 0093) |
+| draws incompletely | 91 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, 4 in the thirty-second when the last three bit depths did, 2 in the seventy-first when §11.4.6's knockout was drawn, 5 in the seventy-second when §9.3.8 and §11.6.2 followed it, 1 in the eighty-fifth when §12.5.6.7's leader lines stopped being refused, and 3 in the hundred-and-third when §11.4.4's NOTE 5 stopped a non-isolated group being built (ADR 0093) |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 - **The `Content` row was 10 and is 1** (ADR 0031). Nine of
@@ -1513,7 +1511,7 @@ rise is a new report and is written down as one.
 
 **Text, ratcheted in `crates/pdf-model/tests/text_extraction.rs`** and new in the sixty-third
 session (ADR 0066): `Interpretation::text` against `pdftotext` over the same 974 documents,
-30 seconds, **97.9% of the reference's words** over the pages we draw completely, with **44** named
+30 seconds, **97.9% of the reference's words** over the pages we draw completely, with **42** named
 below the 0.90 floor — counted from the gate's own output in the eightieth session, where this
 file had said 43 in one place and 46 in another and the breakdown below summed to 45. About 31
 of them are fonts where all three of §9.10.2's methods fail *and* whose program names nothing
@@ -1526,9 +1524,9 @@ drawing defect. The 14 specification PDFs keep their own 0.99 floor and still sc
 
 Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both directions.
 
-| of the 1667 pages we call complete | count | |
+| of the 1665 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 841 | |
+| agree with the reference consensus | 839 | |
 | **contradicted** | **65** | 4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured), **8 pages of glyph edges whose ink matches the consensus to half a level** (measured, seventy-fifth session), 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 14 substituted fonts, **15 unexplained** |
 | ambiguous | 750 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |

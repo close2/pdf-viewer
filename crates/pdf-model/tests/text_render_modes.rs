@@ -52,11 +52,13 @@ use pdf_syntax::Document;
 /// standard itself states.
 fn fixture(content: &str) -> Vec<u8> {
     const SQUARE: &str = "1000 0 0 0 750 750 d1\n0 0 750 750 re f";
+    // A form whose own `/Resources` defines no `/Font`, for `a_forms_font_resource_is_not_the_pages`.
+    const FORM: &str = "BT /F1 24 Tf 50 50 Td (B) Tj ET";
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /Font << /F1 5 0 R /FT3 6 0 R >> \
+         /Resources << /Font << /F1 5 0 R /FT3 6 0 R >> /XObject << /Fm 12 0 R >> \
          /ExtGState << /Half 10 0 R /HalfNoTk 11 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
@@ -67,9 +69,12 @@ fn fixture(content: &str) -> Vec<u8> {
          8 0 obj\n<< /square 9 0 R >>\nendobj\n\
          9 0 obj\n<< /Length {} >>\nstream\n{SQUARE}\nendstream\nendobj\n\
          10 0 obj\n<< /Type /ExtGState /ca 0.5 /CA 0.5 >>\nendobj\n\
-         11 0 obj\n<< /Type /ExtGState /ca 0.5 /CA 0.5 /TK false >>\nendobj\n",
+         11 0 obj\n<< /Type /ExtGState /ca 0.5 /CA 0.5 /TK false >>\nendobj\n\
+         12 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Resources << >> /Length {} >>\nstream\n{FORM}\nendstream\nendobj\n",
         content.len() + 1,
         SQUARE.len() + 1,
+        FORM.len() + 1,
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -573,5 +578,32 @@ fn an_inline_property_lists_booleans_are_not_operators() {
         page.unsupported.is_empty(),
         "nothing in that stream is unsupported: {:?}",
         page.unsupported
+    );
+}
+
+/// A form `XObject`'s `/F1` is not the page's `/F1`.
+///
+/// §8.10.1 gives a form `XObject` a `/Resources` entry of its own, so a resource name is scoped
+/// to the dictionary that defines it. The interpreter's font cache was keyed by the *name*, so a
+/// form naming `/F1` was handed whatever `/F1` the page had loaded — with nothing reported,
+/// which is trap 1's archetype and is what two corpus documents were doing in silence
+/// (`issue17492.pdf`, `issue19182.pdf`). The cache is keyed by the font dictionary's object
+/// identity now.
+///
+/// The fixture's form defines no `/Font` at all, so the only correct answer is a report. A
+/// reader with the old cache draws the page's Helvetica and says nothing, and the second
+/// assertion is what tells the two apart: the form's own text must not reach the page.
+#[test]
+fn a_forms_font_resource_is_not_the_pages() {
+    let drawn = page("BT /F1 24 Tf 10 10 Td (A) Tj ET\n/Fm Do");
+    let reports = format!("{:?}", drawn.unsupported);
+    assert!(
+        reports.contains("no /Font resource named /F1"),
+        "the form defines no /F1 and must say so: {reports}"
+    );
+    assert_eq!(
+        kinds(&drawn),
+        ["fill"],
+        "only the page's own glyph may be drawn"
     );
 }

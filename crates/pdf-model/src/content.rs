@@ -1182,9 +1182,13 @@ pub fn interpret_with(
 /// the same key.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum FontKey {
-    /// A `/Font` resource, by the name the content stream used.
-    Named(String),
     /// A font dictionary, by the object it is.
+    ///
+    /// The only kind, since the hundred-and-twenty-seventh session: keying by the resource
+    /// *name* conflated a page's `/F1` with a form `XObject`'s. Kept as an enum of one because
+    /// the two routes to a font — `Tf`'s resource name and Table 57's `/Font`, which §8.4.1's
+    /// NOTE 1 makes alternatives — arrive here differently and only this says they are the
+    /// same thing when they name the same object.
     Referenced(pdf_syntax::ObjectId),
 }
 
@@ -3629,7 +3633,8 @@ impl Interpreter<'_> {
         if let (Some(Object::Reference(id)), Some(size)) = (reference, size) {
             let font_dict = self.document.get(id).as_dict().cloned();
             let name = format!("object {} {}", id.number, id.generation);
-            state.text.font = self.load_font(FontKey::Referenced(id), font_dict.as_ref(), &name);
+            state.text.font =
+                self.load_font(Some(FontKey::Referenced(id)), font_dict.as_ref(), &name);
             state.text.size = narrow(size);
         } else {
             // A `/Font` this crate cannot read as the clause states it is reported rather
@@ -3646,10 +3651,22 @@ impl Interpreter<'_> {
     /// A failure is cached too: a page that names an unloadable font on every `Tf` should
     /// pay for the attempt once, and should report it once.
     fn font(&mut self, resources: &Dictionary, name: &str) -> Option<Font> {
-        let dict = self
-            .resource(resources, "Font", name)
+        // **Keyed by the font's identity, never by the name the stream used.** A resource name
+        // is scoped to the resource dictionary that defines it, and §8.10.1 gives a form
+        // `XObject` a `/Resources` of its own — so a page's `/F1` and a form's `/F1` are two
+        // fonts as often as they are one, and a cache keyed by `F1` hands the second the
+        // first's glyphs with nothing reported. That is trap 1's archetype, and it is what this
+        // cache did for thirty-one sessions. `shading::Cache` had the same question and the
+        // same answer (see `resource_entry`, whose whole reason for existing is this one).
+        let entry = self.resource_entry(resources, "Font", name);
+        let key = entry
+            .as_ref()
+            .and_then(Object::as_reference)
+            .map(FontKey::Referenced);
+        let dict = entry
+            .map(|object| self.document.resolve(&object))
             .and_then(|object| object.as_dict().cloned());
-        self.load_font(FontKey::Named(name.to_owned()), dict.as_ref(), name)
+        self.load_font(key, dict.as_ref(), name)
     }
 
     /// Loads a font, caching it under `key`, which is what `Tf` and Table 57's `/Font` share.
@@ -3659,8 +3676,19 @@ impl Interpreter<'_> {
     /// `/Font` is "an indirect reference to a font dictionary" instead. A cache keyed only by
     /// the resource name therefore had nowhere to put the second, which is why one corpus
     /// document's `/ExtGState` font was reported rather than loaded for twenty-four sessions.
-    fn load_font(&mut self, key: FontKey, dict: Option<&Dictionary>, name: &str) -> Option<Font> {
-        if let Some(cached) = self.fonts.get(&key) {
+    /// `key` is `None` for a resource dictionary that states its font *directly* rather than
+    /// by reference. Such a font has no identity to key on and is therefore loaded afresh each
+    /// time — correctness before speed, and the case is rare enough that no corpus document
+    /// reaches it: every one of the 974 states its fonts indirectly, counted.
+    fn load_font(
+        &mut self,
+        key: Option<FontKey>,
+        dict: Option<&Dictionary>,
+        name: &str,
+    ) -> Option<Font> {
+        if let Some(key) = key.as_ref()
+            && let Some(cached) = self.fonts.get(key)
+        {
             return cached.clone();
         }
 
@@ -3697,7 +3725,9 @@ impl Interpreter<'_> {
             }
         };
 
-        self.fonts.insert(key, result.clone());
+        if let Some(key) = key {
+            self.fonts.insert(key, result.clone());
+        }
         result
     }
 
