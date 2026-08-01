@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-forty-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -608,16 +608,31 @@ of the page tree — 988 items over 1023 pages, `O(items × pages)`, on the path
 gate turns a page in a viewer and the specification's own PDF is in none of them — and the two
 regression tests are *ratios* against a walk the test performs itself.
 
-**The GPU backend's own question is open and has a plan** (ADR 0128, session 143). Page 6 is 5933
-fills of **107 distinct outlines**, and Vello re-flattens all 5933 every frame; a glyph atlas is
-therefore the largest single optimisation available to this program, and it is not reachable from
-outside Vello. The plan is deliberately ordered so each step prices the next: stale-frame zoom
-(perceived latency, host-side, judged *ugly but acceptable for now* by the owner), then **a glyph
-coverage cache in `render-cpu`** — the same insight in the backend that is both oracle and startup
-path, which prices the atlas before anyone writes a shader — then a moving window of interpreted
-pages, then a spike of our own backend against Vello and `vello_hybrid`. A whole document cannot be
-resident: 70 MB of draw records is affordable, the **4.0 s** to interpret 1023 pages is not, and
-the startup rule decides it.
+**The GPU backend's own question is open and has a plan** (ADR 0128, session 143), **and step 2
+of that plan has been executed as a measurement and the answer is no** (ADR 0131, session 146).
+Page 6 is 5933 fills of **107 distinct outlines**, and Vello re-flattens all 5933 every frame —
+but the outlines are what is shared and the *coverage* is not. `examples/glyph_reuse` counts it:
+an exactly-correct coverage cache hits **116 times out of 5933** on that page and **not once** on
+`tracemonkey.pdf`, because a glyph's sub-pixel phase is an arbitrary float. The cache pays only
+with the phase quantised, which is a positional departure, and **the oracle contradicts a page at
+1/8 of a pixel and is clean at 1/16** — measured by applying it. At 1/16 the reuse is 5.0× on
+page 6, 1.3× on `tracemonkey.pdf`, worth at most 39% and 11% of those pages' rasterisation before
+the cost of a blitter `tiny-skia` does not provide. Refused, with the numbers.
+
+**That changes the case for our own backend rather than removing it.** The atlas was ADR 0128's
+headline and a GPU atlas quantises the same phase for the same reuse, so what it buys over Vello
+is 1/16-pixel reuse and no more. The other four items — damage rendering, persistent geometry,
+progressive rendering, clause 11 conformance — are untouched and are now the whole of the
+argument. The rest of the plan stands: stale-frame zoom (perceived latency, host-side, judged
+*ugly but acceptable for now* by the owner), a moving window of interpreted pages, then a spike
+against Vello and `vello_hybrid`. A whole document cannot be resident: 70 MB of draw records is
+affordable, the **4.0 s** to interpret 1023 pages is not, and the startup rule decides it.
+
+**The item that profile found instead, and nobody has taken**: on page 6, `calloc` is **18.1%** of
+rasterisation and *all* of it is under `tiny_skia::Mask::new`. The page uses 303 distinct clips,
+the mask cache builds each exactly once — no thrashing — and each zeroes a page-wide band. Nearly
+a fifth of a dense text page is spent zeroing clip masks, and unlike the glyph cache **nothing
+about attacking it moves a pixel**. `glyph_reuse` prints the clip count beside the fill count.
 
 **Still open, priced or unpriced**: colour-managing an image in parallel (`issue19971.pdf`'s
 3.4-megapixel photograph went 30 ms → 120 ms when `ICCBased` images began converting through their
@@ -1332,6 +1347,11 @@ anchor that makes it checkable.
   switched off everywhere it is not switched on**, and **a clause whose operators are implemented
   can still be unread** (`J`/`j`/`M` from the first commit; Table 57's `/LC`/`/LJ`/`/ML` for
   twenty-three sessions).
+- **A count of what is *shared* is not a count of what can be *reused*.** 5933 fills of 107
+  outlines said a coverage cache would hit 55 times over; the outlines are shared through an
+  `Arc` and the coverage is not shared at all, because the sub-pixel phase the count left out is
+  what a coverage bitmap depends on. **Ask what the cache's key would have to be before believing
+  the count.** ADR 0131.
 - **A cache is a claim that two things are the same, and the currency of the claim is the key.**
   The font cache said it in the weakest one available — a resource name, which §7.8.3 scopes to the
   dictionary that defines it — and handed a form `XObject`'s `/F1` the page's glyphs for
@@ -1638,3 +1658,4 @@ above rather than here.
 | 143 | A page the device drew nothing of, and said nothing about; banded, and the backend question asked properly | 0127, 0128 |
 | 144 | §7.6.2 on the way out: an encrypted document can be saved | 0129 |
 | 145 | §12.7.4.3's appearance stream is written into the file, not owed to the reader | 0130 |
+| 146 | The glyph coverage cache, counted: what is shared is the outline, not the coverage | 0131 |
