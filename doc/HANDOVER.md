@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-seventh** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-eighth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -88,6 +88,24 @@ ADR 0115.
   `/FontFile2` in that file, which this key does not collapse.
 
 Tests 894 → 895; incomplete **89 → 91**, agreeing **841 → 839**, text list **44 → 42**.
+
+**Hundred-and-twenty-eighth — every other cache's key, and a to-do item priced.** No ADR: a
+session that confirms and measures has nothing to argue.
+
+- **Every cache in the tree checked against ADR 0115's defect**, one by one: `shading::Cache`
+  keys on `(ObjectId, usize)`, `Document`'s object cache on the object number, `MaskCache` on a
+  clip chain, an image's `Conversion` on the image itself. **The font cache was the only one
+  keyed by a name, and it is fixed.**
+- **The decompression item is priced and it is small.** Over one interpretation of every corpus
+  page: 6220 inflations of 38.08 MB; among the streams above 4 KB — 722 calls, 35.0 MB, 92% of
+  the bytes — **35 repeats costing 925 KB, 2.6%**, so a decoded-data cache is worth about
+  **0.7% of interpretation**. Below 4 KB the count is worthless, because an address freed with
+  one document is handed to the next.
+- **The benchmark page is not representative**, which is why the item looked bigger: one 88 KB
+  font program inflated twice per interpretation is 58% of *that* page's inflation and 2.6% of
+  the corpus's. **Price an item on the corpus, not on the page the profiler happens to open.**
+
+No gate moved.
 
 ## How the project got here
 
@@ -219,6 +237,7 @@ below rather than here.
 | 125 | An appearance with no `/BBox` gets §12.7.4.3's default box rather than a refusal | ADR 0113 |
 | 126 | And the same rule the other way: no `/Rect`, so the appearance's own box | ADR 0114 |
 | 127 | The font cache was keyed by a resource *name*; a form's `/F1` is not a page's | ADR 0115 |
+| 128 | Every other cache's key checked; the decompression item priced and found small | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -1164,11 +1183,19 @@ Four items that are small, listed before the big lists because they are small:
 - **Sandbox the interpreter and rasteriser too.** Spike D exists and is exercised; the rest of the
   renderer runs in the main process, which is the half of principle 3 not yet built. The protocol
   would have to carry a display list rather than an image, which is a real design question.
-- **Ask whether the *decompression* can be avoided rather than made faster.** 28.0% of
-  interpretation is `zlib_rs` inflating the page; a content stream is inflated once per
-  interpretation and nothing caches it between the corpus gate's two passes. The one measured
-  regression, §14.7.5.4's parent tree at 4.5%, is inflation too — of object streams the drawing
-  path never touches.
+- **~~Ask whether the *decompression* can be avoided rather than made faster.~~ Priced in the
+  hundred-and-twenty-eighth session and it is small.** 28.0% of interpretation is `zlib_rs`, and
+  the question was how much of that is the *same* stream twice. Counted over one interpretation
+  of every corpus page: **6220 inflations of 38.08 MB**, of which the streams above 4 KB are 722
+  calls and 35.0 MB — and **35 of those are repeats costing 925 KB, 2.6%**. (Below 4 KB the
+  count is worthless: an address freed with one document is handed to the next, and the top
+  "repeat" is a 189-byte stream at one address 146 times.) So a decoded-data cache is worth
+  about **0.7% of interpretation**, against a real memory cost, a bound to argue for and a
+  liveness invariant to write down. **The benchmark page is not representative and was the
+  reason this looked bigger**: one 88 KB font program inflated twice per interpretation is 58%
+  of *that* page's inflation. The one measured regression, §14.7.5.4's parent tree at 4.5%, is
+  inflation too — of object streams the drawing path never touches. What the measurement *did*
+  find is ADR 0115, which was a correctness bug.
 - **Carry an image and its sampling intent to the backends, rather than a finished raster.** One
   `pdf-render` change unblocks three items, which is why they are one question: reduction happens
   at *decode* resolution today, a mask of a very different size is bounded rather than composited
@@ -1597,6 +1624,14 @@ looks like a compromise; three in one subclause, all in the same direction, is a
 **Where the standard defines nothing, refusing is a result.** `issue6621.pdf`'s `/Mask` is a
 one-bit greyscale image where Table 87 requires an image mask; both readings damage some file, so
 neither, and the entry is named.
+
+**A cache is a claim that two things are the same, and the currency of the claim is the key.**
+The font cache said it in the weakest one available — a resource name, which §7.8.3 scopes to
+the dictionary that defines it — and handed a form `XObject`'s `/F1` the page's glyphs for
+thirty-one sessions with nothing reported. Every other cache in this tree keys on object
+identity (`shading::Cache` on `(ObjectId, usize)`, `Document`'s on the object number,
+`MaskCache` on a clip chain, an image's `Conversion` on the image), which the
+hundred-and-twenty-eighth session checked one by one. ADR 0115.
 
 **A prose claim about the code can be turned into a grep, and twice now that has paid.** Session
 118 swept the ledger's notes for reasons that had expired ("while §X does not exist"); session
