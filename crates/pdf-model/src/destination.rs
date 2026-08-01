@@ -24,6 +24,8 @@
 //! reads. [`Destination::read`] accepts all three, because every caller in the standard —
 //! `/Dest`, `/D`, `/OpenAction` — may be given any of them.
 
+use std::collections::BTreeMap;
+
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, tree};
 
 use crate::page::Pages;
@@ -296,27 +298,55 @@ impl Destination {
     /// tree does not hold can be §12.3.2.3's structure element.
     #[must_use]
     pub fn page_index(&self, document: &Document, pages: &Pages<'_>) -> Option<usize> {
+        self.resolve(document, pages, None)
+    }
+
+    /// As [`Self::page_index`], against a page index prepared once by [`Pages::indices`].
+    ///
+    /// The same answer, and the reason to want it is arithmetic: `index_of` cannot skip a
+    /// subtree, so resolving *many* destinations one at a time is a tree walk apiece. §12.3.3's
+    /// outline is the caller that showed it — 988 items over 1023 pages, 344 ms of every page
+    /// turn until the hundred-and-forty-first session.
+    #[must_use]
+    pub fn page_index_with(
+        &self,
+        document: &Document,
+        pages: &Pages<'_>,
+        indices: &BTreeMap<ObjectId, usize>,
+    ) -> Option<usize> {
+        self.resolve(document, pages, Some(indices))
+    }
+
+    /// The page this destination names, with or without a prepared index.
+    fn resolve(
+        &self,
+        document: &Document,
+        pages: &Pages<'_>,
+        indices: Option<&BTreeMap<ObjectId, usize>>,
+    ) -> Option<usize> {
+        let locate = |id| match indices {
+            Some(indices) => indices.get(&id).copied(),
+            None => pages.index_of(id),
+        };
         let Target::Object(id) = self.target else {
             return None;
         };
-        if let Some(index) = pages.index_of(id) {
+        if let Some(index) = locate(id) {
             return Some(index);
         }
         let element = document.get(id);
         let element = element.as_dict()?;
-        structure_page(document, element, 0)
-            .and_then(|page| pages.index_of(page))
-            .or({
-                // §12.3.2.3: "In the case where no page content is identified, then the page
-                // reference shall be assumed to be the first page in the document." Only reached
-                // once the object has been established to be a structure element, so a dangling
-                // reference to nothing still answers `None` rather than page one.
-                if is_structure_element(document, element) {
-                    Some(0)
-                } else {
-                    None
-                }
-            })
+        structure_page(document, element, 0).and_then(locate).or({
+            // §12.3.2.3: "In the case where no page content is identified, then the page
+            // reference shall be assumed to be the first page in the document." Only reached
+            // once the object has been established to be a structure element, so a dangling
+            // reference to nothing still answers `None` rather than page one.
+            if is_structure_element(document, element) {
+                Some(0)
+            } else {
+                None
+            }
+        })
     }
 
     /// The page this destination names, read in the document it was *written for*.

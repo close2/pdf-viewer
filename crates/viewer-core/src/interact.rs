@@ -44,8 +44,7 @@ pub(crate) struct Outcome {
 
 /// The annotation under a point in default user space, where it is a link.
 pub(crate) fn link_at(open: &Open, x: f32, y: f32) -> Option<ObjectId> {
-    let page = open.page(open.page_index)?;
-    let links = pdf_model::link::links(&open.document, &page);
+    let links = pdf_model::link::links(&open.document, open.shown_page()?);
     pdf_model::link::at(&links, x, y).and_then(|link| link.id)
 }
 
@@ -81,10 +80,10 @@ pub(crate) fn has_appearance(document: &Document, annotation: ObjectId, pointer:
 /// perform, or on a link to the page already shown.
 pub(crate) fn activate(open: &mut Open, x: f32, y: f32) -> Outcome {
     let mut outcome = Outcome::default();
-    let Some(page) = open.page(open.page_index) else {
+    let Some(page) = open.shown_page() else {
         return outcome;
     };
-    let links = pdf_model::link::links(&open.document, &page);
+    let links = pdf_model::link::links(&open.document, page);
     let Some(link) = pdf_model::link::at(&links, x, y) else {
         return outcome;
     };

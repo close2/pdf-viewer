@@ -152,9 +152,10 @@ impl NamedPages {
     /// `/Parent` and no `/B`. Empty for every well-formed document and for every document that
     /// names no page.
     ///
-    /// `pages` is the document's own page index, which the `/Pages` half needs and which is a
-    /// walk of the tree per name — so this is a diagnostic a caller asks for, never something
-    /// opening a document pays for.
+    /// `pages` is the document's own page index, which the `/Pages` half needs. One walk of the
+    /// tree serves every name (`Pages::indices`) rather than one walk per name — the shape
+    /// §12.3.3's outline was quadratic in until the hundred-and-forty-first session, and the
+    /// same fix, applied here before anybody met it on a document with enough names to notice.
     #[must_use]
     pub fn disagreements(
         &self,
@@ -162,8 +163,12 @@ impl NamedPages {
         pages: &crate::page::Pages<'_>,
     ) -> Vec<Disagreement> {
         let mut out = Vec::new();
+        let indices = (!self.pages.is_empty()).then(|| pages.indices());
         for (name, id) in &self.pages {
-            if pages.index_of(*id).is_none() {
+            if !indices
+                .as_ref()
+                .is_some_and(|indices| indices.contains_key(id))
+            {
                 out.push(Disagreement {
                     name: name.clone(),
                     detail: "named in /Pages and not in the page tree, which §12.7.7 requires \

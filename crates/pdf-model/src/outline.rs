@@ -25,7 +25,9 @@
 //! viewer without a panel can still ask: **which item covers the page being shown**.
 //! [`Outline::section_at`] is that, and it is the whole of what `viewer-ui` uses.
 
-use pdf_syntax::{Dictionary, Document, Object};
+use std::collections::BTreeMap;
+
+use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::destination::Destination;
 use crate::page::Pages;
@@ -160,23 +162,29 @@ impl Outline {
             items: &'a [Item],
             document: &Document,
             pages: &Pages<'_>,
+            indices: &BTreeMap<ObjectId, usize>,
             index: usize,
             best: &mut Option<(usize, &'a str)>,
         ) {
             for item in items {
                 if let Some(page) = item
                     .destination
-                    .and_then(|destination| destination.page_index(document, pages))
+                    .and_then(|destination| destination.page_index_with(document, pages, indices))
                     && page <= index
                     && best.is_none_or(|(at, _)| page >= at)
                 {
                     *best = Some((page, item.title.as_str()));
                 }
-                walk(&item.children, document, pages, index, best);
+                walk(&item.children, document, pages, indices, index, best);
             }
         }
+        // **One walk of the page tree for the whole outline, rather than one per item.**
+        // `Pages::index_of` cannot skip a subtree, so resolving every item's destination
+        // separately is quadratic in the document: ISO 32000-2's 988 items over its 1023 pages
+        // cost 344 ms, on a path a person takes by pressing an arrow key. See `Pages::indices`.
+        let indices = pages.indices();
         let mut best = None;
-        walk(&self.items, document, pages, index, &mut best);
+        walk(&self.items, document, pages, &indices, index, &mut best);
         best.map(|(_, title)| title)
     }
 }

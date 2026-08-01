@@ -73,6 +73,19 @@ pub(crate) struct Open {
     /// *at the same page and the same target*, and without this the scheduler would see a frame
     /// that matched and leave the old picture on the screen.
     pub(crate) revision: u64,
+    /// The page being shown, kept rather than looked up again.
+    ///
+    /// **`Pages::get` is a walk of the page tree**, and on ISO 32000-2's thousandth page that is
+    /// 3.8 ms. Hit-testing a link asks for the page on every pointer move and the geometry is
+    /// asked for on every frame, so looking it up each time put several milliseconds of tree
+    /// walking on paths a person drives with a mouse (ADR 0124).
+    ///
+    /// Kept *beside* [`Self::interpreted`] rather than inside it, and that is the whole subtlety:
+    /// the display list is thrown away whenever the page's ink changes — a layer switched, a
+    /// value typed, §12.5.5's appearance following the pointer — and the *page* has not changed
+    /// at any of those. A cache tied to the display list's lifetime would be empty exactly when
+    /// a press asks what it landed on, which is how the first version of this failed.
+    pub(crate) current: Option<(usize, Page)>,
     /// The page that was interpreted last, and its drawing commands.
     ///
     /// One page rather than a cache of them. A display list is the expensive artefact and
@@ -215,6 +228,7 @@ impl Open {
             page_index,
             zoom: INITIAL_ZOOM,
             scroll: (0.0, 0.0),
+            current: None,
             interpreted: None,
             revision: 0,
             shown: None,
@@ -296,9 +310,31 @@ impl Open {
     /// Read from the page rather than from a display list, because the zoom has to be decided
     /// before there is one: fitting a page to a window is what says how large to interpret it
     /// for, and asking the other way round would interpret every page twice.
+    ///
+    /// For the page already interpreted the display list carries the same extent, and answering
+    /// from it saves a walk of the page tree — which is what the magnification, the geometry and
+    /// every mapping of a pointer position ask for.
     pub(crate) fn page_size(&self, index: usize) -> Option<Size> {
+        if let Some(interpreted) = self.interpreted.as_ref()
+            && interpreted.page == index
+        {
+            return Some(interpreted.list.page_size);
+        }
+        if let Some((cached, page)) = self.current.as_ref()
+            && *cached == index
+        {
+            return Some(pdf_model::content::displayed_size(page));
+        }
         self.page(index)
             .map(|page| pdf_model::content::displayed_size(&page))
+    }
+
+    /// The page being shown, without walking the tree for it again.
+    pub(crate) fn shown_page(&self) -> Option<&Page> {
+        match &self.current {
+            Some((index, page)) if *index == self.page_index => Some(page),
+            _ => None,
+        }
     }
 
     /// Device pixels per user space unit for the page showing, given the viewport.
@@ -402,7 +438,7 @@ fn fitted(viewport: u32, extent: f32) -> f32 {
 }
 
 /// The interpretation of a page, with its reports already worded.
-pub(crate) fn interpret(open: &Open, index: usize) -> Option<(Interpretation, Vec<String>)> {
+pub(crate) fn interpret(open: &Open, index: usize) -> Option<(Interpretation, Vec<String>, Page)> {
     let page = open.page(index)?;
     let interpretation = pdf_model::content::interpret_with(&open.document, &page, &open.view);
     let reports = interpretation
@@ -410,5 +446,5 @@ pub(crate) fn interpret(open: &Open, index: usize) -> Option<(Interpretation, Ve
         .iter()
         .map(crate::report::describe)
         .collect();
-    Some((interpretation, reports))
+    Some((interpretation, reports, page))
 }

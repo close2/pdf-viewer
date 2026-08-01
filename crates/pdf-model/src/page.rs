@@ -15,6 +15,8 @@
 //! depth and total nodes visited: `/Kids` may contain a cycle, and a tree claiming a
 //! million nodes should cost a bounded amount of work rather than all available memory.
 
+use std::collections::BTreeMap;
+
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 /// Deepest page-tree nesting that will be followed.
@@ -464,6 +466,41 @@ impl<'a> Pages<'a> {
         let mut visited = 0usize;
         locate(self.document, root, id, &mut counted, &mut visited, 0)
     }
+
+    /// Every page's object and index, in **one** walk of the tree.
+    ///
+    /// [`Self::index_of`] answers one reference and cannot skip a subtree, because the target's
+    /// position is exactly what is unknown — so a caller resolving *many* references pays a walk
+    /// apiece, and that multiplies. §12.3.3's outline of ISO 32000-2 is 988 items over a
+    /// 1023-page tree, and asking `index_of` for each cost **344 ms of every page turn**
+    /// (session 141). This is the same information gathered once: `O(pages + references)` where
+    /// the loop was `O(pages × references)`.
+    ///
+    /// Built on demand rather than held, because most documents never need it: a page turn
+    /// wants one page and a link wants one destination, and both are what `index_of` is for.
+    /// The map is the caller's to keep for as long as the answers stay useful, which is as long
+    /// as the document is open — `pdf_syntax::Document` is immutable.
+    ///
+    /// A recovered document — one whose tree was unusable and whose pages were found by
+    /// scanning — answers from that list, in the same ascending-object-number order
+    /// [`Self::get`] uses, because the tree that would have stated an order is gone.
+    #[must_use]
+    pub fn indices(&self) -> BTreeMap<ObjectId, usize> {
+        let mut out = BTreeMap::new();
+        if !self.scanned.is_empty() {
+            for (index, id) in self.scanned.iter().enumerate() {
+                out.insert(*id, index);
+            }
+            return out;
+        }
+        let Some(root) = self.root.as_ref() else {
+            return out;
+        };
+        let mut counted = 0usize;
+        let mut visited = 0usize;
+        collect(self.document, root, &mut out, &mut counted, &mut visited, 0);
+        out
+    }
 }
 
 /// Every object declaring itself a page, in ascending object number.
@@ -529,6 +566,55 @@ fn locate(
         }
     }
     None
+}
+
+/// Records every page's object and index, in the order the tree states them.
+///
+/// [`locate`]'s walk without the early exit, and with the same two bounds: a `/Kids` cycle in a
+/// hostile file is what `MAX_NODES_VISITED` is for, and a page beyond it is left out of the map
+/// rather than found later by a search that would also stop.
+fn collect(
+    document: &Document,
+    node: &Dictionary,
+    out: &mut BTreeMap<ObjectId, usize>,
+    counted: &mut usize,
+    visited: &mut usize,
+    depth: usize,
+) {
+    if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+        return;
+    }
+    *visited = visited.saturating_add(1);
+
+    let kids = document.get_key(node, "Kids");
+    let Some(kids) = kids.as_array() else {
+        // A leaf. Its own object number is written down in the parent's `/Kids` and not here,
+        // which is why the entry is inserted by the parent below and this only counts.
+        *counted = counted.saturating_add(1);
+        return;
+    };
+
+    for kid in kids {
+        let id = kid.as_reference();
+        let resolved = document.resolve(kid);
+        let Some(dict) = resolved.as_dict() else {
+            continue;
+        };
+        // A reference to a *leaf* is the entry; a reference to an intermediate node is recorded
+        // too, answering with the first page beneath it — which is what `index_of` answers for
+        // such a reference and the only page it could sensibly mean.
+        if let Some(id) = id {
+            out.entry(id).or_insert(*counted);
+        }
+        collect(
+            document,
+            dict,
+            out,
+            counted,
+            visited,
+            depth.saturating_add(1),
+        );
+    }
 }
 
 /// Counts leaf nodes, for a tree whose `/Count` is missing or implausible.

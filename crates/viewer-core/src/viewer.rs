@@ -116,9 +116,9 @@ impl Viewer {
             Query::FieldAt(at) => self
                 .page_point(open, at)
                 .and_then(|(x, y)| {
-                    let page = open.page(open.page_index)?;
-                    let (x, y) = pdf_model::content::user_space_at(&page, x, y)?;
-                    pdf_model::view::field_at(&open.document, &page, x, y)
+                    let page = open.shown_page()?;
+                    let (x, y) = pdf_model::content::user_space_at(page, x, y)?;
+                    pdf_model::view::field_at(&open.document, page, x, y)
                 })
                 .map_or(Answer::None, Answer::Field),
             Query::Dirty => Answer::Dirty(open.dirty()),
@@ -652,8 +652,7 @@ impl Viewer {
     /// page and the leftover fraction of a row is at the bottom. ADR 0118.
     fn user_space(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
         let (x, y) = self.page_point(open, at)?;
-        let page = open.page(open.page_index)?;
-        pdf_model::content::user_space_at(&page, x, y)
+        pdf_model::content::user_space_at(open.shown_page()?, x, y)
     }
 
     /// Resolves a zoom command into the magnification it lands on.
@@ -718,7 +717,7 @@ impl Viewer {
             .map(|interpreted| interpreted.page)
             != Some(page)
         {
-            let Some((interpretation, reports)) = crate::open::interpret(open, page) else {
+            let Some((interpretation, reports, object)) = crate::open::interpret(open, page) else {
                 return;
             };
             if !reports.is_empty() {
@@ -736,6 +735,7 @@ impl Viewer {
                 text: interpretation.text,
                 placed: interpretation.text_layer,
             });
+            open.current = Some((page, object));
             // A selection is a range of the page that has just been replaced.
             open.selection = None;
         }

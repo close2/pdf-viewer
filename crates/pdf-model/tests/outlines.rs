@@ -183,3 +183,57 @@ fn a_stated_count_agrees_with_the_count_the_clause_defines() {
     assert_eq!(compared, 146);
     assert_eq!(agreeing, 144);
 }
+
+/// Resolving a whole outline against the page tree costs **one** walk of it, not one per item.
+///
+/// The property is algorithmic and the test is a ratio, so it says the same thing on any
+/// machine: `Pages::index_of` is a search that cannot skip a subtree, and an outline that asks
+/// it once per item is quadratic in the document. ISO 32000-2's own outline is 988 items over
+/// 1023 pages, which cost **344 ms on every page turn** until the hundred-and-forty-first
+/// session — a third of a second of arrow key, on the largest document anyone had opened.
+///
+/// The bound is ten searches for 988 destinations. A version that walked per item would need
+/// nearly a thousand and fails this by two orders of magnitude; the fixed one uses one walk to
+/// build the map and then a lookup apiece. Timed rather than counted because the walk is not
+/// instrumented, and stated as a *ratio against a search this same test performs* so that a
+/// slow machine cannot fail it — the handover's rule that a wall-clock number lies under load
+/// applies to the absolute time and not to the shape of the curve.
+/// Every item of an outline, counted through its children.
+fn tally(items: &[pdf_model::outline::Item]) -> usize {
+    items
+        .iter()
+        .map(|item| tally(&item.children).saturating_add(1))
+        .sum()
+}
+
+#[test]
+fn an_outline_resolves_against_the_page_tree_once() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/ISO_32000-2_sponsored_EC3.pdf");
+    let bytes = std::fs::read(&path).expect("the specification is committed in doc/");
+    let document = Document::open(bytes).expect("it opens");
+    let pages = Pages::new(&document);
+    assert_eq!(pages.len(), 1023, "the document this bound was measured on");
+    let outline = Outline::read(&document, &pages);
+
+    let items = tally(&outline.items);
+    assert!(items > 500, "{items} items is enough for the shape to show");
+
+    // One search, for a page near the end — which is what an outline's later items ask for.
+    let last = pages.indices().into_iter().max_by_key(|(_, index)| *index);
+    let (id, _) = last.expect("the tree names its pages");
+    let start = std::time::Instant::now();
+    assert_eq!(pages.index_of(id), Some(pages.len() - 1));
+    let one_search = start.elapsed();
+
+    let start = std::time::Instant::now();
+    let section = outline.section_at(&document, &pages, 500);
+    let whole_outline = start.elapsed();
+    assert_eq!(section, Some("12.5.6.7 Line annotations"));
+
+    assert!(
+        whole_outline < one_search * 10,
+        "{items} destinations resolved in {whole_outline:?}, against {one_search:?} for one \
+         search: that is a walk per item"
+    );
+}

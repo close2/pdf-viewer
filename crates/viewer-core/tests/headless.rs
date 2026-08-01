@@ -1004,3 +1004,61 @@ fn a_search_finds_every_occurrence_and_hands_back_its_shapes() {
     };
     assert!(none.is_empty());
 }
+
+/// A question about the page on the screen does not walk the page tree.
+///
+/// `Pages::get` is a walk from the root, and on ISO 32000-2's thousandth page it is milliseconds.
+/// A host asks for the geometry on every frame and hit-tests a link on every pointer move, so a
+/// walk inside either is milliseconds *per mouse move* — which is what this program did on a
+/// large document until the hundred-and-forty-first session (ADR 0124).
+///
+/// Stated as a ratio against a walk this test performs itself, for the reason
+/// `an_outline_resolves_against_the_page_tree_once` gives: the absolute number is the machine's
+/// and the shape is the code's.
+#[test]
+fn a_query_about_the_page_on_the_screen_costs_less_than_finding_it() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/ISO_32000-2_sponsored_EC3.pdf");
+    let bytes = std::fs::read(&path).expect("the specification is committed in doc/");
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.clone(),
+            password: None,
+        })
+        .for_each(drop);
+    let page = 900;
+    viewer
+        .handle(Command::GoTo(PageTarget::Index(page)))
+        .for_each(drop);
+
+    let document = pdf_syntax::Document::open(bytes).expect("it opens");
+    let start = std::time::Instant::now();
+    let found = pdf_model::Pages::new(&document).get(page);
+    let one_walk = start.elapsed();
+    assert!(found.is_some(), "the page is there to be found");
+
+    let start = std::time::Instant::now();
+    for _ in 0..10 {
+        assert!(matches!(
+            viewer.query(Query::PageGeometry(page)),
+            Answer::Geometry(_)
+        ));
+        assert!(matches!(
+            viewer.query(Query::LinkAt((400.0, 400.0))),
+            Answer::Link(_)
+        ));
+    }
+    let twenty_queries = start.elapsed();
+
+    // **Twenty queries, against *one* walk.** The margin is what makes the assertion mean
+    // something rather than merely hold: with the page kept, twenty queries are about an eighth
+    // of a walk; with it looked up each time they are twenty walks, and the two are two orders of
+    // magnitude apart. A bound anywhere between them says the same thing, and this one is the
+    // easiest to state.
+    assert!(
+        twenty_queries < one_walk,
+        "twenty queries took {twenty_queries:?} against {one_walk:?} for one walk of the tree"
+    );
+}

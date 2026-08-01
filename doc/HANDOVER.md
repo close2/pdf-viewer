@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fortieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -57,12 +57,12 @@ plays it), search, or draw a panel for the outline, the layers and the attachmen
 
 | gate | number | where |
 |---|---|---|
-| tests | **936**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | **all re-run in session 139**, including the five fuzzers |
+| tests | **938**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | **all re-run in session 139**, including the five fuzzers |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
-| conformance | 3039 citations, 317 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3043 citations, 317 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -577,6 +577,15 @@ shortcut nobody has taken is in `MaskCache::build`'s own comment — a child's b
 parent's, so a chain could be one crop and one intersect instead of a fill and three; it needs the
 intermediate clips cached and the page is at 87% of `MASK_BUDGET`, so it starts with a
 measurement of what those cost.
+
+**A page turn on the largest document was 380 ms and is 9 ms** (session 141, ADR 0124). §12.3.3's
+`section_at` resolved every outline item's destination with `Pages::index_of`, which is a *search*
+of the page tree — 988 items over 1023 pages, `O(items × pages)`, on the path of an arrow key.
+`Pages::indices` gathers the whole map in one walk. Two more walks went with it: `Query::LinkAt`
+6.05 ms → 52 µs and `Query::PageGeometry` 3.06 ms → 832 ns, both asked at pointer speed and both
+`Pages::get` looking up the page already on the screen. **The gates cannot see any of this** — no
+gate turns a page in a viewer and the specification's own PDF is in none of them — and the two
+regression tests are *ratios* against a walk the test performs itself.
 
 **Still open, priced or unpriced**: colour-managing an image in parallel (`issue19971.pdf`'s
 3.4-megapixel photograph went 30 ms → 120 ms when `ICCBased` images began converting through their
@@ -1192,6 +1201,15 @@ anchor that makes it checkable.
   hoisting a string allocation, 1.37 ms → 18 µs.
 - **An eager lookup on a cold path is a hot-path cost when the path runs per object.** Reading
   `/AcroForm` per constructed appearance was 2.7× the whole feature's cost.
+- **A cost written down beside one call is not a cost anybody adds up.** `Pages::index_of`'s doc
+  comment says it is a search that cannot skip a subtree and names the two callers it was written
+  for; a third arrived, called it *in a loop over 988 outline items*, and inherited the comment's
+  blessing without its argument — 344 ms of every page turn. **Ask of any function documented as
+  expensive: who calls it in a loop.** One `grep`, and it found a second (`named_page`). ADR 0124.
+- **A performance defect on a path no gate walks is found by a person using the program.** The
+  corpus interprets page one, the oracle renders pages it is handed by index, and neither turns a
+  page. The largest document this project owns — ISO 32000-2, 1023 pages, committed in `doc/` —
+  was in no gate at all until session 141 made it two tests.
 - **Look at what a safe idiom compiles to in a loop that runs per pixel.** `.round()` on a clamped
   float is a library call — 205 M instructions on one page, 10.7%.
 - **The exact fix is often available and is usually better than the approximate one.** A memo keyed
@@ -1504,3 +1522,4 @@ above rather than here.
 | 138 | Table 192's `/H`: the clause about a moment that had never happened | 0123 |
 | 139 | Everything re-verified after eight sessions of change | — |
 | 140 | Search, and a contradicted page that measured our own grid-fitting for us | — |
+| 141 | A page turn walked the page tree once per outline item: 380 ms → 9 ms | 0124 |
