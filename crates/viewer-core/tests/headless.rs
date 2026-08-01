@@ -1145,3 +1145,104 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
         Answer::Accessibility(nodes) if nodes.is_empty()
     ));
 }
+
+#[test]
+fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
+    // §12.4.4.1's `/Dur`, and rule 3: this crate has no clock, so the only way it learns that a
+    // second went by is `Command::Tick`. A host reading a document sends none and nothing
+    // advances, which is why "is a presentation running" is not a state this crate keeps.
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_durations(),
+            password: None,
+        })
+        .for_each(drop);
+
+    // Short of the duration, nothing happens — a maximum, not a schedule.
+    let quiet: Vec<_> = viewer.handle(Command::Tick { millis: 900 }).collect();
+    assert!(
+        !quiet
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { .. })),
+        "{quiet:?}"
+    );
+
+    let advanced: Vec<_> = viewer.handle(Command::Tick { millis: 200 }).collect();
+    let index = advanced.iter().find_map(|event| match event {
+        Event::PageChanged { index, .. } => Some(*index),
+        _ => None,
+    });
+    assert_eq!(index, Some(1), "{advanced:?}");
+    // §12.4.4.1 makes `/Trans` "the transition style that shall be used when moving to *this*
+    // page from another", so what is named is the page arrived at — page two's `Wipe` and not
+    // page one's `Split`. Read from the page tree rather than from `Open::current`, which is
+    // filled during interpretation and so still holds the page just left.
+    let named = advanced.iter().find_map(|event| match event {
+        Event::Transition { transition, .. } => Some(transition.style.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        named,
+        Some(pdf_model::navigation::Style::Wipe),
+        "{advanced:?}"
+    );
+
+    // And the clock restarted with the page: the same 900 ms that did not advance page one does
+    // not advance page two either, which is the clause making the duration a property of the
+    // page rather than of the presentation.
+    let quiet: Vec<_> = viewer.handle(Command::Tick { millis: 900 }).collect();
+    assert!(
+        !quiet
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { .. })),
+        "{quiet:?}"
+    );
+
+    // The last page states a `/Dur` too and does not advance: §12.4.4 says nothing about what
+    // follows the end, and looping is a decision a host can make with a `GoTo` and this crate
+    // cannot unmake.
+    viewer
+        .handle(Command::GoTo(PageTarget::Last))
+        .for_each(drop);
+    let ended: Vec<_> = viewer.handle(Command::Tick { millis: 5000 }).collect();
+    assert!(
+        !ended
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { .. })),
+        "{ended:?}"
+    );
+}
+
+/// A three-page document whose every page states §12.4.4.1's `/Dur 1`.
+fn with_durations() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 \
+         /Trans << /S /Split >> >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 \
+         /Trans << /S /Wipe >> >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 >>\nendobj\n"
+        .to_owned();
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}

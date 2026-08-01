@@ -1015,6 +1015,7 @@ fn describe_command(command: &Command) -> String {
     match command {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
         Command::Close(id) => format!("close {id:?}"),
+        Command::Tick { millis } => format!("tick {millis} ms"),
         Command::Focus(id) => format!("focus {id:?}"),
         Command::Resize {
             width,

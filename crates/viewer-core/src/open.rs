@@ -86,6 +86,11 @@ pub(crate) struct Open {
     /// at any of those. A cache tied to the display list's lifetime would be empty exactly when
     /// a press asks what it landed on, which is how the first version of this failed.
     pub(crate) current: Option<(usize, Page)>,
+    /// How long the page showing has been shown, in seconds — §12.4.4.1's `/Dur` clock.
+    ///
+    /// Accumulated from [`crate::Command::Tick`] and reset by every page change, because the
+    /// clause makes the duration a property of *this* page rather than of the presentation.
+    pub(crate) shown_for: f32,
     /// The page that was interpreted last, and its drawing commands.
     ///
     /// One page rather than a cache of them. A display list is the expensive artefact and
@@ -240,6 +245,7 @@ impl Open {
             zoom: INITIAL_ZOOM,
             scroll: (0.0, 0.0),
             current: None,
+            shown_for: 0.0,
             interpreted: None,
             revision: 0,
             shown: None,

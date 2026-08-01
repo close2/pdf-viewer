@@ -30,6 +30,24 @@ pub enum Command {
         /// §7.6.4.1's user or owner password, where one is already known.
         password: Option<String>,
     },
+    /// Time has passed, in milliseconds — ISO 32000-2 §12.4.4.1's `/Dur`, driven by the host.
+    ///
+    /// **Rule 3: this crate has no clock.** A presentation advances by itself, and the only way
+    /// a state machine with no clock can know that a second went by is to be told. A host
+    /// showing a presentation sends these; a host reading a document sends none, and nothing
+    /// advances — which is why *whether a presentation is running* is not a state this crate
+    /// keeps. Full screen is chrome, and chrome is the host's (rule 5).
+    ///
+    /// > If no Dur entry is specified in the page object, the page shall not advance
+    /// > automatically.
+    ///
+    /// So a page stating no `/Dur` swallows every tick, and NOTE 1's other half — "[t]he user
+    /// can advance the page manually before the specified time has expired" — is
+    /// [`Self::GoTo`], which resets the clock because it changes the page.
+    Tick {
+        /// How long since the last tick, in milliseconds.
+        millis: u32,
+    },
     /// Close a document and forget everything derived from it.
     Close(DocumentId),
     /// Make an already-open document the one commands apply to.

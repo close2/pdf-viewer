@@ -198,8 +198,13 @@ impl Viewer {
                 // A new page starts at its top: carrying a scroll position across a page turn
                 // would land a reader in the middle of a page they have not seen.
                 open.scroll = (0.0, 0.0);
+                // §12.4.4.1's clock is a property of the page, so a turn restarts it — which is
+                // also NOTE 1's "[t]he user can advance the page manually before the specified
+                // time has expired" doing the right thing without a second rule.
+                open.shown_for = 0.0;
                 self.announce_page(events);
             }
+            Command::Tick { millis } => self.tick(millis, events),
             Command::Zoom(zoom) => self.set_zoom(zoom, events),
             Command::Scroll { dx, dy } => {
                 let viewport = self.viewport;
@@ -845,6 +850,64 @@ impl Viewer {
     }
 
     /// Says which page is showing, where there is one.
+    /// §12.4.4.1's `/Dur`: advances the page when it has been shown for as long as it asked.
+    ///
+    /// > the maximum length of time, in seconds, that the page shall be displayed before the
+    /// > presentation automatically advances to the next page.
+    ///
+    /// A *maximum*, which is why the comparison is `>=` and why any page turn resets the clock.
+    /// The last page does not advance and does not loop: §12.4.4 says nothing about what follows
+    /// the end, and looping is a decision a host can make with a `GoTo` and this crate cannot
+    /// unmake.
+    fn tick(&mut self, millis: u32, events: &mut Vec<Event>) {
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        // Milliseconds in, seconds out, because the clause counts in seconds and a host counts
+        // in whatever its event loop gives it. `f32` loses exactness above sixteen million
+        // milliseconds — four and a half hours on one page — and what is being measured is a
+        // duration a person perceives, which `pdf_model::navigation` narrows for the same reason.
+        let seconds =
+            f32::from(u16::try_from(millis.min(u32::from(u16::MAX))).unwrap_or(u16::MAX)) / 1000.0;
+        open.shown_for += seconds;
+        let Some((_, page)) = open.current.as_ref() else {
+            return;
+        };
+        let Some(duration) = pdf_model::navigation::display_duration(&open.document, &page.dict)
+        else {
+            return;
+        };
+        if open.shown_for < duration || open.page_index.saturating_add(1) >= open.page_count {
+            return;
+        }
+        self.act(Command::GoTo(PageTarget::Next), events);
+
+        // §12.4.4.1: "the transition style that shall be used when moving to this page from
+        // another during a presentation". *This* page, so it is the page arrived at whose
+        // `/Trans` plays, and it is named here rather than on every page turn because a turn is
+        // only part of a presentation when something is driving the clock — which is the one
+        // thing this crate can tell from a `Tick`.
+        //
+        // The page is fetched rather than read from `Open::current`, because `current` is filled
+        // during interpretation and interpretation happens in `settle` — after this. Reading it
+        // here would name the transition of the page just *left*, which is the same off-by-one
+        // §12.4.4.1's own wording rules out. One page-tree walk per automatic advance, which is
+        // at most one a second and not the per-item loop ADR 0124 was about.
+        let (Some(id), Some(open)) = (self.focused, self.focused()) else {
+            return;
+        };
+        let pages = pdf_model::Pages::new(&open.document);
+        let Some(page) = pages.get(open.page_index) else {
+            return;
+        };
+        if let Some(transition) = pdf_model::navigation::transition(&open.document, &page.dict) {
+            events.push(Event::Transition {
+                document: id,
+                transition,
+            });
+        }
+    }
+
     fn announce_page(&mut self, events: &mut Vec<Event>) {
         let (Some(id), Some(open)) = (self.focused, self.focused()) else {
             return;
