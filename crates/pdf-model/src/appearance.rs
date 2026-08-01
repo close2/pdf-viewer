@@ -513,6 +513,119 @@ pub(crate) fn regenerates(
     )
 }
 
+/// What §7.5.6's writer puts in a widget's `/AP` after a person has changed its value.
+///
+/// The same two constructions the *drawing* path chooses between, which is the point of this
+/// existing rather than a third one: [`regenerate`] where the file already carries a stream,
+/// [`construct`] where it does not. What a saved file shows is then what this program shows,
+/// because it is the same bytes — and a reader that ignores Table 224's `/NeedAppearances` sees
+/// the new value rather than the old one.
+pub(crate) enum ForSaving {
+    /// There is nothing to write, and that is the clause's answer rather than a shortfall.
+    ///
+    /// §12.7.5.2.3 and §12.7.5.2.4 make a check box's and a radio button's states "defined by an
+    /// appearance stream in the appearance dictionary of the field's widget annotation", which
+    /// the *value* selects among — so writing the new `/V` is the whole of the change, and
+    /// replacing `/AP` with one stream would destroy the states it selects from. A push button
+    /// holds no value at all (§12.7.5.2.2) and a signature field's is a dictionary (§12.7.5.5).
+    Selected,
+    /// The stream to write.
+    Stream(SavedStream),
+    /// The stream this program cannot produce, so Table 224's flag is what the file gets.
+    Owed,
+}
+
+/// The appearance stream itself, and what to write it over.
+pub(crate) struct SavedStream {
+    /// The stream's own bytes, uncompressed.
+    pub content: Vec<u8>,
+    /// §12.7.4.3's `/Resources`, built from `/DR` by whichever construction produced the bytes.
+    pub resources: Dictionary,
+    /// §8.10.2's `/BBox`, in the space the bytes are written in.
+    pub bbox: [f32; 4],
+    /// The stream dictionary this replaces, when the widget already had one.
+    ///
+    /// Carried so that the entries §8.10.2 and §12.5.5 read from it — `/Type`, `/Subtype`,
+    /// `/Matrix`, and anything else its producer stated — survive a rewrite of its marks. Only
+    /// the bytes and what describes the bytes are replaced.
+    pub existing: Option<(pdf_syntax::ObjectId, Dictionary)>,
+    /// What the clause asked for and did not get, for the caller to say.
+    pub report: Option<String>,
+}
+
+/// Builds what a widget's `/AP` should hold once a person has changed the field's value.
+///
+/// [`regenerates`] decides whether there is anything to build, and it is the same decision the
+/// drawing path makes: only a text field and a choice field hold text §12.7.4.3 has a processor
+/// lay out. Asking it here rather than repeating its reasoning is what stops a saved check box
+/// from losing the states its `/V` selects among.
+pub(crate) fn for_saving(
+    document: &Document,
+    annotation: &Dictionary,
+    value: FieldValue<'_>,
+) -> ForSaving {
+    if !regenerates(document, annotation, b"Widget", value) {
+        return ForSaving::Selected;
+    }
+    let Ok(rect) = rectangle(document, annotation) else {
+        return ForSaving::Owed;
+    };
+    let normal = document
+        .get_key(annotation, "AP")
+        .as_dict()
+        .and_then(|appearances| appearances.get("N").cloned());
+    let stored = normal
+        .as_ref()
+        .map(|entry| document.resolve(entry))
+        .and_then(|entry| entry.as_stream().cloned());
+
+    if let Some(stored) = stored {
+        // §12.5.5 reads the stream's own `/BBox`; §12.7.4.3 states the one to use when it has
+        // none, and `crate::annotation` argues why that extension rather than a refusal.
+        let bbox = crate::annotation::rectangle(document, &stored.dict, "BBox").unwrap_or([
+            0.0,
+            0.0,
+            rect[2] - rect[0],
+            rect[3] - rect[1],
+        ]);
+        let Some(regenerated) = regenerate(document, annotation, &stored, bbox, value) else {
+            return ForSaving::Owed;
+        };
+        return ForSaving::Stream(SavedStream {
+            content: regenerated.content,
+            resources: regenerated.resources,
+            bbox,
+            existing: normal
+                .as_ref()
+                .and_then(Object::as_reference)
+                .map(|id| (id, stored.dict.clone())),
+            report: regenerated.report,
+        });
+    }
+
+    // With no stream to splice into, the appearance is built from Table 192's characteristics
+    // and the field's value — and `crate::annotation::construct` says why its `/BBox` is the
+    // annotation's `/Rect`: the marks are written in the page's own default user space, so
+    // §12.5.5's algorithm reduces to the identity.
+    let constructed = construct(document, annotation, b"Widget", value);
+    let Some(content) = constructed.content else {
+        // A field with no value, no background and no border draws nothing, and there is no
+        // stream to *replace* here — so adding an object that draws nothing would grow the file
+        // to no purpose.
+        return match constructed.report {
+            Some(_) => ForSaving::Owed,
+            None => ForSaving::Selected,
+        };
+    };
+    ForSaving::Stream(SavedStream {
+        content,
+        resources: constructed.resources,
+        bbox: rect,
+        existing: None,
+        report: constructed.report,
+    })
+}
+
 /// Draws a link's border: §12.5.4's rounded rectangle, in Table 166's `/C`.
 ///
 /// Table 166 lists a link as one of the three subtypes a writer need not give an appearance

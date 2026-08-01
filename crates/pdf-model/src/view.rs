@@ -475,7 +475,7 @@ impl ViewState {
     /// document is no longer among them: §7.6.2's ciphers run on the way out, so the `/V` this
     /// writes reaches the file in the form the document's own key expects.
     pub fn save(&self, document: &Document) -> Result<Vec<u8>, pdf_syntax::write::UpdateError> {
-        let mut replacements = BTreeMap::new();
+        let mut update = Update::beside(document);
         for (widget, value) in self.edits() {
             let Some(dict) = document.get(widget).as_dict().cloned() else {
                 continue;
@@ -484,7 +484,7 @@ impl ViewState {
             // ancestor of the widget — and writing it onto the widget would leave the ancestor's
             // stale value inherited by the field's other widgets. The value goes where the
             // document already keeps one, or on the widget where the document keeps none.
-            let (id, mut field) = holder(document, widget, dict);
+            let (id, mut field) = holder(document, widget, dict.clone());
             match value {
                 Some(text) => {
                     field.insert(
@@ -497,15 +497,24 @@ impl ViewState {
                     field.remove("V");
                 }
             }
-            replacements.insert(id, Object::Dictionary(field));
+            update.put(id, Object::Dictionary(field));
+            update.write_appearance(document, widget, &dict, FieldValue::Edited(value));
         }
-        if !replacements.is_empty()
+        if !update.is_empty()
             && let Some((id, mut form)) = interactive_form(document)
         {
-            form.insert(Name::new(&b"NeedAppearances"[..]), Object::Boolean(true));
-            replacements.insert(id, Object::Dictionary(form));
+            // Table 224's flag is written only for what this program could not write itself.
+            // §12.7.2 states what setting it admits — "[i]f such an object defines an appearance
+            // stream, the appearance shall be consistent with the object's current value as a
+            // field" — so a document whose every changed widget got a new stream is one where
+            // that obligation is *kept*, and asking the next reader to redo the work would be
+            // saying otherwise.
+            if update.needs_appearances {
+                form.insert(Name::new(&b"NeedAppearances"[..]), Object::Boolean(true));
+                update.put(id, Object::Dictionary(form));
+            }
         }
-        pdf_syntax::write::incremental_update(document, &replacements)
+        pdf_syntax::write::incremental_update(document, &update.replacements)
     }
 
     /// Forgets every value a person typed, leaving the file's own and whatever actions did.
@@ -869,6 +878,174 @@ pub fn press_changes_appearance(document: &Document, annotation: ObjectId) -> bo
         return false;
     };
     crate::annotation::press_changes(document, dict)
+}
+
+/// The objects one save writes, and the object numbers it is allowed to invent.
+///
+/// §7.5.6's update may *add* objects as well as replace them — the clause's own list is "objects
+/// that have been changed, replaced, or deleted" — and a widget with no `/AP` needs one added,
+/// because §7.3.8.1 makes every stream an indirect object and there is nowhere else to put it.
+struct Update {
+    /// What the update writes, by object.
+    replacements: BTreeMap<ObjectId, Object>,
+    /// The next object number nothing in the file uses.
+    next: u32,
+    /// Whether any widget's appearance had to be left to the next reader.
+    needs_appearances: bool,
+}
+
+impl Update {
+    /// An empty update beside a document, knowing which object numbers are free.
+    ///
+    /// **Both sources of the answer are consulted and the larger wins.** §7.5.5 makes `/Size`
+    /// "one greater than the highest object number used in the file", but 68 of the corpus's 974
+    /// documents write at least one cross-reference entry beyond their own `/Size` — see the
+    /// §7.5.5 ledger row, where the same understatement costs 66 documents their page tree if the
+    /// clause's ignore rule is applied. Trusting `/Size` alone here would be worse than that: a
+    /// new object would land on an existing one's number and silently replace it.
+    fn beside(document: &Document) -> Self {
+        let highest = document.xref().object_numbers().max().unwrap_or_default();
+        let stated = document
+            .trailer()
+            .get("Size")
+            .and_then(Object::as_integer)
+            .and_then(|size| u32::try_from(size).ok())
+            .unwrap_or_default();
+        Self {
+            replacements: BTreeMap::new(),
+            next: highest.saturating_add(1).max(stated),
+            needs_appearances: false,
+        }
+    }
+
+    /// Records what one object now says, replacing anything already recorded for it.
+    fn put(&mut self, id: ObjectId, object: Object) {
+        self.replacements.insert(id, object);
+    }
+
+    /// Whether this update writes nothing.
+    fn is_empty(&self) -> bool {
+        self.replacements.is_empty()
+    }
+
+    /// A number no object in the file or in this update has.
+    fn allocate(&mut self) -> ObjectId {
+        let number = self.next;
+        self.next = self.next.saturating_add(1);
+        ObjectId {
+            number,
+            generation: 0,
+        }
+    }
+
+    /// What this object says now: the update's own copy if it has one, else the file's.
+    fn current(&self, document: &Document, id: ObjectId) -> Option<Dictionary> {
+        match self.replacements.get(&id) {
+            Some(object) => object.as_dict().cloned(),
+            None => document.get(id).as_dict().cloned(),
+        }
+    }
+
+    /// Writes §12.7.4.3's appearance stream for a widget whose value this update changed.
+    ///
+    /// The clause states where it goes and nothing about who writes it out:
+    ///
+    /// > The new appearance stream becomes the normal appearance ( N ) in the appearance
+    /// > dictionary associated with the field's widget annotation
+    ///
+    /// — which is the same sentence whether the stream is constructed for one render or kept in
+    /// the file, and the difference is only whether the next reader has to do it again.
+    ///
+    /// The bytes are the ones this program would *draw*, from
+    /// [`crate::appearance::for_saving`], so a saved file shows what the viewer showed. Two
+    /// things are deliberately kept from whatever stream was there: its dictionary, so that
+    /// `/Matrix` and anything else its producer stated survives, and its object number, so the
+    /// update replaces one object rather than adding one and orphaning another.
+    ///
+    /// A widget this cannot produce a stream for — and one it can produce only part of — leaves
+    /// [`Self::needs_appearances`] set, which is what Table 224's flag is for. Writing a stream
+    /// that is missing a glyph *and* setting the flag says both true things: here is what could
+    /// be laid out, and it is not all of it.
+    fn write_appearance(
+        &mut self,
+        document: &Document,
+        widget: ObjectId,
+        dict: &Dictionary,
+        value: FieldValue<'_>,
+    ) {
+        let built = match crate::appearance::for_saving(document, dict, value) {
+            crate::appearance::ForSaving::Stream(built) => built,
+            crate::appearance::ForSaving::Selected => return,
+            crate::appearance::ForSaving::Owed => {
+                self.needs_appearances = true;
+                return;
+            }
+        };
+        self.needs_appearances |= built.report.is_some();
+
+        let added = built.existing.is_none();
+        let (stream_id, mut stream_dict) = match built.existing {
+            Some((id, dict)) => (id, dict),
+            None => (self.allocate(), Dictionary::new()),
+        };
+        // §8.10.2's three required entries, plus the resources §12.7.4.3 builds from `/DR`.
+        stream_dict.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"XObject"[..])),
+        );
+        stream_dict.insert(
+            Name::new(&b"Subtype"[..]),
+            Object::Name(Name::new(&b"Form"[..])),
+        );
+        stream_dict.insert(
+            Name::new(&b"BBox"[..]),
+            Object::Array(
+                built
+                    .bbox
+                    .iter()
+                    .map(|edge| Object::Real(f64::from(*edge)))
+                    .collect(),
+            ),
+        );
+        stream_dict.insert(
+            Name::new(&b"Resources"[..]),
+            Object::Dictionary(built.resources),
+        );
+        stream_dict.insert(
+            Name::new(&b"Length"[..]),
+            Object::Integer(i64::try_from(built.content.len()).unwrap_or(i64::MAX)),
+        );
+        // The bytes written are the decoded ones, so whatever the old stream said it was encoded
+        // with is now a lie about it. §7.4's `/Filter` and `/DecodeParms` go with the data they
+        // described — a stream keeping a `/FlateDecode` it no longer has would not decode at all.
+        stream_dict.remove("Filter");
+        stream_dict.remove("DecodeParms");
+        self.put(
+            stream_id,
+            Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+                dict: stream_dict,
+                data: built.content.into(),
+                decryption_failed: false,
+            })),
+        );
+
+        if added {
+            // A widget that had no `/AP` needs one pointing at the stream just written. Table
+            // 168's `/N` is "the annotation's normal appearance"; a widget with one state has it
+            // as the stream itself rather than as a subdictionary of states.
+            let Some(mut widget_dict) = self.current(document, widget) else {
+                return;
+            };
+            let mut appearances = document
+                .get_key(&widget_dict, "AP")
+                .as_dict()
+                .cloned()
+                .unwrap_or_default();
+            appearances.insert(Name::new(&b"N"[..]), Object::Reference(stream_id));
+            widget_dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
+            self.put(widget, Object::Dictionary(widget_dict));
+        }
+    }
 }
 
 /// The object a widget's value belongs on, walking §12.7.4.1's `/Parent` chain.

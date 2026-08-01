@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-forty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -62,7 +62,7 @@ plays it), search, or draw a panel for the outline, the layers and the attachmen
 
 | gate | number | where |
 |---|---|---|
-| tests | **941**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 144; the five fuzzers last in 139 |
+| tests | **944**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 145; the five fuzzers last in 139 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -230,10 +230,13 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 
 #### What is still owed, in the order to do it
 
-1. **The second of the two costs §7.5.6's writer records.** The first — encryption on the way
-   out — landed in the hundred-and-forty-fourth session (ADR 0129), so every one of the corpus's
-   26 encrypted documents can now be saved. What is left is **regenerated appearance streams
-   instead of `/NeedAppearances`**, named in ADR 0121 and not architectural.
+1. **Both costs §7.5.6's writer recorded are closed.** Encryption on the way out landed in the
+   hundred-and-forty-fourth session (ADR 0129), so every one of the corpus's 26 encrypted
+   documents can be saved; §12.7.4.3's appearance stream is *written into the file* since the
+   hundred-and-forty-fifth (ADR 0130), so a reader that ignores Table 224's `/NeedAppearances`
+   still sees the new value. **What the writer still owes is an `Edit` variant that carries a new
+   object rather than a field's value** — the markup and free-text annotation authoring under
+   "Near, and far" below. `Update` in `view.rs` already allocates object numbers for it.
 2. **The rest of the vocabulary, as its feature arrives.** `Command::Tick { millis }` for
    §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves), and
    `Query::AccessibilityTree`, which is what AccessKit needs and the last of §0's five owed
@@ -342,9 +345,14 @@ one made stands.
 **And it is saved** since the hundred-and-thirty-sixth session (ADR 0121): `ViewState::save`
 produces the file with §7.5.6's incremental update appended, the host writes the bytes, and
 `pdftotext` and `mutool` both read the value back out of what it wrote. The producer's bytes are
-still there underneath, which is the clause's whole point. **One cost is left of the two written
-down**: a widget's stored appearance is not regenerated — Table 224's `/NeedAppearances` is set
-instead, so a reader that ignores the flag shows the old value. The other is closed. **An
+still there underneath, which is the clause's whole point. **Both costs written down are closed.**
+§12.7.4.3's appearance stream is *written* since the hundred-and-forty-fifth session (ADR 0130)
+rather than owed to the next reader behind Table 224's `/NeedAppearances` — the bytes are the ones
+this program draws, so writing them is not a new opinion about the file — and the flag is now set
+only for a widget whose stream this program could not produce or could produce only part of. A
+widget that had no `/AP` gets an object *added*, which is the half of §7.5.6's "changed, replaced,
+or deleted" the writer did not do; the number it starts from is the larger of `/Size` and the
+highest the cross-reference table holds, because 68 corpus documents understate the first. **An
 encrypted document is written since the hundred-and-forty-fourth session** (ADR 0129): §7.6.2's
 ciphers run on the way out through `decrypt_object`'s mirror, so the clause's exceptions are
 stated once rather than twice, and the six corpus documents covering every revision and method
@@ -1149,7 +1157,10 @@ anchor that makes it checkable.
 
 - **A test asserted through the accessor that normalises the thing being tested is not a test.**
   §7.3.7's null-entry rule was checked through `Document::get_key`, which answers `Null` for an
-  absent key.
+  absent key. **And the accessor need not be one of ours**: `Object::as_dict` answers for a
+  *stream* as well as a dictionary, so "the check box still has a dictionary of states" passed
+  after the states had been replaced by a stream. `matches!(x, Object::Dictionary(_))` is the
+  assertion; the way it was found is the next line. ADR 0130.
 - **A discriminating test has to discriminate; check by breaking the thing.**
 - **A constant that is right for the hand-built fixture is a landmine when a real file arrives.**
   `incremental_update.rs` replaced "object 1, the catalog", true of the file the test builds
@@ -1626,3 +1637,4 @@ above rather than here.
 | 142 | A frame that failed was reported as one that was drawn; the CPU draws it now | 0125, 0126 |
 | 143 | A page the device drew nothing of, and said nothing about; banded, and the backend question asked properly | 0127, 0128 |
 | 144 | §7.6.2 on the way out: an encrypted document can be saved | 0129 |
+| 145 | §12.7.4.3's appearance stream is written into the file, not owed to the reader | 0130 |

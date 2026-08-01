@@ -929,8 +929,24 @@ fn a_saved_document_carries_the_edit_and_the_file_under_it() {
         "§7.5.6 appends, leaving the original contents intact"
     );
 
+    // §12.7.4.3's appearance stream is *written*, and this is what says so. Table 224's
+    // `/NeedAppearances` is the alternative — a flag asking the next reader to do the work — and
+    // a saved file that does not set it has nothing but the widget's own stream to show the
+    // value with. Without this assertion the readback below passes either way, because this
+    // program honours the flag it would have set.
+    let written = pdf_syntax::Document::open(saved.clone()).expect("the saved file opens");
+    let catalog = written.catalog().expect("a /Root");
+    let form = written.get_key(&catalog, "AcroForm");
+    let flag = form
+        .as_dict()
+        .map(|form| written.get_key(form, "NeedAppearances"));
+    assert!(
+        !matches!(flag, Some(pdf_syntax::Object::Boolean(true))),
+        "every changed widget got its own appearance stream, so nothing is owed to the reader"
+    );
+
     // A second viewer, which knows nothing of the edit, opens the saved bytes and draws the
-    // value — which is the only statement about a save worth making.
+    // value — which, with the flag unset above, it can only be reading out of the stream.
     let mut reader = Viewer::new(800, 1000, 1.0);
     let events: Vec<_> = reader
         .handle(Command::Open {
