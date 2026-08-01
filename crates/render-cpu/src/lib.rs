@@ -1098,11 +1098,16 @@ struct MaskCache {
 /// Largest total size of the masks a [`MaskCache`] holds, in bytes.
 ///
 /// Sized against the corpus rather than guessed. `bug1721218_reduced.pdf` is the heaviest
-/// first page in the 974-document pdf.js corpus — 3576 distinct clips on one 612×792
-/// page — and its banded masks come to 25.5 MB, so the heaviest real document known fits
-/// with headroom and never evicts. A document that exceeds this is either far past
-/// anything in the corpus or trying to exhaust memory, and either way is served correctly
-/// at the price of rebuilding a mask it comes back to.
+/// first page in the 974-document pdf.js corpus, and it never evicts: **3608 chains built
+/// per render of one 612×792 page, peaking at 27.9 MB against this 32 MB** — measured in the
+/// hundred-and-thirteenth session by counting admissions, evictions and peak bytes, where an
+/// earlier version of this comment said "3576 distinct clips" and "25.5 MB" and called the
+/// margin headroom. **It is 13%.** The next document heavier than this one will evict, and
+/// will be served correctly at the price of rebuilding a mask it comes back to.
+///
+/// The number is not raised on that evidence, because nothing has been measured to be paying
+/// for it; it is recorded so that a session which finds a document evicting knows the margin
+/// was already thin rather than that something regressed.
 const MASK_BUDGET: usize = 32 << 20;
 
 impl MaskCache {
@@ -1311,9 +1316,26 @@ impl MaskCache {
     /// Builds the effective mask for a root-first chain, in the band it covers.
     ///
     /// The whole chain is drawn into one mask rather than each clip being cached and
-    /// intersected with its parent's: a parent covers a different band from its child,
-    /// so a parent's mask cannot be reused as a starting point. Building the chain
-    /// costs its depth in band-sized fills, which is less than one page-sized copy.
+    /// intersected with its parent's. Building the chain costs its depth in band-sized fills,
+    /// which is less than one page-sized copy.
+    ///
+    /// **The reason this comment used to give for that is wrong, and the correction is worth
+    /// keeping because it names a real optimisation nobody has taken.** It said "a parent
+    /// covers a different band from its child, so a parent's mask cannot be reused as a
+    /// starting point" — but the band comes from the running *intersection* of the chain's
+    /// bounds, so a child's band is always contained in its parent's, and a mask value at a
+    /// given device row does not depend on which band holds that row (`band.offset()` is a
+    /// translation). A parent's rows for the child's band are therefore exactly the prefix's
+    /// contribution, and a chain could be one crop plus one `intersect_path` instead of a
+    /// fill plus depth-minus-one intersects.
+    ///
+    /// What stops it is memory rather than correctness, measured in the hundred-and-thirteenth
+    /// session: on `bug1721218_reduced.pdf` the chains average four deep, so it would be worth
+    /// most of `MaskCache::get`'s **24.3%** of that page — but it requires *every intermediate*
+    /// clip to be cached, and intermediates have larger bands than the leaves now cached. The
+    /// page already peaks at 27.9 MB against [`MASK_BUDGET`]'s 32 MB, so the change as stated
+    /// trades a rebuild-free cache for an evicting one. Taking it means sizing the budget from
+    /// a measurement of the intermediates first.
     fn build(
         &self,
         list: &DisplayList,

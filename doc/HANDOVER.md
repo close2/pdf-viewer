@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twelfth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-thirteenth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,29 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-tenth — a deletion is a copy of an object.** The §7.5 half of the file-only
-evidence population audited, and the audit found code rather than prose. ADR 0100.
-
-- **§7.5.6's "most recent copy" rule was applied to two of the three things an update section can
-  say.** The clause's own list is "changed, replaced, or deleted", and a deletion is a free entry
-  over an in-use one while "[d]eleted objects shall be left unchanged in the PDF file" — so the
-  bytes are still there. Free entries were not recorded at all, so they were a *silence* rather
-  than an answer, and the older section filled the gap: **the reader resurrected what the file had
-  deleted.**
-- **§7.5.8.3's "[a]ny other value shall be interpreted as a reference to the null object" had
-  the same defect and the same cause.** Skipping such an entry hands the question to an older
-  section, which is not the null object. An entry is now `Option<Location>`, and `None` blocks an
-  older section exactly as a location does.
-- **Three corpus documents delete an object and none of the three still references it**, so all
-  three pages are byte-identical either way — checked by rendering with the change stashed.
-  `prefilled_f1040.pdf` deletes three form-field appearance streams and `issue13520.pdf` an
-  image, which is what the defect looked like when it was invisible.
-- **§7.5.8.4's hybrid ordering is the one place §7.5.6's rule must *not* apply**, and the two
-  compose for free: the free entry is in a section the ordering reaches after the stream.
-- **Ten tests, seven of them confirmed to fail by breaking the thing they guard.**
-
-`FILE_ONLY_EVIDENCE_CEILING` falls **49 → 40**; tests 840 → 850.
 
 **Hundred-and-eleventh — a correction that reached the code and not the ledger.** Clause 8's
 seventeen file-only rows audited. ADR 0101.
@@ -80,6 +57,27 @@ seventeen file-only rows audited. ADR 0101.
   something that would fail. Neither says the *right* test was named.
 
 Tests 853 → 860; every gate unmoved.
+
+**Hundred-and-thirteenth — the item that was priced a hundred-fold wrong.** ADR 0103.
+
+- **"Bound a group's buffer to the band its clip admits" is 0.14% of the page named as the one
+  that would show it.** The group buffer is `Pixmap::new`: 29 per render, 61.7 M of 43.15 G.
+  The 4.48% of `calloc` this file attributed to it is *clip* masks — `Mask::intersect_path`
+  3.08% and `Mask::new` 1.31%. **The item leaves the list with its number beside it.**
+- **The real second item is `MaskCache::get` at 24.34%**, and it is intrinsic rather than a
+  cache defect: 3608 chains per render, **0 evictions**, 7207 clips of which 7116 are distinct,
+  and only 1840 of 72 160 chains are rectangles all the way up. Three plausible shortcuts —
+  eviction tuning, deduplication, a rectangle fast path — priced at 0%, 1.3% and 2.5% and
+  declined with their numbers.
+- **`MaskCache::build`'s stated reason was backwards, and the correction names a real
+  optimisation.** A child's band is always *inside* its parent's, because the band is the
+  running intersection of bounds — so a parent's rows are exactly the prefix's contribution and
+  a four-deep chain could be one crop and one intersect. What stops it is memory: it needs the
+  intermediates cached, on a page already at 87% of `MASK_BUDGET`.
+- **`MASK_BUDGET`'s justification said "3576 distinct clips … 25.5 MB … with headroom".** It is
+  3608 and 27.9 MB, and the headroom is **13%**.
+
+No code path changed and no gate moved: the output is four numbers and two corrected comments.
 
 ## How the project got here
 
@@ -196,6 +194,7 @@ below rather than here.
 | 110 | §7.5's free entries: an update that deletes an object is no longer undone | ADR 0100 |
 | 111 | Clause 8's file-only rows audited; a retired claim found in four places | ADR 0101 |
 | 112 | The file-only evidence population reaches zero, over four audits | ADR 0102 |
+| 113 | A to-do item measured at a hundredth of its listed price, and removed | ADR 0103 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -1090,10 +1089,13 @@ the notes on 235 `partial` rows, which is where the next map has to be drawn fro
 
 Four items that are small, listed before the big lists because they are small:
 
-- **Bound a group's buffer to the band its clip admits.** The CPU backend gives every transparency
-  group a page-sized pixmap, because a group's elements resolve their clips against the *target*.
-  No corpus page pays for it; a page with hundreds of groups would. Measure first —
-  `callgrind_rasterise` over a group-heavy page.
+- **~~Bound a group's buffer to the band its clip admits.~~ Measured and removed** (ADR 0103):
+  it is **0.14%** of `bug1721218_reduced.pdf`, the page this file named as the one that would
+  show it. What is worth 24.34% of that page is `MaskCache::get`, and the shortcut nobody has
+  taken is in `MaskCache::build`'s own comment — a child's band is inside its parent's, so a
+  chain could be one crop and one intersect instead of a fill and three. It needs the
+  intermediate clips cached, and the page is already at 87% of `MASK_BUDGET`, so it starts with
+  a measurement of what the intermediates cost.
 - **Sandbox the interpreter and rasteriser too.** Spike D exists and is exercised; the rest of the
   renderer runs in the main process, which is the half of principle 3 not yet built. The protocol
   would have to carry a display list rather than an image, which is a real design question.
@@ -1341,10 +1343,13 @@ had touched. The seventy-third session cached the built shading per object and t
 | `pdf_model::shading::ramp` | 1.72 G (3.2%) | gone |
 
 What is left on that page, in order: `tiny_skia::pipeline::lowp::gradient` 36.6%,
-`Mask::intersect_path` 8.1%, `build_soft_mask` 8.0%, `fill_path_impl` 6.4%, `calloc` 4.5%. The
-next item is the one already listed above — the CPU backend gives every transparency group a
-page-sized pixmap — and this is the page that would show it: `calloc` and `Mask::intersect_path`
-between them are an eighth of it. One caution about the old table's fourth row: `to_rgb_at` was 2.6% when `CalGray`
+`Mask::intersect_path` 8.1%, `build_soft_mask` 8.0%, `fill_path_impl` 6.4%, `calloc` 4.5% —
+re-measured in the hundred-and-thirteenth session at 43.15 G, unchanged. **This file used to say
+the next item was the group buffer and that `calloc` and `Mask::intersect_path` were an eighth of
+it; both halves of that were wrong.** `calloc`'s callers are `Mask::intersect_path` 3.08%,
+`Mask::new` 1.31% and `Pixmap::new` **0.14%** — the group buffer is the last of those. What the
+two mask lines add up to is one *item*, not two: **`MaskCache::get` is 24.34% of the page**, 3608
+chains per render with no eviction and no duplication worth removing. ADR 0103. One caution about the old table's fourth row: `to_rgb_at` was 2.6% when `CalGray`
 was a pass-through; it now runs a Bradford adaptation and a matrix per colour, and per *sample*
 for a Cal-space image.
 
@@ -1739,6 +1744,16 @@ denominator beside the numerator, and say which pages moved and why.
 after instrumenting the pattern path, which runs once on that page while `sh` runs 3576 times —
 so the number was right about where it was taken and wrong about the page. Instrument the
 *function you are accusing*, not one of its callers.
+
+**A number in this file is a claim, and attributing it is a second claim.** `calloc` was 4.5% of
+`bug1721218_reduced.pdf` and this file said it was the transparency group's page-sized pixmap;
+`Pixmap::new` is 0.14% and the rest is clip masks. The measurement that was right had never been
+*attributed*, and a session was queued to change a coordinate system to save a thousandth of one
+page. Ask `callgrind_annotate --tree=caller` who called it. ADR 0103.
+
+**Three plausible optimisations, three counts, three refusals — and counting was cheaper than
+any of them.** Eviction tuning, clip deduplication and a rectangular-clip fast path were 0%,
+1.3% and 2.5% on the page that motivated them; each took one instrumented run to price.
 
 **A profile ages past its conclusion, and the conclusion is what survives being read.** This
 file carried one profile of `bug1721218_reduced.pdf` for nineteen sessions. Re-measured, its
