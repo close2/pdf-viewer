@@ -187,7 +187,15 @@ pub(crate) fn decide(
         return Decision::Nothing;
     }
 
-    let name = String::from_utf8_lossy(&subtype).into_owned();
+    // Table 166 makes `/Subtype` required, and a report that begins with an empty name reads as
+    // a colon with nothing before it — which `issue7446.pdf` produced for four sessions.
+    // Naming the absence is the whole of the fix: no subtype means no subtype clause, and a
+    // clause is what every construction in `crate::appearance` reads.
+    let name = if subtype.is_empty() {
+        "an annotation with no /Subtype".to_owned()
+    } else {
+        String::from_utf8_lossy(&subtype).into_owned()
+    };
     let Some(rect) = rectangle(document, annotation, "Rect") else {
         return Decision::Unsupported(format!("{name}: no usable /Rect"));
     };
@@ -206,24 +214,47 @@ pub(crate) fn decide(
     };
 
     // §8.10.2 makes `/BBox` required of a form `XObject`, and §12.5.5's algorithm starts by
-    // transforming it. Without one there is nothing to map onto `/Rect`.
-    let Some(bbox) = rectangle(document, &stored.dict, "BBox") else {
-        return Decision::Unsupported(format!("{name}: appearance stream has no /BBox"));
-    };
+    // transforming it — so a stream without one states no box to map onto `/Rect`, and the
+    // only transform left is the identity.
+    //
+    // The box used instead is the one the standard itself states for an appearance stream, in
+    // the one place it states any: §12.7.4.3, on the form dictionary a processor builds for a
+    // field's appearance.
+    //
+    // > The lower-left corner of the bounding box ( BBox ) is set to coordinates (0, 0) in the
+    // > form coordinate system. The box's top and right coordinates are taken from the
+    // > dimensions of the annotation rectangle (the Rect entry in the widget annotation
+    // > dictionary).
+    //
+    // That sentence is written for a *constructed* appearance and is applied here to a stored
+    // one that omits the entry, which is an extension of it rather than a reading — recorded as
+    // such, and reported, because §8.10.2 makes `/BBox` required and a stream whose marks lie
+    // outside this box will still draw nothing. What makes it the right extension is that the
+    // alternative is a refusal, and a refusal throws away the whole annotation — background,
+    // border and all — over an entry §12.5.5 needs only for a *scale*.
+    //
+    // `checkbox-bad-appearance.pdf` is the corpus's one witness: its check box's `/AP` draws
+    // `(4)` in ZapfDingbats at `0 0 Td`, which under this box is the tick's own corner and
+    // under any other reading is the corner of the page.
+    let stated_bbox = rectangle(document, &stored.dict, "BBox");
+    let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
     let matrix = matrix(document, &stored.dict);
+    let missing_bbox = stated_bbox
+        .is_none()
+        .then(|| format!("{name}: appearance stream has no /BBox"));
 
     // §12.7.4.3 by way of Table 224's `/NeedAppearances`: for the field types whose text is
     // "not known until viewing time", the writer has said the stored stream may not match the
     // value, so the stream's `/Tx` marked-content region is rewritten in place. Everything
     // outside it is the file's own artwork and stays, which is what makes this a splice rather
     // than a second construction — see `crate::appearance::regenerate`.
-    let mut owed = None;
+    let mut owed = missing_bbox;
     let mut content = Content::Stored(Arc::clone(&stored));
     if crate::appearance::regenerates(document, annotation, &subtype)
         && let Some(regenerated) =
             crate::appearance::regenerate(document, annotation, &stored, bbox, view.value)
     {
-        owed = regenerated.report.map(|detail| format!("{name}: {detail}"));
+        owed = owed.or_else(|| regenerated.report.map(|detail| format!("{name}: {detail}")));
         content = Content::Constructed {
             bytes: regenerated.content,
             resources: regenerated.resources,

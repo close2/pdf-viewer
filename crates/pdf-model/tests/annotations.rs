@@ -206,6 +206,48 @@ fn an_appearance_may_not_draw_outside_its_bounding_box() {
     assert_eq!(extent(&raster), (40, 40, 59, 59));
 }
 
+/// An appearance stream with no `/BBox` is placed by §12.7.4.3's default box, and named.
+///
+/// §8.10.2 makes `/BBox` required and §12.5.5's algorithm starts by transforming it, so a
+/// stream without one states no box to map onto `/Rect`. The box used instead is the one the
+/// standard itself states for an appearance stream, in the one place it states any — §12.7.4.3,
+/// on the form dictionary a processor builds for a field:
+///
+/// > The lower-left corner of the bounding box ( BBox ) is set to coordinates (0, 0) in the
+/// > form coordinate system. The box's top and right coordinates are taken from the dimensions
+/// > of the annotation rectangle (the Rect entry in the widget annotation dictionary).
+///
+/// The fixture's stream fills a 10×10 square at its own origin and `/Rect` is 40×40 at
+/// (20, 30), so the box is [0 0 40 40], the placement is a *translation* — the box already has
+/// the rectangle's size — and the square lands in the rectangle's lower-left corner at its own
+/// scale. That is the discriminating value: with the entry present and equal to the square,
+/// `an_appearance_is_scaled_and_translated_onto_the_annotation_rectangle` gets the same square
+/// scaled by four across the whole rectangle instead. A reader that took `/Rect` itself as the
+/// box would leave the mark at the *page's* corner and clip all of it away, which is the blank
+/// the earlier refusal produced by another route.
+#[test]
+fn an_appearance_with_no_bounding_box_is_placed_by_the_clauses_default() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 30 60 70] /F 4 /AP << /N 6 0 R >> >>",
+        "",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    let reports = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reports.contains("/BBox"),
+        "the missing entry is named: {reports}"
+    );
+
+    // Not `render`, which insists the page drew completely: this one deliberately reports.
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .with_background(pdf_render::Color::TRANSPARENT)
+        .rasterize(&list, target)
+        .expect("supported");
+    assert_eq!(extent(&raster), (20, 30, 29, 39));
+}
+
 /// The `Hidden` and `NoView` flags mean nothing is drawn, and nothing is reported.
 ///
 /// Table 167 bit 2 is "do not render the annotation ... regardless of its annotation type",

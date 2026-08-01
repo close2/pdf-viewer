@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-fourth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-fifth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,27 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-twenty-second — a name the table does not permit is not an encoding.** ADR 0111.
-
-- **A sweep, not a reading.** Every `partial` note claiming an entry is *unread* was searched for
-  a `/Name`, and every such name grepped for in the tree. Twenty-five sentences; **three stale**:
-  §9.6's `/FontFile` (read since the thirty-first session, and "no corpus page one reaches one"
-  was wrong too — 57 embed one), §9.7.5.1's `/W2` (read since the thirty-sixth), §11.6.5.2's
-  `/Matte` (read, and one of trap 5's five report-and-draw cases).
-- **The `/W2` claim had spread to four places** — the row, `composite_cmap`'s doc comment and two
-  paragraphs of this file. Recounted from the gate's own output: 13 of the 42 font documents name
-  a predefined `CMap` and **exactly one of those is vertical**, so nothing is refused for its
-  writing mode.
-- **The census turned up a report nobody had read.** `bug859204.pdf` writes `/Encoding /NULL`,
-  and the whole font was refused for it — a page whose entire content is one line drew nothing.
-  Table 112 makes the entry optional and says in the same cell that it specifies the encoding
-  "if different from its built-in encoding", so a name the table does not permit has said
-  nothing and the built-in encoding stands. **ADR 0106's rule, one clause family over.**
-- **`MacExpertEncoding` keeps its refusal, and that is the argument**: it is a name the table
-  *permits*, so a font stating it means it, and falling back would draw wrong glyphs in silence.
-
-Incomplete **90 → 89**, agreeing **840 → 841**; tests 889 → 890.
 
 **Hundred-and-twenty-third — a stand-in may not fall short.** ADR 0112.
 
@@ -95,6 +74,31 @@ between sittings.** No ADR: a verification session that finds nothing has nothin
   rule that governs the table below.
 
 No gate moved.
+
+**Hundred-and-twenty-fifth — the only default bounding box the standard states.** ADR 0113.
+
+- **Two annotation reports discard an annotation whole over one entry**, and both are now
+  smaller. An appearance stream with no `/BBox` is placed by §12.7.4.3's own default —
+  "[t]he lower-left corner … (0, 0) in the form coordinate system … top and right … from the
+  dimensions of the annotation rectangle" — rather than refused, and the missing entry is named.
+- **That sentence is written for a *constructed* appearance and applying it to a stored one is
+  an extension**, recorded as one. What makes it the right extension is the alternative:
+  refusing discards the annotation's whole appearance over an entry §12.5.5 needs only for a
+  *scale*. Taking `/Rect` as the box instead — the other candidate — leaves a stream drawing at
+  `0 0 Td` at the corner of the *page*, where `/Rect`'s clip removes all of it.
+- **The corpus's one witness gains nothing visible, and that is stated rather than hidden**:
+  `checkbox-bad-appearance.pdf`'s tick is a `/ZapfDingbats` glyph, and no face on this machine
+  substitutes for one. 37 commands either side. The behaviour is defended by a synthetic
+  fixture, which is trap 8's converse rather than a shortcut.
+- **A report that began with a colon** — `issue7446.pdf` states no `/Subtype`, so the name
+  interpolated before it was empty — now names the absence.
+- **The `hayro` totals the previous session could not wait for finished afterwards** and are in
+  the table below: 6.04 s over 865 complete pages against 41.02 s. Our own total fell from
+  7.08 s while `hayro`'s barely moved, which is **not** claimed as an improvement: the
+  interpretation A/B taken the same day puts four sessions at +0.16% and none of them touched a
+  rasterising path.
+
+Tests 891 → 892; no gate moved.
 
 ## How the project got here
 
@@ -223,6 +227,7 @@ below rather than here.
 | 122 | A sweep for entries claimed unread; an `/Encoding` name that erased a font | ADR 0111 |
 | 123 | A `/DA` font `/DR` lacks is stood in for — and the stand-in must not fall short | ADR 0112 |
 | 124 | Everything re-verified; the interpretation drift floor measured as an A/B | — |
+| 125 | An appearance with no `/BBox` gets §12.7.4.3's default box rather than a refusal | ADR 0113 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -270,7 +275,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 33 `reported` rows and the notes on 242 `partial`
 ones.
 
-- **891 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **892 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece** — every one of those re-run in the hundred-and-twenty-fourth
   session rather than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -406,7 +411,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2817 citations, 304 quotations, 180 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2824 citations, 305 quotations, 180 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -1287,12 +1292,19 @@ with both, alternating, best of N.
 Measured again in the **seventy-third** session, on either side of one change in one sitting —
 which is the only way this number means anything:
 
-| | hundred-and-nineteenth | hundred-and-sixth | ninety-ninth | seventy-third | sixty-fifth | fifty-eighth |
-|---|---|---|---|---|---|---|
-| total, ours | **7.08 s** over 864 complete pages | 6.99 s over 862 | 7.08 s over 859 | 6.91 s over 858 | 6.20 s over 852 | 7.13 s over 852 |
-| total, `hayro` | 41.28 s | 39.59 s | 49.03 s | 41.87 s | 34.93 s | 39.03 s |
-| **median page** | **2.13×** slower | 2.14× | 2.15× | 2.14× | 2.15× | 2.29× |
-| worst page | 65×, `issue19176.pdf` at 1.06 ms against 16.3 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 68× | 50× | 63× | 56× | |
+| | hundred-and-twenty-fifth | hundred-and-nineteenth | hundred-and-sixth | ninety-ninth | seventy-third | sixty-fifth | fifty-eighth |
+|---|---|---|---|---|---|---|---|
+| total, ours | **6.04 s** over 865 complete pages | 7.08 s over 864 | 6.99 s over 862 | 7.08 s over 859 | 6.91 s over 858 | 6.20 s over 852 | 7.13 s over 852 |
+| total, `hayro` | 41.02 s | 41.28 s | 39.59 s | 49.03 s | 41.87 s | 34.93 s | 39.03 s |
+| **median page** | **2.16×** slower | 2.13× | 2.14× | 2.15× | 2.14× | 2.15× | 2.29× |
+| worst page | 59×, `issue19176.pdf` at 529 µs against 8.9 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 65× | 68× | 50× | 63× | 56× | |
+
+**The hundred-and-twenty-fifth session's 6.04 s is not an improvement on the 7.08 s beside it
+and is not comparable to it either.** `hayro`'s own total barely moved (41.28 → 41.02) where it
+has swung 4.5× to 5.8× before, so the usual explanation is the wrong way round — but the
+interpretation A/B taken the same day puts the four sessions in between at **+0.16%**, and not
+one of them touched a rasterising path. A 15% fall with no candidate change is the machine, and
+the rule below is why it is printed rather than celebrated.
 
 **The hundred-and-nineteenth session's 7.08 s is not a regression against the 6.99 s beside it
 and is not comparable to it**, which is this table's standing caution rather than a new one: two
