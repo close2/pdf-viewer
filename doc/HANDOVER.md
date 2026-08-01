@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-third** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-fourth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,28 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-twenty-first — a clause with two populations, and a row that described one.**
-ADR 0110.
-
-- **The previous session's lesson, applied to the other 34 `reported` rows one by one.**
-  §11.7.4.4's said the tree "emits a `Fill` and a `Stroke`" and that implementing it "needs
-  §11.4.6's knockout groups" — both false since the seventy-second session.
-- **That is not the finding.** The clause names *two* populations — "the B , B\* , b , and b\*
-  operators … **and** the painting of glyphs with text rendering mode 2 or 6" — and only the
-  first had ever been implemented. The second was neither drawn nor reported: **a `reported`
-  row was covering a silence.**
-- **§9.3.8's text knockout is not a substitute, and the clause says so in a note**: NOTE 1 makes
-  §11.7.4.4 "independent of the text knockout parameter". §9.3.8's group needs `/TK` true *and*
-  two glyphs overlapping; one translucent outlined glyph gets neither, and got NOTE 2's double
-  border.
-- **Where §9.3.8's group does enclose the object it holds the glyphs' parts flat**, because a
-  knockout group inside a knockout group computes the same picture — the topmost element wins
-  at every point either way — and neither backend can state one.
-- **No corpus page reaches it**, measured by interpreting every page of all 974 documents either
-  side of the change: the same 15 fill-and-stroke groups, the same 161 groups in total.
-
-`reported` falls **34 → 33**; tests 885 → 889; no gate moved.
 
 **Hundred-and-twenty-second — a name the table does not permit is not an encoding.** ADR 0111.
 
@@ -88,6 +66,35 @@ Incomplete **90 → 89**, agreeing **840 → 841**; tests 889 → 890.
   only instrument that could see the change.
 
 Tests 890 → 891; no gate moved.
+
+**Hundred-and-twenty-fourth — everything re-verified, and the drift floor turns out to be
+between sittings.** No ADR: a verification session that finds nothing has nothing to argue.
+
+- **Every gate re-run rather than inherited.** 891 tests, `clippy` silent, `cargo fmt --check`
+  clean, `cargo deny` clean on all four checks, **all five fuzz targets clean at 50 000 runs
+  apiece** — `variable_text` first, because the hundred-and-twenty-third session changed it — and
+  the four censuses: 89 incomplete of 974, 841 agreeing and 65 contradicted of 1667, 97.9% of
+  `pdftotext`'s words, 1545 dates.
+- **The interpretation number was measured as an A/B in one sitting, and that changes what the
+  drift floor means.** `0723cda` rebuilt today gives **2 119 519 869** instructions against the
+  2 119.5 M the hundred-and-nineteenth session recorded for the same commit — a *repeat*, not a
+  drift. So the 0.42% this file has been quoting is drift between machines and builds, and an
+  A/B in one sitting resolves far below it: the four sessions since cost **3.3 M (+0.16%)**, of
+  which §11.7.4.4's per-glyph bookkeeping is **1.1 M (0.05%)**, measured by stubbing exactly
+  that out.
+- **§12.5.6.11's caret was reconsidered against ADR 0109's rule and the refusal stands.** The
+  tempting reading is §12.5.6.10's — a clause that names the mark — but §12.5.6.11 never says
+  the annotation shall appear as a caret; it says it *is* "a visual symbol", and a subtype name
+  is not a statement of artwork. Recorded in the row so the question is not reopened blind.
+- **The `hayro` totals are *not* re-measured here and are therefore not quoted.** The comparison
+  renders page one of 974 files best-of-N with both programs and takes the better part of an
+  hour; it did not finish inside this session. The one number that did come out is the worst
+  page, `issue19176.pdf` at **67.78×** — 520.92 µs against 7.68 µs — against 65× in the
+  hundred-and-nineteenth, on a 9×11-point page where the absolute numbers are too small to mean
+  anything. **A total not taken today is a total this file does not print**, which is the same
+  rule that governs the table below.
+
+No gate moved.
 
 ## How the project got here
 
@@ -215,6 +222,7 @@ below rather than here.
 | 121 | §11.7.4.4's other half: a glyph filled and stroked is one object too | ADR 0110 |
 | 122 | A sweep for entries claimed unread; an `/Encoding` name that erased a font | ADR 0111 |
 | 123 | A `/DA` font `/DR` lacks is stood in for — and the stand-in must not fall short | ADR 0112 |
+| 124 | Everything re-verified; the interpretation drift floor measured as an A/B | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -264,8 +272,8 @@ ones.
 
 - **891 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
-  clean at 50 000 runs apiece** — the fuzzers and `cargo deny` last re-run in the
-  hundred-and-nineteenth session, the rest in the hundred-and-twenty-third. (The thirteenth session found this line had been *wrong*: eleven warnings had
+  clean at 50 000 runs apiece** — every one of those re-run in the hundred-and-twenty-fourth
+  session rather than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
   functions.)
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and 101 318
@@ -1348,7 +1356,7 @@ the AGL: §9.10.2's second method searched a four-thousand-entry list per charac
 font with at most 256 codes, and a cache took the whole of interpretation from 2 013.8 M
 instructions to 1 989.1 M.
 
-**Interpretation costs 2 110.6 M today**, and the rise over the fifty-eighth session's 1 989.1 M
+**Interpretation costs 2 122.8 M today**, and the rise over the fifty-eighth session's 1 989.1 M
 is one feature — measured rather than guessed, by stubbing it out and running the same page:
 
 | | instructions |
@@ -1357,11 +1365,19 @@ is one feature — measured rather than guessed, by stubbing it out and running 
 | with §14.7.5.4's parent tree stubbed out | 2 003.9 M — **everything else those sessions added costs 0.7% together** |
 | as the seventy-ninth session shipped it (`a9d423e`) | 2 094.9 M as measured then, **2 103.8 M when the same commit was rebuilt in the eighty-sixth** |
 | the hundred-and-sixth session | 2 110.6 M — +0.33% over that rebuilt baseline, at the drift floor |
-| today, after thirteen more sessions | **2 119.5 M** — +0.42% over the same baseline, still at it |
+| the hundred-and-nineteenth, after thirteen more sessions | 2 119.5 M — +0.42% over the same baseline, still at it |
+| today (`0723cda` rebuilt in the same sitting) | **2 119.5 M** — the same number to six figures, which is the first time this file has had a *repeat* of a measurement rather than a drift |
+| today, after four sessions of change | **2 122.8 M** — **+0.16%**, and this one is a real cost rather than drift, because the baseline beside it was built and run in the same sitting |
 
 **0.42% of drift on one commit with no code between two measurements** is the second time this
 project has caught its own performance number moving under it, and it widens the 0.23% floor the
-sixtieth session recorded. Quote a measurement against one taken the same afternoon.
+sixtieth session recorded. Quote a measurement against one taken the same afternoon — which the
+hundred-and-twenty-fourth session did, and got 2 119 519 869 instructions for `0723cda` against
+the 2 119.5 M the hundred-and-nineteenth recorded for it. **The drift is between machines and
+builds, not within one sitting**, so an A/B taken in one sitting resolves changes far below the
+floor: the four sessions since cost 3.3 M instructions, of which §11.7.4.4's per-glyph
+bookkeeping is **1.1 M (0.05%)**, measured by stubbing exactly that out and running the same
+page.
 
 **The sixtieth session added §14.9's four accessibility entries and measured 2 099.5 M against
 2 099.8 M** for the same page built in the same sitting — no cost, because the entries are read

@@ -3661,7 +3661,7 @@ note = "The four text markup subtypes are drawn, and **this row said they were r
 clause = "12.5.6.11"
 title = "Caret annotations"
 status = "reported"
-note = "A caret annotation is 'a visual symbol that indicates the presence of text edits' and Table 183 adds only /RD, the difference between /Rect and 'the actual boundaries of the underlying caret', and /Sy naming a paragraph symbol. The symbol itself is not stated anywhere, so an appearance-less caret is refused and named. No corpus document reaches it."
+note = "A caret annotation is 'a visual symbol that indicates the presence of text edits' and Table 183 adds only /RD, the difference between /Rect and 'the actual boundaries of the underlying caret', and /Sy naming a paragraph symbol. The symbol itself is not stated anywhere, so an appearance-less caret is refused and named. **Reconsidered in the hundred-and-twenty-fourth session against ADR 0109's rule, and the refusal stands.** The tempting reading is §12.5.6.10's, where the clause names the mark — 'shall appear as highlights, underlines, strikeouts … or jagged (\"squiggly\") underlines' — and leaves only a thickness; this clause never says the annotation shall appear as a caret. It says it *is* 'a visual symbol', indefinitely, and Table 183 then calls the thing whose boundaries /RD measures 'the caret'. A subtype name is not a statement of artwork, and the question ADR 0109 leaves is not 'may I fill this silence' but 'does a sentence around it require me to'. Nothing here does. All 6 corpus carets carry an /AP."
 
 [[clause]]
 clause = "12.5.6.12"
