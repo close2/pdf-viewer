@@ -592,12 +592,89 @@ struct TextObject {
     composited: Vec<Option<Rect>>,
     /// Whether two of those glyphs were found to overlap, which is what `Tk` would change.
     knockout_owed: bool,
+    /// Command ranges holding one glyph's fill and stroke, for §11.7.4.4's implicit group.
+    ///
+    /// A glyph shown in rendering mode 2 or 6 is filled *and* stroked, and the clause makes
+    /// that pair one object rather than two — the same requirement §11.6.2 places on `B`. The
+    /// ranges are collected rather than wrapped as they are drawn because §9.3.8's own group
+    /// may turn out to enclose the whole object, and a knockout group inside a knockout group
+    /// is not something either backend can state; which of the two is built is therefore one
+    /// decision, taken at `ET` in [`Interpreter::end_text_object`].
+    combined: Vec<(usize, usize)>,
     /// How many commands the display list held at this object's `BT`.
     ///
     /// §9.3.8 makes a text object with `Tk` true "equivalent to treating the entire text
     /// object as if it were a non-isolated knockout transparency group", so what the group
     /// contains is everything drawn between `BT` and `ET` — which is this mark to the end.
     start: usize,
+}
+
+/// What one glyph is to have done to it, decided once per show string rather than per glyph.
+///
+/// §9.3.6's Table 104 is three independent operations — fill, stroke, add to the clipping path
+/// — rather than eight cases, and the two knockout questions are answers about the *paint*
+/// rather than about the glyph, so all five are constant across a `Tj`.
+#[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "five independent yes-or-no answers about one glyph, three of them Table 104's \
+              own decomposition of the rendering mode; a state machine would have to \
+              enumerate the product of five bits that the clause deliberately keeps separate"
+)]
+struct GlyphPainting {
+    /// Modes 0, 2, 4 and 6.
+    fills: bool,
+    /// Modes 1, 2, 5 and 6.
+    strokes: bool,
+    /// Modes 4 to 7.
+    clipping: bool,
+    /// Whether §9.3.8's text knockout could change a pixel of this object.
+    knockout_can_show: bool,
+    /// Whether §11.7.4.4's implicit group could change a pixel of this glyph.
+    combining: bool,
+}
+
+impl GlyphPainting {
+    /// Reads Table 104's mode and the two clauses that ask about the paint behind it.
+    ///
+    /// A hidden optional-content layer suppresses the two operations that mark the page and
+    /// *not* the clip: §8.11.3.1 lists clipping among the "graphics state operations" that
+    /// "shall still be applied", and requires that "graphics state parameters that persist
+    /// past the end of a marked-content section shall be the same whether the optional content
+    /// is visible or not". The clip a text object leaves behind is one of those, since it
+    /// outlives the `ET` that built it.
+    fn read(mode: i64, hidden: bool, state: &GraphicsState) -> Self {
+        let fills = matches!(mode, 0 | 2 | 4 | 6) && !hidden;
+        let strokes = matches!(mode, 1 | 2 | 5 | 6) && !hidden;
+        Self {
+            fills,
+            strokes,
+            clipping: matches!(mode, 4..=7),
+            // §9.3.8: with `Tk` true — its initial value — the whole text object behaves as a
+            // non-isolated knockout group, so "later glyphs shall overwrite ('knock out')
+            // earlier ones in the area of overlap". We composite each glyph against what is
+            // already on the page, which is exactly the `Tk` false behaviour. Two conditions
+            // have to hold before the models can differ, and both are checked rather than
+            // assumed: the paint has to composite at all — an opaque glyph under the Normal
+            // blend mode overwrites what it covers either way — and two glyphs of the object
+            // have to overlap, which most text never does and which only `ET` can know.
+            knockout_can_show: (fills || strokes)
+                && state.text.knockout
+                && state.paint_composites(),
+            // §11.7.4.4 applies to "the painting of glyphs with text rendering mode 2 or 6",
+            // which is `fills && strokes`, and its NOTE 1 says the rule "is independent of the
+            // text knockout parameter in the graphics state" — so this is a different
+            // condition from the one above, not a special case of it. The other two halves are
+            // §11.6.2's, for the same reason they are there: the paint has to composite at
+            // all, and both parts have to mark the page.
+            combining: fills
+                && strokes
+                && state.paint_composites()
+                && (matches!(state.fill_pattern, Some(PatternPaint::Tiling(_)))
+                    || marks(&state.fill_paint()))
+                && marks(&state.stroke_paint()),
+        }
+    }
 }
 
 impl TextObject {
@@ -3661,23 +3738,20 @@ impl Interpreter<'_> {
             return;
         };
 
-        // The three operations of Table 104. Mode 3 does none of them and mode 7 only the
-        // last, which is what an OCR layer under a scanned image uses; either way the text
-        // matrix still advances and the extracted text still accumulates, because §9.3.6
-        // requires it — "The e and f components of Tm shall be updated for each glyph drawn
-        // when using text rendering mode 3 or 7 in exactly the same way as would be done for
-        // other text rendering modes."
-        //
-        // A hidden optional-content layer suppresses the two that mark the page and *not*
-        // the clip: §8.11.3.1 lists clipping among the "graphics state operations" that
-        // "shall still be applied", and requires that "graphics state parameters that
-        // persist past the end of a marked-content section shall be the same whether the
-        // optional content is visible or not". The clip a text object leaves behind is one
-        // of those, since it outlives the `ET` that built it.
-        let mode = state.text.render_mode;
-        let fills = matches!(mode, 0 | 2 | 4 | 6) && !self.is_hidden();
-        let strokes = matches!(mode, 1 | 2 | 5 | 6) && !self.is_hidden();
-        let clipping = matches!(mode, 4..=7);
+        // The three operations of Table 104, and the two clauses that ask about the paint
+        // behind them; see `GlyphPainting::read`. Mode 3 does none of the three and mode 7
+        // only the last, which is what an OCR layer under a scanned image uses; either way
+        // the text matrix still advances and the extracted text still accumulates, because
+        // §9.3.6 requires it — "The e and f components of Tm shall be updated for each glyph
+        // drawn when using text rendering mode 3 or 7 in exactly the same way as would be
+        // done for other text rendering modes."
+        let painting = GlyphPainting::read(state.text.render_mode, self.is_hidden(), state);
+        let GlyphPainting {
+            fills,
+            strokes,
+            clipping,
+            ..
+        } = painting;
         let size = state.text.size;
         let scale = state.text.horizontal_scale;
 
@@ -3718,17 +3792,6 @@ impl Interpreter<'_> {
             first = false;
             self.read_back(&font, code, reversing.then_some(&mut pieces));
 
-            // §9.3.8: with `Tk` true — its initial value — the whole text object behaves as
-            // a non-isolated knockout group, so "later glyphs shall overwrite ('knock out')
-            // earlier ones in the area of overlap". We composite each glyph against what is
-            // already on the page, which is exactly the `Tk` false behaviour. Two conditions
-            // have to hold before the models can differ, and both are checked rather than
-            // assumed: the paint has to composite at all — an opaque glyph under the Normal
-            // blend mode overwrites what it covers either way — and two glyphs of the object
-            // have to overlap, which most text never does.
-            let knockout_can_show =
-                (fills || strokes) && state.text.knockout && state.paint_composites();
-
             if (fills || strokes || clipping) && size != 0.0 {
                 // Glyph space to text space: scale by the font size, apply horizontal
                 // scaling and rise, then the text matrix and the current transform. §9.4.4
@@ -3743,30 +3806,13 @@ impl Interpreter<'_> {
                 match &font {
                     Font::Program(program) => {
                         if let Some(outline) = program.outline(code) {
-                            if fills || strokes {
-                                // Marked the page; see `Interpretation::glyphs`. An empty
-                                // outline — a space in a font that has one — is a glyph the
-                                // font drew and is counted, because the question this
-                                // answers is what *kind* of page this is.
-                                self.glyphs = self.glyphs.saturating_add(1);
-                            }
-                            if fills {
-                                self.fill_glyph(&outline, transform, state, glyph_fill_clip);
-                            }
-                            if strokes {
-                                self.stroke_glyph(&outline, glyph_to_user, state);
-                            }
-                            if clipping {
-                                // §9.3.6 wants "a single path, treating the individual
-                                // outlines as subpaths of that path", and the glyphs of one
-                                // text object have as many transforms as there are glyphs —
-                                // so the transform is baked in here and the clip carries
-                                // none. Note that a hidden layer still reaches this line.
-                                text.clip.extend_transformed(&outline, transform);
-                            }
-                            if knockout_can_show {
-                                text.note_knockout(outline_bounds(&outline, transform));
-                            }
+                            self.show_program_glyph(
+                                &outline,
+                                [transform, glyph_to_user],
+                                (state, glyph_fill_clip),
+                                text,
+                                painting,
+                            );
                         }
                     }
                     Font::Type3(type3) => {
@@ -3786,7 +3832,7 @@ impl Interpreter<'_> {
                                 resources,
                                 form_depth,
                             );
-                            if knockout_can_show {
+                            if painting.knockout_can_show {
                                 // A Type 3 glyph's ink is whatever its description painted,
                                 // which is not knowable without running it again.
                                 text.note_knockout(None);
@@ -4058,10 +4104,21 @@ impl Interpreter<'_> {
         // fields. The graphics state is *not* reset for the elements, unlike §11.6.6's group
         // XObject, and it is not: each glyph command already carries the alpha, mask and
         // blend mode in force when it was shown.
-        if text.knockout_owed {
+        //
+        // §11.7.4.4's implicit group is decided here too, and it has to be: a glyph shown in
+        // mode 2 or 6 owes a knockout group of its own fill and stroke, and where the object
+        // above is built that group is *inside* it. One knockout group inside another is not
+        // something either backend can state — `knockout_is_drawable` rejects an element that
+        // is a group — and it does not have to be stated, because it computes the same
+        // picture flat: in a knockout group every element composites with the initial
+        // backdrop, so at each point the topmost element wins, and nesting cannot change
+        // which element that is. So the whole-object group subsumes every glyph's, and the
+        // per-glyph groups are built only where there is no whole-object group to be inside.
+        let knockout_owed = text.knockout_owed;
+        if knockout_owed || !text.combined.is_empty() {
             let glyphs = text.composited.len();
             let elements = self.list.split_off_commands(text.start);
-            if knockout_is_drawable(&elements) {
+            if knockout_owed && knockout_is_drawable(&elements) {
                 self.list.push(Command::Group {
                     commands: elements,
                     alpha: 1.0,
@@ -4071,13 +4128,14 @@ impl Interpreter<'_> {
                     knockout: true,
                 });
             } else {
-                for element in elements {
-                    self.list.push(element);
+                if knockout_owed {
+                    self.note(Unsupported::TextKnockout { glyphs });
                 }
-                self.note(Unsupported::TextKnockout { glyphs });
+                self.push_combined_glyphs(elements, text);
             }
         }
         text.knockout_owed = false;
+        text.combined.clear();
         text.composited.clear();
 
         let path = std::mem::take(&mut text.clip);
@@ -4095,6 +4153,113 @@ impl Interpreter<'_> {
         match self.list.add_clip(clip) {
             Ok(id) => state.clip = Some(id),
             Err(_) => self.note(Unsupported::LimitReached { limit: "max_clips" }),
+        }
+    }
+
+    /// Draws one glyph of an outline font, in whichever of §9.3.6's three operations apply.
+    ///
+    /// `places` is the glyph's two transforms: into page space, and into user space — the
+    /// second is what a stroke needs, since §9.3.6 makes the stroke's width a user-space
+    /// quantity like any other path's.
+    fn show_program_glyph(
+        &mut self,
+        outline: &Arc<Path>,
+        places: [Transform; 2],
+        painted: (&GraphicsState, Option<ClipId>),
+        text: &mut TextObject,
+        painting: GlyphPainting,
+    ) {
+        let [transform, glyph_to_user] = places;
+        let (state, fill_clip) = painted;
+        if painting.fills || painting.strokes {
+            // Marked the page; see `Interpretation::glyphs`. An empty outline — a space in a
+            // font that has one — is a glyph the font drew and is counted, because the
+            // question this answers is what *kind* of page this is.
+            self.glyphs = self.glyphs.saturating_add(1);
+        }
+        let parts_at = self.list.command_count();
+        if painting.fills {
+            self.fill_glyph(outline, transform, state, fill_clip);
+        }
+        if painting.strokes {
+            self.stroke_glyph(outline, glyph_to_user, state);
+        }
+        // §11.7.4.4 makes this glyph's fill and stroke one object; the range is recorded and
+        // `ET` decides what to build from it. Fewer than two commands is a glyph that marked
+        // the page once — an empty outline, or a fill a tiling pattern drew nothing for — and
+        // there is nothing for it to composite with.
+        if painting.combining && self.list.command_count() > parts_at.saturating_add(1) {
+            text.combined.push((parts_at, self.list.command_count()));
+        }
+        if painting.clipping {
+            // §9.3.6 wants "a single path, treating the individual outlines as subpaths of
+            // that path", and the glyphs of one text object have as many transforms as there
+            // are glyphs — so the transform is baked in here and the clip carries none. Note
+            // that a hidden layer still reaches this line.
+            text.clip.extend_transformed(outline, transform);
+        }
+        if painting.knockout_can_show {
+            text.note_knockout(outline_bounds(outline, transform));
+        }
+    }
+
+    /// Pushes a text object's commands back, wrapping §11.7.4.4's fill-and-stroke pairs.
+    ///
+    /// ISO 32000-2 §11.7.4.4, of a combined fill and stroke — which "include the B , B\* , b ,
+    /// and b\* operators … and the painting of glyphs with text rendering mode 2 or 6":
+    ///
+    /// > In all other cases, a non-isolated knockout group shall be established. Within the
+    /// > group, the fill and stroke shall be performed with their respective prevailing alpha
+    /// > constants and the prevailing blend mode. The group results shall then be composited
+    /// > with the backdrop, using an alpha value of 1.0 and the Normal blend mode.
+    ///
+    /// "All other cases" is every case here: the first bullet needs overprinting enabled, and
+    /// §8.6.7 is why this device never enables it (ADR 0028). The construction is therefore
+    /// identical to the one the `B` operator gets in [`Interpreter::paint_path`], and NOTE 2
+    /// says what it is for — "to avoid having a non-opaque stroke composite with the result of
+    /// the fill in the region of overlap, which would produce a double border effect".
+    ///
+    /// A pair the backends cannot draw as a knockout — one carrying a soft mask, or a fill a
+    /// tiling pattern turned into a group — is pushed flat and named once for the whole text
+    /// object, because a report per glyph would name the same gap a hundred times on one line.
+    fn push_combined_glyphs(&mut self, elements: Vec<Command>, text: &TextObject) {
+        let mut owed = false;
+        let mut pairs = text.combined.iter().peekable();
+        let mut index = text.start;
+        let mut rest = elements.into_iter();
+        while let Some(command) = rest.next() {
+            let pair = pairs.next_if(|(from, _)| *from == index).copied();
+            let Some((from, to)) = pair else {
+                self.list.push(command);
+                index = index.saturating_add(1);
+                continue;
+            };
+            let mut parts = vec![command];
+            parts.extend(
+                rest.by_ref()
+                    .take(to.saturating_sub(from).saturating_sub(1)),
+            );
+            index = to;
+            if knockout_is_drawable(&parts) {
+                self.list.push(Command::Group {
+                    commands: parts,
+                    alpha: 1.0,
+                    clip: None,
+                    mask: None,
+                    blend: BlendMode::Normal,
+                    knockout: true,
+                });
+            } else {
+                owed = true;
+                for part in parts {
+                    self.list.push(part);
+                }
+            }
+        }
+        if owed {
+            self.note(Unsupported::CompositedInParts {
+                detail: "a glyph filled and stroked by text rendering mode 2 or 6",
+            });
         }
     }
 

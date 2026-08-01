@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twentieth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-first** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,27 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-eighteenth — a reason that expired, and the action it was blocking.** ADR 0108.
-
-- **The sweep the previous session's lesson asked for**, and it cost twenty minutes: one regular
-  expression over the ledger's 823 notes for `while … does not exist`, `until …`, `needs §…`.
-  Sixty-two matches, most of them history; **three live**.
-- **§12.6.4.5's `GoToDp` was refused because §14.12 was `unreviewed`** — which it has not been
-  since the fifty-sixth session. It is now performed: Table 206's `/Dp` names a `DPart`
-  dictionary and §12.6.4.5 says the action "changes the view to the Start page" of it. **Eleven
-  of §12.6's actions.**
-- **§14.12's `inapplicable` had decayed, for the second time in this project's history.** A
-  `DPart` dictionary decides *which page is shown*, which no marking clause does — so
-  `document_part.rs` reads §14.12.3's depth-first ordering and Table 409's `/Start`, and nothing
-  else. The rest of the family stays `inapplicable`.
-- **§12.7.8.3.1 said `/Pages` "needs §12.7.7's named pages"**, seventeen sessions after they
-  landed and while `read_pages` applied it.
-- **The class no gate can watch is a row that names a *blocker* rather than a gap**: true when
-  written, false when the blocker lands, and nothing re-reads it because nothing changed in its
-  own clause.
-
-`reported` falls **36 → 35**; tests 873 → 876; no gate moved.
 
 **Hundred-and-nineteenth — everything re-verified after nine sessions of change.** No ADR: a
 verification session that finds nothing has nothing to argue.
@@ -81,6 +60,28 @@ verification session that finds nothing has nothing to argue.
   carry one.
 
 `reported` falls **35 → 34**; tests 876 → 885; no gate moved.
+
+**Hundred-and-twenty-first — a clause with two populations, and a row that described one.**
+ADR 0110.
+
+- **The previous session's lesson, applied to the other 34 `reported` rows one by one.**
+  §11.7.4.4's said the tree "emits a `Fill` and a `Stroke`" and that implementing it "needs
+  §11.4.6's knockout groups" — both false since the seventy-second session.
+- **That is not the finding.** The clause names *two* populations — "the B , B\* , b , and b\*
+  operators … **and** the painting of glyphs with text rendering mode 2 or 6" — and only the
+  first had ever been implemented. The second was neither drawn nor reported: **a `reported`
+  row was covering a silence.**
+- **§9.3.8's text knockout is not a substitute, and the clause says so in a note**: NOTE 1 makes
+  §11.7.4.4 "independent of the text knockout parameter". §9.3.8's group needs `/TK` true *and*
+  two glyphs overlapping; one translucent outlined glyph gets neither, and got NOTE 2's double
+  border.
+- **Where §9.3.8's group does enclose the object it holds the glyphs' parts flat**, because a
+  knockout group inside a knockout group computes the same picture — the topmost element wins
+  at every point either way — and neither backend can state one.
+- **No corpus page reaches it**, measured by interpreting every page of all 974 documents either
+  side of the change: the same 15 fill-and-stroke groups, the same 161 groups in total.
+
+`reported` falls **34 → 33**; tests 885 → 889; no gate moved.
 
 ## How the project got here
 
@@ -205,6 +206,7 @@ below rather than here.
 | 118 | §12.6.4.5's `GoToDp`, and a sweep for reasons that had expired | ADR 0108 |
 | 119 | Everything re-verified: four gates, five fuzzers, both performance numbers | — |
 | 120 | §12.5.6.4's seven icons: the *shall* hiding behind a silence about artwork | ADR 0109 |
+| 121 | §11.7.4.4's other half: a glyph filled and stroked is one object too | ADR 0110 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -247,13 +249,13 @@ vocabulary, §7.11.4's embedded files and §14.13's associated ones, §12.2's vi
 PDF *viewer* in the full sense — nothing edits a field, asks a person for a password, speaks a
 page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: **not
 one of the ledger's 823 rows is `silent`**, so nothing in the eight technical clauses is missing
-without the tree saying so. What is owed is 34 `reported` rows and the notes on 241 `partial`
+without the tree saying so. What is owed is 33 `reported` rows and the notes on 242 `partial`
 ones.
 
-- **885 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **889 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece** — the fuzzers and `cargo deny` last re-run in the
-  hundred-and-nineteenth session, the rest in the hundred-and-twentieth. (The thirteenth session found this line had been *wrong*: eleven warnings had
+  hundred-and-nineteenth session, the rest in the hundred-and-twenty-first. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
   functions.)
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and 101 318
@@ -384,7 +386,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2788 citations, 299 quotations, 180 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2811 citations, 302 quotations, 180 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -1016,7 +1018,7 @@ parts that make a document *interactive* have just started.
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
 rows in the fifty-sixth session, and reached zero `silent` ones in the hundred-and-first — so the
-specification track is now its **34 `reported` rows and the notes on its 241 `partial` ones**,
+specification track is now its **33 `reported` rows and the notes on its 242 `partial` ones**,
 each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -1027,7 +1029,7 @@ several sessions:
 
 - **Every row of clause 12 is read, performed, or *reported* by name.** So the
   specification track's map
-  is no longer "which clauses are unread" nor "which are silent" — it is the **34 `reported` rows
+  is no longer "which clauses are unread" nor "which are silent" — it is the **33 `reported` rows
   and what each would
   take**, and the three nearest are `viewer-ui` work rather than clause work: **a field a person
   can edit**, which §12.7.6.3 has now proved the machinery for (a changed value redraws
@@ -1078,8 +1080,8 @@ corpus's own issue trackers says most of that is glyph rasterisation on files ch
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
-and the debt is **0 `silent` and 34 `reported`, down from 201 thirty-five sessions ago** — plus
-the notes on 241 `partial` rows, which is where the next map has to be drawn from.
+and the debt is **0 `silent` and 33 `reported`, down from 201 thirty-six sessions ago** — plus
+the notes on 242 `partial` rows, which is where the next map has to be drawn from.
 
 ### 0. The ledger, and where a false claim can still hide
 
@@ -1092,20 +1094,29 @@ the notes on 241 `partial` rows, which is where the next map has to be drawn fro
   the right test was named — the gate cannot tell whether a named test covers the clause, and
   three of the four false claims this population hid were caught by the oracle rather than by a
   row.
-- **The population with no gate at all is the 241 `partial` rows**, and reading them has now
+- **The population with no gate at all is the 242 `partial` rows**, and reading them has now
   paid four sessions running. What to look for, in the order the findings came: a note that
   *understates* what the code does (five in the hundred-and-fifteenth), a note whose **reason**
   has expired — "while §X does not exist", "needs §Y" — which is the class no gate can watch
   (the hundred-and-seventeenth and hundred-and-eighteenth), and a note whose "what IS done" half
   is simply wrong, which is the one that costs pixels and has not yet been found in this
   population. Roughly 190 rows remain unread against the code.
-- **The 34 `reported` rows have a class of their own, and the hundred-and-twentieth session
-  found it: a row whose reason for reporting is a true observation about the wrong half of the
-  sentence.** §12.5.6.4's icon was refused because the clause states no artwork, which it does
-  not — and requires one anyway, in the same table cell, with a `shall`. **Read a `reported`
-  row's clause for what it *obliges*, not for what it leaves out**, and read the neighbouring
-  clauses that look like the same case: three of them said `should` and one said `shall`, and
-  they had been one `match` arm. ADR 0109.
+- **The 33 `reported` rows have a class of their own, found twice running.** The
+  hundred-and-twentieth: a row whose reason for reporting is a true observation about the wrong
+  half of the sentence — §12.5.6.4's icon was refused because the clause states no artwork,
+  which it does, and requires one anyway, in the same table cell, with a `shall` (ADR 0109).
+  The hundred-and-twenty-first: a row that named one of the clause's **two** populations —
+  §11.7.4.4 governs `B`, `B*`, `b`, `b*` **and** glyphs in text rendering mode 2 or 6, and the
+  second had been neither drawn nor reported, so a `reported` row was covering a silence
+  (ADR 0110). **Read a `reported` row's clause for what it obliges and over what**, and where
+  it lists operators, check that the row named all of them — a list with an "and" in it is a
+  list a summary will shorten. **All thirty-three that remain were read in the
+  hundred-and-twenty-first session and none is of either class**: 17 are cryptographic
+  validation needing a trust store or a network (§7.6.5's public-key handlers, §12.8.3's
+  containers, §12.8.2's two transforms), 5 are actions needing a second file, a media engine or
+  a network, 3 are icon clauses whose own verb is *should*, and the rest name a device or a
+  user control this program does not have. The population is worked out; the 242 `partial`
+  rows are not.
 - **Two `reported` rows also cited a table number one out** (§12.5.6.15 is Table 187, not 186;
   §12.5.6.16 is Table 188, not 187). The gate that catches this in the *tree* — printing each
   cited table's title beside its number, ADR 0095 — reads the ledger's prose too but only for
@@ -1541,6 +1552,13 @@ looks like a compromise; three in one subclause, all in the same direction, is a
 **Where the standard defines nothing, refusing is a result.** `issue6621.pdf`'s `/Mask` is a
 one-bit greyscale image where Table 87 requires an image mask; both readings damage some file, so
 neither, and the entry is named.
+
+**A clause can name more than one population in one sentence, and a summary of it will name
+one.** §11.7.4.4 governs "the B , B\* , b , and b\* operators … **and** the painting of glyphs
+with text rendering mode 2 or 6"; the path half was drawn in the seventy-second session and the
+glyph half was neither drawn nor reported until the hundred-and-twenty-first, under a ledger row
+that said the whole clause was reported. **Where a rule lists the operators it applies to, count
+them against the code.** ADR 0110.
 
 **Reading a silence is not reading the sentence it sits in — check the modal verb.** Table 175
 says a processor "**shall** provide predefined icon appearances" for seven names and then draws

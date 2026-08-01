@@ -56,7 +56,8 @@ fn fixture(content: &str) -> Vec<u8> {
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /Font << /F1 5 0 R /FT3 6 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         /Resources << /Font << /F1 5 0 R /FT3 6 0 R >> \
+         /ExtGState << /Half 10 0 R /HalfNoTk 11 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
          6 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
@@ -64,7 +65,9 @@ fn fixture(content: &str) -> Vec<u8> {
          /FirstChar 97 /LastChar 97 /Widths [1000] >>\nendobj\n\
          7 0 obj\n<< /Type /Encoding /Differences [97 /square] >>\nendobj\n\
          8 0 obj\n<< /square 9 0 R >>\nendobj\n\
-         9 0 obj\n<< /Length {} >>\nstream\n{SQUARE}\nendstream\nendobj\n",
+         9 0 obj\n<< /Length {} >>\nstream\n{SQUARE}\nendstream\nendobj\n\
+         10 0 obj\n<< /Type /ExtGState /ca 0.5 /CA 0.5 >>\nendobj\n\
+         11 0 obj\n<< /Type /ExtGState /ca 0.5 /CA 0.5 /TK false >>\nendobj\n",
         content.len() + 1,
         SQUARE.len() + 1,
     );
@@ -181,6 +184,118 @@ fn mode_1_strokes_only_and_in_the_stroking_colour() {
 fn mode_2_fills_then_strokes_each_glyph_in_turn() {
     let drawn = page("BT /F1 24 Tf 10 10 Td 2 Tr (AB) Tj ET");
     assert_eq!(kinds(&drawn), ["fill", "stroke", "fill", "stroke"]);
+}
+
+/// §11.7.4.4: a translucent mode-2 glyph is one object, not a fill and a stroke.
+///
+/// > the painting of glyphs with text rendering mode 2 or 6 … For transparency compositing
+/// > purposes, the combined fill and stroke shall be treated as a single graphics object, as
+/// > if they were enclosed in a transparency group.
+///
+/// The clause's second bullet is the one that applies here — the first needs overprinting,
+/// which §8.6.7 says this device never enables — and it asks for "a non-isolated knockout
+/// group", composited "using an alpha value of 1.0 and the Normal blend mode". NOTE 2 says
+/// what goes wrong without it: "a non-opaque stroke composite with the result of the fill in
+/// the region of overlap, which would produce a double border effect".
+///
+/// Opaque paint is the control, and it is the case `mode_2_fills_then_strokes_each_glyph_in_turn`
+/// already pins: with alpha 1 under Normal the stroke covers the fill either way, so no group
+/// is built and the two commands stay flat.
+#[test]
+fn a_translucent_mode_2_glyph_is_one_knockout_group() {
+    let drawn = page("BT /F1 24 Tf /Half gs 10 10 Td 2 Tr (A) Tj ET");
+    let commands = drawn.display_list.commands();
+    let [
+        Command::Group {
+            commands: parts,
+            alpha,
+            clip,
+            mask,
+            blend,
+            knockout,
+        },
+    ] = commands
+    else {
+        panic!("expected one group, got {:?}", kinds(&drawn));
+    };
+    assert!(*knockout, "the clause asks for a knockout group");
+    assert_eq!(*alpha, 1.0, "composited \"using an alpha value of 1.0\"");
+    assert_eq!(*blend, pdf_render::BlendMode::Normal);
+    assert!(clip.is_none() && mask.is_none());
+    assert!(
+        matches!(
+            parts.as_slice(),
+            [Command::Fill { .. }, Command::Stroke { .. }]
+        ),
+        "the fill and the stroke, in that order"
+    );
+}
+
+/// And it does not depend on `Tk`, which §11.7.4.4 says in a note of its own.
+///
+/// > NOTE 1 In the case of showing text with the combined filling and stroking text rendering
+/// > modes, this behaviour is independent of the text knockout parameter in the graphics state
+///
+/// This is the discriminating case for the way the two clauses were confused: §9.3.8's group
+/// exists only where `Tk` is true and two glyphs overlap, and a reader that built §11.7.4.4's
+/// group out of that machinery would draw nothing special here.
+#[test]
+fn the_implicit_group_does_not_depend_on_the_text_knockout_parameter() {
+    let drawn = page("BT /F1 24 Tf /HalfNoTk gs 10 10 Td 2 Tr (A) Tj ET");
+    assert!(
+        matches!(
+            drawn.display_list.commands(),
+            [Command::Group { knockout: true, .. }]
+        ),
+        "got {:?}",
+        kinds(&drawn)
+    );
+}
+
+/// Each glyph gets its own group, because each glyph is its own object.
+///
+/// Two glyphs that do not overlap leave §9.3.8 with nothing to do, so what remains is one
+/// implicit group per glyph rather than one around the pair — which is the difference between
+/// reading §11.7.4.4 as being about a glyph and reading it as being about a show string.
+#[test]
+fn every_combined_glyph_is_its_own_object() {
+    let drawn = page("BT /F1 24 Tf /Half gs 10 10 Td 2 Tr (AB) Tj ET");
+    let commands = drawn.display_list.commands();
+    assert_eq!(commands.len(), 2, "got {:?}", kinds(&drawn));
+    for command in commands {
+        assert!(matches!(command, Command::Group { knockout: true, .. }));
+    }
+}
+
+/// Where §9.3.8's own group encloses the object, it subsumes every glyph's.
+///
+/// Overlapping glyphs under `Tk` make the whole text object a knockout group, and a knockout
+/// group inside a knockout group is not something either backend can state. It does not have
+/// to be: in a knockout group every element composites with the initial backdrop, so at each
+/// point the topmost element wins, and nesting cannot change which element that is. The flat
+/// group therefore computes both clauses at once — which this pins by asserting that the four
+/// commands are its direct elements.
+#[test]
+fn the_text_objects_own_knockout_group_holds_the_glyphs_parts_flat() {
+    // The second glyph is drawn on top of the first: same `Td`, no advance between them.
+    let drawn = page("BT /F1 24 Tf /Half gs 10 10 Td 2 Tr (A) Tj 10 10 Td (B) Tj ET");
+    let [
+        Command::Group {
+            commands: parts,
+            knockout: true,
+            ..
+        },
+    ] = drawn.display_list.commands()
+    else {
+        panic!("expected one group, got {:?}", kinds(&drawn));
+    };
+    assert_eq!(parts.len(), 4, "four flat elements, not two nested groups");
+    assert!(
+        parts
+            .iter()
+            .all(|part| !matches!(part, Command::Group { .. })),
+        "no group inside the group"
+    );
 }
 
 /// Mode 3 paints nothing at all, and still reads the text.
