@@ -1594,4 +1594,4 @@ above rather than here.
 | 140 | Search, and a contradicted page that measured our own grid-fitting for us | — |
 | 141 | A page turn walked the page tree once per outline item: 380 ms → 9 ms | 0124 |
 | 142 | A frame that failed was reported as one that was drawn; the CPU draws it now | 0125, 0126 |
-| 143 | A page the device drew nothing of, and said nothing about | 0127 |
+| 143 | A page the device drew nothing of, and said nothing about; banded, and the backend question asked properly | 0127, 0128 |
