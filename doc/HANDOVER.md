@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-eighth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twenty-ninth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -12,8 +12,8 @@ Each session's own reasoning lives in its ADR, and every session is one line in 
 got here". This file keeps a lesson **exactly once**: in a trap if it changes how you write code,
 in "Habits" if it changes how you work, and in the numbers if it is a fact about today. It was
 halved in the fifty-ninth session by deleting twenty per-session narratives that duplicated those
-three homes, and cut back to three prose entries in the seventy-ninth; the forty-one sessions since
-have kept to that rule by dropping the oldest entry as each new one arrived. If you find yourself
+three homes, and cut back to three prose entries in the seventy-ninth; the fifty sessions since have
+kept to that rule by dropping the oldest entry as each new one arrived. If you find yourself
 retelling a session here, the retelling belongs in its ADR and the lesson belongs in Traps or
 Habits.
 
@@ -21,48 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-twenty-fifth — the only default bounding box the standard states.** ADR 0113.
-
-- **Two annotation reports discard an annotation whole over one entry**, and both are now
-  smaller. An appearance stream with no `/BBox` is placed by §12.7.4.3's own default —
-  "[t]he lower-left corner … (0, 0) in the form coordinate system … top and right … from the
-  dimensions of the annotation rectangle" — rather than refused, and the missing entry is named.
-- **That sentence is written for a *constructed* appearance and applying it to a stored one is
-  an extension**, recorded as one. What makes it the right extension is the alternative:
-  refusing discards the annotation's whole appearance over an entry §12.5.5 needs only for a
-  *scale*. Taking `/Rect` as the box instead — the other candidate — leaves a stream drawing at
-  `0 0 Td` at the corner of the *page*, where `/Rect`'s clip removes all of it.
-- **The corpus's one witness gains nothing visible, and that is stated rather than hidden**:
-  `checkbox-bad-appearance.pdf`'s tick is a `/ZapfDingbats` glyph, and no face on this machine
-  substitutes for one. 37 commands either side. The behaviour is defended by a synthetic
-  fixture, which is trap 8's converse rather than a shortcut.
-- **A report that began with a colon** — `issue7446.pdf` states no `/Subtype`, so the name
-  interpolated before it was empty — now names the absence.
-- **The `hayro` totals the previous session could not wait for finished afterwards** and are in
-  the table below: 6.04 s over 865 complete pages against 41.02 s. Our own total fell from
-  7.08 s while `hayro`'s barely moved, which is **not** claimed as an improvement: the
-  interpretation A/B taken the same day puts four sessions at +0.16% and none of them touched a
-  rasterising path.
-
-Tests 891 → 892; no gate moved.
-
-**Hundred-and-twenty-sixth — a missing operand makes the map the identity.** ADR 0114.
-
-- **The same rule as the previous session, read the other way.** §12.5.5 maps the appearance's
-  transformed `/BBox` onto `/Rect`; the two are the same kind of thing, so a missing operand
-  makes the map the identity *whichever* operand it is. No `/BBox` → §12.7.4.3's default box
-  (ADR 0113); no `/Rect` → the appearance's own box through its `/Matrix`.
-- **Where there is no stored appearance the refusal stands**, and the boundary is the argument:
-  every construction in `crate::appearance` is *written into* the rectangle, so nothing else's
-  box could stand in for it.
-- **What the witness says is the finding.** `issue14438.pdf`'s four ink annotations state no
-  `/Rect` and appearance streams whose `/BBox` is `[0 0 0 0]` — an appearance covering no area,
-  which Table 166 already excuses. The old report named the missing `/Rect`, **the one entry
-  that could not have changed the picture**. A report can name a true absence and still be
-  about the wrong thing.
-
-Tests 892 → 894; no gate moved.
 
 **Hundred-and-twenty-seventh — a resource name is scoped to the dictionary that defines it.**
 ADR 0115.
@@ -106,6 +64,23 @@ session that confirms and measures has nothing to argue.
   the corpus's. **Price an item on the corpus, not on the page the profiler happens to open.**
 
 No gate moved.
+
+**Hundred-and-twenty-ninth — everything re-verified after ten sessions of change.** No ADR: a
+verification session that finds nothing has nothing to argue.
+
+- **Every gate re-run rather than inherited.** 895 tests, `clippy` silent under `pedantic` +
+  `unwrap_used`/`panic`/`arithmetic_side_effects`, `cargo fmt --check` clean, `cargo deny` clean
+  on all four checks, **all five fuzz targets clean at 50 000 runs apiece**, and the four
+  censuses: **91** incomplete of 974, **839** agreeing and **65** contradicted of 1665, 97.9% of
+  `pdftotext`'s words with 42 below the floor, 1545 dates.
+- **`cargo deny` has to be run from the workspace root.** `fuzz/` is a workspace of its own with
+  its own lock file, and running it there reports `bans FAILED, licenses FAILED` for duplicate
+  crates nothing ships. Ten minutes, once.
+- **Ten sessions, and the shape of them is not what it was.** Four moved a gate — two icons and
+  a `shall`, two malformed-file recoveries, one font-cache defect — and the one that mattered
+  most was found by *measuring something else*. Against the nine before them, which moved none:
+  the difference is that these read the code against the clause rather than the ledger against
+  the clause.
 
 ## How the project got here
 
@@ -238,6 +213,7 @@ below rather than here.
 | 126 | And the same rule the other way: no `/Rect`, so the appearance's own box | ADR 0114 |
 | 127 | The font cache was keyed by a resource *name*; a form's `/F1` is not a page's | ADR 0115 |
 | 128 | Every other cache's key checked; the decompression item priced and found small | — |
+| 129 | Everything re-verified after ten sessions of change | — |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -288,7 +264,7 @@ ones.
 
 - **895 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
-  clean at 50 000 runs apiece** — every one of those re-run in the hundred-and-twenty-fourth
+  clean at 50 000 runs apiece** — every one of those re-run in the hundred-and-twenty-ninth
   session rather than inherited. (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
   functions.)
@@ -1064,8 +1040,16 @@ track finishes when the corpus goes quiet, which can happen with a great deal of
 unimplemented and nothing able to say which parts; one running only the second ships features no
 file exercises. This is a `CLAUDE.md` principle-5 rule, not a suggestion.
 
-**There is no silence left, so the map is the reports**, and that is the shape of the next
-several sessions:
+**There is no silence left, so the map is the reports** — and the ten sessions from the
+hundred-and-twentieth found that the map is not the whole territory. Four of the six findings in
+them were **not** on any list: a `shall` hiding behind a silence about artwork (ADR 0109), a
+clause with two populations where the row named one (ADR 0110), a malformed optional entry that
+erased a font (ADR 0111), and a font cache keyed by a name (ADR 0115). None was `silent`, none
+was `reported`, and the last was a wrong-glyphs-in-silence defect thirty-one sessions old that
+no gate could see. **The instrument that found three of them was reading the clause beside the
+code; the instrument that found the fourth was measuring something else entirely.**
+
+The reports remain the map for what is *owed*:
 
 - **Every row of clause 12 is read, performed, or *reported* by name.** So the
   specification track's map
@@ -1134,6 +1118,12 @@ the notes on 242 `partial` rows, which is where the next map has to be drawn fro
   the right test was named — the gate cannot tell whether a named test covers the clause, and
   three of the four false claims this population hid were caught by the oracle rather than by a
   row.
+- **A gate cannot see a cache.** ADR 0115's defect drew the wrong glyphs on two corpus
+  documents in silence for thirty-one sessions: no report, no contradicted page (both agreed
+  with the references, because the *page's* own text was right), and one of them sat on the text
+  gate's "undiagnosed" list at 83%. What found it was counting `zlib_rs` calls for an unrelated
+  perf question. **Where a lookup is memoised, ask what the key claims** — every other cache in
+  this tree keys on object identity, checked one by one in the hundred-and-twenty-eighth.
 - **The population with no gate at all is the 242 `partial` rows**, and reading them has now
   paid four sessions running. What to look for, in the order the findings came: a note that
   *understates* what the code does (five in the hundred-and-fifteenth), a note whose **reason**
