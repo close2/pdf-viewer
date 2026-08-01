@@ -8,11 +8,13 @@ use pdf_model::view::Pointer;
 use pdf_render::{Point, Rect, TargetSpec};
 use pdf_syntax::SyntaxError;
 
-use crate::command::{Command, PageTarget, PointerAction, Purpose, Rendered, Zoom};
+use crate::command::{
+    Command, PageTarget, PointerAction, Purpose, Rendered, Selection as CommandSelection, Zoom,
+};
 use crate::event::{Event, RenderRequest};
 use crate::interact;
 use crate::open::{Frame, Interpreted, Open, Pending};
-use crate::query::{Answer, FrameView, Layer, PageGeometry, Query};
+use crate::query::{Answer, FrameView, Layer, PageGeometry, Query, Selected};
 
 /// Pixel budget for one rendered page.
 ///
@@ -111,6 +113,7 @@ impl Viewer {
                     .and_then(|(x, y)| interact::link_at(open, x, y))
                     .is_some(),
             ),
+            Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),
             Query::Frame => open.frame.as_ref().map_or(Answer::None, |frame| {
                 Answer::Frame(FrameView {
                     page: frame.page,
@@ -197,6 +200,20 @@ impl Viewer {
                 if let Some(raster) = raster {
                     open.clamp_scroll(viewport, raster);
                 }
+                events.push(damage(viewport));
+            }
+            Command::Select(selection) => {
+                let viewport = self.viewport;
+                let Some(open) = self.focused_mut() else {
+                    return;
+                };
+                open.selection = match selection {
+                    CommandSelection::All => open
+                        .interpreted
+                        .as_ref()
+                        .map(|interpreted| (0, interpreted.text.len())),
+                    CommandSelection::None => None,
+                };
                 events.push(damage(viewport));
             }
             Command::SetGroup { group, on } => {
@@ -303,17 +320,28 @@ impl Viewer {
     /// instructions — for a picture that cannot differ.
     fn pointer(&mut self, at: (f32, f32), action: PointerAction, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
+        let viewport = self.viewport;
         let point = self.focused().and_then(|open| self.user_space(open, at));
+        let on_page = self.focused().and_then(|open| self.page_point(open, at));
         let Some(open) = self.focused_mut() else {
             return;
         };
         let under = point.and_then(|(x, y)| interact::link_at(open, x, y));
 
         let wanted = match action {
-            PointerAction::Moved => under.map(|annotation| (annotation, Pointer::Over)),
+            // A drag is a person choosing text, not looking at an annotation, so it leaves
+            // §12.5.5's appearance where the press put it.
+            PointerAction::Moved | PointerAction::Dragged => {
+                under.map(|annotation| (annotation, Pointer::Over))
+            }
             PointerAction::Pressed => under.map(|annotation| (annotation, Pointer::Down)),
             // Back to hovering: the button is up and the cursor is still where it was.
             PointerAction::Released => under.map(|annotation| (annotation, Pointer::Over)),
+        };
+        let wanted = if action == PointerAction::Dragged {
+            open.pointer
+        } else {
+            wanted
         };
         let wanted = wanted.filter(|(annotation, pointer)| {
             interact::has_appearance(&open.document, *annotation, *pointer)
@@ -326,12 +354,33 @@ impl Viewer {
 
         match action {
             PointerAction::Moved => {}
-            PointerAction::Pressed => open.pressed = under,
+            PointerAction::Pressed => {
+                open.pressed = under;
+                // A press starts an empty selection where it landed, so that the first drag
+                // has an anchor. An empty selection highlights nothing and is not a selection
+                // a person can see.
+                let position = on_page.and_then(|point| open.position_at(point));
+                open.selection = position.map(|position| (position, position));
+                events.push(damage(viewport));
+            }
+            PointerAction::Dragged => {
+                let position = on_page.and_then(|point| open.position_at(point));
+                if let (Some((anchor, _)), Some(position)) = (open.selection, position) {
+                    open.selection = Some((anchor, position));
+                    events.push(damage(viewport));
+                }
+            }
             PointerAction::Released => {
                 let pressed = open.pressed.take();
                 // A press dragged off the annotation before release is a press the person
-                // changed their mind about; see `PointerAction::Released`.
-                if pressed.is_none() || pressed != under {
+                // changed their mind about; see `PointerAction::Released`. And a press that
+                // selected something was a drag rather than a click, so it does not follow the
+                // link it happened to start on — which is what every viewer does and what a
+                // person dragging across a paragraph of links expects.
+                let selecting = open
+                    .selection
+                    .is_some_and(|(anchor, focus)| anchor != focus);
+                if selecting || pressed.is_none() || pressed != under {
                     return;
                 }
                 let Some((x, y)) = point else { return };
@@ -429,6 +478,52 @@ impl Viewer {
         }
     }
 
+    /// What is selected, with its shapes in device pixels.
+    fn selected<'a>(&self, open: &'a Open) -> Option<Selected<'a>> {
+        let (anchor, focus) = open.selection?;
+        let interpreted = open.interpreted.as_ref()?;
+        let (from, to) = (anchor.min(focus), anchor.max(focus));
+        let text = interpreted.text.get(from..to).unwrap_or_default();
+        let magnification = open.magnification(self.viewport, self.scale)?;
+        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
+        let origin = open.origin(self.viewport, (target.width, target.height));
+        let height = open.page_size(open.page_index)?.height;
+        let quads = crate::select::quads_for(&interpreted.placed, (from, to))
+            .into_iter()
+            .map(|quad| {
+                // Two paired iterators rather than an index: the corners are (x, y) pairs and a
+                // `chunks_exact(2)` over both sides says so without arithmetic on the index.
+                let mut out = [0.0; 8];
+                for (corner, place) in quad.chunks_exact(2).zip(out.chunks_exact_mut(2)) {
+                    place[0] = origin.0 + corner[0] * magnification;
+                    place[1] = origin.1 + (height - corner[1]) * magnification;
+                }
+                out
+            })
+            .collect();
+        Some(Selected { text, quads })
+    }
+
+    /// Maps a viewport point to the display list's own coordinates.
+    ///
+    /// The half of [`Self::user_space`] that stops before the page's own transform: the display
+    /// list, the text layer and every quadrilateral this crate hands out are in *this* space, and
+    /// only §12.5.2's annotation rectangles are in the other one.
+    fn page_point(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
+        let magnification = open.magnification(self.viewport, self.scale)?;
+        if magnification <= 0.0 {
+            return None;
+        }
+        let interpreted = open.interpreted.as_ref()?;
+        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
+        let origin = open.origin(self.viewport, (target.width, target.height));
+        let height = open.page_size(open.page_index)?.height;
+        Some((
+            (at.0 - origin.0) / magnification,
+            height - (at.1 - origin.1) / magnification,
+        ))
+    }
+
     /// Maps a viewport point to default user space on the page being shown.
     ///
     /// Through the transform the frame on the screen was drawn with, and not one this function
@@ -444,20 +539,9 @@ impl Viewer {
     /// that is what the forward transform translates by — a raster is rounded up to contain the
     /// page and the leftover fraction of a row is at the bottom. ADR 0118.
     fn user_space(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
-        let magnification = open.magnification(self.viewport, self.scale)?;
-        if magnification <= 0.0 {
-            return None;
-        }
-        let interpreted = open.interpreted.as_ref()?;
-        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
-        let origin = open.origin(self.viewport, (target.width, target.height));
+        let (x, y) = self.page_point(open, at)?;
         let page = open.page(open.page_index)?;
-        let size = open.page_size(open.page_index)?;
-        pdf_model::content::user_space_at(
-            &page,
-            (at.0 - origin.0) / magnification,
-            size.height - (at.1 - origin.1) / magnification,
-        )
+        pdf_model::content::user_space_at(&page, x, y)
     }
 
     /// Resolves a zoom command into the magnification it lands on.
@@ -536,7 +620,11 @@ impl Viewer {
                 page,
                 list: Arc::new(interpretation.display_list),
                 reports,
+                text: interpretation.text,
+                placed: interpretation.text_layer,
             });
+            // A selection is a range of the page that has just been replaced.
+            open.selection = None;
         }
         let Some(interpreted) = open.interpreted.as_ref() else {
             return;

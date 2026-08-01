@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use pdf_model::content::Interpretation;
+use pdf_model::content::{Interpretation, Placed};
 use pdf_model::outline::Outline;
 use pdf_model::page_label::PageLabels;
 use pdf_model::view::ViewState;
@@ -96,6 +96,12 @@ pub(crate) struct Open {
     pub(crate) pressed: Option<ObjectId>,
     /// §12.7.6.4's import, waiting for the host to supply the file.
     pub(crate) importing: Option<ImportData>,
+    /// What is selected, as byte offsets into the interpreted page's readback.
+    ///
+    /// Anchor first, then where the pointer is now — in that order rather than sorted, because
+    /// a selection dragged backwards is a selection, and which end moves is the difference
+    /// between extending it and starting again.
+    pub(crate) selection: Option<(usize, usize)>,
 }
 
 /// A page, interpreted.
@@ -107,6 +113,14 @@ pub(crate) struct Interpreted {
     pub(crate) list: Arc<DisplayList>,
     /// What could not be drawn, already worded.
     pub(crate) reports: Vec<String>,
+    /// The page's text, in the order the content stream showed it.
+    pub(crate) text: String,
+    /// Where each of that text's character codes sits on the page.
+    ///
+    /// Kept rather than rebuilt because a selection is dragged: a pointer move asks this
+    /// question sixty times a second, and re-interpreting the page to answer it would be
+    /// 2 000 M instructions a frame.
+    pub(crate) placed: Vec<Placed>,
 }
 
 /// A render the host has not answered yet.
@@ -186,6 +200,7 @@ impl Open {
             pointer: None,
             pressed: None,
             importing: None,
+            selection: None,
         }
     }
 
@@ -216,6 +231,12 @@ impl Open {
             .document
             .get(*self.view.appended_pages().get(appended)?);
         Some(pages.detached(object.as_dict()?))
+    }
+
+    /// The text position a point in the display list's coordinates selects.
+    pub(crate) fn position_at(&self, point: (f32, f32)) -> Option<usize> {
+        let interpreted = self.interpreted.as_ref()?;
+        crate::select::position_at(&interpreted.placed, point)
     }
 
     /// The page's extent in user space units, after §7.7.3.3's rotation and `/UserUnit`.

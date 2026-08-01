@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-thirty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-thirty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -42,8 +42,9 @@ three things a person can do are new: **a locked document asks for its password*
 knows what it is over and §12.5.5's rollover appearances are chosen at last, and the page zooms
 and scrolls.
 
-It is **not yet a viewer** in the full sense: nothing edits a field, speaks a page, selects text
-or runs a slide show. Every one of those was blocked on the same missing interface, which is why
+It is **not yet a viewer** in the full sense: nothing edits a field, speaks a page or runs a slide
+show — though since the hundred-and-thirty-fourth session a drag **selects text**, and the shapes
+cross to the host as geometry so that it draws them in its own colour (ADR 0119). Every one of those was blocked on the same missing interface, which is why
 §0 below is the headline; the interface now exists, has two consumers, and the rest are features
 rather than architecture.
 
@@ -51,7 +52,7 @@ rather than architecture.
 
 | gate | number | where |
 |---|---|---|
-| tests | **916**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 133, fuzzers in 129 |
+| tests | **919**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 134, fuzzers in 129 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -191,14 +192,16 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Viewer::query(&self, Query) -> Answer` beside it. **Selection cannot wait for a render round
   trip**, which is why the second channel is not a command.
 - `Command`: `Open { id, bytes, password }`, `Close`, `Focus`, `Resize { width, height, scale }`,
-  `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, `Pointer { at, action }`,
+  `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, `Pointer { at, action }`, `Select`,
   `Supply { purpose, bytes }`, `RenderReady { token, rendered }`.
 - `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
   `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`,
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
-- `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `Outline`, `Layers`,
-  `Attachments`, `Frame`, `Reports`.
+- `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `Selection`,
+  `Outline`, `Layers`, `Attachments`, `Frame`, `Reports`. **`Selection` answers in device pixels
+  and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
+  chrome off the rendering path.
 - **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and
   a catch-all arm is where a message added later goes to be ignored in silence. A new `Event`
   should fail to compile in every consumer.
@@ -212,10 +215,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 
 #### What is still owed, in the order to do it
 
-1. **The edit log**, the second of the two artefacts below — the text layer landed in session
-   133. It changes where mutation may live, which is the thing expensive to retrofit.
-   `Query::TextIn`, `Query::QuadsFor` and `Command::Select` sit on the text layer and are a
-   session's work now that the geometry exists.
+1. **The edit log**, the second of the two artefacts below — the text layer landed in session 133
+   and selection on top of it in 134. It changes where mutation may live, which is the thing
+   expensive to retrofit.
 2. **The rest of the vocabulary, as its feature arrives.** `Command::Tick { millis }` for
    §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves);
    `Command::Select`, `Command::Edit`, `Undo`, `Redo`; `Query::TextIn`, `QuadsFor`,
@@ -293,14 +295,20 @@ hand over finished pixels. It also means a slow render never blocks feedback.
 
 #### Two artefacts that do not exist yet
 
-**A text layer — done in the hundred-and-thirty-third session (ADR 0118).**
+**A text layer — done in the hundred-and-thirty-third session (ADR 0118), and selection on it in
+the hundred-and-thirty-fourth (ADR 0119).**
 `Interpretation::text_layer` is one `Placed` per character code: the range of the readback it
 produced and the quadrilateral its glyph occupies, in the display list's coordinates. The box is
 the glyph's advance by Table 122's `/Ascent` and `/Descent`, and it is built for rendering modes
 3 and 7 too, because an OCR layer under a scanned page is exactly the text a person selects.
 Measured at **+1.69%** of interpretation by an A/B in one sitting, and kept unconditional with the
-cost written down. What is *not* built on it yet: `Query::TextIn`, `Query::QuadsFor`,
-`Command::Select`, and search.
+cost written down.
+
+**What is not built on it yet**: search, a caret, word and paragraph selection, and — the one with
+a clause behind it — §14.8.2.5's *logical* order. A selection is taken in content order, so a page
+whose producer wrote its columns out of order gives its text in that order.
+`Interpretation::marked` already carries the `/MCID` spans and `Tree::logical_text` already
+produces the logical string; what is missing is the map between the two orders' offsets.
 
 **An edit log.** `Edits` as a third explicit input to `interpret`. Three things fall out: undo and
 redo *are* the log, so they belong in the core rather than being reimplemented per host; saving
@@ -644,7 +652,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047) |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. Its own soft-mask readback, because Vello's luminance mask is the SVG formula and no blend mode is a `/TR` |
-| `viewer-core` | Toolkit-independent application logic | `Command` in, `Event` out, `Query` → `Answer` beside them (ADRs 0116, 0117). `interact.rs` is what a click does — §12.5.6.5's links and the eleven §12.6 actions; `notes.rs` is what a document says about itself when it opens. `viewer.rs` is the state machine and the one place a render is scheduled; `open.rs` is one document's page, zoom and scroll, and `fitted` there is why a page fitted to a window is not one pixel taller than it; `report.rs` words an `Unsupported` for a person, which is a presentation decision and so not `pdf-model`'s. `tests/headless.rs` is consumer #2 and the proof the crate's first sentence is true |
+| `viewer-core` | Toolkit-independent application logic | `Command` in, `Event` out, `Query` → `Answer` beside them (ADRs 0116, 0117). `select.rs` is every choice a selection needs and the standard does not state (ADR 0119); `interact.rs` is what a click does — §12.5.6.5's links and the eleven §12.6 actions; `notes.rs` is what a document says about itself when it opens. `viewer.rs` is the state machine and the one place a render is scheduled; `open.rs` is one document's page, zoom and scroll, and `fitted` there is why a page fitted to a window is not one pixel taller than it; `report.rs` words an `Unsupported` for a person, which is a presentation decision and so not `pdf-model`'s. `tests/headless.rs` is consumer #2 and the proof the crate's first sentence is true |
 | `viewer-ui` | The application | `src/bin/pdf-viewer.rs`: a window, a keyboard, a GPU, and the two decisions a host owns — which files a document may name (§12.7.6.4) and what to do when one asks for a password (§7.6.4.1). Everything else is `viewer-core`'s |
 | `pdf-sandbox` | Confined worker + three image filters | Its `decode.rs` is the only place a JBIG2, JPX or CCITT codestream is looked at |
 | `raster-compare` | Tolerant image metrics | Worst-tile error is the load-bearing one |
@@ -1449,3 +1457,4 @@ above rather than here.
 | 131 | `viewer-core` is real: a vocabulary, a scheduler, and a consumer with no display | 0116 |
 | 132 | The window becomes a consumer; a locked file is asked for its password at last | 0117 |
 | 133 | The text layer, and the click that had been mapped to the wrong half of the page | 0118 |
+| 134 | Text is selected, and the shapes cross as geometry for the host to draw | 0119 |

@@ -64,6 +64,10 @@ pub enum Command {
         /// Vertical delta in device pixels.
         dy: f32,
     },
+    /// Select something, or stop selecting.
+    ///
+    /// A drag is [`Self::Pointer`]'s business; this is what a menu item or a keystroke asks for.
+    Select(Selection),
     /// §8.11: switch an optional content group on or off.
     ///
     /// The group is named by object identity because that is what §8.11.2.2's `/OCGs` and Table
@@ -129,6 +133,12 @@ pub enum PointerAction {
     Moved,
     /// The button went down.
     Pressed,
+    /// The pointer moved with the button held.
+    ///
+    /// Distinct from [`Self::Moved`] because the two mean opposite things: a move is a person
+    /// looking for something and a drag is a person choosing it. This one extends the selection
+    /// and never changes an annotation's appearance.
+    Dragged,
     /// The button came up.
     ///
     /// **This is what activates a link**, and only where the button went down on the same
@@ -137,6 +147,19 @@ pub enum PointerAction {
     /// a press that is dragged away before release is a press the person changed their mind
     /// about.
     Released,
+}
+
+/// What [`Command::Select`] asks for.
+///
+/// Not in ISO 32000-2, which says nothing about selecting text. Every entry here is a choice
+/// about a user interface, and the choices are in `viewer-core`'s `select` module rather than in
+/// a host so that two hosts cannot make them differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Selection {
+    /// Everything the page reads back as.
+    All,
+    /// Nothing.
+    None,
 }
 
 /// What a file the viewer asks a host for is wanted for.

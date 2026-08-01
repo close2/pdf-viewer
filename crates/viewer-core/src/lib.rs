@@ -92,9 +92,10 @@ mod notes;
 mod open;
 mod query;
 mod report;
+mod select;
 mod viewer;
 
-pub use command::{Command, PageTarget, PointerAction, Purpose, Rendered, Zoom};
+pub use command::{Command, PageTarget, PointerAction, Purpose, Rendered, Selection, Zoom};
 pub use event::{Event, RenderRequest};
-pub use query::{Answer, FrameView, Layer, PageGeometry, Query};
+pub use query::{Answer, FrameView, Layer, PageGeometry, Query, Selected};
 pub use viewer::{DocumentId, RenderToken, Viewer};

@@ -21,7 +21,8 @@ use std::path::{Path, PathBuf};
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Event, PageTarget, PointerAction, Query, Rendered, Viewer, Zoom,
+    Answer, Command, DocumentId, Event, PageTarget, PointerAction, Query, Rendered, Selection,
+    Viewer, Zoom,
 };
 
 /// A document committed in `doc/`, which every checkout has.
@@ -634,4 +635,150 @@ fn a_document_says_what_it_carries_before_a_page_is_drawn() {
             .any(|note| note.contains("carries an embedded file")),
         "this document carries one: {about:?}"
     );
+}
+
+#[test]
+fn a_drag_across_a_line_selects_what_it_crossed() {
+    // Selection is not in ISO 32000-2 — the standard says where a glyph is and what character it
+    // stands for, and the rest is a choice. What can be asserted is that the choice is coherent:
+    // dragging across text selects that text, the shapes come back in device pixels over it, and
+    // dragging further selects more.
+    let (mut viewer, events) = opened(800, 1000);
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    // The first line of the specification note's first page, found through the geometry the
+    // viewer reports rather than by scanning for it.
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    let line = |from: f32, to: f32, y: f32| {
+        (
+            (
+                geometry.origin.0 + from * geometry.scale,
+                geometry.origin.1 + y * geometry.scale,
+            ),
+            (
+                geometry.origin.0 + to * geometry.scale,
+                geometry.origin.1 + y * geometry.scale,
+            ),
+        )
+    };
+    // A band a fifth of the way down the page, from a quarter to three quarters across.
+    let (start, end) = line(
+        geometry.page.width * 0.25,
+        geometry.page.width * 0.75,
+        geometry.page.height * 0.2,
+    );
+
+    viewer
+        .handle(Command::Pointer {
+            at: start,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    assert!(
+        matches!(viewer.query(Query::Selection), Answer::Selected(selection) if selection.text.is_empty()),
+        "a press selects nothing until it is dragged"
+    );
+
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: end,
+            action: PointerAction::Dragged,
+        })
+        .collect();
+    assert!(
+        events.iter().any(|event| matches!(event, Event::Damage(_))),
+        "a selection that changed is a viewport that changed"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "and *not* a page that has to be drawn again: {events:?}"
+    );
+
+    let Answer::Selected(selection) = viewer.query(Query::Selection) else {
+        panic!("something is selected");
+    };
+    assert!(
+        selection.text.len() > 4,
+        "half a line of text: {:?}",
+        selection.text
+    );
+    assert!(!selection.quads.is_empty());
+    // The shapes are in device pixels, over the text they cover, between the two points.
+    for quad in &selection.quads {
+        for corner in quad.chunks_exact(2) {
+            assert!(
+                (0.0..=800.0).contains(&corner[0]) && (0.0..=1000.0).contains(&corner[1]),
+                "{quad:?} is off an 800x1000 viewport"
+            );
+        }
+        assert!(quad[1] > quad[7], "y grows downward on a screen: {quad:?}");
+    }
+    let widest = selection
+        .quads
+        .iter()
+        .map(|quad| quad[2] - quad[0])
+        .fold(0.0_f32, f32::max);
+    assert!(
+        widest <= end.0 - start.0 + 1.0,
+        "no wider than the drag: {widest}"
+    );
+}
+
+#[test]
+fn selecting_everything_is_the_readback_and_clearing_it_is_nothing() {
+    let (mut viewer, events) = opened(800, 1000);
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let Answer::Selected(selection) = viewer.query(Query::Selection) else {
+        panic!("everything is selected");
+    };
+    let Answer::Reports(_) = viewer.query(Query::Reports) else {
+        panic!("this page draws completely");
+    };
+    // The document's title, as this page reads back: §9.3's spacing heuristics put a space
+    // inside "Black" on this page, which is the text gate's own subject and not this test's.
+    assert!(
+        selection.text.contains("Compensation"),
+        "{:?}",
+        &selection.text[..120.min(selection.text.len())]
+    );
+    assert!(
+        selection.quads.len() > 10,
+        "one shape per run of a line, not one per glyph: {}",
+        selection.quads.len()
+    );
+
+    viewer
+        .handle(Command::Select(Selection::None))
+        .for_each(drop);
+    assert!(matches!(viewer.query(Query::Selection), Answer::None));
+}
+
+#[test]
+fn turning_the_page_forgets_what_was_selected() {
+    // The selection is a range of *this page's* readback, so carrying it across a page turn
+    // would leave it pointing into text that is no longer there.
+    let (mut viewer, events) = opened(800, 1000);
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    assert!(matches!(
+        viewer.query(Query::Selection),
+        Answer::Selected(_)
+    ));
+    viewer
+        .handle(Command::GoTo(PageTarget::Next))
+        .for_each(drop);
+    assert!(matches!(viewer.query(Query::Selection), Answer::None));
 }

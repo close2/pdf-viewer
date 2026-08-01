@@ -38,6 +38,11 @@ pub enum Query {
     /// query and not a command, and it is the reason the second channel exists. Device pixels
     /// from the viewport's top-left corner.
     LinkAt((f32, f32)),
+    /// What is selected: the text, and the shapes to draw over it.
+    ///
+    /// Asked whenever a host repaints, which during a drag is every frame — so it is a query
+    /// rather than an event carrying a payload nobody may want.
+    Selection,
     /// The pixels the viewer is holding for the focused document, if any.
     ///
     /// [`Answer::None`] for a tier-2 host, which draws its own and hands the viewer nothing.
@@ -81,6 +86,8 @@ pub enum Answer<'a> {
     Attachments(Vec<pdf_model::attachment::Attachment>),
     /// Whether a link is under the point asked about.
     Link(bool),
+    /// What is selected.
+    Selected(Selected<'a>),
     /// The pixels the viewer holds, and where they belong on the screen.
     Frame(FrameView<'a>),
     /// What the current page could not draw.
@@ -124,6 +131,26 @@ pub struct FrameView<'a> {
     pub raster: &'a Raster,
     /// Where the raster's top-left corner sits in the viewport, in device pixels.
     pub origin: (f32, f32),
+}
+
+/// What is selected, and where it is on the screen.
+///
+/// **Geometry, not pixels.** A selection highlight changes at pointer speed and must not force a
+/// page to be drawn again; and a native host draws it in macOS's selection colour, KDE's accent
+/// or the Windows highlight brush, with its own caret and focus ring. Handing over finished
+/// pixels would make all of that impossible, which is why this crate's chrome crosses as shapes.
+#[derive(Debug)]
+pub struct Selected<'a> {
+    /// The selected text, as the page reads back.
+    pub text: &'a str,
+    /// The shapes covering it, in **device pixels of the viewport**, one per run of a line.
+    ///
+    /// `[x0, y0, … x3, y3]` round each quadrilateral, in the order the runs were shown. Device
+    /// pixels rather than the page's own units because the host has no transform of its own and
+    /// asking it to compose one would be asking it to re-derive the magnification, the centring
+    /// and the y flip — which is exactly the arithmetic that was wrong for seventy-five sessions
+    /// (ADR 0118).
+    pub quads: Vec<[f32; 8]>,
 }
 
 /// One entry of §8.11.4.3's `/Order`, as a layer panel would show it.

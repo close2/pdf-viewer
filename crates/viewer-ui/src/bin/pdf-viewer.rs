@@ -4,10 +4,10 @@
 //! cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf
 //! ``
 //!
-//! Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, Escape
-//! quits. The window title shows the page's own label where the document states one (§12.4.2),
-//! the page number, and how many things on the page could not be drawn; the things themselves
-//! are printed.
+//! Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, `a`
+//! selects the whole page and dragging selects part of it, Escape quits. The window title shows
+//! the page's own label where the document states one (§12.4.2), the page number, and how many
+//! things on the page could not be drawn; the things themselves are printed.
 //!
 //! # What is here and what is not
 //!
@@ -48,7 +48,7 @@ use vello::wgpu::CurrentSurfaceTexture;
 use vello::{AaConfig, AaSupport, Renderer, RendererOptions, wgpu};
 use viewer_core::{
     Answer, Command, DocumentId, Event, PageTarget, PointerAction, Purpose, Query, RenderRequest,
-    Rendered, Viewer, Zoom,
+    Rendered, Selection, Viewer, Zoom,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
@@ -117,6 +117,7 @@ fn main() {
         request: None,
         acknowledged: true,
         cursor: (0.0, 0.0),
+        dragging: false,
         attempts: 0,
         context: RenderContext::new(),
         state: None,
@@ -139,7 +140,7 @@ fn usage() {
     eprintln!("usage: pdf-viewer [--no-sandbox] <document.pdf>");
     eprintln!();
     eprintln!("Arrows, Page Up/Down or Space turn pages; Home and End jump; + and - zoom;");
-    eprintln!("Escape quits.");
+    eprintln!("drag to select text, a selects the page, Escape quits.");
     eprintln!();
     eprintln!("  --no-sandbox  decode JBIG2 and JPEG 2000 images in this process rather than");
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
@@ -181,6 +182,8 @@ struct App {
     /// `winit` reports movement and clicks as separate events, so a click needs the position
     /// remembered from the last `CursorMoved` — the click itself carries none.
     cursor: (f64, f64),
+    /// Whether the button is down, which is what separates a move from a drag.
+    dragging: bool,
     /// How many passwords have been asked for.
     attempts: usize,
     context: RenderContext,
@@ -397,8 +400,23 @@ impl App {
                 .then(Transform::translate(origin.0, origin.1)),
         };
 
+        // Interactive chrome crosses as geometry, not pixels: the core hands over the shapes and
+        // this host draws them in its own colour. A native one would use macOS's selection
+        // colour, KDE's accent or the Windows highlight brush; this one has no theme to ask, so
+        // it picks a blue and says so.
+        let highlight = match self.viewer.query(Query::Selection) {
+            Answer::Selected(selection) => selection.quads,
+            _ => Vec::new(),
+        };
         let handle = &self.context.devices[state.surface.dev_id];
-        if let Err(problem) = draw(&self.context, state, &request, target, width, height) {
+        if let Err(problem) = draw(
+            &self.context,
+            state,
+            &request,
+            target,
+            (width, height),
+            &highlight,
+        ) {
             println!("note: page {}: {problem}", request.page.saturating_add(1));
             return true;
         }
@@ -532,7 +550,11 @@ impl ApplicationHandler for App {
                 self.cursor = (position.x, position.y);
                 self.dispatch(Command::Pointer {
                     at: at(self.cursor),
-                    action: PointerAction::Moved,
+                    action: if self.dragging {
+                        PointerAction::Dragged
+                    } else {
+                        PointerAction::Moved
+                    },
                 });
                 // §12.5.6.5's activation region, asked at pointer speed — which is why it is a
                 // query rather than a command with an event coming back.
@@ -552,13 +574,16 @@ impl ApplicationHandler for App {
                 state: element,
                 button: MouseButton::Left,
                 ..
-            } => self.dispatch(Command::Pointer {
-                at: at(self.cursor),
-                action: match element {
-                    ElementState::Pressed => PointerAction::Pressed,
-                    ElementState::Released => PointerAction::Released,
-                },
-            }),
+            } => {
+                self.dragging = element == ElementState::Pressed;
+                self.dispatch(Command::Pointer {
+                    at: at(self.cursor),
+                    action: match element {
+                        ElementState::Pressed => PointerAction::Pressed,
+                        ElementState::Released => PointerAction::Released,
+                    },
+                });
+            }
 
             WindowEvent::Resized(size) => {
                 let scale = self.state.as_ref().map_or(1.0, |state| {
@@ -618,6 +643,7 @@ fn key_command(key: &Key<&str>) -> Option<Command> {
         Key::Character("+" | "=") => Command::Zoom(Zoom::In),
         Key::Character("-") => Command::Zoom(Zoom::Out),
         Key::Character("0") => Command::Zoom(Zoom::FitPage),
+        Key::Character("a") => Command::Select(Selection::All),
         // A page taller than the window: the scroll is in device pixels, so this is about a
         // fifteenth of a fitted A4 page and the same on any display.
         Key::Named(NamedKey::ArrowDown) => Command::Scroll { dx: 0.0, dy: 60.0 },
@@ -633,6 +659,41 @@ fn key_command(key: &Key<&str>) -> Option<Command> {
 )]
 fn at(cursor: (f64, f64)) -> (f32, f32) {
     (cursor.0 as f32, cursor.1 as f32)
+}
+
+/// Lays the selection's shapes over the page.
+///
+/// The quadrilaterals arrive from `viewer-core` in device pixels of this window, so nothing here
+/// composes a transform: that is the whole point of chrome crossing as geometry rather than as
+/// pixels. Drawn with `Multiply`, which darkens what is under it and leaves the glyphs readable —
+/// the behaviour a person expects of a highlighter and the one a plain alpha blend does not give.
+fn draw_selection(scene: &mut vello::Scene, quads: &[[f32; 8]]) {
+    if quads.is_empty() {
+        return;
+    }
+    // A blue with no theme behind it. A native host asks its platform for this colour; this one
+    // has nobody to ask, and a hard-coded value that says so is better than one that pretends.
+    let colour = vello::peniko::Color::from_rgba8(140, 180, 255, 255);
+    let brush = vello::peniko::Brush::Solid(colour);
+    for quad in quads {
+        let mut path = vello::kurbo::BezPath::new();
+        for (index, corner) in quad.chunks_exact(2).enumerate() {
+            let point = vello::kurbo::Point::new(f64::from(corner[0]), f64::from(corner[1]));
+            if index == 0 {
+                path.move_to(point);
+            } else {
+                path.line_to(point);
+            }
+        }
+        path.close_path();
+        scene.fill(
+            vello::peniko::Fill::NonZero,
+            vello::kurbo::Affine::IDENTITY,
+            &brush,
+            None,
+            &path,
+        );
+    }
 }
 
 /// Reads a password from the terminal, or `None` if the person cancelled with an empty line.
@@ -651,9 +712,10 @@ fn draw(
     state: &mut State,
     request: &RenderRequest,
     target: TargetSpec,
-    width: u32,
-    height: u32,
+    viewport: (u32, u32),
+    highlight: &[[f32; 8]],
 ) -> Result<(), &'static str> {
+    let (width, height) = viewport;
     let handle = &context.devices[state.surface.dev_id];
     let list = &request.list;
 
@@ -671,8 +733,9 @@ fn draw(
 
     // The same translation the headless tests exercise, so what the window shows cannot drift
     // from what CI checks.
-    let scene = render_gpu::build_scene(list, target, &masks)
+    let mut scene = render_gpu::build_scene(list, target, &masks)
         .map_err(|_| "contains content this build cannot draw")?;
+    draw_selection(&mut scene, highlight);
 
     state
         .renderer
