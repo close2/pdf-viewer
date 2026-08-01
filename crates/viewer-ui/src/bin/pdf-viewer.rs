@@ -506,7 +506,7 @@ impl App {
             _ => Vec::new(),
         };
         let drawn = if self.processor {
-            Err("was not asked, because --cpu")
+            Err("was not asked, because --cpu".to_owned())
         } else {
             let state = self.state.as_mut()?;
             draw(
@@ -649,21 +649,25 @@ impl App {
             return Err("has no window".to_owned());
         };
         let handle = &self.context.devices[state.surface.dev_id];
-        state
-            .renderer
-            .render_to_texture(
-                &handle.device,
-                &handle.queue,
-                &scene,
-                &state.surface.target_view,
-                &vello::RenderParams {
-                    base_color: vello::peniko::Color::WHITE,
-                    width: viewport.0,
-                    height: viewport.1,
-                    antialiasing_method: AaConfig::Area,
-                },
-            )
-            .map_err(|error| error.to_string())
+        // Checked like every other render in this tree, though this scene is one image over one
+        // rectangle and is the least likely thing on the device to run out of room. It is also
+        // the *last* resort: were it to come back blank, the note above would say the processor
+        // drew the page while the window showed black, which is precisely the failure this
+        // session exists to remove.
+        render_gpu::render_checked(
+            &handle.device,
+            &handle.queue,
+            &mut state.renderer,
+            &mut scene,
+            &state.surface.target_view,
+            &vello::RenderParams {
+                base_color: vello::peniko::Color::WHITE,
+                width: viewport.0,
+                height: viewport.1,
+                antialiasing_method: AaConfig::Area,
+            },
+        )
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -1046,7 +1050,7 @@ fn draw(
     target: TargetSpec,
     viewport: (u32, u32),
     highlight: &[[f32; 8]],
-) -> Result<(), &'static str> {
+) -> Result<(), String> {
     let (width, height) = viewport;
     let handle = &context.devices[state.surface.dev_id];
     let list = &request.list;
@@ -1061,27 +1065,30 @@ fn draw(
         list,
         target,
     )
-    .map_err(|_| "has a soft mask this build cannot evaluate")?;
+    .map_err(|_| "has a soft mask this build cannot evaluate".to_owned())?;
 
     // The same translation the headless tests exercise, so what the window shows cannot drift
     // from what CI checks.
     let mut scene = render_gpu::build_scene(list, target, &masks)
-        .map_err(|_| "contains content this build cannot draw")?;
+        .map_err(|_| "contains content this build cannot draw".to_owned())?;
     draw_selection(&mut scene, highlight);
 
-    state
-        .renderer
-        .render_to_texture(
-            &handle.device,
-            &handle.queue,
-            &scene,
-            &state.surface.target_view,
-            &vello::RenderParams {
-                base_color: vello::peniko::Color::WHITE,
-                width,
-                height,
-                antialiasing_method: AaConfig::Area,
-            },
-        )
-        .map_err(|_| "could not be rendered")
+    // `render_gpu::render_checked` rather than `Renderer::render_to_texture`: the latter returns
+    // `Ok` over a target the device left blank, which is the black page this session was reported
+    // (ADR 0127). The error carries its own sentence, so what reaches the person names the buffer
+    // that ran out rather than saying only that something went wrong.
+    render_gpu::render_checked(
+        &handle.device,
+        &handle.queue,
+        &mut state.renderer,
+        &mut scene,
+        &state.surface.target_view,
+        &vello::RenderParams {
+            base_color: vello::peniko::Color::WHITE,
+            width,
+            height,
+            antialiasing_method: AaConfig::Area,
+        },
+    )
+    .map_err(|error| error.to_string())
 }

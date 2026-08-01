@@ -47,7 +47,18 @@ tiny-skia = "0.12.0"
 # GPU rasteriser. `vello` re-exports the exact `wgpu` it was built against as
 # `vello::wgpu`; that re-export is used rather than a separate wgpu dependency, so
 # version skew between the two is impossible by construction.
-vello = "0.9.0"
+# `debug_layers` is on for one reason and it is not debugging: it is the only way to learn
+# whether a render actually happened. Vello sizes its GPU working buffers from a table of
+# constants — its own comment calls them "hand picked to accommodate the vello test scenes" — and
+# a scene that needs more overflows them *on the device*, which sets a flag, stops filling, and
+# leaves the target blank. `render_to_texture` cannot see that flag; the deprecated async variant
+# returns it, and only downloads it when this feature is on (`let robust = cfg!(feature =
+# "debug_layers")`). Without it a page of text at a high enough resolution is silently blank —
+# page 6 of ISO 32000-2 at 1132x1600 was, on an AMD 890M (ADR 0127). The cost is one extra
+# pipeline and one small buffer download per render: +0.8 ms on a 596x842 page, about 11%,
+# measured four ways at ADR 0127. It also makes vello panic on a scene with no lines, which
+# `render_gpu::keep_the_line_soup_non_empty` works around and ADR 0127 explains.
+vello = { version = "0.9.0", features = ["debug_layers"] }
 # Minimal block_on. wgpu's device setup is async but the rasteriser interface is
 # synchronous, and pulling in a full async runtime for two awaits would violate the
 # startup-cost rules in CLAUDE.md.

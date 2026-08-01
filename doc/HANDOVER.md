@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-forty-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -27,7 +27,9 @@ It **draws** what a page says: geometry, colour, images, shadings, patterns, emb
 transparency groups, soft masks, and annotations both from stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
 this processor's own because the clause requires one and draws none. Two backends (CPU and GPU)
-that agree to the channel. JBIG2 and JPEG 2000 in a confined worker. Encryption at every revision
+that agree to the channel — over `test-scenes`' fixtures **and, since the hundred-and-forty-third
+session, over real pages at a real window's resolution**, which is where they did not (ADR 0127).
+JBIG2 and JPEG 2000 in a confined worker. Encryption at every revision
 and method §7.6 states. §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels,
 §12.5.6.5's links performing **eleven of §12.6's actions**, §14.9's accessibility entries,
 §12.4.4's whole presentation read for a caller that has one to play, and everything a document
@@ -57,7 +59,7 @@ plays it), search, or draw a panel for the outline, the layers and the attachmen
 
 | gate | number | where |
 |---|---|---|
-| tests | **939**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | **all re-run in session 139**, including the five fuzzers |
+| tests | **939**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 143; the five fuzzers last in 139 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -134,6 +136,7 @@ documents' first pages it affects.
 | A stream whose data is in an external file (§7.3.8.1) | 0 | The renderer has no filesystem (principle 3). Refused by name rather than drawn from the bytes the clause says to ignore — which is what it did, silently, for the project's whole life. |
 | `/ColorTransform` (Table 13) | — | Its one corpus witness contradicts the clause. |
 | Sampled shadings on the GPU | 2 | Type 1 only; the CPU backend draws them. |
+| A page whose scene overflows Vello's buffers | — | **Not ours and not the page's.** Vello sizes its GPU working buffers from constants "hand picked to accommodate the vello test scenes"; a page of text at a window's resolution can need more, and the device then draws *nothing*. Page 6 of ISO 32000-2 at 1132×1600 did. Detected since session 143 (`GpuRasterError::SceneTooLarge`) and drawn by the CPU backend instead, with the reason printed. Closing it properly means banding the render, which `TargetSpec::transform`'s tile offset already allows. ADR 0127. |
 | Rendering intents beyond `AbsoluteColorimetric` | — | Read and recorded; `A2B0` not yet selected for `Perceptual`. |
 | §12.7.6.2's submit, §12.6.4's remote/launch/sound/movie | — | A network, a second file, a media engine. Refused by name and printed on a click. |
 | Signature *validation* (§12.8.3) | — | 17 ledger rows. Needs a trust store and a network; what a program without one can say is said (ADRs 0088, 0089). |
@@ -930,6 +933,34 @@ A condition worked out for a report is worth keeping when the feature lands. And
 is real: **a report can hide another report** — `knockout_smask.pdf`'s knockout gap was covered by
 its soft-mask report for four sessions.
 
+### 12b. A test suite made of small scenes tests small scenes
+
+Fourteen cross-backend fixtures — a gradient, a knockout group, sixteen blend modes — each a
+handful of commands at one modest size. **The first real page at a real window's size came back
+blank**, and nothing in the tree could see it: the corpus and the oracle rasterise with
+`render-cpu`, so the GPU backend's only judge was those fixtures.
+
+Vello sizes its GPU working buffers from constants "hand picked to accommodate the vello test
+scenes"; a scene needing more overflows them *on the device*, which sets a flag, stops filling,
+and returns `Ok(())` over a blank target. Page 6 of ISO 32000-2 at 1132×1600 is such a scene, and
+1132×1600 is an A4 page fitted to a laptop window. ADR 0127.
+
+Three rules out of it. **Ask what size every scene in a suite is**, not only which feature it uses
+— ADR 0046 asked the feature question and this is the same question one axis over. **Where a
+dependency returns success, ask what it does when it fails**: if the answer is "nothing visible",
+that report is this project's to construct. And **a fix belongs on the path the person uses**: the
+check first landed in `rasterize`, which is tier 1 and what the tests call, while the window draws
+to its own surface through tier 2 — so the test went green while the black page stayed black.
+`render_gpu::render_checked` is public for that reason and `Renderer::render_to_texture` is not
+called anywhere in this tree.
+
+And a fourth, from what enabling the feature cost: **a feature flag taken for one effect brings
+its others.** `debug_layers` also makes vello hand wgpu a zero-length buffer slice whenever a
+scene produces no lines — a blank page — and wgpu panics on it, which under `panic = "abort"`
+kills the viewer. Two existing fixtures caught it; `keep_the_line_soup_non_empty` works around it
+with one transparent rectangle. **Run the whole suite after turning a dependency's feature on**,
+not only the test that motivated it.
+
 ### 12a. The display list's space is not the raster's, and a doc comment said it was
 
 PDF's y axis points up from the bottom of the page; a raster's points down from its top row. The
@@ -1560,3 +1591,4 @@ above rather than here.
 | 140 | Search, and a contradicted page that measured our own grid-fitting for us | — |
 | 141 | A page turn walked the page tree once per outline item: 380 ms → 9 ms | 0124 |
 | 142 | A frame that failed was reported as one that was drawn; the CPU draws it now | 0125, 0126 |
+| 143 | A page the device drew nothing of, and said nothing about | 0127 |

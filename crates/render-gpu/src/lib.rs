@@ -109,7 +109,7 @@ fn render_to_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     renderer: &mut vello::Renderer,
-    scene: &vello::Scene,
+    scene: &mut vello::Scene,
     target: TargetSpec,
 ) -> Result<wgpu::Texture, GpuRasterError> {
     // Vello writes its result through a storage binding, and the pixels are then
@@ -129,21 +129,165 @@ fn render_to_texture(
         view_formats: &[],
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    renderer
-        .render_to_texture(
-            device,
-            queue,
-            scene,
-            &view,
-            &vello::RenderParams {
-                base_color: vello::peniko::Color::TRANSPARENT,
-                width: target.width,
-                height: target.height,
-                antialiasing_method: vello::AaConfig::Area,
-            },
-        )
-        .map_err(|e| GpuRasterError::Render(e.to_string()))?;
+    render_checked(
+        device,
+        queue,
+        renderer,
+        scene,
+        &view,
+        &vello::RenderParams {
+            base_color: vello::peniko::Color::TRANSPARENT,
+            width: target.width,
+            height: target.height,
+            antialiasing_method: vello::AaConfig::Area,
+        },
+    )?;
     Ok(texture)
+}
+
+/// Renders a scene and **checks that it was rendered**.
+///
+/// Vello sizes its GPU-side working buffers by a table of constants, and its own comment on them
+/// is the whole of this function's reason: `vello_encoding::BufferSizes::new` says they are
+/// "hand picked to accommodate the vello test scenes as well as paris-30k" and "should instead
+/// get derived from the scene layout using reasonable heuristics". (Quoted inline rather than as
+/// a blockquote: in this tree a blockquote is a clause of ISO 32000-2 and the conformance checker
+/// verifies it against `doc/md/`. This is a dependency's words, not the standard's.)
+///
+/// A scene that needs more — many small paths over many tiles, which is a page of text at a high
+/// resolution — overflows one of them *on the device*. The shaders set a `failed` flag in the
+/// bump allocators and stop filling; `render_to_texture` cannot see that flag, returns `Ok`, and
+/// the target texture is left **blank**. Page 6 of ISO 32000-2 at 1132×1600 is such a scene:
+/// 5933 paths over 7100 tiles, and every pixel comes back empty (ADR 0127).
+///
+/// So this asks. `render_to_texture_async` returns the allocators, which is the only route vello
+/// 0.9 offers to the flag, and the answer becomes an error a caller can act on — `viewer-ui`
+/// draws the page with `render-cpu` instead, and says which.
+///
+/// **Public because it is the only call a host should make.** `Renderer::render_to_texture` is
+/// right there and reports success on a blank page; a viewer drawing to its own surface — which
+/// is the tier-2 path, and the one a person actually looks at — has to come through here or it
+/// inherits exactly the defect this exists to catch.
+///
+/// # Errors
+///
+/// [`GpuRasterError::Render`] if vello rejects the scene, [`GpuRasterError::SceneTooLarge`] if it
+/// accepted it and the device then ran out of room, [`GpuRasterError::Readback`] if the device
+/// does not answer within the timeout.
+///
+/// The cost is one device synchronisation per render, because the flag lives in a buffer that
+/// has to be mapped. That is real and it is affordable *here*: this program renders a frame when
+/// a person turns a page, not sixty times a second, and the alternative is a page that is blank
+/// with nothing said.
+pub fn render_checked(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut vello::Renderer,
+    scene: &mut vello::Scene,
+    view: &wgpu::TextureView,
+    params: &vello::RenderParams,
+) -> Result<(), GpuRasterError> {
+    keep_the_line_soup_non_empty(scene);
+
+    // Deprecated in favour of the synchronous call, whose return type is stable — and which
+    // cannot answer the question. The deprecation note says the *shape* of this is unstable, not
+    // that the information is unavailable elsewhere; there is nowhere else in vello 0.9. Revisit
+    // when vello stabilises a statistics API, which its own note promises.
+    #[expect(
+        deprecated,
+        reason = "the only route in vello 0.9 to whether the render actually happened; see above"
+    )]
+    let rendering = renderer.render_to_texture_async(
+        device,
+        queue,
+        &*scene,
+        view,
+        params,
+        vello::low_level::DebugLayers::none(),
+    );
+    let allocators =
+        drive(device, rendering)?.map_err(|error| GpuRasterError::Render(error.to_string()))?;
+
+    if let Some(bump) = allocators
+        && bump.failed != 0
+    {
+        return Err(GpuRasterError::SceneTooLarge {
+            width: params.width,
+            height: params.height,
+            wanted: [
+                ("binning", bump.binning),
+                ("ptcl", bump.ptcl),
+                ("tile", bump.tile),
+                ("seg_counts", bump.seg_counts),
+                ("segments", bump.segments),
+                ("blend", bump.blend),
+                ("lines", bump.lines),
+            ]
+            .iter()
+            .max_by_key(|(_, size)| *size)
+            .map_or("a buffer", |(name, _)| name),
+        });
+    }
+    Ok(())
+}
+
+/// Adds a path that draws nothing, because vello 0.9 panics on a scene that has none.
+///
+/// The `debug_layers` feature is what makes [`render_checked`] possible at all, and it has a
+/// second effect: after the render, vello slices its captured line buffer to `bump.lines` entries
+/// and hands that slice to wgpu, which rejects an empty one by panicking — "buffer slices can not
+/// be empty". A scene with no lines is not an exotic case. **A blank page has none**, and so does
+/// a zero-length stroke or a clip that admits nothing, both of which are cross-backend fixtures
+/// here. With `panic = "abort"` in the release profile that is not a failed render, it is a dead
+/// viewer, which would be a far worse defect than the one being fixed.
+///
+/// So every scene gets one rectangle in a fully transparent paint. It contributes four lines to
+/// the soup and, being alpha zero over the destination, composites as the identity — which the
+/// fourteen cross-backend fixtures check, since they compare every pixel against the processor's.
+///
+/// Reported upstream is the right long-term answer; until vello guards that slice, this is the
+/// cost of being able to tell a drawn page from a blank one, and it is one rectangle.
+fn keep_the_line_soup_non_empty(scene: &mut vello::Scene) {
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        vello::kurbo::Affine::IDENTITY,
+        vello::peniko::Color::TRANSPARENT,
+        None,
+        &vello::kurbo::Rect::new(0.0, 0.0, 1.0, 1.0),
+    );
+}
+
+/// Runs a future that only makes progress when the device is polled.
+///
+/// Vello's asynchronous render maps a buffer and waits for the callback, and **that callback
+/// fires when somebody polls the device**. `pollster::block_on` parks the thread instead, so the
+/// poll never happens and the wait never ends — which is a deadlock rather than a slow render,
+/// and it is what the first version of [`render_checked`] did.
+///
+/// So this is the executor that future needs and no more: poll the future, and where it is not
+/// ready, poll the device. The wait is bounded for [`read_pixels`]'s reason — a wedged driver
+/// must surface as an error rather than hang the viewer.
+fn drive<F: Future>(device: &wgpu::Device, future: F) -> Result<F::Output, GpuRasterError> {
+    let mut future = std::pin::pin!(future);
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    let deadline = std::time::Instant::now()
+        .checked_add(std::time::Duration::from_secs(GPU_WAIT_TIMEOUT_SECS));
+    loop {
+        if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut context) {
+            return Ok(value);
+        }
+        if deadline.is_some_and(|deadline| std::time::Instant::now() > deadline) {
+            return Err(GpuRasterError::Readback(
+                "the device did not finish within the timeout".to_owned(),
+            ));
+        }
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(1)),
+            })
+            .map_err(|error| GpuRasterError::Readback(error.to_string()))?;
+    }
 }
 
 /// How long to wait for the GPU before giving up on a readback.
@@ -480,7 +624,7 @@ impl Rasterizer for GpuRasterizer {
             list,
             target,
         )?;
-        let scene = scene::build(list, target, &masks)?;
+        let mut scene = scene::build(list, target, &masks)?;
 
         // Transparent, not the background: §11.4.7's page group is isolated, so the medium's
         // colour is composited with the *result* rather than being the backdrop the page's
@@ -490,7 +634,7 @@ impl Rasterizer for GpuRasterizer {
             &self.context.device,
             &self.context.queue,
             &mut self.context.renderer,
-            &scene,
+            &mut scene,
             target,
         )?;
 
@@ -573,6 +717,24 @@ pub enum GpuRasterError {
     /// The requested target overflows the readback buffer layout arithmetic.
     #[error("target dimensions overflow the readback buffer layout")]
     TargetTooLarge,
+    /// The scene overflowed one of Vello's fixed working buffers, so nothing was drawn.
+    ///
+    /// Not a defect in the page and not one in this tree: Vello's buffer sizes are constants
+    /// chosen for its own test scenes, and a page of text at a high enough resolution exceeds
+    /// them. The device draws nothing and says nothing; this is that silence, named. See
+    /// `render_checked`.
+    #[error(
+        "could not draw a {width}x{height} scene: it needs more room than Vello's {wanted} \
+         buffer has, so the device drew nothing"
+    )]
+    SceneTooLarge {
+        /// The target's width in pixels.
+        width: u32,
+        /// The target's height in pixels.
+        height: u32,
+        /// Which of Vello's buffers wanted the most room.
+        wanted: &'static str,
+    },
     /// A command variant this backend does not implement yet.
     #[error("command not supported by the GPU backend: {0}")]
     UnsupportedCommand(String),

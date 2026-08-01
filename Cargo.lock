@@ -2419,7 +2419,9 @@ dependencies = [
 name = "render-gpu"
 version = "0.1.0"
 dependencies = [
+ "pdf-model",
  "pdf-render",
+ "pdf-syntax",
  "pollster",
  "raster-compare",
  "render-cpu",

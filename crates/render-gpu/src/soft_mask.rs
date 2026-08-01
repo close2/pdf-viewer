@@ -102,7 +102,7 @@ fn image_of(values: &[u8], target: TargetSpec) -> peniko::ImageBrush {
 pub(crate) fn evaluate(
     list: &DisplayList,
     target: TargetSpec,
-    render: &mut dyn FnMut(&vello::Scene) -> Result<Vec<u8>, GpuRasterError>,
+    render: &mut dyn FnMut(&mut vello::Scene) -> Result<Vec<u8>, GpuRasterError>,
 ) -> Result<SoftMaskRasters, GpuRasterError> {
     let mut rasters = SoftMaskRasters::none();
     for index in 0..list.soft_mask_count() {
@@ -115,8 +115,8 @@ pub(crate) fn evaluate(
         // backdrop out of the group's alpha, and §11.5.3's chosen backdrop is applied by
         // `SoftMask::value` per pixel rather than by painting it underneath, so that a blend
         // mode inside the group cannot see it.
-        let scene = crate::scene::build_commands(list, &mask.commands, target, &rasters)?;
-        let pixels = render(&scene)?;
+        let mut scene = crate::scene::build_commands(list, &mask.commands, target, &rasters)?;
+        let pixels = render(&mut scene)?;
         rasters.insert(id, image_of(&mask.values(&pixels), target));
     }
     Ok(rasters)

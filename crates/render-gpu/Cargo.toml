@@ -13,7 +13,13 @@ pollster.workspace = true
 thiserror.workspace = true
 vello.workspace = true
 
+# `pdf-model` and `pdf-syntax` are here for `tests/real_pages.rs` alone, and the direction is
+# safe: neither depends on this crate, so a *dev*-dependency on them closes no cycle. What it
+# buys is the one thing `test-scenes` cannot supply — a real page of text at a real window's
+# resolution, which is the shape that found ADR 0127's silently blank frame.
 [dev-dependencies]
+pdf-model.workspace = true
+pdf-syntax.workspace = true
 raster-compare.workspace = true
 render-cpu.workspace = true
 test-scenes.workspace = true
