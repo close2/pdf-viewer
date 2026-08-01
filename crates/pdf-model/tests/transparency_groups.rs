@@ -239,10 +239,19 @@ fn a_form_becomes_a_group_only_for_the_transparency_subtype() {
             .count()
     };
 
-    assert_eq!(groups("/Group << /S /Transparency >>"), 1);
+    assert_eq!(groups("/Group << /S /Transparency /I true >>"), 1);
     assert_eq!(groups("/Group << /S /Fictional >>"), 0);
     assert_eq!(groups("/Group << /I true >>"), 0, "no subtype, no group");
     assert_eq!(groups(""), 0, "an ordinary form is not a group");
+    // §11.4.4's NOTE 5: a *non-isolated* group composited with Normal, alpha 1.0 and no
+    // mask is "the same as … compositing them separately (without grouping)", so there is
+    // no group in the list — which is a different reason for zero from the three above and
+    // is why the positive case now states `/I true`.
+    assert_eq!(
+        groups("/Group << /S /Transparency >>"),
+        0,
+        "a non-isolated group with a trivial composite is flattened"
+    );
 }
 
 /// §8.10.1 lists what `Do` performs on a form `XObject`, and step c) is:
@@ -428,6 +437,63 @@ fn a_knockout_group_reports_only_where_the_two_models_differ() {
     );
 }
 
+/// §11.4.4's NOTE 5: a non-isolated group whose result composites trivially is not built.
+///
+/// > the effect of compositing objects as a group is the same as that of compositing them
+/// > separately (without grouping) if the following conditions hold:
+/// >
+/// > The group is non-isolated and has the same knockout attribute as its parent group
+///
+/// > When compositing the group's results with the group backdrop, the Normal blend mode is
+/// > used, and the shape and opacity inputs are always 1.0.
+///
+/// The measurement is the *blend*, because that is the whole of what isolation changes: an
+/// element blending Multiply inside a non-isolated group multiplies against the page. The
+/// fixture paints a mid-grey page and then a red square inside the group under `/BM
+/// /Multiply`; flattened, the red multiplies with the grey and darkens.
+#[test]
+fn a_non_isolated_group_blends_with_the_page_behind_it() {
+    let inside_group = interpret(fixture(
+        "/Group << /S /Transparency >>",
+        "[0 0 100 100]",
+        "/GB gs 1 0 0 rg 10 10 50 50 re f",
+        "0.5 g 0 0 100 100 re f /Fm Do",
+    ));
+    assert!(
+        inside_group.is_complete(),
+        "nothing is owed: {:?}",
+        inside_group.unsupported
+    );
+    let blended = pixel(&inside_group, 30, 70);
+
+    // The same content with no group at all, which NOTE 5 says must produce the same page.
+    let ungrouped = interpret(fixture(
+        "",
+        "[0 0 100 100]",
+        "/GB gs 1 0 0 rg 10 10 50 50 re f",
+        "0.5 g 0 0 100 100 re f /Fm Do",
+    ));
+    assert_eq!(
+        blended,
+        pixel(&ungrouped, 30, 70),
+        "NOTE 5: grouping and not grouping are the same page"
+    );
+
+    // And an *isolated* group is the case that genuinely differs: its element multiplies
+    // against a transparent backdrop rather than against the grey.
+    let isolated = interpret(fixture(
+        "/Group << /S /Transparency /I true >>",
+        "[0 0 100 100]",
+        "/GB gs 1 0 0 rg 10 10 50 50 re f",
+        "0.5 g 0 0 100 100 re f /Fm Do",
+    ));
+    assert_ne!(
+        blended,
+        pixel(&isolated, 30, 70),
+        "isolation is what the flag means, and it shows"
+    );
+}
+
 /// §11.4.5 against §11.4.4: a non-isolated group is reported only where isolation shows.
 ///
 /// A non-isolated group composites its elements onto the group's backdrop and then removes
@@ -435,13 +501,14 @@ fn a_knockout_group_reports_only_where_the_two_models_differ() {
 /// removal is exact and the two computations agree, which is what §11.6.7's NOTE 1 states
 /// for the same computation applied to a pattern cell. What makes them differ is a blend
 /// mode inside the group — §11.4.4's NOTE 2 gives that as the whole reason the two kinds of
-/// group exist — so that, and not the flag, is what the report fires on.
+/// group exist — so that is what the report fires on, and only for the group NOTE 5 cannot
+/// flatten: one whose own `Do` states an alpha, a blend mode or a soft mask.
 #[test]
 fn a_non_isolated_group_reports_only_when_an_element_blends() {
     let reported = |group: &str, form: &str| {
         format!(
             "{:?}",
-            interpret(fixture(group, "[0 0 100 100]", form, "/Fm Do")).unsupported
+            interpret(fixture(group, "[0 0 100 100]", form, "/GS gs /Fm Do")).unsupported
         )
     };
     let non_isolated = "/Group << /S /Transparency >>";

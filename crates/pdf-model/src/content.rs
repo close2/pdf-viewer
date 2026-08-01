@@ -1027,6 +1027,7 @@ pub fn interpret_with(
         glyph_depth: 0,
         soft_mask_depth: 0,
         uncoloured: false,
+        inside_knockout: false,
     };
 
     for issue in issues {
@@ -1294,6 +1295,14 @@ struct Interpreter<'a> {
     /// clause extends the restriction to everything such a stream invokes: an inner figure
     /// finishing must not re-enable colour for the rest of an outer one.
     uncoloured: bool,
+    /// Whether the group being built is, or is inside, §11.4.6's knockout group.
+    ///
+    /// One flag rather than a depth, for `uncoloured`'s reason: what it guards is a property
+    /// every enclosing group shares. It exists for §11.4.4's NOTE 5, whose first condition is
+    /// that a group "has the same knockout attribute as its parent group" — a child flattened
+    /// into a knockout parent would stop being *one* element of that parent and become several,
+    /// which is precisely what §11.4.6 makes different.
+    inside_knockout: bool,
 }
 
 impl Interpreter<'_> {
@@ -2832,9 +2841,63 @@ impl Interpreter<'_> {
         inner.soft_mask = None;
 
         let mark = self.list.command_count();
+        let enclosing_knockout = self.inside_knockout;
+        self.inside_knockout = enclosing_knockout || group.knockout;
         self.run(content, resources, &inner, form_depth.saturating_add(1));
+        self.inside_knockout = enclosing_knockout;
         let commands = self.list.split_off_commands(mark);
         if commands.is_empty() {
+            return;
+        }
+
+        // §11.4.4's NOTE 5 states, in full, when a group need not be built at all:
+        //
+        // > As a result of these corrections, the effect of compositing objects as a group is
+        // > the same as that of compositing them separately (without grouping) if the following
+        // > conditions hold:
+        // >
+        // > The group is non-isolated and has the same knockout attribute as its parent group
+        // > (see 11.4.5, "Isolated groups" and 11.4.6 , 'Knockout groups').
+        // >
+        // > When compositing the group's results with the group backdrop, the Normal blend mode
+        // > is used, and the shape and opacity inputs are always 1.0.
+        //
+        // Both conditions are decidable here, and together they are the *whole* of what a
+        // non-isolated group's correctness needed. §11.4.4's result step removes the backdrop
+        // from the group's accumulated colour — `C = Cn + (Cn − C0) × (α0/αgn − α0)` — which
+        // this tree cannot compute on one raster, because NOTE 4 says the group alpha `αgn` has
+        // to be accumulated *separately* from the composite alpha and an opaque backdrop
+        // destroys the difference. Flattening sidesteps the arithmetic entirely by never
+        // introducing the backdrop that would have to be removed: the elements composite onto
+        // the page they were always going to composite onto, and every blend mode inside the
+        // group then sees the backdrop §11.4.4 says it should see.
+        //
+        // The clip is not a condition. It reaches every element already — PDF's clipping is
+        // cumulative in the graphics state, so an element inside the form carries the clip in
+        // force at the `Do` — and applying it once per element is applying it once.
+        //
+        // This is also strictly less work than the group it replaces: no page-sized buffer, no
+        // second composite. A correctness fix that is faster means the old code was doing work
+        // that was worse than useless, which is this project's own name for the shape.
+        if !group.isolated
+            && !group.knockout
+            && !enclosing_knockout
+            && outer.fill_alpha >= 1.0
+            && outer.blend == BlendMode::Normal
+            && outer.soft_mask.is_none()
+        {
+            // The `/CS` question survives flattening and is asked separately: compositing still
+            // happens on the device's components, whatever space the group named.
+            if let Some(name) = self.group_space_departure(&group.colour_space)
+                && any_command(&commands, &command_composites)
+            {
+                self.note(Unsupported::TransparencyGroup {
+                    detail: format!("blending colour space {name}"),
+                });
+            }
+            for command in commands {
+                self.list.push(command);
+            }
             return;
         }
 

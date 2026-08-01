@@ -501,7 +501,16 @@ const MAX_PAGELESS: usize = 11;
 /// which Table 178 defines as "no leader lines", so the refusal was firing on the *presence* of
 /// an entry whose value says there is nothing to do. It draws with nothing reported now and the
 /// oracle's agreeing set gains it: 836 pages to 837.
-const MAX_INCOMPLETE: usize = 89;
+///
+/// **89 to 86 in the hundred-and-third session**, from §11.4.4's own NOTE 5, which states when a
+/// non-isolated group need not be built at all: "the effect of compositing objects as a group is
+/// the same as that of compositing them separately (without grouping)" where the group is
+/// non-isolated with its parent's knockout attribute and its result is composited with Normal
+/// and shape and opacity of 1.0. Such a group's elements are now emitted inline, so every blend
+/// mode inside one sees the backdrop §11.4.4 says it should — which is what the report was
+/// about. `bug1873345.pdf`, `issue13242.pdf` and `nonisolated_blend_smask.pdf` leave the list,
+/// two of them into the oracle's *agreeing* set: 837 pages to 839.
+const MAX_INCOMPLETE: usize = 86;
 
 /// How long one document may take before it counts as a failure.
 ///

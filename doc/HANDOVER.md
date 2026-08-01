@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-second** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-third** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,28 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundredth — the second file a form is made of.** §12.7.8's Forms Data Format, read; §12.7.6.4's
-import-data action, performed. ADR 0090.
-
-- **An import is a display change**, on ADR 0087's argument one step further along: a reset makes
-  a field's value its own `/DV`, an import makes it a value from *another file*, and §12.7.4.3
-  draws whatever the value is.
-- **An FDF file needs no new reader.** §12.7.8.1's four differences from PDF are all
-  *relaxations* — optional cross-reference table, no incremental updates, one body object, direct
-  stream length — so `pdf_syntax::Document` opens one unchanged and `forms_data.rs` is only the
-  semantics on top. What is genuinely FDF's own is the `%FDF-` header and Table 245's `/FDF` root.
-- **§12.7.8.3.2 is one sentence and both halves are executable**: *the same fully qualified name*
-  runs through the same widget-by-name table §12.6.4.11 and §12.7.6.3 use, and *replace* means an
-  FDF field with no `/V` leaves the widget with no value at all.
-- **A file name is the caller's decision, and the policy is now written down.** `pdf-model`
-  answers `Request::Import` and opens nothing; `viewer-ui` accepts a single path component beside
-  the open document and refuses everything else out loud.
-- **The citation checker reported a table the standard has.** Table 246's caption is a markdown
-  heading in `doc/md/` and every other caption in the subclause is a bare line — the third
-  conversion artefact mistaken for a fact about the standard.
-
-`silent` falls 14 → 1, and the one left is §12.7.7's named pages.
 
 **Hundred-and-first — the page that is not in the page tree.** §12.7.7's named pages, and **the
 ledger reaches zero silences**. ADR 0091.
@@ -84,6 +62,22 @@ reason corrected, §8.9.5.4's alternate images. ADR 0092.
 
 `reported` falls 53 → 51. No gate moved, which is the shape of a session spent on clauses no
 corpus document exercises — 0 of 964 carry an `/Alternates`.
+
+**Hundred-and-third — the group that need not be built.** §11.4.4's NOTE 5, and the corpus's
+first movement in eighteen sessions. ADR 0093.
+
+- **A non-isolated group composited with Normal, alpha 1.0 and no mask is not built at all.**
+  NOTE 5 says so in as many words, and its elements are emitted inline — so every blend mode
+  inside one composites against the page, which is what §11.4.4 asks and what the report was
+  about.
+- **The expensive design was reached by reading the formulas and not the notes around them.**
+  §11.4.4's result step needs `αgn` accumulated separately from the composite alpha (NOTE 4),
+  which an opaque backdrop makes unrecoverable from one raster — a second buffer per group, in
+  both backends. NOTE 5 removes the case entirely.
+- **89 → 86 corpus documents incomplete, 837 → 839 agreeing, 65 contradicted unchanged**, and
+  the text readback rises 97.8% → 97.9%.
+- **It is 2.5% *less* work**: `issue13242.pdf` page 1 rasterises in 3 968.9 M instructions
+  against 4 070.2 M, because a page-sized group buffer and its composite are gone.
 
 ## How the project got here
 
@@ -190,6 +184,7 @@ below rather than here.
 | 100 | §12.7.8's forms data format read and §12.7.6.4's import performed | ADR 0090 |
 | 101 | §12.7.7's named pages, and the ledger reaches zero silences | ADR 0091 |
 | 102 | §7.9.4's dates audited over 1542 corpus strings; §8.9.5.4's alternate images | ADR 0092 |
+| 103 | §11.4.4's NOTE 5: the non-isolated group that need not be built | ADR 0093 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -231,7 +226,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 51 `reported` rows and the notes on 231 `partial`
 ones.
 
-- **833 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **834 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all four fuzz targets
   clean at 50 000 runs apiece** — the first three re-run in the hundredth session, the last four
   in the ninety-ninth. (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -242,15 +237,15 @@ ones.
   **100% of the words `pdftotext` finds**.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open except ten that are
   encrypted — 8 waiting for a password, 2 by something §7.6 does not specify or we do not
-  implement — 953 reach page one, **865 draw with nothing reported**, and everything the other 89
+  implement — 953 reach page one, **867 draw with nothing reported**, and everything the other 86
   cannot draw is named. 1501 of 1501 PDF functions parse; all 1793 shadings build, mesh types
   included. The whole gate runs in **~2 s** with no named slow document left. Counts are
   ratcheted.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~35 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1661 pages we claim to draw completely, **837 agree with the reference
-  consensus, 65 are contradicted and 749 are pages the references cannot agree about among
+  (ADR 0020). Of the 1664 pages we claim to draw completely, **839 agree with the reference
+  consensus, 65 are contradicted and 750 are pages the references cannot agree about among
   themselves**. The 65 are named, grouped and ratcheted in both directions. Twenty-five pages
   do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
   target size is degenerate or past the pixel limit. **None is a page we decline to draw** —
@@ -822,7 +817,7 @@ corpus: the count is how many of the 974 documents' first pages it affects.
 | Predefined `CMap`s (§9.7.5.2) | 12 | Medium | 15 fonts name one of Table 116's registered `CMap` files (`90ms-RKSJ-H`, `UniJIS-UTF16-H`, …), which are not in the tree. Vendoring them is a licensing decision; guessing draws plausible text that says something else. The machinery they would plug into exists. |
 | Text: a substitute that cannot be addressed | 42 | Medium | Counting *fonts*: 27 composite fonts with no `/ToUnicode`, so a CID cannot be taken to a character a substitute could draw, and 23 whose substitute draws none of the declared codes. Honest refusals rather than clause gaps; closing them means better substitution. |
 | Optional content: the interactive half | — | Small | §8.11 is honoured wherever it decides what is *drawn*, and since the thirty-fifth session that includes §8.11.4.4's `/AS` usage application dictionaries for the `View` event (ADRs 0017, 0044). **What feeds a layer panel is read since the sixty-seventh session** — `/Order` as a tree with the clause's label-against-nesting distinction, `/ListMode`, `/Locked`, `/RBGroups` and a group's `/Name` — and `ViewState::set_group` is the switch, so what is missing is the panel itself. Still unread: alternate `/Configs`, which exist to be chosen between and need someone to choose, and the two usage categories that are questions about this processor rather than about the document, `/User` and `/Language`, which are reported. |
-| Transparency group and mask departures (§11.4, §11.5.3) | 22 | Medium | What is left of Table 145's answers after the seventy-first session drew §11.4.6, each reported where it can change a pixel (ADR 0026): **a knockout element whose shape is not its coverage** (§11.4.6, 5 documents — a soft mask, an image's own alpha, a nested group, or a non-isolated group that also blends; the clause's own sentence about a separate shape value is the reason), **non-isolated with a blend mode inside it** (§11.4.4, 9 documents; without one the two computations are provably identical), and **a blending colour space that is not the device's three components** (§11.6.6, 4 documents, all `/DeviceCMYK`, which means a second raster format). Plus **a soft mask's group with such a space** (§11.5.3, 7 documents). |
+| Transparency group and mask departures (§11.4, §11.5.3) | 19 | Medium | What is left of Table 145's answers after the seventy-first session drew §11.4.6 and the hundred-and-third flattened what §11.4.4's NOTE 5 permits, each reported where it can change a pixel (ADRs 0026, 0093): **a knockout element whose shape is not its coverage** (§11.4.6, 5 documents — a soft mask, an image's own alpha, a nested group, or a non-isolated group that also blends; the clause's own sentence about a separate shape value is the reason), **non-isolated with a blend mode inside it and a `Do` NOTE 5 cannot flatten** (§11.4.4, 6 documents — one whose own alpha, blend mode or soft mask makes the group's result composite non-trivially, so the backdrop genuinely has to be removed and NOTE 4's second alpha channel is what that needs), and **a blending colour space that is not the device's three components** (§11.6.6, 4 documents, all `/DeviceCMYK`, which means a second raster format). Plus **a soft mask's group with such a space** (§11.5.3, 7 documents). |
 | Grid-fitting a stroke's coordinates (`/SA`, §10.7.5) | — | Small | The clause's single-pixel rule is implemented; adjusting "the line width and the coordinates of a stroke … to produce lines of uniform thickness" is a **documented departure**, because the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from by anti-aliasing. Nothing reports it: there is no page on which this device could do better. |
 | Image `/Mask` on a filtered image, `/Matte` outside the device spaces | 0 | Small | What is left of §8.9.6 and §11.6.5.2 after ADRs 0023 and 0024, and no corpus document writes any of it. A colour key is a test on the samples a filter delivers, and a `DCTDecode` or `JPXDecode` image has become RGBA before the unpacker sees it — the clause's own NOTE 2 names that pair as the one lossy coding makes unreliable. A `/Mask` stream that is not an image mask is here too, which Table 87 excludes and 1 document writes. So is a `/Matte` on an image whose space is not `DeviceGray` or `DeviceRGB`: §11.6.5.2 requires the pre-blending to be undone *before* colour conversion, and this crate holds one RGBA raster per image, so the inversion is exact only where that conversion was the identity on components. |
 | A degenerate subpath's single device pixel (§8.5.3.3.1) | — | Small | "[A] degenerate subpath … shall be considered to enclose the single device pixel lying under that point" when *filled* — distinct from §8.5.3.2's stroking rule, which is implemented. Neither backend paints it, and the clause calls the result "device-dependent and not generally useful" in the same breath. Recorded in the ledger rather than reported, because a report would name pages on which no reader could tell. |
@@ -892,8 +887,8 @@ Over the 974-document pdf.js corpus, page one:
 |---|---|---|
 | opens | 964 | 99% — the other 10 are 8 needing a password and 2 encrypted beyond us |
 | reaches page one | 953 | 98% |
-| **draws with nothing reported** | **865** | **89%** |
-| draws, with something reported | 89 | 9% |
+| **draws with nothing reported** | **867** | **89%** |
+| draws, with something reported | 86 | 9% |
 
 **This number measures honesty, and honesty can fall as capability rises.** It fell from 72% in
 the eighth session when 24 documents began saying they carry a Type 3 font; it rose by twenty in
@@ -904,14 +899,14 @@ project got here".
 
 ### By what an independent renderer sees
 
-This is the number to worry about. Over all 1794 pages compared, of the 1661 we claim to draw
+This is the number to worry about. Over all 1794 pages compared, of the 1664 we claim to draw
 completely:
 
 | | count | share |
 |---|---|---|
-| agree with the reference consensus | 837 | 50% |
+| agree with the reference consensus | 839 | 50% |
 | **contradicted by it** | **65** | **4%** |
-| the references cannot agree among themselves | 749 | 45% |
+| the references cannot agree among themselves | 750 | 45% |
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
 
 **One page in twenty-five that we say we drew completely, two independent implementations say we
@@ -936,7 +931,7 @@ all. The ledger's own notes are the detail; this is the shape.
 | 8 Graphics | 128 | The clause with the most coverage: the whole graphics state, path construction and painting, all eleven colour space families, all seven shading types, both pattern types, form and image XObjects, inline images, masking, ICC colour management, optional content. |
 | 9 Text | 65 | Simple and composite fonts through **every font program Table 124 defines**, the standard 14 by substitution, Type 3, all eight rendering modes, all nine text state parameters, both encoding algorithms, §9.7's two mappings, both writing modes, and **§9.8.3.2's PANOSE classification, which outranks Table 121's flags where they disagree** (ADR 0086). **No row of this clause is `silent`.** Missing: Table 116's predefined `CMap`s, which is a licensing decision rather than an algorithm. |
 | 10 Rendering | 36 | 19 rows `inapplicable` — halftones and transfer functions describe a marking device. Colour management, rendering intents and §10.7.3's smoothness tolerance are done; §10.7 carries four deliberate departures, all licensed by §10.7.1's NOTE and each named. |
-| 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group, and **§11.4.6's knockout wherever an element's shape is the coverage it is drawn with**. Left and reported: a knockout element whose shape is not, a non-isolated group whose elements blend, a blending space that is not the device's. |
+| 11 Transparency | 58 | All sixteen blend modes on both backends, `ca`/`CA` reaching a shading, `/SMask` at any resolution, `/Group` composited as one object with the page itself an isolated group, **§11.4.6's knockout wherever an element's shape is the coverage it is drawn with**, and **§11.4.4's NOTE 5, which says the commonest non-isolated group need not be built at all** (ADR 0093). Left and reported: a knockout element whose shape is not its coverage, the non-isolated group NOTE 5 cannot flatten whose elements blend, a blending space that is not the device's. |
 | 12 Interactive | 166 | **Appearances, constructed ones, a field's own text, navigation, thumbnails, and the eight actions a viewer can perform** — a go-to, a set-OCG-state, a hide, §12.6.4.12's four page commands, §12.6.4.8's URI, resolved against Table 211's `/Base` and printed rather than opened (ADR 0070), and §12.6.4.7's thread action, which needed §12.4.3's articles built before it could be performed (ADR 0080) — and the whole of §12.4.4's presentation read and none of it played, §12.4.3's articles read as threads of beads, §12.3.4's thumbnails decoded with the eighteen entries §12.3.4 makes insignificant dropped (ADR 0081), §12.9's viewports and §12.10's geospatial dictionaries including §12.9.2's formatting algorithm (ADR 0082), §12.3.5's portable collections with §12.3.6's named layouts (ADR 0083), and §12.6.3's trigger events with the appearance each one asks for, **§12.7.6.3's reset-form action, which is the one form action whose whole effect is a picture** (ADR 0087), **§12.8's signatures read and never verified, with the one check a program without a trust store can make** (ADRs 0088, 0089), **§12.7.8's forms data format read whole with §12.7.6.4's import performed** (ADR 0090) and **§12.7.7's named pages, whose templates that import adds to the document** (ADR 0091). **No row of this clause is `silent`**, which as of the hundred-and-first session is true of every clause; what is missing is *reported* — a submission, a launch, an FDF annotation, a signature's validity. |
 | 13 Multimedia | 81 | **Excluded** by name on principle 5's closed list. The rows carry the exclusion rather than being omitted, because an invisible exclusion is indistinguishable from an oversight. |
 | 14 Interchange | 151 | Output intents, page boundaries, marked content as a bracket, §14.7's structure tree in both directions **with its attributes, classes and namespaces** (ADR 0072) and — since the sixtieth session — **the whole of §14.9's accessibility text**: `/Lang`, `/Alt`, `/ActualText` and `/E`, each in both places the clause puts it. **§14.8.4's forty-one standard structure types** (ADR 0078), §14.8.5's attribute mechanism (ADR 0079), §14.13's associated files (ADR 0077) and **§14.8.2.5's logical content order, which is a second reading of every tagged page** (ADR 0084). **§14.8.5.6's `PrintField`, which says what a flattened form field was** (ADR 0085). **No row of this clause is `silent`**, and §14.7.7's worked example is a test rather than a row — 12 of §14.8.5's 16 rows are `inapplicable`, because a layout attribute describes the process that made an appearance this reader already has. |
@@ -1036,8 +1031,8 @@ notice one a *fallback* hides: `/FontFile` sat at a corpus count of zero while 5
 embedded one and drew a substitute in silence.
 
 **The one-line version of each track.** Demand: **65 pages we claim to draw are contradicted, 15
-of them for no reason visible on the page, and none of those is above its bound**, and **89 of
-974 documents still draw incompletely**, of which 42 are fonts, 16 transparency and 10
+of them for no reason visible on the page, and none of those is above its bound**, and **86 of
+974 documents still draw incompletely**, of which 42 are fonts, 13 transparency and 10
 annotations — and the fifty-ninth session's reading of the
 corpus's own issue trackers says most of that is glyph rasterisation on files chosen for having
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
@@ -1248,7 +1243,7 @@ the AGL: §9.10.2's second method searched a four-thousand-entry list per charac
 font with at most 256 codes, and a cache took the whole of interpretation from 2 013.8 M
 instructions to 1 989.1 M.
 
-**Interpretation costs 2 105.9 M today**, and the rise over the fifty-eighth session's 1 989.1 M
+**Interpretation costs 2 110.6 M today**, and the rise over the fifty-eighth session's 1 989.1 M
 is one feature — measured rather than guessed, by stubbing it out and running the same page:
 
 | | instructions |
@@ -1256,7 +1251,7 @@ is one feature — measured rather than guessed, by stubbing it out and running 
 | at the start of the seventieth-to-seventy-ninth run (`dd49639`) | 1 989.5 M |
 | with §14.7.5.4's parent tree stubbed out | 2 003.9 M — **everything else those sessions added costs 0.7% together** |
 | as the seventy-ninth session shipped it (`a9d423e`) | 2 094.9 M as measured then, **2 103.8 M when the same commit was rebuilt in the eighty-sixth** |
-| today, after six more sessions | **2 105.9 M** — +0.10% over that rebuilt baseline, below the floor |
+| today, after ten more sessions | **2 110.6 M** — +0.33% over that rebuilt baseline, at the drift floor |
 
 **0.42% of drift on one commit with no code between two measurements** is the second time this
 project has caught its own performance number moving under it, and it widens the 0.23% floor the
@@ -1346,7 +1341,7 @@ rise is a new report and is written down as one.
 | needs a password | 8 | §7.6.4.1's prompt is the missing piece, not the clause |
 | encrypted beyond this reader | 2 | 1 is `/R` 5, which the standard states no algorithm for; 1 is a file whose `/Encrypt` does not resolve to a dictionary |
 | no page one | 11 | `corpus.rs` has what each one is, looked up in the fifty-ninth session: one prototypes a filter the standard does not define yet, three are recovered by `ghostscript` and not by us, four are fuzzer crashers every reference refuses, and two are encrypted with a key length the file states and Acrobat pads |
-| draws incompletely | 89 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, 4 in the thirty-second when the last three bit depths did, 2 in the seventy-first when §11.4.6's knockout was drawn, 5 in the seventy-second when §9.3.8 and §11.6.2 followed it, and 1 in the eighty-fifth when §12.5.6.7's leader lines stopped being refused |
+| draws incompletely | 86 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, 4 in the thirty-second when the last three bit depths did, 2 in the seventy-first when §11.4.6's knockout was drawn, 5 in the seventy-second when §9.3.8 and §11.6.2 followed it, 1 in the eighty-fifth when §12.5.6.7's leader lines stopped being refused, and 3 in the hundred-and-third when §11.4.4's NOTE 5 stopped a non-isolated group being built (ADR 0093) |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 - **The `Content` row was 10 and is 1** (ADR 0031). Nine of
@@ -1380,7 +1375,7 @@ rise is a new report and is written down as one.
 
 **Text, ratcheted in `crates/pdf-model/tests/text_extraction.rs`** and new in the sixty-third
 session (ADR 0066): `Interpretation::text` against `pdftotext` over the same 974 documents,
-30 seconds, **97.8% of the reference's words** over the pages we draw completely, with **44** named
+30 seconds, **97.9% of the reference's words** over the pages we draw completely, with **44** named
 below the 0.90 floor — counted from the gate's own output in the eightieth session, where this
 file had said 43 in one place and 46 in another and the breakdown below summed to 45. About 31
 of them are fonts where all three of §9.10.2's methods fail *and* whose program names nothing
@@ -1393,15 +1388,15 @@ drawing defect. The 14 specification PDFs keep their own 0.99 floor and still sc
 
 Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both directions.
 
-| of the 1661 pages we call complete | count | |
+| of the 1664 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 837 | |
+| agree with the reference consensus | 839 | |
 | **contradicted** | **65** | 4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured), **8 pages of glyph edges whose ink matches the consensus to half a level** (measured, seventy-fifth session), 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 14 substituted fonts, **15 unexplained** |
-| ambiguous | 749 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
+| ambiguous | 750 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
-The 133 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
+The 130 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
 say we cannot draw is expected to differ. **The denominator moves in both directions on purpose**:
 it grows when reports stop firing (46 pages in the twenty-first session) and shrinks when a
 silence ends (8 in the seventeenth, 43 in the eighth). A report should never be reached for as a
