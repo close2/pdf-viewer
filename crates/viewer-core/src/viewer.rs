@@ -88,7 +88,7 @@ impl Viewer {
 
     /// Answers a question about the viewer's state without changing any of it.
     #[must_use]
-    pub fn query(&self, query: Query) -> Answer<'_> {
+    pub fn query(&self, query: Query<'_>) -> Answer<'_> {
         let (Some(id), Some(open)) = (self.focused, self.focused()) else {
             return Answer::None;
         };
@@ -125,6 +125,7 @@ impl Viewer {
             Query::Preferences => Answer::Preferences(
                 pdf_model::viewer_preferences::ViewerPreferences::read(&open.document),
             ),
+            Query::Find(needle) => Answer::Found(self.found(open, needle)),
             Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),
             Query::Frame => open.frame.as_ref().map_or(Answer::None, |frame| {
                 Answer::Frame(FrameView {
@@ -558,17 +559,49 @@ impl Viewer {
         }
     }
 
+    /// Every occurrence of `needle` on the page being shown, as shapes in device pixels.
+    fn found(&self, open: &Open, needle: &str) -> Vec<Vec<[f32; 8]>> {
+        let Some(interpreted) = open.interpreted.as_ref() else {
+            return Vec::new();
+        };
+        crate::select::find(&interpreted.text, needle)
+            .into_iter()
+            .map(|range| self.device_quads(open, range))
+            .collect()
+    }
+
     /// What is selected, with its shapes in device pixels.
     fn selected<'a>(&self, open: &'a Open) -> Option<Selected<'a>> {
         let (anchor, focus) = open.selection?;
         let interpreted = open.interpreted.as_ref()?;
         let (from, to) = (anchor.min(focus), anchor.max(focus));
         let text = interpreted.text.get(from..to).unwrap_or_default();
-        let magnification = open.magnification(self.viewport, self.scale)?;
-        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
+        Some(Selected {
+            text,
+            quads: self.device_quads(open, (from, to)),
+        })
+    }
+
+    /// The shapes covering a range of the readback, in device pixels of the viewport.
+    ///
+    /// The mapping a host would otherwise have to do, and the reason it does not: it would mean
+    /// re-deriving the magnification, the centring and the y flip, which is exactly the
+    /// arithmetic ADR 0118 found wrong in the one place it existed.
+    fn device_quads(&self, open: &Open, range: (usize, usize)) -> Vec<[f32; 8]> {
+        let Some(interpreted) = open.interpreted.as_ref() else {
+            return Vec::new();
+        };
+        let Some(magnification) = open.magnification(self.viewport, self.scale) else {
+            return Vec::new();
+        };
+        let Ok(target) = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS) else {
+            return Vec::new();
+        };
+        let Some(height) = open.page_size(open.page_index).map(|size| size.height) else {
+            return Vec::new();
+        };
         let origin = open.origin(self.viewport, (target.width, target.height));
-        let height = open.page_size(open.page_index)?.height;
-        let quads = crate::select::quads_for(&interpreted.placed, (from, to))
+        crate::select::quads_for(&interpreted.placed, range)
             .into_iter()
             .map(|quad| {
                 // Two paired iterators rather than an index: the corners are (x, y) pairs and a
@@ -580,8 +613,7 @@ impl Viewer {
                 }
                 out
             })
-            .collect();
-        Some(Selected { text, quads })
+            .collect()
     }
 
     /// Maps a viewport point to the display list's own coordinates.

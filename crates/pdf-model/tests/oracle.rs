@@ -752,13 +752,40 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
 /// conclusion by a different route; the other seven were sitting in `CONTRADICTED_UNEXPLAINED`
 /// claiming to be unexplained. Reproducing the table: the oracle leaves every renderer's PNG
 /// under `<target>/tmp/oracle/<stem>/p1/`, and the mean of its RGB channels is the number above.
-const CONTRADICTED_GLYPH_EDGES: [&str; 8] = [
+/// # The ninth page, and the instrument the page supplied itself
+///
+/// `issue7696.pdf` joined this group in the hundred-and-fortieth session, and what put it here
+/// is stronger than the ink table above. The page is 200x50 and draws the same four glyphs
+/// **twice**, 80 pixels apart. So it answers a question about a renderer that no comparison
+/// between two renderers can: are the two copies the same picture?
+///
+/// | | the two halves differ by | worst pixel |
+/// |---|---|---|
+/// | `poppler` | 0 | 0 |
+/// | `mupdf` | 0 | 0 |
+/// | `ghostscript` | 0 | 0 |
+/// | ours | 2 893 | 64 |
+/// | `hayro` | 3 541 | 12 |
+///
+/// **The three C renderers draw the same glyph identically at both positions; the two Rust ones
+/// do not.** That is grid-fitting: `poppler`, `mupdf` and `ghostscript` share `FreeType` *and its
+/// hinting*, which snaps each glyph to the pixel grid, so the second copy lands on the same
+/// samples as the first. This tree places a glyph where §9.4.4's text rendering matrix puts it,
+/// so the second copy is at a different sub-pixel phase and rasterises differently — and its ink
+/// is conserved to 0.67%, which is what a phase shift does and what a wrong glyph does not.
+/// `hayro`, the other renderer here that does not hint, differs from itself by more than we do.
+///
+/// This is the same conclusion the ink table reaches, arrived at without comparing anything to
+/// anybody: **a page that draws one glyph twice at different sub-pixel phases measures whether a
+/// renderer grid-fits, and needs no reference at all.**
+const CONTRADICTED_GLYPH_EDGES: [&str; 9] = [
     "bug1108301.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
     "bug894572.pdf page 1",
     "issue2017r.pdf page 1",
     "issue6889.pdf page 1",
+    "issue7696.pdf page 1",
     "issue8570.pdf page 1",
     "openoffice.pdf page 1",
 ];
@@ -1027,7 +1054,7 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 8] = [
 /// any printed metric. That is trap 12's shape rather than a defect: the bound is 6.04 because
 /// two references agree very closely, and no reading of a clause chooses between five
 /// resamplings of one image.
-const CONTRADICTED_UNEXPLAINED: [&str; 15] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 14] = [
     "bug1151216.pdf page 1",
     "bug1252420.pdf page 1",
     "freeculture.pdf page 313",
@@ -1038,7 +1065,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 15] = [
     "issue4650.pdf page 1",
     "issue5010.pdf page 1",
     "issue7492.pdf page 1",
-    "issue7696.pdf page 1",
     "issue7891_bc1.pdf page 1",
     "issue7901.pdf page 1",
     "issue8097_reduced.pdf page 1",

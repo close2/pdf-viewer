@@ -14,8 +14,12 @@ use pdf_syntax::ObjectId;
 use crate::viewer::DocumentId;
 
 /// A question about the viewer's state.
+///
+/// The lifetime is [`Query::Find`]'s alone: a search takes a string a host already has, and
+/// copying it to ask a question about a page would be the one allocation on a path a person
+/// drives from a keyboard.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Query {
+pub enum Query<'a> {
     /// How many pages the focused document has.
     PageCount,
     /// Which page is showing, and what it is called.
@@ -50,6 +54,12 @@ pub enum Query {
     /// *host* owns — a tool bar, a menu bar, where the window sits on the screen — and this
     /// crate has none of those by construction. A host that has them honours what it can.
     Preferences,
+    /// Every occurrence of a string on the page being shown, as shapes to draw over it.
+    ///
+    /// Case-insensitive, over the same readback [`Query::Selection`] answers with — which is why
+    /// search cost this crate one function: the text layer built for selection is the same
+    /// artefact, and §14.9's accessibility consumer will be the third.
+    Find(&'a str),
     /// What is selected: the text, and the shapes to draw over it.
     ///
     /// Asked whenever a host repaints, which during a drag is every frame — so it is a query
@@ -102,6 +112,12 @@ pub enum Answer<'a> {
     Selected(Selected<'a>),
     /// §12.7.4.2's fully qualified name of a field.
     Field(String),
+    /// Where a string occurs, one entry per occurrence in the order they are shown.
+    ///
+    /// Each is the shapes covering one occurrence, merged per run of a line, in device pixels of
+    /// the viewport — the same form [`Selected::quads`] takes, because a host draws them the same
+    /// way and in its own colour.
+    Found(Vec<Vec<[f32; 8]>>),
     /// Whether anything has been edited.
     Dirty(bool),
     /// §12.2's Table 147, whole.

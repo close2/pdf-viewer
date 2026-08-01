@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-thirty-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-fortieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -57,7 +57,7 @@ plays it), search, or draw a panel for the outline, the layers and the attachmen
 
 | gate | number | where |
 |---|---|---|
-| tests | **934**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | **all re-run in session 139**, including the five fuzzers |
+| tests | **936**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | **all re-run in session 139**, including the five fuzzers |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -317,8 +317,10 @@ the glyph's advance by Table 122's `/Ascent` and `/Descent`, and it is built for
 Measured at **+1.69%** of interpretation by an A/B in one sitting, and kept unconditional with the
 cost written down.
 
-**What is not built on it yet**: search, a caret, word and paragraph selection, and — the one with
-a clause behind it — §14.8.2.5's *logical* order. A selection is taken in content order, so a page
+**Search is the layer's third consumer** since the hundred-and-fortieth session: `Query::Find`
+answers with the same shapes `Query::Selection` does, case-insensitively, and cost one function
+because the geometry was already there. **What is still not built on it**: a caret, word and
+paragraph selection, and — the one with a clause behind it — §14.8.2.5's *logical* order. A selection is taken in content order, so a page
 whose producer wrote its columns out of order gives its text in that order.
 `Interpretation::marked` already carries the `/MCID` spans and `Tree::logical_text` already
 produces the logical string; what is missing is the map between the two orders' offsets.
@@ -473,12 +475,13 @@ next to what it covers.
 
 **The oracle's 65 contradicted pages**, grouped and ratcheted in both directions in `oracle.rs`:
 4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured),
-8 glyph edges whose ink matches the consensus to half a level (measured, session 75), 7 a shared
-JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1
-an eight-bit mask value, 4 a `DeviceCMYK` conversion, 2 a reference that drew nothing, 1 a CID
-width, 1 a negative line width, 14 substituted fonts, **15 unexplained**.
+**9 glyph edges** whose ink matches the consensus to half a level (measured, session 75), 7 a
+shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel image, 1 a `CalRGB`
+alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion, 2 a reference that drew
+nothing, 1 a CID width, 1 a negative line width, 14 substituted fonts, **14 unexplained**.
 
-**Not one of the 15 is above its bound** — the list starts at 0.85. Rank before opening anything,
+**Not one of the 14 is above its bound** — the list starts at 0.85, `issue7696.pdf` having left
+it in the hundred-and-fortieth session. Rank before opening anything,
 **by our worst measurement over the bound it is held to**; that has chosen the next item five
 times, twice finding something that was not one page's problem at all (a rule nobody had
 implemented, at 25.7×; the device transform, at 1.81, worth 11 pages). `issue7891_bc1.pdf` at
@@ -1035,6 +1038,12 @@ anchor that makes it checkable.
   pages failed on mean absolute difference and passed every other bound; the page's *total ink*
   put us within half a level of both voting references. One number from artefacts already written
   turned eight questions into one population.
+- **A page that draws the same glyph twice is an instrument, and it needs no reference at all.**
+  `issue7696.pdf` is 200×50 and draws four glyphs twice, 80 pixels apart. `poppler`, `mupdf` and
+  `ghostscript` draw the two halves *byte-identically*; ours differ by 2893 and `hayro`'s by 3541.
+  That is grid-fitting measured from the inside — the three C renderers share `FreeType` and its
+  hinting, the two Rust ones place a glyph where §9.4.4's matrix puts it — and it settles a
+  contradicted page without comparing anything to anybody. **Ask what a page repeats.**
 - **An inconsistency inside a reference's own output outranks any distance from it.** Two
   renderers spacing one line at two different widths cannot both be reading the document's `/W`.
 - **Agreement with one reference is not evidence**, and **"both readers fail the same way" is
@@ -1494,3 +1503,4 @@ above rather than here.
 | 137 | The ledger re-read against six sessions of new capability; `/H` became reachable | 0122 |
 | 138 | Table 192's `/H`: the clause about a moment that had never happened | 0123 |
 | 139 | Everything re-verified after eight sessions of change | — |
+| 140 | Search, and a contradicted page that measured our own grid-fitting for us | — |

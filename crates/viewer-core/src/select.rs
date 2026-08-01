@@ -115,3 +115,93 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
     let line = (run[7] - run[1]).abs();
     same_line && gap >= -0.01 && gap < line
 }
+
+/// Where a string occurs in the page's readback, as ranges of it.
+///
+/// **Case-insensitively, and that is the only judgement in it.** A person searching for "the"
+/// means "The" as well, which every search interface in existence agrees about; anything beyond
+/// that — accent folding, ligature equivalence, the Unicode collation algorithm's tailorings — is
+/// a decision about a language rather than about a page, and the readback is what §9.10.2's three
+/// methods produced rather than normalised text. `char::to_lowercase` is Unicode's own simple
+/// mapping and is what "the same letter" means here.
+///
+/// Overlapping matches are not reported: after a match the scan continues past it, so "aa" in
+/// "aaa" is one match rather than two. That is what a person pressing *next* expects.
+///
+/// The ranges index [`pdf_model::Interpretation::text`], so [`quads_for`] turns each into the
+/// shapes to draw over it — which is why search cost nothing beyond this function.
+pub(crate) fn find(text: &str, needle: &str) -> Vec<(usize, usize)> {
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    // Lowered once, and the *byte offsets* of the lowered text are not the original's: one
+    // character may lower to several, and a naive search over the lowered string would report
+    // ranges that do not exist in the readback. So the scan walks the original's character
+    // boundaries and compares from each.
+    let needle: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
+    let mut out = Vec::new();
+    let mut from = 0;
+    while from < text.len() {
+        let Some(rest) = text.get(from..) else {
+            // Not a character boundary: step to the next one.
+            from = from.saturating_add(1);
+            continue;
+        };
+        match matches_at(rest, &needle) {
+            Some(length) => {
+                out.push((from, from.saturating_add(length)));
+                from = from.saturating_add(length.max(1));
+            }
+            None => from = from.saturating_add(rest.chars().next().map_or(1, char::len_utf8)),
+        }
+    }
+    out
+}
+
+/// The byte length of a case-insensitive match at the start of `text`, if there is one.
+fn matches_at(text: &str, needle: &[char]) -> Option<usize> {
+    let mut wanted = needle.iter();
+    let mut length = 0_usize;
+    for character in text.chars() {
+        let mut lowered = character.to_lowercase();
+        loop {
+            match (lowered.next(), wanted.clone().next()) {
+                (Some(have), Some(want)) if have == *want => {
+                    wanted.next();
+                }
+                (Some(_), _) => return None,
+                (None, _) => break,
+            }
+        }
+        length = length.saturating_add(character.len_utf8());
+        if wanted.clone().next().is_none() {
+            return Some(length);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find;
+
+    /// Case folding, overlap and the character-boundary trap in one place.
+    ///
+    /// The last is the one worth a test: one character may lower to *several*, so a search that
+    /// lowered the whole string and reported the lowered string's offsets would hand back ranges
+    /// that do not exist in the readback. `İ` (U+0130) lowers to two code points, and a range
+    /// taken from the lowered text would be off by one byte for everything after it.
+    #[test]
+    fn a_match_is_a_range_of_the_text_that_was_searched() {
+        assert_eq!(find("The theme", "the"), vec![(0, 3), (4, 7)]);
+        assert_eq!(find("aaa", "aa"), vec![(0, 2)], "no overlapping matches");
+        assert_eq!(find("abc", ""), vec![]);
+        assert_eq!(find("", "a"), vec![]);
+
+        let text = "\u{130}stanbul, then";
+        let found = find(text, "then");
+        assert_eq!(found.len(), 1);
+        let (from, to) = found[0];
+        assert_eq!(&text[from..to], "then", "the range indexes the original");
+    }
+}

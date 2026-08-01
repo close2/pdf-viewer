@@ -959,3 +959,48 @@ fn a_saved_document_carries_the_edit_and_the_file_under_it() {
         selection.text
     );
 }
+
+#[test]
+fn a_search_finds_every_occurrence_and_hands_back_its_shapes() {
+    // The text layer's third consumer, and the cheapest: selection built the geometry, and a
+    // search is a range of the same readback turned into the same shapes.
+    let (mut viewer, events) = opened(800, 1000);
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let Answer::Found(found) = viewer.query(Query::Find("compensation")) else {
+        panic!("a search always answers");
+    };
+    assert!(
+        !found.is_empty(),
+        "the document is a note about black point compensation"
+    );
+    // Case-insensitively: the page states it capitalised.
+    let Answer::Found(exact) = viewer.query(Query::Find("Compensation")) else {
+        panic!("a search always answers");
+    };
+    assert_eq!(exact.len(), found.len());
+
+    for occurrence in &found {
+        assert!(!occurrence.is_empty(), "each match has shapes");
+        for quad in occurrence {
+            for corner in quad.chunks_exact(2) {
+                assert!(
+                    (0.0..=800.0).contains(&corner[0]) && (0.0..=1000.0).contains(&corner[1]),
+                    "{quad:?} is off an 800x1000 viewport"
+                );
+            }
+        }
+    }
+
+    // A string the page does not have, and the empty needle, both answer with nothing rather
+    // than with everything.
+    let Answer::Found(none) = viewer.query(Query::Find("zzzzz")) else {
+        panic!("a search always answers");
+    };
+    assert!(none.is_empty());
+    let Answer::Found(none) = viewer.query(Query::Find("")) else {
+        panic!("a search always answers");
+    };
+    assert!(none.is_empty());
+}
