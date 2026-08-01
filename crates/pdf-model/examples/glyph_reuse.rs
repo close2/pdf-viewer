@@ -108,18 +108,21 @@ fn main() {
     // The clip count is here because the profile that motivated all this found clip masks to be
     // the largest single item on the same page, and it is one line to answer "how many".
     let mut clips = BTreeSet::new();
+    let mut shapes = BTreeSet::new();
     for command in list.commands() {
         if let Some(clip) = command.clip() {
             clips.insert(clip);
+            shapes.insert(chain_shape(&list, clip));
         }
     }
 
     println!(
         "{} page {index} at {scale}x: {fills} fills of {} outlines, {small} of them small; \
-         {} distinct clips",
+         {} distinct clips of {} distinct shapes",
         path.display(),
         outlines.len(),
         clips.len(),
+        shapes.len(),
     );
     println!("  cache entries, exact phase: {}", exact.len());
     for (phases, entries) in PHASES.iter().zip(quantised.iter()) {
@@ -128,6 +131,31 @@ fn main() {
             entries.len()
         );
     }
+}
+
+/// A clip chain written out, so that two chains describing the same region compare equal.
+///
+/// The mask cache keys on the leaf's `ClipId`, which is a *name*; this is what the region would
+/// be keyed by if it were keyed by what it is.
+fn chain_shape(list: &DisplayList, leaf: pdf_render::ClipId) -> String {
+    let mut out = String::new();
+    let mut current = Some(leaf);
+    let mut depth = 0;
+    while let Some(id) = current {
+        depth += 1;
+        if depth > 64 {
+            break;
+        }
+        let Some(clip) = list.clip(id) else { break };
+        out.push_str(&format!(
+            "{:?}|{:?}|{:?};",
+            clip.path.commands(),
+            clip.transform,
+            clip.fill_rule
+        ));
+        current = clip.parent;
+    }
+    out
 }
 
 /// A fill's device extent, for the "small" count: what a coverage cache would hold a bitmap of.

@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-forty-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-seventh** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -62,7 +62,7 @@ plays it), search, or draw a panel for the outline, the layers and the attachmen
 
 | gate | number | where |
 |---|---|---|
-| tests | **944**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 145; the five fuzzers last in 139 |
+| tests | **946**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 147; the five fuzzers last in 139 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -139,7 +139,7 @@ documents' first pages it affects.
 | A stream whose data is in an external file (§7.3.8.1) | 0 | The renderer has no filesystem (principle 3). Refused by name rather than drawn from the bytes the clause says to ignore — which is what it did, silently, for the project's whole life. |
 | `/ColorTransform` (Table 13) | — | Its one corpus witness contradicts the clause. |
 | Sampled shadings on the GPU | 2 | Type 1 only; the CPU backend draws them. |
-| A page whose scene overflows Vello's buffers | — | **Closed in session 143, by banding.** Vello sizes its GPU working buffers from constants "hand picked to accommodate the vello test scenes", offers no way to enlarge them, and draws *nothing* when a scene needs more — page 6 of ISO 32000-2 at 1132×1600 needs 4% more tile records than the buffer holds. `render_checked` sees the flag and halves the target until it fits, which is Vello's own issue 366 remedy; 38.1 ms against 24.6 ms unbanded and 98 ms on the processor. The CPU fallback remains for a scene no band can hold. ADR 0127. |
+| A page whose scene overflows Vello's buffers | — | **Closed in session 143 by banding, and the page that motivated it stopped overflowing in 147** (ADR 0132: 303 clip identifiers for one region became one). Vello sizes its GPU working buffers from constants "hand picked to accommodate the vello test scenes", offers no way to enlarge them, and draws *nothing* when a scene needs more — page 6 of ISO 32000-2 at 1132×1600 needs 4% more tile records than the buffer holds. `render_checked` sees the flag and halves the target until it fits, which is Vello's own issue 366 remedy; 38.1 ms against 24.6 ms unbanded and 98 ms on the processor. The CPU fallback remains for a scene no band can hold, and the witness is now synthetic. ADRs 0127, 0132. |
 | Rendering intents beyond `AbsoluteColorimetric` | — | Read and recorded; `A2B0` not yet selected for `Perceptual`. |
 | §12.7.6.2's submit, §12.6.4's remote/launch/sound/movie | — | A network, a second file, a media engine. Refused by name and printed on a click. |
 | Signature *validation* (§12.8.3) | — | 17 ledger rows. Needs a trust store and a network; what a program without one can say is said (ADRs 0088, 0089). |
@@ -628,11 +628,24 @@ argument. The rest of the plan stands: stale-frame zoom (perceived latency, host
 against Vello and `vello_hybrid`. A whole document cannot be resident: 70 MB of draw records is
 affordable, the **4.0 s** to interpret 1023 pages is not, and the startup rule decides it.
 
-**The item that profile found instead, and nobody has taken**: on page 6, `calloc` is **18.1%** of
-rasterisation and *all* of it is under `tiny_skia::Mask::new`. The page uses 303 distinct clips,
-the mask cache builds each exactly once — no thrashing — and each zeroes a page-wide band. Nearly
-a fifth of a dense text page is spent zeroing clip masks, and unlike the glyph cache **nothing
-about attacking it moves a pixel**. `glyph_reuse` prints the clip count beside the fill count.
+**The item that profile found instead was taken the next session and it was the largest single
+win this project has had on a text page** (ADR 0132). `calloc` was 18.3% of page 6's
+rasterisation, *all* of it under `tiny_skia::Mask::new`, and `glyph_reuse` said why: **303
+distinct `ClipId`s of one distinct region.** The producer wraps each of 303 text runs in `q … W n
+… Q` with the same rectangle, and `add_clip` gave each an identifier of its own, so both backends
+did the per-chain work 303 times. `DisplayList::add_clip` now returns an existing identifier for
+an identical region — exact comparison, no tolerance. Rasterisation of the specification's pages
+5, 6 and 101: **4.81×, 4.66× and 2.89×**. Interpretation pays +1.22% for hashing every clip. Every
+oracle verdict, corpus count and text percentage is unchanged.
+
+**And it dissolved ADR 0127's cliff on the page that motivated it.** Page 6 no longer overflows
+Vello's buffers at 1.9008, or at 5.0 — the black page a person reported was, in substantial part,
+this tree handing the device 303 layers for one region. The banding stays (Vello's constants are
+fixed and another scene can still exceed them) and its witness is now synthetic:
+`a_scene_too_large_for_one_pass_is_banded` gives each of page 6's fills a clip nudged so no two
+are equal, which is what a producer with per-run rounding emits and what dedup cannot collapse.
+**That test failed on its own guard rather than on a pixel**, which is why the change was noticed
+at all.
 
 **Still open, priced or unpriced**: colour-managing an image in parallel (`issue19971.pdf`'s
 3.4-megapixel photograph went 30 ms → 120 ms when `ICCBased` images began converting through their
@@ -1347,6 +1360,13 @@ anchor that makes it checkable.
   switched off everywhere it is not switched on**, and **a clause whose operators are implemented
   can still be unread** (`J`/`j`/`M` from the first commit; Table 57's `/LC`/`/LJ`/`/ML` for
   twenty-three sessions).
+- **A cache that reports a perfect hit rate can still be missing.** `render-cpu`'s mask cache
+  answered every one of the 303 lookups page 6 made and built 303 identical page-wide masks,
+  because the key was the leaf's `ClipId` — a *name* — and the page states one region. **Instrument
+  the count of distinct keys, not the hit rate**: a hit rate is a statement about the lookups you
+  made, never about the ones you should have made. ADR 0132, and it is ADR 0115 with the sign
+  reversed — that key was too weak, this one too strong, and both ask whether the key is what the
+  claim is about.
 - **A count of what is *shared* is not a count of what can be *reused*.** 5933 fills of 107
   outlines said a coverage cache would hit 55 times over; the outlines are shared through an
   `Arc` and the coverage is not shared at all, because the sub-pixel phase the count left out is
@@ -1659,3 +1679,4 @@ above rather than here.
 | 144 | §7.6.2 on the way out: an encrypted document can be saved | 0129 |
 | 145 | §12.7.4.3's appearance stream is written into the file, not owed to the reader | 0130 |
 | 146 | The glyph coverage cache, counted: what is shared is the outline, not the coverage | 0131 |
+| 147 | One clipping region stated 303 times became one: 4.7× on a dense page | 0132 |

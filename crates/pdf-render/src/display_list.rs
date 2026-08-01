@@ -1,5 +1,7 @@
 //! The resolved drawing command buffer.
 
+use std::collections::BTreeMap;
+use std::hash::{Hash as _, Hasher as _};
 use std::sync::Arc;
 
 use crate::geom::{Path, Rect, Size, Transform};
@@ -282,6 +284,13 @@ pub struct DisplayList {
     commands: Vec<Command>,
     clips: Vec<Clip>,
     soft_masks: Vec<SoftMask>,
+    /// Which [`ClipId`]s describe which region, so that [`DisplayList::add_clip`] can hand
+    /// back one that is already there.
+    ///
+    /// Keyed by a hash of the clip's content with the identifiers that hashed to it, because
+    /// the alternative — a map keyed by the clip itself — would store a second copy of every
+    /// clipping path. A collision costs one `PartialEq`, which is what decides the answer.
+    clip_index: BTreeMap<u64, Vec<ClipId>>,
 }
 
 impl DisplayList {
@@ -293,6 +302,7 @@ impl DisplayList {
             commands: Vec::new(),
             clips: Vec::new(),
             soft_masks: Vec::new(),
+            clip_index: BTreeMap::new(),
         }
     }
 
@@ -330,6 +340,18 @@ impl DisplayList {
 
     /// Registers a clip region and returns its identifier.
     ///
+    /// **A region already in the table gets its existing identifier back**, and that is not
+    /// tidiness. A backend caches the *effective mask* of a chain, keyed by the leaf's
+    /// identifier — which is a name — so two identifiers describing one region are two
+    /// page-sized masks built and two page-sized buffers zeroed. Page 6 of ISO 32000-2 states
+    /// **one** clipping region and `q`/`W n`/`Q` around **303** text runs, and before this the
+    /// CPU backend built 303 identical masks: 18.1% of that page's rasterisation was `calloc`
+    /// under `tiny_skia::Mask::new`, all of it. ADR 0132.
+    ///
+    /// The comparison is exact — the same path, transform, fill rule and parent — so nothing
+    /// here decides that two regions are "close enough". A producer that states two clips one
+    /// ten-thousandth of a point apart gets two identifiers, and gets what it asked for.
+    ///
     /// # Errors
     ///
     /// Returns [`DisplayListError::TooManyClips`] if the list already holds
@@ -337,9 +359,20 @@ impl DisplayList {
     /// a document that produces four billion clip regions is hostile rather than
     /// merely complex — refusing it is a resource-exhaustion defence.
     pub fn add_clip(&mut self, clip: Clip) -> Result<ClipId, DisplayListError> {
+        let digest = Self::clip_digest(&clip);
+        if let Some(candidates) = self.clip_index.get(&digest)
+            && let Some(existing) = candidates
+                .iter()
+                .find(|id| self.clips.get(id.index()) == Some(&clip))
+        {
+            return Ok(*existing);
+        }
+
         let index = u32::try_from(self.clips.len()).map_err(|_| DisplayListError::TooManyClips)?;
         self.clips.push(clip);
-        Ok(ClipId(index))
+        let id = ClipId(index);
+        self.clip_index.entry(digest).or_default().push(id);
+        Ok(id)
     }
 
     /// Registers a soft mask and returns its identifier.
@@ -381,6 +414,46 @@ impl DisplayList {
     #[must_use]
     pub fn commands(&self) -> &[Command] {
         &self.commands
+    }
+
+    /// A hash of everything [`Clip`]'s `PartialEq` compares.
+    ///
+    /// Floating-point values are hashed by their bits, which is stricter than `==` in exactly
+    /// one place — `-0.0` and `0.0` hash apart and compare equal — and stricter is the safe
+    /// direction here: a missed match costs one extra clip, a false match would clip a page by
+    /// the wrong region. `f32::NAN` is unreachable in a clip that any backend can draw.
+    fn clip_digest(clip: &Clip) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+        for command in clip.path.commands() {
+            std::mem::discriminant(command).hash(&mut hasher);
+            for value in Self::command_values(command) {
+                value.to_bits().hash(&mut hasher);
+            }
+        }
+        for value in [
+            clip.transform.a,
+            clip.transform.b,
+            clip.transform.c,
+            clip.transform.d,
+            clip.transform.e,
+            clip.transform.f,
+        ] {
+            value.to_bits().hash(&mut hasher);
+        }
+        std::mem::discriminant(&clip.fill_rule).hash(&mut hasher);
+        clip.parent.map(ClipId::index).hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// The coordinates one path command names, in order.
+    fn command_values(command: &crate::geom::PathCommand) -> Vec<f32> {
+        match *command {
+            crate::geom::PathCommand::MoveTo(p) | crate::geom::PathCommand::LineTo(p) => {
+                vec![p.x, p.y]
+            }
+            crate::geom::PathCommand::CurveTo(a, b, c) => vec![a.x, a.y, b.x, b.y, c.x, c.y],
+            crate::geom::PathCommand::Close => Vec::new(),
+        }
     }
 
     /// Returns the clip with the given identifier.

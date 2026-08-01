@@ -123,14 +123,116 @@ fn a_page_is_drawn_or_refused_and_never_silently_blank() {
     }
     println!("{refused} of 8 renders refused, {banded} drawn in bands");
 
-    // **The witness has to be drawn, and drawn the hard way.** Page 6 at 1.9008 is what the
-    // person reported; it overflows Vello's tile buffer in one pass, so if it comes back both
-    // unrefused and unbanded, something has changed underneath this test and the thing it was
-    // written to check is no longer being checked.
-    assert!(
-        banded > 0,
-        "no render needed banding — the scene that overflows the device's buffers is no longer \
-         reaching it, so this test is no longer testing what it was written for"
-    );
     assert_eq!(refused, 0, "every one of these pages can be drawn in bands");
+
+    // **Page 6 stopped being the witness in the hundred-and-forty-seventh session, and it is
+    // worth saying why rather than quietly dropping the assertion.** This test used to require
+    // `banded > 0` here, on the grounds that a render coming back both unrefused and unbanded
+    // meant something had changed underneath it. Something did: `DisplayList::add_clip` began
+    // handing back an existing identifier for an identical region, and page 6's 303 clips —
+    // one region, stated 303 times — became one. It no longer overflows Vello's buffers at
+    // 1.9008, or at 5.0 (measured). The banding is still correct and still needed, because the
+    // constants it works around are fixed and another document can still exceed them; what is
+    // gone is a *real page* that does. `a_scene_too_large_for_one_pass_is_banded` below is the
+    // replacement, and it states the shape rather than borrowing one. ADR 0132.
+}
+
+/// A scene the device cannot draw in one pass is drawn in bands, not left blank.
+///
+/// The synthetic witness for ADR 0127's banding, written after the real one stopped overflowing.
+/// Its shape is not invented: it is page 6 of ISO 32000-2 with each fill given a clip of its own,
+/// which is the scene page 6 *was* until identical clip regions began sharing an identifier. What
+/// the nudge stands in for is a producer whose per-run clip rectangle differs in the last decimal
+/// place, which deduplication cannot collapse and which a device therefore still has to band.
+#[test]
+fn a_scene_too_large_for_one_pass_is_banded() {
+    let Ok(mut gpu) = render_gpu::GpuRasterizer::new_headless() else {
+        println!("skipped: no GPU adapter, not even a software one");
+        return;
+    };
+
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/ISO_32000-2_sponsored_EC3.pdf");
+    let bytes = std::fs::read(&path).expect("the specification is committed");
+    let document = Document::open(bytes).expect("it opens");
+    let pages = pdf_model::Pages::new(&document);
+    let page = pages.get(5).expect("page 6 exists");
+    let source = pdf_model::content::interpret(&document, &page).display_list;
+
+    let mut list = pdf_render::DisplayList::new(source.page_size);
+    let bounds = list.page_bounds();
+    // Two thousand is enough to overflow and keeps the test's own cost down; the whole page
+    // bands the same way and takes a minute of device time to do it.
+    for (index, command) in source.commands().iter().take(2000).enumerate() {
+        let pdf_render::Command::Fill {
+            path,
+            transform,
+            fill_rule,
+            paint,
+            blend,
+            ..
+        } = command
+        else {
+            continue;
+        };
+        // Each clip is the page, nudged by a ten-thousandth of a point per command, so no two
+        // are equal and none changes what is drawn.
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "an index over one page's commands, bounded by thousands"
+        )]
+        let nudge = index as f32 * 0.0001;
+        let mut region = pdf_render::Path::new();
+        region.push(pdf_render::PathCommand::MoveTo(pdf_render::Point::new(
+            nudge, nudge,
+        )));
+        region.push(pdf_render::PathCommand::LineTo(pdf_render::Point::new(
+            bounds.max.x,
+            nudge,
+        )));
+        region.push(pdf_render::PathCommand::LineTo(pdf_render::Point::new(
+            bounds.max.x,
+            bounds.max.y,
+        )));
+        region.push(pdf_render::PathCommand::LineTo(pdf_render::Point::new(
+            nudge,
+            bounds.max.y,
+        )));
+        region.push(pdf_render::PathCommand::Close);
+        let clip = list
+            .add_clip(pdf_render::Clip {
+                path: region,
+                transform: pdf_render::Transform::IDENTITY,
+                fill_rule: pdf_render::FillRule::NonZero,
+                parent: None,
+            })
+            .expect("one clip per command is far under the bound");
+        list.push(pdf_render::Command::Fill {
+            path: std::sync::Arc::clone(path),
+            transform: *transform,
+            fill_rule: *fill_rule,
+            paint: paint.clone(),
+            clip: Some(clip),
+            mask: None,
+            blend: *blend,
+        });
+    }
+
+    let target = TargetSpec::for_page(&list, 1.9008, 1 << 28).expect("a target");
+    let expected = ink(&render_cpu::CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("the processor draws it"));
+    let raster = gpu.rasterize(&list, target).expect("the device draws it");
+    println!("drawn in {} bands", gpu.bands().count());
+    assert!(
+        gpu.bands().count() > 1,
+        "this scene no longer overflows the device's buffers, so it is no longer the witness \
+         ADR 0127's banding needs"
+    );
+    let drawn = ink(&raster);
+    let ratio = drawn as f64 / expected.max(1) as f64;
+    assert!(
+        (0.9..1.1).contains(&ratio),
+        "banded, the device drew {drawn} against the processor's {expected}, a ratio of {ratio:.3}"
+    );
 }
