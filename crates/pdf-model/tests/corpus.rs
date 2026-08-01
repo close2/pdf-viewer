@@ -149,7 +149,20 @@ const MAX_UNREADABLE_ENCRYPTION: usize = 2;
 ///   and bug-tracker crashers from other projects, kept as regression fixtures rather than as
 ///   renderable documents. `bug1020226.pdf` is not even a PDF defect: the Mozilla bug is a
 ///   null-dereference in Firefox's *worker* shutdown that a pdf.js promise exposed.
-const MAX_PAGELESS: usize = 11;
+///
+/// **11 to 5 in the hundred-and-seventh session**, from two recovery rules and no new feature.
+/// §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF document", so a
+/// cross-reference table that leads to no catalog has been disproved by the file itself — and
+/// `Document::open` now rebuilds by scanning and tries again, which `xref::read` did not because
+/// it scans only when the table is *absent, unreadable or empty*. Table 31 makes `/Type`
+/// required of a page object and says it "shall be Page", so a document whose page *tree* yields
+/// nothing can still be asked which of its objects say they are pages, with §7.7.3.4's
+/// inheritance applied up each one's own `/Parent`. Six documents reach page one that did not:
+/// `issue18986.pdf` (which then **agrees with the reference consensus**), `issue9418.pdf`,
+/// `operator_list_cycle.pdf`, `issue19484_1.pdf`, `issue19484_2.pdf` and
+/// `poppler-395-0-fuzzed.pdf`. Five of the six report something, which is why `MAX_INCOMPLETE`
+/// rises with this: they are new *pages*, not new failures.
+const MAX_PAGELESS: usize = 5;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
@@ -510,7 +523,15 @@ const MAX_PAGELESS: usize = 11;
 /// mode inside one sees the backdrop §11.4.4 says it should — which is what the report was
 /// about. `bug1873345.pdf`, `issue13242.pdf` and `nonisolated_blend_smask.pdf` leave the list,
 /// two of them into the oracle's *agreeing* set: 837 pages to 839.
-const MAX_INCOMPLETE: usize = 86;
+///
+/// **86 to 90 in the hundred-and-seventh session, and it is a rise on purpose.** Six documents
+/// that had no page one now have one (see `MAX_PAGELESS`), and five of them report something —
+/// a form-depth cycle the file is named for, two whose content is ciphertext this reader derives
+/// the wrong key for, and a fuzzed file whose content stream does not inflate. Trap 5: a rise in
+/// this count is not a regression when it is a new report, and here it is not even that — it is
+/// four pages that were not being counted at all. The sixth, `issue9418.pdf`, draws **completely**
+/// once §7.7.3.4's inheritance reaches its recovered page and its `/Resources` with it.
+const MAX_INCOMPLETE: usize = 90;
 
 /// How long one document may take before it counts as a failure.
 ///

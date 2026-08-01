@@ -116,6 +116,13 @@ const STARTXREF_SEARCH_WINDOW: usize = 2048;
 /// second line of defence rather than the only one.
 const MAX_XREF_SECTIONS: usize = 1024;
 
+/// How far into the file a header is looked for.
+///
+/// §7.5.2 puts it on the first line; files served through mail gateways acquire junk in front of
+/// it, and NOTE 1 licenses that — "[t]his provision allows for arbitrary bytes preceding the
+/// %PDF- without impacting the viability of the PDF file and its byte offsets".
+const HEADER_SEARCH_WINDOW: usize = 1024;
+
 /// Reads the cross-reference information for a file, recovering if necessary.
 ///
 /// # Errors
@@ -126,7 +133,7 @@ const MAX_XREF_SECTIONS: usize = 1024;
 pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     // The header may be preceded by junk — files served through mail gateways acquire it —
     // so the specification's "first line" is relaxed to "somewhere near the start".
-    let header_window = input.len().min(1024);
+    let header_window = input.len().min(HEADER_SEARCH_WINDOW);
     let start = input.get(..header_window).unwrap_or_default();
     // §12.7.8.2.2 gives an FDF file a header of its own — `%FDF-1.n` where a PDF writes
     // `%PDF-n.m` — and §12.7.8.2.1 makes the rest of the file structure clause 7's, §7.5.2's
@@ -142,7 +149,26 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     }
 
     // The table was absent, unreadable, or empty. Scan.
-    //
+    rebuild(input, limits, header_at.is_some())
+}
+
+/// Reconstructs a cross-reference table by scanning the file for objects.
+///
+/// The other half of [`read`], and a public one since the hundred-and-seventh session because
+/// there is a second reason to reach it: a cross-reference table that *parses* is not thereby a
+/// table that *works*. §7.5.5 makes the trailer's `/Root` "the catalog dictionary for the PDF
+/// document", so a table leading to no catalog has been disproved by the file itself, whatever it
+/// parsed as — and [`crate::Document::open`] rebuilds and tries again rather than refusing. Two
+/// corpus documents are exactly that: a table whose offsets a hand edit moved, complete and
+/// self-consistent and pointing at the wrong bytes.
+///
+/// `had_header` decides only which error is reported when nothing is found.
+///
+/// # Errors
+///
+/// [`SyntaxError::NoHeader`] where the file has neither header and no objects could be found,
+/// and [`SyntaxError::NoCrossReferences`] where it had one and they still could not.
+pub fn rebuild(input: &[u8], limits: Limits, had_header: bool) -> SyntaxResult<XrefTable> {
     // A missing header does not stop this. Files lose their header to transfer damage and
     // to producers that never wrote one, and the objects after it are usually intact — so
     // refusing on the header alone rejects documents both poppler and mupdf recover and
@@ -152,9 +178,9 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
     table.recovered_by_scan = true;
 
     if table.is_empty() {
-        if header_at.is_none() {
+        if !had_header {
             return Err(SyntaxError::NoHeader {
-                searched: header_window,
+                searched: input.len().min(HEADER_SEARCH_WINDOW),
             });
         }
         return Err(SyntaxError::NoCrossReferences {

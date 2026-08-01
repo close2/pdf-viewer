@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-sixth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-seventh** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,25 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-fourth — the document inside the document.** §12.6.4.4's embedded go-to, the
-largest action nobody had written. ADR 0094.
-
-- **A `GoToR` names a file on a disk; a `GoToE` names a file inside the one already open.** They
-  sat under one refusal, and that sentence had been wrong since §7.11.4's embedded files were
-  read in the eighty-sixth session.
-- **Table 205's `/T` is a path, not a step**, which the clause's own EXAMPLE proves by writing a
-  sibling as `/R /P` nesting `/R /C`. `target_in` walks it holding a stack of opened documents, so
-  a parent step is a pop — and a `/R /P` from the document a person opened has no parent *inside*
-  this file, which is its own refusal.
-- **The destination belongs to the target and is not a reference.** §12.3.2.2's integer form,
-  corrected in 2020 to cover this action, makes it a page number with "the first page …
-  numbered 0"; before `Destination::page_index_in_target` all 30 of `issue17056.pdf`'s actions
-  resolved to nothing.
-- **The viewer opens it and drops the directory.** An embedded document is not a file on this
-  disk, so §12.7.6.4's import policy has nothing beside it to name.
-
-`reported` falls 51 → 50. No gate moved and none could: what changed is what a click does.
 
 **Hundred-and-fifth — which way up a widget is, and what a redaction is not.** Two rows of
 §12.5.6, and they are opposite kinds of thing. ADR 0095.
@@ -69,6 +50,24 @@ largest action nobody had written. ADR 0094.
 - **Our own total fell while the page count rose**: 6.99 s over 862 complete pages against
   7.08 s over 859. `hayro`'s total moved 49.03 s → 39.59 s with nothing here touching it, for the
   third time — the number to trust across sessions is our own.
+
+**Hundred-and-seventh — a table that parses is not a table that works.** Two recovery rules, both
+from the file's own declarations, and the corpus's biggest movement in twenty sessions. ADR 0097.
+
+- **§7.5.5: a cross-reference table that leads to no catalog has been disproved by the file
+  itself.** `xref::read` scanned only when the table was *absent, unreadable or empty*, which left
+  the case a hand edit produces — complete, self-consistent, and pointing a few bytes wrong.
+  `Document::open` now rebuilds once and keeps the result only if it does better.
+- **Table 31: a page is an object that says it is one.** Where the *tree* yields nothing, every
+  object declaring `/Type /Page` is asked instead, with §7.7.3.4's inheritance applied up its own
+  `/Parent` — the tree failing downwards does not stop `/Parent` working upwards, and that is
+  where a recovered page's `/MediaBox` and `/Resources` come from.
+- **11 → 5 documents with no page one**; the oracle's `no render` count 25 → 19; agreeing
+  839 → 840 with `issue18986.pdf` joining it; contradicted 65 unchanged.
+- **86 → 90 incomplete, and the rise is the point** — four of the new pages report something and
+  they are pages that were not being counted at all.
+- **`corpus.rs` had named and priced this four sessions before anybody took it**, which is the
+  read-your-own-lists habit paying again.
 
 ## How the project got here
 
@@ -179,6 +178,7 @@ below rather than here.
 | 104 | §12.6.4.4's embedded go-to: the document inside the document | ADR 0094 |
 | 105 | Table 192's `/R` drawn; §12.5.6.23's overlay read as writer-side | ADR 0095 |
 | 106 | A fifth fuzz target for §12.7.8 and §7.9.4; everything re-verified | ADR 0096 |
+| 107 | Two recovery rules from the file's own declarations: 11 pageless → 5 | ADR 0097 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -232,17 +232,17 @@ ones.
   **100% of the words `pdftotext` finds**.
 - **The 974-document pdf.js corpus is a gate, not a survey.** All 974 open except ten that are
   encrypted — 8 waiting for a password, 2 by something §7.6 does not specify or we do not
-  implement — 953 reach page one, **867 draw with nothing reported**, and everything the other 86
+  implement — **959 reach page one**, 869 draw with nothing reported, and everything the other 90
   cannot draw is named. 1501 of 1501 PDF functions parse; all 1793 shadings build, mesh types
   included. The whole gate runs in **~2 s** with no named slow document left. Counts are
   ratcheted.
 - **A second gate asks whether what we drew is *right*.** `oracle.rs` compares us against poppler,
   mupdf and ghostscript over **1794 pages** — every corpus page plus page one of each
   specification PDF — in **~35 s**, because the references' renders are remembered between runs
-  (ADR 0020). Of the 1664 pages we claim to draw completely, **839 agree with the reference
+  (ADR 0020). Of the 1665 pages we claim to draw completely, **840 agree with the reference
   consensus, 65 are contradicted and 750 are pages the references cannot agree about among
-  themselves**. The 65 are named, grouped and ratcheted in both directions. Twenty-five pages
-  do not rasterise at all: 13 documents that have no such page, 10 encrypted ones, and 2 whose
+  themselves**. The 65 are named, grouped and ratcheted in both directions. Nineteen pages
+  do not rasterise at all: 7 documents that have no such page, 10 encrypted ones, and 2 whose
   target size is degenerate or past the pixel limit. **None is a page we decline to draw** —
   the last four of those left in the twenty-fourth session (ADR 0033). ADR 0011.
 - **JBIG2 and JPEG 2000 decode in a sandboxed worker.** `pdf-sandbox` confines it with resource
@@ -454,7 +454,11 @@ rasterisable at all.
 twenty-fourth session's rule turned four `no render` pages into drawn ones, and the group's
 label — "path is empty or contains non-finite coordinates" — described the *symptom* of a
 missing rule, not the defect the pages then revealed. A `no render` count is a to-do list of
-pages nobody has looked at, and it is now 25, all of them documents rather than pages.
+pages nobody has looked at, and it is now 19 — six left it in the hundred-and-seventh session
+(ADR 0097), and all three of those with any content on them were rendered and read. One draws a
+title block correctly with a giant **سلام** across it, which is a word rather than garbage and
+exactly what a file filed under an Arabic-rendering issue would contain; no reference opens that
+document at all, so the readback is the whole of the evidence.
 
 **A contradicted page's group names a hypothesis, not a diagnosis — seven for seven on being
 wrong.** Type 3 fonts, `/Rotate`, `alphatrans.pdf`'s gradient and `french_diacritics.pdf` all sat
@@ -885,9 +889,9 @@ Over the 974-document pdf.js corpus, page one:
 | | count | share |
 |---|---|---|
 | opens | 964 | 99% — the other 10 are 8 needing a password and 2 encrypted beyond us |
-| reaches page one | 953 | 98% |
-| **draws with nothing reported** | **867** | **89%** |
-| draws, with something reported | 86 | 9% |
+| reaches page one | 959 | 98% |
+| **draws with nothing reported** | **869** | **89%** |
+| draws, with something reported | 90 | 9% |
 
 **This number measures honesty, and honesty can fall as capability rises.** It fell from 72% in
 the eighth session when 24 documents began saying they carry a Type 3 font; it rose by twenty in
@@ -898,12 +902,12 @@ project got here".
 
 ### By what an independent renderer sees
 
-This is the number to worry about. Over all 1794 pages compared, of the 1664 we claim to draw
+This is the number to worry about. Over all 1794 pages compared, of the 1665 we claim to draw
 completely:
 
 | | count | share |
 |---|---|---|
-| agree with the reference consensus | 839 | 50% |
+| agree with the reference consensus | 840 | 50% |
 | **contradicted by it** | **65** | **4%** |
 | the references cannot agree among themselves | 750 | 45% |
 | not comparable (geometry, or fewer than two renderers) | 10 | 1% |
@@ -1343,8 +1347,8 @@ rise is a new report and is written down as one.
 | unopenable | 0 | and it should stay there |
 | needs a password | 8 | §7.6.4.1's prompt is the missing piece, not the clause |
 | encrypted beyond this reader | 2 | 1 is `/R` 5, which the standard states no algorithm for; 1 is a file whose `/Encrypt` does not resolve to a dictionary |
-| no page one | 11 | `corpus.rs` has what each one is, looked up in the fifty-ninth session: one prototypes a filter the standard does not define yet, three are recovered by `ghostscript` and not by us, four are fuzzer crashers every reference refuses, and two are encrypted with a key length the file states and Acrobat pads |
-| draws incompletely | 86 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, 4 in the thirty-second when the last three bit depths did, 2 in the seventy-first when §11.4.6's knockout was drawn, 5 in the seventy-second when §9.3.8 and §11.6.2 followed it, 1 in the eighty-fifth when §12.5.6.7's leader lines stopped being refused, and 3 in the hundred-and-third when §11.4.4's NOTE 5 stopped a non-isolated group being built (ADR 0093) |
+| no page one | 5 | 11 until the hundred-and-seventh session, whose two recovery rules took six of them (ADR 0097). What is left is refused by every reference too or is not a PDF defect at all: one prototypes the `/BrotliDecode` filter the PDF Association is standardising, three are fuzzer crashers kept as regression fixtures, and one is a Firefox worker-shutdown bug |
+| draws incompletely | 90 | Counted by each document's *first* report; 20 left it in the thirty-first session when `/FontFile` began to be read, 4 in the thirty-second when the last three bit depths did, 2 in the seventy-first when §11.4.6's knockout was drawn, 5 in the seventy-second when §9.3.8 and §11.6.2 followed it, 1 in the eighty-fifth when §12.5.6.7's leader lines stopped being refused, and 3 in the hundred-and-third when §11.4.4's NOTE 5 stopped a non-isolated group being built (ADR 0093) |
 | slower than 30 s | 0 | `KNOWN_SLOW` is empty, and the next document to cross the budget fails the gate |
 
 - **The `Content` row was 10 and is 1** (ADR 0031). Nine of
@@ -1391,15 +1395,15 @@ drawing defect. The 14 specification PDFs keep their own 0.99 floor and still sc
 
 Oracle, ratcheted in `crates/pdf-model/tests/oracle.rs` by name and in both directions.
 
-| of the 1664 pages we call complete | count | |
+| of the 1665 pages we call complete | count | |
 |---|---|---|
-| agree with the reference consensus | 839 | |
+| agree with the reference consensus | 840 | |
 | **contradicted** | **65** | 4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured), **8 pages of glyph edges whose ink matches the consensus to half a level** (measured, seventy-fifth session), 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border two references do not draw for two unrelated reasons, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion (ADR 0048), 2 a reference that drew nothing (ADR 0049), 1 a CID width two references space inconsistently, 1 a negative line width, 14 substituted fonts, **15 unexplained** |
 | ambiguous | 750 | the references disagree with each other; 372 are two long books set in fonts nobody embedded |
 | our page geometry differs | 0 | all three were `/UserUnit`, applied in the twenty-ninth session (ADR 0038) |
 | not comparable | 8 | fewer than two references produced an image, or they disagree on the page size |
 
-The 130 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
+The 129 incomplete pages are compared and printed too, but cannot fail the gate: a page we already
 say we cannot draw is expected to differ. **The denominator moves in both directions on purpose**:
 it grows when reports stop firing (46 pages in the twenty-first session) and shrinks when a
 silence ends (8 in the seventeenth, 43 in the eighth). A report should never be reached for as a

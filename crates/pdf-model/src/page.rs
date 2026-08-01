@@ -297,6 +297,11 @@ pub struct Pages<'a> {
     /// one dictionary lookup in a catalog this function already holds — 58 of the 974 corpus
     /// documents state a `/ViewerPreferences` at all and none of them states either entry.
     view: (Boundary, Boundary),
+    /// Pages found by scanning, where the page *tree* yielded none.
+    ///
+    /// Empty for every document whose tree works, which is 963 of the 974 corpus documents and
+    /// every well-formed file — see [`Pages::new`] for why this exists and what it costs.
+    scanned: Vec<ObjectId>,
 }
 
 impl<'a> Pages<'a> {
@@ -329,11 +334,28 @@ impl<'a> Pages<'a> {
             |catalog| crate::viewer_preferences::ViewerPreferences::in_catalog(document, catalog),
         );
 
+        // §7.7.3.2 makes a page tree a tree, and a file whose tree is broken has no page one —
+        // which for eleven corpus documents means no render at all. But Table 31 makes `/Type`
+        // **required** of a page object and says it "shall be Page", so a document that cannot be
+        // walked can still be *asked*: every object declaring itself a page is one, whatever the
+        // tree says. That is a recovery from the file's own declarations rather than from any
+        // other reader's behaviour, and it is the same shape as `xref::rebuild`'s.
+        //
+        // It runs only where the tree produced nothing, so no document that opens normally pays
+        // for it — `CLAUDE.md`'s "nothing eager" is intact, and 963 of the 974 corpus documents
+        // never reach this line.
+        let scanned = if count == 0 {
+            scan_for_pages(document)
+        } else {
+            Vec::new()
+        };
+
         Self {
             document,
             root,
-            count,
+            count: if count == 0 { scanned.len() } else { count },
             view: (preferences.view_area, preferences.view_clip),
+            scanned,
         }
     }
 
@@ -352,6 +374,35 @@ impl<'a> Pages<'a> {
     /// Returns the page at a zero-based index.
     #[must_use]
     pub fn get(&self, index: usize) -> Option<Page> {
+        // The recovered list, in ascending object number — the only order a scan has, and a
+        // documented choice rather than a claim about what the producer meant. §7.7.3.2's tree is
+        // where page order lives, and a file whose tree is gone has not stated one.
+        if !self.scanned.is_empty() {
+            let object = self.document.get(*self.scanned.get(index)?);
+            let dict = object.as_dict()?;
+            // §7.7.3.4's inheritance runs up `/Parent`, and a page found by scanning may still
+            // have a usable chain — the *tree* is what failed, which is a walk downwards from the
+            // catalog. So the ancestry is collected upwards here and applied from the top, which
+            // is the same order `find_leaf` applies it in and gives a recovered page its
+            // `/MediaBox` where its parents state one.
+            let mut ancestry = vec![dict.clone()];
+            let mut current = dict.clone();
+            for _ in 0..MAX_TREE_DEPTH {
+                let Some(parent) = self.document.get_key(&current, "Parent").as_dict().cloned()
+                else {
+                    break;
+                };
+                ancestry.push(parent.clone());
+                current = parent;
+            }
+            let inherited = ancestry
+                .iter()
+                .rev()
+                .fold(Inherited::default(), |so_far, node| {
+                    so_far.overlay(self.document, node)
+                });
+            return Some(build_page(self.document, dict, &inherited, self.view));
+        }
         let root = self.root.clone()?;
         let mut remaining = index;
         let mut visited = 0usize;
@@ -413,6 +464,36 @@ impl<'a> Pages<'a> {
         let mut visited = 0usize;
         locate(self.document, root, id, &mut counted, &mut visited, 0)
     }
+}
+
+/// Every object declaring itself a page, in ascending object number.
+///
+/// Table 31: `/Type` is "(Required) The type of PDF object that this dictionary describes; shall
+/// be Page for a page object." So this asks each object what it says it is. A node of the page
+/// *tree* says `Pages` and is not collected; an object stream's contents are reached because
+/// `Document::get` resolves them like any other.
+///
+/// Bounded by the cross-reference table's own size, which the parser already bounds.
+fn scan_for_pages(document: &Document) -> Vec<ObjectId> {
+    let mut found = Vec::new();
+    for number in document.xref().object_numbers() {
+        if found.len() >= MAX_NODES_VISITED {
+            break;
+        }
+        let id = ObjectId::new(number, 0);
+        let object = document.get(id);
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        if document
+            .get_key(dict, "Type")
+            .as_name()
+            .is_some_and(|kind| kind.as_bytes() == b"Page")
+        {
+            found.push(id);
+        }
+    }
+    found
 }
 
 /// Walks the tree in page order looking for `id`; see [`Pages::index_of`].

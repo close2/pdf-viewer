@@ -108,7 +108,33 @@ impl Document {
     ) -> SyntaxResult<Self> {
         let bytes = bytes.into();
         let xref = crate::xref::read(&bytes, limits)?;
-        let mut document = Self {
+        let mut document = Self::around(Arc::clone(&bytes), xref, limits);
+        document.authenticate(password)?;
+
+        // §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF document", so
+        // **a cross-reference table that leads to no catalog has been disproved by the file
+        // itself** — whatever it parsed as, and however self-consistent it looked. `xref::read`
+        // scans only when the table is *absent, unreadable or empty*, which leaves the case a
+        // hand edit produces: a complete table whose offsets all point a few bytes wrong.
+        //
+        // Rebuilding is tried once, and only from here, so a well-formed document pays one
+        // dictionary lookup for it. The rebuilt table is kept only if it does better, which is
+        // what keeps the error a caller sees the same as before wherever this changes nothing.
+        if document.catalog().is_err()
+            && !document.xref.recovered_by_scan()
+            && let Ok(rebuilt) = crate::xref::rebuild(&bytes, limits, true)
+        {
+            let mut second = Self::around(bytes, rebuilt, limits);
+            if second.authenticate(password).is_ok() && second.catalog().is_ok() {
+                return Ok(second);
+            }
+        }
+        Ok(document)
+    }
+
+    /// The document a cross-reference table and some bytes make, before authentication.
+    fn around(bytes: Arc<[u8]>, xref: XrefTable, limits: Limits) -> Self {
+        Self {
             bytes,
             xref,
             limits,
@@ -117,9 +143,7 @@ impl Document {
             loading: RefCell::new(BTreeSet::new()),
             encryption: None,
             encrypt_object: None,
-        };
-        document.authenticate(password)?;
-        Ok(document)
+        }
     }
 
     /// Reads the trailer's `/Encrypt` entry and derives the file encryption key.
