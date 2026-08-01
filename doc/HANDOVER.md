@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-thirty-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-thirty-seventh** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -51,7 +51,7 @@ rather than architecture.
 
 | gate | number | where |
 |---|---|---|
-| tests | **932**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 136, fuzzers in 129 |
+| tests | **932**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 137, fuzzers in 129 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -81,12 +81,12 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 | status | rows | |
 |---|---|---|
 | `implemented` | 366 | every normative requirement in the clause is executed |
-| `partial` | 242 | some are; the note says which are not |
+| `partial` | 243 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 33 | not implemented, detected and named at runtime |
-| `writer-side` | 7 | addresses a PDF *generator* |
+| `writer-side` | 6 | addresses a PDF *generator* |
 
 **`silent` is zero** — there is no requirement in the eight technical clauses that this program
 fails without saying so. That is a narrow claim: `partial` and `reported` are 275 rows between
@@ -98,11 +98,11 @@ review describes what the code *should* do (ADRs 0056, 0057, 0060). The defences
 *family* rather than the row, and `FILE_ONLY_EVIDENCE_CEILING`, which is zero and asserted with
 `==`.
 
-**`writer-side`'s definition changed in the hundred-and-thirtieth session** and its 7 rows have
-not been re-read against it. `CLAUDE.md` no longer excludes writing outright — it excludes
-*authoring*, and permits §7.5.6's incremental update of what a user did. `ledger.toml`'s header
-comment still says "we do not create files". Re-read those 7 rows when §0's editing work starts;
-some of them may be `reported` or `partial` now.
+**`writer-side`'s 7 rows were re-read in the hundred-and-thirty-seventh session** against the
+amended definition — `CLAUDE.md` excludes *authoring*, not writing — and `ledger.toml`'s header
+now carries that definition rather than "we do not create files". **Six stay and one moved**:
+§7.2.2's "Representation" binds this tree now that it writes, and all three of its requirements
+are met by construction. ADR 0122.
 
 ### What is not implemented
 
@@ -120,6 +120,7 @@ documents' first pages it affects.
 | A substitute that cannot be addressed | 41 | Counting fonts: 27 composite with no `/ToUnicode`, 23 whose substitute draws none of the declared codes. Honest refusals; closing them means better substitution, and some the `-UCS2` `CMap`s would answer. |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | Each reported where it can change a pixel: a knockout element whose shape is not its coverage (5), a non-isolated group NOTE 5 cannot flatten whose elements blend (6), a blending space that is not the device's three components (4, all `/DeviceCMYK`), a soft-mask group with such a space (7). |
 | Optional content's interactive half | — | §8.11 is honoured wherever it decides what is drawn. **The layer panel's data model is read** since session 67 — `/Order`, `/ListMode`, `/Locked`, `/RBGroups`, `/Name` — and since 131 it is `Query::Layers` with `Command::SetGroup` as the switch. What is missing is a panel to draw it in. Still unread: alternate `/Configs`. |
+| Table 192's `/H` highlighting mode | — | **A gap that opened when this program grew a pointer** (session 132). The entry is "the visual effect that shall be used when the mouse button is pressed", with five modes and a default of `I`; this tree shows §12.5.5's down appearance whatever `/H` says, which is right for `P` and `T` and wrong for the other three — and one sentence says "[a] highlighting mode other than P shall override any down appearance". Reachable only by a press, which no gate performs. ADR 0122. |
 | `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
 | Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
 | A filled degenerate subpath's device pixel (§8.5.3.3.1) | — | The clause calls the result "device-dependent and not generally useful" in the same breath. Recorded, not reported. |
@@ -1116,6 +1117,11 @@ anchor that makes it checkable.
 - **A warning written into a ledger note before the code exists is a warning nobody reads when the
   code arrives.** §7.11.2.1's row named a defect three call sites had for as long as they existed.
   ADR 0104.
+- **A feature can make a clause reachable, and nothing announces that.** Table 192's `/H`
+  describes what happens when a mouse button is pressed, and until the hundred-and-thirty-second
+  session nothing pressed one — so the row was honestly quiet and became honestly wrong without a
+  line of the code it describes changing. **After a session that adds a *capability* rather than a
+  clause, re-read the rows whose notes give a reason beginning "this program has no".** ADR 0122.
 - **An `inapplicable` row decays exactly as a `silent` one does.** §12.7.4.2's field names were
   `inapplicable` on sound reasoning until §12.6.4.11's hide action made a field name decide
   whether an annotation is drawn.
@@ -1467,3 +1473,4 @@ above rather than here.
 | 134 | Text is selected, and the shapes cross as geometry for the host to draw | 0119 |
 | 135 | An edit is a log beside the document; a replaced value was not being drawn | 0120 |
 | 136 | §7.5.6's incremental update: the one kind of writing this project does | 0121 |
+| 137 | The ledger re-read against six sessions of new capability; `/H` became reachable | 0122 |

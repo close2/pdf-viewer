@@ -44,6 +44,12 @@ pub enum Query {
     FieldAt((f32, f32)),
     /// Whether anything has been edited since the document opened.
     Dirty,
+    /// §12.2's viewer preferences: what the document asks of the window showing it.
+    ///
+    /// Handed over rather than acted on, because every entry of Table 147 is about chrome the
+    /// *host* owns — a tool bar, a menu bar, where the window sits on the screen — and this
+    /// crate has none of those by construction. A host that has them honours what it can.
+    Preferences,
     /// What is selected: the text, and the shapes to draw over it.
     ///
     /// Asked whenever a host repaints, which during a drag is every frame — so it is a query
@@ -98,6 +104,8 @@ pub enum Answer<'a> {
     Field(String),
     /// Whether anything has been edited.
     Dirty(bool),
+    /// §12.2's Table 147, whole.
+    Preferences(pdf_model::viewer_preferences::ViewerPreferences),
     /// The pixels the viewer holds, and where they belong on the screen.
     Frame(FrameView<'a>),
     /// What the current page could not draw.

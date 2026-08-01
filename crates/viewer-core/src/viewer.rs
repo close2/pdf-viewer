@@ -122,6 +122,9 @@ impl Viewer {
                 })
                 .map_or(Answer::None, Answer::Field),
             Query::Dirty => Answer::Dirty(open.dirty()),
+            Query::Preferences => Answer::Preferences(
+                pdf_model::viewer_preferences::ViewerPreferences::read(&open.document),
+            ),
             Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),
             Query::Frame => open.frame.as_ref().map_or(Answer::None, |frame| {
                 Answer::Frame(FrameView {
