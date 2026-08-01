@@ -3554,7 +3554,11 @@ impl Interpreter<'_> {
                 crate::annotation::Decision::Unsupported(detail) => {
                     self.note(Unsupported::Annotation { detail });
                 }
-                crate::annotation::Decision::Draw { appearance, owed } => {
+                crate::annotation::Decision::Draw {
+                    appearance,
+                    owed,
+                    highlight,
+                } => {
                     // What the subtype's clause asks for and `crate::appearance` could not
                     // construct — a field's value, a bevel's shadow — said out loud beside the
                     // part that *is* drawn, rather than either being lost.
@@ -3564,6 +3568,12 @@ impl Interpreter<'_> {
                     let before = self.text.len();
                     self.draw_appearance(&appearance, base, &page.resources, view_clip);
                     self.describe_annotation(dict, before);
+                    // §12.5.6.19's `/H`, over the appearance rather than instead of it: the
+                    // clause calls it a *highlighting* mode, and what it highlights is whatever
+                    // the annotation looks like.
+                    if let Some(mark) = highlight {
+                        self.draw_highlight(mark, base, view_clip);
+                    }
                 }
             }
         }
@@ -3604,6 +3614,78 @@ impl Interpreter<'_> {
     }
 
     /// Runs one appearance stream, clipped to its `/BBox`.
+    /// Draws §12.5.6.19's `/H` mark over a pressed annotation.
+    ///
+    /// The clause states the effect arithmetically — "colour values shall be transformed by the
+    /// function f(x) = 1 - x" — and §11.3.5.2's Difference mode against white is exactly that:
+    /// `B(cb, cs) = |cb - cs|` with every source component at 1 leaves `1 - cb`. So both modes
+    /// are one white shape under one blend mode, and neither needs anything new in the display
+    /// list or in either backend.
+    ///
+    /// Not clipped to the appearance's `/BBox`: the clause's subject is "the contents of the
+    /// annotation rectangle", which is the rectangle rather than whatever the appearance drew
+    /// inside it.
+    fn draw_highlight(
+        &mut self,
+        mark: crate::annotation::Mark,
+        base: Transform,
+        view_clip: Option<ClipId>,
+    ) {
+        let (rect, width) = match mark {
+            crate::annotation::Mark::Rectangle(rect) => (rect, None),
+            crate::annotation::Mark::Border { rect, width } => (rect, Some(width)),
+        };
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(rect[0], rect[1])));
+        path.push(PathCommand::LineTo(Point::new(rect[2], rect[1])));
+        path.push(PathCommand::LineTo(Point::new(rect[2], rect[3])));
+        path.push(PathCommand::LineTo(Point::new(rect[0], rect[3])));
+        path.push(PathCommand::Close);
+        let path = Arc::new(path);
+        let paint = Paint::Solid(Color::rgb(1.0, 1.0, 1.0));
+        match width {
+            None => self.list.push(Command::Fill {
+                path,
+                transform: base,
+                fill_rule: FillRule::NonZero,
+                paint,
+                clip: view_clip,
+                mask: None,
+                blend: BlendMode::Difference,
+            }),
+            // §12.5.4 draws a border "completely inside the annotation rectangle", so the
+            // stroke is inset by half its own width — the same rule `appearance.rs` applies to
+            // the border it draws, and this has to land on the same pixels.
+            Some(width) => {
+                let half = width / 2.0;
+                let inset = [
+                    rect[0] + half,
+                    rect[1] + half,
+                    rect[2] - half,
+                    rect[3] - half,
+                ];
+                let mut path = Path::new();
+                path.push(PathCommand::MoveTo(Point::new(inset[0], inset[1])));
+                path.push(PathCommand::LineTo(Point::new(inset[2], inset[1])));
+                path.push(PathCommand::LineTo(Point::new(inset[2], inset[3])));
+                path.push(PathCommand::LineTo(Point::new(inset[0], inset[3])));
+                path.push(PathCommand::Close);
+                self.list.push(Command::Stroke {
+                    path: Arc::new(path),
+                    transform: base,
+                    stroke: Stroke {
+                        width,
+                        ..Stroke::default()
+                    },
+                    paint,
+                    clip: view_clip,
+                    mask: None,
+                    blend: BlendMode::Difference,
+                });
+            }
+        }
+    }
+
     fn draw_appearance(
         &mut self,
         appearance: &crate::annotation::Appearance,

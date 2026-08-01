@@ -846,6 +846,29 @@ fn qualified_name(document: &Document, dict: &Dictionary, prefix: &str) -> Strin
     }
 }
 
+/// Whether pressing this annotation changes what is drawn.
+///
+/// Two clauses can make it so, and a caller has to ask about both. Table 170's `/D` is the
+/// appearance §12.5.5 shows while a button is down, and Table 192's `/H` is the highlighting
+/// mode §12.5.6.19 states for the same moment — and `/H`'s default is `I`, so an annotation that
+/// states *neither* entry still inverts.
+///
+/// Asked before the pointer state is changed at all, because changing it invalidates the page's
+/// display list: a cursor crossing an annotation for which a press would change nothing would
+/// otherwise re-interpret the page for a picture that cannot differ. That is a real cost — 2 000 M
+/// instructions on the benchmark page — and it is why this exists rather than the caller looking
+/// for an `/AP` `/D` and stopping there, which is what `viewer-core` did until the
+/// hundred-and-thirty-eighth session and which left §12.5.6.19 unreachable from the one program
+/// that has a mouse.
+#[must_use]
+pub fn press_changes_appearance(document: &Document, annotation: ObjectId) -> bool {
+    let object = document.get(annotation);
+    let Some(dict) = object.as_dict() else {
+        return false;
+    };
+    crate::annotation::press_changes(document, dict)
+}
+
 /// The object a widget's value belongs on, walking §12.7.4.1's `/Parent` chain.
 ///
 /// Two stopping conditions, in this order. A dictionary that already states a `/V` is the one

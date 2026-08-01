@@ -49,26 +49,30 @@ pub(crate) fn link_at(open: &Open, x: f32, y: f32) -> Option<ObjectId> {
     pdf_model::link::at(&links, x, y).and_then(|link| link.id)
 }
 
-/// Whether an annotation states the appearance §12.5.5 would show for `pointer`.
+/// Whether the pointer being here changes what the annotation looks like.
 ///
 /// Asked before the pointer state is changed at all, because changing it invalidates the page's
-/// display list: a cursor crossing a link whose only appearance is `/N` would otherwise
-/// re-interpret the page for a picture that cannot differ. Table 170's `/R` and `/D` are both
-/// optional and most annotations state neither.
+/// display list: a cursor crossing an annotation whose picture cannot differ would otherwise
+/// re-interpret the page — 2 000 M instructions — for nothing.
+///
+/// **The two ends of a press are two different questions.** A hover shows Table 170's `/R`,
+/// which most annotations do not state. A press shows `/D` *or* draws §12.5.6.19's `/H` mark,
+/// whose default is `I` — so an annotation stating neither entry still changes under a press,
+/// and `pdf_model` owns that question because it is two clauses rather than one lookup.
 pub(crate) fn has_appearance(document: &Document, annotation: ObjectId, pointer: Pointer) -> bool {
-    let annotation = document.get(annotation);
-    let Some(dict) = annotation.as_dict() else {
-        return false;
-    };
-    let appearances = document.get_key(dict, "AP");
-    let Some(appearances) = appearances.as_dict() else {
-        return false;
-    };
-    let key = match pointer {
-        Pointer::Over => "R",
-        Pointer::Down => "D",
-    };
-    !document.get_key(appearances, key).is_null()
+    match pointer {
+        Pointer::Down => pdf_model::view::press_changes_appearance(document, annotation),
+        Pointer::Over => {
+            let object = document.get(annotation);
+            let Some(dict) = object.as_dict() else {
+                return false;
+            };
+            let appearances = document.get_key(dict, "AP");
+            appearances
+                .as_dict()
+                .is_some_and(|appearances| !document.get_key(appearances, "R").is_null())
+        }
+    }
 }
 
 /// Activates whatever is at a point in default user space.

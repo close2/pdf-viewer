@@ -1179,3 +1179,122 @@ fn a_line_ending_that_cannot_be_sized_is_named_beside_the_line_it_decorates() {
     );
     assert!(!polyline.is_complete(), "and its endings are named");
 }
+
+/// §12.5.6.19's `/H`, which is a clause about a *moment* and became reachable when this program
+/// grew a pointer.
+///
+/// ISO 32000-2 §12.5.6.19, Table 192:
+///
+/// > The annotation's highlighting mode , the visual effect that shall be used when the mouse
+/// > button is pressed or held down inside its active area: N (None) No highlighting. I (Invert)
+/// > Invert the colours used to display the contents of the annotation rectangle.
+///
+/// The clause states the effect as arithmetic — `f(x) = 1 - x` on every channel — so the
+/// assertion is the arithmetic: a red widget under a press with `/H /I` is cyan, exactly.
+/// Nothing about the display list would distinguish "we drew the mark" from "we drew it in the
+/// wrong colour", which is why this is a pixel.
+#[test]
+fn a_press_inverts_a_widget_whose_highlighting_mode_says_to() {
+    let colour_of = |annotation: &str, pointer: Option<pdf_model::view::Pointer>| {
+        let bytes = pdf_with(annotation, "/BBox [0 0 80 80]", "1 0 0 rg 0 0 80 80 re f");
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let mut state = pdf_model::view::ViewState::of(&document);
+        if let Some(pointer) = pointer {
+            state.set_pointer(Some((
+                pdf_syntax::ObjectId {
+                    number: 5,
+                    generation: 0,
+                },
+                pointer,
+            )));
+        }
+        let list = pdf_model::content::interpret_with(&document, &page, &state).display_list;
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("target");
+        let raster = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let at = ((50 * raster.width) + 50) as usize * 4;
+        (raster.data[at], raster.data[at + 1], raster.data[at + 2])
+    };
+
+    let inverting = "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /H /I \
+                     /AP << /N 6 0 R >> >>";
+    assert_eq!(
+        colour_of(inverting, None),
+        (255, 0, 0),
+        "nothing is pressing it"
+    );
+    assert_eq!(
+        colour_of(inverting, Some(pdf_model::view::Pointer::Over)),
+        (255, 0, 0),
+        "the clause is about the button being *pressed*, not about the cursor being there"
+    );
+    assert_eq!(
+        colour_of(inverting, Some(pdf_model::view::Pointer::Down)),
+        (0, 255, 255),
+        "f(x) = 1 - x on every channel"
+    );
+
+    // `/H /N` asks for nothing, which is the one mode that is not the default.
+    let none = "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /H /N \
+                /AP << /N 6 0 R >> >>";
+    assert_eq!(
+        colour_of(none, Some(pdf_model::view::Pointer::Down)),
+        (255, 0, 0),
+        "/H /N: no highlighting"
+    );
+
+    // And the default is `I`, for an annotation that states no down appearance to have meant
+    // `P` by — which is the reading `annotation::highlight` argues for and this pins.
+    let unstated = "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 \
+                    /AP << /N 6 0 R >> >>";
+    assert_eq!(
+        colour_of(unstated, Some(pdf_model::view::Pointer::Down)),
+        (0, 255, 255),
+        "Table 192: default value I"
+    );
+}
+
+/// `/H /O` inverts the border rather than the contents, at §12.5.4's width and inside the
+/// rectangle.
+///
+/// ISO 32000-2 §12.5.6.19, Table 192, of the `O` mode: "Stroke the colours used to display the
+/// annotation border."
+///
+/// Two pixels rather than one: the middle of the annotation is untouched and a pixel on the
+/// border is inverted. A version that filled the rectangle would pass the second and fail the
+/// first, which is the mistake worth catching.
+#[test]
+fn a_press_with_the_outline_mode_inverts_the_border_alone() {
+    let bytes = pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /H /O \
+         /Border [0 0 4] /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 80 80]",
+        "1 0 0 rg 0 0 80 80 re f",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    state.set_pointer(Some((
+        pdf_syntax::ObjectId {
+            number: 5,
+            generation: 0,
+        },
+        pdf_model::view::Pointer::Down,
+    )));
+    let list = pdf_model::content::interpret_with(&document, &page, &state).display_list;
+    let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("target");
+    let raster = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let pixel = |x: u32, y: u32| {
+        let at = ((y * raster.width) + x) as usize * 4;
+        (raster.data[at], raster.data[at + 1], raster.data[at + 2])
+    };
+
+    // The raster's y runs down from the page's top, so the annotation's [10 10 90 90] covers
+    // rows 10 to 90 either way and its border is two units inside each edge.
+    assert_eq!(pixel(50, 50), (255, 0, 0), "the contents are not inverted");
+    assert_eq!(pixel(50, 12), (0, 255, 255), "the border is");
+}

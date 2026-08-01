@@ -86,11 +86,135 @@ pub(crate) enum Decision {
     Draw {
         appearance: Box<Appearance>,
         owed: Option<String>,
+        /// §12.5.6.19's `/H`, where a press asks for a mark over the appearance.
+        highlight: Option<Mark>,
     },
     /// Draw nothing, and say nothing — the document asked for nothing to be drawn.
     Nothing,
     /// Draw nothing, because this crate cannot. The string says what, for the report.
     Unsupported(String),
+}
+
+/// Whether a press changes what this annotation looks like; see
+/// [`crate::view::press_changes_appearance`].
+pub(crate) fn press_changes(document: &Document, annotation: &Dictionary) -> bool {
+    let down = has_down(document, annotation);
+    down || !matches!(
+        highlight(document, annotation, down),
+        Highlight::None | Highlight::Push
+    )
+}
+
+/// Whether the annotation states Table 170's `/D`, which is the appearance `/H /P` displays.
+fn has_down(document: &Document, annotation: &Dictionary) -> bool {
+    let appearances = document.get_key(annotation, "AP");
+    appearances
+        .as_dict()
+        .is_some_and(|appearances| !document.get_key(appearances, "D").is_null())
+}
+
+/// The mark a press asks for, where the pointer is down on this annotation.
+///
+/// `None` for every annotation nothing is pressing, which is every annotation on every page this
+/// program has ever drawn until a person holds a button down on one — and for `/H /N`, `/H /P`
+/// and `/H /T`, which ask for no mark of their own.
+fn pressed_mark(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    rect: [f32; 4],
+    has_down: bool,
+) -> Option<Mark> {
+    if view.appearance != crate::view::Appearance::Down {
+        return None;
+    }
+    match highlight(document, annotation, has_down) {
+        Highlight::None | Highlight::Push => None,
+        Highlight::Invert => Some(Mark::Rectangle(rect)),
+        Highlight::Outline => Some(Mark::Border {
+            rect,
+            width: crate::appearance::border_width(document, annotation),
+        }),
+    }
+}
+
+/// What §12.5.6.19's `/H` asks to be drawn over an annotation while it is pressed.
+///
+/// The clause states the effect as an arithmetic one — "for each colour channel in the colour
+/// space used for display of the annotation value, colour values shall be transformed by the
+/// function f(x) = 1 - x" — which §11.3.5.2's Difference mode is, against white: `B(cb, cs) =
+/// |cb - cs|` with every component of the source at 1 leaves `1 - cb`. So both modes are one
+/// white shape under one blend mode, and neither needs a new command in the display list.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Mark {
+    /// `I`: the annotation's rectangle, filled.
+    Rectangle([f32; 4]),
+    /// `O`: its border, stroked at the width §12.5.4 gives it.
+    Border {
+        /// The annotation's rectangle, in default user space.
+        rect: [f32; 4],
+        /// The border's width, from `/BS` `/W` or Table 166's `/Border`.
+        width: f32,
+    },
+}
+
+/// Table 176's and Table 192's `/H`: what a press does to an annotation.
+///
+/// Table 176 says the same of a link, with four modes rather than five and the same default.
+/// ISO 32000-2 §12.5.6.19, of a widget:
+///
+/// > The annotation's highlighting mode , the visual effect that shall be used when the mouse
+/// > button is pressed or held down inside its active area: N (None) No highlighting. I (Invert)
+/// > Invert the colours used to display the contents of the annotation rectangle. O (Outline)
+/// > Stroke the colours used to display the annotation border.
+///
+/// A clause that describes a *moment*, and one this program could not reach until it grew a
+/// pointer in the hundred-and-thirty-second session (ADR 0122).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Highlight {
+    /// `N`: nothing extra is drawn.
+    None,
+    /// `I`: the contents of the annotation rectangle are inverted.
+    Invert,
+    /// `O`: the border is inverted.
+    Outline,
+    /// `P` and `T`: §12.5.5's down appearance, which the appearance selection already does.
+    Push,
+}
+
+/// What §12.5.6.19's `/H` asks for, with the reading its default needs.
+///
+/// **The default is `I` and this applies it only where the annotation states no down
+/// appearance.** The two clauses genuinely disagree for an annotation that states a `/D` and no
+/// `/H`: §12.5.5 says the down appearance "shall be used when the mouse button is pressed", and
+/// Table 192 gives `/H` the default `I` and says "[a] highlighting mode other than P shall
+/// override any down appearance". Taking the default flatly makes the *file's own artwork*
+/// unshowable — 95 of the corpus's page-one annotations state a `/D` and no `/H`, so 95 pieces
+/// of artwork would exist for a moment that could never display them. Taking a stated `/D` as
+/// the writer having said `P` leaves every stated entry meaning something, and loses only a
+/// default the file did not write.
+///
+/// A **stated** mode is honoured exactly, including the override: `/H /I` beside a `/D` inverts
+/// and the down appearance is not used. The corpus cannot decide between the two readings —
+/// every one of the four annotations stating both states `/H P` — so the argument has to.
+pub(crate) fn highlight(document: &Document, annotation: &Dictionary, has_down: bool) -> Highlight {
+    let stated = document.get_key(annotation, "H");
+    let Some(name) = stated.as_name() else {
+        return if has_down {
+            Highlight::Push
+        } else {
+            Highlight::Invert
+        };
+    };
+    match name.as_bytes() {
+        b"N" => Highlight::None,
+        b"O" => Highlight::Outline,
+        // T is "[s]ame as P (which is preferred)".
+        b"P" | b"T" => Highlight::Push,
+        // I, and anything Table 192 does not define: the clause's own default for an entry
+        // whose value it does not recognise is the default value, which is I.
+        _ => Highlight::Invert,
+    }
 }
 
 /// The annotation subtypes ISO 32000-2 Table 171 defines.
@@ -209,7 +333,7 @@ pub(crate) fn decide(
             if is_empty(rect) {
                 return Decision::Nothing;
             }
-            return construct(document, annotation, &subtype, &name, rect, view.value);
+            return construct(document, annotation, &subtype, &name, rect, view);
         }
         Normal::StateNotDefined => return Decision::Nothing,
     };
@@ -286,6 +410,13 @@ pub(crate) fn decide(
     }
 
     Decision::Draw {
+        highlight: pressed_mark(
+            document,
+            annotation,
+            view,
+            rect,
+            has_down(document, annotation),
+        ),
         appearance: Box::new(Appearance {
             transform: placement(bbox, matrix, rect),
             bbox,
@@ -314,8 +445,9 @@ fn construct(
     subtype: &[u8],
     name: &str,
     rect: [f32; 4],
-    value: crate::view::FieldValue<'_>,
+    view: crate::view::AnnotationView<'_>,
 ) -> Decision {
+    let value = view.value;
     // §12.5.6.14: a popup is the window belonging to some *other* annotation, and §12.5.6.24's
     // projection is a measurement inside an activated 3D model — clause 13, which principle 5
     // excludes. Table 166 names both, with `Link`, as the subtypes a writer need not give an
@@ -339,6 +471,9 @@ fn construct(
     // entry shall also be used for nonstroking operations as well."
     let stroke_alpha = opacity(document, annotation, "CA");
     Decision::Draw {
+        // A constructed appearance is one the file did not state, so there is no `/D` to have
+        // meant `P` by.
+        highlight: pressed_mark(document, annotation, view, rect, false),
         appearance: Box::new(Appearance {
             transform: Transform::IDENTITY,
             bbox: rect,

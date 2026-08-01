@@ -1718,6 +1718,40 @@ struct Border {
     radii: [f32; 2],
 }
 
+/// The width §12.5.4 gives an annotation's border, whichever entry states it.
+///
+/// Table 166 settles the precedence — "[i]f an annotation dictionary includes the BS entry, then
+/// the Border entry is ignored" — and §12.5.4 supplies the default the two share. Public to the
+/// crate for §12.5.6.19's `/H /O`, which strokes that border and has no colour of its own to
+/// read.
+pub(crate) fn border_width(document: &Document, annotation: &Dictionary) -> f32 {
+    let width = if let Some(style) = document.get_key(annotation, "BS").as_dict() {
+        Border::from_style_dictionary(document, style).0
+    } else {
+        document
+            .get_key(annotation, "Border")
+            .as_array()
+            .and_then(|border| {
+                border
+                    .get(2)
+                    .and_then(|item| document.resolve(item).as_number())
+            })
+            .map_or(DEFAULT_BORDER_WIDTH, |width| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a border width is a small number of user space units"
+                )]
+                let width = width as f32;
+                width
+            })
+    };
+    if width.is_finite() {
+        width.max(0.0)
+    } else {
+        0.0
+    }
+}
+
 impl Border {
     /// Reads a border, taking its colour out of `source` — `/MK` for a widget, the annotation
     /// itself for everything else — and everything else out of the annotation.
