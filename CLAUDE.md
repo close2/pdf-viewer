@@ -141,6 +141,9 @@ In scope, without exclusions:
 - **Clause 12, everything that displays** — every annotation subtype's appearance including
   synthesised ones, form field appearance construction, optional content, outlines,
   destinations, page labels.
+- **What a reader does with an open document**: selecting its text, filling a field, adding an
+  annotation or a markup. A viewer that can only look is not the target and never was; this
+  became explicit in the hundred-and-thirtieth session, and the exclusion it amends is below.
 - **Clause 10 where it applies to a screen.** Halftones and transfer functions describe a
   marking device; those are *inapplicable*, which is not the same as excluded, and the ledger
   keeps them apart. Flatness and smoothness are **not** inapplicable, and the difference is
@@ -156,7 +159,24 @@ The exclusions, closed, each with its reason:
 - **JavaScript and script-driven form behaviour** — a sandboxed script engine is a separate
   project with its own security argument. Field *appearance* is not excluded; field
   *behaviour* is.
-- **Writer-side requirements** — we do not create files.
+- **Authoring a document from nothing** — we do not *create* PDFs, and no clause whose
+  requirements fall on a generator is in scope: linearisation, object-stream packing,
+  optimisation, and the rest of what a producer owes.
+
+  **This exclusion was "we do not create files" and was amended in the hundred-and-thirtieth
+  session, by argument rather than by attrition.** What a *user* does to a document already
+  open — an annotation added, a field filled — is not authoring, and it is written back by
+  §7.5.6's incremental update: the new objects and a new cross-reference section appended,
+  never a rewrite of what was there. The producer's bytes stay in the file, byte for byte,
+  under whatever the user added. This tree already reads that construction (ADR 0100), which
+  is why it is the one form of writing it is placed to get right.
+
+  **`pdf_syntax::Document` stays immutable, and that is not a style preference.** An edit is a
+  log beside the document rather than a change to it — the pattern `view.rs` already uses for
+  §12.6.4's actions — so `interpret` remains a pure function of what the file says, what the
+  viewer state is, and what the user did. The oracle's whole comparison rests on the first of
+  those three being a function of the bytes alone, and an editor that mutated the document
+  would cost it silently.
 
 Revisit an exclusion by argument, never by attrition.
 
