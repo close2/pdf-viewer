@@ -54,15 +54,19 @@ const UNREVIEWED_CEILING: usize = 0;
 /// *covers* the clause, so this is a count rather than a rule; what it does is keep the
 /// population where a false claim can hide from growing, and say how large it is.
 ///
-/// **58 to 49 in the hundred-and-eighth session, and the eight audited were not merely renamed.**
-/// §7.10's ten rows all named `tests/shadings.rs`; `function.rs` already had unit tests for the
-/// exponential, stitching and PostScript halves, which only had to be *cited*. The sampled half
-/// had none, and writing one found the row wrong twice over: it claimed "all five of Table 39's
-/// sample widths" where the table lists **eight**, and Table 39's `/Order` — "1 and 3, specifying
-/// linear and cubic spline interpolation" — turned out to be read nowhere at all, a silent
-/// departure inside a row that said `implemented`. That is the third time this population has
-/// hidden a false claim, and the first time an audit rather than the oracle found one.
-const FILE_ONLY_EVIDENCE_CEILING: usize = 23;
+/// **58 to 0 over four sessions, and not one of the four merely renamed anything.** §7.10's ten
+/// rows all named `tests/shadings.rs` and the sampled-function row was wrong twice over — "all
+/// five of Table 39's sample widths" where the table lists **eight**, and a `/Order` read
+/// nowhere at all (ADR 0098). §7.5's nine found §7.5.6's "most recent copy" rule not reaching a
+/// deletion, so the reader resurrected objects their file had removed (ADR 0100). Clause 8's
+/// seventeen found the `DeviceCMYK` silence still recorded in four places three sessions after
+/// `CLAUDE.md` disproved it, and three rows with no test that could fail — §8.7.4.5.2 among
+/// them, `implemented` while `shadings.rs`'s fourteen tests contained not one `/ShadingType 1`
+/// (ADR 0101). The last twenty-three closed it (ADR 0102).
+///
+/// **At zero the assertion below is `==`, and that is the point**: a new `implemented` row
+/// arriving with a file for evidence now fails the build rather than raising a number.
+const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///
@@ -316,10 +320,12 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
         file_only.len()
     );
     assert!(
-        file_only.len() <= FILE_ONLY_EVIDENCE_CEILING,
-        "{} implemented rows name a whole file as their evidence, above the ratchet of \
+        file_only.len() == FILE_ONLY_EVIDENCE_CEILING,
+        "{} implemented rows name a whole file as their evidence, against the ratchet of \
          {FILE_ONLY_EVIDENCE_CEILING}: {file_only:?}. A row that names a file names something \
-         that passes whatever it contains. This number may only fall.",
+         that passes whatever it contains. This number may only fall, and it has reached zero: \
+         name the test that would fail if the row stopped being true, and write it if there is \
+         none.",
         file_only.len()
     );
 

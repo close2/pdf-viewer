@@ -326,3 +326,68 @@ fn no_view_preference_displays_the_crop_box_and_clips_to_nothing_else() {
     assert!(marked(&raster, 5, 20), "the crop box's interior is painted");
     assert!(marked(&raster, 75, 20), "all of it, trim box or no");
 }
+
+/// ISO 32000-2 §7.7.3.1: the tree may be any shape, and the walk must not assume one.
+///
+/// > Compliant PDF processors shall be prepared to handle any form of tree structure built of
+/// > such nodes.
+///
+/// The tree below is deliberately none of the shapes the clause's NOTE describes: it is
+/// unbalanced, its depths differ between branches, one intermediate node omits `/Type`
+/// (§7.7.3.2's Table 30 requires it and real files leave it out, so the walk decides a leaf by
+/// the absence of `/Kids`), and one node states a `/Count` that is wrong. What the pages'
+/// *order* has to be is the order the `/Kids` arrays give, depth first, which is the only thing
+/// that makes a page number mean anything — so each leaf carries a media box of its own width
+/// and the assertion reads them back as a sequence.
+#[test]
+fn a_page_tree_of_any_shape_yields_its_pages_in_the_order_its_kids_arrays_give() {
+    // 2 ─┬─ 3 (a page, width 10)
+    //    ├─ 4 ─┬─ 5 (a page, width 20)
+    //    │     └─ 6 ─── 7 (a page, width 30)   ← a node with no /Type
+    //    └─ 8 (a page, width 40)
+    let page = |number: u32, parent: u32, width: u32| {
+        format!(
+            "{number} 0 obj\n<< /Type /Page /Parent {parent} 0 R \
+             /MediaBox [0 0 {width} 10] /Resources << >> >>\nendobj\n"
+        )
+    };
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 8 0 R] /Count 4 >>\nendobj\n\
+         {}\
+         4 0 obj\n<< /Type /Pages /Parent 2 0 R /Kids [5 0 R 6 0 R] /Count 99 >>\nendobj\n\
+         {}\
+         6 0 obj\n<< /Parent 4 0 R /Kids [7 0 R] >>\nendobj\n\
+         {}{}",
+        page(3, 2, 10),
+        page(5, 4, 20),
+        page(7, 6, 30),
+        page(8, 2, 40)
+    );
+
+    let document = Document::open(assemble(&body)).expect("a valid PDF");
+    let pages = pdf_model::Pages::new(&document);
+    assert_eq!(
+        pages.len(),
+        4,
+        "four leaves, whatever the /Count entries say"
+    );
+
+    let widths: Vec<u32> = (0..4)
+        .map(|index| {
+            let page = pages.get(index).expect("each of the four leaves");
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "test code: every media box here is a small literal"
+            )]
+            let width = page.media_box[2] as u32;
+            width
+        })
+        .collect();
+    assert_eq!(
+        widths,
+        vec![10, 20, 30, 40],
+        "depth first, in each node's own /Kids order"
+    );
+}

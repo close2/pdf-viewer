@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-eleventh** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-twelfth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,21 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-ninth — a transition is a table, not an action.** ADR 0099.
-
-- **Table 219 has two entries and one of them is `/S`.** The other is Table 164's transition
-  dictionary — the *same* one a page's `/Trans` holds and §12.4.4 has read since the seventieth
-  session. There was nothing to build, only something to connect.
-- **What §12.6.4.15 adds is a moment, not a transition**: drawing is suspended for a `/Next`
-  chain and this action says to show the page as the previous action left it. That happens here
-  anyway, because every request in a chain is performed before the transition is read; what is
-  missing is the animation, and the viewer says so by name.
-- **Two clauses share one reader.** `GoToR` and `GoToE` look alike and are opposites (ADR 0094);
-  a page's `/Trans` and an action's are genuinely the same dictionary at two moments. Reading the
-  *table* rather than the clause title is what tells those apart.
-
-`reported` falls 49 → 48.
 
 **Hundred-and-tenth — a deletion is a copy of an object.** The §7.5 half of the file-only
 evidence population audited, and the audit found code rather than prose. ADR 0100.
@@ -77,6 +62,24 @@ seventeen file-only rows audited. ADR 0101.
 - **All three new tests were confirmed to fail when their rule is broken**, and no gate moved.
 
 `FILE_ONLY_EVIDENCE_CEILING` falls **40 → 23**; tests 850 → 853.
+
+**Hundred-and-twelfth — the file-only evidence population reaches zero.** ADR 0102.
+
+- **The last twenty-three rows audited, and `FILE_ONLY_EVIDENCE_CEILING` is `== 0` rather than
+  `<= n`.** A new `implemented` row arriving with a file for evidence now fails the build.
+- **Most only had to be *cited*** — somebody had already written the test that would fail, for
+  another reason. Four had nothing at all, and those are the session's work: §7.4.1's filter
+  *cascade* and its `/DecodeParms` array, §7.4.4.4's two predictor groups (the PNG type byte is
+  per *row*, and TIFF Predictor 2 has none), §7.7.3's page-tree *walk* — four tests about a
+  page's entries and none about the tree — and §10.7.2's flatness, whose content is a permission
+  nothing held us to.
+- **All four audits paid.** 58 → 0 over four sessions, and each one found a false or unheld
+  claim; the record is the argument for having finished rather than stopped at a small number.
+- **Two ledger ratchets now sit at zero and they answer different questions**: `unreviewed`
+  says every subclause has been read, file-only evidence says every `implemented` row names
+  something that would fail. Neither says the *right* test was named.
+
+Tests 853 → 860; every gate unmoved.
 
 ## How the project got here
 
@@ -192,6 +195,7 @@ below rather than here.
 | 109 | §12.6.4.15's transition action, which is §12.4.4's table at a different moment | ADR 0099 |
 | 110 | §7.5's free entries: an update that deletes an object is no longer undone | ADR 0100 |
 | 111 | Clause 8's file-only rows audited; a retired claim found in four places | ADR 0101 |
+| 112 | The file-only evidence population reaches zero, over four audits | ADR 0102 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -234,7 +238,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 48 `reported` rows and the notes on 235 `partial`
 ones.
 
-- **853 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **860 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
   hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -368,7 +372,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2686 citations, 269 quotations, 175 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2695 citations, 275 quotations, 177 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -1066,13 +1070,14 @@ the notes on 235 `partial` rows, which is where the next map has to be drawn fro
 
 - **Keep `REVIEW_OWED` empty.** A clause the code cites and nobody has read is the cheapest debt
   this project can accrue, and the list fails the build the moment one appears.
-- **`FILE_ONLY_EVIDENCE_CEILING` is the ledger's own next piece of work, and it has started.**
-  **23** `implemented` rows name a whole test *file* as their evidence, which passes whatever it
-  contains — down from 58 over three sessions, which audited §7.10's ten, §7.5's nine and clause
-  8's seventeen and found something wrong in every one of the three (ADRs 0098, 0100, 0101).
-  **Every audit so far has paid**, which is the argument for finishing it. What is left, by
-  clause: **7** has thirteen (`7.3`'s objects, `7.4`'s filters, `7.7`'s page tree), **11** four,
-  **9** three, **14** two, **10** one. The number may only fall.
+- **`FILE_ONLY_EVIDENCE_CEILING` is zero and the assertion is now `==`.** 58 → 0 over four
+  sessions of auditing §7.10, §7.5, clause 8 and the remaining twenty-three (ADRs 0098, 0100,
+  0101, 0102), and **every one of the four found a false or unheld claim**. A new `implemented`
+  row arriving with a whole file for evidence fails the build. What it does *not* say is that
+  the right test was named — the gate cannot tell whether a named test covers the clause, and
+  three of the four false claims this population hid were caught by the oracle rather than by a
+  row. **The population with no gate at all is the 235 `partial` rows**, whose notes say what
+  each owes and which nothing checks; that is where the next map has to be drawn from.
 - **A silence is not the same as a gap**, and the first move on one is neither a report nor a
   feature: work out what the clause asks *of this device*. The nineteenth session closed two
   differently — §10.7.5's `/SA` was implemented in the half a display can state and recorded as a

@@ -69,6 +69,25 @@ fn pdf_with_catalog(extra: &str, catalog: &str, resources: &str, content: &str) 
     out.into_bytes()
 }
 
+/// Renders a fixture and returns every pixel of it.
+fn raster_of(bytes: Vec<u8>) -> Vec<u8> {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.is_complete(),
+        "the fixture should draw completely: {:?}",
+        interpretation.unsupported
+    );
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported")
+        .data
+        .clone()
+}
+
 /// Renders a fixture and returns the colour at its centre.
 fn centre_colour(bytes: Vec<u8>) -> (u8, u8, u8) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
@@ -658,4 +677,33 @@ fn stroke_adjustment_is_read_and_restored() {
         })
         .collect();
     assert_eq!(adjusted, vec![false, true, false]);
+}
+
+/// ISO 32000-2 §10.7.2: flatness is a tolerance a processor is permitted to ignore.
+///
+/// > PDF processors may choose to ignore any flatness tolerance specified within a PDF file.
+///
+/// The permission is taken, and taking it is a decision like any other: a page drawn with `i`
+/// and with an `/ExtGState` `/FL` must be the page drawn without them, to the pixel. A reader
+/// that half-honoured the value — flattening curves more coarsely under a large tolerance —
+/// would make a curve worse for no gain, which is what the clause's NOTE 2 warns of by calling
+/// a large value's result "unpredictable".
+///
+/// Written against a *curve*, because that is the only geometry flatness can reach: a page of
+/// straight lines would pass under any reading at all. And compared over the whole raster
+/// rather than at one point, because a coarser flattening moves a curve's *edge* and leaves
+/// its interior exactly where it was.
+#[test]
+fn flatness_changes_nothing_because_the_clause_permits_ignoring_it() {
+    let curve = "0 0 1 rg 2 2 m 2 18 18 18 18 2 c f 0 0 0 RG 5 w 1 10 m 10 19 19 10 c S";
+    let plain = raster_of(pdf_with("", "", curve));
+    let tolerant = raster_of(pdf_with(
+        "",
+        "/ExtGState << /GS << /FL 100 >> >>",
+        &format!("100 i /GS gs {curve}"),
+    ));
+    assert_eq!(
+        plain, tolerant,
+        "a flatness tolerance, by either of the clause's two routes, must change no pixel"
+    );
 }

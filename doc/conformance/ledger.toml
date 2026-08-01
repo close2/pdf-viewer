@@ -29,7 +29,7 @@ clause = "7.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-syntax/src/lib.rs", "crates/pdf-model/src/lib.rs"]
-test = ["crates/pdf-syntax/tests/real_documents.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs::every_specification_pdf_opens"]
 note = "Clause 7's own map, and the sentence that decides the crate boundary this project is built on: \"[a] PDF file is a data structure\", read here by `pdf-syntax`, whose meaning is clause 8's onward and lives in `pdf-model`. Every subclause of 7 is reviewed except §7.11's file specifications and §7.12's extensions dictionary, which are the two this tree does not read."
 
 [[clause]]
@@ -147,7 +147,7 @@ clause = "7.3.6"
 title = "Array objects"
 status = "implemented"
 code = ["crates/pdf-syntax/src/parser.rs"]
-test = ["crates/pdf-syntax/tests/robustness.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::adversarial_structures_hit_their_limits"]
 note = "\"An array may have zero elements\", elements may be of any type, and higher dimensions are arrays of arrays — all of which `Vec<Object>` is without a rule. What needs a rule is the bound: Annex C's implementation limit is `Limits::max_array_len`, and reaching it is an error rather than a shortened array, because a truncated `TJ` array renders a wrong page and reports success (the operand cap that ended three sentences mid-word on the specification's own title page). **The clause's opening sentence became load-bearing in a *content* stream in the sixty-third session**: an array is \"a one-dimensional collection of objects arranged sequentially\", so a keyword between two of its elements is not an element, and §7.8.2 puts an operator after its operands rather than inside one — which makes it not an operator either. `operator-in-TJ-array.pdf` writes `[(Grandes) 0.0 Tc … ] TJ` and had been drawing one word of five, because the content interpreter flattens arrays and the `Tc` reached the operator dispatch. It is skipped and reported now: the file is malformed and no clause states a recovery, so drawing the text without saying so would be the silent fallback principle 3 forbids."
 
 [[clause]]
@@ -163,7 +163,7 @@ clause = "7.3.8"
 title = "Stream objects"
 status = "implemented"
 code = ["crates/pdf-syntax/src/parser.rs", "crates/pdf-syntax/src/document.rs"]
-test = ["crates/pdf-syntax/tests/real_documents.rs"]
+test = ["crates/pdf-syntax/tests/real_documents.rs::the_first_page_content_stream_decodes"]
 note = "Stream objects: the syntax in §7.3.8.1 and the length rules in §7.3.8.2. Table 5's entries are read where they are used — `/Length` and `/Filter` and `/DecodeParms` by the parser and `Document::decoded_stream_data`, `/F` by `Document::is_external`, `/DL` nowhere, since it is \"only a hint\"."
 
 [[clause]]
@@ -179,7 +179,7 @@ clause = "7.3.8.2"
 title = "Stream extent"
 status = "implemented"
 code = ["crates/pdf-syntax/src/parser.rs"]
-test = ["crates/pdf-syntax/tests/robustness.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::a_lying_stream_length_is_recovered_from"]
 note = "\"Every stream dictionary shall have a Length entry\", the filters are mostly self-limiting, and \"[a]ll of these constraints shall be consistent\". The parser takes `/Length` when it is a direct integer *and* `endstream` is where it says, and searches for `endstream` otherwise — which covers the indirect form the clause's own EXAMPLE 3 shows, and the wrong-`/Length` corruption. The clause's closing allowance is honoured in the same place: \"there may be an extra end-of-line marker in the PDF file before the keyword endstream\". Reading a filter's EOD to bound the data instead is a third route the clause offers and this tree does not take; it would only matter for a file where `/Length` is wrong *and* `endstream` cannot be found, which is a file with no stream in it."
 
 [[clause]]
@@ -195,7 +195,7 @@ clause = "7.3.10"
 title = "Indirect objects"
 status = "implemented"
 code = ["crates/pdf-syntax/src/parser.rs", "crates/pdf-syntax/src/document.rs"]
-test = ["crates/pdf-syntax/tests/real_documents.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::a_reference_cycle_resolves_to_null_rather_than_looping", "crates/pdf-syntax/tests/cross_references.rs::a_body_object_the_table_does_not_list_is_not_reachable"]
 note = "Indirect objects and references. `obj` … `endobj` with an object and generation number, `R` references resolved on demand and cached, and the clause's own rule for a reference that goes nowhere: \"An indirect reference to an undefined object shall not be considered an error by a PDF processor; it shall be treated as a reference to the null object.\" That is what `Document::get` returns for a missing entry, and as of the twenty-second session also for a reference that is reached while the object containing it is still being loaded — a cycle is a reference that resolves to nothing."
 
 [[clause]]
@@ -203,7 +203,7 @@ clause = "7.4"
 title = "Filters"
 status = "implemented"
 code = ["crates/pdf-syntax/src/filter.rs"]
-test = ["crates/pdf-syntax/src/filter.rs", "crates/pdf-model/tests/corpus.rs"]
+test = ["crates/pdf-syntax/src/filter.rs::lzw_decodes_the_clauses_own_example", "crates/pdf-syntax/src/filter.rs::image_codecs_are_reported_as_unsupported", "crates/pdf-syntax/src/filter.rs::run_length_expands_literal_and_repeated_runs"]
 note = "Table 6's ten standard filters, reviewed as a family in the twenty-seventh session, and **all ten decode** — `LZWDecode` was the last one absent and landed in that session. Four of them are stream filters implemented here, one is a pass-through for §7.6.6's crypt filters, and four are image codecs that belong to the image pipeline and answer `None` here so that a *content* stream naming one is visibly unsupported rather than silently empty."
 
 [[clause]]
@@ -211,7 +211,7 @@ clause = "7.4.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-syntax/src/document.rs", "crates/pdf-syntax/src/filter.rs"]
-test = ["crates/pdf-syntax/tests/real_documents.rs"]
+test = ["crates/pdf-syntax/tests/filters.rs::a_filter_array_is_a_pipeline_decoded_in_the_order_written", "crates/pdf-syntax/tests/filters.rs::each_stage_takes_its_own_entry_of_a_decodeparms_array"]
 note = "`/Filter` and `/DecodeParms` in both their forms — one name or an array — with the array \"cascaded to form a pipeline that passes the stream through two or more decoding transformations in sequence\", applied in order, each stage taking the matching entry of a `/DecodeParms` array. Table 92's abbreviations are expanded for inline images by `pdf_model::inline_image`. Not implemented and named rather than left implicit: `/FFilter` and `/FDecodeParms`, which belong to an *external* stream — this reader does not follow `/F` to another file at all, so the parameters that would describe how to decode it are not the missing piece."
 
 [[clause]]
@@ -267,7 +267,7 @@ clause = "7.4.4.4"
 title = "LZW and Flate predictor functions"
 status = "implemented"
 code = ["crates/pdf-syntax/src/filter.rs"]
-test = ["crates/pdf-syntax/tests/real_documents.rs"]
+test = ["crates/pdf-syntax/tests/filters.rs::each_png_row_carries_its_own_filter_type", "crates/pdf-syntax/tests/filters.rs::the_tiff_predictor_is_a_horizontal_difference_with_no_type_byte", "crates/pdf-syntax/tests/filters.rs::a_predictor_the_clause_does_not_define_is_refused"]
 note = "Both groups: TIFF Predictor 2, and the PNG group's five filter types with the per-row type byte ISO/IEC 15948 puts in front of each row. Predictors are applied *inside* the decode rather than beside it, which is trap 4 in `doc/HANDOVER.md`: the code once called this \"the caller's responsibility\" and then did not, so every cross-reference stream — which is compressed *and* PNG-predicted almost universally — failed with a misleading `/Root is not a dictionary`. A predictor code the clause does not define returns `None` rather than passing the data through, because unpredicted data read as predicted is silently wrong and for a cross-reference stream that means fabricated byte offsets."
 
 [[clause]]
@@ -315,7 +315,7 @@ clause = "7.4.10"
 title = "Crypt filter"
 status = "implemented"
 code = ["crates/pdf-syntax/src/filter.rs", "crates/pdf-syntax/src/document.rs"]
-test = ["crates/pdf-syntax/tests/encryption.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::an_identity_stream_filter_leaves_streams_alone"]
 note = "A pass-through here, and that is the whole of it: the filter \"allows the document-level security handler to determine which algorithms should be used to decrypt the input data\", so the decryption happens where an object's identity is known — `document.rs`, §7.6.2 — and by the time the filter chain runs the bytes are already plaintext. Table 14's `/Name` selects among §7.6.6's crypt filters and defaults to `Identity`; the clause's closing sentence, that a stream specifying a crypt filter is decrypted \"using the key as is\" rather than through Algorithm 1, is implemented in `crypt.rs` (ADR 0031). \"The Crypt filter shall be the first filter in the Filter array entry\" is a requirement on the writer that this reader does not need: a pass-through commutes with everything."
 
 [[clause]]
@@ -695,7 +695,7 @@ clause = "7.7.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-syntax/src/document.rs"]
-test = ["crates/pdf-syntax/tests/real_documents.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::a_subsection_counting_more_entries_than_it_has_still_finds_the_trailer"]
 note = "Descriptive. The object hierarchy is entered at the trailer's `/Root`, which `Document::catalog` resolves, with §7.5.5's recovery when the trailer is damaged."
 
 [[clause]]
@@ -711,7 +711,7 @@ clause = "7.7.3"
 title = "Page tree"
 status = "implemented"
 code = ["crates/pdf-model/src/page.rs"]
-test = ["crates/pdf-model/tests/page_geometry.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_page_tree_of_any_shape_yields_its_pages_in_the_order_its_kids_arrays_give", "crates/pdf-model/tests/page_geometry.rs::a_user_unit_on_an_ancestor_is_not_inherited"]
 note = "The tree, its nodes, a page object's entries and the inheritance between them. See the subclauses."
 
 [[clause]]
@@ -719,7 +719,7 @@ clause = "7.7.3.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/page.rs"]
-test = ["crates/pdf-model/tests/page_geometry.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_page_tree_of_any_shape_yields_its_pages_in_the_order_its_kids_arrays_give"]
 note = "\"Compliant PDF processors shall be prepared to handle any form of tree structure built of such nodes\", and `Pages::get` walks whatever it finds rather than assuming the flat or balanced shape the NOTE describes. Two bounds guard the walk against a tree that is not one: 64 levels of nesting — a balanced tree over a hundred thousand pages is about six — and a million nodes visited per lookup. The clause's own reason for the tree is why the walk is on demand: \"PDF readers using only limited memory, can quickly open a document containing thousands of pages\", which is also this project's time-to-first-page requirement."
 
 [[clause]]
@@ -727,7 +727,7 @@ clause = "7.7.3.2"
 title = "Page tree nodes"
 status = "implemented"
 code = ["crates/pdf-model/src/page.rs"]
-test = ["crates/pdf-model/tests/page_geometry.rs", "crates/pdf-model/tests/corpus.rs"]
+test = ["crates/pdf-model/tests/page_geometry.rs::a_page_tree_of_any_shape_yields_its_pages_in_the_order_its_kids_arrays_give"]
 note = "Table 30's `/Kids` is followed and `/Type` is not required of a *node*, because files omit it; the walk decides a leaf by the *absence* of `/Kids` rather than by the name, which is what lets a malformed tree still yield its pages. **Where the tree yields nothing at all, `/Type` on a page is asked instead** (hundred-and-seventh session): Table 31 makes it required of a page object and says it \"shall be Page\", so a document whose tree is broken can still be asked which of its objects declare themselves pages, with §7.7.3.4's inheritance applied up each one's own `/Parent` chain. Five corpus documents reach page one that way, in ascending object number — a documented choice, because §7.7.3.2's tree is where page *order* lives and a file whose tree is gone has not stated one. It runs only where the tree produced nothing, so no document that opens normally pays for it. **`/Count` is deliberately not trusted**, and the clause's own NOTE says why: it \"is redundant\", and \"the value of the Count key is consistent with the number of entries in the Kids array and its descendants which definitively determines the number of descendant pages\". Real files disagree with their own counts; the `Kids` arrays are what this reader counts."
 
 [[clause]]
@@ -2118,7 +2118,7 @@ clause = "9.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-model/tests/text_extraction.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor"]
 note = "The clause's own map of itself: a text object, a font, an encoding, a glyph, a position. Every subclause it names is reviewed, and the two families it separates are kept separate in code — `content.rs` owns §9.3's text state and §9.4's operators, `pdf-font` owns §9.6 and §9.7's route from a code to an outline, and neither knows the other's rules. That separation is the clause's rather than a convenience: it puts a glyph's *selection* and its *painting* on opposite sides, which is why §9.3.6's rendering modes belong to the interpreter and §9.6.5's encodings to the font."
 
 [[clause]]
@@ -2610,7 +2610,7 @@ clause = "9.10.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-model/tests/text_extraction.rs"]
+test = ["crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor"]
 note = "The information content of text as against its rendered appearance — two questions, and the clause's insistence that they are two is what `Interpretation` follows in carrying `text` and `glyphs` as separate facts. A page can draw perfectly and extract nothing, which is also why the oracle asks the second when choosing a tolerance and got worse answers for eight sessions when it asked the first. The clause names one route this tree does not take: `/ActualText` on a marked-content sequence, which is §14.9.4's and belongs to tagged PDF."
 
 [[clause]]
@@ -2626,7 +2626,7 @@ clause = "9.10.3"
 title = "ToUnicode CMaps"
 status = "implemented"
 code = ["crates/pdf-font/src/tounicode.rs"]
-test = ["crates/pdf-model/tests/text_extraction.rs"]
+test = ["crates/pdf-font/src/tounicode.rs::ranges_map_to_consecutive_characters", "crates/pdf-font/src/tounicode.rs::surrogate_pairs_decode_to_one_character", "crates/pdf-font/src/tounicode.rs::a_huge_range_is_stored_as_a_range_rather_than_expanded"]
 note = "`/ToUnicode` as a `CMap`: `beginbfchar` and `beginbfrange` in both of the latter's forms — a consecutive span and an explicit array — with values decoded as UTF-16BE including surrogate pairs, and each code's length taken from the codespace ranges, which the clause requires to be \"consistent with the encoding that the font uses\". Table 118's `/UseCMap` is read, and the clause calls it \"[t]he only pertinent entry\" in the stream dictionary. A `bfrange` is kept **as a range** rather than expanded, deliberately: one `<0000> <FFFF>` line would otherwise allocate sixty-five thousand strings from a few bytes, which is a decompression bomb wearing a font's clothes. A malformed `CMap` yields what was read before the damage, so extraction degrades to missing characters rather than to silence."
 
 [[clause]]
@@ -2828,7 +2828,7 @@ clause = "10.7.2"
 title = "Flatness tolerance"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/corpus.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::flatness_changes_nothing_because_the_clause_permits_ignoring_it"]
 note = "The normative content is a permission, and it is exercised: \"PDF processors may choose to ignore any flatness tolerance specified within a PDF file.\" The `i` operator is matched and discarded with `MP`, `DP`, `BX` and `EX`, and `/FL` in an `/ExtGState` is not read; no corpus document writes `/FL` in one at all. `tiny-skia` and Vello each flatten curves to their own tolerance, which the clause's NOTE 2 anticipates by warning that a large value makes the result \"unpredictable\" — so honouring a document's number could only ever make a curve worse. Nothing is owed and nothing is silent, because the clause itself grants the omission."
 
 [[clause]]
@@ -3168,7 +3168,7 @@ clause = "11.6.4.2"
 title = "Object shape and opacity"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/image.rs"]
-test = ["crates/pdf-model/tests/image_masks.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone", "crates/pdf-model/tests/image_masks.rs::an_explicit_mask_paints_the_base_image_only_where_it_marks"]
 note = "Every clause of the list holds here. A path or a glyph has shape 1 inside and 0 outside, which is what filling an outline does; an image has shape 1 inside its rectangle \"further modified by an explicit or colour key mask\", which became true in the fourteenth session (§8.9.6.3, §8.9.6.4); an image mask has shape 1 where it paints; a pattern's shape is constrained by the objects that define it, which falls out of replaying a tiling pattern's content stream. The last one is worth naming because it is satisfied by *absence*: the shape of an `sh` is its geometry \"disregarding the Background entry in the shading dictionary\", and nothing in this tree reads /Background at all. The intrinsic opacity of 1.0 everywhere is likewise structural — opacity enters only through `ca`, `CA` and a mask."
 
 [[clause]]
@@ -3192,7 +3192,7 @@ clause = "11.6.5"
 title = "Specifying soft masks"
 status = "implemented"
 code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/soft_mask.rs", "crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/image_masks.rs", "crates/pdf-model/tests/soft_masks.rs"]
+test = ["crates/pdf-model/tests/image_masks.rs::a_soft_mask_overrides_an_explicit_mask", "crates/pdf-model/tests/soft_masks.rs::a_luminosity_mask_takes_the_groups_grey_and_the_backdrops_outside_it"]
 note = "Two ways to specify a soft mask, and both are implemented as of the eighteenth session: a soft-mask dictionary in the graphics state (§11.6.5.1) and a soft-mask image on an image XObject (§11.6.5.2), the latter including at a resolution of its own and with `/Matte` undone. What each of the two rows still owes is stated there."
 
 [[clause]]
@@ -3200,7 +3200,7 @@ clause = "11.6.5.1"
 title = "Soft-mask dictionaries"
 status = "implemented"
 code = ["crates/pdf-model/src/soft_mask.rs", "crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/soft_masks.rs"]
+test = ["crates/pdf-model/tests/soft_masks.rs::a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box", "crates/pdf-model/tests/soft_masks.rs::the_masks_coordinate_system_is_the_one_in_force_at_the_gs", "crates/pdf-model/tests/soft_masks.rs::none_removes_the_mask"]
 note = "Table 142 entire. `/S` selects §11.5.2's or §11.5.3's derivation and any other name is refused and reported; `/G` is run as a transparency group with §11.6.6's initialisation, its own `/BBox` clipping it and its `/Matrix` concatenated with the transform in force at the `gs` — not at the painting operation, which is the sentence a later `cm` would otherwise break; `/BC` is read in the group's own `/CS`, so its component count is that space's, and defaults to the space's initial colour; `/TR` is sampled onto the 256 values an eight-bit mask value can take, exactly, and clamped as the clause requires. The value outside the group's bounding box is the transfer function of 0.0 or of the backdrop's luminosity, which falls out of drawing the group onto transparency rather than being a second code path. The over-report the previous note described is gone: §11.6.4.3's precedence is now read, so an image carrying its own mask is drawn with the graphics state's mask off."
 
 [[clause]]
@@ -3253,7 +3253,7 @@ clause = "11.7.3"
 title = "Spot colours and transparency"
 status = "implemented"
 code = ["crates/pdf-model/src/colour.rs"]
-test = ["crates/pdf-model/tests/colour_paths.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::the_all_colourant_is_a_complemented_tint", "crates/pdf-model/tests/shadings.rs::a_named_colour_space_is_resolved_against_the_resources_that_paint_it"]
 note = "The clause offers two treatments for a spot colour inside a group — keep a component of its own, or \"be converted to its alternate colour space\" — and this tree always takes the second: a `Separation` or `DeviceN` colour goes through its tint transform into the alternate space at the moment it is read, before anything composites. That is conforming rather than a shortcut, and it makes the clause's one *shall* about soft masks true by construction: \"spot colours shall not be available in a transparency group XObject that is used to define a soft mask; the alternate colour space shall always be substituted in that case.\" What is given up is the first treatment's separation fidelity, which needs a raster per colourant and a device that has them."
 
 [[clause]]
@@ -5127,7 +5127,7 @@ clause = "14.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/optional_content.rs"]
+test = ["crates/pdf-model/tests/colour_paths.rs::an_output_intent_says_what_the_documents_device_colours_mean", "crates/pdf-model/tests/page_geometry.rs::the_five_page_boundaries_default_and_are_clipped_to_the_medium"]
 note = "The clause's own opening sentence is the one that decides how much of it this project owes: \"The features described in this clause do not affect the final appearance of a document.\" That is true of most of it and *false* of the two parts this tree implements, which is why they are implemented — §14.11.5's output intents supply a `DeviceCMYK` destination profile that changes every pixel a CMYK fill covers, and §14.11.2's page boundaries decide what is drawn at all. Everything else here is interchange: metadata, logical structure, tagged PDF, web capture, document parts and associated files. `CLAUDE.md` puts clause 14 in scope \"as far as accessibility needs it\", which is §14.7 and §14.8 rather than these rows."
 
 [[clause]]
@@ -5173,7 +5173,7 @@ clause = "14.4"
 title = "File identifiers"
 status = "implemented"
 code = ["crates/pdf-syntax/src/document.rs", "crates/pdf-syntax/src/crypt.rs"]
-test = ["crates/pdf-syntax/tests/encryption.rs"]
+test = ["crates/pdf-syntax/tests/encryption.rs::the_file_identifier_is_not_decrypted"]
 note = "The trailer's `/ID`, \"an array of two byte strings\" — a permanent identifier and a changing one. This tree reads exactly the half §7.6 makes load-bearing: §7.6.4.3.2 step (e) takes \"the first element of the file's file identifier array\" into the file encryption key, so `/ID[0]` decides whether an encrypted document opens at all. The clause's own purpose for the pair — telling whether a reference names the same file and the same version of it — needs a second document to compare against, which nothing here has. §7.5.5's Table 15 carries the rule that makes the encryption use safe: with an `/Encrypt` present the array and both strings \"shall be direct objects and shall be unencrypted\", which is what stops the circularity NOTE 4 describes."
 
 [[clause]]
