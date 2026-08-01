@@ -596,3 +596,152 @@ fn a_zoom_category_is_answered_at_the_pages_stated_size() {
         "and not less than a minimum of 1.0"
     );
 }
+
+/// Interprets a fixture without demanding that it be complete, and answers what it reported.
+///
+/// [`render`] asserts completeness, which is right for every test above and wrong for
+/// §8.9.5.4: one branch of that clause is a *documented choice between two contradictory
+/// readings*, and naming it is the whole point.
+fn interpret(bytes: Vec<u8>) -> (pdf_render::Raster, Vec<String>) {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let reports = interpretation
+        .unsupported
+        .iter()
+        .map(|item| format!("{item:?}"))
+        .collect();
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .with_background(pdf_render::Color::TRANSPARENT)
+        .rasterize(&list, target)
+        .expect("supported");
+    (raster, reports)
+}
+
+/// Two optional content groups: object 5 is off and object 9 is on.
+const TWO_GROUPS: &str = "/OCProperties << /OCGs [5 0 R 6 0 R] /D << /OFF [5 0 R] >> >>";
+
+/// Object 9, the group the configuration leaves on.
+const SECOND_GROUP: &str = "6 0 obj\n<< /Type /OCG /Name (Shown) >>\nendobj\n";
+
+/// A one-pixel greyscale image object, `number`, of the given sample byte.
+///
+/// Greyscale rather than RGB so that the sample *is* the colour: 0x00 draws black and 0xFF
+/// white, and a test can say which image reached the page by reading one pixel. The sample goes
+/// in through `ASCIIHexDecode` so that every byte of the fixture stays printable — `pdf` builds
+/// its offsets over a `String`, and a raw 0xFF would be two bytes of UTF-8 rather than one
+/// sample.
+fn one_pixel_image(number: u32, sample: u8, extra: &str) -> String {
+    format!(
+        "{number} 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+         /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /ASCIIHexDecode {extra} \
+         /Length 3 >>\nstream\n{sample:02X}>\nendstream\nendobj\n"
+    )
+}
+
+/// Draws object 6 as an image across the middle of the page.
+const DRAW_IMAGE: &str = "q 60 0 0 60 20 20 cm /Im Do Q";
+
+/// §8.9.5.4 step c) selects an alternate for a base image its `/OC` hides — and the clause
+/// contradicts itself about an alternate with no `/OC` of its own, so the choice is named.
+#[test]
+fn a_hidden_base_image_draws_the_alternate_the_clause_selects() {
+    let base = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
+    let alternates = "8 0 obj\n[ << /Image 9 0 R >> ]\nendobj\n";
+    let alternate = one_pixel_image(9, 0xFF, "");
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
+    ));
+    assert_eq!(
+        pixel(&raster, 50, 50),
+        [255, 255, 255, 255],
+        "the alternate, not the black base"
+    );
+    assert_eq!(reports.len(), 1, "the choice is named: {reports:?}");
+    assert!(reports[0].contains("nothing shall be shown"), "{reports:?}");
+}
+
+/// "[T]he first entry not containing an OC key, or containing an OC entry specifying that the
+/// alternate image should be visible, shall be selected" — so an alternate whose own group is
+/// off is skipped and the next one taken, in the array's order.
+#[test]
+fn an_alternate_whose_group_is_off_is_skipped_for_the_next_one() {
+    let base = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
+    let alternates =
+        "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R >> << /Image 10 0 R /OC 6 0 R >> ]\nendobj\n";
+    let hidden = one_pixel_image(9, 0x40, "");
+    let shown = one_pixel_image(10, 0xFF, "");
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{hidden}{shown}"),
+    ));
+    assert_eq!(pixel(&raster, 50, 50), [255, 255, 255, 255]);
+    assert!(
+        reports.is_empty(),
+        "every selection was stated: {reports:?}"
+    );
+}
+
+/// "[I]f none of the alternate image dictionaries with an OC entry specify that that alternate
+/// image is visible, then nothing shall be shown" — a decision, so nothing is reported either.
+#[test]
+fn a_hidden_base_image_whose_alternates_are_all_hidden_shows_nothing() {
+    let base = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
+    let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R >> ]\nendobj\n";
+    let alternate = one_pixel_image(9, 0xFF, "");
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
+    ));
+    assert!(!drew(&raster), "nothing shall be shown");
+    assert!(reports.is_empty(), "a decision is not a gap: {reports:?}");
+}
+
+/// Step b): "[i]f the base image contains an OC entry that specifies that the base image is
+/// visible, then the base image shall be rendered" — `/Alternates` beside it changes nothing.
+#[test]
+fn a_visible_base_image_is_drawn_whatever_its_alternates_say() {
+    let base = one_pixel_image(7, 0x00, "/OC 6 0 R /Alternates 8 0 R");
+    let alternates = "8 0 obj\n[ << /Image 9 0 R >> ]\nendobj\n";
+    let alternate = one_pixel_image(9, 0xFF, "");
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
+    ));
+    assert_eq!(pixel(&raster, 50, 50), [0, 0, 0, 255], "the base image");
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// The "Further" sentence, read as being about the *image* rather than the dictionary — which
+/// is what makes it say something Table 89's `/OC` has not already said: a dictionary with a
+/// visible `/OC` may name an image `XObject` whose own Table 87 `/OC` is off.
+#[test]
+fn a_selected_alternate_whose_image_is_hidden_draws_nothing() {
+    let base = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
+    let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 6 0 R >> ]\nendobj\n";
+    let alternate = one_pixel_image(9, 0xFF, "/OC 5 0 R");
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
+    ));
+    assert!(!drew(&raster), "the selected image's own /OC hides it");
+    assert!(reports.is_empty(), "{reports:?}");
+}

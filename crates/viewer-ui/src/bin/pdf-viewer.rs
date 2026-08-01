@@ -162,8 +162,18 @@ fn main() {
                 .reason
                 .as_deref()
                 .map_or_else(String::new, |reason| format!(", reason: {reason}"));
+            // §7.9.4's date where the producer wrote a conforming one, and the file's own
+            // bytes where it did not — 2.0% of the corpus's dates are the second, and showing
+            // nothing there would hide a value a person can read perfectly well.
+            let when = signature
+                .signed_at
+                .as_deref()
+                .map_or_else(String::new, |stated| match signature.signed_at_date() {
+                    Some(date) => format!(", at {date}"),
+                    None => format!(", at {stated} (not a §7.9.4 date)"),
+                });
             println!(
-                "note: this document is signed by {who}{why}{}",
+                "note: this document is signed by {who}{why}{when}{}",
                 if signature.certification {
                     " (a certification signature)"
                 } else {

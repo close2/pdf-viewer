@@ -2697,18 +2697,13 @@ impl Interpreter<'_> {
             && !self.shows_optional_content(&oc)
         {
             // §8.9.5.4 step c): where a base image's `/OC` says it is *not* visible, its
-            // `/Alternates` are examined in order and the first one visible is drawn in its
-            // place. Nothing here selects an alternate, so the page loses a picture the
-            // document expected to be there — said out loud rather than left blank, and only
-            // in the one case where it can happen. An `/Alternates` array on a *visible* base
-            // image changes nothing: step b) draws the base.
-            if !matches!(
-                self.document.get_key(&stream.dict, "Alternates"),
-                Object::Null
-            ) {
-                self.note(Unsupported::Image {
-                    name: format!("{name}: hidden, and its /Alternates are not selected from"),
-                });
+            // `/Alternates` are examined in order and one of them is drawn in its place.
+            // Step b) — a visible base image — needs nothing, because that is what drawing the
+            // base image is; and step a) is satisfied by construction, since this tree never
+            // reads `/DefaultForPrinting` at all (step d) addresses printing, and this device
+            // is a screen).
+            if let Some(alternate) = self.alternate_image(&stream.dict, &name) {
+                self.draw_image(&alternate, &name, resources, state);
             }
             return;
         }
@@ -3103,6 +3098,87 @@ impl Interpreter<'_> {
     }
 
     /// Draws one image `XObject`.
+    /// §8.9.5.4 step c): which of a hidden base image's `/Alternates` is drawn in its place.
+    ///
+    /// The clause states an algorithm and **contradicts itself inside step c)**, which is why
+    /// this function has a comment as long as it is. The selection sentence:
+    ///
+    /// > the list of alternate image dictionaries specified by the base image Alternates entry
+    /// > shall be examined in order, and the first entry not containing an OC key, or containing
+    /// > an OC entry specifying that the alternate image should be visible, shall be selected
+    ///
+    /// and then, four sentences later:
+    ///
+    /// > If none of the alternate image dictionaries have an OC key, or none of the alternate
+    /// > image dictionaries with an OC entry specify that that alternate image is visible, then
+    /// > nothing shall be shown.
+    ///
+    /// An alternate with **no** `/OC` is selectable by the first and unshowable by the second.
+    /// The two cannot both be obeyed, and this project's own habit for that is to ask which
+    /// reading makes a file's own words mean nothing: under the second, the phrase "the first
+    /// entry not containing an OC key" can never lead to a mark, so the clause would be naming a
+    /// case it has already excluded. So **the selection sentence is taken**, and the one place
+    /// the two readings differ — a selected alternate with no `/OC` of its own — is reported, so
+    /// that a document relying on the other reading is named rather than silently drawn.
+    ///
+    /// The "Further" sentence is read as being about the *image*, which is what makes it mean
+    /// something: Table 89's `/OC` is on the alternate image **dictionary**, and Table 87's is on
+    /// the image `XObject` the `/Image` entry names. So a dictionary may be selected and its image
+    /// still hidden.
+    ///
+    /// > Further, if this selected alternate image has an OC entry, then that OC entry shall also
+    /// > be processed to determine if the alternate image shall be rendered or not.
+    ///
+    /// `None` is the clause's "nothing shall be shown", which is a *decision* rather than a gap
+    /// and so is not reported. No corpus document carries an `/Alternates` entry at all —
+    /// measured over all 964 openable ones — so every rule here rests on the clause and on the
+    /// tests beside it.
+    fn alternate_image(
+        &mut self,
+        base: &Dictionary,
+        name: &str,
+    ) -> Option<Arc<pdf_syntax::Stream>> {
+        let stated = self.document.get_key(base, "Alternates");
+        let alternates = stated.as_array()?;
+        for entry in alternates {
+            let resolved = self.document.resolve(entry);
+            let Some(alternate) = resolved.as_dict() else {
+                continue;
+            };
+            let group = alternate.get("OC").cloned();
+            if let Some(group) = &group
+                && !self.shows_optional_content(group)
+            {
+                continue;
+            }
+            if group.is_none() {
+                self.note(Unsupported::Image {
+                    name: format!(
+                        "{name}: §8.9.5.4 step c) selects an alternate with no /OC and its own                          closing sentence says nothing shall be shown; the selection is taken"
+                    ),
+                });
+            }
+
+            // Table 89 makes `/Image` required, so an entry without one has selected nothing.
+            let image = self.document.get_key(alternate, "Image");
+            let Some(image) = image.as_stream().cloned() else {
+                self.note(Unsupported::Image {
+                    name: format!("{name}: an alternate image dictionary states no /Image"),
+                });
+                return None;
+            };
+            // The "Further" sentence: the *image*'s own `/OC` (Table 87) decides whether the
+            // alternate this dictionary selected is rendered at all.
+            if let Some(own) = image.dict.get("OC").cloned()
+                && !self.shows_optional_content(&own)
+            {
+                return None;
+            }
+            return Some(image);
+        }
+        None
+    }
+
     fn draw_image(
         &mut self,
         stream: &Arc<pdf_syntax::Stream>,

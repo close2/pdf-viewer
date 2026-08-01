@@ -25,6 +25,7 @@
 #![forbid(unsafe_code)]
 
 pub mod crypt;
+pub mod date;
 pub mod document;
 pub mod error;
 pub mod filter;
@@ -36,6 +37,7 @@ pub mod tree;
 pub mod xref;
 
 pub use crypt::Permissions;
+pub use date::Date;
 pub use document::{Document, ImageStream};
 pub use error::{SyntaxError, SyntaxResult};
 pub use lexer::{Lexer, Token};

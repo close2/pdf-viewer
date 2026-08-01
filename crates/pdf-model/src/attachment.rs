@@ -88,6 +88,9 @@ pub struct Attachment {
     /// check it, and a caller that decodes the bytes learns the truth.
     pub size: Option<i64>,
     /// Table 45's `/CreationDate` and `/ModDate`, as the §7.9.4 date strings the file wrote.
+    ///
+    /// The file's own bytes, with [`Attachment::created_date`] and [`Attachment::modified_date`]
+    /// beside them for the parse — see [`crate::signature::Signature::signed_at`] for why both.
     pub created: Option<String>,
     /// The modification date, likewise.
     pub modified: Option<String>,
@@ -102,6 +105,20 @@ pub struct Attachment {
     pub relationship: Relationship,
     /// The stream the bytes are in, for a caller that has decided to extract them.
     pub stream: Arc<Stream>,
+}
+
+impl Attachment {
+    /// `/CreationDate` parsed as §7.9.4's date, where the producer wrote a conforming one.
+    #[must_use]
+    pub fn created_date(&self) -> Option<pdf_syntax::Date> {
+        pdf_syntax::Date::parse(self.created.as_deref()?)
+    }
+
+    /// `/ModDate` parsed as §7.9.4's date, likewise.
+    #[must_use]
+    pub fn modified_date(&self) -> Option<pdf_syntax::Date> {
+        pdf_syntax::Date::parse(self.modified.as_deref()?)
+    }
 }
 
 /// Table 43's `/AFRelationship`: what an associated file is *to* the object that names it.
