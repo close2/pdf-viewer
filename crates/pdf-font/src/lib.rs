@@ -1037,17 +1037,19 @@ fn narrow(value: f64) -> f32 {
 /// codes to the wrong glyphs, which is plausible-looking wrong text and the worst kind of
 /// rendering error, so a font naming one is refused and reported.
 ///
-/// Vertical writing is refused whichever way it arrives, because §9.7.5.1 makes it a property
-/// of the `CMap` and it decides the metrics:
+/// Vertical writing is *drawn*, and this comment said it was refused for eighty-five sessions
+/// after it stopped being. §9.7.5.1 makes the mode a property of the `CMap` and it decides the
+/// metrics:
 ///
 /// > A `CMap` shall specify the writing mode … for any `CIDFont` with which the `CMap` is
 /// > combined. The writing mode determines which metrics shall be used when glyphs are painted
 /// > from that font.
 ///
-/// §9.2.4 and §9.7.4.3 give those metrics as `/W2` and `/DW2`, which nothing here reads, and a
-/// vertical run drawn horizontally is not a near miss: `vertical.pdf` should set two columns
-/// down the right edge of a page and came out as one overlapping line across the top,
-/// reporting nothing.
+/// §9.2.4 and §9.7.4.3 give those metrics as `/W2` and `/DW2`, which `Vertical::read` has read
+/// since the thirty-sixth session — `vertical.pdf` sets two columns down the right edge of its
+/// page, where before that it came out as one overlapping line across the top, reporting
+/// nothing. What is refused here is a *predefined* `CMap`, horizontal or vertical alike, and
+/// the only reason a name ending in `V` is refused is the data the paragraph above names.
 fn composite_cmap(document: &Document, dict: &Dictionary, name: &str) -> Result<CMap, FontError> {
     let unsupported = |encoding: &str| FontError::UnsupportedEncoding {
         name: name.to_owned(),
@@ -1494,7 +1496,43 @@ fn declared_codes(document: &Document, dict: &Dictionary) -> std::ops::RangeIncl
     }
 }
 
+/// The names Table 112 permits `/Encoding` and `/BaseEncoding` to hold.
+///
+/// ISO 32000-2 §9.6.2.1, Table 112:
+///
+/// > The value of Encoding shall be either the name of a predefined encoding (
+/// > MacRomanEncoding, MacExpertEncoding , or WinAnsiEncoding , as described in Annex D,
+/// > "Character sets and encodings") or an encoding dictionary
+///
+/// `StandardEncoding` is not on the table's list and is accepted anyway: Annex D defines it,
+/// §9.6.5.1 makes it the base a nonsymbolic font falls back to, and producers write it. That is
+/// a deliberate extra rather than an oversight, and it is why this list exists separately from
+/// [`BaseEncoding::by_name`] — the two answer different questions, *may a font say this* and
+/// *does this crate have the table*, and `MacExpertEncoding` is the name where they differ.
+const TABLE_112_ENCODINGS: [&[u8]; 4] = [
+    b"StandardEncoding",
+    b"MacRomanEncoding",
+    b"MacExpertEncoding",
+    b"WinAnsiEncoding",
+];
+
 /// Reads the base encoding a font dictionary names, if it names one.
+///
+/// # A name the table does not permit is not an encoding this font uses
+///
+/// Table 112 makes `/Encoding` **optional** and says what its absence means in the same cell —
+/// it is "[a] specification of the font's character encoding **if different from its built-in
+/// encoding**" — so a font that states nothing readable there has stated nothing, and the
+/// built-in encoding stands. A name outside the four above is therefore treated as absent
+/// rather than refused: refusing draws no text at all where the clause states which text to
+/// draw, which is ADR 0106's rule about an optional entry erasing what a clause requires.
+/// `bug859204.pdf` writes `/Encoding /NULL` on an embedded Type 1 program and lost its whole
+/// page for it.
+///
+/// `MacExpertEncoding` keeps the refusal, and the difference is the point: it is a name the
+/// table *permits*, so a font naming it means it, and drawing that font through some other
+/// encoding would put the wrong glyphs on the page in silence. A name the table does not permit
+/// carries no such meaning to lose.
 fn base_encoding(
     document: &Document,
     dict: &Dictionary,
@@ -1513,6 +1551,7 @@ fn base_encoding(
 
     match named {
         None => Ok(None),
+        Some(named) if !TABLE_112_ENCODINGS.contains(&named.as_slice()) => Ok(None),
         Some(named) => {
             BaseEncoding::by_name(&named)
                 .map(Some)
@@ -3136,6 +3175,39 @@ mod cff_encoding_tests {
 
         assert_eq!(table[65], Some(LATIN_A));
         assert_eq!(table[66], None);
+    }
+
+    /// An `/Encoding` name Table 112 does not permit leaves the font its own encoding.
+    ///
+    /// ISO 32000-2 §9.6.2.1, Table 112, of `/Encoding`:
+    ///
+    /// > ( Optional ) A specification of the font's character encoding if different from its
+    /// > built-in encoding. The value of Encoding shall be either the name of a predefined
+    /// > encoding ( MacRomanEncoding, MacExpertEncoding , or WinAnsiEncoding , as described in
+    /// > Annex D, "Character sets and encodings") or an encoding dictionary
+    ///
+    /// The entry is optional and the same cell says what its absence means, so a value the
+    /// table does not permit has said nothing — and this must draw exactly what
+    /// `a_font_with_no_encoding_entry_is_its_own` draws. `bug859204.pdf` writes `/Encoding
+    /// /NULL` and lost its whole page to a refusal.
+    ///
+    /// The second half is the control, and it is what keeps the first from being a licence:
+    /// `MacExpertEncoding` is a name the table *does* permit, so a font naming it means it, and
+    /// falling back would draw the wrong glyphs in silence. It is still refused by name.
+    #[test]
+    fn an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all() {
+        let (table, names) = resolve("/Encoding /NULL");
+        let (own, own_names) = resolve("");
+        assert_eq!(table, own);
+        assert_eq!(names[65], own_names[65]);
+        assert_eq!(table[65], Some(ALPHA));
+
+        let (document, dict) = font_dictionary("/Encoding /MacExpertEncoding");
+        let refused = simple_code_table(&document, &dict, &fixture(), "F1");
+        assert!(
+            matches!(refused, Err(super::FontError::UnsupportedEncoding { .. })),
+            "a name the table permits and this crate lacks is still refused"
+        );
     }
 
     /// The font descriptor's flags decide nothing here, which is the whole finding.

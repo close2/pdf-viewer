@@ -531,7 +531,16 @@ const MAX_PAGELESS: usize = 5;
 /// this count is not a regression when it is a new report, and here it is not even that — it is
 /// four pages that were not being counted at all. The sixth, `issue9418.pdf`, draws **completely**
 /// once §7.7.3.4's inheritance reaches its recovered page and its `/Resources` with it.
-const MAX_INCOMPLETE: usize = 90;
+///
+/// **90 to 89 in the hundred-and-twenty-second session**, from an *optional* entry that was
+/// erasing a font. `bug859204.pdf` writes `/Encoding /NULL` on an embedded Type 1 program, and
+/// Table 112 permits four names there and no others — so the value says nothing, and the same
+/// cell says what a font that says nothing does: `/Encoding` specifies the encoding "if
+/// different from its built-in encoding", so the built-in one stands. The page drew no text at
+/// all for it. It draws with nothing reported now and the oracle's agreeing set gains it: 840
+/// pages to 841. `MacExpertEncoding` keeps its refusal, because that name *is* one Table 112
+/// permits and a font that states it means it.
+const MAX_INCOMPLETE: usize = 89;
 
 /// How long one document may take before it counts as a failure.
 ///
