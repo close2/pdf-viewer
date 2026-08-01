@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-fifth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-sixth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,22 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-third — the group that need not be built.** §11.4.4's NOTE 5, and the corpus's
-first movement in eighteen sessions. ADR 0093.
-
-- **A non-isolated group composited with Normal, alpha 1.0 and no mask is not built at all.**
-  NOTE 5 says so in as many words, and its elements are emitted inline — so every blend mode
-  inside one composites against the page, which is what §11.4.4 asks and what the report was
-  about.
-- **The expensive design was reached by reading the formulas and not the notes around them.**
-  §11.4.4's result step needs `αgn` accumulated separately from the composite alpha (NOTE 4),
-  which an opaque backdrop makes unrecoverable from one raster — a second buffer per group, in
-  both backends. NOTE 5 removes the case entirely.
-- **89 → 86 corpus documents incomplete, 837 → 839 agreeing, 65 contradicted unchanged**, and
-  the text readback rises 97.8% → 97.9%.
-- **It is 2.5% *less* work**: `issue13242.pdf` page 1 rasterises in 3 968.9 M instructions
-  against 4 070.2 M, because a page-sized group buffer and its composite are gone.
 
 **Hundred-and-fourth — the document inside the document.** §12.6.4.4's embedded go-to, the
 largest action nobody had written. ADR 0094.
@@ -73,6 +57,18 @@ largest action nobody had written. ADR 0094.
   applied to the one input it had been left out of.
 
 `reported` falls 50 → 49. No gate moved.
+
+**Hundred-and-sixth — a fifth fuzzer, and everything re-run.** ADR 0096.
+
+- **An FDF file is a second file a document asks a person to open**, so its bytes are as
+  untrusted as a PDF's — and §7.9.4's date parser carries two `#[expect(arithmetic_side_effects)]`
+  blocks whose `reason` is an argument rather than a bound the compiler checks. `forms_data` is
+  the fifth fuzz target and covers both; it is clean at **2 000 000** runs.
+- **Everything re-run rather than inherited**: 838 tests, `cargo deny` clean on all four checks,
+  all five fuzzers clean, all four gates unchanged.
+- **Our own total fell while the page count rose**: 6.99 s over 862 complete pages against
+  7.08 s over 859. `hayro`'s total moved 49.03 s → 39.59 s with nothing here touching it, for the
+  third time — the number to trust across sessions is our own.
 
 ## How the project got here
 
@@ -182,6 +178,7 @@ below rather than here.
 | 103 | §11.4.4's NOTE 5: the non-isolated group that need not be built | ADR 0093 |
 | 104 | §12.6.4.4's embedded go-to: the document inside the document | ADR 0094 |
 | 105 | Table 192's `/R` drawn; §12.5.6.23's overlay read as writer-side | ADR 0095 |
+| 106 | A fifth fuzz target for §12.7.8 and §7.9.4; everything re-verified | ADR 0096 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -225,9 +222,9 @@ without the tree saying so. What is owed is 49 `reported` rows and the notes on 
 ones.
 
 - **838 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
-  `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all four fuzz targets
-  clean at 50 000 runs apiece** — the first three re-run in the hundredth session, the last four
-  in the ninety-ninth. (The thirteenth session found this line had been *wrong*: eleven warnings had
+  `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
+  clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
+  hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
   accumulated because `allow-panic-in-tests` does not reach an integration test's helper
   functions.)
 - **The 14 specification PDFs in `doc/`** — including ISO 32000-2 itself, 1023 pages and 101 318
@@ -394,6 +391,7 @@ cargo +nightly fuzz run lexer -- -runs=50000     # from fuzz/, needs nightly
 cargo +nightly fuzz run cmap  -- -runs=50000     # §9.7's CMap parser and its decoder
 cargo +nightly fuzz run crypt -- -runs=50000     # §7.6's encryption dictionary and key algorithms
 cargo +nightly fuzz run variable_text -- -runs=50000  # §12.7.4.3's /DA parser and its layout
+cargo +nightly fuzz run forms_data -- -runs=50000     # §12.7.8's FDF reader and §7.9.4's dates
 ```
 
 Cargo prints one line about `proc-macro-error2` being rejected by a future compiler. It arrives
@@ -1185,12 +1183,17 @@ with both, alternating, best of N.
 Measured again in the **seventy-third** session, on either side of one change in one sitting —
 which is the only way this number means anything:
 
-| | ninety-ninth session | seventy-third | sixty-fifth | fifty-eighth | forty-sixth |
+| | hundred-and-sixth | ninety-ninth | seventy-third | sixty-fifth | fifty-eighth |
 |---|---|---|---|---|---|
-| total, ours | **7.08 s** over 859 complete pages | 6.91 s over 858 | 6.20 s over 852 | 7.13 s over 852 | 8.28 s over 853 |
-| total, `hayro` | 49.03 s | 41.87 s | 34.93 s | 39.03 s | 112.7 s |
-| **median page** | **2.15×** slower | 2.14× | 2.15× | 2.29× | 2.12× |
-| worst page | 50×, `issue19176.pdf` at 553 µs against 11.1 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 63× | 56× |
+| total, ours | **6.99 s** over 862 complete pages | 7.08 s over 859 | 6.91 s over 858 | 6.20 s over 852 | 7.13 s over 852 |
+| total, `hayro` | 39.59 s | 49.03 s | 41.87 s | 34.93 s | 39.03 s |
+| **median page** | **2.14×** slower | 2.15× | 2.14× | 2.15× | 2.29× |
+| worst page | 68×, `issue19176.pdf` at 642 µs against 9.4 µs — a 9x11-point page where the absolute numbers are too small to mean anything | 50× | 63× | 56× | |
+
+**The hundred-and-sixth session's 6.99 s fell while the page count *rose*** — three pages joined
+the complete set in the hundred-and-third (ADR 0093) and the total still went down, which is that
+session's 2.5% showing up in aggregate. `hayro`'s total moved 49.03 s → 39.59 s with nothing here
+touching it, the third such swing this file has recorded.
 
 **The ninety-ninth session's 7.08 s is not a regression against the 6.91 s beside it and is not
 comparable to it**, for the reason the paragraph below already gives about that pair: different
