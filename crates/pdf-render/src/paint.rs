@@ -642,6 +642,49 @@ mod resampling {
         image.data[at]
     }
 
+    /// ISO 32000-2 §8.9.5.3: `/Interpolate` is a hint about the *magnified* case only.
+    ///
+    /// > Image interpolation is an attempt to produce a smooth transition between adjacent
+    /// > sample values when rendering an image whose resolution is significantly lower than
+    /// > that of the output device.
+    ///
+    /// That sentence is what makes this two questions rather than one: the whole clause is
+    /// about magnification, and Table 87 defaults the entry to false. So a magnified image is
+    /// drawn sample by flat sample unless the entry asks otherwise, and a *reduced* one is
+    /// filtered whatever the entry says, because §10.7.4 rather than this clause governs
+    /// there and several samples share a pixel regardless.
+    ///
+    /// Written as a table of both flags against both regimes, because the defect this guards
+    /// is one arm of it: reading `/Interpolate` as the whole answer turns every reduced image
+    /// into a point sample, and ignoring it turns every magnified one into a blur. Neither
+    /// reports anything.
+    #[test]
+    fn interpolate_decides_a_magnified_image_and_nothing_else() {
+        let plain = image(8, 8, |x, _| (x * 30) as u8);
+        let asked = Image {
+            interpolate: true,
+            ..image(8, 8, |x, _| (x * 30) as u8)
+        };
+
+        // Magnified: eight samples across sixty-four device pixels.
+        assert!(
+            !plain.is_smoothed(drawn_at(64.0, 64.0)),
+            "the default is flat rectangles, which is what the clause's `false` means"
+        );
+        assert!(
+            asked.is_smoothed(drawn_at(64.0, 64.0)),
+            "and the entry is what turns filtering on"
+        );
+
+        // Reduced: eight samples across four device pixels. §10.7.4's territory, not this
+        // clause's, so the flag decides nothing.
+        assert!(plain.is_smoothed(drawn_at(4.0, 4.0)));
+        assert!(asked.is_smoothed(drawn_at(4.0, 4.0)));
+
+        // Drawn at its own size, neither regime applies and neither answer can be seen.
+        assert!(plain.is_smoothed(drawn_at(8.0, 8.0)));
+    }
+
     /// An image drawn at its own size, or larger, keeps every sample it has.
     ///
     /// The cheap half of the decision, and the one that must stay cheap: it is asked for

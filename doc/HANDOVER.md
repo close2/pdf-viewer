@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-tenth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-eleventh** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,24 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-eighth — auditing the population where a false claim can hide.** ADR 0098.
-
-- **§7.10's ten rows all named `tests/shadings.rs`**, which is `FILE_ONLY_EVIDENCE_CEILING`'s
-  whole subject: "[a] row naming `file.rs::a_test` is a claim something would fail if it stopped
-  being true. A row naming `file.rs` is a claim nothing checks."
-- **The sampled-function row was wrong twice.** It said "all five of Table 39's sample widths"
-  where the table lists **eight**; and Table 39's `/Order` — linear or cubic spline — is read
-  **nowhere at all**, a silent departure inside a row that said `implemented`.
-- **The departure stays a departure**: the clause names a cubic spline and states no spline, and
-  refusing would lose a valid document. Measured first — 956 type-0 functions in 26 documents,
-  955 at eight bits and one at sixteen, **not one stating `/Order 3`** — so it is recorded rather
-  than reported.
-- **Three false claims in this population were found by the oracle, on a page. This one no page
-  could have caught**, and the only instrument for those is reading the row against the clause and
-  then against the code.
-
-`FILE_ONLY_EVIDENCE_CEILING` falls **58 → 49**.
 
 **Hundred-and-ninth — a transition is a table, not an action.** ADR 0099.
 
@@ -77,6 +59,24 @@ evidence population audited, and the audit found code rather than prose. ADR 010
 - **Ten tests, seven of them confirmed to fail by breaking the thing they guard.**
 
 `FILE_ONLY_EVIDENCE_CEILING` falls **49 → 40**; tests 840 → 850.
+
+**Hundred-and-eleventh — a correction that reached the code and not the ledger.** Clause 8's
+seventeen file-only rows audited. ADR 0101.
+
+- **`CLAUDE.md` says a recorded silence decays and names `DeviceCMYK` → RGB as the example;
+  four places in the tree still recorded it.** §8.6.4.4's row said "**it defines no conversion
+  to RGB at all**" three sessions after principle 5 was rewritten around the fact that
+  §10.4.2.5 does. So did §8.6.4's row, `colour.rs`'s ink-corner test and `content.rs`'s
+  `device_space`. The one place that was right is the one the correction was made in.
+- **§8.6.5.2's row claimed a validation the code does not do** — Table 62's Y_W = 1.0 is *not*
+  enforced, deliberately, because a Bradford adaptation normalises a scaled white and refusing
+  would lose a page this device draws right. The row now says what the code does.
+- **Three rows had no test that could fail.** `shadings.rs` has fourteen tests and not one was
+  a `/ShadingType 1`, so §8.7.4.5.2 was `implemented` on evidence that never touched it.
+  §8.7.3.2's Table 75 rule and §8.9.5.3's `/Interpolate` were the other two.
+- **All three new tests were confirmed to fail when their rule is broken**, and no gate moved.
+
+`FILE_ONLY_EVIDENCE_CEILING` falls **40 → 23**; tests 850 → 853.
 
 ## How the project got here
 
@@ -191,6 +191,7 @@ below rather than here.
 | 108 | §7.10 audited out of the file-only evidence population, and two claims corrected | ADR 0098 |
 | 109 | §12.6.4.15's transition action, which is §12.4.4's table at a different moment | ADR 0099 |
 | 110 | §7.5's free entries: an update that deletes an object is no longer undone | ADR 0100 |
+| 111 | Clause 8's file-only rows audited; a retired claim found in four places | ADR 0101 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -233,7 +234,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 48 `reported` rows and the notes on 235 `partial`
 ones.
 
-- **850 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **853 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
   hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -367,7 +368,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2672 citations, 266 quotations, 172 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2686 citations, 269 quotations, 175 tables, 823 rows
 # It prints every table the tree cites *and* every table the ledger cites, each with its title:
 # a number that names nothing fails the gate, and a number that names the wrong table only ever
 # gives itself away in the title (ADR 0095).
@@ -1066,15 +1067,12 @@ the notes on 235 `partial` rows, which is where the next map has to be drawn fro
 - **Keep `REVIEW_OWED` empty.** A clause the code cites and nobody has read is the cheapest debt
   this project can accrue, and the list fails the build the moment one appears.
 - **`FILE_ONLY_EVIDENCE_CEILING` is the ledger's own next piece of work, and it has started.**
-  **40** `implemented` rows name a whole test *file* as their evidence, which passes whatever it
-  contains — down from 58 over the hundred-and-eighth and hundred-and-tenth sessions, which
-  audited §7.10's ten and §7.5's nine and found something wrong in each (ADRs 0098, 0100). Three
-  rows found wrong before those all had this shape and all three were caught by the oracle; the
-  fourth was a `/Order` nothing draws and the fifth was §7.5.6's rule not reaching a deletion,
-  and **no page could ever have caught either**. The number may only fall. What is left, by
-  clause: **8** has seventeen (four in §8.6's colour spaces, six in §8.7's shadings, five in
-  §8.9's images, `8.6.6.2` and `8.11.3`), **7** has thirteen (`7.3`'s objects, `7.4`'s filters,
-  `7.7`'s page tree), **11** four, **9** three, **14** two, **10** one.
+  **23** `implemented` rows name a whole test *file* as their evidence, which passes whatever it
+  contains — down from 58 over three sessions, which audited §7.10's ten, §7.5's nine and clause
+  8's seventeen and found something wrong in every one of the three (ADRs 0098, 0100, 0101).
+  **Every audit so far has paid**, which is the argument for finishing it. What is left, by
+  clause: **7** has thirteen (`7.3`'s objects, `7.4`'s filters, `7.7`'s page tree), **11** four,
+  **9** three, **14** two, **10** one. The number may only fall.
 - **A silence is not the same as a gap**, and the first move on one is neither a report nor a
   feature: work out what the clause asks *of this device*. The nineteenth session closed two
   differently — §10.7.5's `/SA` was implemented in the half a display can state and recorded as a
@@ -1753,6 +1751,19 @@ number you control.
 §14.8.5.1 was `silent` while §14.7.6's rows recorded the same attribute code as `implemented`;
 §14.7.5's four rows were `silent` beside a `structure::Child` that implemented all of them. Four
 instances in ten sessions, and the check is one `grep` for the *other* clause a family cites.
+
+**A retired claim is a string, and strings are greppable.** `CLAUDE.md` principle 5 was rewritten
+around the finding that §10.4.2.5 defines the `DeviceCMYK` conversion this project had recorded
+as undefined — and three sessions later the retired sentence was still in §8.6.4's ledger row,
+§8.6.4.4's, `colour.rs`'s own test and `content.rs`'s `device_space`. When a session disproves a
+sentence this tree repeats, the work is done when the *sentence* is gone, not when the code is
+right. One `grep` for the old wording. ADR 0101.
+
+**A row whose evidence is a file can be `implemented` for something the file never touches.**
+§8.7.4.5.2 is the sharpest instance: `shadings.rs` has fourteen tests and not one of them was a
+`/ShadingType 1`, so the row's evidence passed on every run while asserting nothing about the
+row. That is what `FILE_ONLY_EVIDENCE_CEILING` counts, stated as a failure mode rather than as a
+number.
 
 **A stale row can understate as well as overstate, and only the overstatements have a gate.**
 §14.9.4's note said its structure-element half was owed for four sessions after the fifty-sixth

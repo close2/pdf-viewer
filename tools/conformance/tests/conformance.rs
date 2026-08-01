@@ -62,7 +62,7 @@ const UNREVIEWED_CEILING: usize = 0;
 /// linear and cubic spline interpolation" — turned out to be read nowhere at all, a silent
 /// departure inside a row that said `implemented`. That is the third time this population has
 /// hidden a false claim, and the first time an audit rather than the oracle found one.
-const FILE_ONLY_EVIDENCE_CEILING: usize = 40;
+const FILE_ONLY_EVIDENCE_CEILING: usize = 23;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///

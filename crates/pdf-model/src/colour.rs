@@ -1162,11 +1162,13 @@ mod tests {
 
     /// The pure inks must land on the published appearances of the process inks.
     ///
-    /// The specification defines no `DeviceCMYK` conversion at all, so this pins a
-    /// deliberate choice rather than a derivation — see `CMYK_CORNERS` for why the choice
-    /// exists and what overrides it. What the test defends is that the choice stays made:
-    /// these sixteen values are the whole of it, and a conversion that moves any of them
-    /// has stopped assuming the press we said we were assuming.
+    /// §8.6.4.4 defines no conversion and **§10.4.2.5 defines one**, which §10.4.2.1 offers
+    /// to "a less-capable PDF processor" as a "crude approximation". So this pins a
+    /// deliberate choice between two ranked answers rather than a derivation — see
+    /// `CMYK_CORNERS` for the choice and for the three sources that outrank it. What the
+    /// test defends is that the choice stays made: these sixteen values are the whole of it,
+    /// and a conversion that moves any of them has stopped assuming the press we said we
+    /// were assuming.
     #[test]
     fn the_process_inks_are_the_published_ink_appearances() {
         let cmyk = |c, m, y, k| bytes(ColourSpace::Cmyk.to_rgb(&[c, m, y, k]));

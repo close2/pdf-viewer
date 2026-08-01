@@ -1429,8 +1429,8 @@ clause = "8.6.4"
 title = "Device colour spaces"
 status = "implemented"
 code = ["crates/pdf-model/src/colour.rs"]
-test = ["crates/pdf-model/tests/colour_paths.rs"]
-note = "The three families, reviewed as one in the twenty-fifth session alongside §8.6.5. All three are what this device speaks, so the whole family is the identity plus one conversion the standard does not define — see §8.6.4.4."
+test = ["crates/pdf-model/tests/colour_paths.rs::a_grey_is_the_same_however_it_is_drawn", "crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
+note = "The three families, reviewed as one in the twenty-fifth session alongside §8.6.5. Two of them are what this device speaks, so they are the identity; the third is a conversion **§8.6.4.4 does not define and §10.4.2.5 does**, ranked below §10.3's ICC route by §10.4.2.1. This row said \"one conversion the standard does not define\" until the hundred-and-tenth session, which is the claim `CLAUDE.md` records as having been wrong for thirty-two sessions — the correction reached the code and this file's own principle 5 and never reached the ledger. See §8.6.4.4."
 
 [[clause]]
 clause = "8.6.4.1"
@@ -1462,14 +1462,14 @@ title = "DeviceCMYK colour space"
 status = "partial"
 code = ["crates/pdf-model/src/colour.rs"]
 test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn", "crates/pdf-model/src/colour.rs::the_process_inks_are_the_published_ink_appearances"]
-note = "Four components, \"the concentrations of these process colourants\", and the clause stops there — **it defines no conversion to RGB at all**, which is the standing example in `CLAUDE.md` of a place the standard is silent and a choice has to be documented as one (ADR 0009). What the standard does say is where to *ask*, and all three are implemented and all three outrank the fallback: `/DefaultCMYK` (§8.6.5.6), an output intent's `/DestOutputProfile` (§14.11.5) and an `ICCBased` space's profile (§8.6.5.5). The fallback below them is a table of the sixteen ink corners, interpolated. `partial` records the silence rather than a debt: there is no sentence here left to implement. The closing sentence — cyan, magenta and yellow initialised to 0.0 and black to 1.0, which is black through the K channel rather than through zeroes — is `ColourSpace::initial_colour`, and it is the case a reader is most likely to get wrong by assuming every space starts at black-by-zeroes."
+note = "Four components, \"the concentrations of these process colourants\", and *this* clause stops there — but **the standard does not**, and this row said it did until the hundred-and-tenth session. §10.4.2.5 is titled \"Conversion from DeviceCMYK to DeviceRGB\" and states the formula outright; §10.4.2.1 offers it to \"a less-capable PDF processor\" as one of a set of \"crude approximations\", ranked below §10.3's ICC route, which §10.3.2 then *requires* of a processor whose device space is not the document's. So the question is answered twice and in an order, and this tree takes the higher branch: the fallback is a table of the sixteen ink corners interpolated, which is exact at the corners where §10.4.2.5's formula is up to 115 of 255 away, and the three sources that outrank even that are implemented — `/DefaultCMYK` (§8.6.5.6), an output intent's `/DestOutputProfile` (§14.11.5) and an `ICCBased` space's profile (§8.6.5.5). `partial` records a *documented choice between two answers the standard ranks* (ADRs 0009, 0042), not a silence: there is no sentence in this subclause left to implement. The closing sentence — cyan, magenta and yellow initialised to 0.0 and black to 1.0, which is black through the K channel rather than through zeroes — is `ColourSpace::initial_colour`, and it is the case a reader is most likely to get wrong by assuming every space starts at black-by-zeroes."
 
 [[clause]]
 clause = "8.6.5"
 title = "CIE-Based colour spaces"
 status = "implemented"
 code = ["crates/pdf-model/src/colour.rs"]
-test = ["crates/pdf-model/tests/colour_paths.rs"]
+test = ["crates/pdf-model/src/colour.rs::lab_maps_its_anchor_colours", "crates/pdf-model/src/colour.rs::calgray_is_a_luminance_and_must_be_encoded_for_the_display", "crates/pdf-model/src/colour.rs::calrgb_stating_srgbs_own_parameters_is_the_identity"]
 note = "The family, reviewed as one in the twenty-fifth session. All four of its space families are read from the document and converted through CIE XYZ rather than approximated (ADR 0012), and there is exactly one route from XYZ to a pixel. The subclauses below carry what each one found."
 
 [[clause]]
@@ -1485,15 +1485,15 @@ clause = "8.6.5.2"
 title = "CalGray colour spaces"
 status = "implemented"
 code = ["crates/pdf-model/src/colour.rs"]
-test = ["crates/pdf-model/tests/colour_paths.rs"]
-note = "Table 62 in full: `/WhitePoint` required with X_W and Z_W positive and Y_W equal to 1.0, `/BlackPoint` defaulting to black, `/Gamma` a positive number defaulting to 1. The clause's transformation is one stage — the A component decoded by the gamma function and multiplied by the white point to give L, M and N, which are X, Y and Z because there is no second stage — and that is what `to_rgb_at` computes. \"Component values falling outside that range shall be adjusted to the nearest valid value without error indication\" is `channel`, which clamps to 0.0..=1.0 and maps NaN to 0.0. `/BlackPoint` is read and *not* applied: ADR 0012 argues that a stretch built from it is undefined on input Table 62 permits, and §8.6.5.9 leaves black point compensation to the processor wherever `/UseBlackPtComp` is `Default`."
+test = ["crates/pdf-model/src/colour.rs::calgray_is_a_luminance_and_must_be_encoded_for_the_display", "crates/pdf-model/src/colour.rs::calgray_applies_its_gamma_before_the_white_point"]
+note = "Table 62 in full: `/WhitePoint` required, `/BlackPoint` defaulting to black, `/Gamma` a positive number defaulting to 1. The table's constraint on the white point is \"[t]he numbers X_W and Z_W shall be positive, and Y_W shall be equal to 1.0\", and `white_point` enforces the first half only — a file stating a Y_W other than 1.0 is *accepted*, because the Bradford adaptation maps whatever white the space declares onto D50's and a scaled white therefore normalises itself, so refusing would lose a file this device can draw correctly. Positivity is enforced because a zero or negative component divides or inverts that adaptation. The hundred-and-tenth session corrected this note, which had read as though the whole sentence were checked. The clause's transformation is one stage — the A component decoded by the gamma function and multiplied by the white point to give L, M and N, which are X, Y and Z because there is no second stage — and that is what `to_rgb_at` computes. \"Component values falling outside that range shall be adjusted to the nearest valid value without error indication\" is `channel`, which clamps to 0.0..=1.0 and maps NaN to 0.0. `/BlackPoint` is read and *not* applied: ADR 0012 argues that a stretch built from it is undefined on input Table 62 permits, and §8.6.5.9 leaves black point compensation to the processor wherever `/UseBlackPtComp` is `Default`."
 
 [[clause]]
 clause = "8.6.5.3"
 title = "CalRGB colour spaces"
 status = "implemented"
 code = ["crates/pdf-model/src/colour.rs"]
-test = ["crates/pdf-model/tests/colour_paths.rs"]
+test = ["crates/pdf-model/src/colour.rs::calrgb_reads_its_matrix_one_column_per_component", "crates/pdf-model/src/colour.rs::calrgb_stating_srgbs_own_parameters_is_the_identity"]
 note = "Table 63 in full: `/WhitePoint` as in Table 62, `/BlackPoint` defaulting to black, `/Gamma` an array of three defaulting to `[1 1 1]`, `/Matrix` nine numbers defaulting to the identity. The table's order is `[X_A Y_A Z_A X_B Y_B Z_B X_C Y_C Z_C]`, which is one *column* per triple rather than one row — the code's field comment says so, because reading it the other way is a plausible transposition that no page announces. Each component is decoded by its own gamma and the vector multiplied by the matrix, with no second stage. Clamping and `/BlackPoint` are as §8.6.5.2. The subclause's closing half — deriving `/Matrix` and `/WhitePoint` from phosphor chromaticities — is a writer's calculation and reaches no reader."
 
 [[clause]]
@@ -1562,7 +1562,7 @@ clause = "8.6.6.2"
 title = "Pattern colour spaces"
 status = "implemented"
 code = ["crates/pdf-model/src/colour.rs", "crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/tiling.rs", "crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/tests/tiling.rs::an_uncoloured_pattern_takes_its_colour_from_the_operator", "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"]
 note = "Three sentences: an area is painted with a pattern rather than a colour, the pattern is a tiling (Type 1) or a shading (Type 2) one, and §8.7 has the detail. Both types are implemented on both backends. `ColourSpace::Pattern` carries the *underlying* space this clause's second form names, because an uncoloured tiling pattern takes its colour there rather than in any of its own — which is §8.7.3.3's requirement reaching this clause's array."
 
 [[clause]]
@@ -1616,7 +1616,7 @@ clause = "8.7"
 title = "Patterns"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/shading.rs"]
-test = ["crates/pdf-model/tests/shadings.rs", "crates/pdf-model/tests/tiling.rs"]
+test = ["crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path", "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"]
 note = "Both pattern types, reviewed as a family in the twenty-eighth session. A tiling pattern is a content stream replayed inside a clip; a shading pattern is a paint that travels into the display list as one. The two are drawn in completely different ways and the subclauses below say what each one reads."
 
 [[clause]]
@@ -1624,7 +1624,7 @@ clause = "8.7.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/shading.rs"]
-test = ["crates/pdf-model/tests/shadings.rs", "crates/pdf-model/tests/tiling.rs"]
+test = ["crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path", "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"]
 note = "Descriptive: patterns are Type 1 (tiling) or Type 2 (shading), and both are implemented."
 
 [[clause]]
@@ -1656,7 +1656,7 @@ clause = "8.7.3.2"
 title = "Coloured tiling patterns"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/tiling.rs"]
+test = ["crates/pdf-model/tests/tiling.rs::a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills"]
 note = "`/PaintType 1`: the cell's content stream sets its own colours, starting from \"the ones initially in effect in the pattern's parent content stream\" rather than from the colour in force at the fill — the same rule as the pattern matrix, and for the same reason."
 
 [[clause]]
@@ -1672,7 +1672,7 @@ clause = "8.7.4"
 title = "Shading patterns"
 status = "implemented"
 code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/shading.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints", "crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second"]
 note = "All seven shading types, on both backends, as a pattern and by `sh`. See the subclauses."
 
 [[clause]]
@@ -1712,7 +1712,7 @@ clause = "8.7.4.5"
 title = "Shading types"
 status = "implemented"
 code = ["crates/pdf-model/src/shading.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_function_based_shading_maps_its_domain_through_its_matrix", "crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second", "crates/pdf-model/tests/shadings.rs::a_radial_shading_grades_between_its_two_circles", "crates/pdf-model/tests/shadings.rs::a_triangle_mesh_puts_its_corner_colours_at_its_corners"]
 note = "All seven, on both backends. See the subclauses."
 
 [[clause]]
@@ -1728,7 +1728,7 @@ clause = "8.7.4.5.2"
 title = "Type 1 (function-based) shadings"
 status = "implemented"
 code = ["crates/pdf-model/src/shading.rs"]
-test = ["crates/pdf-model/tests/shadings.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::a_function_based_shading_maps_its_domain_through_its_matrix"]
 note = "Table 78: `/Domain` defaulting to the unit square, `/Matrix` mapping the domain into the target space, and `/Function` evaluated over it. The `/Matrix` is composed ahead of the caller's transform so the display list carries one transform per shading — which is also why Table 77's `/BBox`, stated in the *target* space, is applied by the caller rather than here."
 
 [[clause]]
@@ -1808,7 +1808,7 @@ clause = "8.9.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/image.rs", "crates/pdf-model/src/inline_image.rs"]
-test = ["crates/pdf-model/tests/image_masks.rs", "crates/pdf-model/tests/inline_images.rs"]
+test = ["crates/render-cpu/tests/image_placement.rs::an_image_lands_where_its_transform_puts_it", "crates/pdf-model/tests/inline_images.rs::an_inline_image_draws_from_its_abbreviated_keys"]
 note = "Both of the two means the clause names exist: an image `XObject` painted by `Do`, and an inline image (§8.9.7), which landed in the eleventh session. Sample components of 1 and 8 bits are unpacked; 2, 4 and 16 are refused and reported, which is §8.9.3's row rather than this one's."
 
 [[clause]]
@@ -1816,7 +1816,7 @@ clause = "8.9.2"
 title = "Image parameters"
 status = "implemented"
 code = ["crates/pdf-model/src/image.rs"]
-test = ["crates/pdf-model/tests/image_masks.rs"]
+test = ["crates/render-cpu/tests/image_placement.rs::the_first_row_of_an_image_lands_at_the_top_of_the_unit_square", "crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"]
 note = "All four interrelated items the clause requires are specified for every image drawn: format from `/Width`, `/Height`, the colour space's component count and `/BitsPerComponent`; the data from the stream; the user-space correspondence from §8.9.4's unit square; and the mapping from sample to colour from `/Decode` and the space. The clause states requirements rather than behaviour, so what it reviews is that nothing is left implicit."
 
 [[clause]]
@@ -1832,7 +1832,7 @@ clause = "8.9.4"
 title = "Image coordinate system"
 status = "implemented"
 code = ["crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
-test = ["crates/render-cpu/tests/image_placement.rs"]
+test = ["crates/render-cpu/tests/image_placement.rs::the_first_row_of_an_image_lands_at_the_top_of_the_unit_square", "crates/render-cpu/tests/image_placement.rs::an_image_lands_where_its_transform_puts_it", "crates/render-cpu/tests/image_placement.rs::an_image_turns_with_its_transform"]
 note = "Both backends map image space to the unit square with the clause's own matrix, `[1/w 0 0 1/h 0 1]` composed with the y flip that puts row 0 at the *top* — the coordinate (0,0) of user space corresponds to (0,h) of image space. Pinned at three scales in `image_placement.rs`, because a mirrored mapping is invisible at one scale and in one axis; see trap 2 in doc/HANDOVER.md."
 
 [[clause]]
@@ -1864,7 +1864,7 @@ clause = "8.9.5.3"
 title = "Image interpolation"
 status = "implemented"
 code = ["crates/pdf-render/src/paint.rs", "crates/render-cpu/src/lib.rs", "crates/render-gpu/src/scene.rs"]
-test = ["crates/render-gpu/tests/headless_gpu.rs", "crates/render-cpu/tests/image_placement.rs"]
+test = ["crates/pdf-render/src/paint.rs::interpolate_decides_a_magnified_image_and_nothing_else"]
 note = "Implemented in the eleventh session; before it `/Interpolate` was read nowhere and every image was filtered bilinearly. The clause makes interpolation a hint for the *magnified* case — an image \"whose resolution is significantly lower than that of the output device\" — with a default of false, so `Image::is_smoothed` filters a reduced image and draws a magnified one sample by sample unless the entry asks otherwise. `issue11124.pdf` blurs sixteen samples across a page where three references draw sixteen flat squares; it agreed with the consensus the moment this landed. The clause says nothing about reduction — but the standard does, in §10.7.4, which requires point sampling and forbids averaging over the pixel area. This note claimed for two sessions that reduction was unspecified; it is specified and departed from, which ADR 0025 records as a choice. `/Interpolate` itself is unaffected: it governs magnification only, and §10.7.4 is where the other half lives."
 
 [[clause]]
@@ -1920,7 +1920,7 @@ clause = "8.9.7"
 title = "Inline images"
 status = "implemented"
 code = ["crates/pdf-model/src/inline_image.rs", "crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/inline_images.rs"]
+test = ["crates/pdf-model/tests/inline_images.rs::an_inline_image_draws_from_its_abbreviated_keys", "crates/pdf-model/tests/inline_images.rs::a_colour_space_name_is_looked_up_in_the_resources"]
 note = "Implemented in the eleventh session (ADR 0019). Table 91's abbreviated keys and Table 92's abbreviated colour space and filter names are expanded into the dictionary an image `XObject` would have had, so one decoder serves both; entries the table does not list are dropped, as the clause requires. `/CS` naming a resource in the page's `/ColorSpace` subdictionary is resolved, and NOTE 3's rule that the device names never do is kept. Where the data ends is answered by `/L` where the file is PDF 2.0, by §8.9.3's sample layout where there is no filter, and by a search for a token-delimited `EI` otherwise. The one thing not honoured is the prohibition on `JPXDecode`, `JBIG2Decode` and `Crypt`: an inline image naming one is decoded rather than refused, which is leniency towards a malformed file and cannot mis-draw a valid one."
 
 [[clause]]
@@ -2038,7 +2038,7 @@ clause = "8.11.3"
 title = "Making graphical content optional"
 status = "implemented"
 code = ["crates/pdf-model/src/optional_content.rs", "crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "crates/pdf-model/tests/optional_content.rs::a_form_xobject_carrying_oc_is_skipped_when_its_group_is_off", "crates/pdf-model/tests/optional_content.rs::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off"]
 note = "Aggregate of §8.11.3.1 to §8.11.3.3."
 
 [[clause]]

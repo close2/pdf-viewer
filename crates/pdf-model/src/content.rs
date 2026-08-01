@@ -4502,9 +4502,10 @@ impl Interpreter<'_> {
     /// Three sources, in the order the specification puts them. A `/Default` entry in the
     /// resources §8.6.5.6 says *shall* be used. Failing that, the output intent describes
     /// the device the document's colours were prepared for, which §8.6.5.7 NOTE 3 names as
-    /// the only thing in a PDF that can. Failing both, the device space itself — for which
-    /// the specification defines no conversion at all, so what happens then is this
-    /// processor's own choice and is documented as such in `colour.rs`.
+    /// the only thing in a PDF that can. Failing both, the device space itself — where
+    /// §8.6.4.4 states no conversion, §10.4.2.5 states one and §10.4.2.1 ranks it below
+    /// §10.3's ICC route, so what happens then is this processor's own choice between two
+    /// answers the standard has already ordered, and is documented as such in `colour.rs`.
     fn device_space(&self, name: &str, resources: &Dictionary) -> ColourSpace {
         let named = Object::Name(Name::new(name.as_bytes().to_vec()));
         if let Some(space) = ColourSpace::parse(self.document, &named, resources) {

@@ -432,3 +432,41 @@ fn a_glyph_filled_with_a_tiling_pattern_is_tiled() {
         "and three quarters of every cell it covers is left clear: {clear}"
     );
 }
+
+/// A coloured tiling pattern's cell — §8.7.3.2's `/PaintType 1` — starts from the *initial*
+/// graphics state, which Table 75 says in ISO 32000-2 §8.7.3.1:
+///
+/// > The current colours in use when the PDF processor begins processing the content stream
+/// > are the ones initially in effect in the pattern's parent content stream.
+///
+/// "Initially in effect" rather than "in effect": the cell inherits the state the parent
+/// stream *started* with, not the state at the fill. The distinction is invisible on a
+/// nonstroking colour, because setting `/Pattern cs` has already replaced that one — so this
+/// fixture asks it of the *stroking* colour, which a fill with a pattern never touches. The
+/// page sets a red stroke and the cell strokes without setting one; the clause says the line
+/// is black.
+///
+/// A reader that runs the cell under the state at the fill draws it red, and nothing reports
+/// that: it is a plausible colour, painted in the right place, in the right shape.
+#[test]
+fn a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills() {
+    let content = "4 w 2 10 m 18 10 l S";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] \
+         /XStep 20 /YStep 20 /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    );
+    let raster = render(pdf_with(
+        &pattern,
+        "1 0 0 RG /Pattern cs /P0 scn 0 0 100 100 re f",
+    ));
+
+    // The stroke sits at pattern-space y = 10, which is page y = 10 in the first row of
+    // cells and device row 89 once the page is flipped.
+    let (red, green, blue, alpha) = pixel(&raster, 10, 89);
+    assert_eq!(alpha, 255, "the cell's line should be painted here");
+    assert!(
+        red < 15 && green < 15 && blue < 15,
+        "and be the initial black rather than the page's red: {red},{green},{blue}"
+    );
+}
