@@ -28,7 +28,8 @@ fn pdf_with(pattern: &str, content: &str) -> Vec<u8> {
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /Pattern << /P0 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         /Resources << /Pattern << /P0 5 0 R >> \
+         /ExtGState << /Half << /ca 0.5 >> >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n{pattern}\nendobj\n",
         content.len().saturating_add(1)
@@ -468,5 +469,85 @@ fn a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills
     assert!(
         red < 15 && green < 15 && blue < 15,
         "and be the initial black rather than the page's red: {red},{green},{blue}"
+    );
+}
+
+/// ISO 32000-2 §11.6.7: the alpha constant applies to the pattern, not to each of its marks.
+///
+/// > the pattern definition shall be treated as if it were implicitly enclosed in a
+/// > non-isolated transparency group: a non-knockout group for tiling patterns, a knockout
+/// > group for shading patterns. The definition shall not inherit the current values of the
+/// > graphics state parameters at the time it is evaluated; those parameters shall take effect
+/// > only when the resulting pattern is later used to paint an object.
+///
+/// A cell drawing two overlapping shapes is what makes the difference visible, and the visible
+/// quantity is the *alpha* rather than the colour: with the constant on each mark, the second
+/// composites over the first and the overlap reaches an alpha of 0.75; with it on the finished
+/// pattern, the marks composite opaquely inside the group and the whole thing arrives at 0.5.
+/// A cell with one shape gives the same answer under either model, which is why this fixture
+/// has two.
+///
+/// NOTE 2 asks for the same construction from the other end: "[i]n a raster-based
+/// implementation of tiling, it is advisable to treat all tiles as a single transparency group.
+/// This avoids artifacts due to multiple marking of pixels along the boundaries between
+/// adjacent tiles."
+///
+/// **No corpus document reaches this**: all 122 tiling-pattern paints in the 974 documents are
+/// under a default alpha, blend mode and soft mask, measured. So the rule is here on the
+/// clause's evidence, as trap 8 describes.
+#[test]
+fn the_alpha_constant_applies_to_the_finished_pattern_rather_than_to_each_mark() {
+    let content = "1 0 0 rg 0 0 12 12 re f 0 0 1 rg 6 6 12 12 re f";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] \
+         /XStep 20 /YStep 20 /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    );
+    let raster = render(pdf_with(
+        &pattern,
+        "/Half gs /Pattern cs /P0 scn 0 0 100 100 re f",
+    ));
+
+    // Page (9, 9) is inside both rectangles; the raster's rows run the other way.
+    let (_, _, blue, alpha) = pixel(&raster, 9, 90);
+    assert!(
+        (120..=136).contains(&alpha),
+        "the overlap is the pattern at 0.5, not two marks at 0.5 over each other \
+         (which would be 0.75, or about 191): got {alpha}"
+    );
+    assert!(
+        blue > 200,
+        "and the topmost mark is what survives inside the group: {blue}"
+    );
+
+    // Either rectangle alone is the same under both models, which is the control.
+    assert!(
+        (120..=136).contains(&pixel(&raster, 2, 97).3),
+        "a single mark is the pattern's own alpha either way"
+    );
+}
+
+/// A pattern painted with everything at its default costs no group at all.
+///
+/// §11.4.4's NOTE 5: "the effect of compositing objects as a group is the same as that of
+/// compositing them separately (without grouping)" where the group is non-isolated,
+/// non-knockout, Normal, alpha 1.0 and unmasked — which is every tiling pattern in the corpus.
+/// Building one anyway would put a page-sized buffer behind 122 corpus paints for nothing, so
+/// this checks the commands stay inline.
+#[test]
+fn a_pattern_that_composites_trivially_is_not_wrapped_in_a_group() {
+    let document = Document::open(pdf_with(
+        &dotted_cell(1, "1 0 0 rg"),
+        "/Pattern cs /P0 scn 0 0 100 100 re f",
+    ))
+    .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    assert!(
+        !list
+            .commands()
+            .iter()
+            .any(|command| matches!(command, pdf_render::Command::Group { .. })),
+        "nothing composites, so §11.4.4's NOTE 5 says there is no group to build"
     );
 }

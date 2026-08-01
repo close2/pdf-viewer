@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-sixteenth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-seventeenth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,26 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-fourteenth — a file specification is read whole and opened never.** ADR 0104.
-
-- **Refusing to open a file and being unable to name it are different things**, and §7.11's seven
-  `reported` rows had recorded the first while the tree did the second. `file_spec.rs` is
-  §7.11.1's two forms, §7.11.2's string format, Table 43, §7.11.2.2's resolution and §7.11.5's
-  URL form, with a filesystem nowhere in it.
-- **The row warned against the defect before the code existed, and the code did it anyway.**
-  §7.11.2.1 says components "shall be stored as bytes … without interpretation or conversion of
-  any sort"; Table 43 makes `/UF` a *text string* and `/F` a *byte string*. Three call sites
-  decoded both with `text_string`. `FileSpec::bytes` is now `Vec<u8>` and `display_name` is the
-  one place it becomes text.
-- **§7.11.2.2's restriction on a relative URL specification is a security rule wearing a syntax
-  rule's clothes** — no scheme, authority, fragment, query or parameters — and it is checked
-  rather than assumed, because a relative specification that smuggles in an authority resolves
-  against a different host from the document's.
-- **Both of §7.11.2.2's EXAMPLEs are tests**: the clause states its answers, which is the
-  cheapest kind of clause to implement correctly.
-
-`reported` falls **48 → 41**; tests 860 → 869; no gate moved.
 
 **Hundred-and-fifteenth — five rows that said less than the code does.** ADR 0105.
 
@@ -77,6 +57,25 @@ are kept in prose because their findings are recent enough to still be acted on.
   change. The change stands on the clause.
 
 Tests 870 → 871; no gate moved.
+
+**Hundred-and-seventeenth — a pattern is a group, and the alpha belongs to it.** ADR 0107.
+
+- **§11.6.7's implicit transparency group is built for a tiling pattern.** Every cell now runs
+  with the blend mode, alpha constant and soft mask at their *defaults*, which the clause
+  requires in as many words, and the state's own are applied once to the finished tiling by one
+  group over all the tiles — NOTE 2's own advice.
+- **Two consequences, and only one was written down.** An `0.5 ca` was applied per mark, so a
+  cell with two overlapping shapes reached 0.75 where the clause reaches 0.5; and the graphics
+  state's **soft mask reached a tiling pattern not at all**, because nothing copied it onto the
+  cell and nothing applied it to the result.
+- **Where all three are at their defaults no group is built** (§11.4.4's NOTE 5), which is all
+  **122** tiling paints in the corpus — counted — so no page witnesses the change and both gates
+  are unmoved. Two tests carry it, and the discriminating one asserts the *alpha*.
+- **The note's reason had expired.** It said this was "the closest available approximation while
+  §11.4.6 does not exist"; §11.4.6 was drawn in the seventy-first session. **A note that gives a
+  reason gives a trigger, and nothing fires it.**
+
+Tests 871 → 873; no gate moved.
 
 ## How the project got here
 
@@ -197,6 +196,7 @@ below rather than here.
 | 114 | §7.11's file specifications, read whole and opened never | ADR 0104 |
 | 115 | Five `reported` rows that understated what the tree already does | ADR 0105 |
 | 116 | §12.5.6.7's `/LE` and `/Cap` named beside the line rather than instead of it | ADR 0106 |
+| 117 | §11.6.7's implicit group: a pattern's alpha belongs to the pattern | ADR 0107 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -239,7 +239,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 36 `reported` rows and the notes on 240 `partial`
 ones.
 
-- **871 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **873 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
   hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -1810,6 +1810,12 @@ code arrives.** §7.11.2.1's row said a reader that decoded a file specification
 "would corrupt a file name in every locale where they are not UTF-8", and three call sites in
 `pdf-model` did exactly that for as long as they existed. A row is read when its *clause* is
 implemented; nothing points at it when a caller needs one line. ADR 0104.
+
+**A note that gives a reason gives a trigger, and nothing fires it.** §11.6.7's row called
+inheriting a pattern's alpha per cell "the closest available approximation while §11.4.6 does not
+exist"; §11.4.6 was drawn forty-six sessions later and the approximation stayed. "While X does
+not exist" expires the day X lands, and no gate in this project can see that day arrive — so the
+`partial` notes are worth reading for their *reasons* rather than only their claims. ADR 0107.
 
 **A ledger note is a hypothesis the gates test, not a conclusion they inherit.** Three
 `implemented` rows claimed behaviour the code never had — §8.7.3.1's `/BBox` clipping a cell,

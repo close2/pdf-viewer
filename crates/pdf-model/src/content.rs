@@ -4229,6 +4229,24 @@ impl Interpreter<'_> {
         };
         let clip = Some(clip);
 
+        // §11.6.7: "the pattern definition shall be treated as if it were implicitly enclosed
+        // in a non-isolated transparency group: a non-knockout group for tiling patterns …
+        // The definition shall not inherit the current values of the graphics state
+        // parameters at the time it is evaluated; those parameters shall take effect only
+        // when the resulting pattern is later used to paint an object." So every cell below
+        // runs with the transparency parameters at their defaults — which is what
+        // `GraphicsState::initial` gives it — and the state's own blend mode, alpha constant
+        // and soft mask are applied *once*, to the finished tiling, by the group pushed after
+        // the loop. NOTE 2 asks for exactly that shape: "[i]n a raster-based implementation of
+        // tiling, it is advisable to treat all tiles as a single transparency group. This
+        // avoids artifacts due to multiple marking of pixels along the boundaries between
+        // adjacent tiles."
+        //
+        // Until the hundred-and-seventeenth session each cell inherited them instead, so an
+        // `0.5 ca` under a pattern was applied per tile rather than to the pattern, and the
+        // graphics state's soft mask reached nothing at all.
+        let mark = self.list.command_count();
+
         for row in first_row..=last_row {
             for column in first_column..=last_column {
                 let offset = Transform::translate(
@@ -4245,9 +4263,6 @@ impl Interpreter<'_> {
                     .bbox
                     .and_then(|corners| self.rect_clip(corners, to_page, clip))
                     .or(clip);
-                cell.blend = state.blend;
-                cell.fill_alpha = state.fill_alpha;
-                cell.stroke_alpha = state.stroke_alpha;
                 // An uncoloured pattern is a stencil: the colour given alongside the
                 // pattern name is what pours through it. §8.6.8 is what makes that true of a
                 // cell whose content stream *does* try to set a colour — it is the second of
@@ -4268,6 +4283,44 @@ impl Interpreter<'_> {
                 self.uncoloured = saved_uncoloured;
             }
         }
+
+        // The state's transparency parameters, applied once to the finished tiling. Where
+        // they are all at their defaults there is nothing for a group to do and §11.4.4's
+        // NOTE 5 says so in as many words — "the effect of compositing objects as a group is
+        // the same as that of compositing them separately (without grouping)" — so the
+        // commands stay inline and no page pays a buffer for a pattern that composites
+        // trivially, which is almost every patterned page in the corpus.
+        let composites =
+            state.fill_alpha < 1.0 || state.blend != BlendMode::Normal || state.soft_mask.is_some();
+        if !composites {
+            return;
+        }
+        let parts = self.list.split_off_commands(mark);
+        if parts.is_empty() {
+            return;
+        }
+        // §11.6.7 makes the implicit group *non-isolated*, and this one is isolated. Its own
+        // NOTE 1 is what makes that exact wherever no element blends — "in the common case in
+        // which the pattern consists entirely of objects painted with the Normal blend mode …
+        // the results depend only on the colour, shape, and opacity of the pattern cell and
+        // not on those of the backdrop" — and a cell that sets a blend mode of its own is the
+        // case it is not, which is §11.4.4's report.
+        if any_command(&parts, &command_blends) {
+            self.note(Unsupported::TransparencyGroup {
+                detail: "non-isolated, and an element blends with the backdrop it excludes"
+                    .to_owned(),
+            });
+        }
+        self.list.push(Command::Group {
+            commands: parts,
+            alpha: state.fill_alpha,
+            // The tiles carry the path's clip already; a second copy on the group would be
+            // the same region resolved twice.
+            clip: None,
+            mask: state.soft_mask,
+            blend: state.blend,
+            knockout: false,
+        });
     }
 
     /// Paints a shading across the current clip, for the `sh` operator.
