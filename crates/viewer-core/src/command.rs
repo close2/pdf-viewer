@@ -64,6 +64,19 @@ pub enum Command {
         /// Vertical delta in device pixels.
         dy: f32,
     },
+    /// Change something about the document, and add it to the log.
+    ///
+    /// The document itself is never changed — `CLAUDE.md`'s rule 1 makes it immutable — so an
+    /// edit is an entry in a log beside it, which is what makes [`Command::Undo`] a matter of
+    /// forgetting the entry rather than of restoring anything.
+    Edit(Edit),
+    /// Undo the last edit.
+    Undo,
+    /// Redo the last undone edit.
+    ///
+    /// A new edit after an undo discards what was undone, which is what a single log with a
+    /// cursor means and what every editor does.
+    Redo,
     /// Select something, or stop selecting.
     ///
     /// A drag is [`Self::Pointer`]'s business; this is what a menu item or a keystroke asks for.
@@ -147,6 +160,29 @@ pub enum PointerAction {
     /// a press that is dragged away before release is a press the person changed their mind
     /// about.
     Released,
+}
+
+/// One change a person made.
+///
+/// One variant today, and the enum exists rather than the variant's fields being inlined because
+/// the log is what a save writes and an annotation added or a markup drawn belongs in the same
+/// log — `CLAUDE.md`'s amended exclusion permits exactly those two beside this one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Edit {
+    /// §12.7.4: put a value into a field, by the fully qualified name §12.7.4.2 gives it.
+    ///
+    /// A name rather than a widget, because §12.7.4.1 lets one field own several widgets and
+    /// "a field's value" is the field's: typing into one of them changes all of them.
+    /// [`crate::Query::FieldAt`] is where a host gets the name from a point.
+    ///
+    /// `None` clears the field, which is what a person deleting the contents of one does and is
+    /// a different state from never having touched it.
+    SetField {
+        /// §12.7.4.2's fully qualified name.
+        field: String,
+        /// The new value, or nothing.
+        value: Option<String>,
+    },
 }
 
 /// What [`Command::Select`] asks for.

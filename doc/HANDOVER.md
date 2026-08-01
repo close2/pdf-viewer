@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-thirty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-thirty-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -42,8 +42,8 @@ three things a person can do are new: **a locked document asks for its password*
 knows what it is over and §12.5.5's rollover appearances are chosen at last, and the page zooms
 and scrolls.
 
-It is **not yet a viewer** in the full sense: nothing edits a field, speaks a page or runs a slide
-show — though since the hundred-and-thirty-fourth session a drag **selects text**, and the shapes
+It is **not yet a viewer** in the full sense: nothing speaks a page, runs a slide show or saves
+what was changed — though since the hundred-and-thirty-fourth session a drag **selects text**, and the shapes
 cross to the host as geometry so that it draws them in its own colour (ADR 0119). Every one of those was blocked on the same missing interface, which is why
 §0 below is the headline; the interface now exists, has two consumers, and the rest are features
 rather than architecture.
@@ -52,12 +52,12 @@ rather than architecture.
 
 | gate | number | where |
 |---|---|---|
-| tests | **919**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 134, fuzzers in 129 |
+| tests | **925**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 135, fuzzers in 129 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
-| conformance | 2918 citations, 309 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 2965 citations, 311 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -193,13 +193,13 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   trip**, which is why the second channel is not a command.
 - `Command`: `Open { id, bytes, password }`, `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, `Pointer { at, action }`, `Select`,
-  `Supply { purpose, bytes }`, `RenderReady { token, rendered }`.
+  `Edit(Edit)`, `Undo`, `Redo`, `Supply { purpose, bytes }`, `RenderReady { token, rendered }`.
 - `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
   `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`,
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
-- `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `Selection`,
-  `Outline`, `Layers`, `Attachments`, `Frame`, `Reports`. **`Selection` answers in device pixels
+- `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
+  `Selection`, `Dirty`, `Outline`, `Layers`, `Attachments`, `Frame`, `Reports`. **`Selection` answers in device pixels
   and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
   chrome off the rendering path.
 - **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and
@@ -215,9 +215,8 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 
 #### What is still owed, in the order to do it
 
-1. **The edit log**, the second of the two artefacts below — the text layer landed in session 133
-   and selection on top of it in 134. It changes where mutation may live, which is the thing
-   expensive to retrofit.
+1. **§7.5.6's incremental update**: `Edits → Vec<u8>`, `Event::Saved`, and the host writes the
+   bytes. Both artefacts below now exist and this is what the second one is *for*.
 2. **The rest of the vocabulary, as its feature arrives.** `Command::Tick { millis }` for
    §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves);
    `Command::Select`, `Command::Edit`, `Undo`, `Redo`; `Query::TextIn`, `QuadsFor`,
@@ -310,14 +309,17 @@ whose producer wrote its columns out of order gives its text in that order.
 `Interpretation::marked` already carries the `/MCID` spans and `Tree::logical_text` already
 produces the logical string; what is missing is the map between the two orders' offsets.
 
-**An edit log.** `Edits` as a third explicit input to `interpret`. Three things fall out: undo and
-redo *are* the log, so they belong in the core rather than being reimplemented per host; saving
-is a pure function `Edits → Vec<u8>` producing §7.5.6's incremental update, which the *host*
-writes; and a confined process with no filesystem can still produce those bytes.
+**An edit log — done in the hundred-and-thirty-fifth session (ADR 0120).** `Open::log` is what a
+person did, with a cursor; undo moves the cursor and the surviving prefix is *replayed* rather
+than inverted, because an inverse would have to remember what each edit replaced and would drift
+the moment two edits touched one field. `ViewState::set_field` is the fourth statement about a
+field's value beside Table 226's `/V`, §12.7.6.3's `/DV` and §12.7.8's imported one, and the last
+one made stands.
 
-**Design both in now, implement later.** They change `pdf-model`'s output shape and where mutation
-may live, and those are the two things expensive to retrofit. Everything else — annotation tools,
-undo UI, save — can arrive later without repainting the architecture.
+**What is left of it is saving.** `ViewState::edits` hands out what changed; turning that into
+§7.5.6's incremental update — the one form of writing `CLAUDE.md` permits — is a session's work
+and nothing else in the architecture has to move for it. A confined process with no filesystem
+can still produce those bytes, which is the point of the host writing them.
 
 #### The prize: one boundary, not two
 
@@ -1458,3 +1460,4 @@ above rather than here.
 | 132 | The window becomes a consumer; a locked file is asked for its password at last | 0117 |
 | 133 | The text layer, and the click that had been mapped to the wrong half of the page | 0118 |
 | 134 | Text is selected, and the shapes cross as geometry for the host to draw | 0119 |
+| 135 | An edit is a log beside the document; a replaced value was not being drawn | 0120 |

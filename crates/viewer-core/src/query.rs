@@ -38,6 +38,12 @@ pub enum Query {
     /// query and not a command, and it is the reason the second channel exists. Device pixels
     /// from the viewport's top-left corner.
     LinkAt((f32, f32)),
+    /// The fully qualified name of the form field at a point, where there is one.
+    ///
+    /// What a host needs before it can send [`crate::Edit::SetField`], and it asks on a click.
+    FieldAt((f32, f32)),
+    /// Whether anything has been edited since the document opened.
+    Dirty,
     /// What is selected: the text, and the shapes to draw over it.
     ///
     /// Asked whenever a host repaints, which during a drag is every frame — so it is a query
@@ -88,6 +94,10 @@ pub enum Answer<'a> {
     Link(bool),
     /// What is selected.
     Selected(Selected<'a>),
+    /// §12.7.4.2's fully qualified name of a field.
+    Field(String),
+    /// Whether anything has been edited.
+    Dirty(bool),
     /// The pixels the viewer holds, and where they belong on the screen.
     Frame(FrameView<'a>),
     /// What the current page could not draw.

@@ -105,6 +105,94 @@ fn form() -> Vec<u8> {
     out.into_bytes()
 }
 
+/// The same form, with a **stored appearance stream** on the text field and no
+/// `/NeedAppearances`.
+///
+/// The one shape [`form`] cannot exercise: a widget with no `/AP` has its appearance
+/// *constructed* from the value, so a replaced value is drawn by construction. A widget that
+/// states one is the case where the file's own artwork could be shown instead, and where a
+/// processor that only regenerated under Table 224's flag would draw the value the field had
+/// before the import.
+///
+/// The stream is written the way §12.7.4.3 asks a writer to write one — the variable text inside
+/// a `/Tx BMC` … `EMC` region — so that the splice has a region to replace.
+fn form_with_appearance() -> Vec<u8> {
+    let appearance = "/Tx BMC\nBT /Helv 12 Tf 0 g 2 8 Td (stored) Tj ET\nEMC\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
+         << /Fields [5 0 R] /DR << /Font << /Helv 7 0 R >> >> >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (name) /V (stored) /DA (/Helv 12 Tf 0 g) /AP << /N 8 0 R >> >>\nendobj\n\
+         6 0 obj\nnull\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding /WinAnsiEncoding >>\nendobj\n\
+         8 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 160 30] \
+         /Resources << /Font << /Helv 7 0 R >> >> /Length {} >>\nstream\n\
+         {appearance}endstream\nendobj\n",
+        appearance.len()
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// The same form with Table 227's `ReadOnly` bit set on its text field.
+fn read_only_form() -> Vec<u8> {
+    let form = String::from_utf8(form()).expect("the fixture is ASCII");
+    // The fixture's own offsets stay valid because the replacement is the same length.
+    let with_flag = form.replace("/T (name) /V (stored)", "/Ff 1 /T (name) /V (stored)");
+    assert_ne!(with_flag, form, "the fixture states the field this edits");
+    rebuilt(&with_flag)
+}
+
+/// Re-writes a fixture's cross-reference table after its objects have moved.
+fn rebuilt(document: &str) -> Vec<u8> {
+    let body = document
+        .split_once("xref\n")
+        .map_or(document, |(body, _)| body);
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body
+        .trim_start_matches("%PDF-1.7\n")
+        .split_inclusive("endobj\n")
+    {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
 /// An FDF file with the header §12.7.8.2.2 states, the trailer §12.7.8.2.4 does, and no
 /// cross-reference table — which §12.7.8.1 makes optional and which is how they are written.
 fn fdf(fdf_dictionary: &str) -> Document {
@@ -316,4 +404,66 @@ fn a_template_this_document_cannot_reach_is_named() {
     assert!(outcome.refused[0].contains("library.pdf"));
     assert!(outcome.refused[1].contains("names no page absent"));
     assert!(view.appended_pages().is_empty());
+}
+
+/// A value this program replaced makes a *stored* appearance stale, whatever Table 224 says.
+///
+/// §12.7.2 obliges the file to keep its appearance "consistent with the object's current value
+/// as a field", and the file kept it — the stream matches the `/V` the file states. What breaks
+/// the promise is the import, and at that point drawing the stored stream would show a value the
+/// field no longer has. This regenerated only under `/NeedAppearances` until the
+/// hundred-and-thirty-fifth session, so an imported value went unseen on every document that
+/// states an appearance and not that flag.
+#[test]
+fn a_replaced_value_is_drawn_even_where_the_file_stores_an_appearance() {
+    let document = Document::open(form_with_appearance()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let (before, reports) = drawn(&document, &view);
+    assert!(
+        before.contains("stored"),
+        "the file's own artwork: {before:?}"
+    );
+    assert!(reports.is_empty(), "{reports:?}");
+
+    let data = FormsData::read(&fdf("<< /Fields [ << /T (name) /V (imported) >> ] >>"))
+        .expect("an FDF catalog");
+    assert_eq!(view.import(&document, &data).widgets, 1);
+
+    let (after, reports) = drawn(&document, &view);
+    assert!(after.contains("imported"), "{after:?}");
+    assert!(
+        !after.contains("stored"),
+        "spliced, not added to: {after:?}"
+    );
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// Table 227's `ReadOnly` flag refuses a *person*, and not the document's own actions.
+///
+/// ISO 32000-2 §12.7.4.1, Table 227, bit 1:
+///
+/// > If set, an interactive PDF processor shall not allow a user to change the value of the
+/// > field.
+///
+/// The distinction is the whole of the flag: §12.7.6.3's reset and §12.7.8's import are the
+/// document changing its own value and neither is a user, so both still apply. Only
+/// `ViewState::set_field` — what somebody typed — is refused.
+#[test]
+fn a_read_only_field_refuses_a_person_and_not_an_import() {
+    let document = Document::open(read_only_form()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+
+    assert_eq!(view.set_field(&document, "name", Some("typed")), 0);
+    let (after, _) = drawn(&document, &view);
+    assert!(!after.contains("typed"), "{after:?}");
+    assert!(
+        after.contains("stored"),
+        "the file's own value stands: {after:?}"
+    );
+
+    let data = FormsData::read(&fdf("<< /Fields [ << /T (name) /V (imported) >> ] >>"))
+        .expect("an FDF catalog");
+    assert_eq!(view.import(&document, &data).widgets, 1);
+    let (after, _) = drawn(&document, &view);
+    assert!(after.contains("imported"), "{after:?}");
 }

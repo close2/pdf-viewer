@@ -95,7 +95,7 @@ mod report;
 mod select;
 mod viewer;
 
-pub use command::{Command, PageTarget, PointerAction, Purpose, Rendered, Selection, Zoom};
+pub use command::{Command, Edit, PageTarget, PointerAction, Purpose, Rendered, Selection, Zoom};
 pub use event::{Event, RenderRequest};
 pub use query::{Answer, FrameView, Layer, PageGeometry, Query, Selected};
 pub use viewer::{DocumentId, RenderToken, Viewer};

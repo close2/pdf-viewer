@@ -113,6 +113,15 @@ impl Viewer {
                     .and_then(|(x, y)| interact::link_at(open, x, y))
                     .is_some(),
             ),
+            Query::FieldAt(at) => self
+                .page_point(open, at)
+                .and_then(|(x, y)| {
+                    let page = open.page(open.page_index)?;
+                    let (x, y) = pdf_model::content::user_space_at(&page, x, y)?;
+                    pdf_model::view::field_at(&open.document, &page, x, y)
+                })
+                .map_or(Answer::None, Answer::Field),
+            Query::Dirty => Answer::Dirty(open.dirty()),
             Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),
             Query::Frame => open.frame.as_ref().map_or(Answer::None, |frame| {
                 Answer::Frame(FrameView {
@@ -202,6 +211,9 @@ impl Viewer {
                 }
                 events.push(damage(viewport));
             }
+            Command::Edit(edit) => self.edit(edit, events),
+            Command::Undo => self.move_cursor(-1, events),
+            Command::Redo => self.move_cursor(1, events),
             Command::Select(selection) => {
                 let viewport = self.viewport;
                 let Some(open) = self.focused_mut() else {
@@ -289,7 +301,7 @@ impl Viewer {
         match rendered {
             Rendered::Raster(raster) => {
                 open.clamp_scroll(viewport, (pending.target.width, pending.target.height));
-                open.shown = Some((pending.page, pending.target));
+                open.shown = Some((pending.page, pending.target, pending.revision));
                 open.frame = Some(Frame {
                     page: pending.page,
                     target: pending.target,
@@ -301,7 +313,7 @@ impl Viewer {
             // and nothing to repaint from — but it *is* on the screen, and saying so is what
             // stops the scheduler asking for it again.
             Rendered::Presented => {
-                open.shown = Some((pending.page, pending.target));
+                open.shown = Some((pending.page, pending.target, pending.revision));
                 open.frame = None;
             }
             Rendered::Failed(reason) => events.push(Event::Reported {
@@ -478,6 +490,51 @@ impl Viewer {
         }
     }
 
+    /// Adds one edit to the log and applies it.
+    ///
+    /// A new edit after an undo discards what was undone: the log is one sequence with a cursor,
+    /// which is what makes a replay of its prefix the whole of the state.
+    fn edit(&mut self, edit: crate::command::Edit, events: &mut Vec<Event>) {
+        let Some(id) = self.focused else { return };
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let before = open.dirty();
+        open.log.truncate(open.cursor);
+        open.log.push(edit);
+        open.cursor = open.log.len();
+        open.replay();
+        if open.dirty() != before {
+            events.push(Event::Dirty {
+                document: id,
+                dirty: open.dirty(),
+            });
+        }
+    }
+
+    /// Moves the log's cursor, which is what undo and redo are.
+    fn move_cursor(&mut self, by: isize, events: &mut Vec<Event>) {
+        let Some(id) = self.focused else { return };
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let Some(cursor) = open.cursor.checked_add_signed(by) else {
+            return;
+        };
+        if cursor > open.log.len() || cursor == open.cursor {
+            return;
+        }
+        let before = open.dirty();
+        open.cursor = cursor;
+        open.replay();
+        if open.dirty() != before {
+            events.push(Event::Dirty {
+                document: id,
+                dirty: open.dirty(),
+            });
+        }
+    }
+
     /// What is selected, with its shapes in device pixels.
     fn selected<'a>(&self, open: &'a Open) -> Option<Selected<'a>> {
         let (anchor, focus) = open.selection?;
@@ -616,6 +673,7 @@ impl Viewer {
                     notes: reports.clone(),
                 });
             }
+            open.revision = open.revision.saturating_add(1);
             open.interpreted = Some(Interpreted {
                 page,
                 list: Arc::new(interpretation.display_list),
@@ -649,11 +707,10 @@ impl Viewer {
         };
         open.clamp_scroll(viewport, (target.width, target.height));
 
-        let showing = open.shown == Some((page, target));
-        let asked = open
-            .pending
-            .as_ref()
-            .is_some_and(|pending| pending.page == page && pending.target == target);
+        let showing = open.shown == Some((page, target, open.revision));
+        let asked = open.pending.as_ref().is_some_and(|pending| {
+            pending.page == page && pending.target == target && pending.revision == open.revision
+        });
         if showing || asked {
             return;
         }
@@ -663,6 +720,7 @@ impl Viewer {
             token,
             page,
             target,
+            revision: open.revision,
         });
         events.push(Event::NeedsRender(RenderRequest {
             token,

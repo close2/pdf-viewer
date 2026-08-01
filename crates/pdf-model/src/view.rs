@@ -87,6 +87,19 @@ pub struct ViewState {
     /// In the order the FDF file's `/Pages` array states, each an object of *this* document,
     /// since §12.7.7's trees name pages the target already holds.
     appended: Vec<ObjectId>,
+    /// Widgets a *person* has typed a value into, by object identity.
+    ///
+    /// The fourth statement about a field's value and the only one that comes from outside the
+    /// document altogether: Table 226's `/V` is the file's, §12.7.6.3's reset takes `/DV`,
+    /// §12.7.8's import takes another file's, and this is what somebody entered. Kept here for
+    /// the reason all three others are — `CLAUDE.md`'s rule 1 makes `pdf_syntax::Document`
+    /// immutable, so an edit is a log beside the file and never a change to it, and
+    /// interpretation stays a pure function of the bytes and this state.
+    ///
+    /// `None` against a widget is a value a person *cleared*, which is a different thing from
+    /// a widget nobody has touched: the first shows an empty field and the second shows the
+    /// file's own `/V`.
+    edited: BTreeMap<ObjectId, Option<String>>,
     /// Which annotation the pointer is over or pressing, if any (§12.5.5).
     ///
     /// One annotation rather than a set, because a pointer is in one place. `None` is what
@@ -176,6 +189,12 @@ pub enum FieldValue<'a> {
     Stored,
     /// §12.7.6.3: `/DV` instead, because a reset-form action named this widget.
     Default,
+    /// §12.7.4: a value a person entered, which replaces every other statement about it.
+    ///
+    /// Last because it is latest: the file's `/V`, a reset's `/DV` and an import's value are all
+    /// statements made before somebody typed. `None` is a field a person *cleared*, which shows
+    /// nothing — a different thing from [`Self::Stored`], which shows the file's own value.
+    Edited(Option<&'a str>),
     /// §12.7.8: a value from an FDF file, which replaces `/V` (§12.7.8.3.2).
     Imported {
         /// Table 249's `/V`.
@@ -260,6 +279,7 @@ impl ViewState {
             shown: BTreeSet::new(),
             reset: BTreeSet::new(),
             imported: BTreeMap::new(),
+            edited: BTreeMap::new(),
             appended: Vec::new(),
             pointer: None,
         }
@@ -320,7 +340,9 @@ impl ViewState {
         AnnotationView {
             hidden_by_action: self.annotation_hidden(annotation),
             appearance: self.appearance_for(annotation),
-            value: if let Some(import) = self.imported.get(&annotation) {
+            value: if let Some(edit) = self.edited.get(&annotation) {
+                FieldValue::Edited(edit.as_deref())
+            } else if let Some(import) = self.imported.get(&annotation) {
                 FieldValue::Imported {
                     value: import.value.as_ref(),
                     flags: import.field_flags,
@@ -364,6 +386,82 @@ impl ViewState {
         };
         self.append_templates(document, data, &mut outcome);
         outcome
+    }
+
+    /// Sets the value of every widget of one field, the way a person typing into it does.
+    ///
+    /// §12.7.4.2 makes a field's identity its *fully qualified name*, and §12.7.4.1 lets one
+    /// field own several widget annotations — "a field's value is shared by all of its widgets"
+    /// is the practical consequence, and it is why this takes a name and applies to a set. The
+    /// name table is the same §12.7.4.2 walk §12.6.4.11's hide action, §12.7.6.3's reset and
+    /// §12.7.8's import all use, so all four agree about what a field is called.
+    ///
+    /// `None` clears the field, which is not the same as never having touched it: the first
+    /// shows nothing and the second shows Table 226's `/V`.
+    ///
+    /// Returns how many widgets took the value. Zero means the document has no field of that
+    /// name — a caller's mistake rather than a document's — or that every widget of it is
+    /// Table 227's `ReadOnly`, which is the document refusing.
+    ///
+    /// **Nothing is written to the file.** `CLAUDE.md`'s rule 1 makes the document immutable;
+    /// what a person did is a log beside it, and turning that log into §7.5.6's incremental
+    /// update is a separate operation with its own clause.
+    pub fn set_field(&mut self, document: &Document, name: &str, value: Option<&str>) -> usize {
+        let table = widgets_by_field_name(document);
+        let Some(widgets) = table.get(name) else {
+            return 0;
+        };
+        let mut applied = 0_usize;
+        for widget in widgets {
+            // Table 227 bit 1: an interactive processor shall not allow a *user* to change the
+            // value. A person is exactly who this refuses, which is what separates it from
+            // §12.7.6.3's reset and §12.7.8's import — both of those are the *document* changing
+            // its own value, and neither is a user.
+            if is_read_only(document, *widget) {
+                continue;
+            }
+            // The four statements about a value answer one question, so a widget belongs to
+            // exactly one of them: what a person typed is the latest of the four.
+            self.reset.remove(widget);
+            self.imported.remove(widget);
+            self.edited.insert(*widget, value.map(ToOwned::to_owned));
+            applied = applied.saturating_add(1);
+        }
+        applied
+    }
+
+    /// Forgets what a person typed into one field, leaving whatever the file and the actions say.
+    ///
+    /// The operation an undo needs, and it is deliberately not "set it back to the old value":
+    /// the old value may have been the file's own, and re-stating that as an edit would make
+    /// every later save carry a change nobody made.
+    pub fn clear_field(&mut self, document: &Document, name: &str) -> usize {
+        let table = widgets_by_field_name(document);
+        let Some(widgets) = table.get(name) else {
+            return 0;
+        };
+        for widget in widgets {
+            self.edited.remove(widget);
+        }
+        widgets.len()
+    }
+
+    /// Forgets every value a person typed, leaving the file's own and whatever actions did.
+    ///
+    /// What a replay of the edit log starts from: an undo re-applies the log's surviving prefix
+    /// rather than inverting its last entry, so the state it applies to has to be the one before
+    /// any of it. See `viewer-core`'s `Open::replay` for why replaying beats inverting.
+    pub fn clear_all_fields(&mut self) {
+        self.edited.clear();
+    }
+
+    /// Every field a person has typed into, by widget, in object order.
+    ///
+    /// What a save writes and what a host asks to know whether there is anything to save.
+    pub fn edits(&self) -> impl Iterator<Item = (ObjectId, Option<&str>)> {
+        self.edited
+            .iter()
+            .map(|(widget, value)| (*widget, value.as_deref()))
     }
 
     /// Adds §12.7.8.3.3's template pages, resolved through §12.7.7's name trees.
@@ -617,7 +715,7 @@ impl ViewState {
 /// so a leaf with no `/Kids` is its own widget. And a kid with no `/T` "shall not be
 /// considered a field but simply a Widget annotation", so it belongs to its parent's name
 /// rather than starting a new one.
-fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<ObjectId>> {
+pub fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<ObjectId>> {
     let mut out = BTreeMap::new();
     let Ok(catalog) = document.catalog() else {
         return out;
@@ -686,6 +784,92 @@ fn qualified_name(document: &Document, dict: &Dictionary, prefix: &str) -> Strin
     } else {
         format!("{prefix}.{partial}")
     }
+}
+
+/// Whether Table 227's `ReadOnly` flag reaches this widget, through §12.7.4.1's inheritance.
+///
+/// > If set, an interactive PDF processor shall not allow a user to change the value of the
+/// > field.
+///
+/// The `/Ff` walk is the one §12.7.4.1 describes and the bound is this module's own: a `/Parent`
+/// chain in a hostile file can be a cycle, and a field nobody can reach the root of is refused
+/// rather than followed for ever.
+fn is_read_only(document: &Document, widget: ObjectId) -> bool {
+    let mut current = match document.get(widget).as_dict() {
+        Some(dict) => dict.clone(),
+        None => return false,
+    };
+    for _ in 0..MAX_FIELD_DEPTH {
+        if let Some(flags) = document.get_key(&current, "Ff").as_integer() {
+            return flags & 1 != 0;
+        }
+        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
+            return false;
+        };
+        current = parent;
+    }
+    false
+}
+
+/// The field a point in default user space is on, with its fully qualified name.
+///
+/// §12.5.2 puts a widget's `/Rect` "in default user space units", and §12.7.4.1 makes a widget an
+/// annotation of a field — so this is the two clauses together: which annotation covers the
+/// point, and what §12.7.4.2 calls the field it belongs to.
+///
+/// The **last** match, because a page lists its annotations in painting order and the one on top
+/// is the one under the pointer. A widget whose field the name table does not reach — a widget
+/// that is not in the `/AcroForm` tree, which §12.7.3 makes malformed — answers `None`, because
+/// there is no name to change the value of.
+#[must_use]
+pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Option<String> {
+    let (x, y) = (f64::from(x), f64::from(y));
+    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = annotations.as_array()?;
+    let mut names: BTreeMap<ObjectId, String> = BTreeMap::new();
+    for (name, widgets) in widgets_by_field_name(document) {
+        for widget in widgets {
+            names.insert(widget, name.clone());
+        }
+    }
+    let mut found = None;
+    for annotation in annotations {
+        let Some(id) = annotation.as_reference() else {
+            continue;
+        };
+        let resolved = document.resolve(annotation);
+        let Some(dict) = resolved.as_dict() else {
+            continue;
+        };
+        if document
+            .get_key(dict, "Subtype")
+            .as_name()
+            .is_none_or(|subtype| subtype.as_bytes() != b"Widget")
+        {
+            continue;
+        }
+        let rect = document.get_key(dict, "Rect");
+        let Some(rect) = rect.as_array() else {
+            continue;
+        };
+        let mut corners = rect
+            .iter()
+            .filter_map(|value| document.resolve(value).as_number());
+        let (Some(x0), Some(y0), Some(x1), Some(y1)) = (
+            corners.next(),
+            corners.next(),
+            corners.next(),
+            corners.next(),
+        ) else {
+            continue;
+        };
+        // Table 166's rectangle is two opposite corners and states no order, so both are
+        // normalised before the point is tested against them.
+        if x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1) {
+            found = names.get(&id).cloned().or(found);
+        }
+    }
+    found
 }
 
 #[cfg(test)]

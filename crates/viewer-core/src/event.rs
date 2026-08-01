@@ -103,6 +103,16 @@ pub enum Event {
         /// Table 164's style, duration and direction.
         transition: pdf_model::navigation::Transition,
     },
+    /// Whether the document now differs from the file it was opened from.
+    ///
+    /// Sent when the answer changes and not on every edit, because what a host does with it is
+    /// mark a window and ask before closing.
+    Dirty {
+        /// Which document.
+        document: DocumentId,
+        /// Whether anything is unsaved.
+        dirty: bool,
+    },
     /// What could not be drawn on the page that was just interpreted.
     ///
     /// Trap 5's channel: every layer of this program reports what it could not handle rather

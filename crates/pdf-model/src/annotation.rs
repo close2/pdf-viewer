@@ -274,7 +274,7 @@ pub(crate) fn decide(
     // than a second construction — see `crate::appearance::regenerate`.
     let mut owed = missing_bbox;
     let mut content = Content::Stored(Arc::clone(&stored));
-    if crate::appearance::regenerates(document, annotation, &subtype)
+    if crate::appearance::regenerates(document, annotation, &subtype, view.value)
         && let Some(regenerated) =
             crate::appearance::regenerate(document, annotation, &stored, bbox, view.value)
     {

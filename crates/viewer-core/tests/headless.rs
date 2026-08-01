@@ -21,8 +21,8 @@ use std::path::{Path, PathBuf};
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Event, PageTarget, PointerAction, Query, Rendered, Selection,
-    Viewer, Zoom,
+    Answer, Command, DocumentId, Edit, Event, PageTarget, PointerAction, Query, Rendered,
+    Selection, Viewer, Zoom,
 };
 
 /// A document committed in `doc/`, which every checkout has.
@@ -781,4 +781,113 @@ fn turning_the_page_forgets_what_was_selected() {
         .handle(Command::GoTo(PageTarget::Next))
         .for_each(drop);
     assert!(matches!(viewer.query(Query::Selection), Answer::None));
+}
+
+#[test]
+fn a_field_is_typed_into_undone_and_redone() {
+    // §12.7.4's value, changed by a person rather than by the file or by an action. The document
+    // is never touched — `CLAUDE.md`'s rule 1 — so what happens is an entry in a log beside it,
+    // and undo is that log's cursor moving rather than an inverse being applied.
+    let Some(bytes) = corpus_bytes("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<_> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .collect();
+    let first = request(&events).clone();
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(false)));
+
+    // A field of this form, by the fully qualified name §12.7.4.2 gives it.
+    let field = "Text1";
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: field.to_owned(),
+            value: Some("Ada Lovelace".to_owned()),
+        }))
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: true, .. })),
+        "{events:?}"
+    );
+    // The page has to be interpreted again, because a value is ink — **and asked for again**,
+    // even though the page and the resolution have not changed. A scheduler that compared only
+    // those two would have left the old picture on the screen; `Open::revision` is what says the
+    // display list is a different one.
+    let after = request(&events).clone();
+    assert!(
+        !std::sync::Arc::ptr_eq(&first.list, &after.list),
+        "an edited value is a page that has to be drawn again"
+    );
+    assert_eq!((after.page, after.target), (first.page, first.target));
+    assert_ne!(after.token, first.token);
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(true)));
+
+    let events: Vec<_> = viewer.handle(Command::Undo).collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: false, .. })),
+        "{events:?}"
+    );
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(false)));
+
+    let events: Vec<_> = viewer.handle(Command::Redo).collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: true, .. })),
+        "{events:?}"
+    );
+
+    // And an undo past the beginning, or a redo past the end, changes nothing.
+    viewer.handle(Command::Undo).for_each(drop);
+    let quiet: Vec<_> = viewer.handle(Command::Undo).collect();
+    assert!(quiet.is_empty(), "{quiet:?}");
+    viewer.handle(Command::Redo).for_each(drop);
+    let quiet: Vec<_> = viewer.handle(Command::Redo).collect();
+    assert!(quiet.is_empty(), "{quiet:?}");
+}
+
+#[test]
+fn a_click_finds_the_field_it_landed_on() {
+    // What a host asks before it can send an edit: §12.5.2 puts a widget's rectangle in default
+    // user space and §12.7.4.2 gives its field a name, and this is the two together from a point
+    // in a window.
+    let Some(bytes) = corpus_bytes("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page has a geometry");
+    };
+    // This form's first widget, `[48.54, 727.93, 198.54, 749.93]` in default user space.
+    let at = (
+        geometry.origin.0 + 120.0 * geometry.scale,
+        geometry.origin.1 + (geometry.page.height - 738.0) * geometry.scale,
+    );
+    let Answer::Field(name) = viewer.query(Query::FieldAt(at)) else {
+        panic!("a field is there");
+    };
+    assert_eq!(name, "Text1");
+    // And nothing is at the very corner of the page.
+    assert!(matches!(
+        viewer.query(Query::FieldAt((2.0, 2.0))),
+        Answer::None
+    ));
 }

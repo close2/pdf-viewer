@@ -66,6 +66,13 @@ pub(crate) struct Open {
     /// Positive means the content has moved up and left — the top-left of the raster is off the
     /// top-left of the viewport — which is what scrolling down and right does.
     pub(crate) scroll: (f32, f32),
+    /// How many times this document's page has been interpreted.
+    ///
+    /// What makes a render request stale for a reason other than the page or the resolution: an
+    /// edit, a layer switch or a pointer over a rollover appearance all rebuild the display list
+    /// *at the same page and the same target*, and without this the scheduler would see a frame
+    /// that matched and leave the old picture on the screen.
+    pub(crate) revision: u64,
     /// The page that was interpreted last, and its drawing commands.
     ///
     /// One page rather than a cache of them. A display list is the expensive artefact and
@@ -74,12 +81,12 @@ pub(crate) struct Open {
     /// costs to hold rather than before. What this *does* buy is the case it was kept for: a
     /// zoom or a scroll re-rasterises without re-interpreting.
     pub(crate) interpreted: Option<Interpreted>,
-    /// The page and resolution the host last drew, whichever tier it is.
+    /// The page, resolution and revision the host last drew, whichever tier it is.
     ///
     /// Separate from [`Self::frame`] because a tier-2 host hands back no pixels: it draws onto
     /// its own surface and says so, and without this the scheduler would see nothing on the
     /// screen and ask for the same frame again, for ever.
-    pub(crate) shown: Option<(usize, TargetSpec)>,
+    pub(crate) shown: Option<(usize, TargetSpec, u64)>,
     /// The pixels a tier-1 host handed back, and what they are of.
     pub(crate) frame: Option<Frame>,
     /// The render that is outstanding, if one is.
@@ -96,6 +103,19 @@ pub(crate) struct Open {
     pub(crate) pressed: Option<ObjectId>,
     /// §12.7.6.4's import, waiting for the host to supply the file.
     pub(crate) importing: Option<ImportData>,
+    /// Everything a person has changed, in the order they changed it.
+    ///
+    /// The log `CLAUDE.md`'s rule 1 asks for: the document is immutable, so an edit is an entry
+    /// here and never a change to the file. Undo and redo *are* this log — which is why they
+    /// belong in the core rather than being reimplemented by every host — and §7.5.6's
+    /// incremental update is a pure function of it.
+    pub(crate) log: Vec<crate::command::Edit>,
+    /// How many entries of [`Self::log`] are in effect.
+    ///
+    /// Everything before the cursor has been applied; everything after it has been undone and
+    /// may be redone. A new edit truncates the tail, which is what a single log with a cursor
+    /// means and what every editor does.
+    pub(crate) cursor: usize,
     /// What is selected, as byte offsets into the interpreted page's readback.
     ///
     /// Anchor first, then where the pointer is now — in that order rather than sorted, because
@@ -132,6 +152,8 @@ pub(crate) struct Pending {
     pub(crate) page: usize,
     /// What it is being drawn into.
     pub(crate) target: TargetSpec,
+    /// Which interpretation of that page it is of.
+    pub(crate) revision: u64,
 }
 
 /// The pixels showing now.
@@ -194,12 +216,15 @@ impl Open {
             zoom: INITIAL_ZOOM,
             scroll: (0.0, 0.0),
             interpreted: None,
+            revision: 0,
             shown: None,
             frame: None,
             pending: None,
             pointer: None,
             pressed: None,
             importing: None,
+            log: Vec::new(),
+            cursor: 0,
             selection: None,
         }
     }
@@ -231,6 +256,33 @@ impl Open {
             .document
             .get(*self.view.appended_pages().get(appended)?);
         Some(pages.detached(object.as_dict()?))
+    }
+
+    /// Replays the log up to the cursor onto a state that has none of it applied.
+    ///
+    /// Undo and redo are *replays* rather than inverses, and that is the decision: an inverse
+    /// would have to remember what each edit replaced — which for a field with no `/V` is "no
+    /// value at all", a state distinct from every value — and would drift from the log the moment
+    /// two edits touched one field. Replaying costs one pass over the log per undo, and the log
+    /// is what a person did in one sitting.
+    pub(crate) fn replay(&mut self) {
+        let log = std::mem::take(&mut self.log);
+        self.view.clear_all_fields();
+        for edit in log.iter().take(self.cursor) {
+            match edit {
+                crate::command::Edit::SetField { field, value } => {
+                    self.view.set_field(&self.document, field, value.as_deref());
+                }
+            }
+        }
+        self.log = log;
+        // The page's ink depends on the values, so the display list is stale.
+        self.interpreted = None;
+    }
+
+    /// Whether anything a person did is unsaved.
+    pub(crate) fn dirty(&self) -> bool {
+        self.cursor > 0
     }
 
     /// The text position a point in the display list's coordinates selects.

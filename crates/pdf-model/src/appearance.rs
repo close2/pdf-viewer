@@ -468,18 +468,44 @@ fn with_default_resources(document: &Document, mut resources: Dictionary) -> Dic
 /// Only a text field and a choice field hold text the clause has a processor lay out, so only
 /// those two have their stored appearance set aside. Regenerating the others would throw away
 /// artwork the file does state in exchange for nothing the clause asks for.
-pub(crate) fn regenerates(document: &Document, annotation: &Dictionary, subtype: &[u8]) -> bool {
+///
+/// # The second reason, which is not the flag
+///
+/// **A value this program replaced makes the stored stream stale whatever the flag says.**
+/// §12.7.2's sentence — "[i]f such an object defines an appearance stream, the appearance shall
+/// be consistent with the object's current value as a field" — is an obligation on whoever wrote
+/// the file, and the file kept it: the stream matches the `/V` the file states. It stops being
+/// kept the moment §12.7.6.3's reset, §12.7.8's import or a person's typing replaces that value,
+/// and at that point drawing the stored stream would show a value the field no longer has, which
+/// is the one failure this clause family exists to prevent. §12.7.4.3 states the algorithm for
+/// exactly the two field types whose text is "not known until viewing time", and it is the only
+/// construction available. The clause's own strongest form of this is one line further on, for a
+/// `RichText` field: "the entire annotation appearance shall be regenerated each time the value
+/// is changed".
+///
+/// Without this, a widget with a stored `/AP` in a document that does not set `/NeedAppearances`
+/// showed its *old* value after an import or a reset — silently, since the sixty-second session.
+/// No fixture caught it because the fixtures state no `/AP`, which is the path that constructs
+/// rather than splices.
+pub(crate) fn regenerates(
+    document: &Document,
+    annotation: &Dictionary,
+    subtype: &[u8],
+    value: FieldValue<'_>,
+) -> bool {
     if subtype != b"Widget" {
         return false;
     }
-    let Some(form) = interactive_form(document) else {
-        return false;
-    };
-    if !matches!(
-        document.get_key(&form, "NeedAppearances"),
-        Object::Boolean(true)
-    ) {
-        return false;
+    if matches!(value, FieldValue::Stored) {
+        let Some(form) = interactive_form(document) else {
+            return false;
+        };
+        if !matches!(
+            document.get_key(&form, "NeedAppearances"),
+            Object::Boolean(true)
+        ) {
+            return false;
+        }
     }
     matches!(
         Field::read(document, annotation, FieldValue::Stored).kind,
@@ -1480,6 +1506,11 @@ impl Field {
             // it from, and an FDF field stating no `/V` leaves the widget with no value at all.
             value: match source {
                 FieldValue::Imported { value, .. } => value.cloned(),
+                // What a person typed, encoded as §7.9.2.2's text string type — which is what
+                // Table 226 makes `/V` for a text field, and so what §12.7.4.3 lays out.
+                FieldValue::Edited(text) => text.map(|text| {
+                    Object::String(pdf_syntax::text_string::encode_text_string(text).into())
+                }),
                 FieldValue::Stored | FieldValue::Default => None,
             },
             ancestry: Vec::new(),
@@ -1494,7 +1525,9 @@ impl Field {
             // `/DV` anywhere in its ancestry ends with no value at all — which is what the
             // clause's "removed" means for a program that does not write to the file.
             FieldValue::Default => Some("DV"),
-            FieldValue::Imported { .. } => None,
+            // Both come from outside the file, so there is nothing in this document's `/Parent`
+            // chain to read them from and an absent value is an absent value.
+            FieldValue::Imported { .. } | FieldValue::Edited(_) => None,
         };
         let mut current = annotation.clone();
         let mut flags = None;
@@ -1528,7 +1561,11 @@ impl Field {
                     FieldValue::Imported { flags: change, .. } => {
                         change.applied_to(flags.unwrap_or_default())
                     }
-                    FieldValue::Stored | FieldValue::Default => flags.unwrap_or_default(),
+                    // Typing into a field changes its value and not its flags: §12.7.8's is the
+                    // one statement about a value that carries Table 249's `/Ff` beside it.
+                    FieldValue::Stored | FieldValue::Default | FieldValue::Edited(_) => {
+                        flags.unwrap_or_default()
+                    }
                 };
                 field.kind = FieldKind::of(kind.as_deref(), field.flags);
                 return field;

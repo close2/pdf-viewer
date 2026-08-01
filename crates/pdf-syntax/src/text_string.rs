@@ -43,6 +43,48 @@ pub fn text_string(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// Encodes a string as ISO 32000-2 §7.9.2.2's text string type.
+///
+/// The inverse of [`text_string`], and it chooses between two of the clause's three encodings by
+/// what the string contains: `PDFDocEncoding` where every character has a Table D.3 code, and
+/// UTF-16BE with §7.9.2.2.1's two-byte prefix otherwise.
+///
+/// **`PDFDocEncoding` first, because it is the encoding a reader assumes.** The clause makes the
+/// two Unicode forms the ones with a prefix and everything else `PDFDocEncoding`, so a string
+/// that fits it needs no prefix, no second byte per character, and no decision by whoever reads
+/// it back. UTF-8 is the third form and is not produced here: it is PDF 2.0 only, and a file
+/// this program writes has to be readable by every processor that could read what it wrote into.
+///
+/// A code that Table D.3 maps to a *different* character is not a fit: the table is not Latin-1,
+/// and the round trip through [`text_string`] is what "fits" means.
+#[must_use]
+pub fn encode_text_string(text: &str) -> Vec<u8> {
+    if let Some(bytes) = pdf_doc_encoded(text) {
+        return bytes;
+    }
+    let mut out = Vec::from(UTF16BE_PREFIX);
+    for unit in text.encode_utf16() {
+        out.extend_from_slice(&unit.to_be_bytes());
+    }
+    out
+}
+
+/// The string in `PDFDocEncoding`, or `None` if any character has no code in Table D.3.
+///
+/// The table is small enough to search per character (256 entries), and a form field's value is
+/// the length of a form field's value. A reverse map built once would be the right answer if this
+/// were on a page's path; it is on a person's keystroke.
+fn pdf_doc_encoded(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len());
+    for character in text.chars() {
+        let code = PDF_DOC_ENCODING
+            .iter()
+            .position(|entry| *entry == Some(character))?;
+        out.push(u8::try_from(code).ok()?);
+    }
+    Some(out)
+}
+
 /// §7.9.2.2.1's UTF-16BE byte order marker: "the first two bytes shall be 254 followed by 255".
 const UTF16BE_PREFIX: [u8; 2] = [254, 255];
 
@@ -207,7 +249,7 @@ const PDF_DOC_ENCODING: [Option<char>; 256] = [
 
 #[cfg(test)]
 mod tests {
-    use super::text_string;
+    use super::{encode_text_string, text_string};
 
     /// §7.9.2.2.1's EXAMPLE 1: a string with no prefix is `PDFDocEncoding`, and the byte 0x8B
     /// is U+2030 PER MILLE SIGN.
@@ -277,5 +319,40 @@ mod tests {
     fn an_undefined_code_point_is_the_replacement_character() {
         assert_eq!(text_string(b"\x7f"), "\u{FFFD}");
         assert_eq!(text_string(b"\xad"), "\u{FFFD}");
+    }
+    /// What is written comes back, in both encodings the writer produces.
+    ///
+    /// The strongest statement available about an encoder whose decoder is beside it, and the
+    /// one that catches the table being used backwards: `PDFDocEncoding` is not Latin 1, so a
+    /// reverse map built by assuming it is would fail here on exactly the bytes
+    /// `the_table_is_not_latin_1` names.
+    #[test]
+    fn every_text_string_survives_the_round_trip() {
+        for text in [
+            "",
+            "Simple",
+            "text\u{2030}",
+            "\u{20AC}\u{02D8}\u{02C7}",
+            "тест",
+            "\u{1F600}",
+            "gültig",
+            "a mix: тест \u{20AC}",
+        ] {
+            assert_eq!(text_string(&encode_text_string(text)), text, "{text:?}");
+        }
+    }
+
+    /// A string Table D.3 covers is written *without* a prefix, and one it does not is written
+    /// with §7.9.2.2.1's UTF-16BE marker.
+    ///
+    /// Not merely a round trip: the choice is the whole of the encoder's judgement, and a
+    /// version that wrote UTF-16BE for everything would pass the test above.
+    #[test]
+    fn the_shorter_encoding_is_chosen_where_the_table_allows_it() {
+        assert_eq!(encode_text_string("text\u{2030}"), b"text\x8b");
+        assert_eq!(
+            encode_text_string("тест"),
+            b"\xfe\xff\x04\x42\x04\x35\x04\x41\x04\x42"
+        );
     }
 }

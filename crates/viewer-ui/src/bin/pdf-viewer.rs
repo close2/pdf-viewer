@@ -118,6 +118,7 @@ fn main() {
         acknowledged: true,
         cursor: (0.0, 0.0),
         dragging: false,
+        dirty: false,
         attempts: 0,
         context: RenderContext::new(),
         state: None,
@@ -184,6 +185,8 @@ struct App {
     cursor: (f64, f64),
     /// Whether the button is down, which is what separates a move from a drag.
     dragging: bool,
+    /// Whether anything a person did is unsaved.
+    dirty: bool,
     /// How many passwords have been asked for.
     attempts: usize,
     context: RenderContext,
@@ -295,6 +298,15 @@ impl App {
                  without animating it",
                 transition.style, transition.duration
             ),
+            // What a host does with this is mark its window and ask before closing. This one
+            // has no dialogue to ask with, so it marks the title and says so on the way past.
+            Event::Dirty { dirty, .. } => {
+                self.dirty = dirty;
+                self.retitle();
+                if dirty {
+                    println!("note: this document has unsaved changes");
+                }
+            }
             Event::Reported { page, notes, .. } => {
                 for note in &notes {
                     println!("note: {note}");
@@ -352,9 +364,10 @@ impl App {
     /// Puts the caption in the title bar.
     fn retitle(&self) {
         if let Some(state) = self.state.as_ref() {
+            let mark = if self.dirty { "• " } else { "" };
             state
                 .window
-                .set_title(&format!("{} — {}", self.title, self.caption));
+                .set_title(&format!("{mark}{} — {}", self.title, self.caption));
         }
     }
 
