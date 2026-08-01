@@ -36,12 +36,44 @@ of 1023 in this document by path point — it is an *ordinary* page at an ordina
 the resolution is what a 1023-page A4 fitted to a 1280×1600 window at scale factor 1.6 asks for.
 Which is to say: a normal laptop screen.
 
+## Why not simply make the buffer bigger
+
+That is the first question to ask, and the answer took a search rather than an assumption.
+
+**There is no way to ask for a bigger one.** The sizes are computed inside
+`vello_encoding::BufferSizes::new`, called by `RenderConfig::new` for every render, from constants
+in the function body. `RendererOptions` — the only configuration vello 0.9 takes — has four fields:
+`use_cpu`, `antialiasing_support`, `num_init_threads`, `pipeline_cache`. Nothing reaches the sizes,
+and the constants are unchanged on vello's `main` at the time of writing.
+
+**Enlarging them would mean forking a dependency**, through `[patch.crates-io]` onto a vendored or
+git copy of `vello_encoding`, and then carrying that fork across every upgrade — for a project
+whose deny policy is deliberately narrow about sources. The change itself would be one line.
+
+**And it would not fix it, it would move it.** Page 6 needs 2 183 025 tile records where the buffer
+holds 2 097 152: four per cent over. Page 5 at the same size needs 2 002 237 — ninety-five per
+cent of the limit, drawn today by luck. The requirement scales with area × path density, so a
+window twice as tall, a 4K display, or a person pressing `+` walks straight back into it, at 16 MB
+of constant device memory per doubling of the tile buffer alone. A fixed number cannot bound an
+unbounded quantity; that is the whole shape of the problem, and it is why vello's constants have
+the apologetic comment on them in the first place.
+
+**Vello agrees.** Its README says the renderer "can currently be considered in an alpha state", and
+lists GPU memory allocation among the work outstanding. Issue 366, *Strategy for robust dynamic
+memory, readback, and async*, is open since September 2023 and sets out seven options with the
+maintainer's own summary that there is "no good solution to this problem, only a set of tradeoffs";
+the strategy it leans on is for a stage that runs out of memory to **subdivide the viewport and
+resubmit**. Issue 40, on dynamic GPU memory management, is closed with no implementation. So the
+buffers are fixed, the failure is by design detectable and by design not handled, and the handling
+is left to the application.
+
 ## What this tree does about it
 
 **Ask whether the render happened.** `render_gpu::render_checked` calls
 `render_to_texture_async`, which returns the bump allocators, and turns a set `failed` bit into
-`GpuRasterError::SceneTooLarge` naming the buffer that wanted the most room. Two costs, both
-deliberate:
+`GpuRasterError::SceneTooLarge`, naming the stage from the flag's own bits — `binning`, `tile`,
+`line`, `segment-count`, `per-tile command list`, as `vello_shaders`' `bump.wgsl` defines them.
+Two costs, both deliberate:
 
 - **The API is deprecated**, in favour of the synchronous call — which cannot answer the question.
   There is nowhere else in Vello 0.9 that the flag is exposed. `#[expect(deprecated)]` with the
@@ -67,40 +99,36 @@ deliberate:
   workaround for a defect in a dependency, written down as one, to be removed when vello guards
   the slice.
 
-And one device synchronisation per render, to map the flag. **Measured, because principle 2 asks
-for a number rather than an assurance**: twenty renders of page 5 at 596×842 on the 890M, with the
-feature and without, twice each — 7.24 and 7.36 ms per render without, 8.00 and 8.28 ms with, so
-**about +0.8 ms, near enough 11%**. Renderer construction was 42 and 52 ms without against 48 and
-57 ms with, which is inside the run-to-run spread and therefore no measurement at all; it is also
-off the startup critical path by construction, since page one draws on the processor while the
-device initialises.
+**Then band the target, which is the actual fix.** A set flag halves the target into horizontal
+bands; each band is the same scene translated to the band's top, rendered at the band's height into
+a strip texture, and copied into place. Paths outside a band fall away in binning and take their
+tile records with them, so halving roughly halves the requirement, and the halving repeats until
+the device draws it or a band would be shorter than 32 pixels. This is issue 366's own remedy,
+implemented on the caller's side of the API because vello 0.9 does not implement it and offers no
+way to avoid needing it.
 
-Affordable *for this program*, and the reason is worth stating: a document viewer renders a frame
-when a person turns a page, not sixty times a second. 0.8 ms against a page that is blank is not a
-close call. A game would answer differently.
+**Measured**, at 1132×1601 on the 890M, ten renders each through the tier-1 path:
 
-**Then make it the only route.** `render_checked` is `pub`, and `viewer-ui`'s surface path calls
-it rather than `Renderer::render_to_texture`. This matters more than it looks: the check first
-landed in `render-gpu`'s `rasterize`, which is the *tier-1* path — the one the tests use — while
-the window draws to its own surface through tier 2 and would have kept the defect. The person's
-black page was on the path the fix did not yet cover.
+| | bands | GPU | CPU |
+|---|---|---|---|
+| page 5 (fits) | 1 | 24.6 ms | 96.8 ms |
+| page 6 (does not) | 2 | **38.1 ms** | 98.0 ms |
 
-**Then draw it anyway.** `viewer-ui` already falls back to `render-cpu` on a refused page (ADR
-0125), so the error turns straight into a page on the screen and a line saying which backend drew
-it. The error's own sentence is what gets printed, so what reaches the person names the buffer
-that ran out. What was a black page is now a page, slightly slower, with the reason named.
+So a banded page costs about 55% more than an unbanded one of the same size and remains **two and
+a half times faster than the fallback it replaces** — and it is drawn by the backend the person
+chose. The band count is remembered *against the size it was learnt at*, so scrolling and page
+turns pay the discovery once while a resize starts again from one pass; without that key it only
+ratchets upward, and a single dense page at a large zoom would band every page after it.
+
+**Then draw it anyway, if even that fails.** `viewer-ui` still falls back to `render-cpu` on a
+refused page (ADR 0125), so a scene no band can hold is a page on the screen and a line saying
+which backend drew it. What was a black page is a page, in the ordinary case on the GPU.
 
 **Watched happen**, in a real window under `Xvfb` at 1200×1700 — the resolution matters, since the
 overflow is a property of the scene rather than of the driver, and it reproduces on all three
-adapters this machine can offer:
-
-```
-note: page 6: the graphics device could not draw a 1200x1700 scene: it needs more room than
-Vello's tile buffer has, so the device drew nothing, so it was drawn on the processor instead
-```
-
-with the window's own pixels back at mean 0.946 and standard deviation 0.204 — text on white. A
-black page is mean 0.
+adapters this machine can offer. Before banding, the window drew the page on the processor and
+said so; after it, the device draws it in two bands and says nothing, which is what a working
+renderer looks like.
 
 ## The gate that was missing, and now is not
 

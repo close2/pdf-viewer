@@ -256,6 +256,52 @@ struct State {
     window: Arc<Window>,
     surface: RenderSurface<'static>,
     renderer: Renderer,
+    /// What the page is drawn into, before it is blitted onto the frame.
+    ///
+    /// Vello's own surface target would do, but it is created with `STORAGE_BINDING` and
+    /// `TEXTURE_BINDING` only. Banding composes the result from band-sized renders copied into
+    /// place, which needs `COPY_DST`, so this program owns the texture it draws into.
+    target: Target,
+    /// How many bands the last render of this window needed; reset when the window resizes.
+    bands: render_gpu::Bands,
+}
+
+/// A texture the size of the window, with the usages banding needs.
+struct Target {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+}
+
+impl Target {
+    /// Creates a target for a window of this size.
+    fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("page"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            // `STORAGE_BINDING` is where Vello writes, `TEXTURE_BINDING` is what the blitter
+            // reads, and `COPY_DST` is where a band lands.
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        Self { texture, view }
+    }
+}
+
+impl std::fmt::Debug for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Target").finish_non_exhaustive()
+    }
 }
 
 impl App {
@@ -571,7 +617,7 @@ impl App {
         state.surface.blitter.copy(
             &handle.device,
             &mut encoder,
-            &state.surface.target_view,
+            &state.target.view,
             &frame
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default()),
@@ -654,18 +700,20 @@ impl App {
         // the *last* resort: were it to come back blank, the note above would say the processor
         // drew the page while the window showed black, which is precisely the failure this
         // session exists to remove.
+        let mut bands = render_gpu::Bands::default();
         render_gpu::render_checked(
             &handle.device,
             &handle.queue,
             &mut state.renderer,
             &mut scene,
-            &state.surface.target_view,
+            &state.target.texture,
             &vello::RenderParams {
                 base_color: vello::peniko::Color::WHITE,
                 width: viewport.0,
                 height: viewport.1,
                 antialiasing_method: AaConfig::Area,
             },
+            &mut bands,
         )
         .map_err(|error| error.to_string())
     }
@@ -725,10 +773,17 @@ impl ApplicationHandler for App {
             reason = "a display's scale factor is a small ratio"
         )]
         let scale = window.scale_factor() as f32;
+        let target = Target::new(
+            &self.context.devices[surface.dev_id].device,
+            size.width.max(1),
+            size.height.max(1),
+        );
         self.state = Some(State {
             window,
             surface,
             renderer,
+            target,
+            bands: render_gpu::Bands::default(),
         });
         self.retitle();
         // The window's size is the first thing the core has been told about the viewport, and
@@ -827,6 +882,14 @@ impl ApplicationHandler for App {
                         size.width.max(1),
                         size.height.max(1),
                     );
+                    // A band count is an answer about a scene at a size, and the size just
+                    // changed; keeping it would band a window that no longer needs it.
+                    state.target = Target::new(
+                        &self.context.devices[state.surface.dev_id].device,
+                        size.width.max(1),
+                        size.height.max(1),
+                    );
+                    state.bands.reset();
                 }
                 self.dispatch(Command::Resize {
                     width: size.width.max(1),
@@ -1082,13 +1145,14 @@ fn draw(
         &handle.queue,
         &mut state.renderer,
         &mut scene,
-        &state.surface.target_view,
+        &state.target.texture,
         &vello::RenderParams {
             base_color: vello::peniko::Color::WHITE,
             width,
             height,
             antialiasing_method: AaConfig::Area,
         },
+        &mut state.bands,
     )
     .map_err(|error| error.to_string())
 }

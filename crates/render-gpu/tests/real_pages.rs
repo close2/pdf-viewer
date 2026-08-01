@@ -62,6 +62,7 @@ fn a_page_is_drawn_or_refused_and_never_silently_blank() {
     ];
 
     let mut refused = 0;
+    let mut banded = 0;
     for (name, index) in cases {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../doc")
@@ -93,6 +94,14 @@ fn a_page_is_drawn_or_refused_and_never_silently_blank() {
                 }
                 Ok(raster) => {
                     let drawn = ink(&raster);
+                    if gpu.bands().count() > 1 {
+                        println!(
+                            "  {name} page {} at {scale}: drawn in {} bands",
+                            index + 1,
+                            gpu.bands().count()
+                        );
+                        banded += 1;
+                    }
                     assert!(
                         drawn > 0 || expected == 0,
                         "{name} page {} at {scale} ({}x{}): the device drew *nothing* and said \
@@ -112,5 +121,16 @@ fn a_page_is_drawn_or_refused_and_never_silently_blank() {
             }
         }
     }
-    println!("{refused} of 8 renders were refused rather than drawn");
+    println!("{refused} of 8 renders refused, {banded} drawn in bands");
+
+    // **The witness has to be drawn, and drawn the hard way.** Page 6 at 1.9008 is what the
+    // person reported; it overflows Vello's tile buffer in one pass, so if it comes back both
+    // unrefused and unbanded, something has changed underneath this test and the thing it was
+    // written to check is no longer being checked.
+    assert!(
+        banded > 0,
+        "no render needed banding — the scene that overflows the device's buffers is no longer \
+         reaching it, so this test is no longer testing what it was written for"
+    );
+    assert_eq!(refused, 0, "every one of these pages can be drawn in bands");
 }

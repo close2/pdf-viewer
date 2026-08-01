@@ -91,8 +91,9 @@ pub fn evaluate_soft_masks(
     list: &DisplayList,
     target: TargetSpec,
 ) -> Result<SoftMaskRasters, GpuRasterError> {
+    let mut bands = Bands::default();
     soft_mask::evaluate(list, target, &mut |scene| {
-        let texture = render_to_texture(device, queue, renderer, scene, target)?;
+        let texture = render_to_texture(device, queue, renderer, scene, target, &mut bands)?;
         read_pixels(device, queue, &texture, target)
     })
 }
@@ -111,9 +112,11 @@ fn render_to_texture(
     renderer: &mut vello::Renderer,
     scene: &mut vello::Scene,
     target: TargetSpec,
+    bands: &mut Bands,
 ) -> Result<wgpu::Texture, GpuRasterError> {
-    // Vello writes its result through a storage binding, and the pixels are then
-    // copied out, so both usages are required.
+    // Vello writes its result through a storage binding, and the pixels are then copied out, so
+    // both usages are required. `COPY_DST` is for banding, which composes the result from
+    // band-sized renders.
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("render target"),
         size: wgpu::Extent3d {
@@ -125,27 +128,75 @@ fn render_to_texture(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+        usage: wgpu::TextureUsages::STORAGE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     render_checked(
         device,
         queue,
         renderer,
         scene,
-        &view,
+        &texture,
         &vello::RenderParams {
             base_color: vello::peniko::Color::TRANSPARENT,
             width: target.width,
             height: target.height,
             antialiasing_method: vello::AaConfig::Area,
         },
+        bands,
     )?;
     Ok(texture)
 }
 
-/// Renders a scene and **checks that it was rendered**.
+/// How many horizontal bands a target had to be split into for the device to draw it.
+///
+/// Carried by the caller from one frame to the next so that a page which needed splitting is not
+/// re-discovered — and one wasted render not repaid — on every scroll.
+///
+/// **The count is remembered against the size it was learnt at**, and a render at any other size
+/// starts again from a single pass. Without that it only ever ratchets upward: one dense page at
+/// a large zoom would band every page after it, at every size, for the life of the program, and
+/// each unnecessary band costs a scene re-encoded, a render submitted and a copy. Scrolling and
+/// turning pages keep the size, so the common case still pays the discovery once.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Bands {
+    count: u32,
+    learnt_at: (u32, u32),
+}
+
+impl Bands {
+    /// Forgets what the last render needed, so the next starts from a single pass.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// How many bands the last successful render used; zero before the first.
+    #[must_use]
+    pub fn count(self) -> u32 {
+        self.count
+    }
+
+    /// What to start from for a target of this size.
+    fn start(self, size: (u32, u32)) -> u32 {
+        if self.learnt_at == size {
+            self.count.max(1)
+        } else {
+            1
+        }
+    }
+}
+
+/// The shortest band worth trying, in device pixels.
+///
+/// Splitting further stops helping long before this: what a band costs is fixed — a scene
+/// re-encoded, a render submitted, a copy — while what it saves falls with its height. A scene
+/// that will not fit in a 32-pixel band will not fit in a 16-pixel one either, and the honest
+/// answer at that point is the refusal, which the processor then draws.
+const MIN_BAND_HEIGHT: u32 = 32;
+
+/// Renders a scene, **checks that it was rendered**, and splits the target until it is.
 ///
 /// Vello sizes its GPU-side working buffers by a table of constants, and its own comment on them
 /// is the whole of this function's reason: `vello_encoding::BufferSizes::new` says they are
@@ -156,39 +207,173 @@ fn render_to_texture(
 ///
 /// A scene that needs more — many small paths over many tiles, which is a page of text at a high
 /// resolution — overflows one of them *on the device*. The shaders set a `failed` flag in the
-/// bump allocators and stop filling; `render_to_texture` cannot see that flag, returns `Ok`, and
-/// the target texture is left **blank**. Page 6 of ISO 32000-2 at 1132×1600 is such a scene:
-/// 5933 paths over 7100 tiles, and every pixel comes back empty (ADR 0127).
+/// bump allocators and stop filling; `Renderer::render_to_texture` cannot see that flag, returns
+/// `Ok`, and the target texture is left **blank**. Page 6 of ISO 32000-2 at 1132×1600 is such a
+/// scene: it needs 2 183 025 tile records against the 2 097 152 the buffer holds, four per cent
+/// more, and every pixel comes back empty (ADR 0127).
 ///
-/// So this asks. `render_to_texture_async` returns the allocators, which is the only route vello
-/// 0.9 offers to the flag, and the answer becomes an error a caller can act on — `viewer-ui`
-/// draws the page with `render-cpu` instead, and says which.
+/// So this asks, and then it *answers*. `render_to_texture_async` returns the allocators, which
+/// is the only route vello 0.9 offers to the flag; a set flag means the target is halved into
+/// horizontal bands and each band rendered and copied into place. A band holds fewer paths, so it
+/// needs fewer tiles, and the halving repeats until the device draws it or a band would be
+/// shorter than [`MIN_BAND_HEIGHT`]. **This is vello's own remedy** — its issue 366 on robust
+/// dynamic memory proposes subdividing the viewport and resubmitting — implemented by the caller
+/// because vello 0.9 does not implement it and exposes no way to enlarge the buffers instead.
 ///
 /// **Public because it is the only call a host should make.** `Renderer::render_to_texture` is
 /// right there and reports success on a blank page; a viewer drawing to its own surface — which
 /// is the tier-2 path, and the one a person actually looks at — has to come through here or it
-/// inherits exactly the defect this exists to catch.
+/// inherits exactly the defect this exists to catch. The texture it draws into therefore needs
+/// `COPY_DST` as well as `STORAGE_BINDING`, which vello's own surface target does not have.
 ///
 /// # Errors
 ///
-/// [`GpuRasterError::Render`] if vello rejects the scene, [`GpuRasterError::SceneTooLarge`] if it
-/// accepted it and the device then ran out of room, [`GpuRasterError::Readback`] if the device
-/// does not answer within the timeout.
+/// [`GpuRasterError::Render`] if vello rejects the scene, [`GpuRasterError::SceneTooLarge`] if a
+/// band as short as [`MIN_BAND_HEIGHT`] still overflows, [`GpuRasterError::Readback`] if the
+/// device does not answer within the timeout.
 ///
-/// The cost is one device synchronisation per render, because the flag lives in a buffer that
-/// has to be mapped. That is real and it is affordable *here*: this program renders a frame when
-/// a person turns a page, not sixty times a second, and the alternative is a page that is blank
-/// with nothing said.
+/// The cost of asking is one device synchronisation per render, because the flag lives in a
+/// buffer that has to be mapped. That is real and it is affordable *here*: this program renders a
+/// frame when a person turns a page, not sixty times a second, and the alternative is a page that
+/// is blank with nothing said.
 pub fn render_checked(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     renderer: &mut vello::Renderer,
     scene: &mut vello::Scene,
+    texture: &wgpu::Texture,
+    params: &vello::RenderParams,
+    bands: &mut Bands,
+) -> Result<(), GpuRasterError> {
+    keep_the_line_soup_non_empty(scene);
+    let size = (params.width, params.height);
+    let mut count = bands.start(size);
+    loop {
+        match render_in_bands(device, queue, renderer, scene, texture, params, count) {
+            Ok(()) => {
+                *bands = Bands {
+                    count,
+                    learnt_at: size,
+                };
+                return Ok(());
+            }
+            Err(error @ GpuRasterError::SceneTooLarge { .. }) => {
+                let doubled = count.saturating_mul(2);
+                if params.height.checked_div(doubled).unwrap_or(0) < MIN_BAND_HEIGHT {
+                    bands.reset();
+                    return Err(error);
+                }
+                count = doubled;
+            }
+            Err(other) => return Err(other),
+        }
+    }
+}
+
+/// Renders the scene as `count` horizontal bands, copying each into the target.
+///
+/// One band is the ordinary case and costs nothing extra — no second texture, no copy, the same
+/// call vello would have received. Beyond one, each band is the same scene translated up to the
+/// band's top and rendered at the band's height, so the paths outside it fall away in binning and
+/// take their tile records with them.
+fn render_in_bands(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut vello::Renderer,
+    scene: &vello::Scene,
+    texture: &wgpu::Texture,
+    params: &vello::RenderParams,
+    count: u32,
+) -> Result<(), GpuRasterError> {
+    if count <= 1 {
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        return render_once(device, queue, renderer, scene, &view, params);
+    }
+
+    let height = params.height.div_ceil(count);
+    let strip = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("band"),
+        size: wgpu::Extent3d {
+            width: params.width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = strip.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let mut top = 0;
+    while top < params.height {
+        let mut band = vello::Scene::new();
+        band.append(
+            scene,
+            Some(vello::kurbo::Affine::translate((0.0, -f64::from(top)))),
+        );
+        keep_the_line_soup_non_empty(&mut band);
+        render_once(
+            device,
+            queue,
+            renderer,
+            &band,
+            &view,
+            &vello::RenderParams {
+                base_color: params.base_color,
+                width: params.width,
+                height,
+                antialiasing_method: params.antialiasing_method,
+            },
+        )?;
+
+        // The last band is shorter than the rest where the height does not divide, and copying
+        // its full height would run off the end of the target.
+        let rows = height.min(params.height.saturating_sub(top));
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("band copy"),
+        });
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &strip,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: top, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: params.width,
+                height: rows,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(Some(encoder.finish()));
+        top = top.saturating_add(height);
+    }
+    Ok(())
+}
+
+/// One render, with the device asked afterwards whether it happened.
+///
+/// # Errors
+///
+/// [`GpuRasterError::SceneTooLarge`] where the bump allocators come back with their `failed` flag
+/// set, naming the stage that ran out of room.
+fn render_once(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut vello::Renderer,
+    scene: &vello::Scene,
     view: &wgpu::TextureView,
     params: &vello::RenderParams,
 ) -> Result<(), GpuRasterError> {
-    keep_the_line_soup_non_empty(scene);
-
     // Deprecated in favour of the synchronous call, whose return type is stable — and which
     // cannot answer the question. The deprecation note says the *shape* of this is unstable, not
     // that the information is unavailable elsewhere; there is nowhere else in vello 0.9. Revisit
@@ -200,7 +385,7 @@ pub fn render_checked(
     let rendering = renderer.render_to_texture_async(
         device,
         queue,
-        &*scene,
+        scene,
         view,
         params,
         vello::low_level::DebugLayers::none(),
@@ -214,21 +399,26 @@ pub fn render_checked(
         return Err(GpuRasterError::SceneTooLarge {
             width: params.width,
             height: params.height,
-            wanted: [
-                ("binning", bump.binning),
-                ("ptcl", bump.ptcl),
-                ("tile", bump.tile),
-                ("seg_counts", bump.seg_counts),
-                ("segments", bump.segments),
-                ("blend", bump.blend),
-                ("lines", bump.lines),
-            ]
-            .iter()
-            .max_by_key(|(_, size)| *size)
-            .map_or("a buffer", |(name, _)| name),
+            wanted: stage_that_ran_out(bump.failed),
         });
     }
     Ok(())
+}
+
+/// Names the pipeline stage whose allocation failed, from the flag the shaders set.
+///
+/// The bits are `vello_shaders`' own, in `shader/shared/bump.wgsl`, and there is no Rust constant
+/// for them to import. More than one can be set — a stage that runs out often starves the next —
+/// so the earliest is named, because it is the one that caused the rest.
+fn stage_that_ran_out(failed: u32) -> &'static str {
+    match failed {
+        _ if failed & 0x1 != 0 => "binning",
+        _ if failed & 0x2 != 0 => "tile",
+        _ if failed & 0x4 != 0 => "line",
+        _ if failed & 0x8 != 0 => "segment-count",
+        _ if failed & 0x10 != 0 => "per-tile command list",
+        _ => "an unnamed",
+    }
 }
 
 /// Adds a path that draws nothing, because vello 0.9 panics on a scene that has none.
@@ -434,6 +624,8 @@ impl GpuContext {
 pub struct GpuRasterizer {
     context: GpuContext,
     background: Color,
+    /// What the last page needed, so a document of dense pages pays the discovery once.
+    bands: Bands,
 }
 
 impl GpuRasterizer {
@@ -452,6 +644,7 @@ impl GpuRasterizer {
         Self {
             context,
             background: Color::WHITE,
+            bands: Bands::default(),
         }
     }
 
@@ -463,6 +656,16 @@ impl GpuRasterizer {
     pub fn with_background(mut self, background: Color) -> Self {
         self.background = background;
         self
+    }
+
+    /// How many bands the last render needed.
+    ///
+    /// A caller has no decision to make with this — the split is automatic — but a *test* does:
+    /// it is how `real_pages.rs` asserts that page 6 is drawn *because* it was banded rather than
+    /// because something else changed underneath.
+    #[must_use]
+    pub fn bands(&self) -> Bands {
+        self.bands
     }
 
     /// Returns the underlying context.
@@ -636,6 +839,7 @@ impl Rasterizer for GpuRasterizer {
             &mut self.context.renderer,
             &mut scene,
             target,
+            &mut self.bands,
         )?;
 
         self.read_back(&texture, target)

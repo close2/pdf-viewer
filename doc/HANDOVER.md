@@ -29,6 +29,9 @@ constructed where the standard states one — including §12.5.6.4's seven icons
 this processor's own because the clause requires one and draws none. Two backends (CPU and GPU)
 that agree to the channel — over `test-scenes`' fixtures **and, since the hundred-and-forty-third
 session, over real pages at a real window's resolution**, which is where they did not (ADR 0127).
+The GPU backend **bands a target the device cannot draw in one pass**, because Vello's working
+buffers are fixed constants with no knob and a page of small text at a laptop's resolution can
+exceed them.
 JBIG2 and JPEG 2000 in a confined worker. Encryption at every revision
 and method §7.6 states. §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels,
 §12.5.6.5's links performing **eleven of §12.6's actions**, §14.9's accessibility entries,
@@ -136,7 +139,7 @@ documents' first pages it affects.
 | A stream whose data is in an external file (§7.3.8.1) | 0 | The renderer has no filesystem (principle 3). Refused by name rather than drawn from the bytes the clause says to ignore — which is what it did, silently, for the project's whole life. |
 | `/ColorTransform` (Table 13) | — | Its one corpus witness contradicts the clause. |
 | Sampled shadings on the GPU | 2 | Type 1 only; the CPU backend draws them. |
-| A page whose scene overflows Vello's buffers | — | **Not ours and not the page's.** Vello sizes its GPU working buffers from constants "hand picked to accommodate the vello test scenes"; a page of text at a window's resolution can need more, and the device then draws *nothing*. Page 6 of ISO 32000-2 at 1132×1600 did. Detected since session 143 (`GpuRasterError::SceneTooLarge`) and drawn by the CPU backend instead, with the reason printed. Closing it properly means banding the render, which `TargetSpec::transform`'s tile offset already allows. ADR 0127. |
+| A page whose scene overflows Vello's buffers | — | **Closed in session 143, by banding.** Vello sizes its GPU working buffers from constants "hand picked to accommodate the vello test scenes", offers no way to enlarge them, and draws *nothing* when a scene needs more — page 6 of ISO 32000-2 at 1132×1600 needs 4% more tile records than the buffer holds. `render_checked` sees the flag and halves the target until it fits, which is Vello's own issue 366 remedy; 38.1 ms against 24.6 ms unbanded and 98 ms on the processor. The CPU fallback remains for a scene no band can hold. ADR 0127. |
 | Rendering intents beyond `AbsoluteColorimetric` | — | Read and recorded; `A2B0` not yet selected for `Perceptual`. |
 | §12.7.6.2's submit, §12.6.4's remote/launch/sound/movie | — | A network, a second file, a media engine. Refused by name and printed on a click. |
 | Signature *validation* (§12.8.3) | — | 17 ledger rows. Needs a trust store and a network; what a program without one can say is said (ADRs 0088, 0089). |
