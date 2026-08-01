@@ -278,31 +278,178 @@ fn an_appearance_state_is_selected_by_as() {
 
 /// An annotation whose clause states no appearance is reported rather than invented.
 ///
-/// A `Text` annotation displays an *icon*, and §12.5.6.4 names the icons — `/Comment`,
-/// `/Key`, `/Note` — without stating one line of their artwork. Drawing a guess would put a
-/// mark on the page the document never described, so the report is the answer, and it is what
-/// keeps the corpus gate's counts meaningful.
+/// A `Stamp`, a `FileAttachment` and a `Sound` display an *icon*, and §12.5.6.12, §12.5.6.15
+/// and §12.5.6.16 each name theirs — `/Approved`, `/Paperclip`, `/Speaker` — without stating
+/// one line of their artwork. Each says a reader "**should** provide predefined icon
+/// appearances", which is a recommendation: drawing a guess would put a mark on the page the
+/// document never described and no clause requires, so the report is the answer, and it is
+/// what keeps the corpus gate's counts meaningful.
 ///
-/// §12.5.6.10's four text markups were here until the thirty-fourth session, and the reason
-/// they left is worth the distinction: that clause states the *mark* — "shall appear as
-/// highlights, underlines, strikeouts … or jagged ('squiggly') underlines" — its region and
-/// its orientation, and leaves only a thickness. An icon's clause states nothing at all.
+/// §12.5.6.4's text annotation is the one that left this list, in the hundred-and-twentieth
+/// session, and the word that moved it is *shall*. §12.5.6.10's four text markups left it in
+/// the thirty-fourth, and the reason is a different one worth the distinction: that clause
+/// states the *mark* — "shall appear as highlights, underlines, strikeouts … or jagged
+/// ('squiggly') underlines" — its region and its orientation, and leaves only a thickness.
 #[test]
-fn an_annotation_whose_appearance_is_not_stated_is_reported() {
-    let interpretation = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Text /Rect [20 20 60 60] /F 4 /C [1 1 0] \
-         /Name /Comment >>",
+fn an_annotation_whose_appearance_is_only_recommended_is_reported() {
+    for (subtype, name) in [
+        ("Stamp", "Approved"),
+        ("FileAttachment", "Paperclip"),
+        ("Sound", "Speaker"),
+    ] {
+        let interpretation = interpret(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /{subtype} /Rect [20 20 60 60] /F 4 /C [1 1 0] \
+                 /Name /{name} >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "1 0 0 rg 0 0 10 10 re f",
+        ));
+        assert!(
+            interpretation.display_list.commands().is_empty(),
+            "{subtype}: nothing may be invented for it"
+        );
+        assert!(
+            !interpretation.is_complete(),
+            "{subtype}: and its absence must be reported"
+        );
+    }
+}
+
+/// A text annotation with no appearance stream draws the icon Table 175's `/Name` selects.
+///
+/// §12.5.6.4 states the obligation — "Interactive PDF processors shall provide predefined icon
+/// appearances for at least the following standard names" — and none of the artwork, so what
+/// this can assert is what the clause says and not what the picture is: every one of the seven
+/// names draws *something*, and no two of them draw the *same* something. A processor that
+/// supplied one shape under seven names would satisfy the sentence's letter and tell a reader
+/// nothing, which is the failure worth a test.
+#[test]
+fn each_of_the_seven_standard_icon_names_draws_its_own_shape() {
+    let icon = |name: &str| {
+        let raster = render(pdf_with(
+            &format!("<< /Type /Annot /Subtype /Text /Rect [10 10 90 90] /F 4 /Name /{name} >>"),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+        raster.data.clone()
+    };
+    let names = [
+        "Comment",
+        "Key",
+        "Note",
+        "Help",
+        "NewParagraph",
+        "Paragraph",
+        "Insert",
+    ];
+    let drawn: Vec<Vec<u8>> = names.iter().map(|name| icon(name)).collect();
+    for (name, pixels) in names.iter().zip(&drawn) {
+        assert!(
+            pixels.chunks_exact(4).any(|pixel| pixel[3] > 0),
+            "/{name} drew nothing"
+        );
+    }
+    for (first, one) in names.iter().enumerate() {
+        for (second, other) in names.iter().enumerate().skip(first + 1) {
+            assert_ne!(
+                drawn[first], drawn[second],
+                "/{one} and /{other} draw the same icon"
+            );
+        }
+    }
+}
+
+/// Table 175: "Default value: Note ." — an absent `/Name` is the note, not a refusal.
+#[test]
+fn an_absent_icon_name_is_the_note() {
+    let named = render(pdf_with(
+        "<< /Type /Annot /Subtype /Text /Rect [10 10 90 90] /F 4 /Name /Note >>",
         "/BBox [0 0 10 10]",
-        "1 0 0 rg 0 0 10 10 re f",
+        "",
+    ));
+    let unnamed = render(pdf_with(
+        "<< /Type /Annot /Subtype /Text /Rect [10 10 90 90] /F 4 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert_eq!(named.data, unnamed.data);
+}
+
+/// A `/Name` outside the seven is reported by name, not drawn as the default.
+///
+/// "Additional names may be supported as well" is a permission, so an unrecognised icon is a
+/// gap this processor has rather than one the document has — and Table 175's default of `Note`
+/// answers an *absent* entry, not an unrecognised one. Substituting the note for it would draw
+/// a picture whose meaning the file did not ask for and report nothing, which is trap 5's
+/// failure exactly.
+#[test]
+fn an_icon_name_outside_the_seven_is_reported_by_name() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Text /Rect [10 10 90 90] /F 4 /Name /Bookmark >>",
+        "/BBox [0 0 10 10]",
+        "",
     ));
     assert!(
         interpretation.display_list.commands().is_empty(),
-        "nothing may be invented for it"
+        "nothing may be invented for a name the clause does not require"
     );
+    let reports = format!("{:?}", interpretation.unsupported);
     assert!(
-        !interpretation.is_complete(),
-        "and its absence must be reported"
+        reports.contains("Bookmark"),
+        "the report must name it: {reports}"
     );
+}
+
+/// Table 166's `/C` is "The background of the annotation's icon when closed".
+///
+/// The two halves are one test because each is the other's control: with a `/C` the icon's
+/// corner is that colour, and with none it is transparent — Table 166's own word for an empty
+/// or absent array. A reader that invented a background would fail the second half, and one
+/// that ignored `/C` would fail the first.
+#[test]
+fn table_166_s_colour_is_the_icon_s_background() {
+    let coloured = render(pdf_with(
+        "<< /Type /Annot /Subtype /Text /Rect [10 10 90 90] /F 4 /C [1 0 0] /Name /Insert >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    // Just inside the field's rounded corner, where no symbol reaches.
+    assert_eq!(colour_at(&coloured, 25, 25), (255, 0, 0));
+
+    let bare = render(pdf_with(
+        "<< /Type /Annot /Subtype /Text /Rect [10 10 90 90] /F 4 /Name /Insert >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !painted(&bare, 25, 25),
+        "an absent /C is Table 166's transparent, not an invented field"
+    );
+}
+
+/// The icon keeps its proportions in a rectangle that has none, and stays centred in it.
+///
+/// A `/Rect` three times as wide as it is tall: the artwork is drawn on a square, so a reader
+/// that stretched it onto the rectangle would reach both vertical edges. What must happen
+/// instead is that the marks span the height and sit in the middle of the width — which is
+/// this tree's choice rather than the clause's, since §12.5.6.4 would rather the icon not
+/// scale at all (`NoZoom`, §12.5.3).
+#[test]
+fn an_icon_is_square_and_centred_in_a_rectangle_that_is_not() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Text /Rect [5 30 95 60] /F 4 /C [1 0 0] /Name /Insert >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    let (min_x, min_y, max_x, max_y) = extent(&raster);
+    assert_eq!(
+        (min_y, max_y),
+        (30, 59),
+        "the square is the rectangle's height"
+    );
+    // 30 units wide, centred in 90: from 35 to 65.
+    assert_eq!((min_x, max_x), (35, 64), "and centred across its width");
 }
 
 /// §12.5.6.10's four marks are constructed, and each is the mark its subtype's name is.

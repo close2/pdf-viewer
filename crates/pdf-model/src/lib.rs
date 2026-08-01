@@ -38,6 +38,7 @@ pub mod file_spec;
 pub mod forms_data;
 pub mod function;
 pub mod icc;
+mod icon;
 pub mod image;
 pub mod inline_image;
 pub mod link;

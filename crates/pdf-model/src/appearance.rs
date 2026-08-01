@@ -30,14 +30,25 @@
 //! appearance without stating what it looks like is refused and reported, because there is
 //! nothing to derive:
 //!
-//! - `Text`, `FileAttachment`, `Sound` and `Stamp` display an *icon*. §12.5.6.4 requires a
-//!   processor to "provide predefined icon appearances" for seven names and says nothing about
-//!   what any of them is. The artwork is the processor's, not the document's.
+//! - `FileAttachment`, `Sound` and `Stamp` display an *icon* whose artwork no clause states.
+//!   §12.5.6.12, §12.5.6.15 and §12.5.6.16 each say a reader "**should** provide predefined
+//!   icon appearances" for the names their tables list — a recommendation, and an invention
+//!   with only a recommendation behind it is a mark the document never described.
 //! - `Caret`, `Redact`, `Screen`, `Movie`, `PrinterMark`, `TrapNet` and `Watermark` state no
 //!   geometry of their own.
 //!
 //! Guessing at either would put marks on the page the document never described, which is the
 //! failure principle 5 exists to prevent.
+//!
+//! **`Text` was on that first list for a hundred and nineteen sessions and does not belong on
+//! it**, because §12.5.6.4 says something the other three do not: "Interactive PDF processors
+//! **shall** provide predefined icon appearances for at least the following standard names".
+//! The artwork is as unstated there as anywhere — that is why `CLAUDE.md` uses this very icon
+//! as its standing example of a silence — but the *obligation to have some* is normative, so
+//! refusing was a conformance failure rather than a restraint. [`crate::icon`] holds the seven
+//! shapes and the argument for each; [`text_icon`] holds what the document gets to say about
+//! them. One clause of four obliging and three recommending is exactly the distinction a single
+//! `match` arm over all four subtypes had hidden.
 //!
 //! **This list used to include §12.5.6.10's four text markup subtypes, and had since before
 //! [`text_markup`] was written.** The thirty-fourth session read the clause again and found it
@@ -61,6 +72,7 @@
 use pdf_syntax::{Dictionary, Document, Object};
 use std::fmt::Write as _;
 
+use crate::icon::{self, Mark};
 use crate::variable_text::{self, Owed, Quadding, Request, Shape};
 use crate::view::FieldValue;
 
@@ -86,7 +98,7 @@ const DEFAULT_BORDER_WIDTH: f32 = 1.0;
 /// thousand-point circle. §12.5.6.8 asks for "an ellipse" and PDF has no operator that draws
 /// one, so this constant is where that word becomes a path — a documented approximation, not a
 /// reading of anything.
-const ARC: f32 = 0.552_284_8;
+pub(crate) const ARC: f32 = 0.552_284_8;
 
 /// What was constructed, and what could not be.
 ///
@@ -157,6 +169,8 @@ enum Refusal {
     ColourComponents(&'static str, usize),
     /// An entry the subtype's clause requires is absent or unreadable.
     Missing(&'static str),
+    /// Table 175's `/Name` is outside the set §12.5.6.4 requires appearances for.
+    NonStandardIcon(String),
     /// The clause names an appearance without stating what it looks like.
     NotDerivable(&'static str),
     /// §12.7.4.3's variable text could not be laid out, or not entirely.
@@ -171,6 +185,10 @@ impl Refusal {
                 format!("{key} has {count} components, which names no colour space")
             }
             Self::Missing(key) => format!("no appearance stream and no usable {key}"),
+            Self::NonStandardIcon(name) => format!(
+                "no appearance stream, and its icon /{name} is outside the seven names \
+                 §12.5.6.4 requires an appearance for"
+            ),
             Self::NotDerivable(why) => format!("no appearance stream, and {why}"),
             Self::Text(owed) => owed.detail(),
         }
@@ -201,8 +219,10 @@ pub(crate) fn construct(
             text_markup(document, annotation, &mut stream, subtype)
         }
         b"FreeText" => free_text(document, annotation, &mut stream),
-        b"Text" | b"FileAttachment" | b"Sound" | b"Stamp" => Err(Refusal::NotDerivable(
-            "its icon's artwork is the processor's own, and no clause states it",
+        b"Text" => text_icon(document, annotation, &mut stream),
+        b"FileAttachment" | b"Sound" | b"Stamp" => Err(Refusal::NotDerivable(
+            "its clause recommends rather than requires a predefined icon, and states no \
+             artwork for one",
         )),
         _ => Err(Refusal::NotDerivable("its clause states no geometry")),
     };
@@ -489,6 +509,85 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     border.outline(stream, rect);
     stream.paint(false, true);
     Ok(border.simulated())
+}
+
+/// Draws §12.5.6.4's icon: the background the standard states, and the symbol it does not.
+///
+/// > When closed, the annotation shall appear as an icon
+///
+/// > Interactive PDF processors shall provide predefined icon appearances for at least the
+/// > following standard names: Comment, Key, Note, Help, NewParagraph, Paragraph, Insert
+///
+/// That second sentence is the reason this routine exists rather than a refusal, and it is
+/// worth being exact about which half of it this tree can derive. The obligation is a *shall*
+/// on the reader; the artwork is stated nowhere at all. So the shapes are
+/// [`crate::icon`]'s invention, documented there as one, and everything read out of the
+/// document is here: which icon (Table 175's `/Name`, defaulting to `Note`) and what colour
+/// sits behind it (Table 166's `/C`, "The background of the annotation's icon when closed").
+///
+/// The three neighbouring subtypes that also show an icon — §12.5.6.12's stamp, §12.5.6.15's
+/// file attachment, §12.5.6.16's sound — say "PDF readers **should** provide predefined icon
+/// appearances", and are still refused. One clause obliges and three recommend; drawing an
+/// invention where the standard only recommends one would be a choice with no requirement
+/// behind it, which is a different thing from a choice a requirement forces.
+///
+/// `/Open` is not read. §12.5.6.4 gives it a popup window "containing the text of the note",
+/// and [`crate::annotation`] draws no popup for any subtype, on the ground that a window is not
+/// part of the page.
+fn text_icon(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
+    let rect = rectangle(document, annotation)?;
+    let name = document.get_key(annotation, "Name").as_name().map_or_else(
+        || icon::DEFAULT_TEXT_NAME.to_vec(),
+        |n| n.as_bytes().to_vec(),
+    );
+    let Some(figures) = icon::text_annotation(&name) else {
+        return Err(Refusal::NonStandardIcon(
+            String::from_utf8_lossy(&name).into_owned(),
+        ));
+    };
+
+    let box_ = largest_square_within(rect);
+    let side = box_[2] - box_[0];
+    let background = colour(document, annotation, "C")?;
+    if background != Colour::None {
+        stream.set_colour(background, false);
+        let radius = side * icon::BACKGROUND_RADIUS;
+        stream.rounded_rectangle(box_, [radius, radius]);
+        stream.paint(true, false);
+    }
+
+    // Black, as the module comment argues: the only colour the annotation states is the
+    // background, and one invention is fewer than two.
+    stream.set_colour(Colour::Components([0.0; 4], 1), false);
+    stream.set_colour(Colour::Components([0.0; 4], 1), true);
+    stream.set_stroke(side * icon::STROKE_WIDTH, &[]);
+    let place = |point: [f32; 2]| [box_[0] + point[0] * side, box_[1] + point[1] * side];
+    for figure in figures {
+        for mark in figure.marks {
+            match *mark {
+                Mark::Move(point) => stream.move_to(place(point)),
+                Mark::Line(point) => stream.line_to(place(point)),
+                Mark::Curve(first, second, end) => {
+                    stream.curve_to(place(first), place(second), place(end));
+                }
+                Mark::Close => stream.close(),
+            }
+        }
+        stream.paint(figure.filled, !figure.filled);
+    }
+    Ok(Painted::DRAWN)
+}
+
+/// The largest square that fits inside a rectangle, centred in it.
+///
+/// §12.5.6.4's icons carry their meaning in their proportions, so they are not stretched onto a
+/// `/Rect` of another shape; see [`crate::icon`] for that choice and for the `NoZoom` sentence
+/// it stands in for.
+fn largest_square_within(rect: [f32; 4]) -> [f32; 4] {
+    let side = (rect[2] - rect[0]).min(rect[3] - rect[1]);
+    let left = rect[0] + ((rect[2] - rect[0]) - side) * 0.5;
+    let bottom = rect[1] + ((rect[3] - rect[1]) - side) * 0.5;
+    [left, bottom, left + side, bottom + side]
 }
 
 /// Draws §12.5.6.8's rectangle or ellipse, inscribed in `/Rect` less `/RD`.
