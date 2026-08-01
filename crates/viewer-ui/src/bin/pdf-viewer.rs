@@ -58,6 +58,19 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
+/// The third-party notices this binary is obliged to carry, printed by `--licences`.
+///
+/// Both licences covering the compiled-in standard 14 fonts require a *binary* distribution to
+/// reproduce their notices "in the documentation and/or other materials provided with the
+/// distribution", and until the hundred-and-forty-eighth session this program had nowhere to put
+/// them. `include_str!` rather than a path, for the same reason the fonts themselves are
+/// `include_bytes!`d: a notice that can go missing between the binary and the file system is not
+/// carried by the binary.
+///
+/// `--licenses` is accepted too. The project spells it the other way and a person typing the
+/// other spelling wants the same thing.
+const NOTICE: &str = include_str!("../../../../NOTICE");
+
 /// The one document this program opens.
 ///
 /// `viewer-core` keeps a set of them because §12.6.4.4's embedded go-to and a tabbed host both
@@ -74,7 +87,10 @@ fn main() {
     let mut opens_at = None;
     let mut arguments = std::env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
-        if argument == "--no-sandbox" {
+        if argument == "--licences" || argument == "--licenses" {
+            print!("{NOTICE}");
+            return;
+        } else if argument == "--no-sandbox" {
             sandbox = false;
         } else if argument == "--trace" {
             trace = true;
@@ -168,6 +184,7 @@ fn main() {
 /// What the program does when it is given nothing to open.
 fn usage() {
     eprintln!("usage: pdf-viewer [--no-sandbox] <document.pdf>");
+    eprintln!("       pdf-viewer --licences");
     eprintln!();
     eprintln!("Arrows, Page Up/Down or Space turn pages; Home and End jump; + and - zoom;");
     eprintln!("drag to select text, a selects the page, s saves, Escape quits.");
@@ -185,6 +202,7 @@ fn usage() {
     eprintln!("                step that did not finish. PDFVIEWER_LOG=error|warn|info|debug");
     eprintln!("                sets how much of the graphics stack's own logging comes with it,");
     eprintln!("                and defaults to warn.");
+    eprintln!("  --licences    print the third-party notices this binary carries, and exit.");
 }
 
 /// How many passwords a person is asked for before the program gives up.

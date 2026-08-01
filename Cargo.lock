@@ -3082,6 +3082,7 @@ dependencies = [
  "pollster",
  "render-cpu",
  "render-gpu",
+ "sha2",
  "test-scenes",
  "vello",
  "viewer-core",

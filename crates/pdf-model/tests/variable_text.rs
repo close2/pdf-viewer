@@ -323,26 +323,58 @@ fn a_password_field_does_not_echo_its_value() {
 /// > needed to establish the graphics state parameters, such as text size and colour
 #[test]
 fn the_default_appearance_strings_colour_is_the_texts_colour() {
-    let (reports, raster) = draw(pdf_with(
-        "",
-        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
-         /T (field) /V (Hi) /DA (1 0 0 rg /Helv 12 Tf) >>",
-    ));
-    assert!(reports.is_empty(), "{reports:?}");
+    // **Asserted as a difference between two colours rather than as a pixel count.** The count
+    // is a property of the substitute face, and this test used to require more than ten
+    // strongly-red pixels — which "Hi" at 12 points gives with some faces and not others. It
+    // stopped being true in the hundred-and-forty-eighth session, when the standard 14 became
+    // compiled-in and `/Helvetica` began resolving to Liberation Sans on every machine rather
+    // than to whatever was installed: nine pixels, and the clause still honoured.
+    let field = |colour: &str| {
+        let (reports, raster) = draw(pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+                 /T (field) /V (Hi) /DA ({colour} /Helv 12 Tf) >>"
+            ),
+        ));
+        assert!(reports.is_empty(), "{reports:?}");
+        let mut red = 0_usize;
+        let mut blue = 0_usize;
+        for row in 0..raster.height {
+            for x in 0..raster.width {
+                let index =
+                    (row.saturating_mul(raster.width).saturating_add(x) as usize).saturating_mul(4);
+                let (r, g, b, a) = (
+                    raster.data[index],
+                    raster.data[index.saturating_add(1)],
+                    raster.data[index.saturating_add(2)],
+                    raster.data[index.saturating_add(3)],
+                );
+                if a > 200 && g < 60 {
+                    if r > 200 && b < 60 {
+                        red = red.saturating_add(1);
+                    }
+                    if b > 200 && r < 60 {
+                        blue = blue.saturating_add(1);
+                    }
+                }
+            }
+        }
+        (red, blue)
+    };
 
-    let red = (0..raster.height)
-        .flat_map(|row| (0..raster.width).map(move |x| (x, row)))
-        .filter(|(x, row)| {
-            let index =
-                (row.saturating_mul(raster.width).saturating_add(*x) as usize).saturating_mul(4);
-            raster.data[index.saturating_add(3)] > 200
-                && raster.data[index] > 200
-                && raster.data[index.saturating_add(1)] < 60
-        })
-        .count();
+    let (red_when_red, blue_when_red) = field("1 0 0 rg");
+    let (red_when_blue, blue_when_blue) = field("0 0 1 rg");
+    assert!(red_when_red > 0, "the /DA's red never reached the glyphs");
     assert!(
-        red > 10,
-        "the /DA's red never reached the glyphs: {red} pixels"
+        blue_when_blue > 0,
+        "the /DA's blue never reached the glyphs"
+    );
+    assert_eq!(blue_when_red, 0, "red text drew blue pixels");
+    assert_eq!(red_when_blue, 0, "blue text drew red pixels");
+    assert_eq!(
+        red_when_red, blue_when_blue,
+        "the same value in two colours drew different shapes"
     );
 }
 

@@ -1,0 +1,83 @@
+NOTICE
+======
+
+This program is MIT-licensed; see LICENSE. It also *contains* third-party material, and both
+licences below oblige a binary distribution to carry their notices with it. This file is that
+carrying, and `pdf-viewer --licences` prints it.
+
+Two things this file is not. It is not a list of the crates this program is built from — those
+are Cargo metadata, `cargo deny check licenses` enforces the policy in deny.toml, and none of them
+is redistributed here as data. And it is not the licence of this program, which is LICENSE.
+
+
+-------------------------------------------------------------------------------
+1. The standard 14 font programs
+-------------------------------------------------------------------------------
+
+ISO 32000-2 §9.6.2.2 names fourteen fonts a PDF may use without embedding, on the understanding
+that the processor has them. Those fourteen programs are compiled into this binary. They live in
+data/standard-fonts/, their provenance is data/standard-fonts/PROVENANCE.md, and the verbatim
+licence texts are data/standard-fonts/LICENSE_FOXIT and data/standard-fonts/LICENSE_LIBERATION.
+
+1a. Ten faces from PDFium's Foxit set — Courier, Times, Symbol and ZapfDingbats:
+
+      FoxitFixed.pfb            FoxitSerif.pfb            FoxitSymbol.pfb
+      FoxitFixedBold.pfb        FoxitSerifBold.pfb        FoxitDingbats.pfb
+      FoxitFixedItalic.pfb      FoxitSerifItalic.pfb
+      FoxitFixedBoldItalic.pfb  FoxitSerifBoldItalic.pfb
+
+    Copyright 2014 PDFium Authors. All rights reserved.
+    Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
+
+    Redistribution and use in source and binary forms, with or without modification, are
+    permitted provided that the following conditions are met:
+
+       * Redistributions of source code must retain the above copyright notice, this list of
+    conditions and the following disclaimer.
+       * Redistributions in binary form must reproduce the above copyright notice, this list of
+    conditions and the following disclaimer in the documentation and/or other materials provided
+    with the distribution.
+       * Neither the name of Google Inc. nor the names of its contributors may be used to endorse
+    or promote products derived from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS
+    OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+    MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+    COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+    EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+    GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+    ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+    OF THE POSSIBILITY OF SUCH DAMAGE.
+
+1b. Four Liberation Sans faces, standing in for Helvetica:
+
+      LiberationSans-Regular.ttf   LiberationSans-Italic.ttf
+      LiberationSans-Bold.ttf      LiberationSans-BoldItalic.ttf
+
+    Digitized data copyright (c) 2010 Google Corporation
+        with Reserved Font Arimo, Tinos and Cousine.
+    Copyright (c) 2012 Red Hat, Inc.
+        with Reserved Font Name Liberation.
+
+    This Font Software is licensed under the SIL Open Font License, Version 1.1. The full text is
+    in data/standard-fonts/LICENSE_LIBERATION and at http://scripts.sil.org/OFL
+
+    The reserved font name means these faces may be shipped and used freely, and may not be
+    modified while keeping the name Liberation. Nothing here modifies them: they are compiled in
+    byte for byte, and data/standard-fonts/SHA256SUMS records what those bytes are.
+
+
+-------------------------------------------------------------------------------
+2. The specification, and the test corpus
+-------------------------------------------------------------------------------
+
+Neither is part of the program, and neither is in the binary. They are recorded here because they
+are in the repository and a reader of it should know their terms.
+
+doc/*.pdf and doc/md/* are ISO 32000-2 and the PDF Association's application notes, present for
+the citation checker and the conformance ledger to read. They are ISO's and the PDF Association's,
+under their own terms, and are not redistributed by any build of this program.
+
+doc/pdf.js is a submodule holding Mozilla's pdf.js test corpus, Apache-2.0. It is used by the
+gates and by nothing that ships.

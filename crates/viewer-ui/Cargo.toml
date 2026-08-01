@@ -23,6 +23,9 @@ winit.workspace = true
 # rather than reaching for a backend directly.
 [dev-dependencies]
 test-scenes.workspace = true
+# For `tests/notices.rs`, which checks the vendored fonts against the digests committed beside
+# them. Already in the tree for ISO 32000-2 §7.6.4.3.4's Algorithm 2.B.
+sha2.workspace = true
 
 [lints]
 workspace = true

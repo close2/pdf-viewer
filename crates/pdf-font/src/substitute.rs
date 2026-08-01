@@ -21,16 +21,19 @@
 //! with the substitute's own metrics drifts out of alignment with the document's own
 //! positioning.
 //!
-//! # The one place a machine dependency remains
+//! # This module used to describe itself as the only machine-dependent code in the tree
 //!
-//! A standard-14 font may omit `/Widths` entirely, and then the specification's answer is
-//! that the reader already knows the metrics. This crate does not carry those tables, so
-//! it takes advances from the substitute instead. That is correct to within the
-//! substitute's metric compatibility — [`PREFERENCES`] lists the Helvetica-, Times- and
-//! Courier-compatible families first precisely so that it usually is exact — but it does
-//! mean such a page can differ between machines. Removing that dependency means embedding
-//! the standard-14 metrics, which is a licensing decision rather than a technical one and
-//! is recorded in `doc/adr/0007-non-embedded-fonts.md`.
+//! It no longer is, for the fourteen faces where it matters. [`crate::standard`] compiles
+//! §9.6.2.2's fourteen font programs into the binary, and [`find`] consults them **first**
+//! for a request whose `/BaseFont` names one of them — see [`Request::standard`] — so those
+//! pages render identically on every machine. The machine's own fonts still serve every
+//! other non-embedded font, where their broader coverage is worth more than reproducibility,
+//! and the compiled-in set is the fallback there rather than the first choice.
+//!
+//! Metrics were the other half of the same problem and were closed in the thirtieth session:
+//! [`crate::standard_metrics`] carries the standard 14's advances, so a page whose font
+//! states no `/Widths` is laid out by the document rather than by the substitute. The two
+//! halves now come from the same faces. ADRs 0007, 0133.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, RwLock};
@@ -61,6 +64,23 @@ impl Family {
     }
 }
 
+/// Which reader parses a substitute's bytes.
+///
+/// A compiled-in face may be either. The Liberation faces are `sfnt` containers; the Foxit ones
+/// are **bare CFF programs**, whatever their `.pfb` extension says — `PDFium`'s files begin
+/// `01 00 04 02`, which is a CFF header and not PostScript, and the extension is inherited from
+/// whatever they were converted from. §9.6.2.1's NOTE 1 is why that costs nothing here: a CFF is
+/// "an alternative, more compact but functionally equivalent representation of a Type 1 font
+/// program", and [`crate::cff`] already reads one because §9.9's `/FontFile3` embeds them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Format {
+    /// `TrueType` or `OpenType`, read through `skrifa`'s `FontRef`.
+    Sfnt,
+    /// A bare CFF program, read through `read-fonts`' CFF reader.
+    BareCff,
+}
+
 /// What the document asked for, derived from the document alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Request {
@@ -70,6 +90,17 @@ pub struct Request {
     pub bold: bool,
     /// Whether an italic or oblique face was asked for.
     pub italic: bool,
+    /// Whether the `/BaseFont` names one of §9.6.2.2's fourteen, or a metric-compatible clone.
+    ///
+    /// **This is what decides whether the compiled-in face or the machine's is tried first**,
+    /// and the reason is that the two cases are different questions. A document naming
+    /// `/Helvetica` is asking for something the standard says a processor *has*, so answering
+    /// it the same way on every machine is the whole point. A document naming `/Garamond`
+    /// without embedding it is asking for something no processor is required to have, and the
+    /// machine's catalogue — which may hold a face with a far wider character set — is the
+    /// better first answer there, with the compiled-in face behind it so that a machine with
+    /// no fonts at all still draws the text.
+    pub standard: bool,
 }
 
 impl Request {
@@ -128,8 +159,58 @@ impl Request {
             family: family_of(&folded, document, descriptor, panose),
             bold,
             italic,
+            standard: names_a_standard_font(&folded),
         }
     }
+}
+
+/// Whether a folded `/BaseFont` names one of §9.6.2.2's fourteen.
+///
+/// > The PostScript language names of 14 Type 1 fonts, known as the standard 14 fonts, are as
+/// > follows: Times-Roman, Helvetica, Courier, Symbol, Times-Bold, Helvetica-Bold, Courier-Bold,
+/// > `ZapfDingbats`, Times-Italic, Helvetica-Oblique, Courier-Oblique, Times-BoldItalic,
+/// > Helvetica-BoldOblique, CourierBoldOblique.
+///
+/// Matched on the family part only, because the weight and slope are already in [`Request`] and
+/// because the clause's own list spells one of them without a hyphen (`CourierBoldOblique`) —
+/// a name-by-name table would have to reproduce that, and a reader that only accepted the
+/// fourteen exact strings would refuse `Courier-BoldOblique`, which is what producers write.
+///
+/// The three clones are here on the same argument [`crate::standard_metrics::StandardFont`]
+/// already makes for the metrics: Arial was drawn metric-compatible with Helvetica, and a
+/// document naming it without embedding it means Helvetica in practice.
+fn names_a_standard_font(folded: &str) -> bool {
+    const FAMILIES: &[&str] = &[
+        "times",
+        "timesnewroman",
+        "helvetica",
+        "arial",
+        "courier",
+        "couriernew",
+        "symbol",
+        "zapfdingbats",
+        "dingbats",
+    ];
+    FAMILIES.iter().any(|family| {
+        folded.strip_prefix(family).is_some_and(|rest| {
+            rest.is_empty()
+                || matches!(
+                    rest,
+                    "roman"
+                        | "bold"
+                        | "italic"
+                        | "oblique"
+                        | "bolditalic"
+                        | "boldoblique"
+                        | "psmt"
+                        | "ps"
+                        | "mt"
+                        | "boldmt"
+                        | "italicmt"
+                        | "bolditalicmt"
+                )
+        })
+    })
 }
 
 /// The `/Flags` bits this module reads, numbered as the specification numbers them.
@@ -498,12 +579,37 @@ fn normalise(name: &str) -> String {
         .collect()
 }
 
-/// Finds a font file to stand in for the requested one.
+/// Finds a font program to stand in for the requested one.
 ///
-/// Returns `None` when this machine offers nothing suitable, so the caller reports an
-/// unusable font rather than drawing a blank where text should be.
+/// **This never fails**, since the hundred-and-forty-eighth session: [`crate::standard`] has a
+/// face for every [`Family`], so a machine with no fonts installed at all draws the text. What
+/// the order decides is *which* answer comes first, and [`Request::standard`] is what decides
+/// the order — the fourteen the standard says a processor has are answered from the binary, and
+/// everything else is answered from the machine with the binary behind it.
 #[must_use]
-pub fn find(request: Request) -> Option<Arc<[u8]>> {
+pub fn find(request: Request) -> (Arc<[u8]>, Format) {
+    if request.standard {
+        let (bytes, format) = crate::standard::face(request);
+        return (Arc::from(bytes), format);
+    }
+    if let Some(bytes) = installed(request) {
+        return (bytes, Format::Sfnt);
+    }
+    let (bytes, format) = crate::standard::face(request);
+    (Arc::from(bytes), format)
+}
+
+/// The best face this machine offers for a request, or `None` if it offers none.
+///
+/// Every candidate is an `sfnt` container: [`catalogue`] admits no other extension, because a
+/// bare Type 1 program on disk carries no name this could match against without opening it.
+///
+/// **Public because a composite font needs exactly this and not [`find`].** §9.7.4.2 leaves a
+/// substituted composite font reachable only through `/ToUnicode`, so its face has to answer *by
+/// character* — which an `sfnt`'s `cmap` does and a name-keyed CFF cannot. Handing the compiled-in
+/// Foxit faces to that path would refuse five corpus documents that a machine font draws.
+#[must_use]
+pub fn installed(request: Request) -> Option<Arc<[u8]>> {
     let families = PREFERENCES
         .iter()
         .find(|(family, _)| *family == request.family)

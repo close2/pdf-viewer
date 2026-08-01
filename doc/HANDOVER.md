@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-forty-seventh** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -62,9 +62,9 @@ plays it), search, or draw a panel for the outline, the layers and the attachmen
 
 | gate | number | where |
 |---|---|---|
-| tests | **946**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 147; the five fuzzers last in 139 |
+| tests | **951**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 148; the five fuzzers last in 139 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 11 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
 | conformance | 3067 citations, 318 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
@@ -79,7 +79,10 @@ nobody embedded, so each renderer substitutes differently. That row means "repor
 "drew it right".
 
 **Both moving numbers move in both directions on purpose.** Contradicted pages: 174 → 65 over
-sessions 6 to 61, steady at 65 since. Corpus documents drawing incompletely: 291 → 89 over
+sessions 6 to 61, steady at 65 until the hundred-and-forty-eighth took it to **70** — five net,
+argued and written down in `CONTRADICTED_SUBSTITUTED_FONT`: the standard 14 are compiled in now,
+so we stopped reading the same URW faces off this machine's disk that the three C references
+read, and the oracle noticed within one run (ADR 0133). Corpus documents drawing incompletely: 291 → 89 over
 sessions 6 to 122, then **91** in the hundred-and-twenty-seventh, where two documents that had
 been drawing the wrong font in silence started saying so.
 
@@ -423,25 +426,26 @@ notice and a pointer to the fork that generated it. **`hayro`'s is the closest p
 
 **Order, and it is not negotiable:**
 
-1. **The attribution surface, before any byte of data lands.** Both licences oblige a *binary*
-   distribution to carry the notices and this program has nowhere to put them. Three pieces: a
-   `NOTICE` at the root; `pdf-viewer --licences`, which prints it and is what the licence text
-   literally asks for, is testable and works headless; and the **menu with an About panel** the
-   owner asked for. There is no UI toolkit here — draw the panel with what the tree has,
-   `pdf-font`'s glyph outlines and `pdf-render`'s display list, which becomes possible as soon as
-   step 2 lands. `cargo deny` reads Cargo metadata and **cannot see vendored data**, so the check
-   that the notices are present must be a test of this tree's own.
-2. **The 14 standard fonts — the bigger win and the smaller download.** 804 KB ends
-   `substitute.rs`'s standing description of itself as "the only machine-dependent code in the
-   tree". Downstream of that machine dependency: the oracle's 14 substituted-font pages,
-   `text_render_modes.rs`'s "install a font or run this where one exists" panic, and session 125
-   being unable to *see* its own fix because `checkbox-bad-appearance.pdf`'s tick is
-   `/ZapfDingbats` and this machine has no such face — `FoxitDingbats.pfb` is exactly it. The
-   integration point is `pdf_font::substitute::find`. **Recommendation: the compiled-in set wins
-   for the standard 14 and the machine's fonts serve everything else** — those fourteen are the
-   only faces a *document* names without supplying, so they are the only ones where the file's
-   intent is known and a substitute is not a guess. Every render then reproduces on any machine.
-3. **The predefined `CMap`s.** §9.7.5.2 states it as a `shall`: "A PDF processor shall support
+1. **The attribution surface — done in the hundred-and-forty-eighth session.** `/NOTICE` at the
+   root names every vendored file and carries both licences' load-bearing clauses;
+   `pdf-viewer --licences` `include_str!`s and prints it; `viewer-ui/tests/notices.rs` checks that
+   every `.pfb` and `.ttf` under `data/` is named **by file name**, that the required sentences
+   are verbatim, and that the bytes still hash to `SHA256SUMS`. That test exists because
+   `cargo deny` reads Cargo metadata and **cannot see vendored data**. What is still owed is the
+   **menu with an About panel** the owner asked for: there is no UI toolkit here, so it is drawn
+   with `pdf-font`'s glyph outlines and `pdf-render`'s display list, which step 2 has now made
+   possible on any machine.
+2. **The 14 standard fonts — done in the hundred-and-forty-eighth session** (ADR 0133), together
+   with step 1, because step 1 exists to serve it. `data/standard-fonts/` holds the 804 KB,
+   `pdf_font::standard` compiles it in, and `substitute::find` consults it first for a
+   `/BaseFont` naming one of the fourteen and last otherwise — so those pages reproduce on any
+   machine and `substitute.rs` is no longer the only machine-dependent code in the tree.
+   `substitute::find` can no longer fail at all. **Three things came out of it worth keeping**:
+   PDFium's `.pfb` files are bare CFF programs (`01 00 04 02`), a name-keyed substitute is
+   addressed by glyph *name* and so needs no Adobe Glyph List step — which is why `Symbol` and
+   `ZapfDingbats` work — and a *composite* font cannot use them at all, because §9.7.4.2 leaves
+   it reachable only through `/ToUnicode`, which addresses by character.
+3. **The predefined `CMap`s — the only third-party data item left.** §9.7.5.2 states it as a `shall`: "A PDF processor shall support
    Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7 and Adobe-KR-9 character collections." Two
    constraints, neither legal. **Principle 2**: 13 MB decompressed at first use is not "nothing
    eager", so the form must be per-`CMap` — a compiled-in index of name → (offset, length) into
@@ -499,7 +503,7 @@ next to what it covers.
 **9 glyph edges** whose ink matches the consensus to half a level (measured, session 75), 7 a
 shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel image, 1 a `CalRGB`
 alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion, 2 a reference that drew
-nothing, 1 a CID width, 1 a negative line width, 14 substituted fonts, **14 unexplained**.
+nothing, 1 a CID width, 1 a negative line width, **19 substituted fonts**, **14 unexplained**.
 
 **Not one of the 14 is above its bound** — the list starts at 0.85, `issue7696.pdf` having left
 it in the hundred-and-fortieth session. Rank before opening anything,
@@ -760,7 +764,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption, §7.5.6's writer | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler, every algorithm against its own subclause; `document.rs` decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `xref.rs` is §7.5 whole, and the thing to know is that an entry is an `Option<Location>`: a free entry and an unknown entry type both *record* that the number names nothing, because §7.5.6 makes a deletion the most recent copy of an object (ADR 0100). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees in one module, because the second clause defines itself as the first with integer keys (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is *not* ISO Latin 1. `date.rs` is §7.9.4, beside it because NOTE 1 makes a date a text string that happens to spell one (ADR 0092). `write.rs` is the *only* writing in the tree: clause 7's syntax on the way out and §7.5.6's incremental update, which appends and never rewrites (ADRs 0121, 0129) — and `Document::encrypt_for_update` beside `decrypt_object` is §7.6.2 in the other direction, so an encrypted document can be saved. `filter.rs` is §7.4's ten filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately `None` so a *content* stream naming one is visibly unsupported |
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` constructs what a subtype's clause states, splices under `/NeedAppearances`, and argues the refusals (ADRs 0030, 0032); `icon.rs` beside it is the one module that is pure invention and says so (ADR 0109). `view.rs` is the `ViewState` §12.6.4's actions change — **the precedent the edit log will follow**. `variable_text.rs` is §12.7.4.3 and the one place this tree *writes* a content stream. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused, its `Decode` one table per component and its `Conversion` an *exact* per-image memo (ADRs 0034, 0035). `page.rs` is §7.7.3 and §14.11.2's five boundaries. `accessibility.rs`, `uri.rs` and `file_spec.rs` hold no PDF at all. Then one module per clause family: `action.rs`, `forms_data.rs`, `named_page.rs`, `structure.rs`, `article.rs`, `collection.rs`, `measurement.rs`, `thumbnail.rs`, `signature.rs`, `attachment.rs`, `page_label.rs`, `navigation.rs`, `requirements.rs`, `document_part.rs`, `viewer_preferences.rs` |
-| `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2, §9.6.5.4 — ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code, and `cff.rs` and `type1.rs` each produce one because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is the one program kept *parsed*, measured: re-parsing per glyph put 11 ms on `tracemonkey.pdf`. `cmap.rs` is §9.7, where `Code` carries a value *and* a length. `substitute.rs` is **the only machine-dependent code in the tree** and ranks three sources of a request with an argument: the name, then §9.8.3.2's PANOSE, then Table 121's flags, which producers set carelessly (ADR 0086) |
+| `pdf-font` | Glyph outlines via `skrifa`, and §9.6.2.2's fourteen compiled in | Owns both simple-font encoding algorithms (§9.6.5.2, §9.6.5.4 — ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code, and `cff.rs` and `type1.rs` each produce one because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is the one program kept *parsed*, measured: re-parsing per glyph put 11 ms on `tracemonkey.pdf`. `cmap.rs` is §9.7, where `Code` carries a value *and* a length. `standard.rs` is §9.6.2.2's fourteen font programs as `static` bytes, and it is what stopped `substitute.rs` being the only machine-dependent code in the tree (ADR 0133): the fourteen come from the binary, everything else from the machine with the binary behind it. `substitute.rs` ranks three sources of a request with an argument — the name, then §9.8.3.2's PANOSE, then Table 121's flags, which producers set carelessly (ADR 0086) |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047) |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. Its own soft-mask readback, because Vello's luminance mask is the SVG formula and no blend mode is a `/TR` |
@@ -1198,6 +1202,12 @@ anchor that makes it checkable.
 - **A test that skips silently is worse than no test.** A missing corpus is a skip; a present
   corpus that lacks what the test needs is a **panic**.
 - **A gap measured on both sides is a fact; measured on one side it is an accusation.**
+- **Agreement can be a shared *substitute*, and only removing the sharing shows it.** Six oracle
+  pages became contradicted the session §9.6.2.2's fourteen font programs were compiled in, and
+  none is a defect: `poppler`, `mupdf` and `ghostscript` resolve a non-embedded standard-14 font
+  through this machine's fontconfig, so part of our agreement with them had been reading the same
+  URW faces off the same disk. **Ask what data a reference reads from *this machine* before
+  crediting its agreement.** ADR 0133, and it is trap 9's second shape from the inside.
 - **A gate cannot ratchet what has no consumer**, and **fixing an instrument can be worth a
   feature** — one line moved 25 pages into the judged set and showed one drawing nothing.
 - **A page can leave the contradicted list without a pixel moving** (the tolerance class comes from
@@ -1381,6 +1391,9 @@ anchor that makes it checkable.
   build it" and "we drew it" there is a third state only the oracle catches.
 - **A representation can forbid a correct answer.** No evenly spaced array of colours can express a
   discontinuity. Ask what a data structure *cannot say*.
+- **A file's extension is a claim, and the bytes decide.** PDFium ships the standard 14's Foxit
+  faces as `.pfb` and every one of them begins `01 00 04 02`, which is a CFF header and not
+  PostScript. Four lines of `xxd` settled what a module comment would have got wrong. ADR 0133.
 - **A parser that recognises a delimiter without parsing it will be read as parsing it.**
 - **An operator that is matched and ignored may still be a rule.** `BX`/`EX` sat with `MP`/`DP` for
   thirty-one sessions; §7.8.2 makes them the one place an unrecognised operator is not an error.
@@ -1680,3 +1693,4 @@ above rather than here.
 | 145 | §12.7.4.3's appearance stream is written into the file, not owed to the reader | 0130 |
 | 146 | The glyph coverage cache, counted: what is shared is the outline, not the coverage | 0131 |
 | 147 | One clipping region stated 303 times became one: 4.7× on a dense page | 0132 |
+| 148 | §9.6.2.2's fourteen font programs compiled in, and the notices that go with them | 0133 |

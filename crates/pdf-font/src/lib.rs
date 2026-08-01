@@ -28,6 +28,7 @@ pub mod cmap;
 pub mod encoding;
 pub mod name_keyed;
 pub mod panose;
+pub mod standard;
 pub mod standard_metrics;
 pub mod substitute;
 pub mod tounicode;
@@ -190,6 +191,21 @@ enum Program {
     /// but pointless: the CFF reader draws from the bare program, and a synthesised
     /// container would be one more thing to get right for no gain.
     BareCff,
+}
+
+impl From<substitute::Format> for Program {
+    /// A substitute's format, as this crate's own reader selection.
+    ///
+    /// The two enumerations exist separately because [`substitute::Format`] is what
+    /// [`substitute::find`] can produce — an `sfnt` from the machine or from the compiled-in
+    /// Liberation faces, or a bare Type 1 from the compiled-in Foxit ones — while [`Program`]
+    /// also names a bare Type 1 program, which only an *embedded* `/FontFile` can be.
+    fn from(format: substitute::Format) -> Self {
+        match format {
+            substitute::Format::Sfnt => Self::Sfnt,
+            substitute::Format::BareCff => Self::BareCff,
+        }
+    }
 }
 
 /// Why a font could not be used.
@@ -392,11 +408,8 @@ impl LoadedFont {
             // keep the layout right either way.
             Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
                 let request = substitute::Request::derive(document, dict, descriptor);
-                let data = substitute::find(request).ok_or_else(|| FontError::NoSubstitute {
-                    name: name.to_owned(),
-                    reason: format!("no {:?} face is installed", request.family),
-                })?;
-                (data, Program::Sfnt, Some(request))
+                let (data, format) = substitute::find(request);
+                (data, Program::from(format), Some(request))
             }
             Err(other) => return Err(other),
         };
@@ -416,8 +429,9 @@ impl LoadedFont {
             // A substitute shares no glyph order with the font the document meant, so its
             // glyphs are reached by what each code *means* rather than by index.
             (_, Some(request)) => {
-                let (table, resolved) =
-                    substitute_code_table(document, dict, descriptor, request, &data, name)?;
+                let (table, resolved) = substitute_code_table(
+                    document, dict, descriptor, request, &data, program, name,
+                )?;
                 names = Some(resolved);
                 CodeMapping::Named(Box::new(table))
             }
@@ -529,10 +543,21 @@ impl LoadedFont {
         let (data, program, substituted) = match embedded {
             Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
                 let request = substitute::Request::derive(document, &descendant, descriptor);
-                let data = substitute::find(request).ok_or_else(|| FontError::NoSubstitute {
-                    name: name.to_owned(),
-                    reason: format!("no {:?} face is installed", request.family),
-                })?;
+                // **`installed` rather than `find`, and the difference is §9.7.4.2's.** A
+                // substituted composite font is reachable only through `/ToUnicode`, so its face
+                // has to answer *by character* — which an `sfnt`'s `cmap` does and the
+                // compiled-in name-keyed CFF faces cannot. Handing them to this path would refuse
+                // five corpus documents a machine font draws.
+                let data =
+                    substitute::installed(request).ok_or_else(|| FontError::NoSubstitute {
+                        name: name.to_owned(),
+                        reason: format!(
+                            "no {:?} face this machine offers can be addressed by character, which \
+                         is the only way §9.7.4.2 leaves to reach a substitute for a composite \
+                         font",
+                            request.family
+                        ),
+                    })?;
                 (data, Program::Sfnt, true)
             }
             Ok(Embedded { data, program }) => (data, program, false),
@@ -1435,14 +1460,10 @@ fn substitute_code_table(
     descriptor: Option<&Dictionary>,
     request: substitute::Request,
     data: &[u8],
+    program: Program,
     name: &str,
 ) -> Result<(CodeTable, GlyphNames), FontError> {
     let _ = descriptor;
-    let font = FontRef::new(data).map_err(|e| FontError::Malformed {
-        name: name.to_owned(),
-        detail: format!("substitute font: {e}"),
-    })?;
-    let charmap = font.charmap();
 
     // A symbolic standard-14 font carries its own encoding; everything else starts from a
     // Latin base, defaulting to StandardEncoding when the document names none.
@@ -1453,17 +1474,54 @@ fn substitute_code_table(
     };
     let names = encoding_names(document, dict, name, symbolic, true)?;
 
+    // **The two routes differ in what the substitute is addressed *by*, and the name-keyed one
+    // is the shorter of the two.** An `sfnt` substitute is reached by character, so a glyph name
+    // has to go through the Adobe Glyph List first; a bare CFF keys its glyphs by name already,
+    // which is the same name §9.6.5.2's encoding produced. Since the hundred-and-forty-eighth
+    // session the second route is the one every compiled-in Foxit face takes, and it is why
+    // `Symbol` and `ZapfDingbats` work at all: their glyph names — `a9`, `universal` — are in no
+    // Unicode mapping worth trusting, and going through one is how a dingbat became a Latin
+    // letter.
     let mut table: CodeTable = [None; 256];
-    for (code, slot) in table.iter_mut().enumerate() {
-        let Some(glyph_name) = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty()) else {
-            continue;
+    if program == Program::BareCff {
+        let keyed = match CodeToGlyph::read(data).map_err(|e| FontError::Malformed {
+            name: name.to_owned(),
+            detail: format!("substitute font: {e}"),
+        })? {
+            CodeToGlyph::Named(keyed) => keyed,
+            // No compiled-in face is CID-keyed, and a machine's fonts never reach here.
+            CodeToGlyph::Keyed { .. } => {
+                return Err(FontError::UnsupportedEncoding {
+                    name: name.to_owned(),
+                    encoding: "CID-keyed CFF as a substitute".to_owned(),
+                });
+            }
         };
-        let Some(character) = read_fonts::ps::agl::name_to_char(glyph_name) else {
-            continue;
-        };
-        *slot = charmap
-            .map(character)
-            .and_then(|id| u16::try_from(id.to_u32()).ok());
+        for (code, slot) in table.iter_mut().enumerate() {
+            let Some(glyph_name) = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty())
+            else {
+                continue;
+            };
+            *slot = keyed.by_name.get(glyph_name).copied();
+        }
+    } else {
+        let font = FontRef::new(data).map_err(|e| FontError::Malformed {
+            name: name.to_owned(),
+            detail: format!("substitute font: {e}"),
+        })?;
+        let charmap = font.charmap();
+        for (code, slot) in table.iter_mut().enumerate() {
+            let Some(glyph_name) = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty())
+            else {
+                continue;
+            };
+            let Some(character) = read_fonts::ps::agl::name_to_char(glyph_name) else {
+                continue;
+            };
+            *slot = charmap
+                .map(character)
+                .and_then(|id| u16::try_from(id.to_u32()).ok());
+        }
     }
 
     if !declared_codes(document, dict).any(|code| table.get(code).is_some_and(Option::is_some)) {

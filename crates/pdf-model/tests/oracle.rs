@@ -637,11 +637,16 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 14 pages. The weakest entries here, because the difference need not be anyone's defect:
+/// 19 pages. The weakest entries here, because the difference need not be anyone's defect:
 /// every renderer substitutes, and where two references happen to choose the same system
 /// font and we choose another, the consensus is about their font rather than about the page.
-/// `pdf-font`'s `substitute` module is the only machine-dependent code in the tree, so this
-/// is also the group that could legitimately differ on another machine.
+///
+/// **Since the hundred-and-forty-eighth session it is the references that are machine-dependent
+/// here and not us.** §9.6.2.2's fourteen font programs are compiled into this binary
+/// (`pdf_font::standard`, ADR 0133), so a non-embedded standard-14 font draws the same on every
+/// machine; `poppler`, `mupdf` and `ghostscript` still resolve one through fontconfig. This group
+/// would therefore *grow* on a machine whose installed faces differ from this one's — not because
+/// our answer changed, but because theirs did.
 ///
 /// Listed rather than excluded, because a page in this group can *also* be wrong for a real
 /// reason, and dropping it would hide that. This is not hypothetical: `calgray.pdf` and
@@ -694,21 +699,51 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// can draw, and page 2 came from mean 5.07 to 3.08 without leaving the contradicted list —
 /// it still holds what that condition refuses. Page 1 of the same document became a page we
 /// draw completely and its mean fell 4.19 to 3.20.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 14] = [
+/// # Six arrived in the hundred-and-forty-eighth session, and the reason is the whole point
+///
+/// The standard 14 font programs are compiled into the binary now (ADR 0133), so `/Helvetica`,
+/// `/Times-Roman`, `/Symbol` and `/ZapfDingbats` are drawn from Liberation Sans and PDFium's
+/// Foxit faces on every machine rather than from whatever this one has installed. **That is what
+/// put six pages here, and it is trap 9's second shape read from the inside.** `poppler`, `mupdf`
+/// and `ghostscript` all resolve a non-embedded standard-14 font through this machine's
+/// fontconfig, so until that session we agreed with them partly because we were reading *their
+/// data*: the same URW faces, off the same disk. We no longer are, and the oracle noticed
+/// immediately.
+///
+/// Every one of the six was opened and every one draws the same text in a different face. There
+/// is no defect among them: `issue6069.pdf` is one line of sans-serif, `issue9243.pdf` one word
+/// under a gradient, `bug847420.pdf` one italic line, `issue11403_reduced.pdf` one line in which
+/// *ghostscript* draws a stray acute accent nobody else does, `bug850854.pdf` likewise, and
+/// `issue15716.pdf` is a grid of card suits where ours are Foxit's ZapfDingbats and theirs are
+/// the machine's clone of it.
+///
+/// **`issue5238.pdf` page 1 went the other way and left this list**, which is worth as much as
+/// the six: the compiled-in face agrees with the consensus where the machine's did not.
+///
+/// **This is the trade written down**: five contradicted pages net, against a page that renders
+/// the same on every machine — which is what §9.6.2.2 means by "[t]hese fonts … shall be available to
+/// the PDF processor", and what `CLAUDE.md`'s principle 5 means by not treating agreement with
+/// other renderers as the definition of right.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
     "bad-PageLabels.pdf page 1",
+    "bug847420.pdf page 1",
+    "bug850854.pdf page 1",
     "calrgb.pdf page 1",
     "calrgb.pdf page 11",
     "calrgb.pdf page 12",
     "calrgb.pdf page 5",
     "franz_2.pdf page 1",
+    "issue11403_reduced.pdf page 1",
+    "issue15716.pdf page 1",
     "issue4304.pdf page 1",
-    "issue5238.pdf page 1",
+    "issue6069.pdf page 1",
     "issue6108.pdf page 1",
     "issue7580.pdf page 1",
     "issue8088.pdf page 1",
     "issue8088.pdf page 2",
     "issue8088.pdf page 3",
     "issue8125.pdf page 1",
+    "issue9243.pdf page 1",
 ];
 
 /// Pages that are almost entirely glyph edges, where our *ink* matches the consensus.
