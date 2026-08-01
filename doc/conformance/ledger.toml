@@ -3333,7 +3333,7 @@ title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/view.rs", "crates/pdf-model/src/annotation.rs"]
 test = ["crates/pdf-model/tests/actions.rs::a_hide_action_stops_an_annotation_being_drawn", "crates/pdf-model/tests/links.rs::a_links_region_is_found_and_its_destination_resolves"]
-note = "Clause 12's own map: annotations, forms, actions, navigation, digital signatures. `CLAUDE.md` states the split this row records — \"everything that displays\" is in scope and *behaviour* is not, with JavaScript excluded by name — and after eleven sessions on this clause what is left silent is **one row**: §12.7.7's named pages, which exist for §12.7.8's FDF to import a template from. Everything else in the clause is `implemented`, `partial`, `reported`, `inapplicable` or `out-of-scope`: §12.2's preferences, §12.3's destinations, outline, thumbnails and collections, §12.4's labels, articles and presentations, §12.5's annotations and their constructed appearances, §12.6's twenty action types with eight performed, §12.7's field appearances, its reset action and §12.7.8's forms data format read whole, §12.8's signatures read and never verified, §12.9's measurements, §12.10's geospatial dictionaries and §12.11's requirements. This row said \"[n]one of the parts that make a document interactive\" while a click had been following links since the fifty-seventh session."
+note = "Clause 12's own map: annotations, forms, actions, navigation, digital signatures. `CLAUDE.md` states the split this row records — \"everything that displays\" is in scope and *behaviour* is not, with JavaScript excluded by name — and after twelve sessions on this clause **no row of it is `silent`**, which as of the hundred-and-first session is true of the whole ledger. Every row is `implemented`, `partial`, `reported`, `inapplicable` or `out-of-scope`: §12.2's preferences, §12.3's destinations, outline, thumbnails and collections, §12.4's labels, articles and presentations, §12.5's annotations and their constructed appearances, §12.6's twenty action types with eight performed, §12.7's field appearances, its reset action, §12.7.8's forms data format read whole and §12.7.7's named pages that its templates come from, §12.8's signatures read and never verified, §12.9's measurements, §12.10's geospatial dictionaries and §12.11's requirements. This row said \"[n]one of the parts that make a document interactive\" while a click had been following links since the fifty-seventh session."
 
 [[clause]]
 clause = "12.2"
@@ -4106,8 +4106,10 @@ note = "Read and performed, in the two halves §12.6.4.8's URI action is split i
 [[clause]]
 clause = "12.7.7"
 title = "Named pages"
-status = "silent"
-note = "Named pages: `/Pages` in the name tree, mapping name strings to pages, used by an FDF `/Pages` entry to add a template page to a document — and by §12.7.8.3.3's `/TRef`, which is now read and named. The name tree itself has existed since the forty-eighth session, so what is missing is the tree's *consumer* and the ability to add a page to the tree this reader walks. The ledger's last `silent` row."
+status = "partial"
+code = ["crates/pdf-model/src/named_page.rs", "crates/pdf-model/src/view.rs", "crates/pdf-model/src/page.rs"]
+test = ["crates/pdf-model/src/named_page.rs::both_trees_are_read_and_a_template_is_looked_up_first", "crates/pdf-model/src/named_page.rs::a_document_that_breaks_the_clauses_own_rule_is_named", "crates/pdf-model/tests/forms_data.rs::an_imported_template_adds_a_page_the_document_already_held"]
+note = "Both name trees read, and the clause's own rule about them checked: a page in `/Pages` \"shall be left in the page tree\", and one in `/Templates` \"shall have an object type of Template rather than Page and shall have no Parent or B entry\" — four invariants, run by `NamedPages::disagreements` for §12.8.7's reason. The clause gives naming a page two purposes and only one of them is in scope: an import-data action adding it, which is §12.7.8.3.3 and is performed — `ViewState::appended_pages` holds what an import added and `Pages::detached` builds a template page without the `/Parent` it is forbidden to have. The other, a script adding it, is on principle 5's closed exclusion list. Measured over all 964 openable corpus documents: 1 names a page, `issue19389.pdf`, with one entry in `/Pages` and no disagreements; none states a `/Templates` tree."
 
 [[clause]]
 clause = "12.7.8"
@@ -4192,10 +4194,10 @@ note = "Table 249, and the clause's one load-bearing sentence: \"importing a fie
 [[clause]]
 clause = "12.7.8.3.3"
 title = "FDF pages"
-status = "reported"
-code = ["crates/pdf-model/src/forms_data.rs"]
-test = ["crates/pdf-model/src/forms_data.rs::what_is_not_applied_is_named"]
-note = "Table 251's page dictionaries are counted and named on `FormsData::owed` rather than applied: a template page is added to the target document, which needs §12.7.7's named pages and a page tree this reader may extend. Table 246's rule that `/Fields` and `/Pages` \"shall not both be present\" is a rule about a writer, so a file breaking it is read and the contradiction is named rather than one entry being preferred."
+status = "partial"
+code = ["crates/pdf-model/src/forms_data.rs", "crates/pdf-model/src/view.rs"]
+test = ["crates/pdf-model/tests/forms_data.rs::an_imported_template_adds_a_page_the_document_already_held", "crates/pdf-model/tests/forms_data.rs::a_template_this_document_cannot_reach_is_named", "crates/pdf-model/src/forms_data.rs::a_template_page_names_a_page_this_document_already_holds"]
+note = "Tables 251, 252 and 253 read, and a template page **added**: the reference resolves through §12.7.7's name trees to a page this document already holds, so the whole operation is a name lookup and no page content crosses between files. Where the page is added is this program's choice and is written down — after the document's own, which §12.7.8.3.3 does not state and which is the only order leaving every existing page index meaning what it meant. Two refusals, each named: Table 253's `/F` puts the template in another file, which this reader has no filesystem to open, and a `/TRef` naming no page in either tree is a file asking for something the document does not contain. Table 252's `/Fields` is read and not applied, because it names fields of the *template's* own hierarchy rather than the target's `/AcroForm`; `/Rename` is read and cannot be applied by anybody, since the clause says outright that the flag \"does not define a renaming algorithm\" — and nothing here merges field trees for it to matter to. No corpus document states an FDF `/Pages` entry, because none carries an FDF file at all."
 
 [[clause]]
 clause = "12.7.8.3.4"

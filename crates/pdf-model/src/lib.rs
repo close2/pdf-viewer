@@ -41,6 +41,7 @@ pub mod inline_image;
 pub mod link;
 pub mod measurement;
 pub mod mesh;
+pub mod named_page;
 pub mod navigation;
 pub mod optional_content;
 pub mod outline;

@@ -47,13 +47,19 @@
 //! if an `Ff` entry is present". [`FlagChange`] is that arithmetic, once, for both the field
 //! flags and the widget's annotation flags.
 //!
+//! Table 246's `/Pages` is *not* on that list as of the hundred-and-first session: §12.7.8.3.3's
+//! templates name pages this document already holds, under §12.7.7's `/Templates` name tree, so
+//! adding one costs a name lookup and no page content at all. [`crate::view::ViewState`] holds
+//! the result and a viewer shows them after the document's own pages.
+//!
 //! # What is read and not applied, and why each
 //!
 //! Every one of these is *named* on [`FormsData::owed`] rather than skipped, which is principle
 //! 3's requirement:
 //!
-//! - **`/Pages`** (Table 246) adds template pages to the target document, which needs §12.7.7's
-//!   named pages and a page tree this reader may extend. Read as a count and refused.
+//! - **Table 252's `/Rename`** decides which fully qualified name a template's fields answer to
+//!   afterwards, and the clause says outright that the flag "does not define a renaming
+//!   algorithm". It is read, and nothing here merges field trees for it to matter to.
 //! - **`/Annots`** (Table 254) carries annotations belonging to no document, each naming the
 //!   page it attaches to. Drawing one means resolving its `/AP` against the *FDF* file's objects
 //!   while placing it on the target's page, which is a second document reaching into the
@@ -94,6 +100,11 @@ const MAX_FIELD_DEPTH: usize = 64;
 
 /// Most annotations listed from one FDF file's `/Annots`.
 const MAX_ANNOTATIONS: usize = 4096;
+
+/// Most Table 251 pages read, and most templates read from one of them.
+///
+/// A file adding more pages than this to a document is not composing a form.
+const MAX_PAGES: usize = 4096;
 
 /// Why an FDF file could not be read at all.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -140,9 +151,8 @@ pub struct FormsData {
     pub encoding: Encoding,
     /// Table 254's annotations, read and drawn by nothing.
     pub annotations: Vec<FdfAnnotation>,
-    /// How many Table 251 page dictionaries `/Pages` states, which is how many template pages
-    /// this file would add to the target document.
-    pub pages: usize,
+    /// Table 246's `/Pages`: the template pages this file adds to the target document.
+    pub pages: Vec<FdfPage>,
     /// Table 246's `/Target`, "[t]he name of a browser frame in which the underlying PDF
     /// document shall be opened".
     pub target: Option<String>,
@@ -295,6 +305,43 @@ impl FlagChange {
     }
 }
 
+/// One page an FDF file adds to the target document. Table 251.
+///
+/// §12.7.8.3.3 makes this a *composition*: a page is made of one or more templates, each of
+/// which is a page the target document already holds under a name (§12.7.7). So an FDF file
+/// carrying pages does not carry any page content — it names pages that are already there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FdfPage {
+    /// Table 251's `/Templates`, "[r]equired", the named pages that serve as templates on it.
+    pub templates: Vec<FdfTemplate>,
+    /// Whether Table 251's optional `/Info` page information dictionary is present.
+    ///
+    /// The table says only that it "shall contain additional information about the page" and
+    /// names not one entry, so there is nothing to read and something to say.
+    pub has_info: bool,
+}
+
+/// One template on an FDF page. Table 252.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FdfTemplate {
+    /// Table 252's `/TRef`, "[r]equired", the named page reference specifying its location.
+    pub reference: crate::named_page::Reference,
+    /// Table 252's `/Fields`, the root fields imported along with the template.
+    ///
+    /// Read and not applied. The entry names fields of the *template*, whose widgets are the
+    /// template page's own annotations rather than anything in the target document's
+    /// `/AcroForm` — so applying them means a second field-name table, over one page.
+    pub fields: Vec<FdfField>,
+    /// Table 252's `/Rename`, **default `true`**.
+    ///
+    /// Read and not acted on, and the clause is unusually explicit about why nobody can: it says
+    /// in as many words that "the `Rename` flag does not define a renaming algorithm", and then
+    /// suggests one a processor "might" use. What renaming decides is which fully qualified name
+    /// a template's field answers to afterwards; this program does not merge field trees, so a
+    /// template page's widgets draw from the template page's own fields and no name collides.
+    pub rename: bool,
+}
+
 /// One annotation carried by an FDF file. Table 254 over §12.5.6's own dictionaries.
 ///
 /// §12.7.8.1: FDF "can be used to define a container for annotations that are separate from the
@@ -351,18 +398,22 @@ impl FormsData {
             &mut fields,
         );
 
-        let pages = document
-            .get_key(&fdf, "Pages")
-            .as_array()
-            .map_or(0, <[Object]>::len);
-        if pages > 0 {
-            owed.push("/Pages: template pages, which need §12.7.7's named pages");
+        let pages = read_pages(document, &document.get_key(&fdf, "Pages"), &encoding);
+        if pages
+            .iter()
+            .flat_map(|page| &page.templates)
+            .any(|template| !template.fields.is_empty())
+        {
+            owed.push("/Fields on a template: fields of the template's own field hierarchy");
+        }
+        if pages.iter().any(|page| page.has_info) {
+            owed.push("/Info on a page: a dictionary Table 251 names no entry of");
         }
         // Table 246 states two exclusions between these three entries, and both are rules about
         // a *writer*: "[t]his entry and the Pages entry shall not both be present" of `/Fields`
         // and of `/Status`. A reader meeting a file that breaks them has data it can use and no
         // clause telling it which to prefer, so both are read and the contradiction is named.
-        if pages > 0 && !fields.is_empty() {
+        if !pages.is_empty() && !fields.is_empty() {
             owed.push("/Fields and /Pages are both present, which Table 246 forbids");
         }
 
@@ -595,6 +646,58 @@ fn options(document: &Document, field: &Dictionary, encoding: &Encoding) -> Opti
     )
 }
 
+/// Table 246's `/Pages`, and Tables 251, 252 and 253 under it.
+fn read_pages(document: &Document, entry: &Object, encoding: &Encoding) -> Vec<FdfPage> {
+    let resolved = document.resolve(entry);
+    let Some(items) = resolved.as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .take(MAX_PAGES)
+        .filter_map(|item| {
+            let resolved = document.resolve(item);
+            let page = resolved.as_dict()?;
+            let templates = document.get_key(page, "Templates");
+            let templates = templates.as_array().unwrap_or_default();
+            Some(FdfPage {
+                templates: templates
+                    .iter()
+                    .take(MAX_PAGES)
+                    .filter_map(|item| {
+                        let resolved = document.resolve(item);
+                        let template = resolved.as_dict()?;
+                        let target = document.get_key(template, "TRef");
+                        let reference =
+                            crate::named_page::Reference::read(document, target.as_dict()?)?;
+                        let mut fields = Vec::new();
+                        read_fields(
+                            document,
+                            &document.get_key(template, "Fields"),
+                            "",
+                            0,
+                            encoding,
+                            &mut fields,
+                        );
+                        Some(FdfTemplate {
+                            reference,
+                            fields,
+                            // Table 252 states the default and it is `true`, which is the shape
+                            // this project's habits warn about: a parameter whose default is the
+                            // behaviour nobody implemented.
+                            rename: !matches!(
+                                document.get_key(template, "Rename"),
+                                Object::Boolean(false)
+                            ),
+                        })
+                    })
+                    .collect(),
+                has_info: !document.get_key(page, "Info").is_null(),
+            })
+        })
+        .collect()
+}
+
 /// Table 254's annotations, each with the page it says it belongs to.
 fn read_annotations(document: &Document, entry: &Object) -> Vec<FdfAnnotation> {
     let resolved = document.resolve(entry);
@@ -797,17 +900,42 @@ mod tests {
              2 0 obj\n<< /Length 3 >>\nstream\nabc\nendstream\nendobj",
         );
         let data = FormsData::read(&document).expect("an FDF catalog");
-        assert_eq!(data.pages, 1);
+        assert_eq!(data.pages.len(), 1);
         assert_eq!(data.annotations.len(), 1);
         assert_eq!(data.annotations[0].page, Some(3));
         assert_eq!(data.annotations[0].subtype.as_deref(), Some("Text"));
         assert_eq!(data.fields[0].owed, ["/RV: XFA rich text, excluded"]);
         assert_eq!(
             data.owed.len(),
-            6,
-            "/Pages, the Table 246 contradiction, /JavaScript, /EmbeddedFDFs, /Differences \
+            5,
+            "the Table 246 contradiction, /JavaScript, /EmbeddedFDFs, /Differences \
              and /Annots: {:?}",
             data.owed
+        );
+    }
+
+    /// Tables 251, 252 and 253, and the one entry of the three the clause says nobody can
+    /// implement: Table 252's `/Rename` "does not define a renaming algorithm", and its default
+    /// is `true`.
+    #[test]
+    fn a_template_page_names_a_page_this_document_already_holds() {
+        let document = fdf("1 0 obj\n<< /FDF << /Pages [\n\
+             << /Templates [ << /TRef << /Name (blank) >> >> \
+             << /TRef << /Name (letterhead) /F (library.pdf) >> /Rename false >> ] /Info << >> >>\n\
+             ] >> >>\nendobj");
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        assert_eq!(data.pages.len(), 1);
+        assert!(data.pages[0].has_info);
+        let templates = &data.pages[0].templates;
+        assert_eq!(templates.len(), 2);
+        assert_eq!(templates[0].reference.name, "blank");
+        assert_eq!(templates[0].reference.file, None, "this document");
+        assert!(templates[0].rename, "Table 252's default is true");
+        assert_eq!(templates[1].reference.file.as_deref(), Some("library.pdf"));
+        assert!(!templates[1].rename);
+        assert_eq!(
+            data.owed,
+            ["/Info on a page: a dictionary Table 251 names no entry of"]
         );
     }
 

@@ -366,6 +366,27 @@ impl<'a> Pages<'a> {
         )
     }
 
+    /// Builds a page from a dictionary that is **not** in the page tree.
+    ///
+    /// §12.7.7's template pages are exactly that: a page named by the document's `/Templates`
+    /// tree "shall have an object type of Template rather than Page and shall have no Parent or
+    /// B entry", so §7.7.3.4's inheritance — which runs up `/Parent` — has nowhere to run and
+    /// such a page states everything it needs itself. This is [`Self::get`]'s own assembly with
+    /// an empty ancestry, so a template page gets the same defaults, the same intersections and
+    /// the same `/ViewArea` and `/ViewClip` treatment as every other page.
+    ///
+    /// It is not a way to draw an arbitrary dictionary: nothing here checks that the argument is
+    /// a page, because the caller reached it through a tree that says it is one.
+    #[must_use]
+    pub fn detached(&self, dict: &Dictionary) -> Page {
+        build_page(
+            self.document,
+            dict,
+            &Inherited::default().overlay(self.document, dict),
+            self.view,
+        )
+    }
+
     /// Returns the index of the page a reference names, or `None` when the tree has no such
     /// page.
     ///

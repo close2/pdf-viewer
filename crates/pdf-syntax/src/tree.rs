@@ -189,7 +189,7 @@ pub fn number_pairs(root: &Dictionary, resolve: &dyn Fn(&Object) -> Object) -> V
         &mut visited,
         &mut |key, value, out: &mut Vec<(i64, Object)>| {
             if let Some(key) = key.as_integer() {
-                out.push((key, value));
+                out.push((key, resolve(&value)));
             }
         },
         &mut out,
@@ -210,6 +210,36 @@ pub fn number_pairs(root: &Dictionary, resolve: &dyn Fn(&Object) -> Object) -> V
 /// §7.9.2's question.
 #[must_use]
 pub fn name_pairs(
+    root: &Dictionary,
+    resolve: &dyn Fn(&Object) -> Object,
+) -> Vec<(Vec<u8>, Object)> {
+    let mut out = Vec::new();
+    let mut visited = std::collections::BTreeSet::new();
+    collect(
+        root,
+        "Names",
+        resolve,
+        0,
+        &mut visited,
+        &mut |key, value, out: &mut Vec<(Vec<u8>, Object)>| {
+            if let Object::String(bytes) = key {
+                out.push((bytes.to_vec(), resolve(&value)));
+            }
+        },
+        &mut out,
+    );
+    out
+}
+
+/// The same walk as [`name_pairs`], keeping each value **as the leaf states it**.
+///
+/// §12.7.7's two page-naming trees are why this exists: what identifies a page is its object
+/// identity — it is what §12.3.2's destinations carry and what `Pages::index_of` compares — and
+/// [`name_pairs`] resolves a leaf's value, which throws the identity away before a caller can
+/// ask for it. A tree whose leaves are direct objects yields those objects unchanged, which is
+/// a file naming a page it did not make an indirect object of.
+#[must_use]
+pub fn name_entries(
     root: &Dictionary,
     resolve: &dyn Fn(&Object) -> Object,
 ) -> Vec<(Vec<u8>, Object)> {
@@ -254,7 +284,11 @@ fn collect<T>(
             let (Some(key), Some(value)) = (pair.first(), pair.get(1)) else {
                 continue;
             };
-            push(resolve(key), resolve(value), out);
+            // The key is resolved and the value is not. A caller almost always wants the
+            // object a leaf names, and resolves it — but §12.7.7's named pages want the
+            // *reference*, because what identifies a page is its object identity, and a
+            // resolution here would throw that away before anybody could ask for it.
+            push(resolve(key), value.clone(), out);
         }
     }
     let Object::Array(kids) = resolve(node.get("Kids").unwrap_or(&Object::Null)) else {

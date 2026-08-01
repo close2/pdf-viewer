@@ -22,6 +22,49 @@ use pdf_model::forms_data::FormsData;
 use pdf_model::view::ViewState;
 use pdf_syntax::Document;
 
+/// The same builder, with the catalog's `/Names` dictionary and extra objects given.
+///
+/// §12.7.7's template page is object 8: outside the page tree, with no `/Parent` and no `/B`,
+/// which is exactly what the clause requires of a page "not intended to be displayed".
+fn form_with_a_template() -> Vec<u8> {
+    let form = String::from_utf8(form()).expect("the fixture is ASCII");
+    let form = form.replace(
+        "/DR << /Font << /Helv 7 0 R >> >> >> >>",
+        "/DR << /Font << /Helv 7 0 R >> >> >> /Names          << /Templates << /Names [(blank) 8 0 R] >> >> >>",
+    );
+    let template = "8 0 obj\n<< /Type /Template /MediaBox [0 0 300 150] /Resources << >>          /Contents 9 0 R >>\nendobj\n\
+         9 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n";
+    rebuild(&form, template)
+}
+
+/// Reassembles a fixture whose objects have changed length, keeping every object number.
+fn rebuild(document: &str, extra: &str) -> Vec<u8> {
+    let body: String = document
+        .split_inclusive("endobj\n")
+        .filter(|part| part.contains(" 0 obj"))
+        .collect::<String>()
+        + extra;
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
 /// A one-page form with a text field, a check box, and a `/DR` naming `/Helv`.
 ///
 /// The text field's own `/V` is `stored` and its `/DV` is `factory`, so the three statements
@@ -229,4 +272,48 @@ fn an_import_data_action_names_its_file_and_its_format() {
         pdf_model::action::DataFormat::Fdf,
         "§12.7.8.1's extension, whatever case the exporting platform wrote it in"
     );
+}
+
+/// §12.7.7 and §12.7.8.3.3 together: an FDF page names a template, the template names a page
+/// this document already holds outside its page tree, and importing adds it.
+#[test]
+fn an_imported_template_adds_a_page_the_document_already_held() {
+    let document = Document::open(form_with_a_template()).expect("the fixture is a valid PDF");
+    assert_eq!(pdf_model::Pages::new(&document).len(), 1, "the page tree");
+
+    let mut view = ViewState::of(&document);
+    assert!(view.appended_pages().is_empty());
+
+    let data = FormsData::read(&fdf(
+        "<< /Pages [ << /Templates [ << /TRef << /Name (blank) >> >> ] >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.pages, 1);
+    assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
+    assert_eq!(view.appended_pages(), [pdf_syntax::ObjectId::new(8, 0)]);
+
+    // §7.7.3.4's inheritance runs up `/Parent` and a template has none, so the page states its
+    // own geometry and `Pages::detached` reads it from the dictionary alone.
+    let pages = pdf_model::Pages::new(&document);
+    let object = document.get(pdf_syntax::ObjectId::new(8, 0));
+    let template = pages.detached(object.as_dict().expect("a page dictionary"));
+    assert_eq!((template.width(), template.height()), (300.0, 150.0));
+}
+
+/// Two refusals, both named: a template in another file, and a name this document does not have.
+#[test]
+fn a_template_this_document_cannot_reach_is_named() {
+    let document = Document::open(form_with_a_template()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf("<< /Pages [ << /Templates [ \
+         << /TRef << /Name (blank) /F (library.pdf) >> >> \
+         << /TRef << /Name (absent) >> >> ] >> ] >>"))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.pages, 0);
+    assert_eq!(outcome.refused.len(), 2, "{:?}", outcome.refused);
+    assert!(outcome.refused[0].contains("library.pdf"));
+    assert!(outcome.refused[1].contains("names no page absent"));
+    assert!(view.appended_pages().is_empty());
 }

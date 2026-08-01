@@ -312,7 +312,7 @@ impl App {
     /// and not about the document.
     fn follow_link(&mut self) -> bool {
         let pages = Pages::new(&self.document);
-        let Some(page) = pages.get(self.page_index) else {
+        let Some(page) = page_at(&self.document, &self.view, self.page_index) else {
             return false;
         };
         // The window pixel to the page's own space, then to default user space, which is
@@ -492,6 +492,21 @@ impl App {
         for name in &outcome.unmatched {
             println!("import-data: this document has no field named {name}");
         }
+        for refusal in &outcome.refused {
+            println!("import-data: declined — {refusal}");
+        }
+        if outcome.pages > 0 {
+            // §12.7.7's template pages become part of the document being shown, so the page
+            // count moves — which is the one thing an action in this program has ever changed
+            // about how many pages there are.
+            self.page_count = Pages::new(&self.document)
+                .len()
+                .saturating_add(self.view.appended_pages().len());
+            println!(
+                "import-data: {} template page(s) added; the document now has {}",
+                outcome.pages, self.page_count
+            );
+        }
     }
 
     /// Moves by `delta` pages, clamped to the document.
@@ -653,6 +668,28 @@ impl ApplicationHandler for App {
     }
 }
 
+/// The page at `index`, counting §12.7.8.3.3's imported template pages after the document's own.
+///
+/// §12.7.7's template pages are objects of this document that the page *tree* does not reach —
+/// the clause puts them in a name tree precisely so that they are not displayed until something
+/// asks — so showing one means building it without the inheritance a tree would have given it,
+/// which `Pages::detached` is. Their position is this program's choice: §12.7.8.3.3 says a
+/// template page is added to the document and states no place, and after the document's own
+/// pages is the only order that leaves every existing page index meaning what it meant.
+fn page_at(
+    document: &Document,
+    view: &pdf_model::view::ViewState,
+    index: usize,
+) -> Option<pdf_model::Page> {
+    let pages = Pages::new(document);
+    if let Some(page) = pages.get(index) {
+        return Some(page);
+    }
+    let appended = index.checked_sub(pages.len())?;
+    let object = document.get(*view.appended_pages().get(appended)?);
+    Some(pages.detached(object.as_dict()?))
+}
+
 /// Renders the current page and presents it.
 ///
 /// Returns a short status for the title bar and the scale it drew at — the second because a
@@ -685,7 +722,7 @@ fn render(
     let width = state.surface.config.width;
     let height = state.surface.config.height;
 
-    let Some(page) = Pages::new(document).get(page_index) else {
+    let Some(page) = page_at(document, view, page_index) else {
         return (
             format!("page {} could not be read", page_index.saturating_add(1)),
             1.0,

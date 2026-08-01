@@ -75,6 +75,17 @@ pub struct ViewState {
     /// in [`ViewState::import`] and [`ViewState::reset_form`], because both answer the same
     /// question about one widget and the answer is whichever was performed last.
     imported: BTreeMap<ObjectId, Import>,
+    /// Pages §12.7.8.3.3's imported templates have added, after the document's own.
+    ///
+    /// §12.7.7 says what naming a page is *for*: "[a]n import-data action can add the named page
+    /// to the document into which FDF is being imported". Adding is the one operation in this
+    /// module that changes how many pages there are, and it belongs here for the same reason a
+    /// hidden annotation does — the file says nothing about it, and a second render of the
+    /// document without this state has the pages the file has.
+    ///
+    /// In the order the FDF file's `/Pages` array states, each an object of *this* document,
+    /// since §12.7.7's trees name pages the target already holds.
+    appended: Vec<ObjectId>,
     /// Which annotation the pointer is over or pressing, if any (§12.5.5).
     ///
     /// One annotation rather than a set, because a pointer is in one place. `None` is what
@@ -162,16 +173,20 @@ pub enum FieldValue<'a> {
 
 /// What one import of one FDF file did to this document.
 ///
-/// Both halves matter to a caller and neither is an error. §12.7.8.3.2 matches by fully
-/// qualified name, so a name the form has not got is either the wrong FDF for this document or
-/// a form that has changed since the data was exported — and only somebody who can see both
-/// files can say which.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Every field here is something a caller should be able to say out loud, and none of them is an
+/// error. §12.7.8.3.2 matches by fully qualified name, so a name the form has not got is either
+/// the wrong FDF for this document or a form that has changed since the data was exported — and
+/// only somebody who can see both files can say which.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Imported {
     /// How many widget annotations took a value.
     pub widgets: usize,
     /// Fully qualified names the FDF file states that this document has no field for.
     pub unmatched: Vec<String>,
+    /// How many §12.7.7 template pages were added to the document.
+    pub pages: usize,
+    /// Templates the file named and this document could not add, each with the reason.
+    pub refused: Vec<String>,
 }
 
 /// Everything this state says about one annotation, gathered in one walk.
@@ -223,6 +238,7 @@ impl ViewState {
             shown: BTreeSet::new(),
             reset: BTreeSet::new(),
             imported: BTreeMap::new(),
+            appended: Vec::new(),
             pointer: None,
         }
     }
@@ -319,10 +335,70 @@ impl ViewState {
             self.reset.remove(widget);
             self.imported.insert(*widget, import.clone());
         }
-        Imported {
+        let mut outcome = Imported {
             widgets: matched.len(),
             unmatched,
+            ..Imported::default()
+        };
+        self.append_templates(document, data, &mut outcome);
+        outcome
+    }
+
+    /// Adds §12.7.8.3.3's template pages, resolved through §12.7.7's name trees.
+    ///
+    /// A template page is a page **this document already holds** — §12.7.7 puts it in the
+    /// catalog's `/Templates` name tree, outside the page tree so that it is not displayed until
+    /// something asks for it — so adding one costs a name lookup and no page content at all.
+    ///
+    /// The name trees are read only when the FDF file states a page, which is never for any
+    /// document anyone has opened: `CLAUDE.md`'s "nothing eager" applies, and this is the one
+    /// caller either tree has.
+    ///
+    /// Two refusals, each named rather than dropped. Table 253's `/F` names a template in
+    /// *another file*, which this reader has no filesystem to open — `GoToR`'s reason exactly. A
+    /// `/TRef` naming no page in either tree is a file asking for something the document does
+    /// not contain, which is the one case §12.7.7's own invariants cannot catch.
+    fn append_templates(
+        &mut self,
+        document: &Document,
+        data: &crate::forms_data::FormsData,
+        outcome: &mut Imported,
+    ) {
+        if data.pages.is_empty() {
+            return;
         }
+        let named = crate::named_page::NamedPages::read(document);
+        for page in &data.pages {
+            for template in &page.templates {
+                let reference = &template.reference;
+                if let Some(file) = &reference.file {
+                    outcome.refused.push(format!(
+                        "the template {} is in {file}, which this reader has no filesystem to                          open",
+                        reference.name
+                    ));
+                    continue;
+                }
+                let Some(id) = named.lookup(&reference.name) else {
+                    outcome.refused.push(format!(
+                        "this document names no page {}, in either §12.7.7 tree",
+                        reference.name
+                    ));
+                    continue;
+                };
+                self.appended.push(id);
+                outcome.pages = outcome.pages.saturating_add(1);
+            }
+        }
+    }
+
+    /// The pages §12.7.8.3.3's imported templates have added, in the order they were added.
+    ///
+    /// Empty for every document until an import-data action names an FDF file with a `/Pages`
+    /// entry. A caller showing them puts them after the document's own, which is the only order
+    /// the clause's "add … to the document" leaves available: §12.7.8.3.3 states no position.
+    #[must_use]
+    pub fn appended_pages(&self) -> &[ObjectId] {
+        &self.appended
     }
 
     /// Sets a group's state the way a *layer panel* does, and answers whether it changed.
