@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-thirty-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-thirty-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -20,43 +20,49 @@ hundred-and-thirtieth; if you find yourself retelling a session here, you are un
 
 ## Where we are
 
-A PDF **renderer** that opens real files and draws pages: geometry, colour, images, shadings,
-patterns, embedded text, transparency groups, soft masks, and annotations both from stored
-appearance streams and constructed where the standard states one — including §12.5.6.4's seven
-icons, whose artwork is this processor's own because the clause requires one and draws none. Two
-backends (CPU and GPU) that agree to the channel. JBIG2 and JPEG 2000 in a confined worker.
-Encryption at every revision and method §7.6 states. A form field's value laid out from its `/DA`.
-§12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links performing
-**eleven of §12.6's actions**, §14.9's accessibility entries, §12.4.4's whole presentation read
-for a caller that has one to play, and — since the eightieth session — everything a document says
-*about itself*: §14.7's logical structure, §14.8's tagged-PDF vocabulary, §7.11.4's embedded
+A PDF **viewer**, and until the hundred-and-thirty-first session that word would have been a
+claim rather than a description.
+
+It **draws** what a page says: geometry, colour, images, shadings, patterns, embedded text,
+transparency groups, soft masks, and annotations both from stored appearance streams and
+constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
+this processor's own because the clause requires one and draws none. Two backends (CPU and GPU)
+that agree to the channel. JBIG2 and JPEG 2000 in a confined worker. Encryption at every revision
+and method §7.6 states. §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels,
+§12.5.6.5's links performing **eleven of §12.6's actions**, §14.9's accessibility entries,
+§12.4.4's whole presentation read for a caller that has one to play, and everything a document
+says *about itself*: §14.7's logical structure, §14.8's tagged-PDF vocabulary, §7.11.4's embedded
 files, §14.13's associated files, §12.2's viewer preferences, §12.11's requirements, §7.12's
 extensions.
 
-Since the hundred-and-thirty-first session there is a **`viewer-core`**: `Command` in, `Event`
-out, `Query` → `Answer` beside them, with the open-document set, page, zoom, scroll, links,
-§12.6's actions and the render scheduler behind it, and a headless consumer that drives it with no
-display (ADR 0116). Since the hundred-and-thirty-second, **`pdf-viewer.rs` runs on it** as a
-tier-2 host — a window, a keyboard, a GPU and the two decisions a host owns (ADR 0117) — and
-three things a person can do are new: **a locked document asks for its password**, the cursor
-knows what it is over and §12.5.5's rollover appearances are chosen at last, and the page zooms
-and scrolls.
+It is **used**, which is what the nine sessions from the hundred-and-thirty-first added. A
+locked document asks for its password (§7.6.4.1, owed since the twenty-second session); the page
+zooms and scrolls; the cursor knows what it is over and §12.5.5's appearances follow it, as does
+§12.5.6.19's `/H`; a drag **selects text**, whose shapes cross to the host as geometry so that it
+draws them in its own colour; a person can **fill in a form field**, undo it and redo it; and the
+result can be **saved** — the file it was opened from, unchanged, with §7.5.6's incremental update
+appended, which is the one kind of writing `CLAUDE.md` permits.
 
-It is **not yet a viewer** in the full sense: nothing speaks a page or runs a slide show — though since the hundred-and-thirty-fourth session a drag **selects text**, and the shapes
-cross to the host as geometry so that it draws them in its own colour (ADR 0119). Every one of those was blocked on the same missing interface, which is why
-§0 below is the headline; the interface now exists, has two consumers, and the rest are features
-rather than architecture.
+All of it sits behind **`viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
+them, with no type from a windowing or graphics library anywhere in its API. Two consumers —
+`viewer-ui`'s winit window and a headless test harness — and §0 is the whole story. ADRs 0116 to
+0121.
+
+**What it still does not do**: speak a page (AccessKit has six sessions of §14.7 and §14.9
+reading waiting for it, and one `Query` to go), run a slide show (§12.4.4 is read and nothing
+plays it), search, or draw a panel for the outline, the layers and the attachments that
+`Query` already answers with.
 
 ### The four gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **934**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 138, fuzzers in 129 |
+| tests | **934**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | **all re-run in session 139**, including the five fuzzers |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
-| conformance | 3031 citations, 317 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3036 citations, 317 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -151,20 +157,22 @@ silence for thirty-one sessions (ADR 0115). None was `silent`, none was `reporte
 could see the last. Three were found by reading the clause beside the code; the fourth by
 measuring something else.
 
-### 0. The UI boundary — the vocabulary exists, the host does not
+### 0. The UI boundary — built, with two consumers on it
 
 **Everything a viewer still owes was blocked on one missing interface.** Since the
-hundred-and-thirty-first session that interface is code: `crates/viewer-core`, ADR 0116, and
-`tests/headless.rs` driving it with no display. This section is now half description and half
-instruction — read the first half to know what is there, the second to know what is next.
+hundred-and-thirty-first session that interface is code — `crates/viewer-core`, ADRs 0116 to
+0121 — with `viewer-ui` on it as a tier-2 host and `tests/headless.rs` driving it with no display
+at all. This section is now half description and half instruction: read the first half to know
+what is there, the second to know what is next.
 
 #### Why it was the headline
 
-Five owed items were the same item, and the first of them is **done**: a password prompt, which
-this file called "the missing piece, not the clause" for twenty sessions and which session 132
-landed in eleven lines of host code. The other four — a layer panel (read since session 67),
-presentation mode (session 70), an editable field (session 97's machinery), AccessKit over six
-sessions of §14.7/§14.9 — are now features rather than architecture.
+Five owed items were the same item, and **three of them are done**: a password prompt, which this
+file called "the missing piece, not the clause" for twenty sessions and which session 132 landed
+in eleven lines of host code; an editable field (sessions 135 and 136); and the layer panel's
+data, which `Query::Layers` answers with and which now wants only a panel. The other two —
+presentation mode and AccessKit — are features rather than architecture: one `Command::Tick` and
+one `Query` respectively.
 
 #### The goal, stated by the owner
 
@@ -220,9 +228,10 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
    string this writes), and regenerated appearance streams instead of `/NeedAppearances`. Both
    are named in ADR 0121 and neither is architectural.
 2. **The rest of the vocabulary, as its feature arrives.** `Command::Tick { millis }` for
-   §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves);
-   `Command::Select`, `Command::Edit`, `Undo`, `Redo`; `Query::TextIn`, `QuadsFor`,
-   `AccessibilityTree`; `Event::Dirty`/`Saved` for §7.5.6's incremental update.
+   §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves), and
+   `Query::AccessibilityTree`, which is what AccessKit needs and the last of §0's five owed
+   items with nothing behind it. Selection, editing and saving all landed in sessions 134 to
+   136 and their commands are in the table above.
 3. **Then one native host.** GTK4 via `gtk4-rs` first — Rust-safe, no C++ bridge, and it is the
    development platform. Qt/KDE second via `cxx-qt`, because that costs a C++ bridge and should
    not be the experiment that shapes the API.
@@ -241,22 +250,25 @@ Adding `egui` buys a widget set for a large dependency and no architectural proo
 #### Crates
 
 - `viewer-core` — the state machine. **Exists**; depends on `pdf-model`, `pdf-render` and
-  `pdf-syntax` and nothing else. Owns the open-document set, page/zoom/scroll and the render
-  scheduler's *bookkeeping* (not its threads); still owes the edit log, selection, search and
-  history.
+  `pdf-syntax` and nothing else. Owns the open-document set, page/zoom/scroll, links and
+  §12.6's actions, the selection, the edit log and the render scheduler's *bookkeeping* (not its
+  threads). Still owes search and a navigation history.
 - `viewer-render` (new, optional) — a default worker a host may use instead of writing one.
 - `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
   `vello` in its API.
 - `viewer-ffi` (new, last) — the C ABI, and the only crate in the tree permitted `unsafe`.
 - `viewer-ui` — consumer #1 since session 132, and a tier-2 host.
-- `pdf-model` — gains the text layer and takes `Edits` as a third input to `interpret`.
+- `pdf-model` — has the text layer (ADR 0118). The edit log lives in `viewer-core` and reaches
+  interpretation through `ViewState`, which was already the log §12.6.4's actions write to — so
+  `interpret` did not need a third input after all, and rule 1 holds without one.
 
 #### Five rules, and each has a reason that already exists in the tree
 
 1. **`pdf_syntax::Document` is immutable, forever.** An edit is a log beside it, not a change to
-   it — the pattern `view.rs` already uses for §12.6.4's actions. `interpret` stays a pure
-   function of `(document, view state, edits)`, which is what keeps the oracle's comparison of
-   1665 pages meaning anything. Now stated in `CLAUDE.md`.
+   it — the pattern `view.rs` already uses for §12.6.4's actions, and which the edit log joined
+   in the hundred-and-thirty-fifth session rather than displacing. `interpret` stays a pure
+   function of the document and the view state, which is what keeps the oracle's comparison of
+   1665 pages meaning anything. Stated in `CLAUDE.md`, and held.
 2. **No filesystem in the core.** The host supplies bytes; the core produces bytes. Not new
    policy — `Request::Import` and `Request::Resolve` already do exactly this, argued in ADRs 0090
    and 0104: "a document naming a file is a document asking this machine for something, and
@@ -294,7 +306,7 @@ hand over finished pixels. It also means a slow render never blocks feedback.
 | page content | `Raster` | page, zoom, edit | us |
 | interactive chrome | geometry | pointer speed | the host |
 
-#### Two artefacts that do not exist yet
+#### Two artefacts, both of which now exist
 
 **A text layer — done in the hundred-and-thirty-third session (ADR 0118), and selection on it in
 the hundred-and-thirty-fourth (ADR 0119).**
@@ -337,10 +349,13 @@ Design with that in mind from the first line even if the sandbox lands much late
 
 #### Near, and far
 
-- **Form-field editing is near.** §12.7.4.3's layout, splicing and value machinery exist; session
-  97's reset action proved a changed value redraws correctly. An editor and a caret away.
-- **Markup and free-text annotation editing is near-ish.** The constructions exist (§12.5.6.6,
-  §12.5.6.10); what is new is authoring `/QuadPoints` and `/Rect` from a drag.
+- **Form-field editing landed in the hundred-and-thirty-fifth session** and saving in the
+  hundred-and-thirty-sixth. What is left of it is a *caret*: a host sends whole values, and
+  nothing lays out a cursor between two characters. The text layer has the geometry for one.
+- **Markup and free-text annotation editing is next, and is the same log and the same writer.**
+  The constructions exist (§12.5.6.6, §12.5.6.10) and `pdf_syntax::write` puts an object into a
+  file; what is new is authoring `/QuadPoints` and `/Rect` from a drag, and an `Edit` variant
+  that carries a new object rather than a field's value.
 - **Editing the page's own text is far** and deliberately out of scope until the first two exist:
   it means re-laying-out content streams whose producer's intent is recorded nowhere.
 
@@ -502,21 +517,25 @@ diagnose may be a font nobody has looked up.**
 **One fair comparison exists.** Every other renderer here is C; `hayro` is Rust, forbids unsafe,
 and rasterises on the CPU single-threaded as we do.
 
-| | 125th | 119th | 106th | 99th | 73rd | 65th | 58th |
-|---|---|---|---|---|---|---|---|
-| total, ours | **6.04 s** / 865 complete pages | 7.08 / 864 | 6.99 / 862 | 7.08 / 859 | 6.91 / 858 | 6.20 / 852 | 7.13 / 852 |
-| total, `hayro` | 41.02 s | 41.28 | 39.59 | 49.03 | 41.87 | 34.93 | 39.03 |
-| **median page** | **2.16×** slower | 2.13 | 2.14 | 2.15 | 2.14 | 2.15 | 2.29 |
+| | 139th | 125th | 119th | 106th | 99th | 73rd | 65th | 58th |
+|---|---|---|---|---|---|---|---|---|
+| total, ours | **6.91 s** / 863 complete pages | 6.04 / 865 | 7.08 / 864 | 6.99 / 862 | 7.08 / 859 | 6.91 / 858 | 6.20 / 852 | 7.13 / 852 |
+| total, `hayro` | 47.89 s | 41.02 | 41.28 | 39.59 | 49.03 | 41.87 | 34.93 | 39.03 |
+| **median page** | **2.15×** slower | 2.16 | 2.13 | 2.14 | 2.15 | 2.14 | 2.15 | 2.29 |
 
-**Quote a total against a total taken the same afternoon.** The 6.04 s is *not* an improvement on
-the 7.08 s beside it: the interpretation A/B taken the same day puts the four sessions between
-them at +0.16% and none touched a rasterising path, so a 15% fall with no candidate change is the
-machine. In aggregate we are 5.5× faster than `hayro` because their distribution has a long tail
-and ours no longer does; the totals and the median answer different questions and only quoting
-both is honest.
+**Quote a total against a total taken the same afternoon.** Both totals rose ~15% between the
+hundred-and-twenty-fifth session and the hundred-and-thirty-ninth — ours 6.04 → 6.91, `hayro`'s
+41.02 → 47.89 — while the median ratio moved 2.16 → 2.15. Two independent programs do not slow
+down together; the machine did. **The ratio is the measurement and the totals are the machine**,
+which is also why the 6.04 s was never an improvement on the 7.08 s beside it. In aggregate we are 6.9× faster than `hayro` on the complete pages and 14× over every page both
+render, because their distribution has a long tail and ours no longer does; the totals and the
+median answer different questions and only quoting both is honest. We are faster on 103 of the
+863.
 
-**Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 150.7 M** today, of which
-the text layer is 35.8 M (session 133's A/B, below). Session
+**Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 150.8 M** today, of which
+the text layer is 35.8 M (session 133's A/B, below). The six sessions from the hundred-and-thirty-
+third cost **140 097 instructions, +0.0065%** — selection, editing, saving and §12.5.6.19's `/H`
+are all paths a page render does not take. Session
 124 rebuilt `0723cda` in the same sitting and got **2 119 519 869** against the 2 119.5 M session
 119 recorded for the same commit — a *repeat*, not a drift. **So the 0.42% "drift floor" this file
 used to quote is drift between machines and builds; an A/B in one sitting resolves far below it.**
@@ -1474,3 +1493,4 @@ above rather than here.
 | 136 | §7.5.6's incremental update: the one kind of writing this project does | 0121 |
 | 137 | The ledger re-read against six sessions of new capability; `/H` became reachable | 0122 |
 | 138 | Table 192's `/H`: the clause about a moment that had never happened | 0123 |
+| 139 | Everything re-verified after eight sessions of change | — |

@@ -140,9 +140,18 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
 ### The viewer
 
 `cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf` opens a real file.
-Arrow keys or Page Up/Down turn pages; the title bar names anything on the page that could
-not be drawn, because a viewer that shows an incomplete page confidently is worse than one
-that admits the gap.
+Arrow keys or Page Up/Down turn pages, `+`/`-`/`0` zoom, a drag selects text, `s` saves what
+was changed; the title bar names anything on the page that could not be drawn, because a
+viewer that shows an incomplete page confidently is worse than one that admits the gap.
+
+**Since the hundred-and-thirty-second session that binary is a *consumer* rather than the
+program.** Everything about documents, pages, clicks, selection and editing is `viewer-core`
+— `Command` in, `Event` out, `Query` → `Answer` beside them, with no windowing or graphics
+type in its API — and what is left in `viewer-ui` is a window, a keyboard, a GPU and the two
+decisions a host owns: which files a document may name, and what to do when one asks for a
+password. `doc/HANDOVER.md` §0 is that interface's specification and ADRs 0116 to 0121 are
+its argument; the second consumer is `viewer-core/tests/headless.rs`, which drives the whole
+state machine with no display at all.
 
 ### Phase 5 — De-risking spikes (before PDF code)
 - **A.** ~~Headless CPU render → byte-deterministic output.~~ **Done.** `render-cpu` on
@@ -397,7 +406,7 @@ only by someone who has read that clause against this code.
 | `reported` | Deliberately not implemented *yet*; detected and reported at runtime rather than skipped silently. Still owed. |
 | `silent` | Not implemented, and **nothing says so**: a document exercising the clause is drawn wrong without a word. |
 | `inapplicable` | The requirement describes a marking device rather than a screen — halftones, transfer functions, flatness, smoothness. Names why it cannot apply. **Not** the same as excluded. |
-| `writer-side` | The requirement addresses a PDF writer; we do not create files. Principle 5 also lists this as an exclusion, but it gets its own status because it is a property of the clause rather than a choice about scope. |
+| `writer-side` | The requirement addresses a PDF *generator*: what a file shall contain, laid out how. Principle 5 also lists this as an exclusion, but it gets its own status because it is a property of the clause rather than a choice about scope. **The exclusion is authoring, not writing** — §7.5.6's incremental update of what a person did is in scope and implemented (ADR 0121) — so a row is `writer-side` only where the requirement falls on whoever *creates* the structure. The seven rows were re-read against that in session 137; six stayed and §7.2.2 moved to `implemented`, because a tree that writes has to write ASCII tokens. |
 | `out-of-scope` | **Only** for a clause covered by principle 5's closed exclusion list, and the row must name which entry covers it. |
 | `unreviewed` | Nobody has read this clause against this code. The initial state of all 823. |
 
@@ -432,7 +441,7 @@ The rest of the vocabulary exists to keep five different situations from wearing
 the project *choosing* (`out-of-scope`), the project *not knowing* (`unreviewed`), the
 project *owing out loud* (`reported`, and `partial` for part of a clause), the project *owing
 in silence* (`silent`), and the requirement having no meaning for a screen (`inapplicable`).
-`out-of-scope`, `writer-side` and `inapplicable` are permanent; the rest are four different
+`out-of-scope` and `inapplicable` are permanent; **`writer-side` is not, and session 137 is the proof** — a clause that addressed only a generator became this tree's the moment it grew one. The rest are four different
 kinds of debt, and the ledger's headline number is how much of each is left. The distinction
 between the last two kinds is the one this project cares about most: a gap that reports is a
 gap you can schedule, and a gap that does not is a gap that ships.
