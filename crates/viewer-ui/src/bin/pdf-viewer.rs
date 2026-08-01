@@ -4,7 +4,7 @@
 //! cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf
 //! ``
 //!
-//! Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, `a`
+//! `--page N` opens at a page. Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, `a`
 //! selects the whole page and dragging selects part of it, `s` saves what was changed beside the
 //! document, Escape quits. The window title shows
 //! the page's own label where the document states one (§12.4.2), the page number, and how many
@@ -69,9 +69,31 @@ fn main() {
     // are decoded and a policy applied halfway through is not a policy.
     let mut path = None;
     let mut sandbox = true;
-    for argument in std::env::args_os().skip(1) {
+    let mut trace = false;
+    let mut processor = false;
+    let mut opens_at = None;
+    let mut arguments = std::env::args_os().skip(1);
+    while let Some(argument) = arguments.next() {
         if argument == "--no-sandbox" {
             sandbox = false;
+        } else if argument == "--trace" {
+            trace = true;
+            // The graphics stack's own voice, which is silent until something receives it.
+            speak_up();
+        } else if argument == "--cpu" {
+            processor = true;
+        } else if argument == "--page" {
+            // A page number as the title bar shows it, which is one-based. §12.3.2.1's
+            // `/OpenAction` is the document's own answer to the same question and wins where
+            // this is absent; where both are stated, the person asking now wins.
+            opens_at = arguments
+                .next()
+                .and_then(|value| value.to_string_lossy().parse::<usize>().ok())
+                .filter(|page| *page > 0);
+            if opens_at.is_none() {
+                eprintln!("--page wants a page number, counting from 1");
+                std::process::exit(2);
+            }
         } else if path.is_none() {
             path = Some(argument);
         } else {
@@ -118,6 +140,8 @@ fn main() {
         caption: String::new(),
         request: None,
         acknowledged: true,
+        trace,
+        processor,
         cursor: (0.0, 0.0),
         dragging: false,
         dirty: false,
@@ -130,6 +154,9 @@ fn main() {
         bytes,
         password: None,
     });
+    if let Some(page) = opens_at {
+        app.dispatch(Command::GoTo(PageTarget::Index(page.saturating_sub(1))));
+    }
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");
     // Redraw on request rather than continuously: a document viewer is idle almost all the time,
@@ -148,6 +175,16 @@ fn usage() {
     eprintln!("  --no-sandbox  decode JBIG2 and JPEG 2000 images in this process rather than");
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
     eprintln!("                round trip; appropriate only for documents you trust.");
+    eprintln!("  --page N      open at page N, counting from 1 as the title bar does.");
+    eprintln!("  --cpu         draw with the processor rather than the graphics device. Slower,");
+    eprintln!("                and the same rasteriser the reference comparison is built on: a");
+    eprintln!("                page that appears with this and not without it is the device's.");
+    eprintln!("  --trace       print every command, every event and every frame, with the time");
+    eprintln!("                each took, and whatever the graphics stack has to say. What to");
+    eprintln!("                run when a page will not appear: the last line printed is the");
+    eprintln!("                step that did not finish. PDFVIEWER_LOG=error|warn|info|debug");
+    eprintln!("                sets how much of the graphics stack's own logging comes with it,");
+    eprintln!("                and defaults to warn.");
 }
 
 /// How many passwords a person is asked for before the program gives up.
@@ -157,6 +194,12 @@ fn usage() {
 /// before it is reached.
 const PASSWORD_ATTEMPTS: usize = 3;
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent facts about a window, each read in one place: whether a button is \
+              down, whether the core has been told about the last frame, whether anything is \
+              unsaved, and whether to say what is happening"
+)]
 struct App {
     /// Everything about documents, pages and clicks.
     viewer: Viewer,
@@ -185,6 +228,19 @@ struct App {
     /// `winit` reports movement and clicks as separate events, so a click needs the position
     /// remembered from the last `CursorMoved` — the click itself carries none.
     cursor: (f64, f64),
+    /// Whether to say what is happening, from `--trace`.
+    ///
+    /// A viewer that will not draw a page has to be able to say how far it got, and the four
+    /// steps between a key press and a frame — command, interpretation, draw, present — are
+    /// invisible from outside the process. This makes them visible, in order, with a duration
+    /// apiece; the *last line printed* is the step that did not finish.
+    trace: bool,
+    /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
+    ///
+    /// The same rasteriser the reference oracle is built on, and the same one that draws a page
+    /// the device refuses. As a *flag* it is a diagnostic a person can pull without a debugger:
+    /// if a page appears under `--cpu` and not without it, the difference is the device.
+    processor: bool,
     /// Whether the button is down, which is what separates a move from a drag.
     dragging: bool,
     /// Whether anything a person did is unsaved.
@@ -210,7 +266,19 @@ impl App {
     fn dispatch(&mut self, command: Command) {
         let mut queue = VecDeque::from([command]);
         while let Some(command) = queue.pop_front() {
+            let started = std::time::Instant::now();
+            let described = self.trace.then(|| describe_command(&command));
             let events: Vec<Event> = self.viewer.handle(command).collect();
+            if let Some(described) = described {
+                println!(
+                    "trace: {described} -> {} event(s) in {:?}",
+                    events.len(),
+                    started.elapsed()
+                );
+                for event in &events {
+                    println!("trace:     {}", describe_event(event));
+                }
+            }
             for event in events {
                 self.react(event, &mut queue);
             }
@@ -437,7 +505,9 @@ impl App {
             Answer::Selected(selection) => selection.quads,
             _ => Vec::new(),
         };
-        let drawn = {
+        let drawn = if self.processor {
+            Err("was not asked, because --cpu")
+        } else {
             let state = self.state.as_mut()?;
             draw(
                 &self.context,
@@ -459,8 +529,10 @@ impl App {
             // hundred-and-forty-second session's report a sentence rather than a mystery.
             let fallback = self.on_the_processor(&request, target, (width, height), &highlight);
             match fallback {
+                Ok(()) if self.processor => {}
                 Ok(()) => println!(
-                    "note: page {}: {problem}, so it was drawn on the processor instead",
+                    "note: page {}: the graphics device {problem}, so it was drawn on the \
+                     processor instead",
                     request.page.saturating_add(1)
                 ),
                 Err(second) => {
@@ -507,6 +579,41 @@ impl App {
         handle.queue.submit(Some(encoder.finish()));
         frame.present();
         Some(Rendered::Presented)
+    }
+
+    /// Draws the frame the window asked for, and tells the core what became of it.
+    fn redraw_requested(&mut self) {
+        let started = std::time::Instant::now();
+        if self.trace {
+            println!(
+                "trace: redraw requested, page {:?}",
+                self.request
+                    .as_ref()
+                    .map(|request| request.page.saturating_add(1))
+            );
+        }
+        let outcome = self.present();
+        if self.trace {
+            println!(
+                "trace: present -> {} in {:?}",
+                match &outcome {
+                    None => "nothing to show".to_owned(),
+                    Some(Rendered::Presented) => "presented".to_owned(),
+                    Some(Rendered::Failed(why)) => format!("failed: {why}"),
+                    Some(Rendered::Raster(_)) => "a raster".to_owned(),
+                },
+                started.elapsed()
+            );
+        }
+        let Some(rendered) = outcome else {
+            return;
+        };
+        if !self.acknowledged
+            && let Some(token) = self.request.as_ref().map(|request| request.token)
+        {
+            self.acknowledged = true;
+            self.dispatch(Command::RenderReady { token, rendered });
+        }
     }
 
     /// Draws a page with `render-cpu` and puts the pixels on the surface.
@@ -584,6 +691,15 @@ impl ApplicationHandler for App {
         ))
         .expect("surface creation");
 
+        // **wgpu reports a device error to a handler, and the default one is silent here.**
+        // Everything else in this program says what went wrong; a validation failure or a lost
+        // device was the one thing that could stop the window updating without a word.
+        self.context.devices[surface.dev_id]
+            .device
+            .on_uncaptured_error(Arc::new(|error| {
+                eprintln!("note: the graphics device reported: {error}");
+            }));
+
         let renderer = Renderer::new(
             &self.context.devices[surface.dev_id].device,
             RendererOptions {
@@ -623,6 +739,12 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         if self.state.is_none() {
             return;
+        }
+        // Every window event but the pointer's, which arrives faster than a person can read.
+        // What this answers is the question a stuck window raises first: *is the program being
+        // told anything at all?*
+        if self.trace && !matches!(event, WindowEvent::CursorMoved { .. }) {
+            println!("trace: window event {}", describe_window_event(&event));
         }
 
         match event {
@@ -709,17 +831,7 @@ impl ApplicationHandler for App {
                 });
             }
 
-            WindowEvent::RedrawRequested => {
-                let Some(rendered) = self.present() else {
-                    return;
-                };
-                if !self.acknowledged
-                    && let Some(token) = self.request.as_ref().map(|request| request.token)
-                {
-                    self.acknowledged = true;
-                    self.dispatch(Command::RenderReady { token, rendered });
-                }
-            }
+            WindowEvent::RedrawRequested => self.redraw_requested(),
 
             _ => {}
         }
@@ -749,6 +861,127 @@ fn key_command(key: &Key<&str>) -> Option<Command> {
         Key::Named(NamedKey::ArrowUp) => Command::Scroll { dx: 0.0, dy: -60.0 },
         _ => return None,
     })
+}
+
+/// Receives what `wgpu`, `vello` and `naga` say about themselves.
+///
+/// Those three write to the `log` facade, and a facade with nothing behind it drops every record
+/// — which is why a page that would not draw produced no output at all (ADR 0126). Twenty lines
+/// rather than a logging framework: there is one destination, one format, and one filter, and a
+/// configuration language for those would be longer than this.
+struct Speak {
+    /// The most detailed level to print, from `PDFVIEWER_LOG`.
+    level: log::LevelFilter,
+}
+
+impl log::Log for Speak {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= self.level
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{}: {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// Installs [`Speak`], at `PDFVIEWER_LOG`'s level or `warn`.
+///
+/// `warn` by default because that is the level at which a graphics driver says something is
+/// wrong; `PDFVIEWER_LOG=debug` is what to set when *nothing* is wrong and the question is what
+/// the device is doing.
+fn speak_up() {
+    let level = match std::env::var("PDFVIEWER_LOG").unwrap_or_default().as_str() {
+        "error" => log::LevelFilter::Error,
+        "info" => log::LevelFilter::Info,
+        "debug" => log::LevelFilter::Debug,
+        "trace" => log::LevelFilter::Trace,
+        _ => log::LevelFilter::Warn,
+    };
+    // A failure here means a logger is already installed, which nothing else in this program
+    // does; there is no second thing to try and nothing is lost by carrying on quietly.
+    if log::set_boxed_logger(Box::new(Speak { level })).is_ok() {
+        log::set_max_level(level);
+    }
+}
+
+/// One line naming a window event, for `--trace`.
+fn describe_window_event(event: &WindowEvent) -> String {
+    match event {
+        WindowEvent::RedrawRequested => "redraw requested".to_owned(),
+        WindowEvent::Resized(size) => format!("resized to {}x{}", size.width, size.height),
+        WindowEvent::KeyboardInput { event, .. } => {
+            format!("key {:?} {:?}", event.logical_key, event.state)
+        }
+        WindowEvent::MouseInput { state, button, .. } => format!("mouse {button:?} {state:?}"),
+        WindowEvent::CloseRequested => "close requested".to_owned(),
+        other => format!("{other:?}"),
+    }
+}
+
+/// One line naming a command, for `--trace`.
+///
+/// The command's own `Debug` would print a document's bytes and a raster's pixels, which is not a
+/// line. This is what a person following a page turn needs to see.
+fn describe_command(command: &Command) -> String {
+    match command {
+        Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
+        Command::Close(id) => format!("close {id:?}"),
+        Command::Focus(id) => format!("focus {id:?}"),
+        Command::Resize {
+            width,
+            height,
+            scale,
+        } => format!("resize {width}x{height} at {scale}"),
+        Command::GoTo(target) => format!("go to {target:?}"),
+        Command::Zoom(zoom) => format!("zoom {zoom:?}"),
+        Command::Scroll { dx, dy } => format!("scroll {dx} {dy}"),
+        Command::SetGroup { group, on } => format!("layer {group:?} {on}"),
+        Command::Pointer { at, action } => format!("pointer {action:?} at {at:?}"),
+        Command::Select(what) => format!("select {what:?}"),
+        Command::Edit(edit) => format!("edit {edit:?}"),
+        Command::Undo => "undo".to_owned(),
+        Command::Redo => "redo".to_owned(),
+        Command::Save => "save".to_owned(),
+        Command::Supply { purpose, bytes } => format!(
+            "supply {purpose:?}, {}",
+            bytes
+                .as_ref()
+                .map_or_else(|| "declined".to_owned(), |b| format!("{} bytes", b.len()))
+        ),
+        Command::RenderReady { token, .. } => format!("render ready {token:?}"),
+    }
+}
+
+/// One line naming an event, for `--trace`.
+fn describe_event(event: &Event) -> String {
+    match event {
+        Event::Opened { pages, .. } => format!("opened, {pages} page(s)"),
+        Event::OpenFailed { reason, .. } => format!("open failed: {reason}"),
+        Event::PasswordRequired { .. } => "a password is required".to_owned(),
+        Event::Closed(_) => "closed".to_owned(),
+        Event::PageChanged { index, of, .. } => format!("page {} of {of}", index.saturating_add(1)),
+        Event::NeedsRender(request) => format!(
+            "needs render: page {}, {}x{}, {} command(s), {:?}",
+            request.page.saturating_add(1),
+            request.target.width,
+            request.target.height,
+            request.list.command_count(),
+            request.token
+        ),
+        Event::Damage(_) => "damage".to_owned(),
+        Event::OpenUri { uri, .. } => format!("open uri {uri}"),
+        Event::NeedsFile { name, .. } => format!("needs file {name}"),
+        Event::Transition { .. } => "a transition".to_owned(),
+        Event::Dirty { dirty, .. } => format!("dirty {dirty}"),
+        Event::Saved { bytes, .. } => format!("saved, {} bytes", bytes.len()),
+        Event::Reported { page, notes, .. } => {
+            format!("reported about page {page:?}: {}", notes.join("; "))
+        }
+    }
 }
 
 /// A window position as the device pixels `viewer-core` speaks in.

@@ -279,7 +279,9 @@ scoped strictly to text *we* generate (annotations, form fields with non-embedde
 
 - Arch Linux. GPU: AMD Strix (Radeon 880M/890M, RDNA 3.5) — RADV. Session: X11.
 - Claude Code may run as user `AI` via `sudo -u AI`, reaching this tree through the
-  `coders` group. That user has no X authority cookie, so GUI windows cannot be opened
-  from such a session — use headless lavapipe for verification, and hand interactive runs
-  to the user.
+  `coders` group. That user has no X authority cookie, so it cannot open a window on *the
+  user's* display — but it can run the viewer on its own: `Xvfb` and `lavapipe` are
+  installed, `xdotool` sends real key presses and `xwd` reads the window's pixels back.
+  See `doc/adr/0126`. Hand a run on the real GPU to the user; everything else is testable
+  here.
 - KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).

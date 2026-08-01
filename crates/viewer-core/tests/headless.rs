@@ -1062,4 +1062,3 @@ fn a_query_about_the_page_on_the_screen_costs_less_than_finding_it() {
         "twenty queries took {twenty_queries:?} against {one_walk:?} for one walk of the tree"
     );
 }
-

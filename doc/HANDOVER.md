@@ -608,6 +608,13 @@ are expensive in a loop that runs per pixel** — and `Triangle::is_subpixel` to
 cargo run --release -p viewer-ui --bin pdf-viewer -- doc/PDF20_AN001-BPC.pdf
 ```
 
+`--page N` opens at a page, `--cpu` draws with `render-cpu` instead of the graphics device, and
+**`--trace` prints every window event, command, event and frame with its duration** — the last
+line printed is the step that did not finish. `--trace` also installs a receiver for what `wgpu`,
+`vello` and `naga` say about themselves, at `PDFVIEWER_LOG`'s level (default `warn`): those three
+write to the `log` facade and a facade with nothing behind it drops every record, which is how a
+page that would not draw produced no output at all.
+
 **Rebuild the release binary before saying anything about speed, and at the end of any session
 that touches the viewer.** The agent's builds go to `/home/AI/cargo-target/pdf-viewer/`, so
 `release/pdf-viewer` there is what a person runs — and `cargo test` only ever builds the *debug*
@@ -1379,9 +1386,24 @@ reaching `/home/cl/projects/pdf-viewer` through the `coders` group.
 
 - **Launch with a login shell** so `umask 002` applies, or every file the agent creates is
   unwritable by `cl`: `sudo -u AI bash -lc 'cd /home/cl/projects/pdf-viewer && claude'`
-- **`AI` has no X authority cookie.** Anything needing a window fails at `XOpenDisplayFailed`. The
-  GPU backend is headless by construction precisely so it can still be tested; the viewer binary
-  cannot be run by the agent past event-loop creation.
+- **`AI` has no X authority cookie**, so anything needing *the user's* display fails at
+  `XOpenDisplayFailed`. **The viewer can still be run, and this file said otherwise for dozens of
+  sessions** (ADR 0126): `Xvfb` and `lavapipe` are installed, so the real window, the real event
+  loop and the real vello surface all work, `xdotool` drives them and `xwd` photographs the
+  result.
+
+  ```sh
+  Xvfb :77 -screen 0 900x1100x24 &
+  DISPLAY=:77 pdf-viewer --trace doc/ISO_32000-2_sponsored_EC3.pdf &
+  DISPLAY=:77 xdotool windowfocus --sync $(DISPLAY=:77 xdotool search --name ISO_32000 | tail -1)
+  DISPLAY=:77 xdotool key --delay 300 Right Right Right
+  DISPLAY=:77 xwd -root -silent | magick - screen.png
+  ```
+
+  **This is the only way to exercise the loop** — key press to command to request to frame to
+  window — which is where every defect of sessions 140 to 142 lived and which no gate touches.
+  Not a gate itself: `Xvfb` and `xdotool` are not build dependencies and a test that skipped
+  silently would be worse than none.
 - **Build directory**: `AI` builds into `/home/AI/cargo-target/pdf-viewer` via `~/.cargo/config.toml`,
   so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
   the same reason.
@@ -1537,4 +1559,4 @@ above rather than here.
 | 139 | Everything re-verified after eight sessions of change | — |
 | 140 | Search, and a contradicted page that measured our own grid-fitting for us | — |
 | 141 | A page turn walked the page tree once per outline item: 380 ms → 9 ms | 0124 |
-| 142 | A frame that failed was reported as one that was drawn; the CPU draws it now | 0125 |
+| 142 | A frame that failed was reported as one that was drawn; the CPU draws it now | 0125, 0126 |

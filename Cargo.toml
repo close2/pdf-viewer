@@ -160,6 +160,14 @@ rustix = { version = "1.1.4", default-features = false, features = [
 ] }
 libc = "0.2.180"
 
+# The logging *facade* wgpu, vello and naga already write to. Nothing in the tree writes a log
+# record; what this buys is the ability to *receive* one. Without a `log::Log` installed, every
+# message those three produce — a shader that would not compile, a device that was lost, a
+# validation failure — is dropped on the floor, which is how a page that would not draw produced
+# no output at all (ADR 0126). `viewer-ui` installs a twenty-line receiver behind `--trace`; no
+# implementation crate depends on this and none logs.
+log = { version = "0.4.33", features = ["std"] }
+
 # Development-only. Cargo has no `workspace.dev-dependencies`; these are declared
 # here and referenced from a member's `[dev-dependencies]` with `workspace = true`.
 criterion = "0.8.2"

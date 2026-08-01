@@ -3073,6 +3073,7 @@ dependencies = [
 name = "viewer-ui"
 version = "0.1.0"
 dependencies = [
+ "log",
  "pdf-render",
  "pdf-sandbox",
  "pollster",
