@@ -18,13 +18,14 @@
 //! | `ResetForm` | §12.7.6.3 | yes — a field's value becomes its `/DV`, which changes what is drawn |
 //! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8) |
 //! | `GoToE` | §12.6.4.4 | yes — where the target is embedded in this file, which needs no filesystem |
+//! | `Trans` | §12.6.4.15 | yes — read as §12.4.4's transition; playing one is a window's job |
 //! | everything else | | [`Action::Refused`], by name |
 //!
 //! The refusals are not laziness and they are not uniform. `GoToR`, `Launch` and
 //! `SubmitForm` want a file system or a network, which principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
-//! same list; `Trans` and `GoToDp` are viewer behaviour this program has not built yet. A `Thread` action naming *another file* joins the first group, for the
+//! same list; `GoToDp` is §14.12's document part hierarchy, which nothing here reads. A `Thread` action naming *another file* joins the first group, for the
 //! same reason `GoToR` is in it. Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
 //!
@@ -94,6 +95,13 @@ pub enum Action {
     ImportData(ImportData),
     /// §12.6.4.4: go to a destination in a document embedded in this one.
     GoToE(EmbeddedGoTo),
+    /// §12.6.4.15: show the page as it stands, using this transition.
+    ///
+    /// Table 219's `/Trans` is Table 164's dictionary — the same one a page's own `/Trans` holds
+    /// — so this carries [`crate::navigation::Transition`] and nothing of its own. What differs
+    /// is *when*: a page's transition plays when the page is turned to, and this one plays in
+    /// the middle of a `/Next` chain, which is the whole of what §12.6.4.15 adds.
+    Trans(crate::navigation::Transition),
     /// An action type this program recognises and does not perform, named.
     ///
     /// A `&'static str` rather than the file's own bytes: the name is one of Table 201's
@@ -907,6 +915,9 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         b"ResetForm" => Action::ResetForm(reset_form(document, dict)),
         b"ImportData" => import_data(document, dict)?,
         b"GoToE" => embedded_go_to(document, dict)?,
+        // Table 219 makes `/Trans` required, so an action without one has stated no transition
+        // and is a dictionary rather than an action.
+        b"Trans" => Action::Trans(crate::navigation::transition(document, dict)?),
         other => Action::Refused(refused(other)?),
     })
 }
@@ -1184,7 +1195,6 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"Sound" => "Sound: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Movie" => "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Rendition" => "Rendition: clause 13's multimedia, excluded by CLAUDE.md principle 5",
-        b"Trans" => "Trans: §12.4.4's page transition, which this viewer does not animate",
         b"GoTo3DView" => "GoTo3DView: clause 13's 3D, excluded by CLAUDE.md principle 5",
         b"JavaScript" => "JavaScript: excluded by CLAUDE.md principle 5",
         b"RichMediaExecute" => {
@@ -1605,6 +1615,41 @@ mod tests {
         };
         assert!(why.starts_with("Thread:"), "{why}");
     }
+    /// §12.6.4.15: a transition action carries Table 164's dictionary and nothing else.
+    ///
+    /// Table 219 makes `/Trans` required, so an action without one has stated no transition —
+    /// and the dictionary it carries is read by the same function a *page's* `/Trans` is, which
+    /// is what the two clauses being one table means.
+    #[test]
+    fn a_transition_action_carries_table_164s_dictionary() {
+        let document = document(&[
+            "<< /Type /Action /S /Trans /Trans << /S /Wipe /D 2 /Di 180 >> >>",
+            "<< /Type /Action /S /Trans >>",
+        ]);
+
+        let read_one = |number: u32| read(&document, &document.get(ObjectId::new(number, 0)));
+        match read_one(1).as_slice() {
+            [Action::Trans(transition)] => {
+                assert_eq!(
+                    transition.style,
+                    crate::navigation::Style::Wipe,
+                    "Table 164's /S"
+                );
+                assert!((transition.duration - 2.0).abs() < 1e-6, "/D");
+                assert_eq!(
+                    transition.direction,
+                    crate::navigation::Direction::Degrees(180.0),
+                    "/Di"
+                );
+            }
+            other => panic!("one transition action, got {other:?}"),
+        }
+        assert!(
+            read_one(2).is_empty(),
+            "an action stating no /Trans has stated nothing"
+        );
+    }
+
     /// §12.6.4.4's own EXAMPLE, all three relationships, read as the paths they describe.
     ///
     /// The clause writes them out as three action dictionaries — a child, the parent, and a

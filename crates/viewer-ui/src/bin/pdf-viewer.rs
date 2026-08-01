@@ -386,6 +386,15 @@ impl App {
                 // and `pages` still borrows the document. Nothing is lost by the wait —
                 // §12.6.2 makes a chain a sequence, and an import changes no page number.
                 Request::Import(import) => imports.push(import.clone()),
+                // §12.6.4.15: this window redraws whole pages and animates nothing, so what it
+                // can honestly do with a transition is name it. The clause's own effect — show
+                // the page as the previous action left it — happens anyway, because every
+                // request in this chain has already been performed by the time it is read.
+                Request::Transition(transition) => println!(
+                    "link: a transition action asks for {:?} over {} s; this program draws \
+                     the page without animating it",
+                    transition.style, transition.duration
+                ),
                 // Deferred for the same reason: opening the target needs `&mut self`.
                 Request::Embedded(target) => embedded.push(target.clone()),
                 Request::Thread(jump) => {

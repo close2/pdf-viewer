@@ -22,11 +22,11 @@ use pdf_syntax::{Date, Document, Object, ObjectId};
 /// A ratchet in one direction only, like every other count in this tree: it rises when the
 /// parser learns something the clause permits, and a fall is a regression. It is not the *total*
 /// — see `MAX_NON_CONFORMING` for the other end.
-const MIN_CONFORMING: usize = 1511;
+const MIN_CONFORMING: usize = 1514;
 
 /// The most date-shaped strings this corpus may hold that are not §7.9.4 dates.
 ///
-/// Measured at 31 over 22 distinct strings, every one of them a producer breaking a rule the
+/// Measured at 31 over 22 distinct strings, out of 1545 date-shaped strings, every one of them a producer breaking a rule the
 /// clause states in as many words. The list is in the test's own output; the four kinds are:
 /// an offset minute outside `mm (00-59)` — `+00'112'` and four other values, 26 of the 31, and
 /// plainly one broken producer; two strings with no `D:` prefix at all; a month of `00`; and a
@@ -114,7 +114,7 @@ fn every_date_string_in_the_corpus_is_measured_against_the_clause() {
     }
     let non_conforming = total.saturating_sub(conforming);
     // Per ten thousand and then printed with a decimal point, so the share needs no float and
-    // no cast: 1511 of 1542 is 9798, shown as 97.98%.
+    // no cast: 1514 of 1545 is 9799, shown as 97.99%.
     let share = conforming
         .saturating_mul(10_000)
         .checked_div(total)

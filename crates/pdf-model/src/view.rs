@@ -134,6 +134,14 @@ pub enum Request {
     /// page tree and this needs [`crate::article::Articles`], and neither is part of the state a
     /// click changes. [`crate::action::ThreadJump::bead_in`] turns it into a bead.
     Thread(ThreadJump),
+    /// §12.6.4.15: draw the page as it now stands, using this transition.
+    ///
+    /// §12.6.4.15 is explicit that this is about *when* drawing happens: a processor "shall
+    /// normally suspend drawing when such a sequence begins and resume drawing when it ends", and
+    /// a transition action in the middle of one says to show the page as the previous action left
+    /// it. Suspending and resuming is a window's business — this state has no screen — so the
+    /// transition is handed over and the caller decides whether it has one to play.
+    Transition(crate::navigation::Transition),
     /// §12.6.4.4: show a destination in a document embedded in this one.
     ///
     /// Unresolved for [`Self::Display`]'s reason, twice over: the target document has to be
@@ -459,6 +467,9 @@ impl ViewState {
             Action::Thread(jump) => return Some(Request::Thread(jump.clone())),
             Action::ImportData(import) => return Some(Request::Import(import.clone())),
             Action::GoToE(target) => return Some(Request::Embedded(target.clone())),
+            Action::Trans(transition) => {
+                return Some(Request::Transition(transition.clone()));
+            }
             Action::SetOcgState(state) => {
                 if let Some(content) = self.optional_content.as_mut() {
                     content.apply(&state.changes, state.preserve_radio_buttons);

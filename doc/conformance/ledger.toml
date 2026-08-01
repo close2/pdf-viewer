@@ -870,7 +870,7 @@ title = "Dates"
 status = "implemented"
 code = ["crates/pdf-syntax/src/date.rs"]
 test = ["crates/pdf-syntax/src/date.rs::the_clauses_own_example_parses_to_what_it_says_it_means", "crates/pdf-syntax/src/date.rs::every_field_but_the_year_may_be_absent_and_the_clause_states_its_default", "crates/pdf-model/tests/dates.rs::every_date_string_in_the_corpus_is_measured_against_the_clause"]
-note = "`D:YYYYMMDDHHmmSSOHH'mm` in full, with every default the clause states — MM and DD both 01, everything else zero — so `D:1998` is a conforming date and parses. NOTE 2's older terminating apostrophe and NOTE 3's `Z` followed by zero offsets are both accepted, and a `Z` followed by *non*-zero offsets is refused as a file contradicting itself. An absent zone is GMT, which the clause decides rather than leaves open, and `Date::offset` still records that the producer claimed nothing. Every range the clause states is enforced and nothing is clamped; a non-conforming string stays available as the bytes the file wrote. The ordering is by the instant, which is what §12.3.5.1's Table 156 collection sort over a `/Subtype /D` field needs and what a string comparison gets wrong across time zones. **Audited over the whole corpus**: 1511 of 1542 date-shaped strings conform (97.98%), and all 31 that do not break a rule the clause states in as many words — 26 of them one producer writing an offset minute of 112, 144, 208, 224 or 240 against `mm (00-59)`."
+note = "`D:YYYYMMDDHHmmSSOHH'mm` in full, with every default the clause states — MM and DD both 01, everything else zero — so `D:1998` is a conforming date and parses. NOTE 2's older terminating apostrophe and NOTE 3's `Z` followed by zero offsets are both accepted, and a `Z` followed by *non*-zero offsets is refused as a file contradicting itself. An absent zone is GMT, which the clause decides rather than leaves open, and `Date::offset` still records that the producer claimed nothing. Every range the clause states is enforced and nothing is clamped; a non-conforming string stays available as the bytes the file wrote. The ordering is by the instant, which is what §12.3.5.1's Table 156 collection sort over a `/Subtype /D` field needs and what a string comparison gets wrong across time zones. **Audited over the whole corpus**: 1514 of 1545 date-shaped strings conform (97.99%), and all 31 that do not break a rule the clause states in as many words — 26 of them one producer writing an offset minute of 112, 144, 208, 224 or 240 against `mm (00-59)`."
 
 [[clause]]
 clause = "7.9.5"
@@ -3901,10 +3901,10 @@ note = "Rendition actions control a media player — a rendition, a screen annot
 [[clause]]
 clause = "12.6.4.15"
 title = "Transition actions"
-status = "reported"
-code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
-test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
-note = "Transition: run a page transition (§12.4.4) in the middle of a presentation. Debt, with §12.4.4. **Refused by name and said out loud**: `action.rs` answers \"Trans: §12.4.4's page transition, which this viewer does not animate\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
+status = "partial"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/navigation.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
+test = ["crates/pdf-model/src/action.rs::a_transition_action_carries_table_164s_dictionary"]
+note = "**Read** as of the hundred-and-ninth session. Table 219 has exactly two entries and one of them is `/S`, so the action *is* Table 164's transition dictionary — the same one a page's own `/Trans` holds, read by the same function (§12.4.4, ADR 0071's neighbour). What §12.6.4.15 adds is *when*: a processor \"shall normally suspend drawing when such a sequence begins and resume drawing when it ends\", and a transition action in the middle of one says to show the page as the previous action left it. Suspending and resuming is a window's business, so `ViewState::perform` answers `Request::Transition` and the caller decides whether it has a presentation to play; `viewer-ui` names the style and the duration and says it draws the page without animating it. The clause's own effect happens anyway in this program, because every request in a `/Next` chain has already been performed by the time the transition is read. Debt with §12.4.4, which is read and played by nobody. No corpus document states a `/Trans` at all, on a page or in an action — measured over every object of all 964 openable ones."
 
 [[clause]]
 clause = "12.6.4.16"
