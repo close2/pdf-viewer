@@ -154,6 +154,17 @@ pub(crate) struct Interpreted {
     /// question sixty times a second, and re-interpreting the page to answer it would be
     /// 2 000 M instructions a frame.
     pub(crate) placed: Vec<Placed>,
+    /// §14.7.5.2's marked-content spans over that readback, for §14.9's tree.
+    ///
+    /// Kept for the same reason `placed` is and at a far smaller cost: a page's structure tree
+    /// is asked for when a screen reader attaches and again on every page change, and the map
+    /// from a `/MCID` to the text it produced is only knowable during interpretation. Empty for
+    /// the 885 of 974 corpus documents that tag nothing.
+    pub(crate) marked: Vec<pdf_model::content::MarkedSpan>,
+    /// §14.9's `/Alt`, `/E` and `/Lang` spans, kept beside them for the same reason.
+    pub(crate) described: Vec<pdf_model::accessibility::Described>,
+    /// The catalog's `/Lang`, which §14.9.2.3 makes the document-wide default.
+    pub(crate) language: Option<String>,
 }
 
 /// A render the host has not answered yet.

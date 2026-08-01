@@ -1078,3 +1078,70 @@ fn a_query_about_the_page_on_the_screen_costs_less_than_finding_it() {
         "twenty queries took {twenty_queries:?} against {one_walk:?} for one walk of the tree"
     );
 }
+
+#[test]
+fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
+    // §14.7's structure tree, reaching a consumer for the first time. `pdf-model` has read it
+    // since the seventy-eighth session and §14.9's entries since the sixtieth; until the
+    // hundred-and-forty-ninth nothing in this program handed either to anybody.
+    let (mut viewer, events) = opened(800, 1000);
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    assert!(
+        !nodes.is_empty(),
+        "the specification's own PDF is tagged; §14.7 should have something to say about page one"
+    );
+
+    // Parent-first, which is what makes an index into this list a usable parent link: a node's
+    // parent is always already there when a host reaches it.
+    for (index, node) in nodes.iter().enumerate() {
+        if let Some(parent) = node.parent {
+            assert!(parent < index, "node {index} names a later parent {parent}");
+        }
+    }
+
+    // Something on the page has both a role and text, and the shapes for it are in the same
+    // device pixels a selection is answered in — which is the property that lets a host draw a
+    // focus ring without a second mapping.
+    let named = nodes
+        .iter()
+        .find(|node| !node.name.trim().is_empty() && !node.quads.is_empty())
+        .unwrap_or_else(|| panic!("no node carries text and a place: {nodes:?}"));
+    assert!(!named.role.is_empty(), "{named:?}");
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page showing has a geometry");
+    };
+    for quad in &named.quads {
+        for corner in quad.chunks_exact(2) {
+            assert!(
+                corner[0] >= geometry.origin.0 - 1.0
+                    && corner[0] <= geometry.origin.0 + geometry.page.width * geometry.scale + 1.0,
+                "a node's quad is off the page: {quad:?} against {geometry:?}"
+            );
+        }
+    }
+
+    // And an untagged document answers with an empty list rather than failing. 885 of the
+    // corpus's 974 are untagged, and "this page says nothing about its own structure" is an
+    // answer §14.7 leaves a producer free to give.
+    let Some(bytes) = corpus_bytes("basicapi.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut plain = Viewer::new(800, 1000, 1.0);
+    plain
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    assert!(matches!(
+        plain.query(Query::AccessibilityTree),
+        Answer::Accessibility(nodes) if nodes.is_empty()
+    ));
+}

@@ -134,6 +134,7 @@ impl Viewer {
                     origin: open.origin(self.viewport, (frame.target.width, frame.target.height)),
                 })
             }),
+            Query::AccessibilityTree => Answer::Accessibility(self.accessibility(open)),
             Query::Reports => open
                 .interpreted
                 .as_ref()
@@ -592,6 +593,50 @@ impl Viewer {
         })
     }
 
+    /// §14.7's structure tree for the page being shown, with §14.9's entries applied.
+    ///
+    /// Built on demand rather than kept, because a screen reader asks when it attaches and on a
+    /// page change, and no other consumer asks at all — while a drag asks
+    /// [`Query::Selection`] sixty times a second, which is why *that* one's inputs are cached.
+    fn accessibility(&self, open: &Open) -> Vec<crate::AccessibilityNode> {
+        let Some(interpreted) = open.interpreted.as_ref() else {
+            return Vec::new();
+        };
+        // Table 355's `/Pg` names a page *object*, and what this crate holds is an index — so the
+        // page tree is walked once to invert it. Session 141's `Pages::indices` is what makes
+        // that one walk rather than one per element; `Pages::index_of` in a loop is the defect
+        // ADR 0124 is about.
+        let pages = pdf_model::Pages::new(&open.document);
+        let Some(page) = pages
+            .indices()
+            .into_iter()
+            .find(|(_, index)| *index == interpreted.page)
+            .map(|(object, _)| object)
+        else {
+            return Vec::new();
+        };
+        crate::accessibility::nodes(
+            &open.document,
+            page,
+            &interpreted.text,
+            &interpreted.marked,
+            &interpreted.described,
+            interpreted.language.as_deref(),
+        )
+        .into_iter()
+        .map(|(parent, gathered)| {
+            crate::accessibility::finish(
+                gathered,
+                parent,
+                &interpreted.text,
+                &interpreted.marked,
+                &interpreted.described,
+                |start, end| self.device_quads(open, (start, end)),
+            )
+        })
+        .collect()
+    }
+
     /// The shapes covering a range of the readback, in device pixels of the viewport.
     ///
     /// The mapping a host would otherwise have to do, and the reason it does not: it would mean
@@ -744,6 +789,9 @@ impl Viewer {
                 reports,
                 text: interpretation.text,
                 placed: interpretation.text_layer,
+                marked: interpretation.marked,
+                described: interpretation.described,
+                language: interpretation.language,
             });
             open.current = Some((page, object));
             // A selection is a range of the page that has just been replaced.

@@ -85,6 +85,7 @@
 
 #![forbid(unsafe_code)]
 
+mod accessibility;
 mod command;
 mod event;
 mod interact;
@@ -95,6 +96,7 @@ mod report;
 mod select;
 mod viewer;
 
+pub use accessibility::AccessibilityNode;
 pub use command::{Command, Edit, PageTarget, PointerAction, Purpose, Rendered, Selection, Zoom};
 pub use event::{Event, RenderRequest};
 pub use query::{Answer, FrameView, Layer, PageGeometry, Query, Selected};

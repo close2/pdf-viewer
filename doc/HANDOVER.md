@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-forty-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -53,16 +53,17 @@ them, with no type from a windowing or graphics library anywhere in its API. Two
 `viewer-ui`'s winit window and a headless test harness — and §0 is the whole story. ADRs 0116 to
 0121.
 
-**What it still does not do**: speak a page (AccessKit has six sessions of §14.7 and §14.9
-reading waiting for it, and one `Query` to go), run a slide show (§12.4.4 is read and nothing
-plays it), search, or draw a panel for the outline, the layers and the attachments that
-`Query` already answers with.
+**What it still does not do**: speak a page — though the `Query` is no longer what is missing.
+`Query::AccessibilityTree` answers with §14.7's elements, §14.9's spoken form of each and the
+quadrilaterals they cover (ADR 0134); what is left is a host that hands them to AccessKit. It
+does not run a slide show (§12.4.4 is read and nothing plays it), or draw a panel for the
+outline, the layers and the attachments that `Query` already answers with.
 
 ### The four gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **951**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 148; the five fuzzers last in 139 |
+| tests | **952**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 149; the five fuzzers last in 139 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 11 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -217,7 +218,8 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
-  `Selection`, `Dirty`, `Outline`, `Layers`, `Attachments`, `Frame`, `Reports`. **`Selection` answers in device pixels
+  `Selection`, `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
+  `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
   and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
   chrome off the rendering path.
 - **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and
@@ -240,11 +242,11 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
    still sees the new value. **What the writer still owes is an `Edit` variant that carries a new
    object rather than a field's value** — the markup and free-text annotation authoring under
    "Near, and far" below. `Update` in `view.rs` already allocates object numbers for it.
-2. **The rest of the vocabulary, as its feature arrives.** `Command::Tick { millis }` for
-   §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves), and
-   `Query::AccessibilityTree`, which is what AccessKit needs and the last of §0's five owed
-   items with nothing behind it. Selection, editing and saving all landed in sessions 134 to
-   136 and their commands are in the table above.
+2. **The rest of the vocabulary.** `Query::AccessibilityTree` landed in the
+   hundred-and-forty-ninth session (ADR 0134), so **all five of §0's owed items are built**, and
+   what is left of accessibility is a *host*: nothing in this tree depends on AccessKit yet. What
+   remains of the vocabulary itself is `Command::Tick { millis }` for §12.4.4's `/Dur` and
+   transitions (rule 3, and `Event::Transition` already leaves).
 3. **Then one native host.** GTK4 via `gtk4-rs` first — Rust-safe, no C++ bridge, and it is the
    development platform. Qt/KDE second via `cxx-qt`, because that costs a C++ bridge and should
    not be the experiment that shapes the API.
@@ -1694,3 +1696,4 @@ above rather than here.
 | 146 | The glyph coverage cache, counted: what is shared is the outline, not the coverage | 0131 |
 | 147 | One clipping region stated 303 times became one: 4.7× on a dense page | 0132 |
 | 148 | §9.6.2.2's fourteen font programs compiled in, and the notices that go with them | 0133 |
+| 149 | §14.7's structure tree reaches a consumer: `Query::AccessibilityTree` | 0134 |

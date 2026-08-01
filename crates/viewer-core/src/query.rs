@@ -69,6 +69,13 @@ pub enum Query<'a> {
     ///
     /// [`Answer::None`] for a tier-2 host, which draws its own and hands the viewer nothing.
     Frame,
+    /// §14.7's logical structure for the page being shown, as an accessibility API takes it.
+    ///
+    /// The last of the five items `doc/HANDOVER.md`'s section 0 listed as blocked on this interface, and
+    /// the first consumer of six sessions' reading of §14.7 and §14.9. Answers with an empty list
+    /// for an untagged document, which is an answer: the page says nothing about its own
+    /// structure, and §14.7 leaves it free to.
+    AccessibilityTree,
     /// Everything the focused document's current page could not draw.
     ///
     /// The same sentences [`crate::Event::Reported`] carried, kept so that a host which cleared
@@ -85,6 +92,8 @@ pub enum Answer<'a> {
     /// There is nothing to answer with: no document is focused, or the question named a page
     /// that is not showing.
     None,
+    /// §14.7's structure, in §14.8.2.5's logical order, parent-first.
+    Accessibility(Vec<crate::AccessibilityNode>),
     /// A count of pages.
     Count(usize),
     /// Which page is showing.
