@@ -43,7 +43,8 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use pdf_render::{TargetSpec, Transform};
+use pdf_render::{Rasterizer as _, TargetSpec, Transform};
+use render_cpu::CpuRasterizer;
 use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu::CurrentSurfaceTexture;
 use vello::{AaConfig, AaSupport, Renderer, RendererOptions, wgpu};
@@ -398,23 +399,27 @@ impl App {
 
     /// Draws the outstanding request onto the surface and presents it.
     ///
-    /// Returns whether the core should be told, which is false only where the swapchain gave
-    /// this frame back: a redraw that never reached a screen is not a frame that was presented,
-    /// and telling the core otherwise would leave the window blank until something else changed.
-    fn present(&mut self) -> bool {
-        let Some(request) = self.request.clone() else {
-            return false;
-        };
+    /// Returns what to tell the core, or `None` where there is nothing to tell it: a redraw the
+    /// swapchain gave back never reached a screen, and saying it did would leave the window
+    /// showing the last page until something else happened to change.
+    ///
+    /// **That last sentence is the whole reason this returns an outcome rather than a `bool`.**
+    /// A draw that *fails* used to print a line to stdout and answer `Presented`, so the core
+    /// recorded the page as shown, never asked again, and the window kept the previous page under
+    /// a title bar naming the new one. A person looking at the window saw a page that would not
+    /// change and no reason why. Trap 5, on a path a person reaches with an arrow key.
+    fn present(&mut self) -> Option<Rendered> {
+        let request = self.request.clone()?;
         // Where the page sits in the window: the core centres it and scrolls it, and the host
         // draws it there by composing that offset into the target's own transform.
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
             Answer::Geometry(geometry) => geometry.origin,
             _ => (0.0, 0.0),
         };
-        let Some(state) = self.state.as_mut() else {
-            return false;
+        let (width, height) = {
+            let state = self.state.as_ref()?;
+            (state.surface.config.width, state.surface.config.height)
         };
-        let (width, height) = (state.surface.config.width, state.surface.config.height);
         let target = TargetSpec {
             width,
             height,
@@ -432,18 +437,41 @@ impl App {
             Answer::Selected(selection) => selection.quads,
             _ => Vec::new(),
         };
-        let handle = &self.context.devices[state.surface.dev_id];
-        if let Err(problem) = draw(
-            &self.context,
-            state,
-            &request,
-            target,
-            (width, height),
-            &highlight,
-        ) {
-            println!("note: page {}: {problem}", request.page.saturating_add(1));
-            return true;
+        let drawn = {
+            let state = self.state.as_mut()?;
+            draw(
+                &self.context,
+                state,
+                &request,
+                target,
+                (width, height),
+                &highlight,
+            )
+        };
+        if let Err(problem) = drawn {
+            // **The CPU backend draws it instead**, and this is what `CLAUDE.md` keeps that
+            // backend for: it is the correctness oracle *and* the startup path, so a page the
+            // GPU refuses is a page this program can still show — more slowly, which is a cost
+            // a person can see past, where a page that never appears is not.
+            //
+            // Reported either way. A page drawn by the slower of two backends is a fact about
+            // this build worth saying out loud, and saying it is what would have made the
+            // hundred-and-forty-second session's report a sentence rather than a mystery.
+            let fallback = self.on_the_processor(&request, target, (width, height), &highlight);
+            match fallback {
+                Ok(()) => println!(
+                    "note: page {}: {problem}, so it was drawn on the processor instead",
+                    request.page.saturating_add(1)
+                ),
+                Err(second) => {
+                    return Some(Rendered::Failed(format!(
+                        "the graphics device {problem}, and the processor {second}"
+                    )));
+                }
+            }
         }
+        let state = self.state.as_mut()?;
+        let handle = &self.context.devices[state.surface.dev_id];
 
         // `get_current_texture` reports swapchain state rather than returning a Result, and the
         // non-success cases are ordinary events: a resize race leaves the surface outdated,
@@ -455,12 +483,11 @@ impl App {
             CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
                 self.context.configure_surface(&state.surface);
                 state.window.request_redraw();
-                return false;
+                return None;
             }
-            CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => return false,
+            CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => return None,
             CurrentSurfaceTexture::Validation => {
-                println!("note: swapchain validation failed");
-                return false;
+                return Some(Rendered::Failed("swapchain validation failed".to_owned()));
             }
         };
 
@@ -479,7 +506,57 @@ impl App {
         );
         handle.queue.submit(Some(encoder.finish()));
         frame.present();
-        true
+        Some(Rendered::Presented)
+    }
+
+    /// Draws a page with `render-cpu` and puts the pixels on the surface.
+    ///
+    /// The tier-1 rasteriser inside a tier-2 host: the raster crosses as an image in a scene of
+    /// its own, because what this program has to hand pixels to is a Vello surface and Vello
+    /// draws an image as readily as a path. One copy per frame, which is what tier 1 costs
+    /// everywhere and is paid here only on a page the device refused.
+    fn on_the_processor(
+        &mut self,
+        request: &RenderRequest,
+        target: TargetSpec,
+        viewport: (u32, u32),
+        highlight: &[[f32; 8]],
+    ) -> Result<(), String> {
+        let raster = CpuRasterizer::new()
+            .rasterize(&request.list, target)
+            .map_err(|error| error.to_string())?;
+        let image = vello::peniko::ImageBrush::new(vello::peniko::ImageData {
+            data: vello::peniko::Blob::from(raster.data),
+            format: vello::peniko::ImageFormat::Rgba8,
+            // `Raster` is straight alpha, which its own documentation states and which is what
+            // the comparison harness and PNG both want.
+            alpha_type: vello::peniko::ImageAlphaType::Alpha,
+            width: raster.width,
+            height: raster.height,
+        });
+        let mut scene = vello::Scene::new();
+        scene.draw_image(&image, vello::kurbo::Affine::IDENTITY);
+        draw_selection(&mut scene, highlight);
+
+        let Some(state) = self.state.as_mut() else {
+            return Err("has no window".to_owned());
+        };
+        let handle = &self.context.devices[state.surface.dev_id];
+        state
+            .renderer
+            .render_to_texture(
+                &handle.device,
+                &handle.queue,
+                &scene,
+                &state.surface.target_view,
+                &vello::RenderParams {
+                    base_color: vello::peniko::Color::WHITE,
+                    width: viewport.0,
+                    height: viewport.1,
+                    antialiasing_method: AaConfig::Area,
+                },
+            )
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -633,17 +710,14 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
-                if !self.present() {
+                let Some(rendered) = self.present() else {
                     return;
-                }
+                };
                 if !self.acknowledged
                     && let Some(token) = self.request.as_ref().map(|request| request.token)
                 {
                     self.acknowledged = true;
-                    self.dispatch(Command::RenderReady {
-                        token,
-                        rendered: Rendered::Presented,
-                    });
+                    self.dispatch(Command::RenderReady { token, rendered });
                 }
             }
 

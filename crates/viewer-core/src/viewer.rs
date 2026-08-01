@@ -321,11 +321,21 @@ impl Viewer {
                 open.shown = Some((pending.page, pending.target, pending.revision));
                 open.frame = None;
             }
-            Rendered::Failed(reason) => events.push(Event::Reported {
-                document: id,
-                page: Some(pending.page),
-                notes: vec![reason],
-            }),
+            // **A refusal is recorded as an answer**, and it has to be: the scheduler's question
+            // is "is what is on the screen what should be", and a host that cannot draw this page
+            // at this resolution will say so again the next time it is asked. Without this the
+            // two of them spin — ask, refuse, ask — for as long as the page is shown. What
+            // changes the answer is the question changing: another page, another zoom, another
+            // interpretation, all of which move the tuple below.
+            Rendered::Failed(reason) => {
+                open.shown = Some((pending.page, pending.target, pending.revision));
+                open.frame = None;
+                events.push(Event::Reported {
+                    document: id,
+                    page: Some(pending.page),
+                    notes: vec![reason],
+                });
+            }
         }
     }
 

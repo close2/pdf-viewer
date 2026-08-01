@@ -3076,6 +3076,7 @@ dependencies = [
  "pdf-render",
  "pdf-sandbox",
  "pollster",
+ "render-cpu",
  "render-gpu",
  "test-scenes",
  "vello",

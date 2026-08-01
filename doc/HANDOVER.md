@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-forty-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -57,7 +57,7 @@ plays it), search, or draw a panel for the outline, the layers and the attachmen
 
 | gate | number | where |
 |---|---|---|
-| tests | **938**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | **all re-run in session 139**, including the five fuzzers |
+| tests | **939**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | **all re-run in session 139**, including the five fuzzers |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -608,6 +608,13 @@ are expensive in a loop that runs per pixel** — and `Triangle::is_subpixel` to
 cargo run --release -p viewer-ui --bin pdf-viewer -- doc/PDF20_AN001-BPC.pdf
 ```
 
+**Rebuild the release binary before saying anything about speed, and at the end of any session
+that touches the viewer.** The agent's builds go to `/home/AI/cargo-target/pdf-viewer/`, so
+`release/pdf-viewer` there is what a person runs — and `cargo test` only ever builds the *debug*
+one. The hundred-and-forty-second session was reported as "still lags" against a binary three
+hours and six commits old, one of which was the 40× page-turn fix. A stale executable is a
+measurement of the past.
+
 Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom, the up and down
 arrows scroll a page larger than the window, Escape quits. The title bar names how many things on
 the page could not be drawn and the things themselves are printed. A click follows §12.5.6.5's
@@ -691,7 +698,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047) |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. Its own soft-mask readback, because Vello's luminance mask is the SVG formula and no blend mode is a `/TR` |
 | `viewer-core` | Toolkit-independent application logic | `Command` in, `Event` out, `Query` → `Answer` beside them (ADRs 0116, 0117). `select.rs` is every choice a selection needs and the standard does not state (ADR 0119); `interact.rs` is what a click does — §12.5.6.5's links and the eleven §12.6 actions; `notes.rs` is what a document says about itself when it opens. `viewer.rs` is the state machine and the one place a render is scheduled; `open.rs` is one document's page, zoom and scroll, and `fitted` there is why a page fitted to a window is not one pixel taller than it; `report.rs` words an `Unsupported` for a person, which is a presentation decision and so not `pdf-model`'s. `tests/headless.rs` is consumer #2 and the proof the crate's first sentence is true |
-| `viewer-ui` | The application | `src/bin/pdf-viewer.rs`: a window, a keyboard, a GPU, and the two decisions a host owns — which files a document may name (§12.7.6.4) and what to do when one asks for a password (§7.6.4.1). Everything else is `viewer-core`'s |
+| `viewer-ui` | The application | `src/bin/pdf-viewer.rs`: a window, a keyboard, a GPU with `render-cpu` behind it for a page the device refuses (ADR 0125), and the two decisions a host owns — which files a document may name (§12.7.6.4) and what to do when one asks for a password (§7.6.4.1). Everything else is `viewer-core`'s |
 | `pdf-sandbox` | Confined worker + three image filters | Its `decode.rs` is the only place a JBIG2, JPX or CCITT codestream is looked at |
 | `raster-compare` | Tolerant image metrics | Worst-tile error is the load-bearing one |
 | `test-scenes` | Shared fixtures | Holds the same page as a display list *and* as PDF bytes |
@@ -1206,6 +1213,13 @@ anchor that makes it checkable.
   for; a third arrived, called it *in a loop over 988 outline items*, and inherited the comment's
   blessing without its argument — 344 ms of every page turn. **Ask of any function documented as
   expensive: who calls it in a loop.** One `grep`, and it found a second (`named_page`). ADR 0124.
+- **A failed frame must not be reported as a drawn one.** `viewer-ui` answered
+  `Rendered::Presented` when its GPU path refused a page, so the core recorded the page as shown,
+  never asked again, and the window kept the *previous* page under a title bar naming the new one
+  — a page a person cannot view and no reason given. It now answers `Rendered::Failed`, draws it
+  on the CPU backend instead (which is what `CLAUDE.md` keeps that backend for), and says which.
+  **And a refusal is recorded as an answer**: the scheduler must not re-ask a question whose
+  answer cannot change, or the two spin. ADR 0125.
 - **A performance defect on a path no gate walks is found by a person using the program.** The
   corpus interprets page one, the oracle renders pages it is handed by index, and neither turns a
   page. The largest document this project owns — ISO 32000-2, 1023 pages, committed in `doc/` —
@@ -1523,3 +1537,4 @@ above rather than here.
 | 139 | Everything re-verified after eight sessions of change | — |
 | 140 | Search, and a contradicted page that measured our own grid-fitting for us | — |
 | 141 | A page turn walked the page tree once per outline item: 380 ms → 9 ms | 0124 |
+| 142 | A frame that failed was reported as one that was drawn; the CPU draws it now | 0125 |
