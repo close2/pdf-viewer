@@ -37,9 +37,12 @@
 //! - **`/CFM /None`**, which Table 25 defines as "The application shall not decrypt data
 //!   but shall direct the input stream to the security handler for decryption": there is
 //!   no such handler here.
-//! - **A password outside ASCII at revision 4 or earlier**, because §7.6.4.3.2 step (a)
-//!   wants it in `PDFDocEncoding` and this crate holds no Annex D table. See
-//!   [`pdf_doc_encode`] for exactly how far the identity is derivable.
+//! - **A revision 4 password containing a character `PDFDocEncoding` has no code for**, which
+//!   §7.6.4.3.2 step (a) requires the password to be converted to. That is the encoding's own
+//!   limit rather than this crate's: there are no bytes to hash. Until the
+//!   hundred-and-fifty-second session the refusal was far wider — this crate converted only the
+//!   codes where the encoding and Unicode agree by inspection — and it now uses the whole of
+//!   Annex D Table D.3, which [`crate::text_string`] has held since the ninety-second session.
 
 use std::collections::BTreeMap;
 
@@ -874,45 +877,37 @@ fn pad_password(password: &str) -> SyntaxResult<[u8; 32]> {
 
 /// §7.6.4.3.2 step (a)'s conversion of a password to `PDFDocEncoding`.
 ///
-/// Annex D Table D.2 gives the encoding a code per named character, and this crate holds
-/// no glyph-name table. What it can state without one is where `PDFDocEncoding` and Unicode
-/// agree, which is derivable from the table by inspection: every code from 0x20 to 0x7E
-/// and from 0xA1 to 0xFF is its own code point, and every code that is *not* — 0x18 to
-/// 0x1F, 0x80 to 0x9F, and 0xA0, which is EURO SIGN rather than a no-break space — encodes
-/// a character outside those ranges.
+/// > The password string is generated from host system codepage characters (or system scripts)
+/// > by first converting the string to PDFDocEncoding .
 ///
-/// So a password made of characters in the agreeing ranges is converted exactly, and one
-/// that is not is refused by name rather than authenticated against bytes the clause does
-/// not describe. `pdf-font`'s `encoding` module holds the Annex D data that would close
-/// this, and moving it below `pdf-syntax` for one rarely-trodden path is a change worth
-/// more argument than the path is worth.
+/// The clause counts in *bytes* of `PDFDocEncoding`, so a password has to be converted before it
+/// can be padded — and until the hundred-and-fifty-second session this crate could only convert
+/// the part of the encoding that agrees with Unicode by inspection, refusing everything else. It
+/// held the whole of Annex D Table D.3 the entire time, in [`crate::text_string`], for
+/// §7.9.2.2's text strings; the two conversions are one operation on strings of the same order
+/// of length, and there is now one of them.
+///
+/// A character Table D.3 has no code for is still refused by name, and that is the clause rather
+/// than a shortfall: `PDFDocEncoding` cannot represent it, so there are no bytes to hash and no
+/// answer to guess at. §7.6.4.1's revision 6 preprocessing is the standard's own answer for a
+/// password outside it, and this reader implements that.
 ///
 /// # Errors
 ///
-/// [`SyntaxError::UnsupportedEncryption`] for a character outside the agreeing ranges.
+/// [`SyntaxError::UnsupportedEncryption`] for a character Table D.3 has no code for.
 fn pdf_doc_encode(password: &str) -> SyntaxResult<Vec<u8>> {
-    password
-        .chars()
-        .map(|character| {
-            let code = u32::from(character);
-            let encodable = (0x20..=0x7E).contains(&code) || (0xA1..=0xFF).contains(&code);
-            // 0xAD is SOFT HYPHEN, which Table D.2 leaves unencoded.
-            if encodable && code != 0xAD {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "the guard above admits only code points below 0x100"
-                )]
-                Ok(code as u8)
-            } else {
-                Err(SyntaxError::UnsupportedEncryption {
-                    detail: format!(
-                        "the password contains U+{code:04X}, whose PDFDocEncoding code is in \
-                         Annex D Table D.2 rather than derivable (§7.6.4.3.2 step a)"
-                    ),
-                })
-            }
-        })
-        .collect()
+    crate::text_string::pdf_doc_encoded(password).ok_or_else(|| {
+        let offending = password
+            .chars()
+            .find(|character| crate::text_string::pdf_doc_encoded(&character.to_string()).is_none())
+            .map_or(0, u32::from);
+        SyntaxError::UnsupportedEncryption {
+            detail: format!(
+                "the password contains U+{offending:04X}, which Annex D Table D.3's \
+                 PDFDocEncoding has no code for (§7.6.4.3.2 step a)"
+            ),
+        }
+    })
 }
 
 /// A revision 6 password as bytes — §7.6.4.3.3 steps (a) and (b), stated in §7.6.4.1:
@@ -1175,18 +1170,37 @@ mod tests {
         assert_eq!(padded, [b'x'; 32]);
     }
 
-    /// The derivable half of Annex D, and the refusal that guards the rest.
+    /// The whole of Annex D Table D.3, and the refusal that is the encoding's own limit.
+    ///
+    /// **This test asserted the opposite of its third line for a hundred and twenty-nine
+    /// sessions**: §7.6.4.3.2 step (a)'s conversion was derived from the ranges where
+    /// `PDFDocEncoding` and Unicode agree by inspection, so every password containing anything
+    /// else was refused — while `crate::text_string` held the table the whole time.
     #[test]
-    fn pdf_doc_encoding_is_the_identity_where_the_table_says_so() {
+    fn a_password_is_converted_by_the_table_rather_than_by_the_ranges_that_agree() {
         assert_eq!(
             pdf_doc_encode("Aé~").expect("in range"),
             vec![0x41, 0xE9, 0x7E]
         );
-        // U+2014 EM DASH is at 0x84 in PDFDocEncoding, which Table D.2 states and this
-        // crate does not carry.
-        assert!(pdf_doc_encode("a\u{2014}b").is_err());
-        // 0xA0 is EURO SIGN in PDFDocEncoding, so U+00A0 NO-BREAK SPACE is not itself.
+        // The three codes below 0x20 that are characters rather than controls, and the block
+        // from 0x80 to 0x9F, are exactly what the old derivation could not reach.
+        assert_eq!(
+            pdf_doc_encode("a\u{2014}b").expect("EM DASH is 0x84"),
+            vec![0x61, 0x84, 0x62]
+        );
+        assert_eq!(
+            pdf_doc_encode("\u{20AC}").expect("EURO SIGN is 0xA0"),
+            vec![0xA0]
+        );
+        assert_eq!(
+            pdf_doc_encode("\u{2020}").expect("DAGGER is 0x81"),
+            vec![0x81]
+        );
+
+        // And what is still refused is refused by the encoding rather than by this crate:
+        // U+00A0 NO-BREAK SPACE has no code at all, because 0xA0 is the euro sign.
         assert!(pdf_doc_encode("\u{00A0}").is_err());
+        assert!(pdf_doc_encode("\u{4E2D}").is_err(), "a CJK ideograph");
     }
 
     /// §7.6.3.2 steps (b) to (d), worked from the clause's own example.

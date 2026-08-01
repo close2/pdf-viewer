@@ -74,7 +74,13 @@ pub fn encode_text_string(text: &str) -> Vec<u8> {
 /// The table is small enough to search per character (256 entries), and a form field's value is
 /// the length of a form field's value. A reverse map built once would be the right answer if this
 /// were on a page's path; it is on a person's keystroke.
-fn pdf_doc_encoded(text: &str) -> Option<Vec<u8>> {
+///
+/// **Also §7.6.4.3.2 step (a)'s conversion**, which wants a *password* in `PDFDocEncoding` and is
+/// the same operation on a string of the same order of length. `crypt.rs` derived a partial
+/// version of this from the ranges where the encoding and Unicode agree for a hundred and
+/// twenty-nine sessions, and refused every password outside them; this is the whole table, in
+/// the crate that already held it.
+pub(crate) fn pdf_doc_encoded(text: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len());
     for character in text.chars() {
         let code = PDF_DOC_ENCODING

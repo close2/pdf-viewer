@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fifty-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-fifty-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -65,7 +65,7 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 150; the five fuzzers last in 139 |
+| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 152; the five fuzzers last in 139 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 11 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -131,7 +131,7 @@ documents' first pages it affects.
 | A `/DA` font `/DR` does not define | 7 | A malformed file, not a clause gap: §12.7.4.3 requires the name to match a `/DR` entry. Since ADR 0112 the value is laid out in a stand-in **where the stand-in can draw all of it** and the missing font is named; four Arabic-valued documents decline, because a Latin stand-in drawing their punctuation is worse than a blank. |
 | A composite `/DA` font, a list box, `/DS`, `/RV` | 0 | The rest of §12.7.4.3's edges, none reached. A composite font needs §9.7.6.2's codespace ranges inverted; §12.7.5.4 states which items are selected and nothing about how that *looks*; `/DS` and `/RV` are XFA. |
 | Public-key handlers (§7.6.5) | 0 | CMS enveloped data, X.509, the user's private keys — an infrastructure and a threat model, not a cipher. |
-| `/R` 5, and a non-ASCII revision-4 password | 1 | Table 21 says `/R` 5 "shall not be used" and states no algorithm. The password refusal is now cheap to close: `pdf-syntax` holds Table D.3, so inverting it would do it. |
+| `/R` 5 | 1 | Table 21 says `/R` 5 "shall not be used" and states no algorithm. **The non-ASCII revision-4 password left this row in the hundred-and-fifty-second session**: §7.6.4.3.2 step (a)'s conversion now uses the whole of Annex D Table D.3, which `text_string.rs` had held since the ninety-second — the row saying "this crate holds no Annex D table" was wrong for a hundred and twenty-nine sessions. What is still refused is refused by the *encoding*, which has no code for U+00A0 at all. |
 | Icons for `Stamp`, `FileAttachment`, `Sound` | 1 | Their clauses say a reader **should** provide predefined icons; §12.5.6.4 says **shall**, which is why its seven are drawn and these three are not (ADR 0109). |
 | Predefined `CMap`s (§9.7.5.2) | 13 | 13 fonts name one of Table 116's registered files. **The licence question is answered — see §1** — and §9.7.5.2 states it as a `shall`. |
 | A substitute that cannot be addressed | 41 | Counting fonts: 27 composite with no `/ToUnicode`, 23 whose substitute draws none of the declared codes. Honest refusals; closing them means better substitution, and some the `-UCS2` `CMap`s would answer. |
@@ -1258,6 +1258,12 @@ anchor that makes it checkable.
 
 - **When two clauses describe one mechanism, reviewing one leaves the other lying.** Four instances
   in ten sessions; the check is one `grep` for the *other* clause a family cites.
+- **"This crate does not have X" is a claim about the crate, and the crate is greppable.**
+  §7.6.4.3.2's row said "this crate holds no Annex D table" for a hundred and twenty-nine
+  sessions, and `text_string.rs` had held the whole of Table D.3 since the ninety-second — put
+  there for §7.9.2.2, a different clause, in the same crate. **A capability recorded as absent is
+  worth one `grep` of your own tree before it is believed**, and the two clauses that wanted it
+  had no reason to cite each other.
 - **A retired claim is a string, and strings are greppable.** When a session disproves a sentence
   this tree repeats, the work is done when the *sentence* is gone. "Vertical writing is refused"
   was true until session 36 and still written in four places in session 122 — a ledger row, a doc
@@ -1705,3 +1711,4 @@ above rather than here.
 | 149 | §14.7's structure tree reaches a consumer: `Query::AccessibilityTree` | 0134 |
 | 150 | §12.4.4.1's `/Dur`: a state machine with no clock is told the time | 0135 |
 | 151 | The ledger re-read against seven sessions of new capability | — |
+| 152 | §7.6.4.3.2 step (a): the Annex D table this crate said it did not hold | — |
