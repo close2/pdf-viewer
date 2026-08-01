@@ -1075,7 +1075,7 @@ pub fn interpret_with(
     state: &crate::view::ViewState,
 ) -> Interpretation {
     let (content, issues) = page.content_with_report(document);
-    let size = rotated_size(page);
+    let size = displayed_size(page);
 
     let mut interpreter = Interpreter {
         document,
@@ -1192,8 +1192,15 @@ enum FontKey {
     Referenced(pdf_syntax::ObjectId),
 }
 
-/// Returns the page size after rotation, since a rotated page swaps its extents.
-fn rotated_size(page: &Page) -> Size {
+/// The page's extent as it is displayed: after §7.7.3.3's `/Rotate`, and in `/UserUnit`s.
+///
+/// A rotated page swaps its extents, so this is not [`Page::width`] and [`Page::height`].
+///
+/// Public because a viewer needs it *before* there is a display list to read it from: fitting a
+/// page to a window is what decides the scale to interpret it at, and asking the other way round
+/// would interpret every page twice.
+#[must_use]
+pub fn displayed_size(page: &Page) -> Size {
     // §7.7.3.3 Table 31's `/UserUnit` is "the size of default user space units, in multiples
     // of 1/72 inch", so a page's extent *in the units a device resolution is stated in* is
     // its crop box scaled by it. Applying it here and in `base_transform` — rather than
@@ -5505,7 +5512,7 @@ fn known_blend_mode(name: &[u8]) -> Option<BlendMode> {
 mod tests {
     use pdf_render::Point;
 
-    use super::{base_transform, rotated_size};
+    use super::{base_transform, displayed_size};
     use crate::page::Page;
 
     /// A page 400 wide and 200 tall, with no crop offset, at `rotate` degrees.
@@ -5575,7 +5582,7 @@ mod tests {
     fn every_corner_lands_inside_the_rotated_page() {
         for rotate in [0, 90, 180, 270] {
             let page = landscape(rotate);
-            let size = rotated_size(&page);
+            let size = displayed_size(&page);
             let transform = base_transform(&page);
             for corner in [
                 Point::new(0.0, 0.0),

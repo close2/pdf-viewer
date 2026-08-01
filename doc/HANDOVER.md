@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-thirty-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -33,20 +33,27 @@ for a caller that has one to play, and — since the eightieth session — every
 files, §14.13's associated files, §12.2's viewer preferences, §12.11's requirements, §7.12's
 extensions.
 
+Since the hundred-and-thirty-first session there is a **`viewer-core`**: `Command` in, `Event`
+out, `Query` → `Answer` beside them, with the open-document set, page, zoom, scroll and the render
+scheduler behind it, and a headless consumer that drives it with no display (ADR 0116). What it
+does not yet have is a *host* on it — `pdf-viewer.rs` still holds its own copy of everything —
+which is §0's next step and the whole of the next session.
+
 It is **not yet a viewer** in the full sense: nothing edits a field, prompts for a password,
-speaks a page, selects text or runs a slide show. Every one of those is blocked on the same
-missing thing, which is why §0 below is now the headline.
+speaks a page, selects text or runs a slide show. Every one of those was blocked on the same
+missing interface, which is why §0 below is the headline; the interface now exists and the five
+are one host apart rather than one architecture apart.
 
 ### The four gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **895**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 129 |
+| tests | **907**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | re-run in session 131, fuzzers in 129 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
-| conformance | 2833 citations, 305 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 2874 citations, 307 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -103,14 +110,14 @@ documents' first pages it affects.
 |---|---|---|
 | A `/DA` font `/DR` does not define | 7 | A malformed file, not a clause gap: §12.7.4.3 requires the name to match a `/DR` entry. Since ADR 0112 the value is laid out in a stand-in **where the stand-in can draw all of it** and the missing font is named; four Arabic-valued documents decline, because a Latin stand-in drawing their punctuation is worse than a blank. |
 | A composite `/DA` font, a list box, `/DS`, `/RV` | 0 | The rest of §12.7.4.3's edges, none reached. A composite font needs §9.7.6.2's codespace ranges inverted; §12.7.5.4 states which items are selected and nothing about how that *looks*; `/DS` and `/RV` are XFA. |
-| A password prompt (§7.6.4.1) | 8 | §7.6 is done (ADR 0031). `Document::open_with_password` takes one and nothing asks. **Unblocked by §0.** |
+| A password prompt (§7.6.4.1) | 8 | §7.6 is done (ADR 0031). Since session 131 `viewer-core` *asks* — `Event::PasswordRequired`, answered by `Command::Open` with the password — and the shipped binary is not on `viewer-core` yet, so nothing prompts a person. One session away. |
 | Public-key handlers (§7.6.5) | 0 | CMS enveloped data, X.509, the user's private keys — an infrastructure and a threat model, not a cipher. |
 | `/R` 5, and a non-ASCII revision-4 password | 1 | Table 21 says `/R` 5 "shall not be used" and states no algorithm. The password refusal is now cheap to close: `pdf-syntax` holds Table D.3, so inverting it would do it. |
 | Icons for `Stamp`, `FileAttachment`, `Sound` | 1 | Their clauses say a reader **should** provide predefined icons; §12.5.6.4 says **shall**, which is why its seven are drawn and these three are not (ADR 0109). |
 | Predefined `CMap`s (§9.7.5.2) | 13 | 13 fonts name one of Table 116's registered files. **The licence question is answered — see §1** — and §9.7.5.2 states it as a `shall`. |
 | A substitute that cannot be addressed | 41 | Counting fonts: 27 composite with no `/ToUnicode`, 23 whose substitute draws none of the declared codes. Honest refusals; closing them means better substitution, and some the `-UCS2` `CMap`s would answer. |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | Each reported where it can change a pixel: a knockout element whose shape is not its coverage (5), a non-isolated group NOTE 5 cannot flatten whose elements blend (6), a blending space that is not the device's three components (4, all `/DeviceCMYK`), a soft-mask group with such a space (7). |
-| Optional content's interactive half | — | §8.11 is honoured wherever it decides what is drawn. **The layer panel's data model is read** since session 67 — `/Order`, `/ListMode`, `/Locked`, `/RBGroups`, `/Name` — and `ViewState::set_group` is the switch. **Unblocked by §0.** Still unread: alternate `/Configs`. |
+| Optional content's interactive half | — | §8.11 is honoured wherever it decides what is drawn. **The layer panel's data model is read** since session 67 — `/Order`, `/ListMode`, `/Locked`, `/RBGroups`, `/Name` — and since 131 it is `Query::Layers` with `Command::SetGroup` as the switch. What is missing is a panel to draw it in. Still unread: alternate `/Configs`. |
 | `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
 | Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
 | A filled degenerate subpath's device pixel (§8.5.3.3.1) | — | The clause calls the result "device-dependent and not generally useful" in the same breath. Recorded, not reported. |
@@ -142,18 +149,20 @@ silence for thirty-one sessions (ADR 0115). None was `silent`, none was `reporte
 could see the last. Three were found by reading the clause beside the code; the fourth by
 measuring something else.
 
-### 0. The UI boundary — the headline, and nothing has been written yet
+### 0. The UI boundary — the vocabulary exists, the host does not
 
-**Everything a viewer still owes is blocked on one missing interface**, and the owner has decided
-its shape. This section is what a session needs to start.
+**Everything a viewer still owes was blocked on one missing interface.** Since the
+hundred-and-thirty-first session that interface is code: `crates/viewer-core`, ADR 0116, and
+`tests/headless.rs` driving it with no display. This section is now half description and half
+instruction — read the first half to know what is there, the second to know what is next.
 
-#### Why now
+#### Why it was the headline
 
-Five owed items are the same item. A password prompt (8 documents, and the handover has called
-the prompt "the missing piece, not the clause" for twenty sessions). A layer panel, read since
+Five owed items are the same item. A password prompt (8 documents, and this file called the
+prompt "the missing piece, not the clause" for twenty sessions). A layer panel, read since
 session 67. Presentation mode, read since session 70. An editable field, whose machinery session
-97 proved. AccessKit, which would make six sessions of §14.7/§14.9 reading visible. **All five are
-one interface away, and none is a clause question.**
+97 proved. AccessKit, which would make six sessions of §14.7/§14.9 reading visible. **All five
+were one interface away, and none is a clause question.**
 
 #### The goal, stated by the owner
 
@@ -162,22 +171,7 @@ built on a cross-platform toolkit. Later it must support **text selection** and 
 editing**, possibly form-field text editing. `CLAUDE.md`'s exclusion list was amended in the
 hundred-and-thirtieth session to permit the writing that implies.
 
-#### The line is already three-quarters drawn, by clauses
-
-- **`pdf_model::view::Request`** is an enum of "what performing an action asks of the viewer that
-  document state cannot do itself" — display a destination, resolve a URI, turn a page, play a
-  transition, open an embedded document, import a file. That is an outbound host-interface
-  message type, arrived at one clause at a time.
-- **`viewer-core`** is empty and its doc comment already states the contract: "No type from a
-  windowing or graphics library appears in this crate's API."
-- **`pdf-render`'s `Raster`** is `{ width, height, format, data: Vec<u8> }`, row-major, no
-  padding — a blit target for GDI, `CGImage`, `QImage`, `GdkTexture` and cairo without
-  conversion.
-- **`pdf-viewer.rs`'s own struct splits along the line**: `document`, `view`, `labels`,
-  `outline`, `page_index`, `cursor`, `scale`, then `state: Option<State>` holding winit/vello.
-  Everything above is `viewer-core`; `State` is the toolkit.
-
-#### The shape
+#### What exists
 
 ```
 host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)  ──Event──▶  host
@@ -186,58 +180,56 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
                                     └──NeedsRender──▶ worker ──RenderReady──┘
 ```
 
-- `Viewer::handle(&mut self, Command) -> impl Iterator<Item = Event>` — mutation.
-- `Viewer::query(&self, Query) -> Answer` — pure synchronous reads: hit-test a point, quads for a
-  text range, page geometry, outline, layers, the accessibility tree. **Selection cannot wait for
-  a render round trip**, which is why this is a second channel rather than a command.
+- `Viewer::handle(&mut self, Command) -> impl Iterator<Item = Event>`, and
+  `Viewer::query(&self, Query) -> Answer` beside it. **Selection cannot wait for a render round
+  trip**, which is why the second channel is not a command.
+- `Command`: `Open { id, bytes, password }`, `Close`, `Focus`, `Resize { width, height, scale }`,
+  `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, `RenderReady { token, rendered }`.
+- `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
+  `NeedsRender(RenderRequest)`, `Damage(Rect)`, `Reported { document, page, notes }`.
+- `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `Outline`, `Layers`,
+  `Attachments`, `Frame`, `Reports`.
+- **This crate interprets; the host rasterises.** `NeedsRender` carries an `Arc<DisplayList>` and
+  a `TargetSpec`, so a zoom or a scroll re-rasterises *without re-interpreting* — asserted by
+  pointer equality of the list in `zooming_rasterises_again_without_interpreting_again`.
+- **A stale token is dropped**, so a page turned mid-render cannot be overwritten by the frame
+  the previous page produced.
+- `Rendered::{Raster, Presented, Failed}` is where tier 1 and tier 2 differ and the only place
+  they do: a host drawing onto its own surface has no raster to hand back and has not failed.
 
-Messages rather than a callback trait, for four reasons specific to this project: it is testable
-without a display (which `viewer-core`'s doc comment already demands); it survives an FFI
-boundary unchanged, which AppKit, WinUI and Qt will all need; it survives a *process* boundary
-unchanged; and it needs no runtime, which `CLAUDE.md` forbids. Rendering is asynchronous by
-*protocol* — the core emits `NeedsRender { token, page, target }` and later receives
-`RenderReady { token, raster }`.
+#### What is still owed, in the order to do it
 
-#### The vocabulary, as far as it is decided
+1. **Refactor `pdf-viewer.rs` onto it** — consumer #1, and the next session. Everything in that
+   binary above `state: Option<State>` is `viewer-core`'s already: links, §12.6.4's actions,
+   §12.7.6.4's import, the document's own notes (requirements, attachments, signatures). The
+   binary becomes a tier-2 host: winit events in, `NeedsRender` out to vello, `Presented` back.
+   **Do it in one commit with the deletion**, or the open-document notes exist twice.
+2. **The vocabulary the refactor needs**: `Pointer { at, button }` (§12.5.5's three appearance
+   states are already `ViewState::set_pointer`), `Event::OpenUri` (§12.6.4.8, already
+   `Request::Resolve`), `Event::NeedsFile` (§12.7.6.4, already `Request::Import`),
+   `Event::Transition` (§12.4.4, already `Request::Transition`), `Command::Supply { purpose,
+   bytes }` as the answer to both, `Command::Tick { millis }` (rule 3), and `Query::HitTest`.
+   **Five of those are `pdf_model::view::Request` variants that already exist**, which is the
+   strongest evidence the boundary is being discovered rather than invented.
+3. **Then the two artefacts below** — a text layer and an edit log — which are what selection and
+   editing need and are the two things expensive to retrofit.
+4. **Then one native host.** GTK4 via `gtk4-rs` first — Rust-safe, no C++ bridge, and it is the
+   development platform. Qt/KDE second via `cxx-qt`, because that costs a C++ bridge and should
+   not be the experiment that shapes the API.
+5. **`viewer-ffi` last**, and it is the **only** crate permitted `unsafe`. Every crate touching
+   PDF bytes keeps `#![forbid(unsafe_code)]`; the FFI crate touches messages, not documents, so
+   the compiler-enforced rule survives. **Do not freeze a C ABI until two Rust consumers have
+   shaken the API out** — the vocabulary roughly doubles with selection and editing.
 
-Not a frozen API — a starting point that already has a clause behind most of its entries.
-
-| `Command` | from | note |
-|---|---|---|
-| `Open { id, bytes, password }` / `Close(id)` | host | bytes, never a path (rule 2) |
-| `Resize { width, height, scale }` | host | device pixels plus the DPI scale (rule 5) |
-| `Scroll`, `Zoom`, `GoTo(PageTarget)` | host | |
-| `Pointer { at, button }` | host | §12.5.5's three appearance states already live in `ViewState::set_pointer` |
-| `Select(SelectionKind)`, `Edit(Edit)`, `Undo`, `Redo` | host | the log, §0's second artefact |
-| `SetGroup { group, on }` | host | §8.11, `ViewState::set_group` exists |
-| `RenderReady { token, raster }` | worker | |
-| `Tick { millis }` | host | §12.4.4's `/Dur` and transitions (rule 3) |
-| `Supply { purpose, bytes }` | host | the answer to `Event::Needs*` |
-
-| `Event` | clause behind it |
-|---|---|
-| `NeedsRender { token, page, target }` | — |
-| `Damage(Rect)`, `Overlay(Vec<Chrome>)` | the geometry channel below |
-| `PageChanged { index, label, of }`, `TitleChanged` | §12.4.2, §12.3.3 |
-| `Reported(Vec<String>)` | trap 5's channel, today's title bar |
-| `PasswordRequired(id)` | §7.6.4.1 — the prompt, at last |
-| `OpenUri(String)` | §12.6.4.8, already `Request::Resolve` |
-| `NeedsFile { purpose, near }` | §12.7.6.4, already `Request::Import` |
-| `Transition(t)` | §12.4.4, already `Request::Transition` |
-| `Outline`, `Layers`, `Attachments`, `Accessibility(TreeUpdate)` | §12.3.3, §8.11.4.3, §7.11.4, §14.7/§14.9 |
-| `Dirty(bool)`, `Saved(Vec<u8>)` | §7.5.6's incremental update |
-
-`Query` → `Answer`: `HitTest(point)`, `TextIn(range)`, `QuadsFor(range)`, `PageGeometry(index)`,
-`Outline`, `Layers`, `AccessibilityTree`. `&self`, no events, no worker.
-
-**Five of those `Event`s are `pdf_model::view::Request` variants that already exist**, which is
-the strongest evidence the boundary is being discovered rather than invented.
+Adding `egui` buys a widget set for a large dependency and no architectural proof: winit + vello
+*is* the unnative UI. The thing worth adding was the headless consumer, and it is there.
 
 #### Crates
 
-- `viewer-core` — the state machine. New public API; depends on `pdf-model` and `pdf-render` and
-  nothing else. Owns: the open-document set, page/zoom/scroll, the edit log, selection, search,
-  history, and the render scheduler's *bookkeeping* (not its threads).
+- `viewer-core` — the state machine. **Exists**; depends on `pdf-model`, `pdf-render` and
+  `pdf-syntax` and nothing else. Owns the open-document set, page/zoom/scroll and the render
+  scheduler's *bookkeeping* (not its threads); still owes the edit log, selection, search and
+  history.
 - `viewer-render` (new, optional) — a default worker a host may use instead of writing one.
 - `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
   `vello` in its API.
@@ -318,24 +310,6 @@ design question". **If the boundary is `Command`/`Event` with `Raster` payloads,
 dissolves**: the confined process owns document, interpretation and rasterisation, and the host
 receives pixels and events. Simpler than shipping display lists, and one protocol instead of two.
 Design with that in mind from the first line even if the sandbox lands much later.
-
-#### Order
-
-1. **Make `viewer-core` real**; refactor `pdf-viewer.rs` onto it. Consumer #1 stays winit — no new
-   dependency, and it proves the interface against something that works.
-2. **Consumer #2 is headless**: a harness driving commands and asserting events. That is what
-   proves "toolkit-free", and it is the gate this project would want anyway. Selection semantics,
-   undo, edit application and hit-testing are exactly what you want to test without a display.
-3. **Then one native host.** GTK4 via `gtk4-rs` first — Rust-safe, no C++ bridge, and it is the
-   development platform. Qt/KDE second via `cxx-qt`, because that costs a C++ bridge and should
-   not be the experiment that shapes the API.
-4. **`viewer-ffi` last**, and it is the **only** crate permitted `unsafe`. Every crate touching
-   PDF bytes keeps `#![forbid(unsafe_code)]`; the FFI crate touches messages, not documents, so
-   the compiler-enforced rule survives. **Do not freeze a C ABI until two Rust consumers have
-   shaken the API out** — the vocabulary roughly doubles with selection and editing.
-
-Adding `egui` buys a widget set for a large dependency and no architectural proof: winit + vello
-*is* the unnative UI. The thing worth adding is the headless consumer.
 
 #### Near, and far
 
@@ -656,7 +630,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047) |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. Its own soft-mask readback, because Vello's luminance mask is the SVG formula and no blend mode is a `/TR` |
-| `viewer-core` | **Empty.** Toolkit-independent application logic | §0 is its specification |
+| `viewer-core` | Toolkit-independent application logic | `Command` in, `Event` out, `Query` → `Answer` beside them (ADR 0116). `viewer.rs` is the state machine and the one place a render is scheduled; `open.rs` is one document's page, zoom and scroll, and `fitted` there is why a page fitted to a window is not one pixel taller than it; `report.rs` words an `Unsupported` for a person, which is a presentation decision and so not `pdf-model`'s. `tests/headless.rs` is consumer #2 and the proof the crate's first sentence is true |
 | `viewer-ui` | The application | `src/bin/pdf-viewer.rs`, winit + vello |
 | `pdf-sandbox` | Confined worker + three image filters | Its `decode.rs` is the only place a JBIG2, JPX or CCITT codestream is looked at |
 | `raster-compare` | Tolerant image metrics | Worst-tile error is the load-bearing one |
@@ -1183,6 +1157,12 @@ anchor that makes it checkable.
 - **An assumption a test cannot exercise is not tested, however many tests run over it.** The GPU
   backend demultiplied Vello's output for fifteen sessions; every scene rendered onto an opaque
   background.
+- **A number computed to fit must be checked against the rounding of whatever consumes it.** A
+  page fitted to a window by `viewport / extent` is one pixel too tall about half the time,
+  because `TargetSpec::for_page` rounds a raster *up* to contain the page and the nearest `f32`
+  to the exact ratio is above it as often as below — a fitted page with a scrollbar. The fix is
+  not an epsilon: step to the next representable scale until the consumer's rounding lands. ADR
+  0116.
 - **Two copies of a constant is one defect waiting.**
 - **A constant that is a property of the state must reach every paint, including the ones that
   replace the colour.** A shading replaces the current colour, and the line that returned it
@@ -1431,3 +1411,4 @@ above rather than here.
 | 128 | Every other cache's key checked; the decompression item priced and found small | — |
 | 129 | Everything re-verified after ten sessions of change | — |
 | 130 | MIT; `CLAUDE.md`'s writer exclusion amended; §0's UI boundary specified | — |
+| 131 | `viewer-core` is real: a vocabulary, a scheduler, and a consumer with no display | 0116 |

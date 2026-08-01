@@ -2,13 +2,87 @@
 //!
 //! Owns everything the user interface needs but that does not depend on a windowing
 //! toolkit: the open-document set, view state (page, zoom, scroll), the render
-//! scheduler and its tile cache, search state, and the history of navigation.
+//! scheduler's bookkeeping, and what a document says about itself.
 //!
 //! No type from a windowing or graphics library appears in this crate's API. That is
 //! what keeps `viewer-ui` replaceable — the project has already changed windowing
 //! decisions once, from Qt to winit — and it is what makes the application logic
 //! testable without a display.
 //!
-//! Implemented after Phase 5.
+//! # The shape: two channels, and why messages rather than a trait
+//!
+//! ```text
+//! host toolkit  ──Command──▶  Viewer  ──Event──▶  host
+//!                             query(&self, Query) ──▶ Answer
+//!                                 │
+//!                                 └─Event::NeedsRender─▶ worker ─Command::RenderReady─┘
+//! ```
+//!
+//! [`Viewer::handle`] takes one [`Command`] and returns the [`Event`]s it produced;
+//! [`Viewer::query`] answers a [`Query`] from `&self`, synchronously, producing no events at
+//! all. Two channels rather than one because **a selection cannot wait for a render round
+//! trip**: hit-testing a point and asking for a page's geometry happen at pointer speed, and a
+//! host that had to post a command and wait for an event to come back would feel it.
+//!
+//! Messages rather than a callback trait, for four reasons specific to this project: the state
+//! machine is testable with no display, which is what `viewer-core` exists for; the vocabulary
+//! survives an FFI boundary unchanged, which `AppKit`, `WinUI` and Qt will each need; it survives a
+//! *process* boundary unchanged, which is what principle 3's confined renderer needs; and it
+//! needs no runtime, which `CLAUDE.md` forbids.
+//!
+//! # Five rules
+//!
+//! 1. **[`pdf_syntax::Document`] is immutable.** What a user does to a document is a log beside
+//!    it, never a change to it — the pattern `pdf_model::view::ViewState` already uses for
+//!    §12.6.4's actions. Interpretation stays a pure function of the file's bytes and the view
+//!    state, which is what makes the reference oracle's comparison of 1665 pages mean anything.
+//! 2. **No filesystem.** The host supplies bytes and the host receives bytes. A document naming
+//!    a file is a document asking this machine for something, and whether to give it is not a
+//!    rendering decision.
+//! 3. **No clock.** Anything timed arrives as a command carrying the elapsed milliseconds.
+//! 4. **No threads this crate was not handed, and nothing blocking.** Rasterisation happens
+//!    wherever the host runs it; this crate only schedules it.
+//! 5. **No toolkit or graphics type in the public API.** [`pdf_render::Raster`] is this
+//!    project's own row-major RGBA with no row padding — a blit target for GDI, `CGImage`,
+//!    `QImage`, `GdkTexture` and cairo without conversion — and it is the widest the interface
+//!    goes.
+//!
+//! # What crosses as pixels, and what does not
+//!
+//! Page content crosses as pixels, and changes when the page, the zoom or an edit does.
+//! Interactive chrome — a selection highlight, a caret, a rubber band — changes at pointer
+//! speed and crosses as *geometry*, so that a native host can draw it in macOS's selection
+//! colour, KDE's accent or the Windows highlight brush, with its own caret blink and focus
+//! ring. That is most of what makes an embedded view feel native, and it is unreachable if a
+//! host is handed finished pixels. [`Query`] is that channel.
+//!
+//! # Who interprets, and who rasterises
+//!
+//! This crate interprets: [`Event::NeedsRender`] carries a finished [`pdf_render::DisplayList`]
+//! and the [`pdf_render::TargetSpec`] to draw it at, and the host rasterises them wherever it
+//! likes. Three reasons, in the order they decided it. Interpretation is a pure function of an
+//! immutable document, so it is the half that must not be duplicated per host — a host that
+//! interpreted for itself would be a second reading of the same file. A display list is
+//! resolution-independent, so **zoom and scroll re-rasterise without re-interpreting**, which
+//! is what `TargetSpec` exists to allow and is the difference between a smooth zoom and a
+//! parse per frame. And it is what leaves the confined-process boundary in one piece:
+//! everything that touches PDF bytes stays on this side of the protocol.
+//!
+//! The cost is that interpretation runs on whichever thread calls [`Viewer::handle`]. That is a
+//! real cost — interpretation is the expensive half — and the answer is that a host wanting it
+//! elsewhere moves the *whole* `Viewer` to another thread, which the message vocabulary is
+//! designed to allow and a callback trait would not.
 
 #![forbid(unsafe_code)]
+
+mod command;
+mod event;
+mod open;
+mod query;
+mod report;
+mod viewer;
+
+pub use command::{Command, PageTarget, Rendered, Zoom};
+pub use event::{Event, RenderRequest};
+pub use query::{Answer, FrameView, Layer, PageGeometry, Query};
+pub use viewer::{DocumentId, RenderToken, Viewer};
