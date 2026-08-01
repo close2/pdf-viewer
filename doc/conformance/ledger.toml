@@ -3839,10 +3839,10 @@ note = "**Performed.** This is the one action of Table 201's twenty that names a
 [[clause]]
 clause = "12.6.4.5"
 title = "GoToDp action"
-status = "reported"
-code = ["crates/pdf-model/src/action.rs", "crates/viewer-ui/src/bin/pdf-viewer.rs"]
-test = ["crates/pdf-model/src/action.rs::a_name_the_table_does_not_hold_is_not_an_action"]
-note = "GoToDp: navigate to a document part (§14.12), which is `unreviewed` in clause 14 and unbuilt. **Refused by name and said out loud**: `action.rs` answers \"GoToDp: a document part, which needs §14.12's part hierarchy\" and `viewer-ui` prints it when a click reaches one, so this is `reported` rather than `silent` — the row said `silent` while the code has named it since the sixty-second session."
+status = "implemented"
+code = ["crates/pdf-model/src/action.rs", "crates/pdf-model/src/document_part.rs"]
+test = ["crates/pdf-model/src/document_part.rs::a_leaf_begins_at_the_page_its_start_names", "crates/pdf-model/src/document_part.rs::a_node_begins_at_the_first_leaf_of_its_first_child"]
+note = "GoToDp: \"changes the view to the Start page of a specified DPart\", performed since the hundred-and-eighteenth session. Table 206 has one entry, `/Dp`, \"[t]he indirect reference to a DPart dictionary to go to\", and it is kept as a *reference* because resolving it needs the page tree that turns Table 409's `/Start` into a number. **This row was `reported` on the ground that §14.12 \"is `unreviewed` in clause 14 and unbuilt\", and by the time anybody read it again §14.12 was `inapplicable` and the action still had nowhere to go** — which is `doc/HANDOVER.md`'s habit that an `inapplicable` row decays exactly as a `silent` one does, met for the second time. A `GoToDp` naming a *node* rather than a leaf is answered by §14.12.3's own sentence about depth-first order rather than by a guess."
 
 [[clause]]
 clause = "12.6.4.6"
@@ -4204,7 +4204,7 @@ title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/forms_data.rs"]
 test = ["crates/pdf-model/src/forms_data.rs::what_is_not_applied_is_named", "crates/pdf-model/src/forms_data.rs::the_file_says_which_document_it_is_for_and_what_the_server_said"]
-note = "Table 246 whole, read, with four entries named rather than applied and each for a stated reason: `/Pages` needs §12.7.7's named pages, `/Annots` needs a second document's objects to reach the interpreter, `/JavaScript` is on principle 5's closed exclusion list, and `/Differences` carries the target document's own incremental updates, which applying would mean writing a PDF. `/F` and `/ID` are read and `FormsData::belongs_to` compares §14.4's permanent identifier, `/Status` is the server's message and is printed because the table says it \"shall be displayed\", and `/Encoding` decides how a value's bytes become characters — its default and its two Unicode values are §7.9.2.2's own three, and its four registered character sets are refused by name for Table 116's reason, per string rather than per file."
+note = "Table 246 whole, read, with three entries named rather than applied and each for a stated reason: **`/Pages` is applied** — `read_pages` builds §12.7.8.3.3's page dictionaries and `named_page` adds their templates to the document, which has been true since §12.7.7's named pages landed in the hundred-and-first session and which this note went on saying was owed until the hundred-and-eighteenth — `/Annots` needs a second document's objects to reach the interpreter, `/JavaScript` is on principle 5's closed exclusion list, and `/Differences` carries the target document's own incremental updates, which applying would mean writing a PDF. `/F` and `/ID` are read and `FormsData::belongs_to` compares §14.4's permanent identifier, `/Status` is the server's message and is printed because the table says it \"shall be displayed\", and `/Encoding` decides how a value's bytes become characters — its default and its two Unicode values are §7.9.2.2's own three, and its four registered character sets are refused by name for Table 116's reason, per string rather than per file."
 
 [[clause]]
 clause = "12.7.8.3.2"
@@ -6109,7 +6109,7 @@ note = "OPI substitutes a low-resolution proxy image for a high-resolution one h
 clause = "14.12"
 title = "Document parts"
 status = "inapplicable"
-note = "Aggregate of the six below. Document parts are a *production workflow* structure: a second hierarchy over the same pages, carrying metadata for a job ticket. §14.12.1 states its own purpose — \"[t]he use of a separate job ticket file for specifying page ordering and processing requirements\", targeted at \"a production workflow, digital printing device, or other messaging channel\" — and nothing in the family changes a mark on a page. That is the same reading §14.2's procedure sets and §14.5's page-piece dictionaries got, and it is why this is `inapplicable` rather than owed. **No corpus document states a `/DPartRoot`.** The two rows below it that are `writer-side` rather than `inapplicable` are the ones whose every sentence constrains how a file is built."
+note = "Aggregate of the six below. Document parts are a *production workflow* structure: a second hierarchy over the same pages, carrying metadata for a job ticket. §14.12.1 states its own purpose — \"[t]he use of a separate job ticket file for specifying page ordering and processing requirements\", targeted at \"a production workflow, digital printing device, or other messaging channel\" — and nothing in the family changes a mark on a page. That is the same reading §14.2's procedure sets and §14.5's page-piece dictionaries got, and it is why this is `inapplicable` rather than owed. **No corpus document states a `/DPartRoot`.** One sentence of the family is *not* `inapplicable` and was found so in the hundred-and-eighteenth session: §14.12.3's depth-first ordering, and Table 409's `/Start`, decide which page §12.6.4.5's GoToDp action shows — so a DPart dictionary decides what is on screen, which is `document_part::first_page`. The rest of the family stays `inapplicable`, and the distinction is the habit's: an `inapplicable` row means nothing is owed *by the clauses that reach it today*. The two rows below it that are `writer-side` rather than `inapplicable` are the ones whose every sentence constrains how a file is built."
 
 [[clause]]
 clause = "14.12.1"

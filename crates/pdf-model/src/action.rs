@@ -19,13 +19,14 @@
 //! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8) |
 //! | `GoToE` | §12.6.4.4 | yes — where the target is embedded in this file, which needs no filesystem |
 //! | `Trans` | §12.6.4.15 | yes — read as §12.4.4's transition; playing one is a window's job |
+//! | `GoToDp` | §12.6.4.5 | yes — the page §14.12's document part begins at |
 //! | everything else | | [`Action::Refused`], by name |
 //!
 //! The refusals are not laziness and they are not uniform. `GoToR`, `Launch` and
 //! `SubmitForm` want a file system or a network, which principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
-//! same list; `GoToDp` is §14.12's document part hierarchy, which nothing here reads. A `Thread` action naming *another file* joins the first group, for the
+//! same list. A `Thread` action naming *another file* joins the first group, for the
 //! same reason `GoToR` is in it. Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
 //!
@@ -95,6 +96,8 @@ pub enum Action {
     ImportData(ImportData),
     /// §12.6.4.4: go to a destination in a document embedded in this one.
     GoToE(EmbeddedGoTo),
+    /// §12.6.4.5: show the page a document part begins at.
+    GoToDp(DocumentPartJump),
     /// §12.6.4.15: show the page as it stands, using this transition.
     ///
     /// Table 219's `/Trans` is Table 164's dictionary — the same one a page's own `/Trans` holds
@@ -598,6 +601,35 @@ fn file_specification(document: &Document, dict: &Dictionary, key: &str) -> Opti
     crate::file_spec::FileSpec::parse(document, &document.get_key(dict, key))?.display_name()
 }
 
+/// §12.6.4.5's go-to-document-part action. Table 206.
+///
+/// > A GoToDp action changes the view to the Start page of a specified DPart
+///
+/// One entry, and it decides which page is shown — which is why §14.12's `inapplicable` rows do
+/// not settle this one. The dictionary is kept as its *reference* rather than resolved, because
+/// resolving it here would need the page tree that turns its `/Start` into a number, and that is
+/// [`DocumentPartJump::page_in`]'s caller's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentPartJump {
+    /// Table 206's `/Dp`, "[t]he indirect reference to a `DPart` dictionary to go to".
+    pub part: ObjectId,
+}
+
+impl DocumentPartJump {
+    /// The zero-based index of the page this action shows, or `None`.
+    ///
+    /// `None` where `/Dp` does not resolve to a dictionary, where no leaf under it names a
+    /// `/Start`, or where the page it names is not in the page tree — three different broken
+    /// files and one answer, because a viewer that cannot find the page has nowhere to go.
+    #[must_use]
+    pub fn page_in(self, document: &Document, pages: &crate::Pages<'_>) -> Option<usize> {
+        let part = document.get(self.part);
+        let part = part.as_dict()?;
+        let page = crate::document_part::first_page(document, part)?;
+        pages.index_of(page)
+    }
+}
+
 /// §12.6.4.7's thread action. Table 209.
 ///
 /// The clause is one sentence — a thread action "jumps to a specified bead on an article
@@ -914,6 +946,14 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         // Table 219 makes `/Trans` required, so an action without one has stated no transition
         // and is a dictionary rather than an action.
         b"Trans" => Action::Trans(crate::navigation::transition(document, dict)?),
+        // Table 206 makes `/Dp` required and an indirect reference, so an action without one
+        // names no document part and is a dictionary rather than an action.
+        b"GoToDp" => Action::GoToDp(DocumentPartJump {
+            part: match dict.get("Dp") {
+                Some(Object::Reference(id)) => *id,
+                _ => return None,
+            },
+        }),
         other => Action::Refused(refused(other)?),
     })
 }
@@ -1171,7 +1211,6 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"GoToR" => {
             "GoToR: a destination in another file, which this reader has no filesystem to open"
         }
-        b"GoToDp" => "GoToDp: a document part, which needs §14.12's part hierarchy",
         b"Launch" => "Launch: running an application, which the sandbox withholds",
         b"Thread" => {
             "Thread: a thread in another file, which this reader has no filesystem to open"

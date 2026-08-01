@@ -142,6 +142,12 @@ pub enum Request {
     /// it. Suspending and resuming is a window's business — this state has no screen — so the
     /// transition is handed over and the caller decides whether it has one to play.
     Transition(crate::navigation::Transition),
+    /// §12.6.4.5: show the page a document part begins at.
+    ///
+    /// Unresolved for [`Self::Display`]'s reason: finding the page needs the page tree, which is
+    /// not part of the state a click changes.
+    /// [`crate::action::DocumentPartJump::page_in`] turns it into a page.
+    DocumentPart(crate::action::DocumentPartJump),
     /// §12.6.4.4: show a destination in a document embedded in this one.
     ///
     /// Unresolved for [`Self::Display`]'s reason, twice over: the target document has to be
@@ -465,6 +471,7 @@ impl ViewState {
             Action::Named(named) => return Some(Request::Page(*named)),
             Action::Uri(uri) => return Some(Request::Resolve(uri.clone())),
             Action::Thread(jump) => return Some(Request::Thread(jump.clone())),
+            Action::GoToDp(jump) => return Some(Request::DocumentPart(*jump)),
             Action::ImportData(import) => return Some(Request::Import(import.clone())),
             Action::GoToE(target) => return Some(Request::Embedded(target.clone())),
             Action::Trans(transition) => {

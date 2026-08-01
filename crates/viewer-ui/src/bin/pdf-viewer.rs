@@ -1,8 +1,8 @@
 //! The viewer: opens a PDF and shows it.
 //!
-//! ```text
+//! ``text
 //! cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf
-//! ```
+//! ``
 //!
 //! Left and right arrows or Page Up and Down change page, Escape quits. The window title
 //! shows the page's own label where the document states one (§12.4.2), the page number, and
@@ -378,6 +378,11 @@ impl App {
                 }
                 Request::Page(named) => {
                     target = target.or_else(|| named.page_from(self.page_index, self.page_count));
+                }
+                // §12.6.4.5: "changes the view to the Start page of a specified `DPart`" — a page
+                // of *this* document, so it resolves here beside the other two that name one.
+                Request::DocumentPart(jump) => {
+                    target = target.or_else(|| jump.page_in(&self.document, &pages));
                 }
                 Request::Resolve(uri) => {
                     println!("link: {}", uri.at_position((x, y), link.rect));
