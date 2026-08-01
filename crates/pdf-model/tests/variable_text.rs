@@ -565,3 +565,91 @@ fn a_reset_form_action_draws_the_default_value_instead_of_the_value() {
          for a program that does not write to the file"
     );
 }
+
+/// §12.5.6.19's Table 192 `/R`: a widget's contents are turned inside `/Rect`.
+///
+/// > The number of degrees by which the widget annotation shall be rotated counterclockwise
+/// > relative to the page. The value shall be a multiple of 90. Default value: 0 .
+///
+/// The measurement is the *shape of the ink*, because that is what a quarter turn changes and
+/// nothing else about the fixture does. A line of text in a wide, short field is wider than it
+/// is tall; turned a quarter, it is taller than it is wide — and it still lands inside `/Rect`,
+/// which is the half a rotation is easy to get wrong.
+#[test]
+fn a_widgets_contents_turn_by_table_192s_r() {
+    let field = |rotation: &str| {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 20 180 80] /F 4 /FT /Tx \
+                 /T (field) /V (Illlllllll) /DA (/Helv 10 Tf 0 g) /MK << {rotation} >> >>"
+            ),
+        )
+    };
+
+    let (reports, upright) = draw(field(""));
+    assert!(reports.is_empty(), "{reports:?}");
+    let (columns, rows) = (inked_columns(&upright), inked_rows(&upright));
+    let (wide, tall) = (span(&columns), span(&rows));
+    assert!(
+        wide > tall,
+        "a line of text is wider than it is tall: {wide}x{tall}"
+    );
+
+    let (reports, turned) = draw(field("/R 90"));
+    assert!(
+        reports.is_empty(),
+        "a quarter turn is drawn, not refused: {reports:?}"
+    );
+    let (columns, rows) = (inked_columns(&turned), inked_rows(&turned));
+    assert!(
+        span(&rows) > span(&columns),
+        "turned a quarter it is taller than it is wide: {}x{}",
+        span(&columns),
+        span(&rows)
+    );
+    // §12.5.5: an appearance is "rendered inside the annotation rectangle", and the turn must
+    // not take it out of one.
+    assert!(
+        columns.first().copied().unwrap_or_default() >= 20
+            && columns.last().copied().unwrap_or_default() <= 180,
+        "inside /Rect's x range: {:?}..{:?}",
+        columns.first(),
+        columns.last()
+    );
+    assert!(
+        rows.iter().min().copied().unwrap_or_default() >= 20
+            && rows.iter().max().copied().unwrap_or_default() <= 80,
+        "inside /Rect's y range: {:?}..{:?}",
+        rows.iter().min(),
+        rows.iter().max()
+    );
+
+    // A half turn keeps the box and reverses the direction, so the ink is still wide — and it is
+    // in a different place, because left-justified text starts at the other end.
+    let (reports, half) = draw(field("/R 180"));
+    assert!(reports.is_empty(), "{reports:?}");
+    assert!(span(&inked_columns(&half)) > span(&inked_rows(&half)));
+    assert_ne!(
+        ink_span(&half),
+        ink_span(&upright),
+        "a half turn is not the identity for text"
+    );
+
+    // "The value shall be a multiple of 90" is a requirement on the file, so 45 is not a
+    // rotation this could draw and is refused by name rather than rounded.
+    let (reports, _) = draw(field("/R 45"));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("multiple of 90"), "{reports:?}");
+}
+
+/// The extent of a list of inked coordinates, or 0 where nothing was drawn.
+///
+/// `max − min` rather than `last − first`: `inked_rows` returns PDF y, which runs the other way
+/// from the raster's rows, so the list it produces is descending.
+fn span(values: &[u32]) -> u32 {
+    let (Some(low), Some(high)) = (values.iter().min(), values.iter().max()) else {
+        return 0;
+    };
+    high.saturating_sub(*low)
+}

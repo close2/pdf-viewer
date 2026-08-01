@@ -405,7 +405,18 @@ fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
 
     assert!(wrong.is_empty(), "\n{wrong}");
     println!(
-        "the ledger's notes name {citations} clauses and {} distinct tables, all of which exist",
+        "the ledger's notes name {citations} clauses and {} distinct tables, all of which exist:",
         tables.len()
     );
+    // The *titles*, for the reason the tree's own table references are printed with theirs (the
+    // twentieth session): a table number that names nothing is a defect this can catch, and a
+    // table number that names the *wrong* table reads exactly like a right one. The
+    // hundred-and-fifth session found §12.5.6.23's row calling the redaction table "Table 193",
+    // which is the watermark annotation's — a number carried over from ISO 32000-1, checked and
+    // present and about something else entirely.
+    for (number, titles) in &tables {
+        for title in titles {
+            println!("  Table {number} — {title}");
+        }
+    }
 }

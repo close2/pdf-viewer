@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-fourth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-fifth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,26 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-second — two string types and an image that is not there.** §7.9.4's dates, §7.9.3's
-reason corrected, §8.9.5.4's alternate images. ADR 0092.
-
-- **A conforming date may be four characters of payload**: `D:1998` is one, and every field but
-  the year has a default the clause states. The numeric part is one run of digits and the zone
-  starts wherever it stops — the first draft indexed at a fixed offset and failed on the clause's
-  own example.
-- **The corpus is 1542 independent attempts at one grammar**, and running the parser over all of
-  them is `tests/dates.rs`: **1511 conform, 97.98%**, and every one of the 31 that do not breaks a
-  rule the clause states in as many words. 26 of them are one producer writing an offset minute
-  of 112.
-- **§8.9.5.4 step c) contradicts itself**, and the reading that survives is the one under which
-  the clause's own phrase "the first entry not containing an OC key" can mean something. The case
-  where the two readings differ is reported by name.
-- **Step a) is satisfied by construction**, because `/DefaultForPrinting` is never read: step d)
-  addresses printing and this device is a screen.
-
-`reported` falls 53 → 51. No gate moved, which is the shape of a session spent on clauses no
-corpus document exercises — 0 of 964 carry an `/Alternates`.
 
 **Hundred-and-third — the group that need not be built.** §11.4.4's NOTE 5, and the corpus's
 first movement in eighteen sessions. ADR 0093.
@@ -76,6 +56,23 @@ largest action nobody had written. ADR 0094.
   disk, so §12.7.6.4's import policy has nothing beside it to name.
 
 `reported` falls 51 → 50. No gate moved and none could: what changed is what a click does.
+
+**Hundred-and-fifth — which way up a widget is, and what a redaction is not.** Two rows of
+§12.5.6, and they are opposite kinds of thing. ADR 0095.
+
+- **Table 192's `/R` is drawn.** A constructed appearance is in the page's own space, so the turn
+  is a `cm` in the stream rather than a `/Matrix`; the contents are laid out in a box at the
+  origin whose sides are `/Rect`'s *swapped*, so §12.7.4.3's wrapping sees the width the text
+  actually has. A value that is not a multiple of 90 is refused rather than rounded.
+- **§12.5.6.23's overlay is not an appearance.** Every one of Table 195's six overlay entries says
+  "after the affected content has been removed", and the clause makes removal a rewrite of the
+  document — which `CLAUDE.md` excludes. The row had it backwards for several sessions and so did
+  this file.
+- **The row cited Table 193, which exists and is the watermark annotation's.** The checker now
+  prints every table the *ledger* cites with its title, which is the twentieth session's mechanism
+  applied to the one input it had been left out of.
+
+`reported` falls 50 → 49. No gate moved.
 
 ## How the project got here
 
@@ -184,6 +181,7 @@ below rather than here.
 | 102 | §7.9.4's dates audited over 1542 corpus strings; §8.9.5.4's alternate images | ADR 0092 |
 | 103 | §11.4.4's NOTE 5: the non-isolated group that need not be built | ADR 0093 |
 | 104 | §12.6.4.4's embedded go-to: the document inside the document | ADR 0094 |
+| 105 | Table 192's `/R` drawn; §12.5.6.23's overlay read as writer-side | ADR 0095 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -223,10 +221,10 @@ vocabulary, §7.11.4's embedded files and §14.13's associated ones, §12.2's vi
 PDF *viewer* in the full sense — nothing edits a field, asks a person for a password, speaks a
 page or runs a slide show — and the gap is now measured *by clause* as well as by corpus: **not
 one of the ledger's 823 rows is `silent`**, so nothing in the eight technical clauses is missing
-without the tree saying so. What is owed is 50 `reported` rows and the notes on 232 `partial`
+without the tree saying so. What is owed is 49 `reported` rows and the notes on 233 `partial`
 ones.
 
-- **837 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **838 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all four fuzz targets
   clean at 50 000 runs apiece** — the first three re-run in the hundredth session, the last four
   in the ninety-ninth. (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -326,7 +324,7 @@ ones.
   that would differ is a `DeviceCMYK` group space, which §11.6.6 already reports. `/Separation`
   `/All` and `/None` are honoured before the tint transform is parsed. ADR 0028.
 - **The citations are checked.** `tools/conformance` holds every `§` in the tree to a clause the
-  standard has — 2545 of them — every rustdoc blockquote to the standard's own words, and the
+  standard has — 2623 of them — every rustdoc blockquote to the standard's own words, and the
   ledger's 823 rows to the standard's subclauses. It prints the title of every table the tree
   cites, which is how the twentieth session found six comments calling Table 57 "Table 58". ADR
   0016, `doc/PLAN.md` §5a.
@@ -360,7 +358,10 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
 # The conformance gate is part of that run; its summary is worth reading rather than only passing.
-cargo test -p conformance -- --nocapture   # 2545 citations, 239 quotations, 164 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 2623 citations, 252 quotations, 168 tables, 823 rows
+# It prints every table the tree cites *and* every table the ledger cites, each with its title:
+# a number that names nothing fails the gate, and a number that names the wrong table only ever
+# gives itself away in the title (ADR 0095).
 cargo run -p conformance --bin ledger      # regenerates the rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's.
@@ -846,11 +847,11 @@ this code.
 | status | rows | |
 |---|---|---|
 | `implemented` | 359 | every normative requirement in the clause is executed |
-| `partial` | 232 | some are; the note says which are not |
+| `partial` | 233 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine or a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
-| `reported` | 50 | not implemented, detected and named at runtime |
+| `reported` | 49 | not implemented, detected and named at runtime |
 | `writer-side` | 7 | addresses a PDF writer; we do not create files |
 
 **The `silent` count is zero**, for the first time since the ledger was built in the ninth
@@ -975,7 +976,7 @@ parts that make a document *interactive* have just started.
 everything the corpus and the oracle name. *Spec-driven* was "read the next unreviewed clause
 family" for forty-seven sessions and **is not that any more**: the ledger reached zero unreviewed
 rows in the fifty-sixth session, and reached zero `silent` ones in the hundred-and-first — so the
-specification track is now its **50 `reported` rows and the notes on its 232 `partial` ones**,
+specification track is now its **49 `reported` rows and the notes on its 233 `partial` ones**,
 each of which names what it owes and where. A project running only the first
 track finishes when the corpus goes quiet, which can happen with a great deal of the standard
 unimplemented and nothing able to say which parts; one running only the second ships features no
@@ -986,7 +987,7 @@ several sessions:
 
 - **Every row of clause 12 is read, performed, or *reported* by name.** So the
   specification track's map
-  is no longer "which clauses are unread" nor "which are silent" — it is the **50 `reported` rows
+  is no longer "which clauses are unread" nor "which are silent" — it is the **49 `reported` rows
   and what each would
   take**, and the three nearest are `viewer-ui` work rather than clause work: **a field a person
   can edit**, which §12.7.6.3 has now proved the machinery for (a changed value redraws
@@ -1037,8 +1038,8 @@ corpus's own issue trackers says most of that is glyph rasterisation on files ch
 hard fonts, which the sixty-eighth session then measured on one of them. The largest item any corpus document still names is §9.7.5.2's predefined
 `CMap`s at 12, which is a licensing decision rather than code, followed by a password prompt at
 8, which is `viewer-ui` work. Spec: **`REVIEW_OWED` is empty, 0 of 823 subclauses are unread**,
-and the debt is **0 `silent` and 50 `reported`, down from 201 twenty-four sessions ago** — plus
-the notes on 232 `partial` rows, which is where the next map has to be drawn from.
+and the debt is **0 `silent` and 49 `reported`, down from 201 twenty-five sessions ago** — plus
+the notes on 233 `partial` rows, which is where the next map has to be drawn from.
 
 ### 0. The ledger, and where a false claim can still hide
 
@@ -1153,11 +1154,11 @@ specification, and "make it match mupdf" is exactly the failure this project for
   `Document::open_with_password` already takes one. It needs a dialogue, a retry loop and a
   decision about where a wrong password is reported — `viewer-ui` work that nothing else on this
   list depends on.
-- **§12.5.6.19's redaction overlay and a widget's `/R`** are the two edges §12.7.4.3's layout left
-  behind, and neither is reached by any corpus document. Table 193's `/OverlayText` is text drawn
-  over a redacted region and the layout routine now exists for it; Table 192's `/R` rotates a
-  widget's contents inside `/Rect`, which no background could see and one line of text can — it is
-  reported where a widget states one and has text to put in it.
+- **§12.5.6.23's redaction overlay and a widget's `/R` were both closed in the hundred-and-fifth
+  session, and only one of them by writing code** (ADR 0095). Table 192's `/R` is drawn, in a box
+  whose sides are `/Rect`'s swapped so that §12.7.4.3's layout sees the width the text has.
+  Table 195's overlay entries are *not* an appearance at all: every one says "after the affected
+  content has been removed", and removal is a rewrite of the document.
 - **§12.5.6.10's text markup appearances landed in the thirty-fourth session** and are worth
   reading about before the next refusal is written: the clause states the mark, the region, the
   orientation and the colour, and leaves a thickness, where the refusal that stood for thirteen

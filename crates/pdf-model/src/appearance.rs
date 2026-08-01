@@ -930,6 +930,21 @@ fn widget(
     let background = colour(document, source, "BG")?;
     let border = Border::read(document, annotation, source, "BC")?;
 
+    // §12.5.6.19's Table 192: "[t]he number of degrees by which the widget annotation shall be
+    // rotated counterclockwise relative to the page. The value shall be a multiple of 90."
+    let Some(rotation) = Rotation::read(document, source) else {
+        return Err(Refusal::NotDerivable(
+            "Table 192's /R is not a multiple of 90, which the table requires",
+        ));
+    };
+    // Everything below is drawn in the *widget's* own axes, in a box at the origin, and the
+    // transform below puts that box onto `/Rect`. For a quarter turn the box's sides are `/Rect`'s
+    // swapped, which is the whole of what rotating a rectangle by 90° does to it — so a field
+    // that is tall on the page is laid out wide, and §12.7.4.3's wrapping and auto-sizing see the
+    // width the text actually has.
+    rotation.begin(stream, rect);
+    let rect = rotation.content_box(rect);
+
     let frame = background != Colour::None || border.strokes();
     if frame {
         if background != Colour::None {
@@ -952,6 +967,7 @@ fn widget(
     let laid_out = match field_text(document, annotation, source, inner, value) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
+            rotation.end(stream);
             return Ok(Painted {
                 drawn: frame,
                 report: Some(refusal),
@@ -959,6 +975,7 @@ fn widget(
         }
     };
     let Some(laid_out) = laid_out else {
+        rotation.end(stream);
         return Ok(if frame {
             border.simulated()
         } else {
@@ -968,19 +985,100 @@ fn widget(
 
     stream.text.push_str(&laid_out.content);
     stream.resources = Some(default_resources(document));
-    let rotated = document
-        .get_key(source, "R")
-        .as_integer()
-        .is_some_and(|degrees| degrees.rem_euclid(360) != 0);
-    let owed = laid_out.owed.map(Refusal::Text).or_else(|| {
-        rotated.then_some(Refusal::NotDerivable(
-            "Table 192's /R rotates a widget's contents, and this text is not rotated",
-        ))
-    });
+    rotation.end(stream);
     Ok(Painted {
         drawn: true,
-        report: owed.or(border.simulated().report),
+        report: laid_out
+            .owed
+            .map(Refusal::Text)
+            .or(border.simulated().report),
     })
+}
+
+/// Table 192's `/R`: which way up a widget's contents are drawn.
+///
+/// §12.5.6.19, Table 192:
+///
+/// > The number of degrees by which the widget annotation shall be rotated counterclockwise
+/// > relative to the page. The value shall be a multiple of 90. Default value: 0 .
+///
+/// A *constructed* appearance is written in the page's own space, so §12.5.5's placement
+/// algorithm reduces to the identity and there is no `/Matrix` to carry this — which is why the
+/// rotation is written into the stream as a `cm` rather than onto the appearance. A widget with a
+/// stored `/AP` needs none of this: its stream's own `/Matrix` is where a producer puts the turn,
+/// and §12.5.5 maps the rotated bounding box onto `/Rect` already.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rotation {
+    /// The table's default, and 289 of the corpus's 290 widgets.
+    None,
+    /// A quarter turn counterclockwise.
+    Quarter,
+    /// A half turn.
+    Half,
+    /// Three quarters counterclockwise, which is a quarter clockwise.
+    ThreeQuarters,
+}
+
+impl Rotation {
+    /// Reads `/R`, or `None` for a value the table forbids.
+    ///
+    /// "[T]he value shall be a multiple of 90" is a requirement on the *file*, and a widget
+    /// stating 45 has described a rotation no `cm` this function could write would be the one it
+    /// meant. Refused by name rather than rounded, because rounding would draw a widget the
+    /// document did not ask for and say nothing.
+    fn read(document: &Document, source: &Dictionary) -> Option<Self> {
+        let Some(degrees) = document.get_key(source, "R").as_integer() else {
+            return Some(Self::None);
+        };
+        match degrees.rem_euclid(360) {
+            0 => Some(Self::None),
+            90 => Some(Self::Quarter),
+            180 => Some(Self::Half),
+            270 => Some(Self::ThreeQuarters),
+            _ => None,
+        }
+    }
+
+    /// The box the contents are laid out in.
+    ///
+    /// `/Rect` itself where there is no turn, so an unrotated widget is written exactly as it was
+    /// before this type existed. Otherwise a box at the *origin*, because the `cm` below is what
+    /// puts it on the page — and with its sides swapped for a quarter turn, which is the whole of
+    /// what rotating a rectangle by 90° does to it.
+    fn content_box(self, rect: [f32; 4]) -> [f32; 4] {
+        let (width, height) = (rect[2] - rect[0], rect[3] - rect[1]);
+        match self {
+            Self::None => rect,
+            Self::Half => [0.0, 0.0, width, height],
+            Self::Quarter | Self::ThreeQuarters => [0.0, 0.0, height, width],
+        }
+    }
+
+    /// Opens the rotated space, where there is one.
+    ///
+    /// Each matrix is the rotation followed by the translation that brings the turned box back
+    /// onto `/Rect`. A quarter turn counterclockwise takes `(x, y)` to `(−y, x)`, so a box
+    /// `height` tall in its own axes lands at `x ∈ [−height, 0]`, and that height is `/Rect`'s
+    /// *width* by `content_box` above, so the shift right is by that width. A half
+    /// turn needs no swapped box and is still written as a `cm`, because a half turn is not the
+    /// identity for anything with a direction, and text has one.
+    fn begin(self, stream: &mut Stream, rect: [f32; 4]) {
+        let (width, height) = (rect[2] - rect[0], rect[3] - rect[1]);
+        let (matrix, x, y) = match self {
+            Self::None => return,
+            Self::Quarter => ("0 1 -1 0", rect[0] + width, rect[1]),
+            Self::Half => ("-1 0 0 -1", rect[0] + width, rect[1] + height),
+            Self::ThreeQuarters => ("0 -1 1 0", rect[0], rect[1] + height),
+        };
+        stream.rotate(matrix, [x, y]);
+    }
+
+    /// Closes it again.
+    fn end(self, stream: &mut Stream) {
+        if self != Self::None {
+            stream.text.push_str("Q\n");
+        }
+    }
 }
 
 /// Lays out whatever text the field behind a widget states, if any.
@@ -1624,6 +1722,11 @@ impl Stream {
         );
         self.resources = Some(resources);
         let _ = writeln!(self.text, "/Mul gs");
+    }
+
+    /// Opens a rotated space for Table 192's `/R`: `q a b c d e f cm`.
+    fn rotate(&mut self, matrix: &str, offset: [f32; 2]) {
+        let _ = writeln!(self.text, "q {matrix} {} {} cm", offset[0], offset[1]);
     }
 
     fn move_to(&mut self, point: [f32; 2]) {
