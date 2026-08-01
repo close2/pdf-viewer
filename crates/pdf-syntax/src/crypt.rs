@@ -373,6 +373,39 @@ impl Encryption {
         }
     }
 
+    /// Encrypts one string or stream belonging to the indirect object `id`.
+    ///
+    /// The exact inverse of [`Self::decrypt`], and for RC4 it is not merely the inverse but
+    /// the *same* call — §7.6.3.1: "RC4 is a symmetric stream cipher: the same algorithm
+    /// shall be used for both encryption and decryption". AES differs in the two ways the
+    /// clause states: RFC 8018's pad is added rather than removed, and §7.6.3.2 step (d)'s
+    /// initialisation vector is generated here rather than read off the front of the data.
+    ///
+    /// Returns `None` when the document holds no key for the method — the same condition
+    /// [`Self::decrypt`] refuses on, because a writer that emitted plaintext into an
+    /// encrypted file would be producing a file its own reader could not read.
+    ///
+    /// # What calls this
+    ///
+    /// [`crate::write::incremental_update`], through [`crate::Document`], which is the only
+    /// place in this tree that writes a PDF object. §7.6.2's exceptions are enforced there
+    /// for the same reason they are enforced there on the way in: an object's identity is
+    /// what decides them, and this module knows only the cipher.
+    pub(crate) fn encrypt(&self, method: Method, id: ObjectId, data: &[u8]) -> Option<Vec<u8>> {
+        if method != Method::Identity && !self.authenticated {
+            return None;
+        }
+        match method {
+            Method::Identity => Some(data.to_vec()),
+            Method::Rc4 => {
+                let mut out = data.to_vec();
+                rc4_apply(&self.object_key(method, id), &mut out)?;
+                Some(out)
+            }
+            Method::AesV2 | Method::AesV3 => aes_cbc_encrypt(&self.object_key(method, id), data),
+        }
+    }
+
     /// §7.6.3.2 steps (b) to (d), and §7.6.3.3 step (a).
     ///
     /// The two algorithms differ in exactly one way, which §7.6.3.1 states: "Algorithm 1.A
@@ -948,6 +981,57 @@ fn aes_cbc_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
         _ => return None,
     };
     out.truncate(plain_len);
+    Some(out)
+}
+
+/// The inverse of [`aes_cbc_decrypt`]: RFC 8018's pad added, a fresh initialisation vector
+/// in front.
+///
+/// ISO 32000-2 §7.6.3.2 step (d), which is the one sentence in §7.6.3 that binds a writer and
+/// nobody else:
+///
+/// > If using the AES algorithm, the Cipher Block Chaining (CBC) mode, which requires an
+/// > initialization vector, is used. The block size parameter is set to 16 bytes, and the
+/// > initialization vector is a 16-byte random number that is stored as the first 16 bytes
+/// > of the encrypted stream or string.
+///
+/// The vector comes from the platform's own cryptographic source rather than from anything
+/// this crate derives, because a CBC initialisation vector a reader of the file can predict
+/// is a CBC mode without one. A source that refuses is a `None` rather than a weaker vector:
+/// there is no second-best answer here, and the caller's refusal is already a named error.
+///
+/// `Pkcs7` is §7.6.3.1's rule spelled in a library: "For an original message length of M,
+/// the pad shall consist of 16 - (M modulo 16) bytes whose value shall also be 16 - (M
+/// modulo 16)" — including the whole extra block when M is already a multiple of 16, which
+/// is why the output buffer is a block longer than the input rounded down.
+fn aes_cbc_encrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
+    let mut iv = [0u8; AES_BLOCK];
+    getrandom::fill(&mut iv).ok()?;
+
+    let padded = data
+        .len()
+        .checked_div(AES_BLOCK)?
+        .checked_add(1)?
+        .checked_mul(AES_BLOCK)?;
+    let mut body = vec![0u8; padded];
+    let written = match key.len() {
+        16 => cbc::Encryptor::<Aes128>::new_from_slices(key, &iv)
+            .ok()?
+            .encrypt_padded_b2b::<Pkcs7>(data, &mut body)
+            .ok()?
+            .len(),
+        32 => cbc::Encryptor::<Aes256>::new_from_slices(key, &iv)
+            .ok()?
+            .encrypt_padded_b2b::<Pkcs7>(data, &mut body)
+            .ok()?
+            .len(),
+        _ => return None,
+    };
+    body.truncate(written);
+
+    let mut out = Vec::with_capacity(AES_BLOCK.saturating_add(body.len()));
+    out.extend_from_slice(&iv);
+    out.append(&mut body);
     Some(out)
 }
 

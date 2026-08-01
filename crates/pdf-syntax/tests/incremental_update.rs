@@ -114,14 +114,22 @@ fn marked(document: &Document, value: &str) -> BTreeMap<ObjectId, Object> {
         Object::String(value.as_bytes().to_vec().into()),
     );
     let mut replacements = BTreeMap::new();
-    replacements.insert(
-        ObjectId {
-            number: 1,
-            generation: 0,
-        },
-        Object::Dictionary(catalog),
-    );
+    replacements.insert(root_id(document), Object::Dictionary(catalog));
     replacements
+}
+
+/// Which object the trailer's `/Root` names.
+///
+/// Taken from the document rather than written as a constant, because the fixtures here are
+/// one hand-built file and six real ones and only the first has its catalog at object 1. A
+/// constant would silently replace whatever *else* object 1 happens to be — in `bug900822.pdf`
+/// that is the encryption dictionary, and the file it produced was one no reader could open.
+fn root_id(document: &Document) -> ObjectId {
+    document
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference)
+        .expect("every fixture names its catalog indirectly")
 }
 
 /// What the catalog's `/Marked` now says.
@@ -218,7 +226,7 @@ fn the_file_identifier_keeps_its_first_element_and_changes_its_second() {
 
 #[test]
 fn a_document_that_cannot_be_chained_onto_is_refused_by_name() {
-    // Two refusals, each the same shape as every other refusal in this tree: named rather than
+    // A refusal of the same shape as every other refusal in this tree: named rather than
     // written wrong.
     let broken = classic()
         .windows(9)
@@ -231,18 +239,111 @@ fn a_document_that_cannot_be_chained_onto_is_refused_by_name() {
         incremental_update(&document, &BTreeMap::new()),
         Err(UpdateError::Recovered)
     );
+}
 
+/// One corpus document, or `None` when the submodule is not checked out.
+fn corpus(name: &str) -> Option<Vec<u8>> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../doc/pdf.js/test/pdfs/issue7665.pdf");
-    let Ok(bytes) = std::fs::read(path) else {
+        .join("../../doc/pdf.js/test/pdfs")
+        .join(name);
+    std::fs::read(path).ok()
+}
+
+/// §7.6.2 on the way out, over every revision and method §7.6 states.
+///
+/// The six documents are the ones `encryption.rs` uses to cover the handler's whole matrix —
+/// revisions 2, 3, 4 and 6 across RC4, AES-128 and AES-256 — and what this asks of each is the
+/// question that matters about a writer: **write a string into it and read the string back**,
+/// through the same reader 974 corpus documents go through. A wrong key, a missing pad, an
+/// initialisation vector in the wrong place or a `/Length` describing the plaintext all produce a
+/// value that does not come back.
+///
+/// The second assertion is the discriminating one. The plaintext is a sentinel no PDF contains,
+/// and it must **not** appear anywhere in the bytes this wrote: a writer that emitted the string
+/// in the clear would pass the read-back test on every one of these files, because a reader that
+/// decrypts noise into a string is indistinguishable from one handed a string that was never
+/// encrypted — until you look at the file.
+#[test]
+fn a_string_written_into_an_encrypted_document_comes_back_out_of_it() {
+    const SENTINEL: &str = "written-by-pdf-viewer-7f3a";
+
+    let cases = [
+        "bug900822.pdf",
+        "issue17215.pdf",
+        "issue9972-1.pdf",
+        "issue17069.pdf",
+        "bug1815476.pdf",
+        "issue7665.pdf",
+    ];
+
+    let mut checked = 0;
+    for name in cases {
+        let Some(bytes) = corpus(name) else {
+            eprintln!("skipped: doc/pdf.js is not checked out");
+            return;
+        };
+        let document = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).unwrap();
+        assert!(document.is_encrypted(), "{name} should carry an /Encrypt");
+
+        let updated = incremental_update(&document, &marked(&document, SENTINEL))
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert!(
+            updated.starts_with(&bytes),
+            "{name}: §7.5.6 leaves the original contents intact"
+        );
+        assert_eq!(read_back(&updated), SENTINEL, "{name}");
+
+        let appended = &updated[bytes.len()..];
+        assert!(
+            !appended
+                .windows(SENTINEL.len())
+                .any(|window| window == SENTINEL.as_bytes()),
+            "{name}: the value was written in the clear into an encrypted file"
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 6, "every listed document should have been checked");
+}
+
+/// A stream whose own `/Crypt` filter names a key this reader does not hold is refused by name.
+///
+/// `auth-event-ef-open.pdf` is §7.6.4.1's "Documents in which only file attachments are
+/// encrypted": `/StmF` and `/StrF` are both `Identity`, so the document opens and displays with
+/// no password at all, while the attachment's own stream names a crypt filter through §7.6.6's
+/// `/Crypt` entry and cannot be read. Writing that object back would need the key the reader
+/// never had — so the update refuses, rather than replacing an unreadable attachment with an
+/// empty one.
+///
+/// `encrypted-attachment.pdf` is the same shape and is *not* the fixture, because its
+/// cross-reference table has to be rebuilt by scanning and so it fails one refusal earlier.
+#[test]
+fn a_stream_this_reader_holds_no_key_for_is_refused_rather_than_emptied() {
+    let Some(bytes) = corpus("auth-event-ef-open.pdf") else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;
     };
-    let encrypted = Document::open_with_limits(bytes, Limits::DEFAULT).unwrap();
-    assert!(encrypted.is_encrypted());
+    let document = Document::open_with_limits(bytes, Limits::DEFAULT).unwrap();
+    assert!(document.is_encrypted());
+
+    // The one object in the file whose data this reader could not decrypt.
+    let unreadable = (1..64)
+        .map(|number| ObjectId {
+            number,
+            generation: 0,
+        })
+        .find(|id| {
+            document
+                .get(*id)
+                .as_stream()
+                .is_some_and(|stream| stream.decryption_failed)
+        })
+        .expect("the fixture holds a stream this reader cannot decrypt");
+
+    let mut replacements = BTreeMap::new();
+    replacements.insert(unreadable, document.get(unreadable));
     assert_eq!(
-        incremental_update(&encrypted, &BTreeMap::new()),
-        Err(UpdateError::Encrypted)
+        incremental_update(&document, &replacements),
+        Err(UpdateError::Encryption)
     );
 }
 

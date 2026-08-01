@@ -39,13 +39,15 @@ pub enum UpdateError {
         "this file's cross-reference table was rebuilt by scanning, so an update has nothing to chain to"
     )]
     Recovered,
-    /// The document is encrypted.
+    /// The document is encrypted and its own key would not encrypt what is being written.
     ///
     /// §7.6.2 has every string and stream in an encrypted document encrypted with the
     /// document's key, so writing plaintext into one would produce a file whose new objects
-    /// decrypt to nonsense. Refused by name rather than written wrong.
-    #[error("this file is encrypted, and writing into it needs §7.6's algorithms on the way out")]
-    Encrypted,
+    /// decrypt to nonsense. Every document this reader *opened* has that key, so the one
+    /// remaining way here is a document opened without one — §7.6.6's file whose body needs
+    /// no key and whose attachments do — asked to write an object that needs it.
+    #[error("this file's own encryption cannot be applied to what this update writes (§7.6.2)")]
+    Encryption,
     /// The file does not end with the `startxref` §7.5.5 requires.
     #[error("this file states no startxref, so there is no cross-reference section to chain to")]
     NoStartxref,
@@ -206,20 +208,28 @@ fn real(value: f64) -> String {
 /// requires them to match — a PDF 1.5 reader handles both — but a file whose sections are all one
 /// kind is a file whose next reader has one thing to do, and the cost is forty lines.
 ///
+/// # An encrypted document
+///
+/// `replacements` are always plaintext, whatever the file is: §7.6.2's ciphers are applied here,
+/// per object, through the same code that removed them on the way in. Two things stay in the
+/// clear and both are the standard's own instruction rather than an omission — §7.5.8.2's "the
+/// cross-reference stream shall not be encrypted and strings appearing in the cross-reference
+/// stream dictionary shall not be encrypted", and Table 15's `/ID`, whose strings "shall be
+/// direct objects and shall be unencrypted" because they are an input to the key that would
+/// otherwise decrypt them. Both are built below rather than passed through the encryptor, so
+/// neither is a rule this function has to remember.
+///
 /// # Errors
 ///
 /// [`UpdateError`], which names the four documents this refuses: one whose table was rebuilt by
-/// scanning, one that is encrypted, one with no `startxref`, and one whose trailer has no
-/// `/Root`.
+/// scanning, one whose encryption cannot be applied to what is written, one with no `startxref`,
+/// and one whose trailer has no `/Root`.
 pub fn incremental_update(
     document: &crate::Document,
     replacements: &BTreeMap<ObjectId, Object>,
 ) -> Result<Vec<u8>, UpdateError> {
     if document.was_recovered() {
         return Err(UpdateError::Recovered);
-    }
-    if document.is_encrypted() {
-        return Err(UpdateError::Encrypted);
     }
     let previous = startxref(document.bytes()).ok_or(UpdateError::NoStartxref)?;
     let root = document
@@ -238,11 +248,19 @@ pub fn incremental_update(
 
     let mut offsets: Vec<(ObjectId, usize)> = Vec::new();
     for (id, value) in replacements {
+        // §7.6.2 on the way out. The caller hands over plaintext — what the person typed,
+        // in the object it belongs to — because that is the only form the rest of this tree
+        // ever holds; an encrypted document turns it back into what its own key expects
+        // here, at the one point where the object's identity is known and §7.6.3.2 step (a)
+        // needs it. A document with no `/Encrypt` gets the value back unchanged.
+        let value = document
+            .encrypt_for_update(*id, value)
+            .ok_or(UpdateError::Encryption)?;
         offsets.push((*id, out.len()));
         let mut header = String::new();
         let _ = writeln!(header, "{} {} obj", id.number, id.generation);
         out.extend_from_slice(header.as_bytes());
-        object(value, &mut out);
+        object(&value, &mut out);
         out.extend_from_slice(b"\nendobj\n");
     }
 
@@ -408,6 +426,12 @@ fn cross_reference_stream(
 /// function of those bytes alone, is the same answer every time the same edit is saved. That
 /// determinism is deliberate: rule 3 says this crate has no clock, and a test that saves twice
 /// and compares is worth more than a timestamp.
+///
+/// **It survives only in an unencrypted file.** §7.6.3.1 requires a fresh random initialisation
+/// vector in front of every AES string and stream, so an encrypted document's update differs from
+/// one save to the next by construction, and the second identifier — a digest of the bytes so
+/// far — differs with it. That is the clause's requirement rather than this function's choice,
+/// and the tests for an encrypted save read the file back instead of comparing it.
 fn identify(document: &crate::Document, trailer: &mut Dictionary, so_far: &[u8]) {
     let permanent = document
         .trailer()

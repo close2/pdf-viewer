@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-forty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-forty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -33,7 +33,7 @@ The GPU backend **bands a target the device cannot draw in one pass**, because V
 buffers are fixed constants with no knob and a page of small text at a laptop's resolution can
 exceed them.
 JBIG2 and JPEG 2000 in a confined worker. Encryption at every revision
-and method §7.6 states. §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels,
+and method §7.6 states, and since the hundred-and-forty-fourth session in both directions. §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels,
 §12.5.6.5's links performing **eleven of §12.6's actions**, §14.9's accessibility entries,
 §12.4.4's whole presentation read for a caller that has one to play, and everything a document
 says *about itself*: §14.7's logical structure, §14.8's tagged-PDF vocabulary, §7.11.4's embedded
@@ -62,12 +62,12 @@ plays it), search, or draw a panel for the outline, the layers and the attachmen
 
 | gate | number | where |
 |---|---|---|
-| tests | **939**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 143; the five fuzzers last in 139 |
+| tests | **941**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 144; the five fuzzers last in 139 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **839 agree**, **65 contradicted**, 750 ambiguous, 10 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
-| conformance | 3043 citations, 317 quotations, 180 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3067 citations, 318 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -230,9 +230,10 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 
 #### What is still owed, in the order to do it
 
-1. **The two costs §7.5.6's writer records**: encryption on the way out (§7.6.2 applies to every
-   string this writes), and regenerated appearance streams instead of `/NeedAppearances`. Both
-   are named in ADR 0121 and neither is architectural.
+1. **The second of the two costs §7.5.6's writer records.** The first — encryption on the way
+   out — landed in the hundred-and-forty-fourth session (ADR 0129), so every one of the corpus's
+   26 encrypted documents can now be saved. What is left is **regenerated appearance streams
+   instead of `/NeedAppearances`**, named in ADR 0121 and not architectural.
 2. **The rest of the vocabulary, as its feature arrives.** `Command::Tick { millis }` for
    §12.4.4's `/Dur` and transitions (rule 3, and `Event::Transition` already leaves), and
    `Query::AccessibilityTree`, which is what AccessKit needs and the last of §0's five owed
@@ -341,10 +342,16 @@ one made stands.
 **And it is saved** since the hundred-and-thirty-sixth session (ADR 0121): `ViewState::save`
 produces the file with §7.5.6's incremental update appended, the host writes the bytes, and
 `pdftotext` and `mutool` both read the value back out of what it wrote. The producer's bytes are
-still there underneath, which is the clause's whole point. **Two costs are written down**: a
-widget's stored appearance is not regenerated — Table 224's `/NeedAppearances` is set instead, so
-a reader that ignores the flag shows the old value — and an *encrypted* document is refused,
-because §7.6 has to run on the way out and does not yet.
+still there underneath, which is the clause's whole point. **One cost is left of the two written
+down**: a widget's stored appearance is not regenerated — Table 224's `/NeedAppearances` is set
+instead, so a reader that ignores the flag shows the old value. The other is closed. **An
+encrypted document is written since the hundred-and-forty-fourth session** (ADR 0129): §7.6.2's
+ciphers run on the way out through `decrypt_object`'s mirror, so the clause's exceptions are
+stated once rather than twice, and the six corpus documents covering every revision and method
+§7.6 states take a string and give it back — `mutool` and `pdftotext` read all six. The cost of
+*that* is one testing habit: §7.6.3.2 requires a fresh random initialisation vector per AES
+string, so an encrypted document's save is no longer byte-identical from one run to the next, and
+its tests read the file back rather than compare it.
 
 #### The prize: one boundary, not two
 
@@ -655,7 +662,7 @@ documents, and it prints what it gave up.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
-cargo test -p conformance -- --nocapture   # 2833 citations, 305 quotations, 180 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 3067 citations, 318 quotations, 181 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's (trap 10).
@@ -715,7 +722,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | Crate | Does | Notes |
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
-| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption, §7.5.6's writer | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler, every algorithm against its own subclause; `document.rs` decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `xref.rs` is §7.5 whole, and the thing to know is that an entry is an `Option<Location>`: a free entry and an unknown entry type both *record* that the number names nothing, because §7.5.6 makes a deletion the most recent copy of an object (ADR 0100). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees in one module, because the second clause defines itself as the first with integer keys (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is *not* ISO Latin 1. `date.rs` is §7.9.4, beside it because NOTE 1 makes a date a text string that happens to spell one (ADR 0092). `write.rs` is the *only* writing in the tree: clause 7's syntax on the way out and §7.5.6's incremental update, which appends and never rewrites (ADR 0121). `write.rs` is the *only* writing in the tree: clause 7's syntax on the way out and §7.5.6's incremental update, which appends and never rewrites (ADR 0121). `filter.rs` is §7.4's ten filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately `None` so a *content* stream naming one is visibly unsupported |
+| `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption, §7.5.6's writer | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler, every algorithm against its own subclause; `document.rs` decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `xref.rs` is §7.5 whole, and the thing to know is that an entry is an `Option<Location>`: a free entry and an unknown entry type both *record* that the number names nothing, because §7.5.6 makes a deletion the most recent copy of an object (ADR 0100). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees in one module, because the second clause defines itself as the first with integer keys (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is *not* ISO Latin 1. `date.rs` is §7.9.4, beside it because NOTE 1 makes a date a text string that happens to spell one (ADR 0092). `write.rs` is the *only* writing in the tree: clause 7's syntax on the way out and §7.5.6's incremental update, which appends and never rewrites (ADRs 0121, 0129) — and `Document::encrypt_for_update` beside `decrypt_object` is §7.6.2 in the other direction, so an encrypted document can be saved. `filter.rs` is §7.4's ten filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately `None` so a *content* stream naming one is visibly unsupported |
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` constructs what a subtype's clause states, splices under `/NeedAppearances`, and argues the refusals (ADRs 0030, 0032); `icon.rs` beside it is the one module that is pure invention and says so (ADR 0109). `view.rs` is the `ViewState` §12.6.4's actions change — **the precedent the edit log will follow**. `variable_text.rs` is §12.7.4.3 and the one place this tree *writes* a content stream. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused, its `Decode` one table per component and its `Conversion` an *exact* per-image memo (ADRs 0034, 0035). `page.rs` is §7.7.3 and §14.11.2's five boundaries. `accessibility.rs`, `uri.rs` and `file_spec.rs` hold no PDF at all. Then one module per clause family: `action.rs`, `forms_data.rs`, `named_page.rs`, `structure.rs`, `article.rs`, `collection.rs`, `measurement.rs`, `thumbnail.rs`, `signature.rs`, `attachment.rs`, `page_label.rs`, `navigation.rs`, `requirements.rs`, `document_part.rs`, `viewer_preferences.rs` |
 | `pdf-font` | Glyph outlines via `skrifa` | Owns both simple-font encoding algorithms (§9.6.5.2, §9.6.5.4 — ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code, and `cff.rs` and `type1.rs` each produce one because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is the one program kept *parsed*, measured: re-parsing per glyph put 11 ms on `tracemonkey.pdf`. `cmap.rs` is §9.7, where `Code` carries a value *and* a length. `substitute.rs` is **the only machine-dependent code in the tree** and ranks three sources of a request with an argument: the name, then §9.8.3.2's PANOSE, then Table 121's flags, which producers set carelessly (ADR 0086) |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
@@ -1092,6 +1099,13 @@ anchor that makes it checkable.
   the reader against 146 producers at once.
 - **§6.3.2.2 ranks what a corpus cannot.** Two gates taking the pdf.js corpus as their universe
   produce a demand curve, which cannot rank a requirement no file exercises.
+- **A sentence inside a clause you have implemented can bind only a writer, and it becomes a
+  requirement the day the program writes.** §7.6.3.2's "the initialization vector is a 16-byte
+  random number" sat in an `implemented` row for a hundred and twenty sessions with no site in
+  this tree, because a reader *reads* the vector. **After a session that gives the program a new
+  verb** — writing, editing, pointing — **re-read the clauses it already claims, for the half
+  addressed to the other side.** ADR 0129, and the same shape as ADR 0122's re-read of the rows
+  whose reason began "this program has no".
 
 ### Judging against other implementations
 
@@ -1137,6 +1151,11 @@ anchor that makes it checkable.
   §7.3.7's null-entry rule was checked through `Document::get_key`, which answers `Null` for an
   absent key.
 - **A discriminating test has to discriminate; check by breaking the thing.**
+- **A constant that is right for the hand-built fixture is a landmine when a real file arrives.**
+  `incremental_update.rs` replaced "object 1, the catalog", true of the file the test builds
+  itself; in `bug900822.pdf` object 1 is the *encryption dictionary*, and the update wrote a
+  catalog over it and produced a file no reader could open. Trap 12a's rule, one level up: take
+  the identifier from the document, not from the fixture that happened to be first.
 - **A test that skips silently is worse than no test.** A missing corpus is a skip; a present
   corpus that lacks what the test needs is a **panic**.
 - **A gap measured on both sides is a fact; measured on one side it is an accusation.**
@@ -1606,3 +1625,4 @@ above rather than here.
 | 141 | A page turn walked the page tree once per outline item: 380 ms → 9 ms | 0124 |
 | 142 | A frame that failed was reported as one that was drawn; the CPU draws it now | 0125, 0126 |
 | 143 | A page the device drew nothing of, and said nothing about; banded, and the backend question asked properly | 0127, 0128 |
+| 144 | §7.6.2 on the way out: an encrypted document can be saved | 0129 |

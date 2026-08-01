@@ -1963,6 +1963,7 @@ dependencies = [
  "aes",
  "cbc",
  "flate2",
+ "getrandom 0.4.3",
  "md-5",
  "pdf-spec",
  "rc4",

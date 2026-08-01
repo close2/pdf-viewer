@@ -398,6 +398,95 @@ impl Document {
         out
     }
 
+    /// Applies §7.6.2 to one indirect object on the way *out*, for §7.5.6's writer.
+    ///
+    /// The mirror of [`Self::decrypt_object`], and deliberately the same three decisions:
+    /// which strings the clause exempts, which method a stream's own dictionary selects, and
+    /// which object number is the encryption dictionary's. Writing those rules a second time
+    /// beside the writer would be two statements of one clause, and the one place they can
+    /// disagree is the one place a file becomes unreadable by its own producer.
+    ///
+    /// Returns `None` when the cipher refuses — a document opened without a key, or a key
+    /// length no method accepts. The caller turns that into a named error rather than
+    /// writing plaintext into an encrypted file, which would produce objects every reader
+    /// including this one decrypts into noise.
+    pub(crate) fn encrypt_for_update(&self, id: ObjectId, object: &Object) -> Option<Object> {
+        let Some(encryption) = self.encryption.as_ref() else {
+            return Some(object.clone());
+        };
+        // §7.6.2's "Any strings in an Encrypt dictionary", which is why an update may
+        // rewrite one — it goes out exactly as it came in.
+        if Some(id.number) == self.encrypt_object {
+            return Some(object.clone());
+        }
+        self.encrypt_value(encryption, id, object)
+    }
+
+    /// Encrypts every string and stream inside one indirect object.
+    fn encrypt_value(
+        &self,
+        encryption: &Encryption,
+        id: ObjectId,
+        object: &Object,
+    ) -> Option<Object> {
+        match object {
+            Object::String(bytes) => Some(Object::String(
+                encryption
+                    .encrypt(encryption.string_method(), id, bytes)?
+                    .into(),
+            )),
+            Object::Array(items) => items
+                .iter()
+                .map(|item| self.encrypt_value(encryption, id, item))
+                .collect::<Option<Vec<_>>>()
+                .map(Object::Array),
+            Object::Dictionary(dict) => self
+                .encrypt_dict(encryption, id, dict)
+                .map(Object::Dictionary),
+            Object::Stream(stream) => {
+                let mut dict = self.encrypt_dict(encryption, id, &stream.dict)?;
+                let method = self.stream_method(encryption, &stream.dict);
+                let data = encryption.encrypt(method, id, &stream.data)?;
+                // §7.3.8.2's `/Length` is "[t]he number of bytes from the beginning of the
+                // line following the keyword stream to the last byte just before the keyword
+                // endstream" — the encoded form as it sits in the file — and AES makes that
+                // longer than the plaintext by an initialisation vector and a pad. A file
+                // whose `/Length` still described the plaintext would end the stream inside
+                // its own ciphertext.
+                dict.insert(
+                    Name::new(&b"Length"[..]),
+                    Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+                );
+                Some(Object::Stream(Arc::new(Stream {
+                    dict,
+                    data: Arc::from(data),
+                    decryption_failed: false,
+                })))
+            }
+            other => Some(other.clone()),
+        }
+    }
+
+    /// Encrypts a dictionary's values, honouring §7.6.2's signature exception.
+    fn encrypt_dict(
+        &self,
+        encryption: &Encryption,
+        id: ObjectId,
+        dict: &Dictionary,
+    ) -> Option<Dictionary> {
+        let signature = is_signature_dictionary(dict);
+        let mut out = Dictionary::new();
+        for (key, value) in dict.iter() {
+            let encrypted = if signature && key.as_bytes() == b"Contents" {
+                value.clone()
+            } else {
+                self.encrypt_value(encryption, id, value)?
+            };
+            out.insert(key.clone(), encrypted);
+        }
+        Some(out)
+    }
+
     /// Chooses the crypt filter for one stream's data.
     ///
     /// §7.6.6 states the `/Crypt` override; the two exclusions are Table 20's, in §7.6.2:

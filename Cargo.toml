@@ -142,6 +142,21 @@ sha2 = "0.11.0"
 # `pr6531_2.pdf` in the corpus are the two files that prove it.
 stringprep = "0.1.5"
 
+# §7.6.3.1's initialisation vector: "the initialization vector is a 16-byte random number
+# that is stored as the first 16 bytes of the encrypted stream or string." That is the one
+# place this project needs randomness, and it needs the cryptographic kind — a CBC
+# initialisation vector an attacker can predict is a CBC mode without one.
+#
+# `getrandom` is the thinnest thing that provides it: no PRNG state, no `rand` ecosystem,
+# one call to the platform's own source (`getrandom(2)` on Linux). Deriving the vector from
+# the plaintext instead — the SIV construction — would need no dependency and would keep a
+# save byte-for-byte reproducible, but it is not what the clause says, and it would leak
+# that two objects in one update encrypt the same bytes. Exact conformance is the cheaper
+# side of that trade. The cost is written down in doc/adr/0129: saving the same edit twice
+# no longer produces identical bytes for an encrypted document, so the tests read the file
+# back rather than compare it.
+getrandom = "0.4.3"
+
 # Group 3 and Group 4 fax, for `CCITTFaxDecode` (ISO 32000-2 §7.4.6). Named here rather
 # than reached through `hayro-jbig2`: it has been in the tree since the seventh session as
 # that crate's MMR dependency, and depending on a dependency's dependency is a version

@@ -470,8 +470,10 @@ impl ViewState {
     /// # Errors
     ///
     /// [`pdf_syntax::write::UpdateError`], which names every document this refuses: one whose
-    /// cross-reference table was rebuilt by scanning, an encrypted one, and one whose trailer is
-    /// missing what §7.5.5 requires.
+    /// cross-reference table was rebuilt by scanning, one whose own encryption cannot be applied
+    /// to what is written, and one whose trailer is missing what §7.5.5 requires. An *encrypted*
+    /// document is no longer among them: §7.6.2's ciphers run on the way out, so the `/V` this
+    /// writes reaches the file in the form the document's own key expects.
     pub fn save(&self, document: &Document) -> Result<Vec<u8>, pdf_syntax::write::UpdateError> {
         let mut replacements = BTreeMap::new();
         for (widget, value) in self.edits() {
