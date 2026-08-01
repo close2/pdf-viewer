@@ -889,3 +889,65 @@ fn a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it() {
         "and it stops: 20 + 10 units from /L is as far as the clause states"
     );
 }
+
+/// An entry that states no shape must not erase the shape the clause does state.
+///
+/// ISO 32000-2 §12.5.6.7 makes `/L` required and `/LE` optional with a default of
+/// `[/None /None]`, and Table 179 gives its nine endings names and not one dimension. So an
+/// annotation naming an ending has still stated a line, and this pair is that difference: the
+/// same line with and without an ending it cannot be given a size, drawn identically, with the
+/// ending named beside it rather than instead of it.
+///
+/// It was a whole-annotation refusal until the hundred-and-sixteenth session — the same shape
+/// ADR 0075 removed from `/LL` one entry over, where the refusal fired on an entry's presence
+/// and took the line with it.
+#[test]
+fn a_line_ending_that_cannot_be_sized_is_named_beside_the_line_it_decorates() {
+    let line = |extra: &str| {
+        format!(
+            "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] \
+             /BS << /W 2 >> /L [20 50 80 50] {extra} >>"
+        )
+    };
+    let of = |extra: &str| interpret(pdf_with(&line(extra), "/BBox [0 0 10 10]", ""));
+
+    let plain = of("");
+    assert!(plain.is_complete(), "a line with no /LE owes nothing");
+
+    let ended = of("/LE [/OpenArrow /OpenArrow]");
+    assert!(
+        !ended.display_list.commands().is_empty(),
+        "the line the clause requires is drawn whatever its ends ask for"
+    );
+    assert!(
+        !ended.is_complete(),
+        "and the ending nobody can size is reported"
+    );
+    let reported = format!("{:?}", ended.unsupported);
+    assert!(
+        reported.contains("line endings state no size"),
+        "by name: {reported}"
+    );
+
+    // Same for §12.5.6.7's caption, and both at once name both — a report that hides another
+    // report is trap 11's other edge.
+    let both = of("/LE [/Square /Square] /Cap true");
+    let reported = format!("{:?}", both.unsupported);
+    assert!(
+        reported.contains("line endings state no size") && reported.contains("/Cap"),
+        "both owed entries are named, not just the first: {reported}"
+    );
+
+    // And a polyline's ends are the same rule: Table 181 makes `/Vertices` required.
+    let polyline = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /PolyLine /Rect [0 0 100 100] /F 4 /C [0 0 0] \
+         /BS << /W 2 >> /Vertices [20 20 80 80] /LE [/ClosedArrow /ClosedArrow] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !polyline.display_list.commands().is_empty(),
+        "the polyline is drawn"
+    );
+    assert!(!polyline.is_complete(), "and its endings are named");
+}

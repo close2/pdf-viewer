@@ -544,9 +544,12 @@ fn polygon(
     if cloudy(document, annotation) {
         return Err(CLOUDY);
     }
-    if line_endings(document, annotation) {
-        return Err(LINE_ENDINGS);
-    }
+    // As on a line annotation: `/LE` decorates the ends of a shape Table 181 makes required,
+    // so it is named beside the drawn shape rather than instead of it. `/BE` above is *not*
+    // the same case and stays a refusal — a cloudy border is a different border rather than an
+    // extra mark, and drawing a straight one would put a shape on the page the file did not
+    // describe.
+    let plain_ends = line_endings(document, annotation);
 
     let closed = subtype == b"Polygon";
     let border = Border::read(document, annotation, annotation, "C")?;
@@ -568,6 +571,9 @@ fn polygon(
         polyline(stream, &vertices, closed);
     }
     stream.paint(interior != Colour::None, border.strokes());
+    if plain_ends {
+        return Ok(Painted::partly(LINE_ENDINGS));
+    }
     Ok(Painted::DRAWN)
 }
 
@@ -825,20 +831,30 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 /// its value, so `annotation-line-without-appearance.pdf`, which states `/LL 0` — Table 178's
 /// own "no leader lines" — was declined for asking for nothing.
 ///
-/// Two entries are still refused and each states a different kind of nothing: `/LE`'s endings
+/// Two entries are still owed and each states a different kind of nothing: `/LE`'s endings
 /// name shapes with no size (Table 179 says "[a] square", "[t]wo short lines meeting in an
 /// acute angle" — re-read in the eighty-fifth session and it still states no dimension), and
 /// `/Cap` replicates `/Contents` as a caption, which needs a font no entry of a line annotation
-/// supplies.
+/// supplies. **Both are named beside the drawn line rather than instead of it**, since the
+/// hundred-and-sixteenth session: each is optional and additive where `/L` is required, so
+/// declining the whole annotation for either drew nothing where the clause states a line. That
+/// is the same reasoning the refusal above records for `/LL`, applied one entry over.
 fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
-    if matches!(document.get_key(annotation, "Cap"), Object::Boolean(true)) {
-        return Err(Refusal::NotDerivable(
-            "§12.5.6.7's /Cap asks for /Contents as a caption along the line",
-        ));
-    }
-    if line_endings(document, annotation) {
-        return Err(LINE_ENDINGS);
-    }
+    // Both entries are additive: neither changes the line, and both are optional where `/L` is
+    // required. So each is named beside the drawn line rather than instead of it.
+    let captioned = matches!(document.get_key(annotation, "Cap"), Object::Boolean(true));
+    let owed = match (line_endings(document, annotation), captioned) {
+        (true, true) => Some(LINE_ENDINGS_AND_CAPTION),
+        (true, false) => Some(LINE_ENDINGS),
+        (false, true) => Some(LINE_CAPTION),
+        (false, false) => None,
+    };
+    let drawn = |painted: Painted| match (painted.drawn, owed) {
+        // An annotation that draws nothing owes nothing: there is no line for an ending to
+        // decorate or a caption to sit on, so naming them would report a gap on a blank page.
+        (false, _) | (_, None) => Ok(painted),
+        (true, Some(refusal)) => Ok(Painted::partly(refusal)),
+    };
 
     let ends = points(document, annotation, "L").unwrap_or_default();
     let (Some(start), Some(end)) = (ends.first().copied(), ends.get(1).copied()) else {
@@ -846,7 +862,7 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     };
     let border = Border::read(document, annotation, annotation, "C")?;
     if !border.strokes() {
-        return Ok(Painted::EMPTY);
+        return drawn(Painted::EMPTY);
     }
     border.apply(stream);
 
@@ -857,14 +873,14 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
         stream.move_to(start);
         stream.line_to(end);
         stream.paint(false, true);
-        return Ok(Painted::DRAWN);
+        return drawn(Painted::DRAWN);
     };
 
     if leader == 0.0 {
         stream.move_to(start);
         stream.line_to(end);
         stream.paint(false, true);
-        return Ok(Painted::DRAWN);
+        return drawn(Painted::DRAWN);
     }
 
     // "A non-negative number": a negative `/LLE` or `/LLO` states no length, so it is dropped
@@ -892,7 +908,7 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
         stream.line_to(along(point, away.mul_add(extension, leader)));
     }
     stream.paint(false, true);
-    Ok(Painted::DRAWN)
+    drawn(Painted::DRAWN)
 }
 
 /// The unit vector §12.5.6.7 calls clockwise from `start` to `end`, or `None` for no direction.
@@ -1486,8 +1502,29 @@ const CLOUDY: Refusal =
 
 /// Table 179's line endings: nine named shapes — "A square", "Two short lines meeting in an
 /// acute angle" — and not one dimension among them.
+///
+/// **Named beside a drawn line rather than instead of one, since the hundred-and-sixteenth
+/// session.** `/LE` is optional and defaults to `[/None /None]`; `/L` and `/Vertices` are
+/// required. So an annotation stating an ending this module cannot size has still stated the
+/// line, and refusing the whole of it draws nothing where the clause states something. This is
+/// ADR 0075's finding one entry over: an entry that cannot be derived is a reason to draw the
+/// part that can be, not a reason to decline.
 const LINE_ENDINGS: Refusal =
-    Refusal::NotDerivable("Table 179's line endings state no size to draw them at");
+    Refusal::NotDerivable("Table 179's line endings state no size, so the ends are drawn plain");
+
+/// §12.5.6.7's `/Cap`, which replicates `/Contents` "as a caption in the appearance of the
+/// line" and gives no entry from which to take a font.
+///
+/// Additive like `/LE`, and named the same way: the line is drawn and the caption is not.
+const LINE_CAPTION: Refusal = Refusal::NotDerivable(
+    "§12.5.6.7's /Cap asks for /Contents as a caption, and no entry gives it a font",
+);
+
+/// Both of the above, because trap 11's other edge is that a report can hide another report.
+const LINE_ENDINGS_AND_CAPTION: Refusal = Refusal::NotDerivable(
+    "Table 179's line endings state no size and §12.5.6.7's /Cap states no font, so the line \
+     is drawn without either",
+);
 
 /// The border style names of §12.5.4 Table 168.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

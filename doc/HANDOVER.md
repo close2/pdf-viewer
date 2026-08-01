@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-fifteenth** working session. Read
+Written 2026-07-26, updated 2026-08-01 at the end of the **hundred-and-sixteenth** working session. Read
 `/CLAUDE.md` first — it holds the five non-negotiable principles, what *done* means, and the
 closed list of exclusions. **Principle 5 is the one that changes how to work**: the specification
 is the only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read
@@ -21,27 +21,6 @@ Habits.
 
 Every session before these is one line in the table below, with its argument in its ADR. Three
 are kept in prose because their findings are recent enough to still be acted on.
-
-**Hundred-and-thirteenth — the item that was priced a hundred-fold wrong.** ADR 0103.
-
-- **"Bound a group's buffer to the band its clip admits" is 0.14% of the page named as the one
-  that would show it.** The group buffer is `Pixmap::new`: 29 per render, 61.7 M of 43.15 G.
-  The 4.48% of `calloc` this file attributed to it is *clip* masks — `Mask::intersect_path`
-  3.08% and `Mask::new` 1.31%. **The item leaves the list with its number beside it.**
-- **The real second item is `MaskCache::get` at 24.34%**, and it is intrinsic rather than a
-  cache defect: 3608 chains per render, **0 evictions**, 7207 clips of which 7116 are distinct,
-  and only 1840 of 72 160 chains are rectangles all the way up. Three plausible shortcuts —
-  eviction tuning, deduplication, a rectangle fast path — priced at 0%, 1.3% and 2.5% and
-  declined with their numbers.
-- **`MaskCache::build`'s stated reason was backwards, and the correction names a real
-  optimisation.** A child's band is always *inside* its parent's, because the band is the
-  running intersection of bounds — so a parent's rows are exactly the prefix's contribution and
-  a four-deep chain could be one crop and one intersect. What stops it is memory: it needs the
-  intermediates cached, on a page already at 87% of `MASK_BUDGET`.
-- **`MASK_BUDGET`'s justification said "3576 distinct clips … 25.5 MB … with headroom".** It is
-  3608 and 27.9 MB, and the headroom is **13%**.
-
-No code path changed and no gate moved: the output is four numbers and two corrected comments.
 
 **Hundred-and-fourteenth — a file specification is read whole and opened never.** ADR 0104.
 
@@ -79,6 +58,25 @@ No code path changed and no gate moved: the output is four numbers and two corre
   status of "not implemented" is never contradicted by a passing test.
 
 `reported` falls **41 → 36**, `partial` 236 → 240; one new test; no gate moved.
+
+**Hundred-and-sixteenth — an optional entry must not erase what the clause states.** ADR 0106.
+
+- **A line annotation naming a `/LE` ending was declined whole**, so a file asking for an arrow
+  got no line — and Table 178 makes `/L` required and `/LE` optional with a default of
+  `[/None /None]`. Same for `/Cap` and for a polyline's `/LE`. All three are now named beside
+  the drawn line rather than instead of it: **trap 5's fifth deliberate report-with-drawing**.
+- **This is ADR 0075's correction one entry over**, in the same clause: a refusal on the true
+  observation that something cannot be derived is a reason to draw the part that can be.
+- **A cloudy `/BE` stays a whole refusal, and the difference is the rule**: an ending is an
+  extra mark, a cloudy border is a *different* border, and drawing a straight one would put a
+  shape on the page the file did not describe. **Ask whether the entry being refused is
+  additive or substitutive.**
+- **The corpus's one witness cannot show it.** `issue13447.pdf`'s arrow-ended line states an
+  `/L` a hundred points outside its own `/Rect`, so §12.5.5 clips away exactly what is now
+  drawn — two more display-list commands, a byte-identical raster, checked by stashing the
+  change. The change stands on the clause.
+
+Tests 870 → 871; no gate moved.
 
 ## How the project got here
 
@@ -198,6 +196,7 @@ below rather than here.
 | 113 | A to-do item measured at a hundredth of its listed price, and removed | ADR 0103 |
 | 114 | §7.11's file specifications, read whole and opened never | ADR 0104 |
 | 115 | Five `reported` rows that understated what the tree already does | ADR 0105 |
+| 116 | §12.5.6.7's `/LE` and `/Cap` named beside the line rather than instead of it | ADR 0106 |
 
 **The two gate numbers, across the whole history.** Contradicted pages: 174 → 120 → 108 → 106 →
 104 → 108 → 103 → 103 → 104 → 103 → 100 → 93 → 96 → 96 → 98 → 102 → 102 → 102 → 102 → 102 → 102
@@ -240,7 +239,7 @@ one of the ledger's 823 rows is `silent`**, so nothing in the eight technical cl
 without the tree saying so. What is owed is 36 `reported` rows and the notes on 240 `partial`
 ones.
 
-- **870 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
+- **871 tests**, `clippy` clean under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`,
   `cargo fmt --check` clean, `cargo deny` clean on all four checks, and **all five fuzz targets
   clean at 50 000 runs apiece, the newest at 2 000 000** — every one of those re-run in the
   hundred-and-sixth session rather than inherited (ADR 0096). (The thirteenth session found this line had been *wrong*: eleven warnings had
@@ -597,7 +596,7 @@ found the same shape one level up — Table 57's `/LC`, `/LJ` and `/ML` read not
 wrong caps and joins. **Where a clause gives a parameter two routes, implementing one of them is
 the failure mode that reports nothing.**
 
-There are now four places where a report accompanies drawing rather than replacing it, each
+There are now five places where a report accompanies drawing rather than replacing it, each
 deliberate. An `/AcroForm` setting `/NeedAppearances` says its stored appearances may be stale and
 we draw them anyway, because they are all the file offers (§12.7.4.3). §11.6.5.2's `/Matte` in a
 colour space whose pre-blending cannot be undone after conversion is applied, because refusing it
@@ -605,7 +604,10 @@ would draw a rectangle of pure matte colour. A constructed appearance draws what
 states while reporting what it does not — a widget's background with its field's value named
 (ADR 0030). And §8.11.4.4's `/User` and `/Language` categories leave a layer's state as the
 configuration set it and say so, because switching it off would answer a question about this
-machine that nobody asked (ADR 0044). Two different true statements; suppressing either loses
+machine that nobody asked (ADR 0044). The fifth is §12.5.6.7's `/LE` and `/Cap`, which decorate
+a line the clause makes *required* while being optional themselves — **so the question to ask of
+a refusal is whether the entry it refuses is additive or substitutive**, and a cloudy `/BE`
+stays a whole refusal because a different border is not an extra mark (ADR 0106). Two different true statements; suppressing either loses
 information. Do not generalise
 it further without the same argument.
 
