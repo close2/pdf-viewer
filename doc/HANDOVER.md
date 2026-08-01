@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fifty-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-fifty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -65,11 +65,12 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | tests, `clippy`, `fmt` and `cargo deny` re-run in session 152; the five fuzzers last in 139 |
+| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything in this row re-run in session 153, the fuzzers included |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 11 not comparable | `tests/oracle.rs`, ~30 s |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | dates | 1545 date strings | `tests/dates.rs` |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in 115 ms | ADR 0126's recipe, session 153 |
 | conformance | 3166 citations, 323 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
@@ -565,7 +566,7 @@ render, because their distribution has a long tail and ours no longer does; the 
 median answer different questions and only quoting both is honest. We are faster on 103 of the
 863.
 
-**Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 150.8 M** today, of which
+**Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 137.7 M** in session 153, of which
 the text layer is 35.8 M (session 133's A/B, below). The six sessions from the hundred-and-thirty-
 third cost **140 097 instructions, +0.0065%** — selection, editing, saving and §12.5.6.19's `/H`
 are all paths a page render does not take. Session
@@ -656,6 +657,13 @@ are equal, which is what a producer with per-run rounding emits and what dedup c
 **That test failed on its own guard rather than on a pixel**, which is why the change was noticed
 at all.
 
+**Rasterisation is now measured too, and on a text page it is the larger half.** Twenty renders
+of the specification's own pages through `examples/callgrind_rasterise`: page 6 **3 601 M** and
+page 101 **4 990 M** in session 153, against 16 771 M and 14 406 M before the clip deduplication of
+session 147. Per page that is ~180 M and ~250 M of rasterisation against ~43 M of interpretation —
+**a dense text page spends four to six times as long being drawn as being read**, which is not the
+proportion this file's performance section has historically implied.
+
 **Still open, priced or unpriced**: colour-managing an image in parallel (`issue19971.pdf`'s
 3.4-megapixel photograph went 30 ms → 120 ms when `ICCBased` images began converting through their
 profile; the loop is embarrassingly parallel apart from its memo and rayon is already here, and
@@ -697,8 +705,9 @@ the page could not be drawn and the things themselves are printed. A click follo
 links and performs the eleven §12.6 actions this program can, printing every refusal — including
 §12.7.6.4's import, which reads an FDF file **beside the open document** and nowhere else. A
 locked document is asked for its password at the terminal (§7.6.4.1), three times, with an empty
-line to give up. `--no-sandbox` decodes
-JBIG2 and JPEG 2000 in-process — faster by a spawn and a pipe round trip, appropriate for trusted
+line to give up. **`pdf-viewer --licences`** prints `/NOTICE` and exits, which is what both
+licences covering the compiled-in standard 14 fonts oblige a binary to carry. `--no-sandbox`
+decodes JBIG2 and JPEG 2000 in-process — faster by a spawn and a pipe round trip, appropriate for trusted
 documents, and it prints what it gave up.
 
 ## Verify it
@@ -722,6 +731,7 @@ valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_interpret            # stops at the display list
 valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_rasterise [file.pdf] [page]
+cargo run --release -p pdf-model --example glyph_reuse -- [file.pdf] [page] [scale]  # ADR 0131
 cargo build --release -p hayro-compare --bins && \
   cargo run --release -p hayro-compare --bin hayro-speed -- doc/pdf.js/test/pdfs/*.pdf   # ~45 min
 cd fuzz && cargo +nightly fuzz run lexer         -- -runs=50000   # needs nightly
@@ -1712,3 +1722,4 @@ above rather than here.
 | 150 | §12.4.4.1's `/Dur`: a state machine with no clock is told the time | 0135 |
 | 151 | The ledger re-read against seven sessions of new capability | — |
 | 152 | §7.6.4.3.2 step (a): the Annex D table this crate said it did not hold | — |
+| 153 | Everything re-verified after ten sessions of change | — |
