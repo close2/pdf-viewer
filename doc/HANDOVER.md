@@ -65,11 +65,11 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | the fuzzers and `deny` last in session 153; tests, `clippy` and `fmt` re-run in 154, where `--all-targets` found one warning in `glyph_reuse.rs` that session 153 had claimed away |
+| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | the fuzzers and `deny` last in session 153; tests, `clippy`, `fmt` and **all four gates** re-run in 154, where `--all-targets` found one warning in `glyph_reuse.rs` that session 153 had claimed away |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 11 not comparable | `tests/oracle.rs`, ~30 s |
-| text (vs `pdftotext`, same 974) | **97.9%** of the reference's words, **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
-| dates | 1545 date strings | `tests/dates.rs` |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, ~49 s |
+| text (vs `pdftotext`, same 974) | **97.9%** of the reference's words (22 855 of 23 340), **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
+| dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in 115 ms | ADR 0126's recipe, session 153 |
 | conformance | 3166 citations, 323 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
 
@@ -109,6 +109,12 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 **`silent` is zero** — there is no requirement in the eight technical clauses that this program
 fails without saying so. That is a narrow claim: `partial` and `reported` are 275 rows between
 them and each names what it owes.
+
+**This file's arithmetic was wrong about the oracle too, and session 154 corrected it by reading
+the output.** The row above said "11 not comparable", which is 1665 minus the other three buckets;
+the gate prints **seven** buckets and the missing two are `our geometry` (0 complete) and
+`reference geometry` (2). Nothing had changed — the number had been derived rather than read, which
+is the thing the paragraph below says not to do.
 
 **The ledger has been wrong four times and this file's arithmetic about it once.** A row that
 names a rasteriser's behaviour has recorded that rasteriser (§8.4.3.2); a row written during a
