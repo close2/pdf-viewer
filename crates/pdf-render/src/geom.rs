@@ -288,17 +288,47 @@ pub enum PathCommand {
 /// [`Command`](crate::display_list::Command) that references it. This separation
 /// lets one path be drawn repeatedly — filled, then stroked, then used as a clip —
 /// without duplicating its geometry.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Default)]
 pub struct Path {
     commands: Vec<PathCommand>,
+    /// The untransformed hull of [`Self::bounds`], built on first use.
+    ///
+    /// A glyph outline is shared through an `Arc` and asked for its bounds once per strip the
+    /// rasteriser cuts the page into, and walking forty control points each time was **17.6%
+    /// of a dense page's rasterisation** — 541 300 calls over twenty renders of ISO 32000-2's
+    /// page 101, measured with `callgrind_annotate --tree=caller` in session 163. The walk
+    /// happens once now and every later call maps this rectangle.
+    hull: std::sync::OnceLock<Option<Rect>>,
+}
+
+impl Clone for Path {
+    /// Clones the commands and *not* the cache, which the clone will rebuild if it is asked.
+    ///
+    /// Copying it would be correct — the hull is a function of the commands — and `OnceLock`
+    /// is not `Clone`, so this says the cheap true thing rather than reaching for `get()`.
+    fn clone(&self) -> Self {
+        Self {
+            commands: self.commands.clone(),
+            hull: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+impl PartialEq for Path {
+    /// Two paths are equal when they state the same commands. The cache is a memo of that and
+    /// never a second fact about it.
+    fn eq(&self, other: &Self) -> bool {
+        self.commands == other.commands
+    }
 }
 
 impl Path {
     /// Creates an empty path.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             commands: Vec::new(),
+            hull: std::sync::OnceLock::new(),
         }
     }
 
@@ -386,6 +416,30 @@ impl Path {
     /// of a target a command belongs to (ADR 0137), and estimating what a strip costs.
     #[must_use]
     pub fn bounds(&self, transform: Transform) -> Option<Rect> {
+        // The untransformed hull, walked once and kept. Mapping it is exact wherever the
+        // transform keeps the axes: `a·x + e` is monotone in `x`, so the same control point
+        // attains the same extreme and the same arithmetic produces the same `f32`. Under a
+        // shear or a general rotation it is not, so the walk runs — which is the ordinary case
+        // for a page and the rare one for a glyph.
+        if transform.preserves_axes() {
+            let hull = (*self.hull.get_or_init(|| self.walked(Transform::IDENTITY)))?;
+            let corners = [
+                transform.apply(hull.min),
+                transform.apply(Point::new(hull.max.x, hull.min.y)),
+                transform.apply(hull.max),
+                transform.apply(Point::new(hull.min.x, hull.max.y)),
+            ];
+            let mut mapped = Rect::from_corners(*corners.first()?, *corners.first()?);
+            for corner in corners {
+                mapped = mapped.union(Rect::from_corners(corner, corner));
+            }
+            return Some(mapped);
+        }
+        self.walked(transform)
+    }
+
+    /// [`Self::bounds`] without the cache: every control point, transformed and met.
+    fn walked(&self, transform: Transform) -> Option<Rect> {
         let mut bounds: Option<Rect> = None;
         let mut extend = |point: Point| {
             let point = transform.apply(point);
@@ -489,6 +543,54 @@ impl Path {
                     previous = start;
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod hull_tests {
+    use super::{Path, PathCommand, Point, Transform};
+
+    /// A cached hull, mapped, must be the rectangle the walk produces — not merely a bound.
+    ///
+    /// Checked at every kind of transform the fast path claims: a scale, a translation, a
+    /// negative scale (which exchanges the extremes) and a quarter turn. The slow path is
+    /// checked too, because the branch is what decides which runs.
+    #[test]
+    fn the_cached_hull_is_the_walk_at_every_axis_preserving_transform() {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(3.5, -2.25)));
+        path.push(PathCommand::LineTo(Point::new(40.0, 11.0)));
+        path.push(PathCommand::CurveTo(
+            Point::new(-8.0, 60.0),
+            Point::new(70.0, -30.0),
+            Point::new(9.0, 5.0),
+        ));
+        path.push(PathCommand::Close);
+
+        for transform in [
+            Transform::IDENTITY,
+            Transform::translate(17.0, -4.5),
+            Transform::new(2.5, 0.0, 0.0, 3.0, 1.0, 2.0),
+            // A negative scale, where the smallest x maps to the largest.
+            Transform::new(-1.5, 0.0, 0.0, -2.0, 0.0, 0.0),
+            // A quarter turn: the other shape `preserves_axes` admits.
+            Transform::new(0.0, 1.0, -1.0, 0.0, 0.0, 0.0),
+            // A shear, which takes the slow path.
+            Transform::new(1.0, 0.4, 0.2, 1.0, 0.0, 0.0),
+        ] {
+            // A fresh path each time, so the first call and a later one are both exercised.
+            let cold = path.clone();
+            assert_eq!(
+                cold.bounds(transform),
+                cold.walked(transform),
+                "cold, at {transform:?}"
+            );
+            assert_eq!(
+                path.bounds(transform),
+                path.walked(transform),
+                "warm, at {transform:?}"
+            );
         }
     }
 }

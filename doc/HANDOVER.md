@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixty-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -65,7 +65,7 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **979**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in session 162: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates and both performance numbers |
+| tests | **980**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in session 162: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates and both performance numbers |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
@@ -792,13 +792,32 @@ session 147. Per page that is ~180 M and ~250 M of rasterisation against ~43 M o
 proportion this file's performance section has historically implied.
 
 **Session 162 re-measured both after the strips landed, and the counter says what the clock does
-not.** Interpretation is **2 139.4 M**, a repeat of 153's 2 137.7 M. Rasterisation is page 6
-**4 543 M** and page 101 **6 691 M** — *up* 26% and 34%, against a wall clock that halved (ADR
-0139's table). Callgrind counts every thread, so a parallel render's instruction count is the
-serial one plus the replay and the planning; the two numbers are measuring different things and
-both are true. **Quote the clock for a parallel change and the counter for a serial one**, and
-say which — a session that reports only the counter here would report a 34% regression on a
-change that made the page appear twice as fast.
+not.** Interpretation is **2 139.4 M**, a repeat of 153's 2 137.7 M. Rasterisation was page 6
+4 543 M and page 101 6 691 M — *up* 26% and 34% on the serial 3 598 M and 5 065 M measured in
+the same sitting, against a wall clock that halved (ADR 0139's table). Callgrind counts every
+thread, so a parallel render's instruction count is the serial one plus the replay and the
+planning; the two numbers are measuring different things and both are true. **Quote the clock for
+a parallel change and the counter for a serial one**, and say which — a session that reported
+only the counter here would report a 34% regression on a change that made the page appear twice
+as fast.
+
+**And then the counter said where the overhead was, in one line of `callgrind_annotate
+--tree=caller`.** `Path::bounds` was **17.6% of page 101's parallel render**, from 541 300 calls
+over twenty renders — 3007 commands × 9 strips × 20 — because the strip driver asks every
+command whether it misses the strip and the answer walked forty control points every time. A
+`Path` now keeps its own untransformed hull in a `OnceLock` and maps it, which is **exact**
+wherever the transform keeps the axes: `a·x + e` is monotone in `x`, so the same control point
+attains the same extreme through the same arithmetic. A shear takes the walk.
+
+| | serial | strips, before | strips, after |
+|---|---|---|---|
+| page 6 | 3 598 M | 4 543 M (+26%) | **4 035 M (+12%)** |
+| page 101 | 5 065 M | 6 691 M (+32%) | **5 565 M (+10%)** |
+
+Wall clock at a window's scale went with it: page 6 at 2× is **19.7 → 5.9 ms** and page 101
+**33.7 → 10.1**, both 3.3× where ADR 0139 measured 2.6×. Interpretation pays **+0.8%**
+(2 139.4 M → 2 156.9 M) for the branch and the `OnceLock`, which is the honest price of the
+memo and is written here rather than left out of the comparison.
 
 **Still open, priced or unpriced**: colour-managing an image in parallel (`issue19971.pdf`'s
 3.4-megapixel photograph went 30 ms → 120 ms when `ICCBased` images began converting through their
@@ -1933,3 +1952,4 @@ above rather than here.
 | 160 | An unexplained contradicted page measured: one `k` operator, and four renderers' profiles | — |
 | 161 | Eleven more measured: the unexplained list is 14 → 2, and the instrument had to be checked | — |
 | 162 | Everything re-verified after seven sessions of change; the strips' instruction cost priced | — |
+| 163 | 541 300 calls to `Path::bounds` become 3 007: the strips' overhead is a third of what it was | — |
