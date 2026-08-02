@@ -208,7 +208,7 @@ impl<'a> Encoder<'a> {
         };
         builder.fill(
             outline,
-            affine(transform),
+            self.placed(transform),
             fill_rule(rule),
             paint,
             clip,
@@ -261,7 +261,7 @@ impl<'a> Encoder<'a> {
             kind,
             // quorra anchors a shading through its own transform, exactly as the
             // display list states it (§8.7.4.3's shading matrix).
-            transform: affine(shading.transform),
+            transform: self.placed(shading.transform),
         }))
     }
 
@@ -324,13 +324,13 @@ impl<'a> Encoder<'a> {
 
         // Clip to the filled path: quorra clips compose by chaining, so the fill's
         // own geometry becomes one more link under the command's clip.
-        let shape_clip = builder.clip(outline, affine(transform), fill_rule(rule), clip)?;
+        let shape_clip = builder.clip(outline, self.placed(transform), fill_rule(rule), clip)?;
         // Unit square → domain rectangle → shading space → page.
         let to_domain = Transform::new(span_x, 0.0, 0.0, span_y, x0, y0);
         let placement = to_domain.then(shading.transform);
         builder.image(
             image,
-            affine(placement),
+            self.placed(placement),
             1.0,
             quorra_scene::ImageFilter::Linear,
             Some(shape_clip),
@@ -372,7 +372,7 @@ impl<'a> Encoder<'a> {
         };
         builder.image(
             id,
-            affine(transform),
+            self.placed(transform),
             alpha,
             filter,
             clip,
@@ -523,7 +523,7 @@ impl<'a> Encoder<'a> {
         let outline = self.transient_outline(&def.path)?;
         let link = builder.clip(
             outline,
-            affine(def.transform),
+            self.placed(def.transform),
             fill_rule(def.fill_rule),
             parent,
         )?;
@@ -578,6 +578,14 @@ impl<'a> Encoder<'a> {
 
     pub(crate) fn target(&self) -> TargetSpec {
         self.target
+    }
+
+    /// A page-space transform placed onto the scene: the target's transform is
+    /// baked into every command here, and the quorra viewport stays identity —
+    /// which is what lets one scene carry the page, a fallback raster and
+    /// window-pixel overlays at their own placements ([`crate::QuorraPresenter`]).
+    pub(crate) fn placed(&self, t: Transform) -> quorra_scene::Affine {
+        affine(t.then(self.target.transform))
     }
 }
 

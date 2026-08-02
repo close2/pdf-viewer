@@ -3,7 +3,7 @@
 //!
 //! Run with `--release`. The CPU baseline the brief quotes is 5.9 ms at 1191×1684;
 //! §6.2 calls a third of that a success and a tenth a clear win.
-#![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use std::time::Instant;
 

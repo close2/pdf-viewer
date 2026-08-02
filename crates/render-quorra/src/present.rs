@@ -1,0 +1,217 @@
+//! Tier 2: the page presented straight onto a window's surface, no readback.
+//!
+//! This is the tier the brief's §6.1 measurements pointed at from the start: the
+//! readback that dominates a `rasterize` call simply does not exist here — quorra
+//! renders the scene and presents the swapchain texture, and the pixels never
+//! cross back to the CPU. One frame carries everything the window shows, each at
+//! its own placement (which is why the adapter bakes placements into commands
+//! rather than into the viewport): the page under its target transform, or a
+//! CPU-rendered raster standing in for it, and the window-pixel overlay lists —
+//! selection, sidebar, modal — on top, in order.
+
+use std::sync::Arc;
+
+use pdf_render::{Color, DisplayList, Raster, TargetSpec, Transform};
+use quorra_scene::ResourceId;
+
+use crate::QuorraRasterError;
+use crate::scene::Encoder;
+
+/// One frame of the window, everything included.
+#[derive(Debug, Clone, Copy)]
+pub struct PresentFrame<'a> {
+    /// The surface size in device pixels.
+    pub width: u32,
+    /// See [`PresentFrame::width`].
+    pub height: u32,
+    /// The page and its placement — or `None` when a raster stands in for it.
+    pub page: Option<(&'a DisplayList, TargetSpec)>,
+    /// A pre-rendered page, drawn 1:1 from the window's top-left corner: the CPU
+    /// fallback path, which must stay presentable even when the page itself is
+    /// something the device refused.
+    pub raster: Option<&'a Raster>,
+    /// Window-pixel display lists drawn over the page, in order (selection
+    /// highlights, sidebar, modal card — chrome crosses as geometry, not pixels).
+    pub overlays: &'a [&'a DisplayList],
+}
+
+/// The window-owning form of the backend: quorra's device holds the surface, and
+/// [`QuorraPresenter::present`] draws and presents one frame.
+#[derive(Debug)]
+pub struct QuorraPresenter {
+    device: quorra_gpu::Device,
+    background: Color,
+    outlines: std::collections::HashMap<usize, (Arc<pdf_render::Path>, quorra_scene::OutlineId)>,
+    images: std::collections::HashMap<usize, (Arc<[u8]>, quorra_scene::ImageId)>,
+    ramps: std::collections::HashMap<usize, (Arc<pdf_render::ShadingKind>, quorra_scene::RampId)>,
+}
+
+impl QuorraPresenter {
+    /// A presenter owning a surface on `window` — anything convertible to the
+    /// re-exported [`quorra_gpu::wgpu::SurfaceTarget`], which a winit window is.
+    ///
+    /// Returns as soon as the device exists; shaders compile in the background.
+    ///
+    /// # Errors
+    ///
+    /// [`QuorraRasterError::Device`] when no adapter can present to the window.
+    pub fn new(
+        window: impl Into<quorra_gpu::wgpu::SurfaceTarget<'static>>,
+    ) -> Result<Self, QuorraRasterError> {
+        let device = quorra_gpu::Device::for_surface(window, &quorra_gpu::Options::default())?;
+        // wgpu reports validation failures and lost devices to a handler whose
+        // default is silence — the one way this window could stop updating
+        // without a word. Same lesson, same sentence as the Vello host had.
+        device
+            .wgpu()
+            .0
+            .on_uncaptured_error(Arc::new(|error: quorra_gpu::wgpu::Error| {
+                eprintln!("note: the graphics device reported: {error}");
+            }));
+        Ok(Self {
+            device,
+            background: Color::WHITE,
+            outlines: std::collections::HashMap::new(),
+            images: std::collections::HashMap::new(),
+            ramps: std::collections::HashMap::new(),
+        })
+    }
+
+    /// The adapter quorra selected, for reports.
+    #[must_use]
+    pub fn adapter_description(&self) -> &str {
+        self.device.description()
+    }
+
+    /// Draws one frame and presents it.
+    ///
+    /// # Errors
+    ///
+    /// A refusal names what could not be drawn or why the surface was not
+    /// presentable — [`QuorraRasterError::Render`] wrapping
+    /// [`quorra_gpu::RenderError::SurfaceUnavailable`] carries the swapchain
+    /// states a host reacts to (outdated, occluded, lost) rather than reports.
+    pub fn present(&mut self, frame: PresentFrame<'_>) -> Result<(), QuorraRasterError> {
+        if frame.width == 0 || frame.height == 0 {
+            return Ok(()); // minimised: nothing to present to
+        }
+        let mut builder = quorra_scene::SceneBuilder::new();
+        let mut transient: Vec<ResourceId> = Vec::new();
+        let built = self.build(&mut builder, &frame, &mut transient);
+
+        let rendered = built.and_then(|()| {
+            let scene = builder.finish();
+            let viewport = quorra_gpu::Viewport::full(
+                frame.width,
+                frame.height,
+                quorra_scene::Affine::IDENTITY,
+            );
+            Ok(self
+                .device
+                .render(&scene, &viewport, quorra_gpu::Target::Surface)?)
+        });
+
+        // Per-frame resources go back to the budget on both paths; the frame's
+        // own error outranks a release problem (as in `rasterize`).
+        let mut release_error: Option<quorra_gpu::DeviceError> = None;
+        for id in transient.drain(..) {
+            if let Err(error) = self.device.release(id) {
+                release_error.get_or_insert(error);
+            }
+        }
+        rendered?;
+        if let Some(error) = release_error {
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
+    /// Assembles the frame's scene: medium, page (or its raster stand-in),
+    /// overlays.
+    fn build(
+        &mut self,
+        builder: &mut quorra_scene::SceneBuilder,
+        frame: &PresentFrame<'_>,
+        transient: &mut Vec<ResourceId>,
+    ) -> Result<(), QuorraRasterError> {
+        // The medium first: a surface frame has no compositor behind it to impose
+        // on, so the background is the bottom of the scene itself.
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let (w, h) = (frame.width as f32, frame.height as f32);
+        builder.rect(
+            quorra_scene::Rect::new(
+                quorra_scene::Point::new(0.0, 0.0),
+                quorra_scene::Point::new(w, h),
+            ),
+            quorra_scene::Affine::IDENTITY,
+            crate::scene::colour(self.background),
+            None,
+            None,
+        )?;
+
+        if let Some((list, target)) = frame.page {
+            Encoder::new(
+                &mut self.device,
+                list,
+                target,
+                &mut self.outlines,
+                &mut self.images,
+                &mut self.ramps,
+                transient,
+            )
+            .commands(builder, list.commands())?;
+        }
+        if let Some(raster) = frame.raster {
+            let image = self.device.upload_image(&quorra_scene::ImageSpec {
+                width: raster.width,
+                height: raster.height,
+                data: Arc::from(raster.data.as_slice()),
+            })?;
+            transient.push(image.into());
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "raster dimensions are far below f32's exact integer range"
+            )]
+            let (rw, rh) = (raster.width as f32, raster.height as f32);
+            // The unit square carries the image with its top row at unit y = 1
+            // (§8.9.5), so placing the top row at the window's y = 0 takes a flip.
+            builder.image(
+                image,
+                quorra_scene::Affine {
+                    a: rw,
+                    b: 0.0,
+                    c: 0.0,
+                    d: -rh,
+                    e: 0.0,
+                    f: rh,
+                },
+                1.0,
+                quorra_scene::ImageFilter::Nearest,
+                None,
+                quorra_scene::BlendMode::Normal,
+                None,
+            )?;
+        }
+        for list in frame.overlays {
+            let spec = TargetSpec {
+                width: frame.width,
+                height: frame.height,
+                transform: Transform::IDENTITY,
+            };
+            Encoder::new(
+                &mut self.device,
+                list,
+                spec,
+                &mut self.outlines,
+                &mut self.images,
+                &mut self.ramps,
+                transient,
+            )
+            .commands(builder, list.commands())?;
+        }
+        Ok(())
+    }
+}

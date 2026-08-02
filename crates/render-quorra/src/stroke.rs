@@ -23,7 +23,7 @@ use pdf_render::{
 use quorra_scene::SceneBuilder;
 
 use crate::QuorraRasterError;
-use crate::scene::{Encoder, affine, blend_mode, colour};
+use crate::scene::{Encoder, blend_mode, colour};
 
 /// Encodes one stroke command.
 pub(crate) fn encode(
@@ -71,7 +71,7 @@ pub(crate) fn encode(
     let dashed = dash(geometry, s, path_width, &mut dots);
     let solid: &Path = dashed.as_ref().unwrap_or(geometry);
 
-    let at = affine(transform);
+    let at = enc.placed(transform);
     if !solid.is_empty() {
         // The untouched common case keeps the path's `Arc` identity, so a glyph
         // stroked a thousand times uploads once; computed geometry is per-frame.

@@ -26,6 +26,14 @@ raster-compare = { path = "crates/raster-compare", version = "0.1.0" }
 test-scenes = { path = "crates/test-scenes", version = "0.1.0" }
 pdfref = { path = "tools/pdfref", version = "0.1.0" }
 viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
+render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
+
+# External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
+# developed against that brief in its own tree (../render-lib) and wired in here at
+# its final milestone. The explicit version keeps deny.toml's wildcard ban satisfied,
+# as with the internal path dependencies above.
+quorra-gpu = { path = "../render-lib/crates/quorra-gpu", version = "0.1.0" }
+quorra-scene = { path = "../render-lib/crates/quorra-scene", version = "0.1.0" }
 
 # Error handling
 thiserror = "2.0.19"
@@ -63,6 +71,11 @@ vello = { version = "0.9.0", features = ["debug_layers"] }
 # synchronous, and pulling in a full async runtime for two awaits would violate the
 # startup-cost rules in CLAUDE.md.
 pollster = "0.4.0"
+# Path dashing for `render-quorra`: quorra strokes but does not dash (its brief says
+# dashing is settled on this side), and `kurbo::dash` is the dasher `render-gpu`
+# already uses through vello — the same algorithm keeps the backends' dashes
+# identical. Pinned to the version vello resolves so one copy is built.
+kurbo = "0.13.1"
 # Windowing. 0.30 is the current stable line; 0.31 is still a beta series.
 #
 # `wayland-csd-adwaita` is deliberately off. It draws Adwaita-style client-side

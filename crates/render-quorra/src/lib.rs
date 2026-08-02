@@ -29,8 +29,11 @@ use pdf_render::{
 };
 use quorra_scene::ResourceId;
 
+mod present;
 mod scene;
 mod stroke;
+
+pub use present::{PresentFrame, QuorraPresenter};
 
 /// Why a frame could not be produced. Every variant names what refused (the same
 /// contract as the other backends: unsupported input is an error, never a skipped
@@ -166,10 +169,12 @@ impl Rasterizer for QuorraRasterizer {
 
         let rendered = built.and_then(|()| {
             let scene = builder.finish();
+            // The target transform is baked into every command at translation
+            // (`Encoder::placed`), so the viewport itself is identity.
             let viewport = quorra_gpu::Viewport::full(
                 target.width,
                 target.height,
-                scene::affine(target.transform),
+                quorra_scene::Affine::IDENTITY,
             );
             Ok(self
                 .device
