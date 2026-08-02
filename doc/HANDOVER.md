@@ -1520,9 +1520,13 @@ anchor that makes it checkable.
   what *we* drew, so anything improving extraction loosens a bound — take the raster's digest
   before writing "fixed") **and can leave with pixels moving and still be wrong** (`issue20232.pdf`
   agreed once the y flip was fixed and still draws `56` where three references draw `⌀56`).
-- **A page can be visibly wrong inside a verdict the gate cannot fail on.** `issue7406.pdf` drew a
-  JPEG cyan-on-black and its verdict was `ambiguous` before and after — 46% of the judged set lives
-  there and nothing watches it.
+- **A page can be visibly wrong inside a verdict the gate cannot fail on**, and 46% of the judged
+  set lives in `ambiguous` where nothing watches. The standing example was `issue7406.pdf`, which
+  drew a JPEG cyan-on-black while its verdict stayed `ambiguous` — **and it is right now**,
+  checked in the hundred-and-seventy-fifth by opening the artefact: all five renderers draw the
+  same logo and the verdict is still `ambiguous` (mean 5.07 against a bound of 5.00). Nothing
+  announced the fix, because nothing was watching then either. **A page in this bucket is
+  unwatched in both directions**, so an example of it goes stale as quietly as the defect did.
 - **A report has a price, paid in gated pages.** Print what a condition matched before trusting its
   count; **measure the corpus before choosing between reporting a gap and closing it** (every
   `/Decode` array in all 974 documents is Table 88's default or its exact reversal).
