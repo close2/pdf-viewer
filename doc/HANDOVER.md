@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fifty-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-fifty-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -71,7 +71,7 @@ answers with.
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in 115 ms | ADR 0126's recipe, session 153 |
-| conformance | 3199 citations, 329 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3211 citations, 330 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -496,13 +496,22 @@ next to what it covers.
   validation needing a trust store or network, 5 need a second file, a media engine or a network,
   3 are icon clauses whose own verb is *should*, and the rest name a device or a user control this
   program does not have. That population is worked out.
-- **The 243 `partial` rows are the population with no gate**, and reading them has paid four
+- **The 241 `partial` rows are the population with no gate**, and reading them has paid five
   sessions running. What to look for, in the order the findings came: a note that *understates*
   the code (five in session 115); a note whose **reason** has expired — "while §X does not
   exist", "needs §Y" — which no gate can watch (117, 118); a note claiming an entry is *unread*
-  where the tree reads it (three in 122). ~190 rows remain unread against the code. **The class
-  that resists a grep is a note whose "what IS done" half is wrong**, because the name being
-  present is what the grep would look for.
+  where the tree reads it (three in 122, **five more in 159**). ~185 rows remain unread against
+  the code. **The class that resists a grep is a note whose "what IS done" half is wrong**,
+  because the name being present is what the grep would look for.
+  **Session 159 ran both sweeps together and they are twenty lines of Python**: one regular
+  expression over the notes for an expired blocker, and one that pulls every `/Key` out of a
+  "Not read:" list and greps the tree for it. Six of ten "Not read" lists had a live entry, and
+  §7.7.3.3's had **eleven of eighteen** — `/BleedBox`, `/Thumb`, `/Dur`, `/Trans`, `/AA`,
+  `/StructParents`, `/VP` and the rest, each read by the session that built its clause. The
+  second sweep has three false-positive shapes worth knowing: a note *quoting* its own retired
+  wording (§9.6), a key named in a sentence about something else (§12.7.5.3), and a key that is
+  a string in an unrelated list (`/Metadata` in `thumbnail.rs`). Read the hit before believing
+  it.
 - **A gate cannot see a cache.** ADR 0115's defect drew wrong glyphs on two documents in silence
   for thirty-one sessions: no report, no contradicted page, and one of them sat on the text gate's
   "undiagnosed" list at 83%. **Where a lookup is memoised, ask what the key claims.** Every cache
@@ -1894,3 +1903,4 @@ above rather than here.
 | 156 | §9.7.5.2's predefined `CMap`s compiled in, and §9.10.2's third method with them | 0140 |
 | 157 | A `TrueType` Collection where §9.9 states a font program, and the face the file names | 0141 |
 | 158 | "units per em is zero" was a symptom; two font programs are simply short | — |
+| 159 | Five `partial` rows swept: one blocker expired twice over and fourteen entries called unread | — |
