@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -65,12 +65,12 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **980**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in session 162: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates and both performance numbers |
+| tests | **980**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in 115 ms | ADR 0126's recipe, session 153 |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **119 ms**, and five arrow keys turn to page 6 presenting in 12 to 26 ms with nothing refused | ADR 0126's recipe, session 164 |
 | conformance | 3213 citations, 330 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
@@ -171,6 +171,14 @@ ones. A project running only the first finishes when the corpus goes quiet, whic
 much of the standard unimplemented and nothing able to say which parts; one running only the
 second ships features no file exercises. This is a principle-5 rule, not a suggestion.
 
+**The ten sessions from the hundred-and-fifty-fifth are the shape to copy, and they alternated.**
+Two were code from the demand list (§9.7.5.2's `CMap`s, §9.9's collections), two were code from a
+*measurement* (the strips, the hull cache), three were readings that moved nothing but a report
+or a row, two were diagnoses that closed twelve of the oracle's fourteen unexplained pages, and
+one re-verified everything. **The cheapest of them paid the most**: two regular expressions over
+the ledger's notes found five stale rows in twenty minutes, and a heatmap and one `magick`
+invocation per page took the unexplained list from fourteen to two.
+
 **But the ten sessions from the hundred-and-twentieth found that the map is not the territory.**
 Four of their six findings were on no list: a `shall` hiding behind a silence about artwork (ADR
 0109), a clause with two populations where the row named one (ADR 0110), a malformed optional
@@ -270,7 +278,10 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 
 **The panels are now cheap and nobody has drawn one.** `Query::Layers`, `Query::Outline` and
 `Query::Attachments` answer with everything a panel needs and no consumer asks any of them. That
-is a UI job, not a clause job, and it is the first thing a native host should show.
+is a UI job, not a clause job, and it is the first thing a native host should show. **It is now
+the largest single thing this project owes**, and it has been for thirty sessions: everything
+under §0's "what is still owed" is a host, the vocabulary owes nothing, and the four gates cannot
+see any of it.
 
 Adding `egui` buys a widget set for a large dependency and no architectural proof: winit + vello
 *is* the unnative UI. The thing worth adding was the headless consumer, and it is there.
@@ -1953,3 +1964,4 @@ above rather than here.
 | 161 | Eleven more measured: the unexplained list is 14 → 2, and the instrument had to be checked | — |
 | 162 | Everything re-verified after seven sessions of change; the strips' instruction cost priced | — |
 | 163 | 541 300 calls to `Path::bounds` become 3 007: the strips' overhead is a third of what it was | — |
+| 164 | The window re-run on `Xvfb` after ten sessions, because no gate turns a page | — |
