@@ -34,6 +34,8 @@ use std::sync::Arc;
 use pdf_render::Image;
 use pdf_sandbox::{Decoded, Request};
 use pdf_syntax::{Dictionary, Document, ImageStream, Object, Stream};
+use rayon::iter::ParallelIterator as _;
+use rayon::slice::ParallelSliceMut as _;
 
 /// Largest image this will decode, in samples.
 ///
@@ -604,6 +606,91 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
 
     Ok(out)
 }
+
+/// Converts a three-component raster in place, optionally on more than one thread.
+///
+/// **A band's memo is its own, and that is what makes the split exact**: [`Conversion`]
+/// memoises a pure function of a sample tuple, so two bands meeting the same tuple convert it
+/// twice and agree. Nothing in the result depends on how the raster was divided, which is the
+/// property `a_band_boundary_changes_no_pixel` exists to check — and it is the difference
+/// between this split and the rasteriser's, where a curve clipped by a strip's edge is
+/// re-parameterised and the pixels *do* move (ADR 0138).
+///
+/// The table is sized from the band rather than from the image, because one proportioned to the
+/// whole would be allocated once per thread.
+fn convert_three(space: &crate::colour::ColourSpace, rgba: &mut [u8], band: Option<usize>) {
+    let convert = |chunk: &mut [u8], slots: usize| {
+        let mut cache = Conversion::for_pixels(slots.max(1));
+        for pixel in chunk.chunks_exact_mut(4) {
+            let Some(rgb) = pixel.get_mut(..3) else {
+                continue;
+            };
+            let read = |index: usize| rgb.get(index).copied().unwrap_or(0);
+            let key = (1u64 << 32)
+                | (u64::from(read(0)) << 16)
+                | (u64::from(read(1)) << 8)
+                | u64::from(read(2));
+            let colour = if let Some(colour) = cache.get(key) {
+                colour
+            } else {
+                let colour = space.to_rgb(&[
+                    f32::from(read(0)) / 255.0,
+                    f32::from(read(1)) / 255.0,
+                    f32::from(read(2)) / 255.0,
+                ]);
+                cache.put(key, colour);
+                colour
+            };
+            rgb.copy_from_slice(&[channel(colour.r), channel(colour.g), channel(colour.b)]);
+        }
+    };
+    match band {
+        Some(band) => rgba
+            .par_chunks_mut(band.saturating_mul(4).max(4))
+            .for_each(|chunk| convert(chunk, band)),
+        None => convert(rgba, rgba.len() / 4),
+    }
+}
+
+/// How many pixels one parallel band of a colour conversion covers, or `None` for one thread.
+///
+/// **Both numbers here are measured and the measurement is a wall clock**, because a parallel
+/// change makes the instruction count go *up* while the page appears sooner — the distinction
+/// session 162 had to make for the strips, and the reason both are quoted below.
+///
+/// `issue19971.pdf`'s 2500×1364 `ICCBased` photograph, interpreted whole, on 24 cores:
+///
+/// | bands | median clock | instructions |
+/// |---|---|---|
+/// | serial | ~110 ms | 1 085 M |
+/// | 4 | ~85 ms | 1 206 M |
+/// | **8** | **~57 ms** | **1 365 M** |
+/// | 24 (one per core) | ~55 ms | 1 605 M |
+///
+/// So the cap is 8: it is the whole of the clock and two thirds of the extra processor time.
+/// What the extra buys nothing is a [`Conversion`] table per band — each is allocated and
+/// zeroed, and a table proportioned to a 24th of the image collides no less than one
+/// proportioned to an eighth.
+///
+/// Below [`PARALLEL_PIXELS`] the split is refused for the same reason: a small image would pay a
+/// table per thread to save a few hundred conversions.
+fn band_pixels(pixels: usize) -> Option<usize> {
+    if pixels < PARALLEL_PIXELS {
+        return None;
+    }
+    let bands = rayon::current_num_threads().clamp(1, MAX_BANDS);
+    (bands >= 2).then(|| pixels.div_ceil(bands))
+}
+
+/// The smallest image worth colour-managing on more than one thread.
+///
+/// A quarter of a megapixel, which is where the two cross on this machine. The corpus gate —
+/// 974 documents whose images are mostly far smaller — is 2.4 s either side of it, which is the
+/// check that the threshold is not paid for by everything else.
+const PARALLEL_PIXELS: usize = 1 << 18;
+
+/// The most bands one image is divided into. See [`band_pixels`] for the measurement.
+const MAX_BANDS: usize = 8;
 
 /// Whether §8.9.6.4's ranges cover every component of one sample.
 ///
@@ -1492,29 +1579,7 @@ fn convert_channels(at: Dictionaries, is_mask: bool, rgba: &mut [u8]) -> Result<
             Ok(())
         }
         3 => {
-            let mut cache = Conversion::for_pixels(rgba.len() / 4);
-            for pixel in rgba.chunks_exact_mut(4) {
-                let Some(rgb) = pixel.get_mut(..3) else {
-                    continue;
-                };
-                let read = |index: usize| rgb.get(index).copied().unwrap_or(0);
-                let key = (1u64 << 32)
-                    | (u64::from(read(0)) << 16)
-                    | (u64::from(read(1)) << 8)
-                    | u64::from(read(2));
-                let colour = if let Some(colour) = cache.get(key) {
-                    colour
-                } else {
-                    let colour = space.to_rgb(&[
-                        f32::from(read(0)) / 255.0,
-                        f32::from(read(1)) / 255.0,
-                        f32::from(read(2)) / 255.0,
-                    ]);
-                    cache.put(key, colour);
-                    colour
-                };
-                rgb.copy_from_slice(&[channel(colour.r), channel(colour.g), channel(colour.b)]);
-            }
+            convert_three(&space, rgba, band_pixels(rgba.len() / 4));
             Ok(())
         }
         // `decode_jpeg` refuses anything but one or three components, so a space taking a
@@ -2231,4 +2296,87 @@ fn apply_soft_mask(
         };
         (colour, opacity)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Conversion, convert_three};
+    use crate::colour::ColourSpace;
+
+    /// A calibrated space whose conversion is neither the identity nor a device one.
+    ///
+    /// `CalRGB` with the sRGB primaries and a gamma of 2.2, which puts every sample through
+    /// [`crate::colour::cie_to_srgb`] and so through the transcendental functions the memo
+    /// exists to avoid — the same shape as the `ICCBased` photograph this split was measured on,
+    /// without needing a profile in a test.
+    fn calibrated() -> ColourSpace {
+        ColourSpace::CalRgb {
+            white: [0.9505, 1.0, 1.089],
+            black: [0.0; 3],
+            gamma: [2.2; 3],
+            matrix: [
+                0.4124, 0.2126, 0.0193, 0.3576, 0.7152, 0.1192, 0.1805, 0.0722, 0.9505,
+            ],
+        }
+    }
+
+    /// A photograph-shaped raster: bands of repeated colour, with a run that crosses every cut.
+    fn raster(pixels: usize) -> Vec<u8> {
+        (0..pixels)
+            .flat_map(|index| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a sample value, deliberately wrapped to repeat"
+                )]
+                let value = (index % 37) as u8;
+                [value, value.wrapping_mul(3), value.wrapping_add(200), 255]
+            })
+            .collect()
+    }
+
+    /// **The picture does not depend on how the raster was divided.**
+    ///
+    /// The property the parallel split rests on, checked the way `render-cpu`'s
+    /// `strip_parallelism` checks its own: run the same conversion at several band sizes and
+    /// demand the bytes are identical. It holds here for a reason that does *not* hold there —
+    /// [`Conversion`] memoises a pure function of a sample tuple, so a band boundary changes
+    /// which conversions are *repeated* and never which answer is given, while a curve clipped
+    /// by a strip's edge is genuinely a different curve (ADR 0138).
+    ///
+    /// Band sizes 1 and 3 are the interesting ones: they make the memo miss almost every time,
+    /// which is exactly the case a wrong key would show up in.
+    #[test]
+    fn a_band_boundary_changes_no_pixel() {
+        let space = calibrated();
+        let pixels = 5_000;
+        let mut serial = raster(pixels);
+        convert_three(&space, &mut serial, None);
+        // A conversion that changed nothing would pass every comparison below.
+        assert_ne!(serial, raster(pixels), "the space converts nothing");
+
+        for band in [1, 3, 64, 999, pixels, pixels * 2] {
+            let mut split = raster(pixels);
+            convert_three(&space, &mut split, Some(band));
+            assert_eq!(split, serial, "band of {band} pixels");
+        }
+    }
+
+    /// The memo answers with what the conversion would have answered, and nothing else.
+    ///
+    /// Direct-mapped with no chaining, so a collision must *miss* rather than return the
+    /// occupant — a table that answered the wrong colour would be invisible on a photograph and
+    /// obvious on nothing.
+    #[test]
+    fn the_memo_answers_only_for_the_key_it_holds() {
+        let mut cache = Conversion::for_pixels(64);
+        let colour = pdf_render::Color {
+            r: 0.25,
+            g: 0.5,
+            b: 0.75,
+            a: 1.0,
+        };
+        cache.put(7, colour);
+        assert_eq!(cache.get(7), Some(colour));
+        assert_eq!(cache.get(8), None, "a key the table does not hold");
+    }
 }

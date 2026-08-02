@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -75,7 +75,7 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **993**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **995**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
@@ -875,10 +875,18 @@ Wall clock at a window's scale went with it: page 6 at 2× is **19.7 → 5.9 ms*
 (2 139.4 M → 2 156.9 M) for the branch and the `OnceLock`, which is the honest price of the
 memo and is written here rather than left out of the comparison.
 
-**Still open, priced or unpriced**: colour-managing an image in parallel (`issue19971.pdf`'s
-3.4-megapixel photograph went 30 ms → 120 ms when `ICCBased` images began converting through their
-profile; the loop is embarrassingly parallel apart from its memo and rayon is already here, and
-nobody has tried it). Carrying an image *and its sampling intent* to the backends, which is one
+**Colour-managing an image in parallel was taken in the hundred-and-seventy-first, and the item
+named the wrong loop** (ADR 0147). `image::unpack` is the obvious target and is not the one a
+JPEG takes: `zune-jpeg` writes components into the raster and `convert_channels` converts it in
+place afterwards, which is where callgrind puts 27.6% of `issue19971.pdf` plus the 26.2% of
+`libm` under it. Parallelising `unpack` measured as noise and was reverted; parallelising
+`convert_three` **halves the page**, 110 ms → 57 ms of interpretation, at 1 085 M → 1 365 M
+instructions. Eight bands rather than one per core: same clock, two thirds of the extra processor
+time, because each band allocates a `Conversion` table and one sized to a twenty-fourth of the
+image collides no less than one sized to an eighth. The split is exact because the memo is a memo
+of a *pure function of one pixel's samples* — which is precisely what ADR 0138's strips were not.
+
+**Still open, priced or unpriced**: carrying an image *and its sampling intent* to the backends, which is one
 `pdf-render` change unblocking three items — reduction happens at decode resolution, a mask of a
 very different size is bounded rather than composited at device resolution, and the JPEG 2000
 decoder cannot be told a target resolution.
@@ -1655,6 +1663,19 @@ anchor that makes it checkable.
   every command's clip chain from the leaf: 606 ms on one page, six times its whole rasterisation,
   correct and unnoticed for two sessions. **Before moving code onto a path a person waits on, time
   it there.**
+- **A priced item names a loop, and the loop it names may not be the one the file takes.** The
+  handover priced "colour-managing an image in parallel" for thirty sessions on
+  `issue19971.pdf`'s photograph. `image::unpack` is the per-sample conversion, it is obviously
+  the loop, and a JPEG does not enter it: `zune-jpeg` writes components into the raster and
+  `convert_channels` converts that in place afterwards. Parallelising the obvious one measured as
+  noise. **Before optimising a named function, check on the named file that it runs** — one
+  `callgrind_annotate` would have said so before the change rather than after. ADR 0147.
+- **Ask what a parallel unit's answer depends on before asking how to divide it.** A colour
+  conversion is a function of one pixel's samples, so a band boundary changes which conversions
+  are *repeated* and never which answer is given, and the split is byte-exact at any band size.
+  A rasterisation is not a function of one row's geometry — a curve clipped by a strip's edge is
+  re-parameterised — which is the whole of ADR 0138. The two look like the same problem and are
+  not.
 - **A serial pass over every pixel is what bounds a parallel render**, and it hides inside a
   function whose cost nobody attributed: `impose_on_medium` was 7.8 ms of a 17 ms page, all of it
   eight integer divisions per *transparent* pixel — and §11.4.7's isolated page group makes most of
@@ -2057,3 +2078,4 @@ above rather than here.
 | 168 | Activate the item rather than its destination, and §12.3.3 closes | 0144 |
 | 169 | An embedded file comes out of the document, and its checksum finds a place to be checked | 0145 |
 | 170 | A catalog row wrong about eighteen entries, and the two the sweep made worth building | 0146 |
+| 171 | A photograph's colours converted on eight threads; the priced item named the wrong loop | 0147 |

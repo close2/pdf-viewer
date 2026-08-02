@@ -16,6 +16,9 @@ pdf-render.workspace = true
 pdf-sandbox.workspace = true
 pdf-spec.workspace = true
 pdf-syntax.workspace = true
+# §8.9.5's per-sample colour conversion, on a photograph, is embarrassingly parallel; see
+# `image::rows_per_band` for the measurement that decided the threshold.
+rayon.workspace = true
 thiserror.workspace = true
 zune-jpeg.workspace = true
 
@@ -24,7 +27,6 @@ criterion.workspace = true
 iai-callgrind.workspace = true
 pdfref.workspace = true
 png.workspace = true
-rayon.workspace = true
 raster-compare.workspace = true
 read-fonts.workspace = true
 render-cpu.workspace = true
