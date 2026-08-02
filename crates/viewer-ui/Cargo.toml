@@ -16,10 +16,11 @@ pdf-sandbox.workspace = true
 # §8.11's groups are named by object identity, which is what `Command::SetGroup` carries,
 # and §7.9.4's date is what §14.3.3's `/CreationDate` parses to.
 pdf-syntax.workspace = true
-pollster.workspace = true
 render-cpu.workspace = true
-render-gpu.workspace = true
-vello.workspace = true
+render-quorra.workspace = true
+# The typed refusals the presenter surfaces (swapchain states a host reacts to
+# rather than reports), named directly for the match arms.
+quorra-gpu.workspace = true
 viewer-core.workspace = true
 winit.workspace = true
 

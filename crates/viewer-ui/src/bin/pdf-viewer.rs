@@ -26,7 +26,7 @@
 //! three queries; what is host-specific is the drawing, not the data.
 //!
 //! Tier 2 means the pixels never cross the boundary: `viewer-core` hands over a display list and
-//! a target, this draws it onto the surface with `render-gpu`, and answers `Rendered::Presented`.
+//! a target, this draws it onto the surface with `render-quorra`, and answers `Rendered::Presented`.
 //! A tier-1 host would take the raster back instead; the protocol is otherwise identical, which
 //! is the property that makes the interface worth having.
 //!
@@ -47,15 +47,15 @@
 
 use std::collections::VecDeque;
 use std::io::Write as _;
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use pdf_render::{Rasterizer as _, TargetSpec, Transform};
+use pdf_render::{
+    BlendMode, Color, Command as DrawCommand, FillRule, Paint, Path, PathCommand, Point,
+    Rasterizer as _, Size, TargetSpec, Transform,
+};
 use render_cpu::CpuRasterizer;
-use vello::util::{RenderContext, RenderSurface};
-use vello::wgpu::CurrentSurfaceTexture;
-use vello::{AaConfig, AaSupport, Renderer, RendererOptions, wgpu};
+use render_quorra::{PresentFrame, QuorraPresenter};
 use viewer_core::{
     Answer, Command, DocumentId, Event, PageTarget, PointerAction, Purpose, Query, RenderRequest,
     Rendered, Selection, Viewer, Zoom,
@@ -184,7 +184,6 @@ fn main() {
         attachments: Vec::new(),
         information: pdf_model::metadata::Information::default(),
         metadata_stream: false,
-        context: RenderContext::new(),
         state: None,
     };
     app.dispatch(Command::Open {
@@ -313,61 +312,19 @@ struct App {
     information: pdf_model::metadata::Information,
     /// Whether the catalog names a `/Metadata` stream.
     metadata_stream: bool,
-    context: RenderContext,
     state: Option<State>,
 }
 
-/// The window, and the GPU objects that belong to it.
+/// The window, and the presenter that owns its surface.
 struct State {
     window: Arc<Window>,
-    surface: RenderSurface<'static>,
-    renderer: Renderer,
-    /// What the page is drawn into, before it is blitted onto the frame.
-    ///
-    /// Vello's own surface target would do, but it is created with `STORAGE_BINDING` and
-    /// `TEXTURE_BINDING` only. Banding composes the result from band-sized renders copied into
-    /// place, which needs `COPY_DST`, so this program owns the texture it draws into.
-    target: Target,
-    /// How many bands the last render of this window needed; reset when the window resizes.
-    bands: render_gpu::Bands,
-}
-
-/// A texture the size of the window, with the usages banding needs.
-struct Target {
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
-
-impl Target {
-    /// Creates a target for a window of this size.
-    fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("page"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            // `STORAGE_BINDING` is where Vello writes, `TEXTURE_BINDING` is what the blitter
-            // reads, and `COPY_DST` is where a band lands.
-            usage: wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        Self { texture, view }
-    }
-}
-
-impl std::fmt::Debug for Target {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Target").finish_non_exhaustive()
-    }
+    /// quorra's device holds the surface; one call draws and presents a frame,
+    /// and a refused frame is a typed error naming what refused — the banding
+    /// machinery, the owned intermediate texture and the blitter of the Vello
+    /// host all fell away with the backend that needed them.
+    presenter: QuorraPresenter,
+    /// The surface size in device pixels, updated on `WindowEvent::Resized`.
+    size: (u32, u32),
 }
 
 impl App {
@@ -379,11 +336,7 @@ impl App {
             reason = "a display's scale factor is a small ratio"
         )]
         let scale = state.window.scale_factor() as f32;
-        Some((
-            state.surface.config.width,
-            state.surface.config.height,
-            scale,
-        ))
+        Some((state.size.0, state.size.1, scale))
     }
 
     /// How many device pixels down the left edge the panel occupies.
@@ -982,7 +935,7 @@ impl App {
         };
         let (width, height) = {
             let state = self.state.as_ref()?;
-            (state.surface.config.width, state.surface.config.height)
+            state.size
         };
         #[expect(
             clippy::cast_precision_loss,
@@ -1017,81 +970,85 @@ impl App {
             panel: self.panel_list(height),
             about: self.about_list(width, height),
         };
+        let selection = highlight_list(&highlight, width, height);
+        // Selection first (it belongs to the page), then the sidebar, then the
+        // modal card on top — the same order the Vello host drew them in.
+        let mut overlays: Vec<&pdf_render::DisplayList> = Vec::new();
+        overlays.extend(selection.as_ref());
+        overlays.extend(chrome.panel.as_ref());
+        overlays.extend(chrome.about.as_ref());
+
+        let state = self.state.as_mut()?;
         let drawn = if self.processor {
             Err("was not asked, because --cpu".to_owned())
         } else {
-            let state = self.state.as_mut()?;
-            draw(
-                &self.context,
-                state,
-                &request,
-                target,
-                (width, height),
-                &highlight,
-                &chrome,
-            )
+            match state.presenter.present(PresentFrame {
+                width,
+                height,
+                page: Some((&request.list, target)),
+                raster: None,
+                overlays: &overlays,
+            }) {
+                Ok(()) => Ok(()),
+                // Swapchain states are events, not failures: nothing was presented,
+                // nothing is stale, and the processor cannot help a window that is
+                // not presentable — so these return rather than fall back.
+                Err(render_quorra::QuorraRasterError::Render(
+                    quorra_gpu::RenderError::SurfaceUnavailable { reason },
+                )) => {
+                    return match reason {
+                        quorra_gpu::SurfaceProblem::Outdated | quorra_gpu::SurfaceProblem::Lost => {
+                            state.window.request_redraw();
+                            None
+                        }
+                        quorra_gpu::SurfaceProblem::Timeout
+                        | quorra_gpu::SurfaceProblem::Occluded => None,
+                        quorra_gpu::SurfaceProblem::Validation => {
+                            Some(Rendered::Failed("swapchain validation failed".to_owned()))
+                        }
+                    };
+                }
+                Err(error) => Err(error.to_string()),
+            }
         };
         if let Err(problem) = drawn {
             // **The CPU backend draws it instead**, and this is what `CLAUDE.md` keeps that
             // backend for: it is the correctness oracle *and* the startup path, so a page the
             // GPU refuses is a page this program can still show — more slowly, which is a cost
-            // a person can see past, where a page that never appears is not.
+            // a person can see past, where a page that never appears is not. The raster is
+            // presented through the same quorra surface as one image, so a working window is
+            // the only path pixels take to the screen.
             //
             // Reported either way. A page drawn by the slower of two backends is a fact about
             // this build worth saying out loud, and saying it is what would have made the
             // hundred-and-forty-second session's report a sentence rather than a mystery.
-            let fallback =
-                self.on_the_processor(&request, target, (width, height), &highlight, &chrome);
-            match fallback {
-                Ok(()) if self.processor => {}
-                Ok(()) => println!(
-                    "note: page {}: the graphics device {problem}, so it was drawn on the \
-                     processor instead",
-                    request.page.saturating_add(1)
-                ),
+            let raster = match CpuRasterizer::new().rasterize(&request.list, target) {
+                Ok(raster) => raster,
                 Err(second) => {
                     return Some(Rendered::Failed(format!(
                         "the graphics device {problem}, and the processor {second}"
                     )));
                 }
+            };
+            if let Err(second) = state.presenter.present(PresentFrame {
+                width,
+                height,
+                page: None,
+                raster: Some(&raster),
+                overlays: &overlays,
+            }) {
+                return Some(Rendered::Failed(format!(
+                    "the graphics device {problem}, and presenting the processor's page {second}"
+                )));
+            }
+            if !self.processor {
+                println!(
+                    "note: page {}: the graphics device {problem}, so it was drawn on the \
+                     processor instead",
+                    request.page.saturating_add(1)
+                );
             }
         }
-        let state = self.state.as_mut()?;
-        let handle = &self.context.devices[state.surface.dev_id];
-
-        // `get_current_texture` reports swapchain state rather than returning a Result, and the
-        // non-success cases are ordinary events: a resize race leaves the surface outdated,
-        // minimising occludes it.
-        let frame = match state.surface.surface.get_current_texture() {
-            CurrentSurfaceTexture::Success(frame) | CurrentSurfaceTexture::Suboptimal(frame) => {
-                frame
-            }
-            CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
-                self.context.configure_surface(&state.surface);
-                state.window.request_redraw();
-                return None;
-            }
-            CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => return None,
-            CurrentSurfaceTexture::Validation => {
-                return Some(Rendered::Failed("swapchain validation failed".to_owned()));
-            }
-        };
-
-        let mut encoder = handle
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("present"),
-            });
-        state.surface.blitter.copy(
-            &handle.device,
-            &mut encoder,
-            &state.target.view,
-            &frame
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-        );
-        handle.queue.submit(Some(encoder.finish()));
-        frame.present();
         Some(Rendered::Presented)
     }
 
@@ -1130,63 +1087,6 @@ impl App {
         }
     }
 
-    /// Draws a page with `render-cpu` and puts the pixels on the surface.
-    ///
-    /// The tier-1 rasteriser inside a tier-2 host: the raster crosses as an image in a scene of
-    /// its own, because what this program has to hand pixels to is a Vello surface and Vello
-    /// draws an image as readily as a path. One copy per frame, which is what tier 1 costs
-    /// everywhere and is paid here only on a page the device refused.
-    fn on_the_processor(
-        &mut self,
-        request: &RenderRequest,
-        target: TargetSpec,
-        viewport: (u32, u32),
-        highlight: &[[f32; 8]],
-        chrome: &Overlays,
-    ) -> Result<(), String> {
-        let raster = CpuRasterizer::new()
-            .rasterize(&request.list, target)
-            .map_err(|error| error.to_string())?;
-        let image = vello::peniko::ImageBrush::new(vello::peniko::ImageData {
-            data: vello::peniko::Blob::from(raster.data),
-            format: vello::peniko::ImageFormat::Rgba8,
-            // `Raster` is straight alpha, which its own documentation states and which is what
-            // the comparison harness and PNG both want.
-            alpha_type: vello::peniko::ImageAlphaType::Alpha,
-            width: raster.width,
-            height: raster.height,
-        });
-        let mut scene = vello::Scene::new();
-        scene.draw_image(&image, vello::kurbo::Affine::IDENTITY);
-        draw_selection(&mut scene, highlight);
-        chrome.draw(&mut scene, viewport)?;
-
-        let Some(state) = self.state.as_mut() else {
-            return Err("has no window".to_owned());
-        };
-        let handle = &self.context.devices[state.surface.dev_id];
-        // Checked like every other render in this tree, though this scene is one image over one
-        // rectangle and is the least likely thing on the device to run out of room. It is also
-        // the *last* resort: were it to come back blank, the note above would say the processor
-        // drew the page while the window showed black, which is precisely the failure this
-        // session exists to remove.
-        let mut bands = render_gpu::Bands::default();
-        render_gpu::render_checked(
-            &handle.device,
-            &handle.queue,
-            &mut state.renderer,
-            &mut scene,
-            &state.target.texture,
-            &vello::RenderParams {
-                base_color: vello::peniko::Color::WHITE,
-                width: viewport.0,
-                height: viewport.1,
-                antialiasing_method: AaConfig::Area,
-            },
-            &mut bands,
-        )
-        .map_err(|error| error.to_string())
-    }
 }
 
 impl ApplicationHandler for App {
@@ -1205,55 +1105,23 @@ impl ApplicationHandler for App {
         );
 
         let size = window.inner_size();
-        let surface = pollster::block_on(self.context.create_surface(
-            window.clone(),
-            size.width.max(1),
-            size.height.max(1),
-            wgpu::PresentMode::AutoVsync,
-        ))
-        .expect("surface creation");
-
-        // **wgpu reports a device error to a handler, and the default one is silent here.**
-        // Everything else in this program says what went wrong; a validation failure or a lost
-        // device was the one thing that could stop the window updating without a word.
-        self.context.devices[surface.dev_id]
-            .device
-            .on_uncaptured_error(Arc::new(|error| {
-                eprintln!("note: the graphics device reported: {error}");
-            }));
-
-        let renderer = Renderer::new(
-            &self.context.devices[surface.dev_id].device,
-            RendererOptions {
-                antialiasing_support: AaSupport {
-                    area: true,
-                    msaa8: false,
-                    msaa16: false,
-                },
-                // One thread: shader compilation is on the startup path, and the default
-                // heuristic spawns threads whose benefit here is unmeasured.
-                num_init_threads: NonZeroUsize::new(1),
-                ..Default::default()
-            },
-        )
-        .expect("renderer creation");
+        // ~30 ms to a usable device on this machine, shaders compiling on a
+        // background thread — the presenter reports uncaptured device errors
+        // itself, for the same silent-window reason the Vello host did.
+        let presenter = QuorraPresenter::new(window.clone()).expect("presenter creation");
+        if self.trace {
+            println!("trace: rendering with {}", presenter.adapter_description());
+        }
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a display's scale factor is a small ratio"
         )]
         let scale = window.scale_factor() as f32;
-        let target = Target::new(
-            &self.context.devices[surface.dev_id].device,
-            size.width.max(1),
-            size.height.max(1),
-        );
         self.state = Some(State {
             window,
-            surface,
-            renderer,
-            target,
-            bands: render_gpu::Bands::default(),
+            presenter,
+            size: (size.width.max(1), size.height.max(1)),
         });
         self.retitle();
         // The window's size is the first thing the core has been told about the viewport, and
@@ -1359,19 +1227,9 @@ impl ApplicationHandler for App {
                     scale
                 });
                 if let Some(state) = self.state.as_mut() {
-                    self.context.resize_surface(
-                        &mut state.surface,
-                        size.width.max(1),
-                        size.height.max(1),
-                    );
-                    // A band count is an answer about a scene at a size, and the size just
-                    // changed; keeping it would band a window that no longer needs it.
-                    state.target = Target::new(
-                        &self.context.devices[state.surface.dev_id].device,
-                        size.width.max(1),
-                        size.height.max(1),
-                    );
-                    state.bands.reset();
+                    // The presenter reconfigures its surface from the viewport on
+                    // the next frame; the host only has to remember the size.
+                    state.size = (size.width.max(1), size.height.max(1));
                 }
                 self.dispatch(Command::Resize {
                     width: size.width.saturating_sub(self.panel.inset(scale)).max(1),
@@ -1552,44 +1410,55 @@ fn at(cursor: (f64, f64)) -> (f32, f32) {
 
 /// Lays the selection's shapes over the page.
 ///
+/// The selection quads as a display list in the window's own pixels.
+///
 /// The quadrilaterals arrive from `viewer-core` in device pixels of this window, so nothing here
 /// composes a transform: that is the whole point of chrome crossing as geometry rather than as
 /// pixels. Drawn with `Multiply`, which darkens what is under it and leaves the glyphs readable —
 /// the behaviour a person expects of a highlighter and the one a plain alpha blend does not give.
-fn draw_selection(scene: &mut vello::Scene, quads: &[[f32; 8]]) {
+/// A native host asks its platform for the colour; this one has nobody to ask, and a hard-coded
+/// blue that says so is better than one that pretends.
+fn highlight_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_render::DisplayList> {
     if quads.is_empty() {
-        return;
+        return None;
     }
-    // A blue with no theme behind it. A native host asks its platform for this colour; this one
-    // has nobody to ask, and a hard-coded value that says so is better than one that pretends.
-    let colour = vello::peniko::Color::from_rgba8(140, 180, 255, 255);
-    let brush = vello::peniko::Brush::Solid(colour);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "window dimensions are far below f32's exact integer range"
+    )]
+    let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
+    let colour = Color::rgb(140.0 / 255.0, 180.0 / 255.0, 1.0);
     for quad in quads {
-        let mut path = vello::kurbo::BezPath::new();
+        let mut path = Path::new();
         for (index, corner) in quad.chunks_exact(2).enumerate() {
-            let point = vello::kurbo::Point::new(f64::from(corner[0]), f64::from(corner[1]));
-            if index == 0 {
-                path.move_to(point);
+            let point = Point::new(corner[0], corner[1]);
+            path.push(if index == 0 {
+                PathCommand::MoveTo(point)
             } else {
-                path.line_to(point);
-            }
+                PathCommand::LineTo(point)
+            });
         }
-        path.close_path();
-        scene.fill(
-            vello::peniko::Fill::NonZero,
-            vello::kurbo::Affine::IDENTITY,
-            &brush,
-            None,
-            &path,
-        );
+        path.push(PathCommand::Close);
+        // One fill per quad, as the Vello host drew them: overlapping quads
+        // darken twice, which is what overlapping selections look like.
+        list.push(DrawCommand::Fill {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(colour),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Multiply,
+        });
     }
+    Some(list)
 }
 
 /// The chrome drawn over a page, as display lists in the window's own pixels.
 ///
-/// Gathered once per frame and handed to whichever backend draws the page, which is why they are
-/// display lists and not Vello calls: the CPU backend draws them identically, and that is what a
-/// `--cpu` run and a page the graphics device refuses both need.
+/// Gathered once per frame and handed to the presenter beside the page, which is why they are
+/// display lists and not backend calls: they draw through the same translation as the page
+/// itself, and that is what a `--cpu` run and a page the graphics device refuses both need.
 #[derive(Default)]
 struct Overlays {
     /// The sidebar, where it is shown.
@@ -1597,28 +1466,6 @@ struct Overlays {
     /// `/NOTICE`, where it is shown. **Second, so it is on top**: it is a modal card and the
     /// sidebar is behind it.
     about: Option<pdf_render::DisplayList>,
-}
-
-impl Overlays {
-    /// Puts both on top of the page's scene, in order.
-    fn draw(&self, scene: &mut vello::Scene, viewport: (u32, u32)) -> Result<(), String> {
-        let target = TargetSpec {
-            width: viewport.0,
-            height: viewport.1,
-            transform: Transform::IDENTITY,
-        };
-        for list in [self.panel.as_ref(), self.about.as_ref()]
-            .into_iter()
-            .flatten()
-        {
-            // The same translation `viewer-core`'s own render takes, at an identity transform,
-            // because the list is already in the window's device pixels.
-            let drawn = render_gpu::build_scene(list, target, &render_gpu::SoftMaskRasters::none())
-                .map_err(|error| format!("cannot draw its own chrome: {error}"))?;
-            scene.append(&drawn, None);
-        }
-        Ok(())
-    }
 }
 
 /// Reads a password from the terminal, or `None` if the person cancelled with an empty line.
@@ -1631,56 +1478,3 @@ fn ask_password(name: &str) -> Option<String> {
     (!password.is_empty()).then_some(password)
 }
 
-/// Builds the scene and renders it into the surface's texture.
-fn draw(
-    context: &RenderContext,
-    state: &mut State,
-    request: &RenderRequest,
-    target: TargetSpec,
-    viewport: (u32, u32),
-    highlight: &[[f32; 8]],
-    chrome: &Overlays,
-) -> Result<(), String> {
-    let (width, height) = viewport;
-    let handle = &context.devices[state.surface.dev_id];
-    let list = &request.list;
-
-    // §11.5's soft masks are rendered first, each into a texture of its own: a mask is a
-    // transparency group evaluated at device resolution, so it cannot be part of the scene that
-    // uses it. Costs nothing on a page with no mask.
-    let masks = render_gpu::evaluate_soft_masks(
-        &handle.device,
-        &handle.queue,
-        &mut state.renderer,
-        list,
-        target,
-    )
-    .map_err(|_| "has a soft mask this build cannot evaluate".to_owned())?;
-
-    // The same translation the headless tests exercise, so what the window shows cannot drift
-    // from what CI checks.
-    let mut scene = render_gpu::build_scene(list, target, &masks)
-        .map_err(|_| "contains content this build cannot draw".to_owned())?;
-    draw_selection(&mut scene, highlight);
-    chrome.draw(&mut scene, viewport)?;
-
-    // `render_gpu::render_checked` rather than `Renderer::render_to_texture`: the latter returns
-    // `Ok` over a target the device left blank, which is the black page this session was reported
-    // (ADR 0127). The error carries its own sentence, so what reaches the person names the buffer
-    // that ran out rather than saying only that something went wrong.
-    render_gpu::render_checked(
-        &handle.device,
-        &handle.queue,
-        &mut state.renderer,
-        &mut scene,
-        &state.target.texture,
-        &vello::RenderParams {
-            base_color: vello::peniko::Color::WHITE,
-            width,
-            height,
-            antialiasing_method: AaConfig::Area,
-        },
-        &mut state.bands,
-    )
-    .map_err(|error| error.to_string())
-}
