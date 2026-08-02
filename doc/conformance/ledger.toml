@@ -1022,9 +1022,9 @@ note = "Table 43, read across three modules that each own what they point at: `f
 clause = "7.11.4"
 title = "Embedded file streams"
 status = "partial"
-code = ["crates/pdf-model/src/attachment.rs", "crates/pdf-syntax/src/tree.rs"]
-test = ["crates/pdf-model/src/attachment.rs::an_embedded_file_is_read_with_its_parameters"]
-note = "Embedded file streams, which are the one part of §7.11 that needs no filesystem: the bytes are inside the document. `attachment::attachments` lists what the `/EmbeddedFiles` tree names — the tree's key, Table 43's `/UF` or `/F` and `/Desc`, Table 44's `/Subtype`, and Table 45's `/Size`, dates and `/CheckSum` — and hands the stream on without decoding it. Nothing is written anywhere: extracting an attachment is a person's decision, and this program has no dialogue to ask with. `/RF`'s related files (§7.11.4.2) are unread. 10 of the 974 corpus documents carry such a tree, 23 files between them; two of the 23 are in encrypted documents and refuse to decode, which §7.6.6 makes the stream's answer rather than the file's."
+code = ["crates/pdf-model/src/attachment.rs", "crates/pdf-syntax/src/tree.rs", "crates/viewer-ui/src/chrome.rs"]
+test = ["crates/pdf-model/src/attachment.rs::an_embedded_file_is_read_with_its_parameters", "crates/viewer-ui/tests/panel.rs::the_file_tab_names_what_is_embedded_and_says_when_nothing_is"]
+note = "Embedded file streams, which are the one part of §7.11 that needs no filesystem: the bytes are inside the document. `attachment::attachments` lists what the `/EmbeddedFiles` tree names — the tree's key, Table 43's `/UF` or `/F` and `/Desc`, Table 44's `/Subtype`, and Table 45's `/Size`, dates and `/CheckSum` — and hands the stream on without decoding it. **The list reached a person in the hundred-and-sixty-seventh session**: `viewer_ui::chrome`'s third tab names each file with its media type and the size Table 45 claims. What is still not built is *extraction* — nothing is written anywhere, the bytes are handed on undecoded, and taking a file out of a document is a person's decision this program has no dialogue to ask about. `/RF`'s related files (§7.11.4.2) are unread. 10 of the 974 corpus documents carry such a tree, 23 files between them; two of the 23 are in encrypted documents and refuse to decode, which §7.6.6 makes the stream's answer rather than the file's."
 
 [[clause]]
 clause = "7.11.4.1"
@@ -2005,9 +2005,9 @@ note = "Three considerations, all conditional on importing the target page: its 
 clause = "8.11"
 title = "Optional content"
 status = "partial"
-code = ["crates/pdf-model/src/optional_content.rs"]
+code = ["crates/pdf-model/src/optional_content.rs", "crates/viewer-ui/src/chrome.rs"]
 test = ["crates/pdf-model/tests/optional_content.rs"]
-note = "Aggregate. The default configuration is honoured wherever it decides what is drawn; what is missing is everything that belongs to an interactive layer panel, and §8.11.4.4 is the row to read for the part that is missing in silence."
+note = "Aggregate. The default configuration is honoured wherever it decides what is drawn, and **since the hundred-and-sixty-seventh session an interactive layer panel exists**: `viewer_ui::chrome` draws §8.11.4.3's `/Order`, shows each group's state, and throws the switch through `Command::SetGroup` — with Table 99's `/Locked` refusing the change, which is the clause's own sentence. §8.11.4.4 is the row to read for the part that is missing in silence."
 
 [[clause]]
 clause = "8.11.1"
@@ -2109,9 +2109,9 @@ note = "/OCProperties is read from the catalog, /OCGs gives the document's group
 clause = "8.11.4.3"
 title = "Optional content configuration dictionaries"
 status = "partial"
-code = ["crates/pdf-model/src/optional_content.rs"]
-test = ["crates/pdf-model/tests/optional_content.rs::a_base_state_of_off_hides_the_groups_the_on_array_does_not_name"]
-note = "Table 99, all of it but two entries. `/BaseState`, `/ON`, `/OFF` and `/Intent` decide the initial state; `/AS` is §8.11.4.4's and is applied for the `View` event; `/RBGroups` reached the code in the sixty-second session when §12.6.4.13's `/PreserveRB` made it load-bearing; and `/Order`, `/ListMode`, `/Locked` and a group's `/Name` reached it in the sixty-seventh, which is the whole of what a layer panel reads. `/Order` is kept as a *tree* with the clause's own distinction preserved — a nested array with a leading text string is a label and \"not to communicate actual nesting\", one without is nesting — because a panel that drew both alike would tell a person that a heading is a layer. `/Locked` binds `ViewState::set_group` and deliberately not `Action::SetOcgState`, which is the clause's own division: a locked group \"cannot be changed through the user interface\", and a processor \"may allow the states … to be changed by means other than the user interface\". `partial` for two: `/ListMode`'s `VisiblePages` is carried and not acted on, because which pages are visible is a question about a window this crate does not have, and `/Configs` is unread — the alternate configurations exist to be chosen between, which needs someone to choose. `/Name` and `/Creator` on the *configuration* are unread for the same reason."
+code = ["crates/pdf-model/src/optional_content.rs", "crates/viewer-ui/src/chrome.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_base_state_of_off_hides_the_groups_the_on_array_does_not_name", "crates/viewer-ui/tests/panel.rs::a_layer_switch_throws_unless_the_document_locked_it"]
+note = "Table 99, all of it but two entries. `/BaseState`, `/ON`, `/OFF` and `/Intent` decide the initial state; `/AS` is §8.11.4.4's and is applied for the `View` event; `/RBGroups` reached the code in the sixty-second session when §12.6.4.13's `/PreserveRB` made it load-bearing; and `/Order`, `/ListMode`, `/Locked` and a group's `/Name` reached it in the sixty-seventh, which is the whole of what a layer panel reads. `/Order` is kept as a *tree* with the clause's own distinction preserved — a nested array with a leading text string is a label and \"not to communicate actual nesting\", one without is nesting — because a panel that drew both alike would tell a person that a heading is a layer. `/Locked` binds `ViewState::set_group` and deliberately not `Action::SetOcgState`, which is the clause's own division: a locked group \"cannot be changed through the user interface\", and a processor \"may allow the states … to be changed by means other than the user interface\". `partial` for two: `/ListMode`'s `VisiblePages` is carried and not acted on, because which pages are visible is a question about a window this crate does not have, and `/Configs` is unread — the alternate configurations exist to be chosen between, which needs someone to choose. `/Name` and `/Creator` on the *configuration* are unread for the same reason. **The panel `/Order` was read for arrived in the hundred-and-sixty-seventh session** — `viewer_ui::chrome`, which draws the tree with the clause's label-versus-nesting distinction intact and offers the switch on everything but a `/Locked` group — so the two `partial` reasons above are now the only ones."
 
 [[clause]]
 clause = "8.11.4.4"

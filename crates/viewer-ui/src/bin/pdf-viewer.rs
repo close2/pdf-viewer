@@ -5,8 +5,9 @@
 //! ``
 //!
 //! `--page N` opens at a page. Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, `a`
-//! selects the whole page and dragging selects part of it, `o` shows §12.3.3's outline, `s`
-//! saves what was changed beside the document, Escape quits. The window title shows
+//! selects the whole page and dragging selects part of it, `o` shows the sidebar — §12.3.3's
+//! outline, §8.11's layers and §7.11.4's embedded files — `s` saves what was changed beside the
+//! document, Escape quits. The window title shows
 //! the page's own label where the document states one (§12.4.2), the page number, and how many
 //! things on the page could not be drawn; the things themselves are printed.
 //!
@@ -17,11 +18,11 @@
 //! keyboard, a GPU and the two decisions a host owns — which files a document may name, and what
 //! to do when it asks for a password.
 //!
-//! And, since the hundred-and-sixty-sixth session, **chrome**: `viewer_ui::chrome` draws
-//! §12.3.3's outline in a panel of this program's own, because winit is a window and an event
-//! loop and there is no toolkit here to ask for a tree view. A native host would use its
-//! platform's, from the same [`viewer_core::Query::Outline`]; what is host-specific is the
-//! drawing, not the data.
+//! And, since the hundred-and-sixty-sixth session, **chrome**: `viewer_ui::chrome` draws a
+//! sidebar of this program's own — §12.3.3's outline, §8.11.4.3's layers with their switches,
+//! and §7.11.4's embedded files — because winit is a window and an event loop and there is no
+//! toolkit here to ask for a tree view. A native host would use its platform's, from the same
+//! three queries; what is host-specific is the drawing, not the data.
 //!
 //! Tier 2 means the pixels never cross the boundary: `viewer-core` hands over a display list and
 //! a target, this draws it onto the surface with `render-gpu`, and answers `Rendered::Presented`.
@@ -58,7 +59,7 @@ use viewer_core::{
     Answer, Command, DocumentId, Event, PageTarget, PointerAction, Purpose, Query, RenderRequest,
     Rendered, Selection, Viewer, Zoom,
 };
-use viewer_ui::chrome::{Chrome, Hit, Panel};
+use viewer_ui::chrome::{Chrome, Content, Hit, Sidebar};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -176,8 +177,9 @@ fn main() {
                 None
             }
         },
-        panel: Panel::default(),
+        panel: Sidebar::default(),
         outline: pdf_model::outline::Outline::default(),
+        attachments: Vec::new(),
         context: RenderContext::new(),
         state: None,
     };
@@ -203,8 +205,8 @@ fn usage() {
     eprintln!("       pdf-viewer --licences");
     eprintln!();
     eprintln!("Arrows, Page Up/Down or Space turn pages; Home and End jump; + and - zoom;");
-    eprintln!("o shows the document's outline; drag to select text, a selects the page,");
-    eprintln!("s saves, Escape quits.");
+    eprintln!("o shows the sidebar — the outline, the layers and the embedded files;");
+    eprintln!("drag to select text, a selects the page, s saves, Escape quits.");
     eprintln!();
     eprintln!("  --no-sandbox  decode JBIG2 and JPEG 2000 images in this process rather than");
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
@@ -287,15 +289,19 @@ struct App {
     /// An `Option` because a build whose compiled-in faces will not parse must still show the
     /// document: the panel is chrome and the page is the point. The refusal is printed once.
     chrome: Option<Chrome>,
-    /// §12.3.3's outline, as this program draws it — the first panel this project has had.
-    panel: Panel,
-    /// The outline itself, taken once when the document opened.
+    /// The three lists a document keeps about itself, as this program draws them.
+    panel: Sidebar,
+    /// §12.3.3's outline and §7.11.4's embedded files, taken once when the document opened.
     ///
-    /// Copied out of `Query::Outline` rather than asked for per frame, and not for speed:
+    /// Copied out of the queries rather than asked for per frame, and not for speed:
     /// `Answer::Outline` borrows the viewer, and a panel that is about to send it a command
-    /// cannot be holding a borrow of it. The document is immutable and no edit reaches
-    /// §12.3.3, so a copy taken at open cannot go stale.
+    /// cannot be holding a borrow of it. Both are properties of an immutable document that no
+    /// edit reaches, so a copy taken at open cannot go stale — which is exactly not true of
+    /// §8.11's layers, whose whole point is that a click changes them, so those are asked for
+    /// every time.
     outline: pdf_model::outline::Outline,
+    /// §7.11.4's embedded files, likewise.
+    attachments: Vec<pdf_model::attachment::Attachment>,
     context: RenderContext,
     state: Option<State>,
 }
@@ -405,7 +411,57 @@ impl App {
             return None;
         }
         let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
-        Some(self.panel.draw(chrome, &self.outline, height, scale))
+        let layers = self.layers();
+        Some(
+            self.panel
+                .draw(chrome, self.content(&layers), height, scale),
+        )
+    }
+
+    /// Takes the two lists a document cannot change, once, when it opens.
+    ///
+    /// §12.3.3's outline and §7.11.4's embedded files. `Answer::Outline` borrows the viewer, so
+    /// what the panel holds is a copy — see the fields' own note — and both are properties of an
+    /// immutable document, so a copy cannot go stale. §8.11's layers are *not* here for exactly
+    /// that reason.
+    fn gather(&mut self) {
+        if let Answer::Outline(outline) = self.viewer.query(Query::Outline) {
+            self.outline = outline.clone();
+        }
+        if let Answer::Attachments(files) = self.viewer.query(Query::Attachments) {
+            self.attachments = files;
+        }
+        let layers = self.layers().len();
+        if !self.outline.items.is_empty() || !self.attachments.is_empty() || layers > 0 {
+            println!(
+                "{}: {} outline item(s), {layers} layer entr(ies), {} embedded file(s) — \
+                 press o for the panel",
+                self.title,
+                self.outline.visible_count(),
+                self.attachments.len()
+            );
+        }
+    }
+
+    /// §8.11.4.3's `/Order`, asked for fresh.
+    ///
+    /// Unlike the outline and the attachments this is *not* cached: a click on a layer's switch
+    /// changes it, so a copy taken when the document opened would be the one thing on the panel
+    /// that lies.
+    fn layers(&self) -> Vec<viewer_core::Layer> {
+        match self.viewer.query(Query::Layers) {
+            Answer::Layers(layers) => layers,
+            _ => Vec::new(),
+        }
+    }
+
+    /// The three lists, gathered for one call into the sidebar.
+    fn content<'a>(&'a self, layers: &'a [viewer_core::Layer]) -> Content<'a> {
+        Content {
+            outline: &self.outline,
+            layers,
+            attachments: &self.attachments,
+        }
     }
 
     /// What the pointer moving does: the panel's highlight, or the page's §12.5.5 appearance.
@@ -415,7 +471,20 @@ impl App {
     /// both would leave an annotation lit up behind a panel.
     fn pointer_moved(&mut self) {
         let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
-        if self.panel.hover(at(self.cursor), &self.outline, scale) {
+        let layers = self.layers();
+        // The struct is written out here rather than built by `content`: `self.panel` is
+        // borrowed mutably, and only a *field* borrow of the other three is disjoint from it.
+        let moved = self.panel.hover(
+            at(self.cursor),
+            Content {
+                outline: &self.outline,
+                layers: &layers,
+                attachments: &self.attachments,
+            },
+            scale,
+        );
+        drop(layers);
+        if moved {
             self.redraw();
         }
         if self.over_panel() {
@@ -470,12 +539,27 @@ impl App {
     /// What a click inside the panel does.
     fn click_panel(&mut self) {
         let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
-        // The outline is a field rather than a query for exactly this: `Panel::click` produces a
-        // command for the viewer, and `Answer::Outline` would still be borrowing it.
-        let hit = self.panel.click(at(self.cursor), &self.outline, scale);
+        // The outline and the attachments are fields rather than queries for exactly this:
+        // `Sidebar::click` produces a command for the viewer, and an `Answer` borrowing it would
+        // still be alive. The layers are queried and the answer is *owned*, so the borrow ends
+        // before the command goes out.
+        let layers = self.layers();
+        let hit = self.panel.click(
+            at(self.cursor),
+            Content {
+                outline: &self.outline,
+                layers: &layers,
+                attachments: &self.attachments,
+            },
+            scale,
+        );
+        drop(layers);
         match hit {
             Some(Hit::Follow(target)) => self.dispatch(Command::GoTo(target)),
-            Some(Hit::Toggle) => self.redraw(),
+            // §8.11.2.2: switching a group re-decides what the page draws, so this goes to the
+            // core and comes back as a render rather than as a repaint of the panel.
+            Some(Hit::SetGroup { group, on }) => self.dispatch(Command::SetGroup { group, on }),
+            Some(Hit::Redraw) => self.redraw(),
             Some(Hit::Nothing) | None => {}
         }
     }
@@ -497,7 +581,18 @@ impl App {
             let Some((_, height, scale)) = self.window() else {
                 return;
             };
-            self.panel.scroll(by / scale, &self.outline, height, scale);
+            let layers = self.layers();
+            self.panel.scroll(
+                by / scale,
+                Content {
+                    outline: &self.outline,
+                    layers: &layers,
+                    attachments: &self.attachments,
+                },
+                height,
+                scale,
+            );
+            drop(layers);
             self.redraw();
         } else {
             self.dispatch(Command::Scroll { dx: 0.0, dy: by });
@@ -540,18 +635,7 @@ impl App {
                     std::process::exit(1);
                 }
                 self.attempts = 0;
-                // §12.3.3, taken once. `Query::Outline` borrows the viewer, so what the panel
-                // holds is a copy — see the field's own note.
-                if let Answer::Outline(outline) = self.viewer.query(Query::Outline) {
-                    self.outline = outline.clone();
-                }
-                if !self.outline.items.is_empty() {
-                    println!(
-                        "{}: an outline of {} visible item(s) — press o to show it",
-                        self.title,
-                        self.outline.visible_count()
-                    );
-                }
+                self.gather();
             }
             Event::OpenFailed { reason, .. } => {
                 eprintln!("cannot open {}: {reason}", self.title);

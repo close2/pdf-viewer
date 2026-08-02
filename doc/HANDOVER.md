@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixty-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixty-seventh** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -59,17 +59,19 @@ them, with no type from a windowing or graphics library anywhere in its API. Two
 `Query::AccessibilityTree` answers with §14.7's elements, §14.9's spoken form of each and the
 quadrilaterals they cover (ADR 0134); what is left is a host that hands them to AccessKit. It
 *advances* a slide show since the hundred-and-fiftieth (`Command::Tick`, ADR 0135) and does not
-*animate* one: the transition is named and a host with a clock draws its frames. **It draws one
-panel since the hundred-and-sixty-sixth** — §12.3.3's outline, in `viewer-ui`'s own chrome, with
-`pdf-font`'s compiled-in Helvetica and a `pdf-render` display list, so both backends draw it and
-a click sends `PageTarget::Destination`. The layers and the attachments that `Query` already
-answers with still have none.
+*animate* one: the transition is named and a host with a clock draws its frames. **It draws a
+sidebar since the hundred-and-sixty-sixth and -seventh** — §12.3.3's outline, §8.11.4.3's layers
+with their switches, and §7.11.4's embedded files, in `viewer-ui`'s own chrome, with `pdf-font`'s
+compiled-in Helvetica and a `pdf-render` display list, so both backends draw it. A click on an
+outline title sends `PageTarget::Destination`; a click on a layer's switch sends
+`Command::SetGroup` and the page redraws, which is §8.11's interactive half working for the first
+time. What a file tab still cannot do is get the bytes *out*.
 
 ### The four gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **986**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **988**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
@@ -151,7 +153,8 @@ documents' first pages it affects.
 
 | A substitute that cannot be addressed | 40 | Counting fonts: composite ones naming an `Identity` ordering, where the codes index a font nobody supplied and §9.10.2's third method has nothing to read; and those whose substitute draws none of the declared codes. Honest refusals. The `-UCS2` `CMap`s closed the rest in session 156. |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | Each reported where it can change a pixel: a knockout element whose shape is not its coverage (5), a non-isolated group NOTE 5 cannot flatten whose elements blend (6), a blending space that is not the device's three components (4, all `/DeviceCMYK`), a soft-mask group with such a space (7). |
-| Optional content's interactive half | — | §8.11 is honoured wherever it decides what is drawn. **The layer panel's data model is read** since session 67 — `/Order`, `/ListMode`, `/Locked`, `/RBGroups`, `/Name` — and since 131 it is `Query::Layers` with `Command::SetGroup` as the switch. What is missing is a panel to draw it in, and since 166 there is one to copy: `viewer_ui::chrome`. Still unread: alternate `/Configs`. |
+| Optional content's interactive half | — | **Closed in session 167.** §8.11 is honoured wherever it decides what is drawn; `/Order`, `/ListMode`, `/Locked`, `/RBGroups` and `/Name` have been read since session 67 and `Query::Layers` with `Command::SetGroup` since 131; `viewer_ui::chrome`'s second tab now draws the tree and throws the switch, with Table 99's `/Locked` refusing the change as the clause requires. Still unread: alternate `/Configs`, and `/ListMode`'s `VisiblePages`. |
+| Getting an embedded file *out* | — | §7.11.4's list is read, and since session 167 it is shown — name, media type, the size Table 45 claims. `Query::Attachments` hands the stream over undecoded and nothing writes it anywhere: extraction wants a command, an event carrying bytes, and a host with a file dialogue. |
 | An outline item whose `/A` is not a go-to | — | §12.3.3: "[c]licking the text of any visible item activates the item, causing the interactive PDF processor to jump to a destination **or trigger an action**". The panel does the jump. Measured over the corpus: of 281 outline items carrying an `/A`, 249 are `GoTo` and are followed; 7 `URI` over three documents, 5 `Named`, 1 `SetOCGState` and 1 `GoToR` are not, and 18 `JavaScript` in one file are excluded. `interact::activate` performs all of those for a *link* — what is missing is the path from an outline item to it. |
 | `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
 | Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
@@ -293,11 +296,12 @@ document at all, so text this program generates for itself is set in the face th
 guarantees; and `PageTarget::Destination` carries §12.3.2's target across the boundary, because
 turning a page *object* into an index is a page-tree walk a host cannot do.
 
-**What that leaves is still the largest single thing this project owes.** The layers panel and
-the attachments panel are the same shape and are half a session each now that the text drawing
-exists; the About panel §1 asks for is the third; and none of the four gates can see any of
-them, which is why `viewer-ui/tests/panel.rs` rasterises the chrome with `render-cpu` and counts
-ink rather than asserting a command count.
+**All three arrived, and the second session cost less than half of the first.** The layers and
+the files tabs landed in the hundred-and-sixty-seventh (ADR 0143), which is what the text drawing
+bought. What is left of the sidebar is the About panel §1 asks for and extracting an attachment's
+bytes; what is left of §0 is a *native* host. None of the four gates can see any of it, which is
+why `viewer-ui/tests/panel.rs` rasterises the chrome with `render-cpu` and counts ink rather than
+asserting a command count.
 
 Adding `egui` buys a widget set for a large dependency and no architectural proof: winit + vello
 *is* the unnative UI. The thing worth adding was the headless consumer, and it is there.
@@ -896,8 +900,10 @@ measurement of the past.
 
 Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom, the up and down
 arrows scroll a page larger than the window, the wheel scrolls whatever is under it, **`o` shows
-§12.3.3's outline in a panel** — click a title to go there, click the triangle to open or close a
-subtree — and Escape quits. The title bar names how many things on
+the sidebar** — three tabs: §12.3.3's outline, where a click on a title goes there and a click on
+the triangle opens a subtree; §8.11.4.3's layers, where a click on a switch turns a layer on or
+off unless Table 99's `/Locked` forbids it; and §7.11.4's embedded files, which are listed and
+not yet extractable — and Escape quits. The title bar names how many things on
 the page could not be drawn and the things themselves are printed. A click follows §12.5.6.5's
 links and performs the eleven §12.6 actions this program can, printing every refusal — including
 §12.7.6.4's import, which reads an FDF file **beside the open document** and nowhere else. A
@@ -987,7 +993,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047). Draws a page on every core since session 155 (ADR 0139) — `encode_in_strips` cuts the target only at rows `pdf_render::unsplittable_rows` permits, so **the picture does not depend on how it was divided**, which is the property `with_strips` exists to let a test check and the reason the oracle's verdicts did not move |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. Its own soft-mask readback, because Vello's luminance mask is the SVG formula and no blend mode is a `/TR` |
 | `viewer-core` | Toolkit-independent application logic | `Command` in, `Event` out, `Query` → `Answer` beside them (ADRs 0116, 0117). `select.rs` is every choice a selection needs and the standard does not state (ADR 0119); `interact.rs` is what a click does — §12.5.6.5's links and the eleven §12.6 actions; `notes.rs` is what a document says about itself when it opens. `viewer.rs` is the state machine and the one place a render is scheduled; `open.rs` is one document's page, zoom and scroll, and `fitted` there is why a page fitted to a window is not one pixel taller than it; `report.rs` words an `Unsupported` for a person, which is a presentation decision and so not `pdf-model`'s. `tests/headless.rs` is consumer #2 and the proof the crate's first sentence is true |
-| `viewer-ui` | The application | `src/bin/pdf-viewer.rs`: a window, a keyboard, a GPU with `render-cpu` behind it for a page the device refuses (ADR 0125), and the two decisions a host owns — which files a document may name (§12.7.6.4) and what to do when one asks for a password (§7.6.4.1). Everything else is `viewer-core`'s. `src/chrome.rs` is the third thing a host owns and the newest: **text and panels this program draws for itself**, in a `pdf-render` display list at an identity transform so both backends draw it, and set in `pdf-font`'s compiled-in Helvetica. §12.3.3's outline is the one panel there is; a native host would use its platform's tree view over the same `Query` |
+| `viewer-ui` | The application | `src/bin/pdf-viewer.rs`: a window, a keyboard, a GPU with `render-cpu` behind it for a page the device refuses (ADR 0125), and the two decisions a host owns — which files a document may name (§12.7.6.4) and what to do when one asks for a password (§7.6.4.1). Everything else is `viewer-core`'s. `src/chrome.rs` is the third thing a host owns and the newest: **text and panels this program draws for itself**, in a `pdf-render` display list at an identity transform so both backends draw it, and set in `pdf-font`'s compiled-in Helvetica. the sidebar's three tabs are §12.3.3's outline, §8.11.4.3's layers and §7.11.4's files; a native host would use its platform's tree view over the same three queries |
 | `pdf-sandbox` | Confined worker + three image filters | Its `decode.rs` is the only place a JBIG2, JPX or CCITT codestream is looked at |
 | `raster-compare` | Tolerant image metrics | Worst-tile error is the load-bearing one |
 | `test-scenes` | Shared fixtures | Holds the same page as a display list *and* as PDF bytes |
@@ -2016,3 +2022,4 @@ above rather than here.
 | 164 | The window re-run on `Xvfb` after ten sessions, because no gate turns a page | — |
 | 165 | What a rendering library would have to be, for a team writing one; the frame split measured | — |
 | 166 | The first panel: §12.3.3's outline drawn in the fourteen fonts the clause guarantees | 0142 |
+| 167 | The other two: §8.11's layers with their switches, and §7.11.4's files | 0143 |
