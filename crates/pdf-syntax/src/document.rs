@@ -39,6 +39,18 @@ pub struct Document {
     /// Object numbers currently being loaded, so that a self-referential file cannot
     /// recurse. See [`Document::get`].
     loading: RefCell<BTreeSet<u32>>,
+    /// Where the file's own object headers are, built the first time an entry is disproved.
+    ///
+    /// Empty for every document whose table is right about every object it is asked for,
+    /// which is all but two of the 974 corpus documents — the scan is linear in the file and
+    /// nothing pays for it until something needs it. See [`Document::load_by_header`].
+    headers: RefCell<Option<Arc<XrefTable>>>,
+    /// How many object numbers were found by their own header after the table misfiled them.
+    ///
+    /// Counted rather than merely handled, because a document that needed this is a document
+    /// whose cross-reference table is wrong, and a reader that repairs one in silence is a
+    /// reader nobody can ask what it repaired. Reported by [`Document::misfiled_objects`].
+    misfiled: RefCell<BTreeSet<u32>>,
     /// ISO 32000-2 §7.6's security handler, absent when the trailer has no `/Encrypt`.
     ///
     /// > The absence of this entry from the trailer dictionary means that a PDF processor
@@ -160,6 +172,8 @@ impl Document {
             cache: RefCell::new(BTreeMap::new()),
             expanded_streams: RefCell::new(BTreeMap::new()),
             loading: RefCell::new(BTreeSet::new()),
+            headers: RefCell::new(None),
+            misfiled: RefCell::new(BTreeSet::new()),
             encryption: None,
             encrypt_object: None,
         }
@@ -234,6 +248,21 @@ impl Document {
     #[must_use]
     pub fn was_recovered(&self) -> bool {
         self.xref.recovered_by_scan()
+    }
+
+    /// The object numbers whose cross-reference entry was disproved by the object at it.
+    ///
+    /// Empty for a well-formed document. A number in here was filed at an offset where a
+    /// *different* object's header stands, and was found instead by its own — see
+    /// [`Document::load_by_header`] for why the header wins. It is here so that the repair is
+    /// answerable rather than silent: a caller that wants to tell a person their file is
+    /// damaged can, and `pdf_syntax` still does not decide whether that is worth saying.
+    ///
+    /// Grows as objects are loaded, because nothing is parsed until it is asked for. Ask
+    /// after the pages that matter have been read.
+    #[must_use]
+    pub fn misfiled_objects(&self) -> Vec<u32> {
+        self.misfiled.borrow().iter().copied().collect()
     }
 
     /// Returns the document catalogue.
@@ -315,14 +344,13 @@ impl Document {
     fn load(&self, id: ObjectId) -> Option<Object> {
         match self.xref.location(id.number)? {
             Location::Offset(offset) => {
-                let (found, object) = self.parse_at(offset)?;
-                // A table pointing at the wrong object is a real corruption. Rejecting the
-                // mismatch is safer than returning another object's contents under this
-                // number, which would corrupt the document graph silently.
-                if found.number == id.number {
-                    Some(object)
-                } else {
-                    None
+                // A table pointing at the wrong object is a real corruption. Returning
+                // another object's contents under this number would corrupt the document
+                // graph silently, so what is at the offset is used only when it says it is
+                // this object — and where it does not, the file's own headers are asked.
+                match self.parse_at(offset) {
+                    Some((found, object)) if found.number == id.number => Some(object),
+                    _ => self.load_by_header(id),
                 }
             }
             Location::InStream { stream, index } => {
@@ -335,6 +363,60 @@ impl Document {
                     .or_else(|| expanded.values().nth(index as usize).cloned())
             }
         }
+    }
+
+    /// Finds an object by its own header, where the table's entry for it was disproved.
+    ///
+    /// # Why this is a repair and not a guess
+    ///
+    /// §7.5.4 says a cross-reference entry's offset gives "the number of bytes from the
+    /// beginning of the PDF file to the beginning of the object", and §7.3.10 makes an
+    /// indirect object begin with its own number:
+    ///
+    /// > The definition of an indirect object in a PDF file shall consist of its object number
+    /// > and generation number (separated by white-space), followed by the value of the object
+    /// > bracketed between the keywords obj and endobj
+    ///
+    /// So the file states where object 3 is twice, and where the two statements disagree the
+    /// object's own header is the one written next to the bytes it describes. Taking it is
+    /// the same move [`crate::xref::rebuild`] makes for a whole table and
+    /// `pdf_model::Pages::new` makes for a page tree that walks to nothing: a recovery from
+    /// the file's own declarations, never from another reader's behaviour.
+    ///
+    /// # What it deliberately does not do
+    ///
+    /// It runs only where an entry *exists* and is disproved. An object number the table
+    /// does not mention, or mentions as **free**, names nothing — §7.5.6 makes a deletion the
+    /// most recent statement about an object, and ADR 0100 is the session that stopped this
+    /// reader resurrecting objects its own file had deleted. Scanning for a header there
+    /// would undo exactly that. The caller's `?` on [`crate::xref::XrefTable::location`] is
+    /// what keeps the two cases apart.
+    ///
+    /// # Cost
+    ///
+    /// One linear scan of the file, memoised, and only for a document that has already been
+    /// found to be wrong about one of its objects. Two of the 974 corpus documents reach it.
+    fn load_by_header(&self, id: ObjectId) -> Option<Object> {
+        let headers = self.object_headers();
+        let Location::Offset(offset) = headers.location(id.number)? else {
+            return None;
+        };
+        let (found, object) = self.parse_at(offset)?;
+        if found.number != id.number {
+            return None;
+        }
+        self.misfiled.borrow_mut().insert(id.number);
+        Some(object)
+    }
+
+    /// The file's own object headers, scanned once and remembered.
+    fn object_headers(&self) -> Arc<XrefTable> {
+        if let Some(headers) = self.headers.borrow().as_ref() {
+            return Arc::clone(headers);
+        }
+        let scanned = Arc::new(crate::xref::scan_for_objects(&self.bytes, self.limits));
+        *self.headers.borrow_mut() = Some(Arc::clone(&scanned));
+        scanned
     }
 
     /// Parses the indirect object at `offset` and decrypts it if the document is encrypted.

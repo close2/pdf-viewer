@@ -341,6 +341,7 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                 };
                 let first = u32::try_from(first).ok()?;
                 let count = u32::try_from(count).unwrap_or(0);
+                let mut subsection = Vec::new();
 
                 for index in 0..count {
                     // Each entry is `oooooooooo ggggg n` — but the fixed 20-byte layout is
@@ -355,12 +356,15 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                     // declares twelve entries and supplies eleven.
                     let entry_at = lexer.position();
                     let Some(crate::Token::Integer(position)) = lexer.next_token() else {
+                        entries.extend(realigned(input, subsection));
                         return Some(finish(entries, input, entry_at, limits));
                     };
                     let Some(crate::Token::Integer(_generation)) = lexer.next_token() else {
+                        entries.extend(realigned(input, subsection));
                         return Some(finish(entries, input, entry_at, limits));
                     };
                     let Some(crate::Token::Keyword(kind)) = lexer.next_token() else {
+                        entries.extend(realigned(input, subsection));
                         return Some(finish(entries, input, entry_at, limits));
                     };
 
@@ -376,15 +380,16 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                     };
                     if kind == b"n" {
                         if let Ok(position) = usize::try_from(position) {
-                            entries.push((
+                            subsection.push((
                                 number,
                                 Some(Location::Offset(position.saturating_add(base))),
                             ));
                         }
                     } else if kind == b"f" {
-                        entries.push((number, None));
+                        subsection.push((number, None));
                     }
                 }
+                entries.extend(realigned(input, subsection));
             }
             Some(crate::Token::Keyword(word)) if word == b"trailer" => {
                 let mut parser = Parser::at(input, lexer.position(), limits);
@@ -403,6 +408,110 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
     }
 
     Some(finish(entries, input, lexer.position(), limits))
+}
+
+/// How many of a subsection's in-use entries are checked against the objects they point at.
+///
+/// The check costs one `N G obj` header read apiece and runs once per subsection, so it is a
+/// handful of reads for a whole file: a table has one subsection, an incremental update adds
+/// one per revision, and a cross-reference *stream* has none of this at all. Four rather than
+/// one because a single witness cannot tell a displaced subsection from a single wrong offset,
+/// and rather than all of them because 101 318 header reads on the specification's own PDF is
+/// exactly the eager work `CLAUDE.md`'s startup rule forbids.
+const SUBSECTION_WITNESSES: usize = 4;
+
+/// Corrects a subsection whose entries are all filed under the wrong object number.
+///
+/// # The two statements this reconciles
+///
+/// §7.5.4 says a subsection's header gives "the object number of the first object in this
+/// subsection", and that each in-use entry's offset gives "the number of bytes from the
+/// beginning of the PDF file to the beginning of the object". §7.3.10 makes the object at
+/// that offset begin by naming itself:
+///
+/// > The definition of an indirect object in a PDF file shall consist of its object number and
+/// > generation number (separated by white-space), followed by the value of the object bracketed
+/// > between the keywords obj and endobj
+///
+/// So a file states which object an entry describes **twice**, and where the two disagree by
+/// the *same* amount for every entry checked, it is the subsection header that is wrong: the
+/// entries are a contiguous run — §7.5.4 requires that — and a run displaced by one is still
+/// a run. The object headers win, because each is written next to the bytes it describes.
+///
+/// # Why a whole subsection rather than an object at a time
+///
+/// `issue7229.pdf` is the witness and it shows why a per-object repair is not enough. Its
+/// first section declares `1 7` and then lists seven entries beginning with object 0's free
+/// entry — §7.5.4's "[t]he first entry in the table (object number 0) shall always be free
+/// and shall have a generation number of 65,535" — so every entry is filed one number too
+/// high. Repairing only the in-use entries leaves that free entry standing as object 1, and
+/// object 1 is the page's image: the page then draws *nothing*, which is worse than the wrong
+/// page it drew before. A displacement is a property of the subsection, so the subsection is
+/// what gets corrected, free entries included.
+///
+/// # What it will not do
+///
+/// Nothing, unless at least two in-use entries agree on the same non-zero displacement. One
+/// witness cannot distinguish a misdeclared subsection from a single stale offset, and
+/// shifting a whole subsection on that evidence would turn one broken object into all of
+/// them.
+fn realigned(
+    input: &[u8],
+    subsection: Vec<(u32, Option<Location>)>,
+) -> Vec<(u32, Option<Location>)> {
+    let witnesses: Vec<Option<i64>> = subsection
+        .iter()
+        .filter_map(|(number, location)| match location {
+            Some(Location::Offset(offset)) => Some((*number, *offset)),
+            _ => None,
+        })
+        .take(SUBSECTION_WITNESSES)
+        .map(|(number, offset)| {
+            header_number_at(input, offset)
+                .map(|actual| i64::from(number).saturating_sub(i64::from(actual)))
+        })
+        .collect();
+
+    if witnesses.len() < 2 {
+        return subsection;
+    }
+    let Some(Some(displacement)) = witnesses.first().copied() else {
+        return subsection;
+    };
+    if displacement == 0 || !witnesses.iter().all(|found| *found == Some(displacement)) {
+        return subsection;
+    }
+
+    subsection
+        .into_iter()
+        .filter_map(|(number, location)| {
+            let corrected = i64::from(number).checked_sub(displacement)?;
+            u32::try_from(corrected)
+                .ok()
+                .map(|number| (number, location))
+        })
+        .collect()
+}
+
+/// The object number an indirect object at `offset` gives for itself, per §7.3.10.
+///
+/// Reads the header alone — two integers and `obj` — rather than parsing the object, because
+/// the object may be an 800 KB image and the question is only what it calls itself.
+fn header_number_at(input: &[u8], offset: usize) -> Option<u32> {
+    let mut lexer = crate::lexer::Lexer::at(input, offset);
+    let Some(crate::Token::Integer(number)) = lexer.next_token() else {
+        return None;
+    };
+    let Some(crate::Token::Integer(_generation)) = lexer.next_token() else {
+        return None;
+    };
+    let Some(crate::Token::Keyword(keyword)) = lexer.next_token() else {
+        return None;
+    };
+    if keyword != b"obj" {
+        return None;
+    }
+    u32::try_from(number).ok()
 }
 
 /// Builds a section, looking for a trailer from `offset` onwards.
@@ -692,7 +801,14 @@ fn find_catalog_by_scan(input: &[u8], limits: Limits, table: &XrefTable) -> Opti
 /// Linear in file size, and later definitions of an object number overwrite earlier ones —
 /// the opposite of the layered table's rule, and correct here for the same reason: in an
 /// incrementally-updated file the later copy is the newer one.
-fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
+///
+/// Public since the hundred-and-seventy-seventh session, for the second caller described in
+/// [`rebuild`]: [`crate::Document`] asks for it when *one* entry of an otherwise working table
+/// is disproved by the object at its offset, which is a repair of one number rather than of a
+/// file. It carries no trailer — [`rebuild`] is what adds one — because a caller that already
+/// has a trailer must keep it.
+#[must_use]
+pub fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
     let mut table = XrefTable::default();
     let mut latest: BTreeMap<u32, usize> = BTreeMap::new();
 

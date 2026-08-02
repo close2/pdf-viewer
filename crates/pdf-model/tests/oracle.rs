@@ -1263,13 +1263,49 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
     "bitmap-trailing-7fff-stripped-harder-refine.pdf page 1",
 ];
 
+/// Ambiguous because four renderers reduce one scan four ways.
+///
+/// `issue7229.pdf` is a 1654x2338 photograph of a vehicle-inspection certificate placed on a
+/// 596x842 page, so every renderer reduces it by 2.8 and no two reductions are alike. The
+/// verdict is right and the ranking's first question — "how far are we from the *nearest*
+/// reference" — is answered by measuring all six pairs, mean absolute error over the page:
+///
+/// | | page 1 | page 2 |
+/// |---|---|---|
+/// | ours vs `mupdf` | **0.0346** | **0.0168** |
+/// | ours vs `ghostscript` | 0.0589 | 0.0228 |
+/// | ours vs `poppler` | 0.0776 | 0.0261 |
+/// | `mupdf` vs `ghostscript` | 0.0745 | 0.0305 |
+/// | `poppler` vs `mupdf` | 0.0750 | 0.0320 |
+/// | `poppler` vs `ghostscript` | 0.1035 | 0.0342 |
+///
+/// On page 2 **every one of our three distances is smaller than every distance between two
+/// references**, and on page 1 our closest is half the references' closest. We are inside
+/// their spread rather than outside it, which is what `ambiguous` means when it is telling
+/// the truth. §10.7.4 forbids averaging over a pixel's area and this tree departs from it
+/// deliberately for a reduction (ADR 0025); the departure is not what these numbers are
+/// about, because no two of the three C renderers agree either.
+///
+/// **Both pages are here because of the session that put them here.** Until the
+/// hundred-and-seventy-seventh this document drew the *second* page as the first and had no
+/// second page at all — its first cross-reference section files every entry one object number
+/// too high (§7.5.4 with §7.3.10, ADR 0148) — and page 1 sat in the undiagnosed list at 77
+/// bounds from the nearest reference, the largest in the corpus. The repair moved it to under
+/// 10 and made page 2 render at all, which is why the undiagnosed list gained a name in the
+/// same session that lost one.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 2] = ["issue7229.pdf page 1", "issue7229.pdf page 2"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
 /// belongs to is a hypothesis about it, so the groups ratchet together and only the total
 /// fails the build.
 fn diagnosed_ambiguous() -> Vec<&'static str> {
-    AMBIGUOUS_SHARED_JBIG2_DECODER.to_vec()
+    AMBIGUOUS_SHARED_JBIG2_DECODER
+        .iter()
+        .chain(&AMBIGUOUS_IMAGE_REDUCTION)
+        .copied()
+        .collect()
 }
 
 /// The ambiguous pages nobody has diagnosed, one name per line.

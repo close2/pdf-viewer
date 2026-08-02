@@ -55,11 +55,19 @@ fn subsection(out: &mut String, first: u32, entries: &[(usize, char)]) {
 
 /// The classic table over the whole of `offsets`, plus its trailer, `startxref` and `%%EOF`.
 fn classic_section(out: &mut String, offsets: &[usize], extra: &str) {
+    classic_section_starting_at(out, 0, offsets, extra);
+}
+
+/// As [`classic_section`], with the subsection header's first object number given.
+///
+/// It is `0` for every well-formed file — §7.5.4 requires it of a file that has never been
+/// incrementally updated — and a parameter here only so that one test can write it wrong.
+fn classic_section_starting_at(out: &mut String, first: u32, offsets: &[usize], extra: &str) {
     let at = out.len();
     out.push_str("xref\n");
     let mut entries = vec![(0, 'f')];
     entries.extend(offsets.iter().map(|offset| (*offset, 'n')));
-    subsection(out, 0, &entries);
+    subsection(out, first, &entries);
     let _ = write!(
         out,
         "trailer\n<< /Size {} /Root 1 0 R {extra}>>\nstartxref\n{at}\n%%EOF\n",
@@ -177,6 +185,86 @@ fn a_body_object_the_table_does_not_list_is_not_reachable() {
     assert!(
         object(&open(build(false)), 4).is_null(),
         "unlisted, the same bytes in the same place are not an object of this document"
+    );
+}
+
+/// A file states which object a cross-reference entry describes twice. §7.5.4:
+///
+/// > The two integers denote (respectively) the object number of the first object in this
+/// > subsection and the number of entries in the subsection.
+///
+/// and §7.3.10, of the object those bytes turn out to hold:
+///
+/// > The definition of an indirect object in a PDF file shall consist of its object number and
+/// > generation number (separated by white-space), followed by the value of the object bracketed
+/// > between the keywords obj and endobj
+///
+/// The pair below is one document written two ways, differing in nothing but the subsection
+/// header: `0 5` in one and `1 5` in the other, over the same five entries. Under the second the
+/// catalogue's entry is filed under object 2, the page tree's under 3, and every reference in
+/// the file misses by one — so a reader that believes the header alone finds a page tree where
+/// it expects a catalogue and has no document at all.
+///
+/// `issue7229.pdf` is that file. Its first section declares `1 7` and lists seven entries
+/// beginning with object 0's free entry, which §7.5.4 says is "[t]he first entry in the table
+/// (object number 0)"; the reader drew the *second* page as the first for the project's whole
+/// life, and page two not at all.
+#[test]
+fn a_subsection_displaced_by_one_is_realigned_by_the_objects_own_headers() {
+    let build = |first: u32| {
+        let (mut out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
+        classic_section_starting_at(&mut out, first, &offsets, "");
+        out.into_bytes()
+    };
+
+    for first in [0, 1] {
+        let document = open(build(first));
+        assert_eq!(
+            object(&document, 4).as_string().map(<[u8]>::to_vec),
+            Some(b"the original".to_vec()),
+            "subsection header {first}: object 4 is the string the body files under 4"
+        );
+        assert!(
+            document.catalog().is_ok(),
+            "subsection header {first}: the catalogue is object 1, whatever the header says"
+        );
+    }
+}
+
+/// One disproved entry is not a displaced subsection.
+///
+/// The realignment above shifts a whole subsection, so it must not fire on the evidence of a
+/// single entry — a stale offset in an otherwise sound table would then take every object with
+/// it. This file's second subsection has exactly one entry, filed under object 5 and pointing at
+/// object 4; the body holds both. A reader that shifted on one witness would answer object 4's
+/// string for object 5, and one that stopped at the mismatch would answer null. What the entry's
+/// own object says wins, so object 5 is object 5.
+#[test]
+fn a_single_entry_pointing_at_another_object_is_resolved_by_its_own_header() {
+    const FIFTH: &str = "5 0 obj\n(the fifth)\nendobj\n";
+    let (mut out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE, FIFTH]);
+    let at = out.len();
+    out.push_str("xref\n");
+    let mut entries = vec![(0, 'f')];
+    entries.extend(offsets.iter().take(4).map(|offset| (*offset, 'n')));
+    subsection(&mut out, 0, &entries);
+    // Object 5's entry, pointing one object short of it.
+    subsection(&mut out, 5, &[(offsets[3], 'n')]);
+    let _ = write!(
+        out,
+        "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+
+    let document = open(out.into_bytes());
+    assert_eq!(
+        object(&document, 5).as_string().map(<[u8]>::to_vec),
+        Some(b"the fifth".to_vec()),
+        "object 5's own header is what says where object 5 is"
+    );
+    assert_eq!(
+        object(&document, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the original".to_vec()),
+        "and object 4, whose entry was right, is untouched"
     );
 }
 

@@ -566,7 +566,6 @@ issue6931_reduced.pdf page 1
 issue7014.pdf page 1
 issue7074_reduced.pdf page 1
 issue7200.pdf page 1
-issue7229.pdf page 1
 issue7339_reduced.pdf page 1
 issue7406.pdf page 1
 issue7454.pdf page 1

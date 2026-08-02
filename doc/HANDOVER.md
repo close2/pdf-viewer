@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-seventh** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -89,7 +89,7 @@ that exists (ADR 0146).
 |---|---|---|
 | tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous — **19 of them diagnosed and 735 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **38 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **21 of them diagnosed and 734 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **38 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -689,26 +689,30 @@ defines and all ninety-six decode byte-identically here. On the two `tpgron` fil
 render is visibly broken — a block of noise above the drawing — and ours is the same picture as
 the other twenty-two encodings.
 
-**The ranking's next item is named and diagnosed and not yet fixed**: `issue7229.pdf page 1`, at
-**77 bounds from the *nearest* reference** — the largest in the corpus, and the only page in the
-top ten whose two numbers are nearly equal, which is the shape that says *we* are alone. It draws
-the **wrong page**. The file is a scan whose original body holds one page (object 3, the front of
-a Russian vehicle-inspection certificate) and whose incremental update adds a second (object 8,
-the reverse with the stamp) by replacing the `/Pages` node with `/Count 2 /Kids [3 0 R 8 0 R]`.
-The original cross-reference section declares its subsection `1 7` and then lists **seven entries
-beginning with object 0's free entry**, so every offset in it belongs to the object one *below*
-the number it is filed under. Under a strict reading object 3 resolves to the content stream, is
-not a `/Type /Page`, and the walk yields only object 8 — so our page one is the page the
-references print second, `Pages::len()` says 2 because `/Count` does, and `get(1)` is `None`.
-Nothing reports any of it. The three references recover, and the recovery is available from the
-file's own words: **an object header at an offset either names the object the table filed it
-under or the entry is not evidence.**
+**The ranking's first answer was a real defect and the hundred-and-seventy-seventh session fixed
+it.** `issue7229.pdf page 1` sat at **77 bounds from the *nearest* reference** — the largest in the
+corpus, and the only page in the top ten whose two numbers were nearly equal, which is the shape
+that says *we* are alone — and it was drawing the **wrong page**. Its original cross-reference
+section declares its subsection `1 7` and then lists seven entries beginning with object 0's free
+entry, so every entry is filed one object number too high; object 3 resolved to a content stream,
+the page-tree walk skipped it and returned the *second* kid, and `get(1)` was then `None`. Page
+one was the page the references print second, page two did not exist, and **nothing reported any
+of it**. §7.5.4 gives an entry's object number by position and §7.3.10 gives it again in the
+object's own header, so where two or more in-use entries agree the header is displaced by the same
+amount, the subsection is renumbered from the objects. ADR 0148. Page 1 went to under 10 bounds and
+page 2 renders at all — the oracle's `no render` list, which is a list of pages nobody has ever
+looked at, is 19 → 18 — and both pages are now diagnosed in `AMBIGUOUS_IMAGE_REDUCTION`, where six
+pairwise measurements put our reduction of the scan **inside** the references' own spread.
+
+**That is the shape of this work and it is worth stating once.** The ranking does not find pages
+that are slightly wrong; its first item was a document whose page one was a different page
+altogether, drawn in silence, for the project's whole life, on a gate that was watching.
 
 **Its shape, measured rather than assumed:**
 
 | | |
 |---|---|
-| ambiguous pages on documents we call complete | **754** |
+| ambiguous pages on documents we call complete | **755** |
 | distinct documents they come from | **181** |
 | `freeculture.pdf` (320) and `pdkids.pdf` (52) | **372 — 49% of the bucket, two long books** |
 | documents contributing exactly **one** page | **154** |
@@ -1196,7 +1200,9 @@ paid every session since the tenth: dashed squares that should not have been sol
 gradient painted opaque because one `return` dropped §11.6.4.4's alpha; a `0 w` line invisible on
 the GPU; `issue7901.pdf` drawing `üãÍ†Ë` because Table 115's presence condition was read as a
 condition on meaning. **A page a feature makes drawable can be one that never rendered at all** —
-a `no render` count is a to-do list of pages nobody has looked at, and it is 19.
+a `no render` count is a to-do list of pages nobody has looked at, and it is 18 — one left it in
+the hundred-and-seventy-seventh session when a page the file's own cross-reference table had
+hidden started rendering (ADR 0148).
 
 **And the rule inverts, which is the version worth having**: twice the picture has rejected a
 *reading of the specification* rather than finding a defect. `issue6621.pdf` and `issue7901.pdf`
@@ -1908,6 +1914,19 @@ anchor that makes it checkable.
   *skipped*, so the question fell through to an older section and the reader resurrected objects
   its own file had deleted. **Ask what a `continue`, a dropped branch or an unmatched arm hands the
   question *to*.** ADR 0100.
+- **A refusal is not a repair, and the difference is invisible from inside the function that
+  refuses.** `Document::load` would not hand back an object whose header named a different number,
+  which is right — returning object 2's bytes under number 3 corrupts the graph silently. What it
+  handed the question to was the page-tree walk, which found object 3 was not a `/Type /Page`,
+  skipped it, and returned the *next* kid: `issue7229.pdf`'s page one was its page two for the
+  project's whole life, with `Pages::len()` answering 2 from `/Count` and `get(1)` answering
+  `None`. **Every correct local refusal is a question passed upwards, and the caller may answer it
+  by drawing something.** ADR 0148, and it is ADR 0100 one level along.
+- **A partial repair can be worse than none.** The first version of that fix recovered *in-use*
+  entries one at a time and left the misfiled free entry standing, so the page's image became a
+  deletion and the page drew **nothing** where it had drawn the wrong page. A displacement is a
+  property of the subsection; repairing half of one is a new file nobody wrote. Ask what class the
+  defect belongs to before choosing the granularity of the fix.
 - **The archetype is the `d` operator.** Every layer of dashing existed and one line read only the
   *empty* array, so not one dashed line in 974 documents. When a feature looks finished, check the
   operand path from the content stream to the state. **A feature switched off in one place is
@@ -2274,3 +2293,4 @@ above rather than here.
 | 174 | §12.6.3's events raised at last, and Table 167's `ReadOnly` read for the first time | — |
 | 175 | Everything re-verified after ten sessions of change | — |
 | 176 | The ambiguous bucket gets a ratchet, a ranking and its first diagnosis | — |
+| 177 | A subsection filed one object too high: the page one nobody had ever seen | 0148 |
