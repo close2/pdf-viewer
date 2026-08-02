@@ -84,7 +84,6 @@ canvas.pdf page 1
 canvas.pdf page 2
 ccitt_EndOfBlock_false.pdf page 1
 chrome-text-selection-markedContent.pdf page 1
-cmykjpeg.pdf page 1
 colorspace_atan.pdf page 1
 colorspace_cos.pdf page 1
 colorspace_sin.pdf page 1

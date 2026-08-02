@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-seventh** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -89,7 +89,7 @@ that exists (ADR 0146).
 |---|---|---|
 | tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **21 of them diagnosed and 734 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **38 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **22 of them diagnosed and 733 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **35 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -704,9 +704,23 @@ page 2 renders at all — the oracle's `no render` list, which is a list of page
 looked at, is 19 → 18 — and both pages are now diagnosed in `AMBIGUOUS_IMAGE_REDUCTION`, where six
 pairwise measurements put our reduction of the scan **inside** the references' own spread.
 
-**That is the shape of this work and it is worth stating once.** The ranking does not find pages
-that are slightly wrong; its first item was a document whose page one was a different page
-altogether, drawn in silence, for the project's whole life, on a gate that was watching.
+**And its second answer was another one.** `cmykjpeg.pdf page 1` sat at 30.19 bounds from the
+nearest reference against 30.23 from the furthest — the same shape, everybody against us — and it
+was drawing a photograph of a dog on a beach **black**. `zune-jpeg` converts a four-component
+codestream to RGB by default, with `(1 − C)(1 − K)` over samples it assumes are stored inverted,
+which is what a *standalone* Adobe CMYK JPEG stores and not what this file has. So a colour was
+becoming a pixel in a **dependency**, which trap 6 forbids outright, and PDF has an entry for the
+polarity of a sample: §8.9.5.2's `/Decode`, whose Table 88 default for `DeviceCMYK` is the
+identity. A CMYK codestream is now asked for as CMYK and converted where every other colour is.
+Mean 6.28 → 0.40, worst tile 151 → 12.0, and the page keeps an `ambiguous` verdict for the honest
+reason — it is a `DeviceCMYK` photograph, where `mupdf` and `ghostscript` share a profile and
+`poppler` does not (ADR 0048), and we are now closer to each of them than `poppler` is to either.
+ADR 0149.
+
+**That is the shape of this work and it is worth stating twice.** The ranking does not find pages
+that are slightly wrong. Its first item was a document whose page one was a different page
+altogether; its second was a photograph rendered black. Both were drawn in silence, for the
+project's whole life, on gates that were watching.
 
 **Its shape, measured rather than assumed:**
 
@@ -735,6 +749,34 @@ Reading the issue turns "five renders differ slightly" into "this file is about 
 colour of a soft mask" or "about DQT markers placed after `SOF{n}`" before anything is opened.
 The habit already exists — *a test corpus has a bibliography, and nobody had read it* — and it is
 now the **first** step on an ambiguous page rather than an occasional one.
+
+**`ambiguous` is the gate's verdict and never the answer, and this is the rule an `AMBIGUOUS_*`
+group is held to.** The project owner put it in one sentence in the hundred-and-seventy-eighth
+session: *even if the oracle cannot agree, we should be able to determine what is actually true,
+based on the spec.* The references disagreeing tells you only that triangulation has nothing to
+say; it says nothing whatever about what the page should look like, and a group whose whole
+argument is "we sit inside their spread" has answered the easy question. **Every group must say
+what the specification determines about its pages** — and the answer has three shapes, all of them
+findings:
+
+- **The clause determines it, and we can be checked against it.** `AMBIGUOUS_SHARED_JBIG2_DECODER`
+  is this one: ISO/IEC 14492 defines the decoding exactly, and `tests/jbig2.rs` checks us against
+  the corpus's own invariant — ninety-six encodings of one image, byte-identical — with no
+  reference involved at all. Where a clause states arithmetic, **write the closed form down and
+  compare** (trap 12).
+- **The clause determines that everyone here is departing from it.**
+  `AMBIGUOUS_IMAGE_REDUCTION`: §10.7.4 says "there shall not be averaging over the pixel area",
+  every one of the five renderers averages, and ours is ADR 0025's documented departure. The
+  finding is the departure; the spread is corroboration.
+- **The clause puts the answer beyond itself, and says so.** `AMBIGUOUS_DEVICE_CMYK_CONVERSION`:
+  §10.4.2.1 ranks two answers, §10.3.1 makes the destination profile "beyond the scope of this
+  document", and its NOTE names "assumptions made by the PDF processor software". Four renderers
+  assuming four presses is the standard working as written. **Say which clause leaves it open**,
+  and name the assumption this tree makes (`colour.rs`'s `CMYK_CORNERS`).
+
+What is *not* acceptable is a fourth shape: a group that names no clause. That is the corpus
+being treated as the specification, which principle 5 forbids, and it is easy to write because
+the pairwise numbers are cheap and the clause takes an hour.
 
 **What "getting rid of" means, and it is not making them agree.** A page leaves this bucket by
 becoming `agrees`, or by joining a **named group with a diagnosis**, exactly as the 72
@@ -2006,6 +2048,13 @@ anchor that makes it checkable.
   refuse a reasonable one** — the bound belongs on the *growth*.
 - **A panic in a dependency is a symptom, not a diagnosis**, especially where its arithmetic is
   modular. **Being right for the wrong reason is worse than being wrong.**
+- **A dependency can be doing the thing your architecture forbids.** Trap 6 has said since the
+  sixth session that `ColourSpace::to_rgb` is the only place a colour becomes RGB, and
+  `zune-jpeg` was converting every four-component codestream to RGB with a formula of its own —
+  reachable by any `DeviceCMYK` JPEG, invisible to `colour_paths.rs` because every fixture there
+  states its samples as hex rather than as a codestream. **Ask of each dependency which of your
+  own invariants it is in a position to break**, and write the fixture in the form the dependency
+  actually sees. ADR 0149.
 - **A dependency is a decision, and this project's own precedent decides it.** `zune-jpeg` owns
   `DCTDecode`, `skrifa` font parsing, `flate2` Flate, `tiny-skia` rasterisation. ADR 0014. **A
   dependency can implement more of a specification than the clause cites** — `read_fonts::ps::agl`
@@ -2294,3 +2343,4 @@ above rather than here.
 | 175 | Everything re-verified after ten sessions of change | — |
 | 176 | The ambiguous bucket gets a ratchet, a ranking and its first diagnosis | — |
 | 177 | A subsection filed one object too high: the page one nobody had ever seen | 0148 |
+| 178 | A CMYK JPEG converted by its decoder rather than by the one conversion | 0149 |

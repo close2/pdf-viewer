@@ -172,6 +172,86 @@ fn a_cmyk_colour_is_the_same_however_it_is_drawn() {
     }
 }
 
+/// A fourth route to the same colour: a `DCTDecode` image whose codestream is CMYK.
+///
+/// # Why this is a colour test and not an image test
+///
+/// `zune-jpeg` converts a four-component codestream to RGB by default, with a formula of its
+/// own — `(1 − C)(1 − K)` over samples it takes to be stored inverted, which is the convention
+/// a *standalone* Adobe CMYK JPEG follows. That is a second place a colour becomes a pixel,
+/// which this file exists to forbid, and it is not what a PDF says: §8.9.5.2's `/Decode` array
+/// states a sample's meaning, its Table 88 default for `DeviceCMYK` is the identity, and
+/// §7.4.8 defers to Adobe Technical Note #5116 for which *markers* to honour and for the
+/// YCbCr/YCCK transform — not for the polarity of a sample.
+///
+/// `cmykjpeg.pdf` is the corpus witness. Its image carries the Adobe APP14 marker with
+/// transform 0, no `/Decode`, and ordinary CMYK samples; read as inverted, its sky comes out
+/// black, which is what this reader drew until the hundred-and-seventy-eighth session while
+/// all four references drew a photograph. The oracle could not fail on it — the references
+/// disagree among themselves about `DeviceCMYK` (ADR 0048) so the verdict is `ambiguous`
+/// either way — and it was the ambiguous ranking that named it.
+///
+/// The sample asserted on is the codestream's first, read out of the file by two decoders
+/// that are not ours: `(122, 55, 14, 1)`, which `ImageMagick` and PIL both report as the
+/// complement `(133, 200, 241, 254)` because both apply the standalone-JPEG inversion. The
+/// expected pixel is what `ColourSpace::to_rgb` makes of it — the same function every other
+/// route in this file goes through — and the inverted reading is nowhere near it.
+///
+/// The image raster is taken from the display list rather than from a rendered page, so that
+/// nothing here depends on how a 200x150 image is resampled onto a letter page.
+#[test]
+fn a_cmyk_jpegs_samples_are_the_colour_spaces_and_not_the_decoders() {
+    let root =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
+    if !root.is_dir() {
+        println!("skipped: the pdf.js corpus submodule is not checked out");
+        return;
+    }
+    let path = root.join("cmykjpeg.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        panic!("the corpus is present but {} is missing", path.display());
+    };
+    let document = Document::open(bytes).expect("cmykjpeg.pdf opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.is_complete(),
+        "cmykjpeg.pdf page one draws completely: {:?}",
+        interpretation.unsupported
+    );
+
+    let image = interpretation
+        .display_list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            pdf_render::Command::Image { image, .. } => Some(image),
+            _ => None,
+        })
+        .expect("the page draws one image");
+    let top_left = (image.data[0], image.data[1], image.data[2]);
+
+    let stored = [122.0 / 255.0, 55.0 / 255.0, 14.0 / 255.0, 1.0 / 255.0];
+    let expected = pdf_model::colour::ColourSpace::Cmyk.to_rgb(&stored);
+    let expected = (
+        (expected.r * 255.0).round() as u8,
+        (expected.g * 255.0).round() as u8,
+        (expected.b * 255.0).round() as u8,
+    );
+    for (a, b) in [
+        (top_left.0, expected.0),
+        (top_left.1, expected.1),
+        (top_left.2, expected.2),
+    ] {
+        assert!(
+            a.abs_diff(b) <= 1,
+            "a CMYK JPEG's first sample must reach the raster through ColourSpace::to_rgb: \
+             got {top_left:?}, the clause's reading is {expected:?}, and the inverted one is \
+             black"
+        );
+    }
+}
+
 /// The same, for grey — which is a pass-through and so should be exact everywhere.
 #[test]
 fn a_grey_is_the_same_however_it_is_drawn() {

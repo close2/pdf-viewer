@@ -1263,12 +1263,22 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
     "bitmap-trailing-7fff-stripped-harder-refine.pdf page 1",
 ];
 
-/// Ambiguous because four renderers reduce one scan four ways.
+/// Ambiguous, and the specification settles what it can: it forbids what every renderer here
+/// does, including us.
 ///
-/// `issue7229.pdf` is a 1654x2338 photograph of a vehicle-inspection certificate placed on a
-/// 596x842 page, so every renderer reduces it by 2.8 and no two reductions are alike. The
-/// verdict is right and the ranking's first question — "how far are we from the *nearest*
-/// reference" — is answered by measuring all six pairs, mean absolute error over the page:
+/// `issue7229.pdf` is a 1654x2338 photograph placed on a 596x842 page, so every renderer
+/// reduces it by 2.8 and no two reductions are alike. §10.7.4 is not silent about that —
+/// "there shall not be averaging over the pixel area" — and this tree departs from it
+/// deliberately for a *reduction*, with the argument and the cost written down in ADR 0025:
+/// the clause describes scan conversion of a shape, point-sampling a photograph at a third of
+/// its resolution throws away five sixths of the samples, and the departure is recorded as a
+/// departure rather than dressed up as a reading. None of the four renderers point-samples
+/// either, and each averages differently.
+///
+/// So the clause determines that all five of us are departing, and determines nothing about
+/// *which* departure — there is no conforming answer for our number to be compared with. The
+/// six pairwise measurements are what is left to say, and they say we are inside the others'
+/// spread rather than outside it. Mean absolute error over the page:
 ///
 /// | | page 1 | page 2 |
 /// |---|---|---|
@@ -1280,11 +1290,9 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// | `poppler` vs `ghostscript` | 0.1035 | 0.0342 |
 ///
 /// On page 2 **every one of our three distances is smaller than every distance between two
-/// references**, and on page 1 our closest is half the references' closest. We are inside
-/// their spread rather than outside it, which is what `ambiguous` means when it is telling
-/// the truth. §10.7.4 forbids averaging over a pixel's area and this tree departs from it
-/// deliberately for a reduction (ADR 0025); the departure is not what these numbers are
-/// about, because no two of the three C renderers agree either.
+/// references**, and on page 1 our closest is half the references' closest. That is what
+/// `ambiguous` means when it is telling the truth — and it is corroboration, not the finding.
+/// The finding is the paragraph above, and it came from the clause.
 ///
 /// **Both pages are here because of the session that put them here.** Until the
 /// hundred-and-seventy-seventh this document drew the *second* page as the first and had no
@@ -1295,6 +1303,50 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// same session that lost one.
 const AMBIGUOUS_IMAGE_REDUCTION: [&str; 2] = ["issue7229.pdf page 1", "issue7229.pdf page 2"];
 
+/// Ambiguous, and the specification says how far it can be settled — which is not all the way.
+///
+/// **What the standard determines about this page, it determines completely.** The samples are
+/// ordinary CMYK: §8.9.5.2's `/Decode` is where a PDF states a sample's polarity, Table 88's
+/// default for `DeviceCMYK` is the identity, and this file states no array. That half was
+/// wrong until the hundred-and-seventy-eighth session and is not a matter of opinion —
+/// ADR 0149.
+///
+/// **What is left is a place the standard puts beyond itself, in as many words.** §10.4.2.1
+/// ranks two answers for turning four ink concentrations into a pixel: §10.3's colour
+/// management for an ICC-enabled processor, which this is, and §10.4.2.2 to §10.4.2.5's
+/// "crude approximations" for anything less. On the higher branch §10.3.1 says the choice of
+/// destination profile is "beyond the scope of this document", and its NOTE names
+/// "assumptions made by the PDF processor software" as one way to make it. So there is no
+/// number a renderer can be *checked against* here, and four renderers assuming four presses
+/// is the specification working as written rather than anybody being wrong. `colour.rs`'s
+/// `CMYK_CORNERS` is this tree's assumption, argued and measured there; §10.4.2.5's formula
+/// was tried against the whole oracle and is worse, which is what §10.4.2.1 says to expect.
+///
+/// That is the whole answer, and the pairwise numbers below only corroborate it. Mean
+/// absolute error over `cmykjpeg.pdf` page 1, all six pairs:
+///
+/// | | |
+/// |---|---|
+/// | ours vs `ghostscript` | **0.00128** |
+/// | ours vs `mupdf` | 0.00160 |
+/// | ours vs `poppler` | 0.00211 |
+/// | `mupdf` vs `ghostscript` | 0.00097 |
+/// | `poppler` vs `mupdf` | 0.00210 |
+/// | `poppler` vs `ghostscript` | 0.00253 |
+///
+/// The tightest pair is the two that share a profile, which is trap 9's second shape and ADR
+/// 0048's finding; we sit closer to both of them than `poppler` does to either. That is
+/// evidence that assuming standard process inks is the conventional reading of §10.3.2's
+/// licence. It is not evidence that our numbers are right, because the clause states nothing
+/// for them to be right against.
+///
+/// **This page was where the ambiguous ranking earned its keep for the second time.** Until
+/// the hundred-and-seventy-eighth session the photograph was drawn *black*, because
+/// `zune-jpeg` was left to convert the four-component codestream and applied the
+/// standalone-JPEG inversion; the page sat at 30 bounds from the nearest reference inside a
+/// verdict nothing watched. ADR 0149.
+const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 1] = ["cmykjpeg.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1304,6 +1356,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
     AMBIGUOUS_SHARED_JBIG2_DECODER
         .iter()
         .chain(&AMBIGUOUS_IMAGE_REDUCTION)
+        .chain(&AMBIGUOUS_DEVICE_CMYK_CONVERSION)
         .copied()
         .collect()
 }

@@ -336,9 +336,9 @@ pub fn decode(
 
     let (rgba, opacity_came_with_the_samples) = match source.codec.as_deref() {
         Some(b"DCTDecode" | b"DCT") => {
-            let mut rgba = decode_jpeg(&source.data, width, height)?;
-            apply_decode_to_channels(document, dict, &mut rgba);
-            convert_channels(at, is_mask, &mut rgba)?;
+            let (mut rgba, components) = decode_jpeg(&source.data, width, height)?;
+            apply_decode_to_channels(document, dict, components, &mut rgba);
+            convert_channels(at, is_mask, components, &mut rgba)?;
             (rgba, false)
         }
         Some(b"JBIG2Decode") => (
@@ -642,6 +642,47 @@ fn convert_three(space: &crate::colour::ColourSpace, rgba: &mut [u8], band: Opti
                 colour
             };
             rgb.copy_from_slice(&[channel(colour.r), channel(colour.g), channel(colour.b)]);
+        }
+    };
+    match band {
+        Some(band) => rgba
+            .par_chunks_mut(band.saturating_mul(4).max(4))
+            .for_each(|chunk| convert(chunk, band)),
+        None => convert(rgba, rgba.len() / 4),
+    }
+}
+
+/// Converts a four-component raster in place, on the same terms as [`convert_three`].
+///
+/// The four bytes of a pixel are the four components — `decode_jpeg` writes them there and
+/// nothing has read them as colour yet — so the alpha byte is restored here, after the fourth
+/// component has been consumed. Everything else is [`convert_three`]'s argument, including
+/// why a band boundary changes no pixel: the memo is of a pure function of one sample tuple.
+fn convert_four(space: &crate::colour::ColourSpace, rgba: &mut [u8], band: Option<usize>) {
+    let convert = |chunk: &mut [u8], slots: usize| {
+        let mut cache = Conversion::for_pixels(slots.max(1));
+        for pixel in chunk.chunks_exact_mut(4) {
+            let read = |index: usize| pixel.get(index).copied().unwrap_or(0);
+            // A tag of its own, so a four-component tuple cannot collide with a
+            // three-component one in a memo shared by neither.
+            let key = (1u64 << 33)
+                | (u64::from(read(0)) << 24)
+                | (u64::from(read(1)) << 16)
+                | (u64::from(read(2)) << 8)
+                | u64::from(read(3));
+            let colour = if let Some(colour) = cache.get(key) {
+                colour
+            } else {
+                let colour = space.to_rgb(&[
+                    f32::from(read(0)) / 255.0,
+                    f32::from(read(1)) / 255.0,
+                    f32::from(read(2)) / 255.0,
+                    f32::from(read(3)) / 255.0,
+                ]);
+                cache.put(key, colour);
+                colour
+            };
+            pixel.copy_from_slice(&[channel(colour.r), channel(colour.g), channel(colour.b), 255]);
         }
     };
     match band {
@@ -1435,7 +1476,25 @@ fn pack_bits(samples: &[u8], width: u32, height: u32) -> Vec<u8> {
 }
 
 /// Decodes a baseline JPEG.
-fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageError> {
+///
+/// # Why the colour space is chosen here rather than left to the decoder
+///
+/// `zune-jpeg` converts to RGB by default, and for a four-component codestream that means it
+/// applies a **CMYK to RGB conversion of its own** — `blinn_8x8(c, k)`, which is
+/// `(1 − C)(1 − K)` on samples it assumes are stored inverted, the convention a *standalone*
+/// Adobe CMYK JPEG follows. Two things are wrong with letting that happen. It is a second
+/// route from colour to pixels, which trap 6 in `doc/HANDOVER.md` forbids outright —
+/// `ColourSpace::to_rgb` is the only place a colour becomes RGB — and inside a PDF the
+/// inversion is not the marker's to state. §8.9.5.2's `/Decode` array says what a sample
+/// means, its Table 87 default for `DeviceCMYK` is `[0 1 0 1 0 1 0 1]`, and §7.4.8 defers to
+/// Adobe Technical Note #5116 for *markers* and the YCbCr/YCCK colour transform, not for the
+/// polarity of a sample.
+///
+/// `cmykjpeg.pdf` is the corpus witness and it settles it: an Adobe-marked four-component
+/// JPEG with no `/Decode`, whose samples are ordinary CMYK. Read as inverted, its sky comes
+/// out **black**; read as the clause states, it is the photograph all four references draw.
+/// So a CMYK codestream is asked for as CMYK and converted where every other colour is.
+fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize), ImageError> {
     // `ZCursor` is the reader `zune-jpeg` wants; a bare slice does not implement its
     // trait because the decoder needs to seek.
     let mut decoder =
@@ -1445,6 +1504,12 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageErr
         .map_err(|e| ImageError::Malformed {
             detail: format!("JPEG headers: {e}"),
         })?;
+    if decoder.input_colorspace() == Some(zune_jpeg::zune_core::colorspace::ColorSpace::CMYK) {
+        decoder.set_options(
+            zune_jpeg::zune_core::options::DecoderOptions::default()
+                .jpeg_set_out_colorspace(zune_jpeg::zune_core::colorspace::ColorSpace::CMYK),
+        );
+    }
 
     let info = decoder.info().ok_or_else(|| ImageError::Malformed {
         detail: "JPEG has no frame".to_owned(),
@@ -1495,6 +1560,14 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageErr
                 }
             }
         }
+        // Four components stay four: they are `/ColorSpace`'s to interpret, and
+        // `convert_channels` is where they become pixels. The alpha byte carries `k` until
+        // then, which is why that conversion restores it rather than leaving it alone.
+        4 => {
+            for (destination, source) in out.chunks_exact_mut(4).zip(pixels.chunks_exact(4)) {
+                destination.copy_from_slice(source);
+            }
+        }
         _ => {
             return Err(ImageError::UnsupportedColourSpace {
                 space: format!("{components}-component JPEG"),
@@ -1502,7 +1575,7 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageErr
         }
     }
 
-    Ok(out)
+    Ok((out, components))
 }
 
 /// Applies §8.9.5.2's map to a raster that is already eight-bit RGB.
@@ -1516,21 +1589,36 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ImageErr
 /// (`issue7406.pdf`), and it was being dropped: this route never consulted the entry at all.
 /// A greyscale JPEG's single component is written to all three channels by [`decode_jpeg`],
 /// so the first pair governs each of them.
-fn apply_decode_to_channels(document: &Document, dict: &Dictionary, rgba: &mut [u8]) {
+fn apply_decode_to_channels(
+    document: &Document,
+    dict: &Dictionary,
+    components: usize,
+    rgba: &mut [u8],
+) {
     if document.get_key(dict, "Decode").as_array().is_none() {
         return;
     }
-    // The components a JPEG delivers are device channels whatever `/ColorSpace` names, which
-    // is the approximation this route already takes; `decode_jpeg` refuses anything but one
-    // or three of them, and both become RGB here.
-    let decode = Decode::read(document, dict, &ColourSpace::Rgb, 8);
+    // One or three components are device channels whatever `/ColorSpace` names, which is the
+    // approximation this route takes and which both become RGB here; four are CMYK, and the
+    // clause's default ranges are the same `[0 1]` per component either way. The space is
+    // named rather than resolved because `Decode::read` wants it only for those defaults and
+    // for how many pairs to expect.
+    let space = if components == 4 {
+        ColourSpace::Cmyk
+    } else {
+        ColourSpace::Rgb
+    };
+    let decode = Decode::read(document, dict, &space, 8);
     if decode.is_identity() {
         return;
     }
     let grey =
         matches!(document.get_key(dict, "Decode").as_array(), Some(items) if items.len() < 6);
+    // A greyscale JPEG's one component was written to all three channels, so three is right
+    // for one component as well as for three; four components are still four channels.
+    let touched = if components == 4 { 4 } else { 3 };
     for pixel in rgba.chunks_exact_mut(4) {
-        for (component, channel) in pixel.iter_mut().take(3).enumerate() {
+        for (component, channel) in pixel.iter_mut().take(touched).enumerate() {
             let pair = if grey { 0 } else { component };
             *channel = decode.channel(pair, usize::from(*channel));
         }
@@ -1549,17 +1637,34 @@ fn apply_decode_to_channels(document: &Document, dict: &Dictionary, rgba: &mut [
 /// one-component space and a per-pixel call for three. Nothing runs at all where the space
 /// is the device one the decoder already delivered, which is every corpus JPEG but a
 /// handful.
-fn convert_channels(at: Dictionaries, is_mask: bool, rgba: &mut [u8]) -> Result<(), ImageError> {
+fn convert_channels(
+    at: Dictionaries,
+    is_mask: bool,
+    components: usize,
+    rgba: &mut [u8],
+) -> Result<(), ImageError> {
     if is_mask {
         return Ok(());
     }
-    // A device space is what the decoder already produced, and an unreadable one is
-    // reported by the ordinary route rather than twice.
-    let Ok(ColourSpace::Resolved(space)) = colour_space(at.document, at.dict, at.resources) else {
+    // An unreadable space is reported by the ordinary route rather than twice.
+    let Ok(space) = colour_space(at.document, at.dict, at.resources) else {
         return Ok(());
     };
-    match space.components() {
-        1 => {
+    let space = match space {
+        // Grey and RGB are what the decoder already produced. `DeviceCMYK` is *not*:
+        // `decode_jpeg` hands over the four components untouched, on purpose, so that
+        // §8.6.4.4's four numbers become a pixel where every other colour does.
+        ColourSpace::Gray | ColourSpace::Rgb | ColourSpace::Mask => return Ok(()),
+        ColourSpace::Cmyk => crate::colour::ColourSpace::Cmyk,
+        ColourSpace::Resolved(space) => space,
+    };
+    // The raster's channel count and the space's need not match, and where they do not it is
+    // usually not a defect: a greyscale JPEG is delivered as three equal channels, so a
+    // one-component space reads the first of them. What cannot be reconciled is a space of
+    // three or four components against a codestream of a different number, which is the
+    // dictionary and the codestream contradicting each other.
+    match (space.components(), components) {
+        (1, _) => {
             // The same table `palette` builds, for the same reason: 256 possible samples
             // against a photograph's millions.
             let table: Vec<[u8; 3]> = (0..=255u8)
@@ -1578,14 +1683,16 @@ fn convert_channels(at: Dictionaries, is_mask: bool, rgba: &mut [u8]) -> Result<
             }
             Ok(())
         }
-        3 => {
+        (3, 3) => {
             convert_three(&space, rgba, band_pixels(rgba.len() / 4));
             Ok(())
         }
-        // `decode_jpeg` refuses anything but one or three components, so a space taking a
-        // different number is a disagreement between the dictionary and the codestream.
-        other => Err(ImageError::UnsupportedColourSpace {
-            space: format!("a {other}-component space on a JPEG of one or three components"),
+        (4, 4) => {
+            convert_four(&space, rgba, band_pixels(rgba.len() / 4));
+            Ok(())
+        }
+        (wanted, got) => Err(ImageError::UnsupportedColourSpace {
+            space: format!("a {wanted}-component space on a JPEG of {got} components"),
         }),
     }
 }
