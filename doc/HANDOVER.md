@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fifty-seventh** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-fifty-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -65,7 +65,7 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **978**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | the fuzzers last in session 153; tests, `clippy`, `fmt`, `deny` and **all four gates** re-run in 155, 156 and 157 |
+| tests | **979**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | the fuzzers last in session 153; tests, `clippy`, `fmt`, `deny` and **all four gates** re-run in 155 to 158 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
@@ -1408,6 +1408,12 @@ anchor that makes it checkable.
   helpfully.** `a_predefined_cmap_is_refused_by_name` failed with "a predefined CMap this tree
   has no data for must be refused", which reads like a regression and was a success. Its
   replacement asserts what says the `CMap` was consulted — that a *two-byte* code comes back.
+- **A wrong diagnosis is a silence with a sentence in front of it.** Two documents were refused
+  for "units per em is zero" for eighty sessions; both embed a `/FontFile2` whose stream is
+  *short*, and `metrics()` answers zero when it cannot find `head`. The refusal was right and
+  the reason was not, so nobody could act on it. **Ask of any report whether its words name a
+  cause or an effect** — and the condition for the new one had to be narrowed four times, each
+  time by a document that draws (trap 11 again, on a condition rather than on a count).
 - **A dependency's error message can name the fix.** `Invalid sfnt version 0x74746366` sat in
   the corpus output for as long as the gate has existed; those four bytes are `ttcf`, so the
   report was saying "this is a font collection" in hexadecimal. Reading it took ninety lines and
@@ -1887,3 +1893,4 @@ above rather than here.
 | 155 | The rows a cut may fall on: the CPU rasteriser draws a page on every core, byte for byte | 0139 |
 | 156 | §9.7.5.2's predefined `CMap`s compiled in, and §9.10.2's third method with them | 0140 |
 | 157 | A `TrueType` Collection where §9.9 states a font program, and the face the file names | 0141 |
+| 158 | "units per em is zero" was a symptom; two font programs are simply short | — |

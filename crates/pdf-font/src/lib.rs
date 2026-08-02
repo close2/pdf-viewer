@@ -2433,6 +2433,19 @@ fn embedded_program(
             data
         };
 
+        if program == Program::Sfnt
+            && let Some((table, end)) = truncation(&data)
+        {
+            return Err(FontError::Malformed {
+                name: name.to_owned(),
+                detail: format!(
+                    "the font program is truncated: its \"{table}\" table ends at byte {end} \
+                     and the stream holds {}",
+                    data.len()
+                ),
+            });
+        }
+
         return Ok(Embedded { data, program });
     }
 
@@ -2455,6 +2468,72 @@ fn embedded_program(
     Err(FontError::NotEmbedded {
         name: name.to_owned(),
     })
+}
+
+/// How many bytes an `sfnt`'s own table directory says the program has, when that is more than
+/// it has.
+///
+/// `None` for a program that is whole, which is the ordinary case.
+///
+/// # Why this is worth a check of its own
+///
+/// A truncated program does not fail in a way that names itself. `skrifa` reads the directory,
+/// finds a record pointing past the end, and reports the *table* as missing — so two corpus
+/// documents were refused for eighty sessions with "units per em is zero", which is what
+/// `metrics()` answers when it cannot find `head`. Both are simply short:
+/// `bug1050040.pdf` holds 45 240 bytes of a program whose directory describes 59 210, and
+/// `issue11651.pdf` holds 512 bytes of a ten-table font. §9.9 Table 127 requires the program to
+/// "include these tables: \"glyf\", \"head\", \"hhea\", \"hmtx\", \"loca\", and \"maxp\"", and every
+/// one of them is *named* in these directories — what is absent is the bytes.
+///
+/// **A report is only as good as the condition it fires on** (trap 11), and this is the same
+/// rule about a report's *wording*: a diagnosis nobody can act on is a silence with a sentence
+/// in front of it.
+fn truncation(data: &[u8]) -> Option<(String, u64)> {
+    /// Offset of the first table record, after the twelve-byte directory header.
+    const RECORDS: usize = 12;
+    /// Bytes per table record: tag, checksum, offset, length.
+    const RECORD: usize = 16;
+    /// The one table of §9.9 Table 127's six whose absence stops the program drawing at all.
+    ///
+    /// **The condition was narrowed four times and each time by a document**, which is trap 11
+    /// on a report's condition rather than on its wording. Counting every record refused two
+    /// pages that draw: `issue3405r.pdf` carries a junk record for a table nobody reads,
+    /// putting the program's end at 3.3 GB. Counting `glyf`, then `loca` and `hmtx`, then
+    /// `maxp` refused a third, `issue13316_reduced.pdf`, which was reduced by cutting its font
+    /// short — all four are read *per glyph* or not at all, so a cut costs the glyphs beyond
+    /// it and no more, the same graceful loss §9.7.6.3 describes for an undefined character.
+    ///
+    /// `head` is different in kind: it carries the units per em and `indexToLocFormat`, so
+    /// without it there is no scale to place a glyph at and no way to read `loca`. That is
+    /// what this tree was already refusing — as "units per em is zero", which is what
+    /// `metrics()` answers when it cannot find the table. The refusal is unchanged; what is
+    /// new is that it says why.
+    const REQUIRED: [&[u8; 4]; 1] = [b"head"];
+
+    let count = usize::from(u16::from_be_bytes([*data.get(4)?, *data.get(5)?]));
+    for index in 0..count {
+        let at = RECORDS.checked_add(index.checked_mul(RECORD)?)?;
+        let field = |offset: usize| -> Option<u32> {
+            let bytes =
+                data.get(at.checked_add(offset)?..at.checked_add(offset)?.checked_add(4)?)?;
+            Some(u32::from_be_bytes([
+                *bytes.first()?,
+                *bytes.get(1)?,
+                *bytes.get(2)?,
+                *bytes.get(3)?,
+            ]))
+        };
+        let tag = data.get(at..at.checked_add(4)?)?;
+        if !REQUIRED.iter().any(|required| *required == tag) {
+            continue;
+        }
+        let end = u64::from(field(8)?).checked_add(u64::from(field(12)?))?;
+        if end > data.len() as u64 {
+            return Some((String::from_utf8_lossy(tag).into_owned(), end));
+        }
+    }
+    None
 }
 
 /// Repairs a byte-swapped `indexToLocFormat`, returning the corrected bytes.
@@ -2962,6 +3041,36 @@ mod tests {
 /// missing. Each font here carries exactly one subtable, so exactly one rule of the
 /// subclause can possibly apply to it, and a rule that stops working fails one test by
 /// name. This is trap 8's argument in the handover, from the other direction.
+#[cfg(test)]
+mod truncation_tests {
+    use super::truncation;
+
+    /// Builds a table directory naming one table at `offset` for `length` bytes.
+    fn directory(tag: [u8; 4], offset: u32, length: u32, total: usize) -> Vec<u8> {
+        let mut out = vec![0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0];
+        out.extend_from_slice(&tag);
+        out.extend_from_slice(&0_u32.to_be_bytes());
+        out.extend_from_slice(&offset.to_be_bytes());
+        out.extend_from_slice(&length.to_be_bytes());
+        out.resize(total, 0);
+        out
+    }
+
+    /// The condition, on the table it is about and on a table it is not.
+    #[test]
+    fn only_a_head_table_beyond_the_bytes_is_a_truncation() {
+        // `head` ending at 4000 in a 512-byte program: `issue11651.pdf`'s shape.
+        assert_eq!(
+            truncation(&directory(*b"head", 3900, 100, 512)),
+            Some(("head".to_owned(), 4000))
+        );
+        // The same overrun on `glyf`, which is read per glyph: not a refusal.
+        assert_eq!(truncation(&directory(*b"glyf", 3900, 100, 512)), None);
+        // A whole program says nothing.
+        assert_eq!(truncation(&directory(*b"head", 100, 54, 512)), None);
+    }
+}
+
 #[cfg(test)]
 mod truetype_encoding_tests {
     use super::{
