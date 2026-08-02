@@ -197,24 +197,23 @@ impl SoftMask {
     /// what both backends hand back. A trailing partial pixel is ignored rather than
     /// reported: it cannot arise from a raster either backend produces, and refusing to
     /// build a mask is a blank page where dropping a byte is nothing.
+    ///
+    /// **§11.6.5.1's outside-the-bounding-box rule needs no case here, and that is worth
+    /// saying rather than leaving to be noticed.** Both backends draw the mask group into a
+    /// buffer the size of the *whole target*, so a pixel the group's `/BBox` does not reach is
+    /// `[0, 0, 0, 0]` and [`Self::value`] gives it the transfer function applied to 0.0 for
+    /// `/Alpha` and to the backdrop's luminosity for `/Luminosity` — which is what the clause
+    /// asks for, arrived at by the same arithmetic as every other pixel rather than by a second
+    /// derivation that could drift from the first. This module carried an `outside_value()`
+    /// helper for that rule until the hundred-and-seventy-fifth session and **no backend ever
+    /// called it**: it was a path nobody took, which `CLAUDE.md` forbids, and the tests that
+    /// used it now state the same thing through `value([0, 0, 0, 0])`.
     #[must_use]
     pub fn values(&self, pixels: &[u8]) -> Vec<u8> {
         pixels
             .chunks_exact(4)
             .map(|pixel| self.value([pixel[0], pixel[1], pixel[2], pixel[3]]))
             .collect()
-    }
-
-    /// The mask value everywhere the group's own raster does not reach.
-    ///
-    /// §11.6.5.1 states it for both subtypes — the transfer function applied to 0.0 for
-    /// `/Alpha`, and to the backdrop's luminosity for `/Luminosity` — and it is what a
-    /// backend needs for the area a group-sized buffer does not cover. It is exactly
-    /// [`SoftMask::value`] of a fully transparent pixel, so it is that rather than a second
-    /// derivation that could drift from the first.
-    #[must_use]
-    pub fn outside_value(&self) -> u8 {
-        self.value([0, 0, 0, 0])
     }
 }
 
@@ -237,7 +236,11 @@ mod tests {
         let mask = mask(SoftMaskKind::Alpha, None);
         assert_eq!(mask.value([255, 0, 0, 64]), 64);
         assert_eq!(mask.value([0, 255, 0, 64]), 64);
-        assert_eq!(mask.outside_value(), 0);
+        assert_eq!(
+            mask.value([0, 0, 0, 0]),
+            0,
+            "§11.6.5.1, outside the group's box"
+        );
     }
 
     /// §11.5.3 EXAMPLE 2's coefficients, which are not any library's luminance.
@@ -269,7 +272,7 @@ mod tests {
             },
             None,
         );
-        assert_eq!(white.outside_value(), 255);
+        assert_eq!(white.value([0, 0, 0, 0]), 255);
         assert_eq!(
             white.value([0, 0, 0, 128]),
             127,
@@ -282,7 +285,11 @@ mod tests {
             },
             None,
         );
-        assert_eq!(black.outside_value(), 0, "§11.5.3 NOTE 2's usual choice");
+        assert_eq!(
+            black.value([0, 0, 0, 0]),
+            0,
+            "§11.5.3 NOTE 2's usual choice"
+        );
     }
 
     /// The transfer function is applied after the derivation, to both subtypes.
@@ -303,7 +310,6 @@ mod tests {
 
         let mask = mask(SoftMaskKind::Alpha, Some(inverted));
         assert_eq!(mask.value([0, 0, 0, 0]), 255, "an inverting /TR unmasks");
-        assert_eq!(mask.outside_value(), 255);
         assert_eq!(mask.value([0, 0, 0, 255]), 0);
     }
 

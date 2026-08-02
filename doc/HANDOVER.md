@@ -103,7 +103,8 @@ written down as one (trap 5). The 14 specification PDFs in `doc/` — including 
 
 **Read the oracle's 45% ambiguous with care.** 372 of those pages are two long books set in fonts
 nobody embedded, so each renderer substitutes differently. That row means "reported nothing", not
-"drew it right".
+"drew it right" — and since the hundred-and-seventy-fifth session **emptying it is a task rather
+than a caveat**: §3a.
 
 **Both moving numbers move in both directions on purpose.** Contradicted pages: 174 → 65 over
 sessions 6 to 61, steady at 65 until the hundred-and-forty-eighth took it to 70 and the
@@ -646,6 +647,62 @@ departure this project decided on purpose**, and `CONTRADICTED_ANTIALIASED_EDGES
 off this list), 19 transparency, 10 annotations over 9 documents, 8 malformed images, 8 operator
 soup (`BT` without `ET`, `BDC` without `EMC`, fuzzed streams), 1 content. Session 59's reading of the corpus's own issue trackers says most of the font half is
 glyph rasterisation on files chosen for having hard fonts, which session 68 then measured on one.
+
+### 3a. The ambiguous bucket — **now the largest unwatched thing, and now the task**
+
+**754 of the 1683 pages the oracle judges come back `ambiguous`, and no gate watches one of
+them.** The verdict means "nobody's difference is large enough to call anybody wrong", which is
+the right thing for the *ratchet* to do and is not the same as "right". `issue7406.pdf` drew a
+JPEG cyan-on-black inside an `ambiguous` verdict for as long as anybody looked, and it is correct
+now, and **nothing announced either event**. That is the bucket in one page: unwatched in both
+directions.
+
+The project owner's judgement, in the hundred-and-seventy-fifth session, is that the tree is now
+far enough along for this to be the work rather than a caveat. It is the last large population
+where a defect can live without a name.
+
+**Its shape, measured rather than assumed:**
+
+| | |
+|---|---|
+| ambiguous pages on documents we call complete | **754** |
+| distinct documents they come from | **181** |
+| `freeculture.pdf` (320) and `pdkids.pdf` (52) | **372 — 49% of the bucket, two long books** |
+| documents contributing exactly **one** page | **154** |
+
+So it is two books and a long tail of single pages. The two books are set in fonts nobody
+embedded, so each renderer substitutes differently and the *bound* is loose because the
+references disagree with one another — trap 12's mechanism running the other way. **Take the tail
+first**: 154 documents, one page each, each one a file somebody added to a corpus for a reason.
+
+**And that reason is written down, which is the instrument this task turns on.** Every pdf.js
+fixture is named after the issue that introduced it:
+
+- `issueNNNN…pdf` → `https://github.com/mozilla/pdf.js/issues/NNNN`
+- `bugNNNNNNN…pdf` → `https://bugzilla.mozilla.org/show_bug.cgi?id=NNNNNNN`
+- a suffix is usually a variant the reporter supplied, and **a pair is an A/B**: `issue7891_bc0`
+  and `issue7891_bc1` differ in `/BC [0 0 0]` against `/BC [1 1 1]` and nothing else, which is a
+  conformance test the corpus handed us for free.
+
+Reading the issue turns "five renders differ slightly" into "this file is about the backdrop
+colour of a soft mask" or "about DQT markers placed after `SOF{n}`" before anything is opened.
+The habit already exists — *a test corpus has a bibliography, and nobody had read it* — and it is
+now the **first** step on an ambiguous page rather than an occasional one.
+
+**What "getting rid of" means, and it is not making them agree.** A page leaves this bucket by
+becoming `agrees`, or by joining a **named group with a diagnosis**, exactly as the 72
+contradicted pages have. The contradicted list is the model: `CONTRADICTED_SHARED_JBIG2_DECODER`
+is seven pages where the *gate* is wrong and says so; `CONTRADICTED_ANTIALIASED_EDGES` is two
+pages this project decided to differ on. An ambiguous page with a written reason is watched; one
+without is not. **The target is a ratcheted `AMBIGUOUS_*` set of the same shape**, and the
+denominator rule applies to it too: it may only shrink, except where a rise is written down.
+
+Two cautions carried over from the contradicted work. **Ranking is by our worst measurement over
+the bound it is held to**, which has chosen the next item five times — and here the *other* end
+matters as well: a page where the references agree tightly and we sit just inside a loose bound
+is likelier to be ours than one where everybody disagrees. And the artefacts are already on disk:
+an ambiguous page keeps its `<target>/tmp/oracle/<stem>/p<n>/` directory, so the side-by-side is
+one `Read` away.
 
 **The text gate's 36 below the floor**: fonts where all three of §9.10.2's methods fail *and* the
 program names nothing — six fewer since the third method landed in session 156 — 7 are right-to-left text read back in painting order (**not**
@@ -1473,8 +1530,17 @@ anchor that makes it checkable.
   common failure of the oracle's premise than shared code.
 - **Point your own instrument at their data**, and **ask the reference the same question you asked
   yourself**.
-- **A test corpus has a bibliography, and nobody had read it.** Every pdf.js file is named after an
-  issue that says what is wrong with it. It corrected a written conclusion on the first afternoon.
+- **A test corpus has a bibliography, and it is the first step rather than an occasional one.**
+  Every pdf.js file is named after the issue that introduced it —
+  `issueNNNN…pdf` → `github.com/mozilla/pdf.js/issues/NNNN`, `bugNNNNNNN…pdf` →
+  `bugzilla.mozilla.org/show_bug.cgi?id=NNNNNNN` — and the issue says what the file was added to
+  prove. It corrected a written conclusion on the first afternoon, and §3a now turns on it.
+  **A pair of fixtures with a common stem is an A/B the corpus built for you**: `issue7891_bc0`
+  and `issue7891_bc1` differ in `/BC [0 0 0]` against `/BC [1 1 1]` and in nothing else.
+  Two cautions. The issue describes **that reader's** defect, which may be one this tree does not
+  have — pdf.js's 7891 is *ignoring* `/BC`, which `soft_mask::backdrop` reads and §11.6.5.1's
+  outside-the-bounding-box rule is applied for. And an issue is evidence about a *file*, never
+  about the clause: principle 5 is not suspended because a bug report is specific.
 - **A corpus document can be a conformance test, and then it outranks every renderer**
   (`issue14256.pdf` draws one picture eight ways) — **or check a decoder against itself** (an LZW
   image must decode to exactly `width × height` bytes; 96 documents encode one image ninety-six
