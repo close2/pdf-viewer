@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixty-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixty-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -65,13 +65,13 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **979**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | the fuzzers last in session 153; tests, `clippy`, `fmt`, `deny` and **all four gates** re-run in 155 to 158 |
+| tests | **979**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in session 162: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates and both performance numbers |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in 115 ms | ADR 0126's recipe, session 153 |
-| conformance | 3211 citations, 330 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3213 citations, 330 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -791,6 +791,15 @@ session 147. Per page that is ~180 M and ~250 M of rasterisation against ~43 M o
 **a dense text page spends four to six times as long being drawn as being read**, which is not the
 proportion this file's performance section has historically implied.
 
+**Session 162 re-measured both after the strips landed, and the counter says what the clock does
+not.** Interpretation is **2 139.4 M**, a repeat of 153's 2 137.7 M. Rasterisation is page 6
+**4 543 M** and page 101 **6 691 M** — *up* 26% and 34%, against a wall clock that halved (ADR
+0139's table). Callgrind counts every thread, so a parallel render's instruction count is the
+serial one plus the replay and the planning; the two numbers are measuring different things and
+both are true. **Quote the clock for a parallel change and the counter for a serial one**, and
+say which — a session that reports only the counter here would report a 34% regression on a
+change that made the page appear twice as fast.
+
 **Still open, priced or unpriced**: colour-managing an image in parallel (`issue19971.pdf`'s
 3.4-megapixel photograph went 30 ms → 120 ms when `ICCBased` images began converting through their
 profile; the loop is embarrassingly parallel apart from its memo and rayon is already here, and
@@ -1504,7 +1513,17 @@ anchor that makes it checkable.
   about the time: callgrind put the masks under 4% and the gradient at 78.9%.
 - **A suspiciously clean measurement is a reason to check the instrument.** Four callgrind numbers
   flat to four significant figures meant the benchmark was panicking and callgrind was faithfully
-  counting the panic.
+  counting the panic. **Second instance, session 161**: our ink measured at exactly half the three
+  C renderers' on ten pages running, 2.00 to three significant figures, which is not what hinting
+  does. Our renders and `hayro`'s carry an alpha channel and the three C ones do not, and
+  `magick -colorspace Gray` was averaging alpha in as a fourth channel — so **the tell was that
+  the two renderers agreeing with us were the two whose output *format* matched ours**. Ask what
+  the agreeing group has in common besides the answer.
+- **Look at the heatmap's shape before opening anything else.** Twelve of the oracle's fourteen
+  unexplained pages were diagnosed in two sessions without a debugger: a heatmap that is the
+  whole silhouette says colour, one that is glyph outlines says grid-fitting, and the ink table
+  then says which. Both are three minutes per page against a list that had not moved in twenty
+  sessions.
 - **Measure the instrument before deciding you are slow.** Eleven sessions treated the oracle's 85
   seconds as the price of having an oracle; 95% was three programs re-answering a question.
 - **Measure before optimising, and delete what does not measure.** A `FontRef` cache changed a dense
@@ -1913,3 +1932,4 @@ above rather than here.
 | 159 | Five `partial` rows swept: one blocker expired twice over and fourteen entries called unread | — |
 | 160 | An unexplained contradicted page measured: one `k` operator, and four renderers' profiles | — |
 | 161 | Eleven more measured: the unexplained list is 14 → 2, and the instrument had to be checked | — |
+| 162 | Everything re-verified after seven sessions of change; the strips' instruction cost priced | — |
