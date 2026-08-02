@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-eighty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-eighty-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -87,14 +87,14 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **866** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **880 draw with nothing reported**, **79 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **26 of them diagnosed and 725 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
-| text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
+| text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **114 ms**, and five arrow keys turn to page 6 presenting in 15 to 37 ms with nothing refused. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
-| conformance | 3388 citations, 335 quotations, 183 tables, **823 ledger rows** | `-p conformance` |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **117 ms**, and five arrow keys turn to page 6 presenting in 15 to 35 ms with nothing refused. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
+| conformance | **346 quotations**, all verbatim, 228 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -850,7 +850,24 @@ inside it. It is recorded in `AMBIGUOUS_ZERO_AREA_FILL` with the clause, and the
 `Stroke::device_width`'s shape one level over, in `pdf-render` where both backends inherit it.
 **A group may say "we are wrong" — what it may not do is say nothing.**
 
-What is *not* acceptable is a fourth shape: a group that names no clause. That is the corpus
+What is *not* acceptable is a fourth shape: a group that names no clause.
+
+**Ten sessions in, here is the account.** The bucket went 754 → 751 and that number is the least
+interesting thing about it: 26 pages carry a diagnosis, **five defects were found and four
+fixed** — a page one that was page two (0148), a photograph rendered black (0149), a shading
+painted as a square (0150), a stencil that drew nothing (0151), and a whole grid that disappears
+(recorded, not fixed) — and two of the ten sessions spent their time on what the first found
+underneath: ten documents whose substituted font drew none of its characters in silence (0152) and
+the coverage rule that made eight of them draw (0153). `agrees` went 846 → **847** through a
+denominator that moved twice; that is the wrong number to watch, and *five defects nobody could
+see* is the right one.
+
+**The next item is on the printed ranking and has not been opened**: `issue16038.pdf page 1` at
+20.54 bounds from the nearest reference — two squares of a tiling pattern where our lines are
+paler than everybody's and the black border three references draw is missing on ours. The `B`
+operator fills *and* strokes; we appear to do one of them. After it, `22060_A1_01_Plans.pdf`,
+`freeculture.pdf page 1` (the head of the 320-page book, which is font substitution) and
+`issue13316_reduced.pdf`. That is the corpus
 being treated as the specification, which principle 5 forbids, and it is easy to write because
 the pairwise numbers are cheap and the clause takes an hour.
 
@@ -1143,6 +1160,16 @@ page 6 **4 031 M** against 163's 4 035 M and page 101 **5 550 M** against 5 565 
 of panels, extraction, trigger events and a parallel colour conversion cost the drawing path
 nothing, which is what the numbers are for — and the one place they *did* move is priced beside
 the change that moved it (ADR 0147).
+
+**Session 185 re-measured after the ten from the hundred-and-seventy-sixth, and interpretation is
+the one that moved: 2 156.9 M → 2 175.5 M, +0.86%.** Rasterisation did not — page 6 **4 023.7 M**
+and page 101 **5 566.0 M**, both within the repeat noise of 175's figures — which is the right
+shape, since nothing in those ten sessions touched the rasteriser. The 18.6 M is three things and
+each is priced where it was spent: a type 1 shading's domain is hashed into a clip at every `sh`
+and every shading-pattern fill (ADR 0150), a `Tf` now copies its resource name into the text state
+so a report can say which font it means (ADR 0152), and every show operation tallies whether a
+substituted face drew (ADR 0152). None is on a path a well-formed Latin page takes more than once
+per operator, and all three buy a report or a mark that was missing.
 
 **Colour-managing an image in parallel was taken in the hundred-and-seventy-first, and the item
 named the wrong loop** (ADR 0147). `image::unpack` is the obvious target and is not the one a
@@ -2426,3 +2453,4 @@ above rather than here.
 | 182 | A substitute that draws nothing, and the sentence that said it drew | 0152 |
 | 183 | A substitute chosen by coverage: eight blank pages draw | 0153 |
 | 184 | §10.7.4 says no shape may disappear, and a page of ruling lines does | — |
+| 185 | Everything re-verified after ten sessions of change | — |
