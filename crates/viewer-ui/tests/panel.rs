@@ -23,7 +23,7 @@ use pdf_render::{Rasterizer as _, TargetSpec, Transform};
 use pdf_syntax::ObjectId;
 use render_cpu::CpuRasterizer;
 use viewer_core::Layer;
-use viewer_ui::chrome::{Chrome, Content, Hit, Sidebar};
+use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar};
 
 /// A window this test pretends to have: wide enough for the panel, tall enough for the rows.
 const WIDTH: u32 = 400;
@@ -359,4 +359,49 @@ fn corpus_bytes(name: &str) -> Option<Vec<u8>> {
         .join("../../doc/pdf.js/test/pdfs")
         .join(name);
     std::fs::read(path).ok()
+}
+
+/// The About card draws `/NOTICE` verbatim, in a face whose columns line up, and scrolls.
+///
+/// Both licences covering the compiled-in standard 14 fonts require a *binary* distribution to
+/// reproduce their notices; `--licences` prints them and `tests/notices.rs` checks the file's
+/// content, so what is left to check here is that the card **shows** it — a licence obligation
+/// with a surface nobody can read would be worse than the flag alone.
+///
+/// The fixed pitch is checked rather than assumed: §9.6.2.2's Courier advances every code 600
+/// thousandths of an em, and a proportional face would turn the notice's aligned columns into
+/// ragged prose.
+#[test]
+fn the_about_card_shows_the_notice_and_scrolls_it() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    assert!(
+        (chrome.mono_advance(10.0) - 6.0).abs() < 0.01,
+        "the notice's face is not fixed at 600 thousandths: {}",
+        chrome.mono_advance(10.0)
+    );
+
+    let notice = include_str!("../../../NOTICE");
+    let mut about = About::default();
+    let hidden = about.draw(&chrome, notice, WIDTH, HEIGHT, 1.0);
+    assert_eq!(ink(&hidden, 0..HEIGHT), 0, "a hidden card draws nothing");
+
+    about.toggle();
+    let shown = about.draw(&chrome, notice, WIDTH, HEIGHT, 1.0);
+    let top = ink(&shown, 30..120);
+    assert!(top > 200, "the card's first lines have no glyphs: {top}");
+
+    // Scrolling moves the text and nothing else: the same band of the card shows different ink
+    // afterwards. A card that ignored the scroll would give the identical count.
+    about.scroll(400.0, notice, HEIGHT, 1.0);
+    let scrolled = about.draw(&chrome, notice, WIDTH, HEIGHT, 1.0);
+    assert_ne!(ink(&scrolled, 30..120), top, "the notice did not move");
+
+    // And it cannot be scrolled past its own end: this window is 300 pixels tall and the notice
+    // is 123 lines, so the clamp is what stops the card going blank.
+    about.scroll(1_000_000.0, notice, HEIGHT, 1.0);
+    let far = about.draw(&chrome, notice, WIDTH, HEIGHT, 1.0);
+    assert!(
+        ink(&far, 30..120) > 200,
+        "scrolled past the end and the card is empty"
+    );
 }

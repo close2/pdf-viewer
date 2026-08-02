@@ -113,6 +113,12 @@ pub struct Chrome {
     /// Regular, bold, italic, bold italic — the order [`pdf_font::standard::face`] holds the
     /// same four in.
     faces: [pdf_font::LoadedFont; 4],
+    /// Courier, for text whose *columns* mean something.
+    ///
+    /// `/NOTICE` is wrapped and aligned as characters, so setting it in a proportional face
+    /// would turn its licence texts into ragged prose — and both licences it carries oblige a
+    /// binary to reproduce them. §9.6.2.2 supplies a fixed-pitch face for exactly this.
+    mono: pdf_font::LoadedFont,
 }
 
 impl std::fmt::Debug for Chrome {
@@ -151,7 +157,52 @@ impl Chrome {
                 named("Helvetica-Oblique")?,
                 named("Helvetica-BoldOblique")?,
             ],
+            mono: named("Courier")?,
         })
+    }
+
+    /// One character's advance in the fixed-pitch face, at a size.
+    ///
+    /// A fixed pitch is a fact about the face rather than about a string, which is why this is
+    /// one number and [`Self::width`] is a sum: §9.6.2.2's Courier advances every code 600
+    /// thousandths of an em.
+    #[must_use]
+    pub fn mono_advance(&self, size: f32) -> f32 {
+        self.mono
+            .code_for('0')
+            .map_or(size * 0.6, |code| self.mono.advance(code) * size)
+    }
+
+    /// Draws a line in the fixed-pitch face, with its baseline at `at.1`.
+    pub fn mono_text(&self, list: &mut DisplayList, text: &str, at: (f32, f32), size: f32) {
+        let mut x = at.0;
+        for character in text.chars() {
+            let Some(code) = self.mono.code_for(character) else {
+                // A code the face does not map still advances: the notice's columns are what
+                // this face is for, and skipping the cell would shift the rest of the line.
+                x += self.mono_advance(size);
+                continue;
+            };
+            if let Some(path) = self.mono.outline(code) {
+                list.push(Command::Fill {
+                    path,
+                    transform: Transform {
+                        a: size,
+                        b: 0.0,
+                        c: 0.0,
+                        d: -size,
+                        e: x,
+                        f: at.1,
+                    },
+                    fill_rule: FillRule::NonZero,
+                    paint: Paint::Solid(Color::BLACK),
+                    clip: None,
+                    mask: None,
+                    blend: pdf_render::BlendMode::Normal,
+                });
+            }
+            x += self.mono.advance(code) * size;
+        }
     }
 
     /// The face for a style.
@@ -959,4 +1010,124 @@ fn elide(chrome: &Chrome, label: &str, size: f32, style: Style, room: f32) -> St
     }
     kept.push('…');
     kept
+}
+
+/// The size the notice is set at, in logical pixels.
+///
+/// Chosen from the text rather than from taste: `/NOTICE` is wrapped to 98 columns, and 98 cells
+/// of Courier's fixed 600-thousandths pitch at this size is 588 logical pixels — narrow enough
+/// to fit a window a person has not maximised, and large enough to read.
+const NOTICE_SIZE: f32 = 10.0;
+
+/// The line spacing of the notice, as a multiple of its size.
+const NOTICE_LEADING: f32 = 1.35;
+
+/// How far the card sits inside the window, in logical pixels.
+const NOTICE_MARGIN: f32 = 24.0;
+
+/// The `/NOTICE` this binary carries, shown over the page.
+///
+/// **This is a licence obligation with a surface.** Both licences covering the compiled-in
+/// standard 14 fonts require a *binary* distribution to reproduce their notices "in the
+/// documentation and/or other materials provided with the distribution"; `--licences` has
+/// printed them since the hundred-and-forty-eighth session, and a command-line flag is a poor
+/// answer for a person who is looking at a window. This is the other half, and it is the About
+/// panel the project owner asked for.
+///
+/// Set in Courier and **not re-wrapped**: the file's own line breaks are what keep a BSD
+/// licence's paragraphs and a font list's columns readable, and re-flowing text a licence
+/// obliges this program to reproduce would be editing it.
+#[derive(Debug, Default)]
+pub struct About {
+    /// Whether the card is over the page.
+    pub shown: bool,
+    /// How far down the text is scrolled, in logical pixels, never negative.
+    scroll: f32,
+}
+
+impl About {
+    /// Shows or hides the card.
+    pub fn toggle(&mut self) {
+        self.shown = !self.shown;
+        self.scroll = 0.0;
+    }
+
+    /// Scrolls the notice by a number of **logical** pixels, clamped to its own ends.
+    pub fn scroll(&mut self, by: f32, notice: &str, height: u32, scale: f32) {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a line count and a window height, both thousands at most"
+        )]
+        let (lines, tall) = (
+            notice.lines().count() as f32,
+            height as f32 / scale.max(0.01),
+        );
+        let content = lines * NOTICE_SIZE * NOTICE_LEADING;
+        let furthest = (content - (tall - NOTICE_MARGIN * 4.0)).max(0.0);
+        self.scroll = (self.scroll + by).clamp(0.0, furthest);
+    }
+
+    /// The card, in device pixels of the window.
+    #[must_use]
+    pub fn draw(
+        &self,
+        chrome: &Chrome,
+        notice: &str,
+        width: u32,
+        height: u32,
+        scale: f32,
+    ) -> DisplayList {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's extent in pixels, which is thousands"
+        )]
+        let (wide, tall) = (width as f32, height as f32);
+        let mut list = DisplayList::new(pdf_render::Size {
+            width: wide,
+            height: tall,
+        });
+        if !self.shown {
+            return list;
+        }
+        // The page is still there and is still the document; dimming it says the card is over it
+        // rather than instead of it, which is what a modal panel with no window manager behind
+        // it has to say for itself.
+        rectangle(
+            &mut list,
+            (0.0, 0.0, wide, tall),
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.45,
+            },
+        );
+        let margin = NOTICE_MARGIN * scale;
+        let card = (
+            margin,
+            margin,
+            (wide - margin * 2.0).max(0.0),
+            (tall - margin * 2.0).max(0.0),
+        );
+        rectangle(&mut list, card, Color::WHITE);
+
+        let size = NOTICE_SIZE * scale;
+        let leading = size * NOTICE_LEADING;
+        let left = margin + 16.0 * scale;
+        let first = margin + 16.0 * scale + size - self.scroll * scale;
+        for (index, line) in notice.lines().enumerate() {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a line index, bounded by the notice's own length"
+            )]
+            let baseline = first + index as f32 * leading;
+            // Bounded by the card rather than clipped: a line above or below it is not drawn at
+            // all, which is cheaper than a clip and, for a list of whole lines, identical.
+            if baseline < margin + size || baseline > tall - margin {
+                continue;
+            }
+            chrome.mono_text(&mut list, line, (left, baseline), size);
+        }
+        list
+    }
 }

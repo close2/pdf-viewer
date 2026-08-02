@@ -7,7 +7,8 @@
 //! `--page N` opens at a page. Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, `a`
 //! selects the whole page and dragging selects part of it, `o` shows the sidebar — §12.3.3's
 //! outline, §8.11's layers and §7.11.4's embedded files — `s` saves what was changed beside the
-//! document, Escape quits. The window title shows
+//! document, `?` shows the third-party notices this binary carries, Escape quits. The window
+//! title shows
 //! the page's own label where the document states one (§12.4.2), the page number, and how many
 //! things on the page could not be drawn; the things themselves are printed.
 //!
@@ -59,7 +60,7 @@ use viewer_core::{
     Answer, Command, DocumentId, Event, PageTarget, PointerAction, Purpose, Query, RenderRequest,
     Rendered, Selection, Viewer, Zoom,
 };
-use viewer_ui::chrome::{Chrome, Content, Hit, Sidebar, Tab};
+use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar, Tab};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -178,6 +179,7 @@ fn main() {
             }
         },
         panel: Sidebar::default(),
+        about: About::default(),
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
         context: RenderContext::new(),
@@ -206,7 +208,8 @@ fn usage() {
     eprintln!();
     eprintln!("Arrows, Page Up/Down or Space turn pages; Home and End jump; + and - zoom;");
     eprintln!("o shows the sidebar — the outline, the layers and the embedded files;");
-    eprintln!("drag to select text, a selects the page, s saves, Escape quits.");
+    eprintln!("? shows the third-party notices; drag to select text, a selects the page,");
+    eprintln!("s saves, Escape quits.");
     eprintln!();
     eprintln!("  --no-sandbox  decode JBIG2 and JPEG 2000 images in this process rather than");
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
@@ -291,6 +294,8 @@ struct App {
     chrome: Option<Chrome>,
     /// The three lists a document keeps about itself, as this program draws them.
     panel: Sidebar,
+    /// `/NOTICE`, over the page, which is the About panel the owner asked for.
+    about: About,
     /// §12.3.3's outline and §7.11.4's embedded files, taken once when the document opened.
     ///
     /// Copied out of the queries rather than asked for per frame, and not for speed:
@@ -504,6 +509,16 @@ impl App {
         }
     }
 
+    /// The About card's display list for this frame, or `None` when it is not shown.
+    fn about_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        if !self.about.shown {
+            return None;
+        }
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        Some(self.about.draw(chrome, NOTICE, width, height, scale))
+    }
+
     /// §8.11.4.3's `/Order`, asked for fresh.
     ///
     /// Unlike the outline and the attachments this is *not* cached: a click on a layer's switch
@@ -531,6 +546,9 @@ impl App {
     /// appearance on the page are both answers to "what is under the pointer", and answering
     /// both would leave an annotation lit up behind a panel.
     fn pointer_moved(&mut self) {
+        if self.about.shown {
+            return;
+        }
         let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
         let layers = self.layers();
         // The struct is written out here rather than built by `content`: `self.panel` is
@@ -639,6 +657,14 @@ impl App {
             )]
             winit::event::MouseScrollDelta::PixelDelta(position) => -(position.y as f32),
         };
+        if self.about.shown {
+            let Some((_, height, scale)) = self.window() else {
+                return;
+            };
+            self.about.scroll(by / scale, NOTICE, height, scale);
+            self.redraw();
+            return;
+        }
         if self.over_panel() {
             let Some((_, height, scale)) = self.window() else {
                 return;
@@ -921,7 +947,10 @@ impl App {
                 *x += edge;
             }
         }
-        let panel = self.panel_list(height);
+        let chrome = Overlays {
+            panel: self.panel_list(height),
+            about: self.about_list(width, height),
+        };
         let drawn = if self.processor {
             Err("was not asked, because --cpu".to_owned())
         } else {
@@ -933,7 +962,7 @@ impl App {
                 target,
                 (width, height),
                 &highlight,
-                panel.as_ref(),
+                &chrome,
             )
         };
         if let Err(problem) = drawn {
@@ -945,13 +974,8 @@ impl App {
             // Reported either way. A page drawn by the slower of two backends is a fact about
             // this build worth saying out loud, and saying it is what would have made the
             // hundred-and-forty-second session's report a sentence rather than a mystery.
-            let fallback = self.on_the_processor(
-                &request,
-                target,
-                (width, height),
-                &highlight,
-                panel.as_ref(),
-            );
+            let fallback =
+                self.on_the_processor(&request, target, (width, height), &highlight, &chrome);
             match fallback {
                 Ok(()) if self.processor => {}
                 Ok(()) => println!(
@@ -1052,7 +1076,7 @@ impl App {
         target: TargetSpec,
         viewport: (u32, u32),
         highlight: &[[f32; 8]],
-        panel: Option<&pdf_render::DisplayList>,
+        chrome: &Overlays,
     ) -> Result<(), String> {
         let raster = CpuRasterizer::new()
             .rasterize(&request.list, target)
@@ -1069,7 +1093,7 @@ impl App {
         let mut scene = vello::Scene::new();
         scene.draw_image(&image, vello::kurbo::Affine::IDENTITY);
         draw_selection(&mut scene, highlight);
-        draw_panel(&mut scene, panel, viewport)?;
+        chrome.draw(&mut scene, viewport)?;
 
         let Some(state) = self.state.as_mut() else {
             return Err("has no window".to_owned());
@@ -1204,12 +1228,22 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                     return;
                 }
-                // The one key this program answers itself rather than by sending a command:
+                // The two keys this program answers itself rather than by sending a command:
                 // whether a panel is shown is chrome, and `viewer-core` has no opinion about
                 // chrome by construction (rule 5).
                 if matches!(logical_key.as_ref(), Key::Character("o")) {
                     self.panel.toggle();
                     self.resize_page();
+                    return;
+                }
+                if matches!(logical_key.as_ref(), Key::Character("?")) {
+                    self.about.toggle();
+                    self.redraw();
+                    return;
+                }
+                // Everything else goes to the page, and the About card is over it: a key press
+                // that turned a page nobody can see would be answering the wrong question.
+                if self.about.shown {
                     return;
                 }
                 let Some(command) = key_command(&logical_key.as_ref()) else {
@@ -1228,6 +1262,9 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
+                if self.about.shown {
+                    return;
+                }
                 if self.over_panel() {
                     // Answered once, on the press: a panel that acted on both ends of a click
                     // would follow a destination twice.
@@ -1482,29 +1519,40 @@ fn draw_selection(scene: &mut vello::Scene, quads: &[[f32; 8]]) {
     }
 }
 
-/// Puts the panel's display list on top of the page's scene.
+/// The chrome drawn over a page, as display lists in the window's own pixels.
 ///
-/// The same translation `viewer-core`'s own render takes — `render_gpu::build_scene` — at an
-/// identity transform, because the panel's list is already in the window's device pixels. That
-/// is what makes the panel a display list rather than a pile of Vello calls: the CPU backend
-/// draws it identically, which is what a `--cpu` run and a page the device refuses both need.
-fn draw_panel(
-    scene: &mut vello::Scene,
-    panel: Option<&pdf_render::DisplayList>,
-    viewport: (u32, u32),
-) -> Result<(), String> {
-    let Some(list) = panel else {
-        return Ok(());
-    };
-    let target = TargetSpec {
-        width: viewport.0,
-        height: viewport.1,
-        transform: Transform::IDENTITY,
-    };
-    let drawn = render_gpu::build_scene(list, target, &render_gpu::SoftMaskRasters::none())
-        .map_err(|error| format!("cannot draw its own panel: {error}"))?;
-    scene.append(&drawn, None);
-    Ok(())
+/// Gathered once per frame and handed to whichever backend draws the page, which is why they are
+/// display lists and not Vello calls: the CPU backend draws them identically, and that is what a
+/// `--cpu` run and a page the graphics device refuses both need.
+#[derive(Default)]
+struct Overlays {
+    /// The sidebar, where it is shown.
+    panel: Option<pdf_render::DisplayList>,
+    /// `/NOTICE`, where it is shown. **Second, so it is on top**: it is a modal card and the
+    /// sidebar is behind it.
+    about: Option<pdf_render::DisplayList>,
+}
+
+impl Overlays {
+    /// Puts both on top of the page's scene, in order.
+    fn draw(&self, scene: &mut vello::Scene, viewport: (u32, u32)) -> Result<(), String> {
+        let target = TargetSpec {
+            width: viewport.0,
+            height: viewport.1,
+            transform: Transform::IDENTITY,
+        };
+        for list in [self.panel.as_ref(), self.about.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            // The same translation `viewer-core`'s own render takes, at an identity transform,
+            // because the list is already in the window's device pixels.
+            let drawn = render_gpu::build_scene(list, target, &render_gpu::SoftMaskRasters::none())
+                .map_err(|error| format!("cannot draw its own chrome: {error}"))?;
+            scene.append(&drawn, None);
+        }
+        Ok(())
+    }
 }
 
 /// Reads a password from the terminal, or `None` if the person cancelled with an empty line.
@@ -1525,7 +1573,7 @@ fn draw(
     target: TargetSpec,
     viewport: (u32, u32),
     highlight: &[[f32; 8]],
-    panel: Option<&pdf_render::DisplayList>,
+    chrome: &Overlays,
 ) -> Result<(), String> {
     let (width, height) = viewport;
     let handle = &context.devices[state.surface.dev_id];
@@ -1548,7 +1596,7 @@ fn draw(
     let mut scene = render_gpu::build_scene(list, target, &masks)
         .map_err(|_| "contains content this build cannot draw".to_owned())?;
     draw_selection(&mut scene, highlight);
-    draw_panel(&mut scene, panel, viewport)?;
+    chrome.draw(&mut scene, viewport)?;
 
     // `render_gpu::render_checked` rather than `Renderer::render_to_texture`: the latter returns
     // `Ok` over a target the device left blank, which is the black page this session was reported

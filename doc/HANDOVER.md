@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -75,7 +75,7 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **995**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **996**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
@@ -301,8 +301,8 @@ turning a page *object* into an index is a page-tree walk a host cannot do.
 
 **All three arrived, and the second session cost less than half of the first.** The layers and
 the files tabs landed in the hundred-and-sixty-seventh (ADR 0143), which is what the text drawing
-bought. What is left of the sidebar is the About panel §1 asks for and extracting an attachment's
-bytes; what is left of §0 is a *native* host. None of the four gates can see any of it, which is
+bought; extraction in the hundred-and-sixty-ninth and §1's About card in the
+hundred-and-seventy-second. What is left of §0 is a *native* host. None of the four gates can see any of it, which is
 why `viewer-ui/tests/panel.rs` rasterises the chrome with `render-cpu` and counts ink rather than
 asserting a command count.
 
@@ -481,10 +481,11 @@ notice and a pointer to the fork that generated it. **`hayro`'s is the closest p
    `pdf-viewer --licences` `include_str!`s and prints it; `viewer-ui/tests/notices.rs` checks that
    every `.pfb` and `.ttf` under `data/` is named **by file name**, that the required sentences
    are verbatim, and that the bytes still hash to `SHA256SUMS`. That test exists because
-   `cargo deny` reads Cargo metadata and **cannot see vendored data**. What is still owed is the
-   **menu with an About panel** the owner asked for: there is no UI toolkit here, so it is drawn
-   with `pdf-font`'s glyph outlines and `pdf-render`'s display list, which step 2 has now made
-   possible on any machine.
+   `cargo deny` reads Cargo metadata and **cannot see vendored data**. **The About panel the
+   owner asked for landed in the hundred-and-seventy-second** — `?` puts `/NOTICE` over the page
+   as a card, set in §9.6.2.2's own Courier so its columns line up and **not re-wrapped**,
+   because re-flowing text a licence obliges this program to reproduce would be editing it. So
+   the obligation now has a surface a person can reach as well as a flag.
 2. **The 14 standard fonts — done in the hundred-and-forty-eighth session** (ADR 0133), together
    with step 1, because step 1 exists to serve it. `data/standard-fonts/` holds the 804 KB,
    `pdf_font::standard` compiles it in, and `substitute::find` consults it first for a
@@ -923,7 +924,9 @@ arrows scroll a page larger than the window, the wheel scrolls whatever is under
 the sidebar** — three tabs: §12.3.3's outline, where a click on a title goes there and a click on
 the triangle opens a subtree; §8.11.4.3's layers, where a click on a switch turns a layer on or
 off unless Table 99's `/Locked` forbids it; and §7.11.4's embedded files, where a click writes the
-file beside the document — and Escape quits. The title bar names how many things on
+file beside the document. **`?` puts `/NOTICE` over the page**, scrollable, which is the About
+panel and the visible half of what both vendored-font licences oblige a binary to carry. Escape
+quits. The title bar names how many things on
 the page could not be drawn and the things themselves are printed. A click follows §12.5.6.5's
 links and performs the eleven §12.6 actions this program can, printing every refusal — including
 §12.7.6.4's import, which reads an FDF file **beside the open document** and nowhere else. A
@@ -2079,3 +2082,4 @@ above rather than here.
 | 169 | An embedded file comes out of the document, and its checksum finds a place to be checked | 0145 |
 | 170 | A catalog row wrong about eighteen entries, and the two the sweep made worth building | 0146 |
 | 171 | A photograph's colours converted on eight threads; the priced item named the wrong loop | 0147 |
+| 172 | `/NOTICE` over the page in Courier: the About panel the owner asked for | — |
