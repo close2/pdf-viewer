@@ -1294,6 +1294,15 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// `ambiguous` means when it is telling the truth — and it is corroboration, not the finding.
 /// The finding is the paragraph above, and it came from the clause.
 ///
+/// **`issue13372.pdf` page 1 is the same clause over a one-bit raster**, added in the
+/// hundred-and-eighty-first session: a 646x761 CCITT *stencil* of a halftone screen, drawn
+/// through an axial shading pattern into about 300x390 device pixels. Reducing a halftone by
+/// two is where resampling differences are loudest — the screen and the pixel grid beat
+/// against each other — and the four renderers produce four moirés. Ours sits closest of all
+/// six pairs: 0.0093 from `mupdf`, 0.0233 from `ghostscript` and 0.0461 from `poppler`,
+/// against a *best* reference pair of 0.0319. The page drew nothing at all until that session
+/// (ADR 0151), which is why it is here rather than in the undiagnosed list.
+///
 /// **Both pages are here because of the session that put them here.** Until the
 /// hundred-and-seventy-seventh this document drew the *second* page as the first and had no
 /// second page at all — its first cross-reference section files every entry one object number
@@ -1301,7 +1310,11 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// bounds from the nearest reference, the largest in the corpus. The repair moved it to under
 /// 10 and made page 2 render at all, which is why the undiagnosed list gained a name in the
 /// same session that lost one.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 2] = ["issue7229.pdf page 1", "issue7229.pdf page 2"];
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 3] = [
+    "issue7229.pdf page 1",
+    "issue7229.pdf page 2",
+    "issue13372.pdf page 1",
+];
 
 /// Ambiguous, and the specification says how far it can be settled — which is not all the way.
 ///

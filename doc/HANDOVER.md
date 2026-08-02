@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-eightieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-eighty-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -88,8 +88,8 @@ that exists (ADR 0146).
 | gate | number | where |
 |---|---|---|
 | tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
-| corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **24 of them diagnosed and 731 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **35 s** |
+| corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **883 draw with nothing reported**, **76 report something** — two of them new in the hundred-and-eighty-first, where a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (ADR 0151) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **25 of them diagnosed and 729 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **35 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -171,6 +171,7 @@ documents' first pages it affects.
 
 | Missing | Corpus | Notes |
 |---|---|---|
+| A stencil painted with a *tiling* pattern (§8.9.6.2) | 2 | 5 images over 2 documents. The shading half landed in the hundred-and-eighty-first — the stencil becomes a §11.5.2 alpha mask and the pattern fills through it (ADR 0151) — and a tiling pattern is a replayed content stream rather than a paint, so it needs the tiling machinery to accept a mask. Refused by name; it used to be painted in whatever colour the state last held. |
 | A `/DA` font `/DR` does not define | 7 | A malformed file, not a clause gap: §12.7.4.3 requires the name to match a `/DR` entry. Since ADR 0112 the value is laid out in a stand-in **where the stand-in can draw all of it** and the missing font is named; four Arabic-valued documents decline, because a Latin stand-in drawing their punctuation is worse than a blank. |
 | A composite `/DA` font, a list box, `/DS`, `/RV` | 0 | The rest of §12.7.4.3's edges, none reached. A composite font needs §9.7.6.2's codespace ranges inverted; §12.7.5.4 states which items are selected and nothing about how that *looks*; `/DS` and `/RV` are XFA. |
 | Public-key handlers (§7.6.5) | 0 | CMS enveloped data, X.509, the user's private keys — an infrastructure and a threat model, not a cipher. |
@@ -797,6 +798,17 @@ composed by the interpreter from the domain's four corners exactly as Table 77's
 is, and both backends inherit it. ADR 0150, and the row for that clause had said `implemented`
 throughout. **Open the side-by-side before the numbers**: the ranking chose the page, and the
 picture named the defect in one look.
+
+**The fifth session found the worst kind of page the bucket can hide.** `issue13372.pdf page 1` is
+a stencil mask painted with a shading pattern, and this reader drew a **blank page** and called the
+document complete — one command, `unsupported: []`, nothing to see. A stencil is drawn as an image
+whose samples carry the fill colour and **no image sample can carry a pattern**, so `scn` with a
+pattern name left `state.fill` at its initial transparent black and every layer did its job. It
+sat at 26.95 bounds inside a verdict that cannot distinguish a blank page from a grainy one:
+`ambiguous` is not a measure of how wrong a page is. §8.9.6.2 and §8.7.2 meet in the fix — the
+stencil becomes a §11.5.2 alpha soft mask and the pattern fills the image's unit square through it
+— and the two cases that construction cannot take are refused by name, at a cost of two documents
+and the corpus's incomplete count going 74 → 76. ADR 0151.
 
 What is *not* acceptable is a fourth shape: a group that names no clause. That is the corpus
 being treated as the specification, which principle 5 forbids, and it is easy to write because
@@ -2370,3 +2382,4 @@ above rather than here.
 | 178 | A CMYK JPEG converted by its decoder rather than by the one conversion | 0149 |
 | 179 | §10.7.5's last sentence decides a page four renderers could not | — |
 | 180 | A type 1 shading's domain is a parallelogram, and we painted a square | 0150 |
+| 181 | A stencil whose current colour is a pattern: a blank page, reported complete | 0151 |

@@ -202,6 +202,75 @@ fn a_decode_array_of_one_zero_reverses_the_stencil() {
     );
 }
 
+/// The current colour a stencil paints may be a *pattern*, and then it is the pattern.
+///
+/// §8.9.6.2 says what a stencil does — "determines which areas of the page to paint with the
+/// current colour" — and §8.7.2 says what the current colour may be:
+///
+/// > All patterns shall be treated as colours; a Pattern colour space shall be established
+/// > with the CS or cs operator just like other colour spaces, and a particular pattern shall
+/// > be installed as the current colour with the SCN or scn operator
+///
+/// A pattern is not a colour any image sample can carry, so the two are recomposed: the
+/// stencil becomes a §11.5.2 alpha soft mask and the pattern fills the image's unit square
+/// through it. `issue13372.pdf` is the corpus witness — a CCITT stencil over an axial shading
+/// — and this reader drew **nothing** for it, silently, because `image::decode` was handed a
+/// fill colour a pattern never sets. ADR 0151.
+///
+/// The gradient is what makes this discriminating: a reader that painted the stencil in some
+/// single colour would satisfy every "is it marked" assertion and fail the last two.
+#[test]
+fn a_stencil_whose_current_colour_is_a_pattern_is_painted_with_the_pattern() {
+    let content = "/Pattern cs /P0 scn 40 0 0 40 0 0 cm /Im Do";
+    let objects = vec![
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Resources << /XObject << /Im 5 0 R >> /Pattern << /P0 6 0 R >> >> \
+          /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", content.as_bytes()),
+        stream_object(
+            5,
+            "/Type /XObject /Subtype /Image /Width 4 /Height 2 /ImageMask true",
+            PATTERN,
+        ),
+        b"6 0 obj\n<< /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB \
+          /Coords [0 0 40 0] /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] \
+          /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >> >>\nendobj\n"
+            .to_vec(),
+    ];
+    let raster = render(assemble(&objects));
+
+    // The cells the stencil marks, and the ones it does not, are unchanged by the pattern.
+    assert!(
+        pixel(&raster, 5, 30)[3] > 128,
+        "top row, first cell, marked"
+    );
+    assert!(
+        pixel(&raster, 25, 30)[3] < 32,
+        "top row, third cell, unmarked"
+    );
+    assert!(
+        pixel(&raster, 35, 5)[3] < 32,
+        "bottom row, fourth cell, unmarked"
+    );
+
+    // And what marks them is the *gradient*: red at the left edge, well into blue three
+    // cells along, where a solid colour would give the same pixel twice.
+    let left = pixel(&raster, 5, 5);
+    let right = pixel(&raster, 25, 5);
+    assert!(
+        left[0] > 200 && left[2] < 64,
+        "the left of the shading is its first colour, got {left:?}"
+    );
+    assert!(
+        right[2] > left[2] + 64,
+        "three cells along the shading has run towards its second colour: {left:?} then \
+         {right:?}"
+    );
+}
+
 /// Interprets a fixture without demanding that it drew completely.
 fn interpret(bytes: Vec<u8>) -> pdf_model::Interpretation {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");

@@ -1912,8 +1912,8 @@ clause = "8.9.6.2"
 title = "Stencil masking"
 status = "partial"
 code = ["crates/pdf-model/src/image.rs"]
-test = ["crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone", "crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"]
-note = "The three differences the clause states are implemented: no /ColorSpace is consulted, /BitsPerComponent is forced to 1, and /Decode [0 1] against [1 0] decides which sample value marks the page. What is not implemented is the last sentence: interpolation (§8.9.5.3) should smooth a low-resolution stencil's edges, and /Interpolate is read nowhere in this tree."
+test = ["crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone", "crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil", "crates/pdf-model/tests/image_masks.rs::a_stencil_whose_current_colour_is_a_pattern_is_painted_with_the_pattern"]
+note = "The three differences the clause states are implemented: no /ColorSpace is consulted, /BitsPerComponent is forced to 1, and /Decode [0 1] against [1 0] decides which sample value marks the page. **And the current colour may be a pattern, which is where this row was silently wrong until the hundred-and-eighty-first session**: \"the current colour\" is §8.7.2's, a stencil was drawn as an image carrying that colour, and no image sample can carry a pattern — so `issue13372.pdf` drew nothing and said nothing. A shading pattern is recomposed out of what the display list has: the stencil becomes a §11.5.2 alpha soft mask and the pattern fills the image's unit square through it (ADR 0151). Two cases are now refused by name instead: a **tiling** pattern, which is a replayed content stream rather than a paint (2 corpus documents, 5 images), and a stencil under a graphics-state soft mask, which would be two masks on one command. What is also not implemented is the clause's last sentence: interpolation (§8.9.5.3) should smooth a low-resolution stencil's edges, and /Interpolate is read nowhere in this tree."
 
 [[clause]]
 clause = "8.9.6.3"

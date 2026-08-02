@@ -3316,9 +3316,13 @@ impl Interpreter<'_> {
     /// this clause's answer and so the interpreter's to compose, exactly as Table 77's
     /// `/BBox` is.
     ///
-    /// `Background` is not implemented and is [`Unsupported::Shading`]'s to report; a shading
-    /// that states one is refused before it reaches here, so leaving these points unpainted is
-    /// the clause's other branch rather than a choice between them.
+    /// **`Background` is not implemented and not reported**, which is Table 77's own gap
+    /// rather than this function's: the ledger's §8.7.4.3 row carries it, two corpus documents
+    /// write one, and the entry applies only where a shading is used as a *pattern*. So this
+    /// leaves the outside unpainted, which is the clause's branch for a shading that states no
+    /// background — and a shading that states one gets the same treatment silently. An earlier
+    /// version of this comment claimed such a shading was refused before reaching here; it is
+    /// not.
     ///
     /// Nothing happens for any other shading type: an axial or radial shading says where it
     /// stops through `/Extend`, which its ramp already carries, and a mesh through its
@@ -3501,6 +3505,18 @@ impl Interpreter<'_> {
                 name: format!("{name}: {detail}"),
             });
         }
+        // §8.9.6.2 with §8.7.3.3: a stencil "does not specify colours; instead, it
+        // designates places where the current colour is painted", and the current colour may
+        // be a *pattern*, which is not a colour this or any other command can carry.
+        if matches!(
+            self.document.get_key(&stream.dict, "ImageMask"),
+            Object::Boolean(true)
+        ) && state.fill_pattern.is_some()
+        {
+            self.stencil_through_a_pattern(stream, name, resources, state);
+            return;
+        }
+
         // A PDF image occupies the unit square in user space, so the command's transform is
         // the current transform and nothing else.
         match crate::image::decode(self.document, stream, resources, state.fill) {
@@ -3522,6 +3538,109 @@ impl Interpreter<'_> {
                 name: format!("{name}: {error}"),
             }),
         }
+    }
+
+    /// Paints a stencil mask whose current colour is a pattern (§8.7.2 with §8.9.6.2).
+    ///
+    /// > Sample values in the image do not represent black and white pixels; rather, they
+    /// > designate places on the page that should either be marked with the current colour or
+    /// > masked out (not marked at all)
+    ///
+    /// A stencil is normally drawn as an image whose samples carry the fill colour, which is
+    /// what [`crate::image::decode`]'s `fill` parameter is for. A **pattern** is not a colour
+    /// an image sample can carry, and §8.7.2 makes one the current colour all the same:
+    ///
+    /// > All patterns shall be treated as colours; a Pattern colour space shall be
+    /// > established with the CS or cs operator just like other colour spaces, and a
+    /// > particular pattern shall be installed as the current colour with the SCN or scn
+    /// > operator
+    ///
+    /// So the two halves are separated and recomposed out of what the
+    /// display list already has: the stencil becomes a §11.5.2 *alpha* soft mask — its marked
+    /// samples are opaque and the rest are not, which is exactly the areas the clause names —
+    /// and the pattern paints the image's unit square through it.
+    ///
+    /// `issue13372.pdf` is the corpus witness, a CCITT stencil over an axial shading pattern,
+    /// and this reader drew **nothing** for it and said nothing either: `image::decode` was
+    /// handed `state.fill`, which a pattern leaves at its initial black with zero alpha.
+    ///
+    /// Two cases are refused by name rather than approximated. A **tiling** pattern is not a
+    /// paint at all — it is a content stream replayed per cell — so it cannot be handed to a
+    /// `Fill`, and building the cells through this mask needs the replay machinery to accept
+    /// one; no corpus document asks. And a stencil under a graphics-state soft mask would need
+    /// two masks where a command carries one, which §11.6.5 makes a composition rather than a
+    /// choice.
+    fn stencil_through_a_pattern(
+        &mut self,
+        stream: &Arc<pdf_syntax::Stream>,
+        name: &str,
+        resources: &Dictionary,
+        state: &GraphicsState,
+    ) {
+        let Some(PatternPaint::Shading(..)) = &state.fill_pattern else {
+            self.note(Unsupported::Image {
+                name: format!("{name}: a stencil mask painted with a tiling pattern (§8.9.6.2)"),
+            });
+            return;
+        };
+        if state.soft_mask.is_some() {
+            self.note(Unsupported::Image {
+                name: format!(
+                    "{name}: a stencil mask painted with a shading pattern under a soft mask, \
+                     which would be two masks on one command (§8.9.6.2, §11.6.5)"
+                ),
+            });
+            return;
+        }
+        // The colour handed to the decode is irrelevant and must be opaque: §11.5.2 derives
+        // the mask "from the alpha of the group", so only the samples' coverage is read.
+        let image = match crate::image::decode(self.document, stream, resources, Color::BLACK) {
+            Ok(image) => image,
+            Err(error) => {
+                self.note(Unsupported::Image {
+                    name: format!("{name}: {error}"),
+                });
+                return;
+            }
+        };
+        let mask = pdf_render::SoftMask {
+            commands: vec![Command::Image {
+                image,
+                transform: state.transform,
+                alpha: 1.0,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            }],
+            kind: pdf_render::SoftMaskKind::Alpha,
+            transfer: None,
+        };
+        let Ok(mask) = self.list.add_soft_mask(mask) else {
+            self.note(Unsupported::LimitReached {
+                limit: "max_soft_masks",
+            });
+            return;
+        };
+
+        // The image's own unit square, which is the region the stencil can mark.
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+        path.push(PathCommand::LineTo(Point::new(1.0, 0.0)));
+        path.push(PathCommand::LineTo(Point::new(1.0, 1.0)));
+        path.push(PathCommand::LineTo(Point::new(0.0, 1.0)));
+        path.push(PathCommand::Close);
+        // The pattern's own `/BBox` and a type 1 shading's domain are composed here, as they
+        // are for any other fill through a shading pattern.
+        let clip = self.paint_clip(state, true);
+        self.list.push(Command::Fill {
+            path: Arc::new(path),
+            transform: state.transform,
+            fill_rule: FillRule::NonZero,
+            paint: state.fill_paint(),
+            clip,
+            mask: Some(mask),
+            blend: state.blend,
+        });
     }
 
     /// Draws the page's annotations over its content, in `/Annots` order.

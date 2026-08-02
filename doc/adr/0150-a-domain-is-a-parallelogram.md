@@ -52,9 +52,14 @@ stops through `/Extend`, which the ramp carries as transparent stops (§8.7.4.5.
 through its triangles. `ShadingKind::Sampled` is produced by `function_based` and by nothing else,
 which is what makes the match arm a type test.
 
-`/Background` remains unimplemented and reported; a shading that states one is refused before it
-reaches here, so leaving these points unpainted is the clause's other branch rather than a choice
-between them.
+`/Background` remains unimplemented, and **the first version of this paragraph said it was
+*refused*, which is false**: nothing reads Table 77's entry and nothing reports it. What the
+ledger's §8.7.4.3 row says is what is true — it is unimplemented, two corpus documents write one,
+and it applies only "when the shading is used as part of a shading pattern, not when painted
+directly with the sh operator". So the clip composed here leaves those points unpainted, which is
+the clause's branch for a shading with **no** `/Background`, and a shading that states one gets
+the same treatment without saying so. Corrected in the hundred-and-eighty-first session, which met
+the entry on `issue13372.pdf`.
 
 ## What it cost
 

@@ -479,11 +479,9 @@ issue13242.pdf page 1
 issue13316_reduced.pdf page 1
 issue13343.pdf page 1
 issue13343.pdf page 2
-issue13372.pdf page 1
 issue1350.pdf page 1
 issue1350.pdf page 2
 issue1350.pdf page 3
-issue13561_reduced.pdf page 1
 issue14953.pdf page 1
 issue14999_reduced.pdf page 1
 issue15012.pdf page 1
