@@ -23,6 +23,8 @@ mod blend;
 mod convert;
 mod shading;
 
+use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
+use rayon::slice::ParallelSliceMut as _;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use pdf_render::{
@@ -35,6 +37,7 @@ use pdf_render::{
 pub struct CpuRasterizer {
     background: Color,
     anti_alias: bool,
+    strips: Option<u32>,
 }
 
 impl CpuRasterizer {
@@ -49,7 +52,21 @@ impl CpuRasterizer {
         Self {
             background: Color::WHITE,
             anti_alias: true,
+            strips: None,
         }
+    }
+
+    /// Asks for a fixed number of horizontal strips instead of one per available core.
+    ///
+    /// **This changes how long a page takes and not what it looks like**, which is the whole
+    /// claim of [`CpuRasterizer::encode_in_strips`] and is why the knob is public: the property
+    /// is only checkable by rendering one page several ways and comparing the bytes, which is
+    /// what `strip_parallelism.rs` does. A page still gets fewer strips than asked for where
+    /// its curves forbid the cuts.
+    #[must_use]
+    pub fn with_strips(mut self, strips: u32) -> Self {
+        self.strips = Some(strips);
+        self
     }
 
     /// Sets the background colour painted before any command.
@@ -148,22 +165,28 @@ impl Rasterizer for CpuRasterizer {
         // page's elements composite onto transparency and the medium's colour is applied to
         // the result — see `impose_on_medium`, which both backends end with.
 
-        let mut masks = MaskCache::new(target, self.anti_alias);
-        self.encode(
-            &mut pixmap,
-            list,
-            list.commands(),
-            target,
-            &mut masks,
-            0,
-            Compose::Over,
-        )?;
+        self.encode_in_strips(&mut pixmap, list, target)?;
 
         // §11.4.7's page group is isolated, so the medium's colour is composited with the
         // finished page rather than being the backdrop its blend modes saw. Before the
         // conversion below, because `tiny-skia`'s pixels are premultiplied here and that is
         // where the composite is exact.
-        impose_on_medium(pixmap.data_mut(), self.background);
+        //
+        // Both this and the conversion below are per-pixel and independent, so they are run
+        // across the same rows the strips used. **They are not an afterthought**: on a
+        // 1192×1684 page they were together a third of what was left after the drawing was
+        // divided, and a serial third is a 3× ceiling however many strips the page grants.
+        // Splitting a per-pixel pass changes no byte, which is why it needs no rule of its
+        // own.
+        // Per-pixel and independent, so it is split across the same rows the strips used.
+        // Splitting a per-pixel pass changes no byte, which is why it needs no rule of its
+        // own; it is here because after the drawing is divided a serial pass over every pixel
+        // is what is left to bound the speed-up.
+        let stride = (target.width as usize).saturating_mul(4).max(4);
+        pixmap
+            .data_mut()
+            .par_chunks_mut(stride.saturating_mul(PIXEL_PASS_ROWS))
+            .for_each(|rows| impose_on_medium(rows, self.background));
 
         Ok(Raster {
             width: target.width,
@@ -177,7 +200,131 @@ impl Rasterizer for CpuRasterizer {
     }
 }
 
+/// Most horizontal strips one page is divided into, whatever the machine offers.
+///
+/// A strip carries its own mask cache, its own group buffers and its own soft masks, so the
+/// per-strip constants are what bound this rather than the thread count: sixteen strips of a
+/// 842-row page are 52 rows apiece, which is shorter than many clip bands. The cores beyond it
+/// are not idle in a viewer — pages are rendered on their own threads above this one.
+const MAX_STRIPS: u32 = 16;
+
+/// Most work a split may replay, as a multiple of the command list itself.
+///
+/// See [`pdf_render::replay_ratio`]: a command reaching two strips is built, bounded and
+/// pipelined twice, and on a page of a few page-wide commands that duplication is the whole
+/// render. A quarter more is what a page of small marks costs and a page of page-wide ones
+/// cannot reach.
+const MAX_REPLAY: f64 = 1.25;
+
+/// Rows a per-pixel pass over the finished page hands one thread at a time.
+///
+/// Large enough that a page under this many rows is done on one thread, which is where the
+/// scheduling would cost more than the work.
+const PIXEL_PASS_ROWS: usize = 64;
+
+/// Fewest rows a strip may have, below which the target is drawn serially.
+///
+/// A strip pays for a mask cache and a replay of the command list, and a page thumbnail is not
+/// worth either.
+const MIN_STRIP_ROWS: u32 = 64;
+
 impl CpuRasterizer {
+    /// Draws the whole list into `pixmap`, in parallel where the page permits it exactly.
+    ///
+    /// # Why a strip is not simply a band
+    ///
+    /// [`Band`] already restricts a command to the rows its clip admits, and cutting the page
+    /// into runs of rows and replaying the list into each is the same geometry one level up
+    /// (ADR 0137). What makes it a decision rather than a refactor is that **it is only exact
+    /// at some rows**: rasterising a path into a surface that does not contain it chops the
+    /// path against the surface's edge, and a *curve* chopped at an edge is re-parameterised,
+    /// so its coverage differs from the unclipped curve's by up to a quarter of a channel.
+    /// ADR 0138 shipped nothing for that reason — four oracle pages stopped agreeing with the
+    /// reference consensus — and ADR 0139 is the probe that says exactly where the difference
+    /// is: a cut at a row no curve crosses is **bit-identical** to the serial render, and one
+    /// at a row a curve crosses is not.
+    ///
+    /// So [`pdf_render::unsplittable_rows`] names the rows a curve crosses and
+    /// [`pdf_render::strip_boundaries_avoiding`] cuts only at the others. A page that grants
+    /// none — one wide gradient under one curved clip, `bug1721218_reduced.pdf` — is drawn
+    /// serially, which is not a fallback but the only division of it that draws the same page.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`]. A strip that fails takes the render with it: half a page
+    /// is not a result.
+    fn encode_in_strips(
+        &self,
+        pixmap: &mut tiny_skia::Pixmap,
+        list: &DisplayList,
+        target: TargetSpec,
+    ) -> Result<(), CpuRasterError> {
+        let boundaries = plan_strips(list, target, self.strips);
+        let strips = boundaries.len().saturating_sub(1);
+        if strips < 2 {
+            let mut masks = MaskCache::new(target, self.anti_alias, MASK_BUDGET);
+            return self.encode(
+                &mut pixmap.as_mut(),
+                list,
+                list.commands(),
+                target,
+                &mut masks,
+                0,
+                Compose::Over,
+            );
+        }
+
+        // The budget is divided rather than multiplied: the masks of a strip are a strip tall,
+        // so the same total memory buys the same coverage of the page it did serially.
+        let budget = MASK_BUDGET.checked_div(strips).unwrap_or(MASK_BUDGET);
+        let width = pixmap.width();
+        let stride = (width as usize).saturating_mul(4);
+        let mut rest = pixmap.data_mut();
+        let mut pieces = Vec::with_capacity(strips);
+        for pair in boundaries.windows(2) {
+            let (top, bottom) = (pair.first().copied().unwrap_or(0), pair.get(1).copied());
+            let Some(bottom) = bottom else { break };
+            let rows = bottom.saturating_sub(top);
+            let (piece, tail) =
+                rest.split_at_mut((rows as usize).saturating_mul(stride).min(rest.len()));
+            rest = tail;
+            pieces.push((top, rows, piece));
+        }
+
+        pieces
+            .into_par_iter()
+            .try_for_each(|(top, rows, piece)| -> Result<(), CpuRasterError> {
+                let spec = TargetSpec {
+                    width,
+                    height: rows,
+                    #[expect(
+                        clippy::cast_precision_loss,
+                        reason = "rasterize rejects a target taller than MAX_EXTENT = 2^24, \
+                                  every integer below which is exact in f32"
+                    )]
+                    transform: target
+                        .transform
+                        .then(Transform::translate(0.0, -(top as f32))),
+                };
+                let mut surface = tiny_skia::PixmapMut::from_bytes(piece, width, rows).ok_or(
+                    CpuRasterError::Allocation {
+                        width,
+                        height: rows,
+                    },
+                )?;
+                let mut masks = MaskCache::new(spec, self.anti_alias, budget);
+                self.encode(
+                    &mut surface,
+                    list,
+                    list.commands(),
+                    spec,
+                    &mut masks,
+                    0,
+                    Compose::Over,
+                )
+            })
+    }
+
     /// Turns a dash pattern's zero-length dashes into marks, ISO 32000-2 §8.5.3.2.
     ///
     /// > This rule shall apply only to zero-length subpaths of the path being stroked, and
@@ -313,7 +460,7 @@ impl CpuRasterizer {
     )]
     fn encode(
         &self,
-        pixmap: &mut tiny_skia::Pixmap,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
         list: &DisplayList,
         commands: &[Command],
         target: TargetSpec,
@@ -322,6 +469,16 @@ impl CpuRasterizer {
         compose: Compose,
     ) -> Result<(), CpuRasterError> {
         for command in commands {
+            // A command whose extent misses this target marks nothing, and saying so here is
+            // what makes a strip cost what its own rows cost: without it every strip would
+            // build every command's path and compile every command's pipeline, which session
+            // 154 measured at 19% of a dense page's rasterisation. A row of margin, for the
+            // same reason `Band::covering` takes one — the extent comes from control points
+            // and the mask from the path.
+            if misses_target(command, target) {
+                continue;
+            }
+
             // A soft mask is evaluated before anything borrows the cache, because building
             // it renders a whole command list of its own and so needs the cache mutably.
             // Idempotent: the second command under the same mask finds it already there.
@@ -435,7 +592,7 @@ impl CpuRasterizer {
     /// beats two that have to agree.
     fn draw_group(
         &self,
-        pixmap: &mut tiny_skia::Pixmap,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
         list: &DisplayList,
         group: Group<'_>,
         target: TargetSpec,
@@ -464,7 +621,7 @@ impl CpuRasterizer {
             },
         )?;
         self.encode(
-            &mut buffer,
+            &mut buffer.as_mut(),
             list,
             group.commands,
             target,
@@ -584,7 +741,7 @@ impl CpuRasterizer {
         // A soft mask's group is evaluated as §11.4.5's ordinary group: `SoftMask` carries
         // no knockout flag, and `pdf-model` reports a mask group that asks for one.
         self.encode(
-            &mut buffer,
+            &mut buffer.as_mut(),
             list,
             &mask.commands,
             target,
@@ -1010,7 +1167,10 @@ impl Band {
     ///
     /// `None` only if the band does not lie within the pixmap, which
     /// [`Band::covering`] does not produce.
-    fn rows(self, pixmap: &mut tiny_skia::Pixmap) -> Option<tiny_skia::PixmapMut<'_>> {
+    fn rows<'a>(
+        self,
+        pixmap: &'a mut tiny_skia::PixmapMut<'_>,
+    ) -> Option<tiny_skia::PixmapMut<'a>> {
         let width = pixmap.width();
         let stride = (width as usize).checked_mul(4)?;
         let start = (self.top as usize).checked_mul(stride)?;
@@ -1023,6 +1183,63 @@ impl Band {
     fn mask_bytes(self, width: u32) -> usize {
         (self.height as usize).saturating_mul(width as usize)
     }
+}
+
+/// Whether a command's own extent lies wholly above or below `target`'s rows.
+///
+/// A group answers `false`: its elements carry the extents and each is asked in turn.
+fn misses_target(command: &Command, target: TargetSpec) -> bool {
+    let Some(bounds) = command.device_bounds(target.transform) else {
+        return false;
+    };
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a target height below MAX_EXTENT = 2^24 is exact in f32"
+    )]
+    let height = target.height as f32;
+    bounds.max.y < -1.0 || bounds.min.y > height + 1.0
+}
+
+/// The rows at which to cut this target, or one strip's worth if it may not be cut.
+///
+/// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
+/// [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only made at a row no
+/// curve crosses. **The picture does not depend on the answer**, which is the property ADR 0139
+/// exists to establish and `strip_parallelism.rs` asserts: a machine with four cores and one
+/// with thirty-two draw the same bytes.
+fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Vec<u32> {
+    let cores = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .try_into()
+        .unwrap_or(MAX_STRIPS);
+    let wanted = asked
+        .unwrap_or(cores)
+        .min(MAX_STRIPS)
+        .min(target.height.checked_div(MIN_STRIP_ROWS).unwrap_or(0));
+    if wanted < 2 {
+        return vec![0, target.height];
+    }
+    let extents = pdf_render::command_extents(list, target);
+    let costs = pdf_render::row_costs(&extents, target);
+    let unsplittable = pdf_render::unsplittable_rows(list, target);
+
+    // Asked for from the most strips downwards, taking the first division whose replay is
+    // affordable. A strip pays again for every command that reaches it — see
+    // `pdf_render::replay_ratio` — and on a page of a few page-wide commands that is the whole
+    // cost: `issue12841_reduced.pdf` is two of them and was 105 ms serially against 166 ms in
+    // sixteen strips. The bound is a quarter more work than the list itself, which every text
+    // page measured in ADR 0137 sits far inside (1.01 to 1.13 at eight strips) and a page of
+    // page-wide commands cannot reach at any count above one.
+    let mut count = wanted;
+    while count > 1 {
+        let boundaries =
+            pdf_render::strip_boundaries_avoiding(&costs, &unsplittable, count, MIN_STRIP_ROWS);
+        if pdf_render::replay_ratio(&extents, &boundaries) <= MAX_REPLAY {
+            return boundaries;
+        }
+        count = count.checked_div(2).unwrap_or(0);
+    }
+    vec![0, target.height]
 }
 
 /// One clip of a chain, ready to be drawn into a mask.
@@ -1111,7 +1328,12 @@ struct MaskCache {
 const MASK_BUDGET: usize = 32 << 20;
 
 impl MaskCache {
-    fn new(target: TargetSpec, anti_alias: bool) -> Self {
+    /// A cache for one target, bounded by `budget` bytes.
+    ///
+    /// The budget is a parameter rather than [`MASK_BUDGET`] itself because a page drawn in
+    /// strips has one cache per strip and they are alive at once: dividing the constant keeps
+    /// a parallel render's mask memory equal to a serial one's.
+    fn new(target: TargetSpec, anti_alias: bool, budget: usize) -> Self {
         Self {
             target,
             anti_alias,
@@ -1120,7 +1342,7 @@ impl MaskCache {
             soft_order: VecDeque::new(),
             bytes: 0,
             soft_bytes: 0,
-            budget: MASK_BUDGET,
+            budget,
         }
     }
 
@@ -1496,7 +1718,7 @@ mod tests {
     #[test]
     fn the_mask_cache_stays_inside_its_budget() {
         let (list, ids, target) = stacked_clips(40);
-        let mut cache = MaskCache::new(target, true);
+        let mut cache = MaskCache::new(target, true, MASK_BUDGET);
         // Room for two of these masks and no more.
         let one = Band { top: 0, height: 4 }.mask_bytes(target.width);
         cache.budget = one * 2;
@@ -1527,13 +1749,13 @@ mod tests {
         let (list, ids, target) = stacked_clips(8);
         let first = *ids.first().expect("eight clips");
 
-        let mut generous = MaskCache::new(target, true);
+        let mut generous = MaskCache::new(target, true, MASK_BUDGET);
         let before = generous
             .get(&list, first)
             .expect("builds")
             .map(|(band, mask)| (band, mask.data().to_vec()));
 
-        let mut tight = MaskCache::new(target, true);
+        let mut tight = MaskCache::new(target, true, MASK_BUDGET);
         tight.budget = 1;
         for &id in &ids {
             tight.get(&list, id).expect("builds");
@@ -1567,7 +1789,7 @@ mod tests {
             .expect("first clip");
         let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
 
-        let mut cache = MaskCache::new(target, true);
+        let mut cache = MaskCache::new(target, true, MASK_BUDGET);
         assert!(
             cache.get(&list, id).expect("resolves").is_none(),
             "a clip entirely above the page admits no row"
@@ -1588,7 +1810,7 @@ mod tests {
     #[test]
     fn a_clip_never_evicts_a_soft_mask() {
         let (list, ids, target) = stacked_clips(40);
-        let mut cache = MaskCache::new(target, true);
+        let mut cache = MaskCache::new(target, true, MASK_BUDGET);
         cache.budget = Band { top: 0, height: 4 }.mask_bytes(target.width) * 2;
 
         let mask = SoftMaskId::new(0);

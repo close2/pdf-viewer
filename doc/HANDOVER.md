@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fifty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-fifty-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -65,13 +65,13 @@ answers with.
 
 | gate | number | where |
 |---|---|---|
-| tests | **953**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | the fuzzers and `deny` last in session 153; tests, `clippy`, `fmt` and **all four gates** re-run in 154, where `--all-targets` found one warning in `glyph_reuse.rs` that session 153 had claimed away |
+| tests | **966**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | the fuzzers last in session 153; tests, `clippy`, `fmt`, `deny` and **all four gates** re-run in 155 |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **868 draw with nothing reported**, **91 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~2 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, ~49 s |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1665** we call complete: **836 agree**, **70 contradicted**, 748 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **97.9%** of the reference's words (22 855 of 23 340), **42** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in 115 ms | ADR 0126's recipe, session 153 |
-| conformance | 3166 citations, 323 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3174 citations, 324 quotations, 181 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -635,14 +635,43 @@ the result is **bit-identical**; split it where the shape crosses and it is not.
 the strip count forced to one — same planner, same skip test, same refactor — is clean at 836
 agreeing pages, so **the strips are the cost and not anything else in the change**.
 
-**Everything but the planner is reverted**, because `CLAUDE.md` forbids shipping a path nobody
-takes. What survives is `Path::bounds`, `Command::device_bounds` and `pdf_render::strips` — the
-planner itself, which `examples/strip_spans` now calls so the measurement and the code cannot
-drift. **The next attempt has a shape**: cut only at rows that no command, clip chain or soft mask
-straddles, which ADR 0137's 1.01–1.13 touches per command says is most rows on a text page. It has
-a known obstacle — page 6's one page-wide clip straddles every row — and a ten-minute probe that
-would decide the common case: **is an axis-aligned rectangular clip cut by a horizontal edge
-exact?** Nothing is re-parameterised there, so it plausibly is.
+Everything but the planner was reverted, because `CLAUDE.md` forbids shipping a path nobody takes.
+
+**The probe it named was run in the hundred-and-fifty-fifth session, and the parallel rasteriser
+ships. ADR 0139.** The answer is a table rather than a yes — filling one shape into a pixmap and
+into two pieces of it, an axis-aligned rectangle crossing the cut differs in **0** bytes, an
+oblique straight edge in 292–528 (worst 32), a cubic in 2480–2744 (worst 64). So ADR 0138's
+proposed rule was **too weak** (a clipped line keeps its geometry and loses its endpoints) and
+**too strong** (page 6's page-wide clip is a rectangle, and rectangles survive).
+`pdf_render::unsplittable_rows` marks the rows a re-stated segment spans; `strip_boundaries_avoiding`
+minimises the worst strip among the rows left, by binary search on that maximum, because ADR
+0137's prefix sum snapped to the nearest legal row gives 24.5% against a 12.5% ideal. **Every
+oracle verdict, corpus count and text percentage is unchanged**, which is what says the strips are
+exact, and `with_strips` plus `strip_parallelism.rs` is the standing guard.
+
+| page, at the scale a laptop window asks for | serial | split | strips |
+|---|---|---|---|
+| ISO 32000-2 p. 6 at 2× (1192×1684) | 20.8 ms | **7.9 ms** | 16 |
+| ISO 32000-2 p. 101 at 2× | 27.0 ms | **10.9 ms** | 16 |
+| `tracemonkey.pdf` at 2× | 33.5 ms | **15.8 ms** | 4 |
+| `bug1721218_reduced.pdf` | 105 ms | 105 ms | 1 — no legal cut |
+
+**Two things nobody planned were most of the work, and both are traps one level up.** A serial
+per-pixel pass bounds a parallel render: `impose_on_medium` was **7.8 ms of a 17 ms page**, all of
+it eight integer divisions per transparent pixel, and §11.4.7's isolated page group makes most of a
+page transparent — a `[0,0,0,0]` pixel is exactly the medium, so that case is a copy and the pass is
+1.7 ms before it is split at all. And a planner on the drawing path is not a planner in an example:
+`command_extents` rebuilt every command's clip chain from the leaf, **606 ms** on
+`bug1721218_reduced.pdf`, six times that page's whole rasterisation, correct and unmeasured for two
+sessions because only an example called it.
+
+**And ADR 0137's touch ratio was right about four pages and wrong as a property of pages.** The
+oracle's first parallel run kept every verdict and went **37.0 s → 59.1 s**; five pages held most of
+it and `issue12841_reduced.pdf` is their shape — **two commands, each covering the page**, replayed
+sixteen times, 105 ms serial against 166 ms split. `pdf_render::replay_ratio` computes that number
+per page and `plan_strips` refuses a division costing more than **1.25** of the list, after which the
+oracle is **37.0 s, the serial figure exactly**, at +17% processor time. **This is the first change
+in the tree where latency and throughput point in opposite directions**, and `CLAUDE.md` ranks them.
 
 **Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 137.7 M** in session 153, of which
 the text layer is 35.8 M (session 133's A/B, below). The six sessions from the hundred-and-thirty-
@@ -810,7 +839,7 @@ valgrind --tool=callgrind --callgrind-out-file=/dev/null \
 valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_rasterise [file.pdf] [page]
 cargo run --release -p pdf-model --example glyph_reuse -- [file.pdf] [page] [scale]  # ADR 0131
-cargo run --release -p pdf-model --example strip_spans -- [file.pdf] [page] [scale]  # ADR 0137
+cargo run --release -p pdf-model --example strip_spans -- [file.pdf] [page] [scale]  # ADRs 0137, 0139
 cargo build --release -p hayro-compare --bins && \
   cargo run --release -p hayro-compare --bin hayro-speed -- doc/pdf.js/test/pdfs/*.pdf   # ~45 min
 cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # one line per file,
@@ -862,7 +891,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` constructs what a subtype's clause states, splices under `/NeedAppearances`, and argues the refusals (ADRs 0030, 0032); `icon.rs` beside it is the one module that is pure invention and says so (ADR 0109). `view.rs` is the `ViewState` §12.6.4's actions change — **the precedent the edit log will follow**. `variable_text.rs` is §12.7.4.3 and the one place this tree *writes* a content stream. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused, its `Decode` one table per component and its `Conversion` an *exact* per-image memo (ADRs 0034, 0035). `page.rs` is §7.7.3 and §14.11.2's five boundaries. `accessibility.rs`, `uri.rs` and `file_spec.rs` hold no PDF at all. Then one module per clause family: `action.rs`, `forms_data.rs`, `named_page.rs`, `structure.rs`, `article.rs`, `collection.rs`, `measurement.rs`, `thumbnail.rs`, `signature.rs`, `attachment.rs`, `page_label.rs`, `navigation.rs`, `requirements.rs`, `document_part.rs`, `viewer_preferences.rs` |
 | `pdf-font` | Glyph outlines via `skrifa`, and §9.6.2.2's fourteen compiled in | Owns both simple-font encoding algorithms (§9.6.5.2, §9.6.5.4 — ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code, and `cff.rs` and `type1.rs` each produce one because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is the one program kept *parsed*, measured: re-parsing per glyph put 11 ms on `tracemonkey.pdf`. `cmap.rs` is §9.7, where `Code` carries a value *and* a length. `standard.rs` is §9.6.2.2's fourteen font programs as `static` bytes, and it is what stopped `substitute.rs` being the only machine-dependent code in the tree (ADR 0133): the fourteen come from the binary, everything else from the machine with the binary behind it. `substitute.rs` ranks three sources of a request with an argument — the name, then §9.8.3.2's PANOSE, then Table 121's flags, which producers set carelessly (ADR 0086) |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
-| `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047) |
+| `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047). Draws a page on every core since session 155 (ADR 0139) — `encode_in_strips` cuts the target only at rows `pdf_render::unsplittable_rows` permits, so **the picture does not depend on how it was divided**, which is the property `with_strips` exists to let a test check and the reason the oracle's verdicts did not move |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. Its own soft-mask readback, because Vello's luminance mask is the SVG formula and no blend mode is a `/TR` |
 | `viewer-core` | Toolkit-independent application logic | `Command` in, `Event` out, `Query` → `Answer` beside them (ADRs 0116, 0117). `select.rs` is every choice a selection needs and the standard does not state (ADR 0119); `interact.rs` is what a click does — §12.5.6.5's links and the eleven §12.6 actions; `notes.rs` is what a document says about itself when it opens. `viewer.rs` is the state machine and the one place a render is scheduled; `open.rs` is one document's page, zoom and scroll, and `fitted` there is why a page fitted to a window is not one pixel taller than it; `report.rs` words an `Unsupported` for a person, which is a presentation decision and so not `pdf-model`'s. `tests/headless.rs` is consumer #2 and the proof the crate's first sentence is true |
 | `viewer-ui` | The application | `src/bin/pdf-viewer.rs`: a window, a keyboard, a GPU with `render-cpu` behind it for a page the device refuses (ADR 0125), and the two decisions a host owns — which files a document may name (§12.7.6.4) and what to do when one asks for a password (§7.6.4.1). Everything else is `viewer-core`'s |
@@ -1468,6 +1497,20 @@ anchor that makes it checkable.
   3.08 G, and closer to the references.
 - **When the first design of a fix is the obviously safe one, still measure it.** Refusing to cache
   timeouts is unarguable in principle and left two pages accounting for 46 of 57 seconds.
+- **A ratio measured on four pages is a fact about four pages.** ADR 0137 counted 1.01–1.13 strips
+  touched per command and concluded duplication was not the problem, which is true of those four;
+  `issue12841_reduced.pdf` is *two* commands each covering the page, so sixteen strips replay both
+  sixteen times. Computing the same ratio per page is one function and is what made the split safe
+  to ship. **Ask of any measured constant whether it is a property of the thing or of the sample.**
+  ADR 0139.
+- **A function only an example calls is a function nobody has measured.** `command_extents` rebuilt
+  every command's clip chain from the leaf: 606 ms on one page, six times its whole rasterisation,
+  correct and unnoticed for two sessions. **Before moving code onto a path a person waits on, time
+  it there.**
+- **A serial pass over every pixel is what bounds a parallel render**, and it hides inside a
+  function whose cost nobody attributed: `impose_on_medium` was 7.8 ms of a 17 ms page, all of it
+  eight integer divisions per *transparent* pixel — and §11.4.7's isolated page group makes most of
+  a page transparent. Amdahl's law names where to look after any successful division. ADR 0139.
 
 ### Code, bounds and dependencies
 
@@ -1509,6 +1552,14 @@ anchor that makes it checkable.
 - **A file's extension is a claim, and the bytes decide.** PDFium ships the standard 14's Foxit
   faces as `.pfb` and every one of them begins `01 00 04 02`, which is a CFF header and not
   PostScript. Four lines of `xxd` settled what a module comment would have got wrong. ADR 0133.
+- **A dependency's refusal can be silent *and* size-dependent.** `tiny-skia` insets the clip by a
+  pixel before hairline stroking and returns early when the inset is empty, so a hairline stroke
+  into a target under three rows tall draws nothing and reports nothing. Found by a test that had
+  passed for a hundred and fifty sessions failing at one of its three scales — trap 12b's question
+  ("what *size* is every case in this suite?") arriving from the other direction. ADR 0139.
+- **A probe is a suite, and a suite of one shape proves one shape.** ADR 0138 split a page with a
+  cubic in it and concluded "a clipped line is the same line"; a quadrilateral took ten minutes and
+  said otherwise, which moved the rule and doubled what it permits. ADR 0139.
 - **A parser that recognises a delimiter without parsing it will be read as parsing it.**
 - **An operator that is matched and ignored may still be a rule.** `BX`/`EX` sat with `MP`/`DP` for
   thirty-one sessions; §7.8.2 makes them the one place an unrecognised operator is not an error.
@@ -1815,3 +1866,4 @@ above rather than here.
 | 152 | §7.6.4.3.2 step (a): the Annex D table this crate said it did not hold | — |
 | 153 | Everything re-verified after ten sessions of change | — |
 | 154 | `rasterrocket` measured rather than read; the strips it named, built and refused | 0136, 0137, 0138 |
+| 155 | The rows a cut may fall on: the CPU rasteriser draws a page on every core, byte for byte | 0139 |

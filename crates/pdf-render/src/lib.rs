@@ -43,4 +43,7 @@ pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use paint::{BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke};
 pub use shading::{MeshRaster, Ramp, Shading, ShadingKind, Stop, Triangle};
 pub use soft_mask::{SoftMask, SoftMaskId, SoftMaskKind, Transfer};
-pub use strips::{command_extents, row_costs, strip_boundaries};
+pub use strips::{
+    command_extents, replay_ratio, row_costs, strip_boundaries, strip_boundaries_avoiding,
+    unsplittable_rows,
+};

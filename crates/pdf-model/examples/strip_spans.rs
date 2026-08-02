@@ -29,6 +29,11 @@
 //!
 //! With no arguments it reads page 101 of ISO 32000-2, which is the page `callgrind_rasterise`
 //! measures and the page the 19% was measured on.
+//!
+//! **It was built, refused, and built again**, and this example now prints all three stages:
+//! ADR 0137's touch ratio, ADR 0138's refusal, and ADR 0139's constrained split with the wall
+//! clock beside it. The last two columns are the ones a session should read — how many strips
+//! the page's own geometry grants, and what the render then takes.
 #![expect(
     clippy::expect_used,
     clippy::arithmetic_side_effects,
@@ -124,6 +129,62 @@ fn main() {
         "  {marked} commands mark something; {} are clipped away entirely",
         extents.len() - marked
     );
+
+    // ADR 0139: a cut may only fall on a row no re-stated segment crosses — a curve, an
+    // oblique edge, anything a stroker touches — because chopping one at a strip's edge
+    // changes its coverage. This is what that constraint costs on a real page, and it is the
+    // number that decided whether to build it. **`replay` is the other half of the
+    // decision**: the shipped planner refuses a division that replays more than a quarter more
+    // work than the list itself, so a row above 1.25 is a row it would not take however good
+    // its `slowest` looks. The last column is what the whole thing buys.
+    let curved = pdf_render::unsplittable_rows(&list, target);
+    let legal = curved.iter().filter(|curved| !**curved).count();
+    println!(
+        "  {legal} of {rows} rows ({:.1}%) are legal cut rows",
+        100.0 * legal as f64 / rows.max(1) as f64
+    );
+    println!("  strips   granted  slowest      ideal   replay      drawn in");
+    for strips in STRIPS {
+        let legal = pdf_render::strip_boundaries_avoiding(&per_row, &curved, strips, 32);
+        let (_, slowest) = judge(&extents, &per_row, &legal);
+        println!(
+            "  {strips:>6}   {:>7}  {:>6.1}%     {:>5.1}%   {:>6.2}      {:>8.1} ms",
+            legal.len().saturating_sub(1),
+            100.0 * slowest,
+            100.0 / f64::from(strips),
+            pdf_render::replay_ratio(&extents, &legal),
+            best_of(&list, target, strips).as_secs_f64() * 1000.0,
+        );
+    }
+    println!(
+        "  {:>6}   {:>7}  {:>6.1}%     {:>5.1}%   {:>6.2}      {:>8.1} ms",
+        1,
+        1,
+        100.0,
+        100.0,
+        1.0,
+        best_of(&list, target, 1).as_secs_f64() * 1000.0,
+    );
+}
+
+/// The fastest of five renders at a given strip count.
+///
+/// Wall clock, which this file's own header says is unusable — for *instruction* counting,
+/// which is what a serial change is measured by. A parallel one cannot be: callgrind counts
+/// instructions across every thread, so a perfect eight-way split measures as no change at
+/// all. The fastest of five is the least contended run rather than the mean, which is the
+/// figure least polluted by whatever else the machine is doing.
+fn best_of(list: &DisplayList, target: pdf_render::TargetSpec, strips: u32) -> std::time::Duration {
+    use pdf_render::Rasterizer as _;
+    let mut best = std::time::Duration::MAX;
+    for _ in 0..5 {
+        let mut backend = render_cpu::CpuRasterizer::new().with_strips(strips);
+        let at = std::time::Instant::now();
+        let raster = backend.rasterize(list, target).expect("a supported page");
+        best = best.min(at.elapsed());
+        drop(raster);
+    }
+    best
 }
 
 /// Every distinct clip chain the list refers to, leaves included and parents not.

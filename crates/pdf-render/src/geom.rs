@@ -208,6 +208,20 @@ impl Transform {
     /// `determinant().abs().sqrt()` is the *geometric mean* of the two singular values and
     /// agrees with this only where they are equal — every similarity transform, which is
     /// what a page transform is. A shear separates them without changing the determinant at
+    /// Whether this transform maps the axes onto the axes: a scale and a translation, or a
+    /// quarter turn.
+    ///
+    /// What it is asked for is whether an axis-aligned segment stays axis-aligned, which is
+    /// what [`Path::oblique_spans`] needs to know before it can call one exact under a cut.
+    /// The two shapes are the two ways a 2×2 matrix can have a zero in each row and column.
+    ///
+    /// An off-diagonal that is *exactly* zero is the property being asked about: a small one
+    /// shears, and a caller relying on this needs the strict answer.
+    #[must_use]
+    pub fn preserves_axes(self) -> bool {
+        (self.b == 0.0 && self.c == 0.0) || (self.a == 0.0 && self.d == 0.0)
+    }
+
     /// all, so a length bound derived from the determinant can be arbitrarily too small.
     #[must_use]
     pub fn max_stretch(self) -> f32 {
@@ -391,6 +405,91 @@ impl Path {
             }
         }
         bounds
+    }
+
+    /// Reports the device y range of every segment a horizontal cut would re-state, as
+    /// `(top, bottom)`.
+    ///
+    /// # What "re-state" means, and why only some segments do it
+    ///
+    /// Rasterising a path into a target that does not contain it chops the path against the
+    /// target's edge. What that costs depends on the segment, and ADR 0139 measured all three
+    /// cases by filling one shape into a whole pixmap and into two pieces of it:
+    ///
+    /// | segment | bytes differing of 2.9 M | worst |
+    /// |---|---|---|
+    /// | axis-aligned edge | **0** | 0 |
+    /// | oblique straight edge | 292–528 | 32 |
+    /// | cubic | 2480–2744 | 64 |
+    ///
+    /// A cubic is *re-parameterised*: the piece inside the target is four new control points,
+    /// so its coverage differs along the whole of it. An oblique line keeps its geometry but
+    /// not its endpoints — the clipped endpoint is computed by interpolation and the edge's
+    /// slope is then taken from it — so it differs too, by half as much. **An axis-aligned
+    /// edge survives**: a horizontal one is kept or dropped whole, and clipping a vertical one
+    /// at `y = r` moves its endpoint to a point the line already passed through.
+    ///
+    /// So a curve is always reported and a straight segment unless it is axis-aligned. A
+    /// caller cutting a target into strips may cut at any row nothing reported here spans.
+    ///
+    /// # The transform is part of the answer
+    ///
+    /// Alignment is judged in the path's own space and requires `transform` to keep the axes —
+    /// a scale and a translation, or a quarter turn. Under a shear or a general rotation
+    /// nothing is axis-aligned in device space and every segment is reported, which is the
+    /// side to err on: judging alignment on the transformed coordinates would rest on this
+    /// crate and `tiny-skia` rounding one multiplication identically.
+    pub fn oblique_spans(&self, transform: Transform, mut mark: impl FnMut(f32, f32)) {
+        let axes = transform.preserves_axes();
+        let mut previous: Option<Point> = None;
+        let mut start: Option<Point> = None;
+        let straight = |from: Option<Point>, to: Point, mark: &mut dyn FnMut(f32, f32)| {
+            let Some(from) = from else { return };
+            #[expect(
+                clippy::float_cmp,
+                reason = "the question is whether two endpoints state the same coordinate, \
+                          which is an exact property of the numbers the file gave us"
+            )]
+            let aligned = axes && (from.x == to.x || from.y == to.y);
+            if aligned {
+                return;
+            }
+            let (one, other) = (transform.apply(from).y, transform.apply(to).y);
+            mark(one.min(other), one.max(other));
+        };
+        for command in &self.commands {
+            match *command {
+                PathCommand::MoveTo(p) => {
+                    previous = Some(p);
+                    start = Some(p);
+                }
+                PathCommand::LineTo(p) => {
+                    straight(previous, p, &mut mark);
+                    previous = Some(p);
+                }
+                PathCommand::CurveTo(a, b, c) => {
+                    let mut top = f32::INFINITY;
+                    let mut bottom = f32::NEG_INFINITY;
+                    for point in previous.into_iter().chain([a, b, c]) {
+                        let y = transform.apply(point).y;
+                        top = top.min(y);
+                        bottom = bottom.max(y);
+                    }
+                    if top <= bottom {
+                        mark(top, bottom);
+                    }
+                    previous = Some(c);
+                }
+                // §8.5.2.1's `h` closes the subpath with a straight segment back to its
+                // start, which is a segment like any other.
+                PathCommand::Close => {
+                    if let Some(to) = start {
+                        straight(previous, to, &mut mark);
+                    }
+                    previous = start;
+                }
+            }
+        }
     }
 }
 
