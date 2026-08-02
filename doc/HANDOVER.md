@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -50,6 +50,18 @@ draws them in its own colour; a person can **fill in a form field**, undo it and
 result can be **saved** — the file it was opened from, unchanged, with §7.5.6's incremental update
 appended, which is the one kind of writing `CLAUDE.md` permits.
 
+**And it has chrome, which is what the ten sessions from the hundred-and-sixty-sixth added and
+what this project owed for thirty before that.** A sidebar of four tabs, drawn with `pdf-font`'s
+compiled-in Helvetica and a `pdf-render` display list so that both backends draw it: §12.3.3's
+outline, where a click **activates the item** and the document decides whether that is a jump or
+a URI; §8.11.4.3's layers, where a switch turns one on unless Table 99's `/Locked` forbids it;
+§7.11.4's embedded files, where a click writes the file beside the document; and §14.3.3's
+`/Info`. `?` puts `/NOTICE` over the page in Courier. **The document chooses what opens**: Table
+29's `/PageMode` names a panel and three of its six values now name one that exists, and §12.2's
+`/DisplayDocTitle` puts the document's own title in the title bar. §12.6.3's trigger events are
+raised by the pointer at last. Four clauses closed on it — §12.3.3, §7.11.4, §7.11.4.1 and
+§14.3.3 — and three of the four had a ledger row whose reason was "this program has no ___".
+
 All of it sits behind **`viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
 them, with no type from a windowing or graphics library anywhere in its API. Two consumers —
 `viewer-ui`'s winit window and a headless test harness — and §0 is the whole story. ADRs 0116 to
@@ -75,14 +87,14 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **32 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **119 ms**, and five arrow keys turn to page 6 presenting in 12 to 26 ms with nothing refused | ADR 0126's recipe, session 164 |
-| conformance | 3376 citations, 332 quotations, 183 tables, **823 ledger rows** | `-p conformance` |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **114 ms**, and five arrow keys turn to page 6 presenting in 15 to 37 ms with nothing refused. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
+| conformance | 3388 citations, 335 quotations, 183 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -121,8 +133,17 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 | `writer-side` | 6 | addresses a PDF *generator* |
 
 **`silent` is zero** — there is no requirement in the eight technical clauses that this program
-fails without saying so. That is a narrow claim: `partial` and `reported` are 275 rows between
+fails without saying so. That is a narrow claim: `partial` and `reported` are 272 rows between
 them and each names what it owes.
+
+**And a fifth way for a row to be wrong was found in the hundred-and-seventieth to
+-seventy-fourth**: not overstating, not understating, but *stale about its neighbour*. §7.7.2
+listed eighteen catalog entries as unread that were read, most of them by the session that built
+their clause; §12.6.3 said "this crate has no events" for forty-one sessions after
+`Command::Pointer` landed; §14.3.3 was `inapplicable` because "this one has no panel" for seven
+after one was drawn. **A family's parent row is not maintained by the sessions that implement its
+members, because the clauses do not cite each other**, and neither is a row whose blocker was a
+capability rather than a clause.
 
 **This file's arithmetic was wrong about the oracle too, and session 154 corrected it by reading
 the output.** The row above said "11 not comparable", which is 1665 minus the other three buckets;
@@ -179,18 +200,32 @@ documents' first pages it affects.
 ## What to do next
 
 **Two tracks, and take from both in every session.** *Demand-driven* is what the corpus and the
-oracle name; *spec-driven* is the ledger's 33 `reported` rows and the notes on its 242 `partial`
+oracle name; *spec-driven* is the ledger's 33 `reported` rows and the notes on its 239 `partial`
 ones. A project running only the first finishes when the corpus goes quiet, which can happen with
 much of the standard unimplemented and nothing able to say which parts; one running only the
 second ships features no file exercises. This is a principle-5 rule, not a suggestion.
 
-**The ten sessions from the hundred-and-fifty-fifth are the shape to copy, and they alternated.**
-Two were code from the demand list (§9.7.5.2's `CMap`s, §9.9's collections), two were code from a
-*measurement* (the strips, the hull cache), three were readings that moved nothing but a report
-or a row, two were diagnoses that closed twelve of the oracle's fourteen unexplained pages, and
-one re-verified everything. **The cheapest of them paid the most**: two regular expressions over
-the ledger's notes found five stale rows in twenty minutes, and a heatmap and one `magick`
-invocation per page took the unexplained list from fourteen to two.
+**The ten sessions from the hundred-and-sixty-sixth are the shape to copy, and what they say is
+that a capability makes clauses reachable.** Five built chrome, one was a measured optimisation,
+three were readings, and one re-verified everything — and **four clauses closed without anybody
+picking them off a list**. §12.3.3 closed because a panel existed to display an outline in;
+§14.3.3 because a panel existed to display `/Info` in; §7.7.2's `/PageMode` and §12.6.3's trigger
+events became worth reading because a sidebar and a pointer had arrived. Each of those rows said
+some version of *this program has no ___*, and each stayed true for between seven and forty-one
+sessions after it stopped being true.
+
+**So the sweeps are the cheapest work in the project and there are now three of them**, twenty
+lines of Python apiece, each of which has paid on its first run: a note whose stated blocker has
+expired (session 118), a note claiming an entry is unread where the tree reads it (122), and a
+note whose reason is a *capability* the program has since acquired (174). The last two found the
+largest stale claim the ledger has held — §7.7.2 listing eighteen entries as unread that are read
+— and a clause that had been waiting forty-one sessions for somebody to notice `Command::Pointer`
+existed. **Run all three after any session that adds a verb.**
+
+**The ten sessions from the hundred-and-fifty-fifth alternated between the two tracks, and the
+cheapest of them paid the most**: two regular expressions over the ledger's notes found five
+stale rows in twenty minutes, and a heatmap and one `magick` invocation per page took the
+unexplained list from fourteen to two.
 
 **But the ten sessions from the hundred-and-twentieth found that the map is not the territory.**
 Four of their six findings were on no list: a `shall` hiding behind a silence about artwork (ADR
@@ -210,12 +245,12 @@ what is there, the second to know what is next.
 
 #### Why it was the headline
 
-Five owed items were the same item, and **three of them are done**: a password prompt, which this
+Five owed items were the same item, and **four of them are done**: a password prompt, which this
 file called "the missing piece, not the clause" for twenty sessions and which session 132 landed
-in eleven lines of host code; an editable field (sessions 135 and 136); and the layer panel's
-data, which `Query::Layers` answers with and which now wants only a panel. The other two —
-presentation mode and AccessKit — are features rather than architecture: one `Command::Tick` and
-one `Query` respectively.
+in eleven lines of host code; an editable field (sessions 135 and 136); the layer panel, whose
+data `Query::Layers` has answered with since 131 and which session 167 drew; and presentation
+mode's clock (`Command::Tick`, 150). **The fifth is AccessKit**, and it is a host and not a
+vocabulary: `Query::AccessibilityTree` has answered since 149 and nothing asks.
 
 #### The goal, stated by the owner
 
@@ -277,11 +312,12 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
    still sees the new value. **What the writer still owes is an `Edit` variant that carries a new
    object rather than a field's value** — the markup and free-text annotation authoring under
    "Near, and far" below. `Update` in `view.rs` already allocates object numbers for it.
-2. **The vocabulary is complete.** `Query::AccessibilityTree` landed in the
-   hundred-and-forty-ninth session (ADR 0134) and `Command::Tick { millis }` in the
-   hundred-and-fiftieth (ADR 0135), so **all five of §0's owed items are built and `Command` and
-   `Query` owe nothing.** What is left of every one of those features is a *host*: an AccessKit
-   bridge, a presentation player that draws a transition's frames, a layer panel. That is what
+2. **The vocabulary is complete, and ten sessions of building on it added five messages rather
+   than changing any.** `Command::Activate`, `Command::Extract`, `Event::Extracted`,
+   `Query::Opening` and `Query::Properties` — each because a *clause* needed a channel, and one
+   variant was **removed** the session after it was added because the fuller reading of §12.3.3
+   made it a path nobody takes (ADR 0144). What is left of §0's five owed features is a *host*:
+   an AccessKit bridge and a presentation player that draws a transition's frames. That is what
    the boundary was built to make possible, and it is not itself a boundary question.
 3. **Then one native host.** GTK4 via `gtk4-rs` first — Rust-safe, no C++ bridge, and it is the
    development platform. Qt/KDE second via `cxx-qt`, because that costs a C++ bridge and should
@@ -291,23 +327,21 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
    the compiler-enforced rule survives. **Do not freeze a C ABI until two Rust consumers have
    shaken the API out** — the vocabulary roughly doubles with selection and editing.
 
-**One of the three panels is drawn, and the other two now have a shape to copy.** `Query::Layers`,
-`Query::Outline` and `Query::Attachments` answer with everything a panel needs, and until the
-hundred-and-sixty-sixth session no consumer asked any of them. `viewer_ui::chrome` asks the
-second: a list of §12.3.3's items with Table 152's bold and italic and Table 151's `/C`, a
-disclosure triangle whose initial state is the sign of `/Count`, a wheel, and a click that sends
-`Command::GoTo(PageTarget::Destination)`. **The two things it needed were both missing and both
-are now built**: `pdf_font::LoadedFont::standard` loads one of §9.6.2.2's fourteen with no
-document at all, so text this program generates for itself is set in the face the clause
-guarantees; and `PageTarget::Destination` carries §12.3.2's target across the boundary, because
-turning a page *object* into an index is a page-tree walk a host cannot do.
+**The panels this file called "the largest single thing this project owes" for thirty sessions
+are drawn.** `viewer_ui::chrome` is a sidebar of four tabs and a modal card, in a `pdf-render`
+display list at an identity transform so that both backends draw it. ADRs 0142 to 0145.
 
-**All three arrived, and the second session cost less than half of the first.** The layers and
-the files tabs landed in the hundred-and-sixty-seventh (ADR 0143), which is what the text drawing
-bought; extraction in the hundred-and-sixty-ninth and §1's About card in the
-hundred-and-seventy-second. What is left of §0 is a *native* host. None of the four gates can see any of it, which is
-why `viewer-ui/tests/panel.rs` rasterises the chrome with `render-cpu` and counts ink rather than
-asserting a command count.
+**The one thing it needed that did not exist is worth naming, because it is not a UI problem.**
+Text this program generates for *itself* had no font: every route into `pdf-font` takes a
+`&Document` beside a `&Dictionary`, and an interface has neither. `LoadedFont::standard` loads
+one of §9.6.2.2's fourteen through the ordinary `LoadedFont::load` against a new
+`Document::empty`, so the encoding is §9.6.5.2's and the widths are the clause's own — and an
+interface set in Helvetica is set in the same Helvetica on a machine with no fonts installed.
+
+**What is left of §0 is a *native* host**, and after it `viewer-ffi`. None of the four gates can
+see any of the chrome, which is why `viewer-ui/tests/panel.rs` rasterises it with `render-cpu`
+and counts ink rather than asserting a command count — checked by deleting the glyph fill, which
+fails four of its eight cases.
 
 Adding `egui` buys a widget set for a large dependency and no architectural proof: winit + vello
 *is* the unnative UI. The thing worth adding was the headless consumer, and it is there.
@@ -879,6 +913,13 @@ Wall clock at a window's scale went with it: page 6 at 2× is **19.7 → 5.9 ms*
 (2 139.4 M → 2 156.9 M) for the branch and the `OnceLock`, which is the honest price of the
 memo and is written here rather than left out of the comparison.
 
+**Session 175 re-measured all three after ten sessions of change and none of them moved**:
+interpretation **2 156.9 M**, the same figure to the digit; rasterisation of the specification's
+page 6 **4 031 M** against 163's 4 035 M and page 101 **5 550 M** against 5 565 M. Nine sessions
+of panels, extraction, trigger events and a parallel colour conversion cost the drawing path
+nothing, which is what the numbers are for — and the one place they *did* move is priced beside
+the change that moved it (ADR 0147).
+
 **Colour-managing an image in parallel was taken in the hundred-and-seventy-first, and the item
 named the wrong loop** (ADR 0147). `image::unpack` is the obvious target and is not the one a
 JPEG takes: `zune-jpeg` writes components into the raster and `convert_channels` converts it in
@@ -946,13 +987,13 @@ documents, and it prints what it gave up.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
-cargo test -p conformance -- --nocapture   # 3166 citations, 323 quotations, 181 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 3388 citations, 335 quotations, 183 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's (trap 10).
 cargo build --release -p pdf-sandbox --bins
 cargo test --release -p pdf-model --test corpus          -- --ignored --nocapture  # 974 docs, ~2 s
-cargo test --release -p pdf-model --test oracle          -- --ignored --nocapture  # 1794 pages, ~30 s
+cargo test --release -p pdf-model --test oracle          -- --ignored --nocapture  # 1794 pages, ~32 s
 cargo test --release -p pdf-model --test text_extraction -- --ignored --nocapture  # ~30 s
 cargo test --release -p pdf-model --test dates           -- --ignored --nocapture  # 1545 dates
 cargo deny check                           # from the workspace root: fuzz/ is its own workspace
@@ -991,7 +1032,9 @@ subtype breakdown** comes free from the corpus gate's own output:
 
 The oracle's first run on a fresh build directory is ~95 s and writes 319 MB of remembered
 reference renders; every run after it is ~30 s. **Read the printed hit rate rather than the
-clock.** Of that ~30 s, ~23 s is the three external renderers at a 99.7% hit rate; the rest is
+clock** — and it is the tell for something outside this tree: session 166 saw it at 85.7% on an
+unchanged corpus, which was `poppler` being upgraded on this machine and every cached
+`pdftoppm` render becoming a new key. Nothing about the verdicts moved. Of that ~30 s, ~23 s is the three external renderers at a 99.7% hit rate; the rest is
 ours — roughly 600 s of processor time over 24 cores on our own render, the comparison and the
 artefacts. **If 30 s ever becomes the constraint, that is where to look and not at the
 subprocesses.** `PDFREF_CACHE=off` asks the three renderers again — how "the cache changes no verdict" is
@@ -2105,3 +2148,4 @@ above rather than here.
 | 172 | `/NOTICE` over the page in Courier: the About panel the owner asked for | — |
 | 173 | §14.3.3's `/Info` shown, and an `inapplicable` row that decayed when a panel arrived | — |
 | 174 | §12.6.3's events raised at last, and Table 167's `ReadOnly` read for the first time | — |
+| 175 | Everything re-verified after ten sessions of change | — |
