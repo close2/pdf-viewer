@@ -9,12 +9,13 @@
 //!
 //! # Three lists, one shape
 //!
-//! [`Sidebar`] shows one of three things a document says about itself, chosen by a tab:
-//! §12.3.3's outline, §8.11.4.3's `/Order` of optional content groups, and §7.11.4's embedded
-//! files. They are one piece of code because they are one shape — indented rows with a label, a
-//! marker at the left and something a click does — and because the differences between them are
-//! the interesting part: an outline row *navigates*, a layer row is a **switch** the clause may
-//! forbid, and an attachment row is, for now, only a statement.
+//! [`Sidebar`] shows one of four things a document says about itself, chosen by a tab:
+//! §12.3.3's outline, §8.11.4.3's `/Order` of optional content groups, §7.11.4's embedded files,
+//! and §14.3.3's document information dictionary. They are one piece of code because they are
+//! one shape — indented rows with a label, a marker at the left and something a click does — and
+//! because the differences between them are the interesting part: an outline row *navigates*, a
+//! layer row is a **switch** the clause may forbid, an attachment row hands a file over, and a
+//! property is a statement with nothing to click.
 //!
 //! # What it is drawn with
 //!
@@ -44,8 +45,10 @@ use viewer_core::Layer;
 /// A choice, and the only rule behind it is that an outline's titles are sentences: §12.3.3's
 /// `/Title` is "the text that shall be displayed on the screen for this item", and documents
 /// write whole clause headings there. Narrower than this and the specification's own outline is
-/// all ellipsis; wider and the page it is beside stops being the thing on the screen.
-const PANEL_WIDTH: f32 = 260.0;
+/// all ellipsis; wider and the page it is beside stops being the thing on the screen. It grew
+/// from 260 in the hundred-and-seventy-third session, when a fourth tab arrived and the strip
+/// stopped fitting.
+const PANEL_WIDTH: f32 = 300.0;
 
 /// How tall one row is, as a multiple of the text size.
 ///
@@ -391,11 +394,13 @@ pub enum Tab {
     Layers,
     /// §7.11.4's embedded files.
     Files,
+    /// §14.3.3's document information dictionary.
+    Document,
 }
 
 impl Tab {
-    /// The three, in the order they are drawn.
-    const ALL: [Self; 3] = [Self::Contents, Self::Layers, Self::Files];
+    /// The four, in the order they are drawn.
+    const ALL: [Self; 4] = [Self::Contents, Self::Layers, Self::Files, Self::Document];
 
     /// What the tab says.
     const fn label(self) -> &'static str {
@@ -403,6 +408,7 @@ impl Tab {
             Self::Contents => "Contents",
             Self::Layers => "Layers",
             Self::Files => "Files",
+            Self::Document => "About",
         }
     }
 
@@ -412,6 +418,7 @@ impl Tab {
             Self::Contents => 0,
             Self::Layers => 1,
             Self::Files => 2,
+            Self::Document => 3,
         }
     }
 }
@@ -429,6 +436,10 @@ pub struct Content<'a> {
     pub layers: &'a [Layer],
     /// [`viewer_core::Query::Attachments`].
     pub attachments: &'a [pdf_model::attachment::Attachment],
+    /// §14.3.3's Table 349, from [`viewer_core::Query::Properties`].
+    pub information: &'a pdf_model::metadata::Information,
+    /// Whether the catalog names §14.3.2's metadata stream, which nothing here reads.
+    pub metadata_stream: bool,
 }
 
 /// What a click on the sidebar asked for.
@@ -466,7 +477,7 @@ pub struct Sidebar {
     /// and this records only what a person changed.
     toggled: std::collections::BTreeSet<usize>,
     /// How far each list is scrolled, in logical pixels, never negative.
-    scroll: [f32; 3],
+    scroll: [f32; 4],
     /// Which row the pointer is over, for the hover highlight.
     hovered: Option<usize>,
 }
@@ -653,6 +664,7 @@ impl Sidebar {
                     out.push(nothing("This document embeds no files."));
                 }
             }
+            Tab::Document => property_rows(content, &mut out),
         }
         out
     }
@@ -804,7 +816,11 @@ impl Sidebar {
         // otherwise appear above the separator, which is what the first run of this panel did.
         // A clip would do the same job and would cut the letters in half rather than hide them.
         rectangle(&mut list, (0.0, 0.0, width, strip - scale), BACKGROUND);
-        let each = width / 3.0;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "the number of tabs, which is four"
+        )]
+        let each = width / Tab::ALL.len() as f32;
         for (index, tab) in Tab::ALL.into_iter().enumerate() {
             #[expect(clippy::cast_precision_loss, reason = "one of three tabs")]
             let left = index as f32 * each;
@@ -833,14 +849,18 @@ impl Sidebar {
 
 /// Which tab a horizontal position is in.
 fn tab_at(x: f32, scale: f32) -> Tab {
-    let each = (PANEL_WIDTH * scale) / 3.0;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the number of tabs, which is four"
+    )]
+    let each = (PANEL_WIDTH * scale) / Tab::ALL.len() as f32;
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         reason = "a tab index from a position already known to be inside the strip"
     )]
     let index = (x / each.max(1.0)) as usize;
-    Tab::ALL.get(index).copied().unwrap_or(Tab::Files)
+    Tab::ALL.get(index).copied().unwrap_or(Tab::Document)
 }
 
 /// A row that says why a list is empty.
@@ -875,6 +895,79 @@ fn describe(file: &pdf_model::attachment::Attachment) -> Option<String> {
         });
     }
     (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+/// §14.3.3's Table 349, as a list of what the document says about itself.
+///
+/// A label and a value on one row, with the label bold: nothing here is clickable, and the tab
+/// exists because §14.3.3's ledger row said `inapplicable` on the reason "a viewer with a
+/// document-properties panel would read it; this one has no panel" — which stopped being true in
+/// the hundred-and-sixty-sixth session.
+///
+/// **The last row is the honest one.** §12.2's `/DisplayDocTitle` names XMP's `dc:title` and
+/// Table 349's every text entry carries a NOTE pointing at an XMP counterpart, so a document with
+/// a metadata stream may be saying something else about itself here — and this program reads no
+/// XMP. Saying so is the difference between a gap and a silence.
+fn property_rows(content: Content<'_>, out: &mut Vec<Row>) {
+    let information = content.information;
+    let stated: [(&str, Option<String>); 9] = [
+        ("Title", information.title.clone()),
+        ("Author", information.author.clone()),
+        ("Subject", information.subject.clone()),
+        ("Keywords", information.keywords.clone()),
+        ("Created in", information.creator.clone()),
+        ("Converted by", information.producer.clone()),
+        (
+            "Created",
+            stamp(information.created_date(), information.created.as_ref()),
+        ),
+        (
+            "Modified",
+            stamp(information.modified_date(), information.modified.as_ref()),
+        ),
+        (
+            "Trapped",
+            // Table 349's stated default is `Unknown`, so a document that says nothing about
+            // trapping and one that says `Unknown` are the same statement and neither is shown.
+            match information.trapped {
+                pdf_model::metadata::Trapped::Unknown => None,
+                other => Some(format!("{other:?}")),
+            },
+        ),
+    ];
+    for (label, value) in stated {
+        let Some(value) = value else { continue };
+        let mut row = Row::plain(0, format!("{label}:"));
+        row.style = Style {
+            bold: true,
+            italic: false,
+        };
+        row.detail = Some(value);
+        out.push(row);
+    }
+    if out.is_empty() {
+        out.push(nothing("This document states no §14.3.3 information."));
+    }
+    if content.metadata_stream {
+        out.push(nothing(
+            "It also carries §14.3.2's XMP, which is not read here.",
+        ));
+    }
+}
+
+/// A §7.9.4 date as a person reads it, or the file's own string where it does not conform.
+///
+/// **The string is never dropped.** A producer that wrote a malformed date still wrote
+/// something, and showing nothing would hide it — which is the same choice
+/// [`pdf_model::metadata::Information`] makes by keeping the bytes beside the parse.
+fn stamp(parsed: Option<pdf_syntax::Date>, written: Option<&String>) -> Option<String> {
+    match parsed {
+        Some(date) => Some(format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}",
+            date.year, date.month, date.day, date.hour, date.minute
+        )),
+        None => written.cloned(),
+    }
 }
 
 /// §8.11.4.3's `/Order`, flattened into rows.

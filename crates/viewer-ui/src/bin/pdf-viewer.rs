@@ -182,6 +182,8 @@ fn main() {
         about: About::default(),
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
+        information: pdf_model::metadata::Information::default(),
+        metadata_stream: false,
         context: RenderContext::new(),
         state: None,
     };
@@ -307,6 +309,10 @@ struct App {
     outline: pdf_model::outline::Outline,
     /// §7.11.4's embedded files, likewise.
     attachments: Vec<pdf_model::attachment::Attachment>,
+    /// §14.3.3's Table 349 and whether §14.3.2's stream exists, likewise.
+    information: pdf_model::metadata::Information,
+    /// Whether the catalog names a `/Metadata` stream.
+    metadata_stream: bool,
     context: RenderContext,
     state: Option<State>,
 }
@@ -436,6 +442,25 @@ impl App {
         if let Answer::Attachments(files) = self.viewer.query(Query::Attachments) {
             self.attachments = files;
         }
+        if let Answer::Properties {
+            information,
+            metadata_stream,
+        } = self.viewer.query(Query::Properties)
+        {
+            self.information = information;
+            self.metadata_stream = metadata_stream;
+        }
+        // §12.2 names XMP's `dc:title` and this program reads none; see `named`. Said once,
+        // and only where it could matter — a document that asks for its title and carries the
+        // stream the clause points at.
+        if self.metadata_stream && self.display_doc_title() {
+            println!(
+                "note: this document asks for its title in the title bar (§12.2's \
+                 /DisplayDocTitle), which names XMP's dc:title; this program reads no XMP and \
+                 shows §14.3.3's /Info /Title instead"
+            );
+        }
+        self.retitle();
         self.obey_page_mode();
         let layers = self.layers().len();
         if !self.outline.items.is_empty() || !self.attachments.is_empty() || layers > 0 {
@@ -537,6 +562,8 @@ impl App {
             outline: &self.outline,
             layers,
             attachments: &self.attachments,
+            information: &self.information,
+            metadata_stream: self.metadata_stream,
         }
     }
 
@@ -559,6 +586,8 @@ impl App {
                 outline: &self.outline,
                 layers: &layers,
                 attachments: &self.attachments,
+                information: &self.information,
+                metadata_stream: self.metadata_stream,
             },
             scale,
         );
@@ -629,6 +658,8 @@ impl App {
                 outline: &self.outline,
                 layers: &layers,
                 attachments: &self.attachments,
+                information: &self.information,
+                metadata_stream: self.metadata_stream,
             },
             scale,
         );
@@ -676,6 +707,8 @@ impl App {
                     outline: &self.outline,
                     layers: &layers,
                     attachments: &self.attachments,
+                    information: &self.information,
+                    metadata_stream: self.metadata_stream,
                 },
                 height,
                 scale,
@@ -877,8 +910,41 @@ impl App {
             let mark = if self.dirty { "• " } else { "" };
             state
                 .window
-                .set_title(&format!("{mark}{} — {}", self.title, self.caption));
+                .set_title(&format!("{mark}{} — {}", self.named(), self.caption));
         }
+    }
+
+    /// What the title bar calls the document — §12.2's `/DisplayDocTitle`.
+    ///
+    /// Table 147: "[a] flag specifying whether the window's title bar should display the
+    /// document title taken from the `dc:title` entry of the XMP metadata stream … If false, the
+    /// title bar should instead display the name of the PDF file containing the document."
+    ///
+    /// **A documented departure, measured.** The entry names XMP and this program reads none, so
+    /// where a document asks for its title it gets §14.3.3's `/Info /Title` instead — which is
+    /// the same fact in the place PDF kept it before PDF 2.0, and Table 349's own NOTE 1 says as
+    /// much: "[t]he `dc:title` entry in the document's metadata stream **can be used to
+    /// represent** the document's title." The two can disagree and the standard ranks them
+    /// nowhere, so the substitution is a choice and is said out loud once per document that
+    /// carries both. Of the 22 corpus documents setting the flag, 8 state an `/Info /Title` and
+    /// 18 carry a metadata stream.
+    fn named(&self) -> &str {
+        let Some(title) = self.information.title.as_deref().filter(|t| !t.is_empty()) else {
+            return &self.title;
+        };
+        if self.display_doc_title() {
+            title
+        } else {
+            &self.title
+        }
+    }
+
+    /// Table 147's `/DisplayDocTitle`, **default false**.
+    fn display_doc_title(&self) -> bool {
+        matches!(
+            self.viewer.query(Query::Preferences),
+            Answer::Preferences(preferences) if preferences.display_doc_title
+        )
     }
 
     /// Adds what the page could not draw to the title bar.

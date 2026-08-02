@@ -13,7 +13,8 @@ pdf-font.workspace = true
 pdf-model.workspace = true
 pdf-render.workspace = true
 pdf-sandbox.workspace = true
-# §8.11's groups are named by object identity, which is what `Command::SetGroup` carries.
+# §8.11's groups are named by object identity, which is what `Command::SetGroup` carries,
+# and §7.9.4's date is what §14.3.3's `/CreationDate` parses to.
 pdf-syntax.workspace = true
 pollster.workspace = true
 render-cpu.workspace = true

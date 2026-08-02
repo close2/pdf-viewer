@@ -48,6 +48,12 @@ pub enum Query<'a> {
     FieldAt((f32, f32)),
     /// Whether anything has been edited since the document opened.
     Dirty,
+    /// §14.3.3's document information dictionary, and whether §14.3.2's stream exists.
+    ///
+    /// What a document-properties panel shows. The second half is not decoration: §12.2's
+    /// `/DisplayDocTitle` names XMP's `dc:title` and this crate reads no XMP, so a host that
+    /// takes a title from `/Info` needs to know when it may be taking it from the wrong place.
+    Properties,
     /// Table 29's `/PageMode` and `/PageLayout`: what the *catalog* asks of the window opening it.
     ///
     /// Beside [`Query::Preferences`] rather than folded into it, because they are two tables and
@@ -135,6 +141,13 @@ pub enum Answer<'a> {
     Found(Vec<Vec<[f32; 8]>>),
     /// Whether anything has been edited.
     Dirty(bool),
+    /// §14.3.3's Table 349, and whether §14.3.2's metadata stream is there.
+    Properties {
+        /// What the trailer's `/Info` says.
+        information: pdf_model::metadata::Information,
+        /// Whether the catalog names a `/Metadata` stream, which this crate does not read.
+        metadata_stream: bool,
+    },
     /// Table 29's two display entries.
     Opening(pdf_model::viewer_preferences::Opening),
     /// §12.2's Table 147, whole.

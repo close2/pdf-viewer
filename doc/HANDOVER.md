@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -75,14 +75,14 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **996**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **999**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **119 ms**, and five arrow keys turn to page 6 presenting in 12 to 26 ms with nothing refused | ADR 0126's recipe, session 164 |
-| conformance | 3313 citations, 332 quotations, 182 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3376 citations, 332 quotations, 183 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -112,10 +112,10 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 371 | every normative requirement in the clause is executed |
-| `partial` | 238 | some are; the note says which are not |
+| `implemented` | 372 | every normative requirement in the clause is executed |
+| `partial` | 239 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
-| `inapplicable` | 88 | a marking device, a layout engine, a production workflow |
+| `inapplicable` | 86 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 33 | not implemented, detected and named at runtime |
 | `writer-side` | 6 | addresses a PDF *generator* |
@@ -167,6 +167,7 @@ documents' first pages it affects.
 | `/ColorTransform` (Table 13) | — | Its one corpus witness contradicts the clause. |
 | Sampled shadings on the GPU | 2 | Type 1 only; the CPU backend draws them. |
 | A page whose scene overflows Vello's buffers | — | **Closed in session 143 by banding, and the page that motivated it stopped overflowing in 147** (ADR 0132: 303 clip identifiers for one region became one). Vello sizes its GPU working buffers from constants "hand picked to accommodate the vello test scenes", offers no way to enlarge them, and draws *nothing* when a scene needs more — page 6 of ISO 32000-2 at 1132×1600 needs 4% more tile records than the buffer holds. `render_checked` sees the flag and halves the target until it fits, which is Vello's own issue 366 remedy; 38.1 ms against 24.6 ms unbanded and 98 ms on the processor. The CPU fallback remains for a scene no band can hold, and the witness is now synthetic. ADRs 0127, 0132. |
+| §14.3.2's XMP | 319 | RDF/XML, so reading it is an **XML parser over untrusted bytes** — a dependency decision of the kind `zune-jpeg` and `skrifa` were, with a fuzz target owed alongside, and this tree has not taken it. What the absence costs is named rather than silent: §12.2's `/DisplayDocTitle` asks for `dc:title` and gets §14.3.3's `/Info /Title`, which Table 349's own NOTE 1 calls the same fact in the other place — a *choice*, printed once for each of the 18 documents that set the flag and carry a stream. |
 | Rendering intents beyond `AbsoluteColorimetric` | — | Read and recorded; `A2B0` not yet selected for `Perceptual`. |
 | §12.7.6.2's submit, §12.6.4's remote/launch/sound/movie | — | A network, a second file, a media engine. Refused by name and printed on a click. |
 | Signature *validation* (§12.8.3) | — | 17 ledger rows. Needs a trust store and a network; what a program without one can say is said (ADRs 0088, 0089). |
@@ -251,7 +252,8 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
   `Selection`, `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
-  **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
+  **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
+  `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
   and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
   chrome off the rendering path.
 - **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and
@@ -531,7 +533,7 @@ next to what it covers.
   validation needing a trust store or network, 5 need a second file, a media engine or a network,
   3 are icon clauses whose own verb is *should*, and the rest name a device or a user control this
   program does not have. That population is worked out.
-- **The 238 `partial` rows are the population with no gate**, and reading them has paid five
+- **The 239 `partial` rows are the population with no gate**, and reading them has paid five
   sessions running. What to look for, in the order the findings came: a note that *understates*
   the code (five in session 115); a note whose **reason** has expired — "while §X does not
   exist", "needs §Y" — which no gate can watch (117, 118); a note claiming an entry is *unread*
@@ -924,9 +926,10 @@ arrows scroll a page larger than the window, the wheel scrolls whatever is under
 the sidebar** — three tabs: §12.3.3's outline, where a click on a title goes there and a click on
 the triangle opens a subtree; §8.11.4.3's layers, where a click on a switch turns a layer on or
 off unless Table 99's `/Locked` forbids it; and §7.11.4's embedded files, where a click writes the
-file beside the document. **`?` puts `/NOTICE` over the page**, scrollable, which is the About
-panel and the visible half of what both vendored-font licences oblige a binary to carry. Escape
-quits. The title bar names how many things on
+file beside the document. The sidebar's fourth tab is §14.3.3's `/Info`, and it names §14.3.2's XMP where a
+document carries the stream this program does not read. **`?` puts `/NOTICE` over the page**,
+scrollable, which is the About panel and the visible half of what both vendored-font licences
+oblige a binary to carry. Escape quits. The title bar names how many things on
 the page could not be drawn and the things themselves are printed. A click follows §12.5.6.5's
 links and performs the eleven §12.6 actions this program can, printing every refusal — including
 §12.7.6.4's import, which reads an FDF file **beside the open document** and nowhere else. A
@@ -1694,6 +1697,14 @@ anchor that makes it checkable.
   expression looking for a different kind of blocker: not "needs §X" but "would cost too much
   here".
 
+- **An `inapplicable` row whose reason is "this program has no ___" is a row waiting for a
+  session that gives the program one.** §14.3.3 was `inapplicable` because "a viewer with a
+  document-properties panel would read it; this one has no panel", and the panel arrived seven
+  sessions before anybody re-read the row. That is the second instance after §12.7.4.2's field
+  names, and the trigger is ADR 0122's: **after a session that adds a capability, sweep the rows
+  whose reason begins "this program has no"** — `inapplicable` as well as `partial`, which the
+  earlier sweeps did not cover.
+
 - **Read the whole sentence a feature is built from, and count what the other half is worth
   before deciding.** §12.3.3 says a click makes a processor "jump to a destination **or trigger
   an action**"; the hundred-and-sixty-sixth session built the jump and shipped a `Command`
@@ -2083,3 +2094,4 @@ above rather than here.
 | 170 | A catalog row wrong about eighteen entries, and the two the sweep made worth building | 0146 |
 | 171 | A photograph's colours converted on eight threads; the priced item named the wrong loop | 0147 |
 | 172 | `/NOTICE` over the page in Courier: the About panel the owner asked for | — |
+| 173 | §14.3.3's `/Info` shown, and an `inapplicable` row that decayed when a panel arrived | — |

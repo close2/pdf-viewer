@@ -122,6 +122,10 @@ impl Viewer {
                 })
                 .map_or(Answer::None, Answer::Field),
             Query::Dirty => Answer::Dirty(open.dirty()),
+            Query::Properties => Answer::Properties {
+                information: pdf_model::metadata::Information::read(&open.document),
+                metadata_stream: pdf_model::metadata::has_metadata_stream(&open.document),
+            },
             Query::Opening => {
                 Answer::Opening(pdf_model::viewer_preferences::Opening::read(&open.document))
             }

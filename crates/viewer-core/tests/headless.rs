@@ -1510,3 +1510,55 @@ fn the_catalog_says_which_panel_a_host_should_open() {
     let empty = Viewer::new(800, 1000, 1.0);
     assert!(matches!(empty.query(Query::Opening), Answer::None));
 }
+
+/// §14.3.3's `/Info` reaches a host, and so does the fact that §14.3.2's XMP does not.
+///
+/// The second half is the point. Table 349's every text entry carries a NOTE naming an XMP
+/// counterpart and §12.2's `/DisplayDocTitle` names `dc:title` outright, so a host taking a title
+/// from `/Info` needs to know when it may be taking it from the wrong place — and this crate
+/// reads no XMP, which is a dependency decision rather than a clause gap.
+#[test]
+fn a_document_hands_over_what_it_says_about_itself() {
+    let (viewer, _) = opened(800, 1000);
+    let Answer::Properties {
+        information,
+        metadata_stream,
+    } = viewer.query(Query::Properties)
+    else {
+        panic!("a document is open");
+    };
+    assert_eq!(
+        information.producer.as_deref(),
+        Some("Adobe PDF Library 15.0"),
+        "Table 349's /Producer, as the committed note states it"
+    );
+    assert_eq!(
+        information.created_date().map(|date| date.year),
+        Some(2018),
+        "§7.9.4's date parses out of what the file wrote"
+    );
+    assert!(
+        metadata_stream,
+        "this document carries §14.3.2's stream, and the host is told"
+    );
+
+    // A document that states nothing says nothing, which is 454 of the 964 corpus documents that
+    // open — an absent `/Info` is what §14.3.3 calls optional, not a failure.
+    let mut plain = Viewer::new(800, 1000, 1.0);
+    plain
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_durations(),
+            password: None,
+        })
+        .for_each(drop);
+    let Answer::Properties {
+        information,
+        metadata_stream,
+    } = plain.query(Query::Properties)
+    else {
+        panic!("a document is open");
+    };
+    assert!(information.is_empty());
+    assert!(!metadata_stream);
+}

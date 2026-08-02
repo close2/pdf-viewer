@@ -55,8 +55,14 @@ fn only(outline: &Outline) -> Content<'_> {
         outline,
         layers: &[],
         attachments: &[],
+        information: &NOTHING,
+        metadata_stream: false,
     }
 }
+
+/// A document that states no §14.3.3 information, which most of them do.
+static NOTHING: std::sync::LazyLock<pdf_model::metadata::Information> =
+    std::sync::LazyLock::new(pdf_model::metadata::Information::default);
 
 /// Two levels, so that indentation, disclosure and identity all have something to act on.
 fn outline() -> Outline {
@@ -226,13 +232,13 @@ fn a_long_title_is_elided_to_the_width_available() {
     // The whole title is wider than the panel, so something must have been dropped — and what
     // is drawn must stay inside it. Measured through the same function that laid it out.
     assert!(
-        chrome.width(long, 12.0, viewer_ui::chrome::Style::default()) > 260.0,
+        chrome.width(long, 12.0, viewer_ui::chrome::Style::default()) > 300.0,
         "the fixture is not long enough to elide"
     );
     assert!(ink(&list, 26..46) > 40, "the row has glyphs");
     assert_eq!(
         ink(&list, 26..46),
-        ink_within(&list, 26..46, 0..260),
+        ink_within(&list, 26..46, 0..300),
         "a glyph was drawn outside the panel"
     );
 }
@@ -268,12 +274,14 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
         outline: &outline,
         layers: &layers,
         attachments: &[],
+        information: &NOTHING,
+        metadata_stream: false,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
     // The second of three tabs.
     assert_eq!(
-        panel.click((140.0, 8.0), content, 1.0),
+        panel.click((100.0, 8.0), content, 1.0),
         Some(Hit::Redraw),
         "the Layers tab"
     );
@@ -317,11 +325,13 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        information: &NOTHING,
+        metadata_stream: false,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
     assert_eq!(
-        panel.click((230.0, 8.0), empty, 1.0),
+        panel.click((170.0, 8.0), empty, 1.0),
         Some(Hit::Redraw),
         "the Files tab"
     );
@@ -343,6 +353,8 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         outline: &outline,
         layers: &[],
         attachments: &files,
+        information: &NOTHING,
+        metadata_stream: false,
     };
     assert!(ink(&panel.draw(&chrome, listed, HEIGHT, 1.0), 26..46) > 40);
     // The row's click is §7.11.4 from a person's side: the bytes are inside the document, and
@@ -404,4 +416,66 @@ fn the_about_card_shows_the_notice_and_scrolls_it() {
         ink(&far, 30..120) > 200,
         "scrolled past the end and the card is empty"
     );
+}
+
+/// §14.3.3's tab shows what the document says about itself, and what it does not read.
+///
+/// The last assertion is the honest one: §12.2's `/DisplayDocTitle` names XMP's `dc:title` and
+/// Table 349's every text entry carries a NOTE pointing at an XMP counterpart, so a document with
+/// a metadata stream may be saying something else about itself than the dictionary does. This
+/// program reads no XMP, and the panel says so rather than presenting `/Info` as the whole truth.
+#[test]
+fn the_document_tab_shows_table_349_and_names_the_xmp_it_does_not_read() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let outline = Outline::default();
+    let information = pdf_model::metadata::Information {
+        title: Some("Annual report".to_owned()),
+        producer: Some("An exporter".to_owned()),
+        created: Some("D:20140314124211+01'00'".to_owned()),
+        ..pdf_model::metadata::Information::default()
+    };
+    let stated = Content {
+        outline: &outline,
+        layers: &[],
+        attachments: &[],
+        information: &information,
+        metadata_stream: false,
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    // The fourth of four tabs.
+    assert_eq!(
+        panel.click((260.0, 8.0), stated, 1.0),
+        Some(Hit::Redraw),
+        "the About tab"
+    );
+    // Three stated entries, three rows, and a fourth row only where there is XMP to name.
+    for (row, band) in [(0, 26..46), (1, 46..66), (2, 66..86)] {
+        assert!(
+            ink(&panel.draw(&chrome, stated, HEIGHT, 1.0), band) > 20,
+            "row {row}"
+        );
+    }
+    assert_eq!(
+        ink(&panel.draw(&chrome, stated, HEIGHT, 1.0), 86..106),
+        0,
+        "a fourth row with nothing to say"
+    );
+
+    let with_xmp = Content {
+        metadata_stream: true,
+        ..stated
+    };
+    assert!(
+        ink(&panel.draw(&chrome, with_xmp, HEIGHT, 1.0), 86..106) > 40,
+        "a document carrying XMP must be told about it"
+    );
+
+    // A document that states nothing says so, rather than showing an empty list.
+    let silent = Content {
+        information: &NOTHING,
+        metadata_stream: false,
+        ..stated
+    };
+    assert!(ink(&panel.draw(&chrome, silent, HEIGHT, 1.0), 26..46) > 40);
 }
