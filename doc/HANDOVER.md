@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-eighty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-eighty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -89,7 +89,7 @@ that exists (ADR 0146).
 |---|---|---|
 | tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **880 draw with nothing reported**, **79 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **25 of them diagnosed and 726 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **26 of them diagnosed and 725 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -187,6 +187,7 @@ documents' first pages it affects.
 | `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
 | Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
 | A filled degenerate subpath's device pixel (§8.5.3.3.1) | — | The clause calls the result "device-dependent and not generally useful" in the same breath. Recorded, not reported. |
+| **A zero-area fill, which §10.7.4 says may not disappear** | 1 | Found in the hundred-and-eighty-fourth. `issue4260_reduced.pdf` rules its grid with `848 1085 10159 0 re f` — a rectangle of zero height — and three references draw the lines while we draw none of them. This is **not** §8.5.3.3.1's degenerate subpath (whose four points would have to share a coordinate); it is an ordinary fill whose coverage an antialiasing rasteriser computes as zero. §10.7.4: "A shape shall be scan-converted by painting any pixel whose half-open square region intersects the shape, no matter how small the intersection is. This ensures that no shape ever disappears". The rule is stated for fills *and* non-zero strokes, so the fix is `Stroke::device_width`'s shape one level over — a fill whose device extent collapses in one axis marks the thinnest line the device has — and it belongs in `pdf-render` where both backends inherit it. `AMBIGUOUS_ZERO_AREA_FILL`. |
 | A mask at a grid the bound refuses | 1 | `issue16263.pdf`: a 2×2 image with a 34862×4332 mask, 604 MB. The clause's answer is compositing at *device* resolution, which needs the display list to carry image and mask separately. |
 | JPEG 2000 at reduced resolution | 1 | `issue19517.pdf`, 212 megapixels. The format's answer needs the intended scale to reach the decoder. |
 | A stream whose data is in an external file (§7.3.8.1) | 0 | The renderer has no filesystem (principle 3). Refused by name rather than drawn from the bytes the clause says to ignore — which is what it did, silently, for the project's whole life. |
@@ -838,6 +839,16 @@ first: the *first* qualifying face in path order is `KanjiStrokeOrders.ttf` here
 with 的 and not much else, and two documents that had been drawing went blank. Corpus 86 → 79
 incomplete, oracle `agrees` 840 → **847**. ADR 0153, which also names what is left: a *per-character*
 fallback, which every real text stack has.
+
+**And the eighth session found the first page in this bucket that is plainly *our* defect, still
+unfixed.** `issue4260_reduced.pdf` rules a grid with `848 1085 10159 0 re f` — zero-height
+rectangles — and §10.7.4 forbids exactly what we do with them: "A shape shall be scan-converted by
+painting any pixel whose half-open square region intersects the shape, no matter how small the
+intersection is. This ensures that no shape ever disappears." Three references draw the grid; an
+antialiasing rasteriser computes the coverage as zero and we draw the surrounding box and nothing
+inside it. It is recorded in `AMBIGUOUS_ZERO_AREA_FILL` with the clause, and the fix is
+`Stroke::device_width`'s shape one level over, in `pdf-render` where both backends inherit it.
+**A group may say "we are wrong" — what it may not do is say nothing.**
 
 What is *not* acceptable is a fourth shape: a group that names no clause. That is the corpus
 being treated as the specification, which principle 5 forbids, and it is easy to write because
@@ -2414,3 +2425,4 @@ above rather than here.
 | 181 | A stencil whose current colour is a pattern: a blank page, reported complete | 0151 |
 | 182 | A substitute that draws nothing, and the sentence that said it drew | 0152 |
 | 183 | A substitute chosen by coverage: eight blank pages draw | 0153 |
+| 184 | §10.7.4 says no shape may disappear, and a page of ruling lines does | — |

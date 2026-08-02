@@ -541,7 +541,6 @@ issue2840.pdf page 1
 issue2884_reduced.pdf page 1
 issue3584.pdf page 1
 issue4246.pdf page 1
-issue4260_reduced.pdf page 1
 issue4379.pdf page 1
 issue4402_reduced.pdf page 1
 issue4665.pdf page 1

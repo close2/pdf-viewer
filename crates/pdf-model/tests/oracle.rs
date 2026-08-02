@@ -764,11 +764,12 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 ///
 /// Nothing announced that, because a substituted composite font whose face has no glyph for the
 /// characters §9.10.2 gives it simply drew nothing and reported nothing — which is what the
-/// hundred-and-eighty-second session fixed (ADR 0152). Both pages now report and leave this
-/// list, and **that is the denominator moving rather than a fix**: a page that reports is not
-/// judged. What the pages need is a substitute chosen by *coverage* rather than by family name,
-/// which this machine could satisfy — `fc-match :charset=76EE` answers `DroidSansFallback` — and
-/// which no session has built.
+/// hundred-and-eighty-second session fixed (ADR 0152). **They left this list twice in two
+/// sessions and only the second time was a fix.** The 182nd made them *report*, so they stopped
+/// being judged; the 183rd chose their substitute by coverage rather than by family name (ADR
+/// 0153) and they now draw あいうえお and **agree** with all three references. So the sentence
+/// this comment used to hold — five kana in the same places in every panel — is true at last,
+/// and was written twenty-seven sessions before it was.
 ///
 /// The lesson is the older one about this file: a group's comment is a claim about a picture,
 /// and a picture is one `Read` away.
@@ -1431,6 +1432,41 @@ const AMBIGUOUS_STROKE_ADJUSTMENT: [&str; 1] = ["bug1743245.pdf page 1"];
 /// the page from 27.57 bounds from the nearest reference to under 6.
 const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_shading.pdf page 1"];
 
+/// Ambiguous, and the clause says we are the ones who are wrong.
+///
+/// **The first group here whose diagnosis is a defect of ours**, and it is written down rather
+/// than fixed because the fix is a scan-conversion rule and this session had a page rather than
+/// a design. `issue4260_reduced.pdf` draws a grid of ruling lines as **zero-height rectangles**:
+///
+/// ```text
+/// 848 1085 10159 0 re f
+/// 848 1281 10159 0 re f
+/// ```
+///
+/// Three references draw the grid; we draw the surrounding box and nothing inside it. §10.7.4
+/// is unambiguous about that:
+///
+/// > A shape shall be scan-converted by painting any pixel whose half-open square region
+/// > intersects the shape, no matter how small the intersection is. This ensures that no shape
+/// > ever disappears as a result of unfavourable placement relative to the device pixel grid, as
+/// > might happen with other possible scan conversion rules. The area covered by painted pixels
+/// > shall always be at least as large as the area of the original shape. This rule applies both
+/// > to fill operations and to strokes with non-zero width.
+///
+/// **This is not §8.5.3.3.1's degenerate subpath**, which the handover already records as a
+/// documented departure: that clause defines degenerate as "consists entirely of one or more
+/// points at the same coordinates", and these four points differ in x. It is an ordinary
+/// zero-area fill, and an antialiasing rasteriser computes its coverage as zero and paints
+/// nothing — which is the *other* half of this tree's §10.7.4 departure from the one
+/// `CONTRADICTED_ANTIALIASED_EDGES` names. That one is about how an edge is shaded; this one is
+/// about a shape disappearing, which the clause forbids in as many words.
+///
+/// The verdict is `ambiguous` because the references disagree about the grid's *weight* — a
+/// hairline lands differently on each of their grids — so nobody's pair agrees closely enough to
+/// contradict us for drawing none of it. A page can be plainly wrong inside this verdict, which
+/// is §3a's whole argument.
+const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1443,6 +1479,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_DEVICE_CMYK_CONVERSION)
         .chain(&AMBIGUOUS_STROKE_ADJUSTMENT)
         .chain(&AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE)
+        .chain(&AMBIGUOUS_ZERO_AREA_FILL)
         .copied()
         .collect()
 }
