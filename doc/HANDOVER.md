@@ -599,10 +599,27 @@ already here. **The cost of the naive form is measured**: page 101's rasterisati
 **4 993 M** (session 153's 4 990 M reproduces), of which `CpuRasterizer::draw` is 4 104 M, and
 inside it `render_cpu::convert::path` 405 M, `Rect::from_points` 218 M and
 `RasterPipelineBlitter::new` 164 M are **787 M — 19% of the render — of per-command work that does
-not shrink with the band**, and that a strip replay repeats once per strip a command touches. **So
-the question that decides this is how many strips a command touches**, which is not yet measured
-and is a counter like `examples/glyph_reuse`, not a patch. On a page of small glyphs the answer
-may be "one", and then there is no duplication at all and the bound is load imbalance instead.
+not shrink with the band**, and that a strip replay repeats once per strip a command touches.
+
+**And the counter that decides it is written and run: `examples/strip_spans`, ADR 0137.** At eight
+strips a command touches **1.01 to 1.13** of them on four pages, so the 19% is multiplied by 1.13
+and not by 8 — a **2.5%** penalty, and duplication is not the problem. **Imbalance is, and a prefix
+sum removes it.** The worst strip's share of the estimated cost, against a 12.5% ideal:
+
+| page | equal heights | equal cost |
+|---|---|---|
+| ISO 32000-2 p. 101 | 15.9% | **12.9%** |
+| ISO 32000-2 p. 6 | 15.8% | **13.0%** |
+| `tracemonkey.pdf` | 22.3% | **12.6%** |
+| `bug1721218_reduced.pdf` | **72.0%** | **12.8%** |
+
+Equal heights give the project's worst page a 1.4× ceiling on eight threads; equal cost gives
+every page tested within 4% of perfect. **So strips are chosen by cost, and equal heights are not
+a simpler first version — they are the version that fails on the page that most needs it.** The
+mask worry is settled too: a clip chain touches 1.06 strips of eight on the 3608-chain page, and
+the chains that span many are page-wide ones whose masks are band-tall anyway. What is *not*
+measured is the pre-pass that computes the split, memory bandwidth and rayon's own dispatch, so
+this is a ceiling and not a speedup. **Not built yet, and it is the next performance item.**
 
 **Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 137.7 M** in session 153, of which
 the text layer is 35.8 M (session 133's A/B, below). The six sessions from the hundred-and-thirty-
@@ -770,6 +787,7 @@ valgrind --tool=callgrind --callgrind-out-file=/dev/null \
 valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_rasterise [file.pdf] [page]
 cargo run --release -p pdf-model --example glyph_reuse -- [file.pdf] [page] [scale]  # ADR 0131
+cargo run --release -p pdf-model --example strip_spans -- [file.pdf] [page] [scale]  # ADR 0137
 cargo build --release -p hayro-compare --bins && \
   cargo run --release -p hayro-compare --bin hayro-speed -- doc/pdf.js/test/pdfs/*.pdf   # ~45 min
 cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # one line per file,
@@ -1768,4 +1786,4 @@ above rather than here.
 | 151 | The ledger re-read against seven sessions of new capability | — |
 | 152 | §7.6.4.3.2 step (a): the Annex D table this crate said it did not hold | — |
 | 153 | Everything re-verified after ten sessions of change | — |
-| 154 | `rasterrocket` measured rather than read: not an oracle, and what it names for us | 0136 |
+| 154 | `rasterrocket` measured rather than read: not an oracle, and what it names for us | 0136, 0137 |
