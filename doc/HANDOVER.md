@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -89,7 +89,7 @@ that exists (ADR 0146).
 |---|---|---|
 | tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **22 of them diagnosed and 733 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **35 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **23 of them diagnosed and 732 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **35 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -773,6 +773,19 @@ findings:
   document", and its NOTE names "assumptions made by the PDF processor software". Four renderers
   assuming four presses is the standard working as written. **Say which clause leaves it open**,
   and name the assumption this tree makes (`colour.rs`'s `CMYK_CORNERS`).
+
+**The third session on this work is the standing example of the first shape**, and it took an
+afternoon. `bug1743245.pdf page 1` is squared paper whose grid lines transform to under a fifth of
+a device pixel, and the references split two against two, which is why nothing could be
+concluded — and §10.7.5's last sentence settles it outright: "[i]f stroke adjustment is enabled and
+the requested line width, transformed into device space, is less than half a pixel, the stroke
+shall be rendered as a single-pixel line." The document's own object 4 states `/SA true` and its
+content stream applies it, so the condition is the *file's*, not a guess. We draw one pixel;
+`poppler` and `hayro` do too; `mupdf` and `ghostscript` scan-convert the true sub-pixel width and
+are the pair that agree most closely with each other. **The clause decided a page four renderers
+could not**, and `Stroke::device_width` conditions the rule on `/SA` rather than applying it
+always, which is what makes ours a derivation instead of a coincidence — 30 corpus documents state
+`/SA true` and this is the one page where it changes a pixel.
 
 What is *not* acceptable is a fourth shape: a group that names no clause. That is the corpus
 being treated as the specification, which principle 5 forbids, and it is easy to write because
@@ -2344,3 +2357,4 @@ above rather than here.
 | 176 | The ambiguous bucket gets a ratchet, a ranking and its first diagnosis | — |
 | 177 | A subsection filed one object too high: the page one nobody had ever seen | 0148 |
 | 178 | A CMYK JPEG converted by its decoder rather than by the one conversion | 0149 |
+| 179 | §10.7.5's last sentence decides a page four renderers could not | — |

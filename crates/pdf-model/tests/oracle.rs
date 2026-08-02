@@ -1347,6 +1347,42 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 2] = ["issue7229.pdf page 1", "issue7229
 /// verdict nothing watched. ADR 0149.
 const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 1] = ["cmykjpeg.pdf page 1"];
 
+/// Ambiguous, and settled outright by §10.7.5's last sentence.
+///
+/// **This is the group that shows what an ambiguous verdict is worth.** The references split
+/// two against two and there is no consensus to hold anybody to — and the specification
+/// decides the page anyway, in one sentence, with the document's own dictionary supplying the
+/// condition:
+///
+/// > If stroke adjustment is enabled and the requested line width, transformed into device
+/// > space, is less than half a pixel, the stroke shall be rendered as a single-pixel line.
+///
+/// `bug1743245.pdf` is a page of squared paper with handwriting on it, and its object 4 is
+/// `<< /AIS false /CA 1 /SA true /SM 0.02 /SMask /None /Type /ExtGState /ca 1 >>`, applied by
+/// the content stream's first `/FXE1 gs`. So stroke adjustment **is** enabled. The grid lines
+/// transform to well under half a device pixel — `mupdf` covers one of them at 45 of 255 and
+/// `ghostscript` at 68, which is 0.18 and 0.27 of a pixel — so the sentence applies and each
+/// line shall be one pixel wide.
+///
+/// Measured on row 400 of the 445x594 raster, and the two camps are unmistakable. Mean grey
+/// over the whole page: **ours 0.8630, `poppler` 0.8602, `hayro` 0.8625** against **`mupdf`
+/// 0.9537 and `ghostscript` 0.9415**. The two that agree most closely with each other are the
+/// two that ignore the sentence (0.0162 apart), which is why the gate can conclude nothing;
+/// we are 0.0035 from `hayro` and both of us are doing what the clause says.
+///
+/// **The residual difference from `poppler` is the half of §10.7.5 this tree does not
+/// implement, and it is a departure recorded as one.** The clause also says the *coordinates*
+/// shall be adjusted; `poppler` grid-fits, so both of its lines are one solid black column,
+/// while ours are one solid column and one pair of half-covered ones — the same ink in the
+/// same place, differently distributed. The handover's list of departures carries the
+/// argument: the non-uniformity grid-fitting removes is an artefact of the binary scan
+/// conversion §10.7.4 requires, and this tree already departs from that.
+///
+/// `Stroke::device_width` conditions the rule on `/SA` rather than applying it always, which
+/// is what makes this a derivation rather than a coincidence: 30 corpus documents state
+/// `/SA true` and this is the one page where it decides a pixel.
+const AMBIGUOUS_STROKE_ADJUSTMENT: [&str; 1] = ["bug1743245.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1357,6 +1393,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .iter()
         .chain(&AMBIGUOUS_IMAGE_REDUCTION)
         .chain(&AMBIGUOUS_DEVICE_CMYK_CONVERSION)
+        .chain(&AMBIGUOUS_STROKE_ADJUSTMENT)
         .copied()
         .collect()
 }
