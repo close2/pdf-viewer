@@ -857,14 +857,63 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 21] = [
 /// This is the same conclusion the ink table reaches, arrived at without comparing anything to
 /// anybody: **a page that draws one glyph twice at different sub-pixel phases measures whether a
 /// renderer grid-fits, and needs no reference at all.**
-const CONTRADICTED_GLYPH_EDGES: [&str; 9] = [
+///
+/// # Eleven more in the hundred-and-sixty-first session, and the same two instruments
+///
+/// `CONTRADICTED_UNEXPLAINED` had thirteen members and eleven of them are this. The method is
+/// session 75's, applied to a list rather than to a page: **look at the heatmap's shape, then
+/// measure the ink.** Every one of the eleven heatmaps is glyph outlines and nothing else — no
+/// fill, no image, no edge of any shape that is not a letter — and the ink is conserved:
+///
+/// | page | ours | `poppler` | `mupdf` | `ghostscript` | `hayro` |
+/// |---|---|---|---|---|---|
+/// | `bug1151216.pdf` | 15.89 | 15.87 | 15.89 | 15.99 | 15.68 |
+/// | `bug1252420.pdf` | 10.37 | 10.20 | 10.23 | 10.53 | 10.20 |
+/// | `issue3207r.pdf` | 21.82 | 21.82 | 21.88 | 21.63 | 22.12 |
+/// | `issue3405r.pdf` | 21.97 | 22.26 | 22.27 | 21.97 | 22.29 |
+/// | `issue3694_reduced.pdf` | 13.11 | 12.85 | 13.01 | 13.27 | 13.13 |
+/// | `issue4061.pdf` | 14.92 | 14.65 | 14.66 | 15.28 | 14.64 |
+/// | `issue4650.pdf` | 14.94 | 14.88 | 14.93 | 15.18 | 14.89 |
+/// | `issue5010.pdf` | 13.10 | 13.11 | 13.13 | 13.49 | 12.89 |
+/// | `issue7492.pdf` | 20.28 | 20.06 | 20.19 | 20.58 | 20.02 |
+/// | `issue7901.pdf` | 26.21 | 26.14 | 26.25 | 26.51 | 25.72 |
+/// | `issue8097_reduced.pdf` | 18.69 | 18.56 | 18.62 | 18.69 | 18.61 |
+///
+/// **We are within 0.3 of every reference on every page, and the three references span as much
+/// among themselves.** Ink that is conserved with the difference confined to glyph outlines is
+/// this group's whole diagnosis, and these eleven meet it as squarely as the original eight.
+///
+/// What is different is only the bound that catches them: the eight fail on mean absolute
+/// difference against the class bound of 5.00, and these fail on the *tightened* one two closely
+/// agreeing references produce (trap 12) — mean 1.09 to 4.19, all inside 5.00.
+///
+/// **And the instrument had to be checked before it could be believed.** The first measurement
+/// put our ink at exactly half the three C renderers' on ten pages running, a ratio of 2.00 to
+/// three significant figures — which is not what hinting does and is what a broken instrument
+/// does. Our renders and `hayro`'s carry an alpha channel and the three C ones do not, and
+/// `magick -colorspace Gray` was averaging alpha in as a fourth channel. `-alpha off -channel R`
+/// is the measurement above. A suspiciously clean number is a reason to check the instrument,
+/// and the tell here was that the two renderers agreeing with us were the two whose output
+/// format matched ours.
+const CONTRADICTED_GLYPH_EDGES: [&str; 20] = [
     "bug1108301.pdf page 1",
+    "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
+    "bug1252420.pdf page 1",
     "bug894572.pdf page 1",
     "issue2017r.pdf page 1",
+    "issue3207r.pdf page 1",
+    "issue3405r.pdf page 1",
+    "issue3694_reduced.pdf page 1",
+    "issue4061.pdf page 1",
+    "issue4650.pdf page 1",
+    "issue5010.pdf page 1",
     "issue6889.pdf page 1",
+    "issue7492.pdf page 1",
     "issue7696.pdf page 1",
+    "issue7901.pdf page 1",
+    "issue8097_reduced.pdf page 1",
     "issue8570.pdf page 1",
     "openoffice.pdf page 1",
 ];
@@ -1133,21 +1182,8 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 9] = [
 /// any printed metric. That is trap 12's shape rather than a defect: the bound is 6.04 because
 /// two references agree very closely, and no reading of a clause chooses between five
 /// resamplings of one image.
-const CONTRADICTED_UNEXPLAINED: [&str; 13] = [
-    "bug1151216.pdf page 1",
-    "bug1252420.pdf page 1",
-    "freeculture.pdf page 313",
-    "issue3207r.pdf page 1",
-    "issue3405r.pdf page 1",
-    "issue3694_reduced.pdf page 1",
-    "issue4061.pdf page 1",
-    "issue4650.pdf page 1",
-    "issue5010.pdf page 1",
-    "issue7492.pdf page 1",
-    "issue7891_bc1.pdf page 1",
-    "issue7901.pdf page 1",
-    "issue8097_reduced.pdf page 1",
-];
+const CONTRADICTED_UNEXPLAINED: [&str; 2] =
+    ["freeculture.pdf page 313", "issue7891_bc1.pdf page 1"];
 
 /// Documents where our page geometry differs from the references' by more than the one
 /// pixel a fractional page size can round to.

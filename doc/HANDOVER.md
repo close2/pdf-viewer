@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixtieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixty-first** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -525,17 +525,20 @@ next to what it covers.
 
 **The oracle's 65 contradicted pages**, grouped and ratcheted in both directions in `oracle.rs`:
 4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured),
-**9 glyph edges** whose ink matches the consensus to half a level (measured, session 75), 7 a
-shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel image, 1 a `CalRGB`
-alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK` conversion**, 2 a reference that drew
-nothing, 1 a CID width, 1 a negative line width, **21 substituted fonts**, **13 unexplained**.
+**20 glyph edges** whose ink matches the consensus to a fraction of a level (measured, sessions
+75, 140 and 161), 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel
+image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK` conversion**, 2 a
+reference that drew nothing, 1 a CID width, 1 a negative line width, **21 substituted fonts**,
+**2 unexplained**.
 
-**Not one of the 13 is above its bound** — the list starts at 0.85, `issue7696.pdf` having left
-it in the hundred-and-fortieth session and `transparent.pdf` in the hundred-and-sixtieth, which
-took three minutes: the heatmap was the *whole silhouette* rather than its edges, which says
-colour rather than geometry before any pixel is sampled, and the one operator on the page is
-`0.82 0.7 0.54 0.67 k` under `/ca 1.0`. **Look at the shape of the heatmap before opening
-anything else.** Rank before opening anything,
+**The unexplained list is 2**, down from 14 in two sessions, and neither session opened a debugger.
+**Look at the shape of the heatmap, then measure the ink.** `transparent.pdf` left in the
+hundred-and-sixtieth: its heatmap is the whole silhouette rather than its edges, which says
+colour before any pixel is sampled, and the one operator on the page is `0.82 0.7 0.54 0.67 k`
+under `/ca 1.0`. Eleven left in the hundred-and-sixty-first: every heatmap is glyph outlines and
+nothing else, and our ink is within 0.3 of every reference on every page — which is
+`CONTRADICTED_GLYPH_EDGES`' whole diagnosis. What is left is `freeculture.pdf` page 313 and
+`issue7891_bc1.pdf`, the second of which was measured in session 61 and is trap 12's shape. Rank before opening anything,
 **by our worst measurement over the bound it is held to**; that has chosen the next item five
 times, twice finding something that was not one page's problem at all (a rule nobody had
 implemented, at 25.7×; the device transform, at 1.81, worth 11 pages). `issue7891_bc1.pdf` at
@@ -1909,3 +1912,4 @@ above rather than here.
 | 158 | "units per em is zero" was a symptom; two font programs are simply short | — |
 | 159 | Five `partial` rows swept: one blocker expired twice over and fourteen entries called unread | — |
 | 160 | An unexplained contradicted page measured: one `k` operator, and four renderers' profiles | — |
+| 161 | Eleven more measured: the unexplained list is 14 → 2, and the instrument had to be checked | — |
