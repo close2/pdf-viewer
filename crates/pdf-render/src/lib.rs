@@ -28,6 +28,7 @@ pub mod geom;
 pub mod paint;
 pub mod shading;
 pub mod soft_mask;
+pub mod strips;
 
 pub use backend::{
     BackendError, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer, TargetSpec,
@@ -42,3 +43,4 @@ pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use paint::{BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke};
 pub use shading::{MeshRaster, Ramp, Shading, ShadingKind, Stop, Triangle};
 pub use soft_mask::{SoftMask, SoftMaskId, SoftMaskKind, Transfer};
+pub use strips::{command_extents, row_costs, strip_boundaries};

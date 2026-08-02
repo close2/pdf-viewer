@@ -623,9 +623,26 @@ Equal heights give the project's worst page a 1.4× ceiling on eight threads; eq
 every page tested within 4% of perfect. **So strips are chosen by cost, and equal heights are not
 a simpler first version — they are the version that fails on the page that most needs it.** The
 mask worry is settled too: a clip chain touches 1.06 strips of eight on the 3608-chain page, and
-the chains that span many are page-wide ones whose masks are band-tall anyway. What is *not*
-measured is the pre-pass that computes the split, memory bandwidth and rayon's own dispatch, so
-this is a ceiling and not a speedup. **Not built yet, and it is the next performance item.**
+the chains that span many are page-wide ones whose masks are band-tall anyway.
+
+**It was then built, and the oracle refused it. ADR 0138.** The driver worked — strips borrowing
+disjoint rows of the pixmap, a `MaskCache` each, rayon — and it changed the picture: **four pages
+newly contradicted** (`bug1811694`, `dates`, `issue14705`, `issue15597`). The cause was isolated to
+one line of geometry. A curve **clipped by a strip's edge is re-parameterised**, so the clipped
+curve is not the `f32` control points the unclipped one was, and its edge coverage differs by up to
+64 of 255. A probe pins it exactly: split a page where the shape lies wholly inside one piece and
+the result is **bit-identical**; split it where the shape crosses and it is not. The same run with
+the strip count forced to one — same planner, same skip test, same refactor — is clean at 836
+agreeing pages, so **the strips are the cost and not anything else in the change**.
+
+**Everything but the planner is reverted**, because `CLAUDE.md` forbids shipping a path nobody
+takes. What survives is `Path::bounds`, `Command::device_bounds` and `pdf_render::strips` — the
+planner itself, which `examples/strip_spans` now calls so the measurement and the code cannot
+drift. **The next attempt has a shape**: cut only at rows that no command, clip chain or soft mask
+straddles, which ADR 0137's 1.01–1.13 touches per command says is most rows on a text page. It has
+a known obstacle — page 6's one page-wide clip straddles every row — and a ten-minute probe that
+would decide the common case: **is an axis-aligned rectangular clip cut by a horizontal edge
+exact?** Nothing is re-parameterised there, so it plausibly is.
 
 **Interpretation, by callgrind on `examples/callgrind_interpret`**: **2 137.7 M** in session 153, of which
 the text layer is 35.8 M (session 133's A/B, below). The six sessions from the hundred-and-thirty-
@@ -1273,6 +1290,11 @@ anchor that makes it checkable.
   after the states had been replaced by a stream. `matches!(x, Object::Dictionary(_))` is the
   assertion; the way it was found is the next line. ADR 0130.
 - **A discriminating test has to discriminate; check by breaking the thing.**
+- **A suite of shapes is a suite of shapes.** ADR 0138's equality test failed on three of eight
+  cross-backend scenes and all three had a *curve* crossing the cut; a suite of rectangles would
+  have passed and let the defect reach the oracle four pages later. Trap 12b asked what *size* a
+  suite's scenes are and ADR 0046 what *parameter* they leave at its default — this is the same
+  question a third time, about their geometry.
 - **Count a suite's *cases*, not its tests.** `rasterrocket` has 1330 passing tests over 93 218
   lines and a golden-image harness whose case list is the comment "CASES is empty until fixture
   PDFs are added" — and it draws no path fill at all, silently, on a document `pdftoppm` renders.
@@ -1792,4 +1814,4 @@ above rather than here.
 | 151 | The ledger re-read against seven sessions of new capability | — |
 | 152 | §7.6.4.3.2 step (a): the Annex D table this crate said it did not hold | — |
 | 153 | Everything re-verified after ten sessions of change | — |
-| 154 | `rasterrocket` measured rather than read: not an oracle, and what it names for us | 0136, 0137 |
+| 154 | `rasterrocket` measured rather than read; the strips it named, built and refused | 0136, 0137, 0138 |

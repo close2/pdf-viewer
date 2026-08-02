@@ -44,7 +44,7 @@
               row index, or a count of one page's commands into a ratio to print; both fit"
 )]
 
-use pdf_render::{ClipId, Command, DisplayList, PathCommand, Point, Transform};
+use pdf_render::{ClipId, Command, DisplayList, Point, Rect, Transform};
 
 /// Strip counts reported, which bracket the thread counts a laptop and a workstation offer.
 const STRIPS: [u32; 4] = [2, 4, 8, 16];
@@ -53,7 +53,7 @@ const STRIPS: [u32; 4] = [2, 4, 8, 16];
 ///
 /// Held as an option because a command whose clip admits nothing marks nothing, and that is a
 /// different answer from "marks one strip".
-type Extent = Option<[f32; 4]>;
+type Extent = Option<Rect>;
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -77,18 +77,10 @@ fn main() {
     let list = pdf_model::interpret(&document, &page).display_list;
     let target = pdf_render::TargetSpec::for_page(&list, scale, 1 << 30).expect("a target");
 
-    // One entry per command a backend would draw, group elements included: a group is composited
-    // as one object, but its elements are what the rasteriser walks.
-    let mut extents = Vec::new();
-    let mut unknown = 0_usize;
-    collect(
-        &list,
-        list.commands(),
-        target.transform,
-        None,
-        &mut extents,
-        &mut unknown,
-    );
+    // `pdf_render::strips` is what a backend would use, so this measures the shipped plan
+    // rather than a second copy of it that could drift from it.
+    let extents = pdf_render::command_extents(&list, target);
+    let per_row = pdf_render::row_costs(&extents, target);
 
     println!(
         "{} page {index} at {scale}x: target {}x{}, {} drawable commands",
@@ -98,36 +90,21 @@ fn main() {
         extents.len()
     );
 
-    // The cost of one target row: every command that can mark it, times how wide it can mark.
-    // Rows rather than pixels because a strip is a run of rows, so a row is the unit a split
-    // can actually choose between.
     let rows = target.height as usize;
-    let mut per_row = vec![0.0_f64; rows];
-    for extent in extents.iter().flatten() {
-        let span = f64::from(extent[2] - extent[0]).min(f64::from(target.width));
-        let from = (extent[1].max(0.0) as usize).min(rows);
-        let to = ((extent[3].max(0.0).ceil() as usize).max(from + 1)).min(rows);
-        for cost in per_row.get_mut(from..to).into_iter().flatten() {
-            *cost += span;
-        }
-    }
-
-    // Every distinct clip chain, and the extent it covers. A strip replay cannot share a mask
-    // cache across threads, so a chain is built once per strip it spans — and on the project's
-    // worst page `MaskCache::get` is a quarter of the whole render (ADR 0103), which is why this
-    // is counted beside the commands rather than assumed small.
-    let chains: Vec<Extent> = clips(&list)
-        .into_iter()
-        .map(|id| chain(&list, id, target.transform))
-        .collect();
-
     let drawn = extents.iter().flatten().count().max(1) as f64;
+    let chains: Vec<Option<Rect>> = clips(&list)
+        .into_iter()
+        .map(|id| chain_extent(&list, id, target.transform))
+        .collect();
     let chained = chains.iter().flatten().count().max(1) as f64;
-    println!("           ── equal rows ──      ── equal cost ──");
+
+    println!(
+        "           \u{2500}\u{2500} equal rows \u{2500}\u{2500}      \u{2500}\u{2500} equal cost \u{2500}\u{2500}"
+    );
     println!("  strips   touches  slowest      touches  slowest   masks    (even split)");
     for strips in STRIPS {
         let even = equal_rows(rows, strips as usize);
-        let balanced = equal_cost(&per_row, strips as usize);
+        let balanced = pdf_render::strip_boundaries(&per_row, strips);
         let (even_touches, even_slowest) = judge(&extents, &per_row, &even);
         let (balanced_touches, balanced_slowest) = judge(&extents, &per_row, &balanced);
         let (mask_touches, _) = judge(&chains, &per_row, &balanced);
@@ -144,8 +121,7 @@ fn main() {
 
     let marked = extents.iter().flatten().count();
     println!(
-        "  {marked} commands mark something; {} are clipped away entirely, \
-         {unknown} are of a kind this counter does not know",
+        "  {marked} commands mark something; {} are clipped away entirely",
         extents.len() - marked
     );
 }
@@ -169,32 +145,28 @@ fn clips(list: &DisplayList) -> Vec<ClipId> {
     into.into_iter().collect()
 }
 
-/// Strip boundaries at equal heights: the obvious split, and the one a thread pool suggests.
-fn equal_rows(rows: usize, strips: usize) -> Vec<usize> {
-    (0..=strips).map(|i| rows * i / strips).collect()
+/// A clip chain's device extent, met down the chain.
+fn chain_extent(list: &DisplayList, leaf: ClipId, to_device: Transform) -> Option<Rect> {
+    let mut extent: Option<Rect> = None;
+    let mut current = Some(leaf);
+    for _ in 0..64 {
+        let Some(id) = current else { break };
+        let Some(clip) = list.clip(id) else { break };
+        let one = clip.path.bounds(clip.transform.then(to_device))?;
+        extent = Some(extent.map_or(one, |held| Rect {
+            min: Point::new(held.min.x.max(one.min.x), held.min.y.max(one.min.y)),
+            max: Point::new(held.max.x.min(one.max.x), held.max.y.min(one.max.y)),
+        }));
+        current = clip.parent;
+    }
+    extent
 }
 
-/// Strip boundaries at equal estimated cost.
-///
-/// A page's ink is not spread evenly down it — `bug1721218_reduced.pdf` is one wide gradient over
-/// a third of its height — so equal heights hand one thread most of the work. Cutting where the
-/// *cost* is even is one prefix sum, and it is the difference between a decomposition worth
-/// building and one that is not.
-fn equal_cost(per_row: &[f64], strips: usize) -> Vec<usize> {
-    let total: f64 = per_row.iter().sum();
-    let mut boundaries = vec![0_usize];
-    let mut running = 0.0;
-    for row in 0..per_row.len() {
-        running += per_row.get(row).copied().unwrap_or(0.0);
-        let wanted = boundaries.len() as f64 * total / strips as f64;
-        if running >= wanted && boundaries.len() < strips {
-            boundaries.push(row + 1);
-        }
-    }
-    while boundaries.len() <= strips {
-        boundaries.push(per_row.len());
-    }
-    boundaries
+/// Strip boundaries at equal heights: the obvious split, and the one a thread pool suggests.
+fn equal_rows(rows: usize, strips: usize) -> Vec<u32> {
+    (0..=strips)
+        .map(|i| u32::try_from(rows * i / strips).unwrap_or(u32::MAX))
+        .collect()
 }
 
 /// What a split costs: how many (command, strip) pairs it replays, and the slowest strip's
@@ -202,167 +174,25 @@ fn equal_cost(per_row: &[f64], strips: usize) -> Vec<usize> {
 ///
 /// The slowest strip is the number that matters. Threads finish when the last one does, so a
 /// split whose worst strip holds 70% of the work is a 1.4× speedup however many threads it has.
-fn judge(extents: &[Extent], per_row: &[f64], boundaries: &[usize]) -> (u64, f64) {
+fn judge(extents: &[Extent], per_row: &[f64], boundaries: &[u32]) -> (u64, f64) {
     let strips = boundaries.len().saturating_sub(1);
     let mut touches = 0_u64;
     for extent in extents.iter().flatten() {
-        let first = extent[1].max(0.0) as usize;
-        let last = (extent[3].max(0.0).ceil() as usize).max(first + 1);
+        let first = extent.min.y.max(0.0) as usize;
+        let last = (extent.max.y.max(0.0).ceil() as usize).max(first + 1);
         touches += (0..strips)
             .filter(|strip| {
-                let (top, bottom) = (boundaries[*strip], boundaries[strip + 1]);
+                let (top, bottom) = (boundaries[*strip] as usize, boundaries[strip + 1] as usize);
                 first < bottom && last > top
             })
             .count() as u64;
     }
     let cost = |strip: usize| -> f64 {
         per_row
-            .get(boundaries[strip]..boundaries[strip + 1])
+            .get(boundaries[strip] as usize..boundaries[strip + 1] as usize)
             .map_or(0.0, |rows| rows.iter().sum())
     };
     let total: f64 = (0..strips).map(cost).sum();
     let slowest = (0..strips).map(cost).fold(0.0_f64, f64::max);
     (touches, if total > 0.0 { slowest / total } else { 0.0 })
-}
-
-/// Every command a backend draws, with the device extent it can mark.
-fn collect(
-    list: &DisplayList,
-    commands: &[Command],
-    to_device: Transform,
-    inherited: Extent,
-    into: &mut Vec<Extent>,
-    unknown: &mut usize,
-) {
-    for command in commands {
-        let clip = command
-            .clip()
-            .map_or(inherited, |id| meet(inherited, chain(list, id, to_device)));
-        let own = match command {
-            Command::Fill {
-                path, transform, ..
-            } => outline(path, transform.then(to_device), 0.0),
-            Command::Stroke {
-                path,
-                transform,
-                stroke,
-                ..
-            } => {
-                let placed = transform.then(to_device);
-                // Half the stroke's device width lies outside the path on each side, and a
-                // mitre can reach further; half is the honest bound for a *proxy* and the
-                // error is a fraction of a pixel on a hairline.
-                outline(path, placed, stroke.device_width(placed) / 2.0)
-            }
-            Command::Image { transform, .. } => {
-                // §8.9.5.2's unit square is the image's geometry; the transform carries the rest.
-                let unit = [
-                    Point { x: 0.0, y: 0.0 },
-                    Point { x: 1.0, y: 0.0 },
-                    Point { x: 1.0, y: 1.0 },
-                    Point { x: 0.0, y: 1.0 },
-                ];
-                corners(unit.iter().copied(), transform.then(to_device), 0.0)
-            }
-            Command::Group { commands, .. } => {
-                // A group's elements are what the rasteriser walks, so they are counted rather
-                // than their union — and they are counted under the group's clip.
-                collect(list, commands, to_device, clip, into, unknown);
-                continue;
-            }
-            // `Command` is `#[non_exhaustive]`, so a kind added later lands here. Counting it as
-            // unbounded overstates the duplication a strip replay would pay, which is the
-            // direction that cannot make parallelism look better than it is — and the count is
-            // printed, because a silent catch-all is where a new command goes to be ignored.
-            _ => {
-                *unknown += 1;
-                None
-            }
-        };
-        into.push(meet(own, clip));
-    }
-}
-
-/// A clip chain's device extent: every clip in it, met.
-fn chain(list: &DisplayList, leaf: ClipId, to_device: Transform) -> Extent {
-    let mut extent: Extent = None;
-    let mut current = Some(leaf);
-    let mut depth = 0;
-    let mut first = true;
-    while let Some(id) = current {
-        depth += 1;
-        if depth > 64 {
-            break;
-        }
-        let Some(clip) = list.clip(id) else { break };
-        let one = outline(&clip.path, clip.transform.then(to_device), 0.0);
-        extent = if first { one } else { meet(extent, one) };
-        first = false;
-        current = clip.parent;
-    }
-    extent
-}
-
-/// A path's device extent, grown by `outset` on every side.
-fn outline(path: &pdf_render::Path, transform: Transform, outset: f32) -> Extent {
-    corners(path.commands().iter().flat_map(points), transform, outset)
-}
-
-/// The extent of a set of points under `transform`, grown by `outset`.
-///
-/// Control points rather than the curve: a Bézier lies inside its control polygon's convex hull,
-/// so this is a bound and never an underestimate — which is the direction a proxy for "can this
-/// command mark this strip" has to err in.
-fn corners(points: impl Iterator<Item = Point>, transform: Transform, outset: f32) -> Extent {
-    let mut extent = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
-    let mut any = false;
-    for point in points {
-        any = true;
-        let x = transform.a * point.x + transform.c * point.y + transform.e;
-        let y = transform.b * point.x + transform.d * point.y + transform.f;
-        extent = [
-            extent[0].min(x),
-            extent[1].min(y),
-            extent[2].max(x),
-            extent[3].max(y),
-        ];
-    }
-    any.then(|| {
-        [
-            extent[0] - outset,
-            extent[1] - outset,
-            extent[2] + outset,
-            extent[3] + outset,
-        ]
-    })
-}
-
-/// The intersection of two extents, where `None` on either side means "unbounded".
-///
-/// `None` is what an unclipped command carries, and an unclipped command is bounded by the
-/// target rather than by nothing — but the target's own bound is applied by the strip
-/// arithmetic, so treating it as unbounded here loses no row.
-fn meet(left: Extent, right: Extent) -> Extent {
-    match (left, right) {
-        (Some(left), Some(right)) => {
-            let met = [
-                left[0].max(right[0]),
-                left[1].max(right[1]),
-                left[2].min(right[2]),
-                left[3].min(right[3]),
-            ];
-            (met[0] < met[2] && met[1] < met[3]).then_some(met)
-        }
-        (Some(one), None) | (None, Some(one)) => Some(one),
-        (None, None) => None,
-    }
-}
-
-/// The points one path command names.
-fn points(command: &PathCommand) -> Vec<Point> {
-    match *command {
-        PathCommand::MoveTo(p) | PathCommand::LineTo(p) => vec![p],
-        PathCommand::CurveTo(a, b, c) => vec![a, b, c],
-        PathCommand::Close => Vec::new(),
-    }
 }

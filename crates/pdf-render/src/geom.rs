@@ -355,6 +355,43 @@ impl Path {
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
     }
+
+    /// The smallest rectangle containing the path once `transform` has been applied, or
+    /// `None` for a path that names no point.
+    ///
+    /// # It is a bound and never an underestimate
+    ///
+    /// The corners come from the *control* points rather than from the curve, and a cubic
+    /// Bézier lies inside the convex hull of its four control points, so a curve that bulges
+    /// less than its handles gives a rectangle larger than the ink. That is the direction a
+    /// caller asking "can this command mark these rows" needs: a bound that is too large
+    /// costs work, and one that is too small loses pixels.
+    ///
+    /// The exact bound would need each segment's extrema, which is a root-finding problem per
+    /// curve and buys nothing for the two callers this has — deciding which horizontal strip
+    /// of a target a command belongs to (ADR 0137), and estimating what a strip costs.
+    #[must_use]
+    pub fn bounds(&self, transform: Transform) -> Option<Rect> {
+        let mut bounds: Option<Rect> = None;
+        let mut extend = |point: Point| {
+            let point = transform.apply(point);
+            bounds = Some(bounds.map_or(Rect::from_corners(point, point), |rect| {
+                rect.union(Rect::from_corners(point, point))
+            }));
+        };
+        for command in &self.commands {
+            match *command {
+                PathCommand::MoveTo(p) | PathCommand::LineTo(p) => extend(p),
+                PathCommand::CurveTo(a, b, c) => {
+                    extend(a);
+                    extend(b);
+                    extend(c);
+                }
+                PathCommand::Close => {}
+            }
+        }
+        bounds
+    }
 }
 
 #[cfg(test)]

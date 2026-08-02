@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::hash::{Hash as _, Hasher as _};
 use std::sync::Arc;
 
-use crate::geom::{Path, Rect, Size, Transform};
+use crate::geom::{Path, Point, Rect, Size, Transform};
 use crate::paint::{BlendMode, FillRule, Image, Paint, Stroke};
 use crate::soft_mask::{SoftMask, SoftMaskId};
 
@@ -232,6 +232,59 @@ impl Command {
             | Self::Stroke { clip, .. }
             | Self::Image { clip, .. }
             | Self::Group { clip, .. } => *clip,
+        }
+    }
+
+    /// The region of the target this command can mark, ignoring its clip, or `None` where
+    /// this cannot say.
+    ///
+    /// `to_device` maps page space to target pixels. The answer is a **bound**: a curve
+    /// inside its control polygon and a mitre at its limit are both counted, so a caller may
+    /// use it to rule a command out of a region but never to decide what it covers.
+    ///
+    /// `None` for a group, whose extent is its elements' and which a caller walking them
+    /// bounds one at a time. A caller that cannot walk them must treat `None` as "anywhere",
+    /// which is the safe reading and the only one that keeps this usable for skipping work.
+    #[must_use]
+    pub fn device_bounds(&self, to_device: Transform) -> Option<Rect> {
+        match self {
+            Self::Fill {
+                path, transform, ..
+            } => path.bounds(transform.then(to_device)),
+            Self::Stroke {
+                path,
+                transform,
+                stroke,
+                ..
+            } => {
+                let placed = transform.then(to_device);
+                let bounds = path.bounds(placed)?;
+                // A mitre reaches `miter_limit × width / 2` from the join, which is the
+                // furthest any stroke decoration goes: §8.4.3.5's caps reach half a width,
+                // and a dash's caps are on the same line. One whole width times the limit is
+                // that with room to spare, which is the direction a bound has to err in.
+                let reach = stroke.device_width(placed) * stroke.miter_limit.max(1.0);
+                Some(Rect {
+                    min: Point::new(bounds.min.x - reach, bounds.min.y - reach),
+                    max: Point::new(bounds.max.x + reach, bounds.max.y + reach),
+                })
+            }
+            // §8.9.5.2 puts an image in the unit square and the transform carries the rest.
+            Self::Image { transform, .. } => {
+                let placed = transform.then(to_device);
+                let corners = [
+                    placed.apply(Point::new(0.0, 0.0)),
+                    placed.apply(Point::new(1.0, 0.0)),
+                    placed.apply(Point::new(1.0, 1.0)),
+                    placed.apply(Point::new(0.0, 1.0)),
+                ];
+                let mut bounds = Rect::from_corners(corners[0], corners[0]);
+                for corner in corners {
+                    bounds = bounds.union(Rect::from_corners(corner, corner));
+                }
+                Some(bounds)
+            }
+            Self::Group { .. } => None,
         }
     }
 
@@ -469,8 +522,8 @@ impl DisplayList {
     #[must_use]
     pub fn page_bounds(&self) -> Rect {
         Rect::from_corners(
-            crate::geom::Point::new(0.0, 0.0),
-            crate::geom::Point::new(self.page_size.width, self.page_size.height),
+            Point::new(0.0, 0.0),
+            Point::new(self.page_size.width, self.page_size.height),
         )
     }
 }
