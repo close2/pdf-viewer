@@ -393,6 +393,44 @@ impl std::fmt::Debug for LoadedFont {
 }
 
 impl LoadedFont {
+    /// One of ISO 32000-2 §9.6.2.2's fourteen, for text this program generates rather than reads.
+    ///
+    /// A viewer draws text of its own — an outline panel's titles, a layer's `/Name`, an About
+    /// box — and none of it comes from a content stream, so there is no font dictionary to load
+    /// and no document to load it from. What there *is* is the clause's own guarantee:
+    ///
+    /// > These fonts, or their font metrics and suitable substitution fonts, shall be available
+    /// > to the PDF processor.
+    ///
+    /// Since the hundred-and-forty-eighth session that availability is a fact about the binary
+    /// rather than about the machine ([`crate::standard`], ADR 0133), which is what makes this
+    /// worth having: an interface drawn in one of the fourteen looks the same on a machine with
+    /// no fonts installed at all.
+    ///
+    /// **The route is the ordinary one, deliberately.** A `/Type1` dictionary naming
+    /// `base_font` is assembled here and handed to [`Self::load`] against
+    /// [`Document::empty`], so the encoding is §9.6.5.2's, the widths are §9.6.2.2's own
+    /// metrics and the face is [`crate::standard::face`]'s — the same three answers a document
+    /// naming `/Helvetica` gets. A second path would be a second reading of clause 9.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load`]. A `base_font` that is not one of the fourteen is not an error: it
+    /// falls through to [`crate::substitute::find`] exactly as a document's unrecognised
+    /// `/BaseFont` does, and what comes back is a substitute rather than a refusal.
+    pub fn standard(base_font: &str) -> Result<Self, FontError> {
+        let name = |value: &str| Object::Name(pdf_syntax::Name::new(value.as_bytes().to_vec()));
+        let mut dict = Dictionary::new();
+        for (key, value) in [
+            ("Type", "Font"),
+            ("Subtype", "Type1"),
+            ("BaseFont", base_font),
+        ] {
+            dict.insert(pdf_syntax::Name::new(key.as_bytes().to_vec()), name(value));
+        }
+        Self::load(&Document::empty(), &dict, base_font)
+    }
+
     /// Loads a font from a PDF font dictionary.
     ///
     /// # Errors
@@ -2758,6 +2796,45 @@ impl OutlinePen for PathPen {
 mod tests {
     use super::{CidToGlyph, Code, CodeMapping, LoadedFont, Program};
     use pdf_syntax::{Dictionary, Document};
+
+    /// [`LoadedFont::standard`] answers with §9.6.2.2's metrics and drawable glyphs, no file.
+    ///
+    /// Three things at once, and each has failed somewhere else in this tree. The widths are
+    /// the clause's own — Helvetica's `M` is 833 thousandths of an em and its space 278, which
+    /// is the AFM's number and not something a substitute face happened to have — so the
+    /// metrics half of "these fonts, or their font metrics and suitable substitution fonts" is
+    /// what answered. [`LoadedFont::advance`] states them in ems, which is why these are
+    /// thousandths of one.
+    /// Every code a Latin label uses has an outline with segments in it, because a font that
+    /// maps a code and draws nothing is the silent failure trap 1 is about. And the whole of it
+    /// runs against [`Document::empty`], which is the point: there is no file here.
+    #[test]
+    fn the_fourteen_are_available_without_a_document() {
+        let font = LoadedFont::standard("Helvetica").expect("one of §9.6.2.2's fourteen");
+        for (character, width) in [('M', 0.833), (' ', 0.278), ('i', 0.222)] {
+            let code = font
+                .code_for(character)
+                .unwrap_or_else(|| panic!("{character:?} has a code in StandardEncoding"));
+            assert!(
+                (font.advance(code) - width).abs() < 0.0005,
+                "{character:?} advances {} em where §9.6.2.2's metrics say {width}",
+                font.advance(code)
+            );
+        }
+        for character in "Outline".chars() {
+            let code = font.code_for(character).expect("a code");
+            let outline = font
+                .outline(code)
+                .unwrap_or_else(|| panic!("{character:?} draws nothing"));
+            assert!(
+                !outline.commands().is_empty(),
+                "{character:?} is an empty path"
+            );
+        }
+        // A face the clause does not name is a substitute rather than a refusal, which is the
+        // same answer a document's own unrecognised `/BaseFont` gets.
+        LoadedFont::standard("Garamond").expect("a substitute, not an error");
+    }
 
     /// Every PDF in `doc/`, which is the corpus these tests are written against.
     fn corpus() -> Vec<std::path::PathBuf> {

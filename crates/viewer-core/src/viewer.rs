@@ -188,7 +188,7 @@ impl Viewer {
                 let Some(open) = self.focused_mut() else {
                     return;
                 };
-                let Some(index) = resolve(target, open.page_index, open.page_count) else {
+                let Some(index) = resolve(open, target) else {
                     return;
                 };
                 if index == open.page_index {
@@ -992,7 +992,12 @@ fn label(open: &Open, index: usize) -> Option<String> {
 }
 
 /// Turns a [`PageTarget`] into an index, clamped to the document.
-fn resolve(target: PageTarget, current: usize, count: usize) -> Option<usize> {
+///
+/// Takes the whole `Open` rather than two numbers because [`PageTarget::Destination`] is
+/// answered by the *document*: §12.3.2's target is a page object, and only the page tree knows
+/// which index that is.
+fn resolve(open: &Open, target: PageTarget) -> Option<usize> {
+    let (current, count) = (open.page_index, open.page_count);
     let last = count.checked_sub(1)?;
     Some(match target {
         PageTarget::Index(index) => index.min(last),
@@ -1001,6 +1006,13 @@ fn resolve(target: PageTarget, current: usize, count: usize) -> Option<usize> {
         PageTarget::Next => current.saturating_add(1).min(last),
         PageTarget::Previous => current.saturating_sub(1),
         PageTarget::Relative(delta) => current.saturating_add_signed(delta).min(last),
+        // One page-tree walk per navigation, which is what a link click already costs
+        // (`interact::activate`) and is not the per-item loop ADR 0124 was about — a *panel*
+        // resolving every item at once wants `Destination::page_index_with` instead.
+        PageTarget::Destination(destination) => {
+            let pages = pdf_model::Pages::new(&open.document);
+            destination.page_index(&open.document, &pages)?.min(last)
+        }
     })
 }
 

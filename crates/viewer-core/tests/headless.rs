@@ -1246,3 +1246,119 @@ fn with_durations() -> Vec<u8> {
     );
     out.into_bytes()
 }
+
+/// §12.3.3's outline navigates, and the index it lands on is the page tree's.
+///
+/// `PageTarget::Destination` exists because a host cannot resolve one: §12.3.2.2's target is a
+/// page *object*, and turning an object into an index is a walk of the page tree. So the check
+/// walks the tree **here**, by `/Kids`, rather than asking `pdf_model::Pages` — a test that
+/// resolved the destination through the same function the command uses would agree with itself.
+#[test]
+fn an_outline_item_goes_to_the_page_its_destination_names() {
+    use pdf_model::destination::{Destination, Target, View};
+
+    let document = pdf_syntax::Document::open(specification_bytes()).expect("a committed PDF");
+    let pages = page_objects(&document);
+    assert_eq!(pages.len(), PAGES, "the tree walk found every page");
+
+    let (mut viewer, _) = opened(800, 1000);
+    let Answer::Outline(outline) = viewer.query(Query::Outline) else {
+        panic!("the note has a §12.3.3 outline");
+    };
+    // Flattened, because what a panel shows is the whole tree and what a click sends is one
+    // item's destination whatever its depth.
+    let mut wanted: Vec<(String, usize)> = Vec::new();
+    let mut stack: Vec<&pdf_model::outline::Item> = outline.items.iter().rev().collect();
+    while let Some(item) = stack.pop() {
+        if let Some(Destination {
+            target: Target::Object(id),
+            ..
+        }) = item.destination
+            && let Some(index) = pages.iter().position(|page| *page == id)
+        {
+            wanted.push((item.title.clone(), index));
+        }
+        stack.extend(item.children.iter().rev());
+    }
+    assert!(
+        wanted.iter().any(|(_, index)| *index > 0),
+        "every item points at page one, so nothing here would move"
+    );
+
+    for (title, index) in wanted {
+        viewer
+            .handle(Command::GoTo(PageTarget::First))
+            .for_each(drop);
+        let destination = Destination {
+            target: Target::Object(pages[index]),
+            view: View::Fit,
+        };
+        viewer
+            .handle(Command::GoTo(PageTarget::Destination(destination)))
+            .for_each(drop);
+        let Answer::Page { index: at, .. } = viewer.query(Query::CurrentPage) else {
+            panic!("a document is open");
+        };
+        assert_eq!(at, index, "{title:?}");
+    }
+
+    // §12.3.2.2's NOTE makes a bare page *number* a page in a remote document, so it names
+    // nothing here and moves nowhere — rather than being read as an index into this file.
+    viewer
+        .handle(Command::GoTo(PageTarget::First))
+        .for_each(drop);
+    viewer
+        .handle(Command::GoTo(PageTarget::Destination(Destination {
+            target: Target::Number(3),
+            view: View::Fit,
+        })))
+        .for_each(drop);
+    let Answer::Page { index, .. } = viewer.query(Query::CurrentPage) else {
+        panic!("a document is open");
+    };
+    assert_eq!(
+        index, 0,
+        "a remote page number is not an index into this one"
+    );
+}
+
+/// Every page object of a document, in order, by walking `/Kids` from the catalog.
+///
+/// Deliberately not `pdf_model::Pages`: see the caller.
+fn page_objects(document: &pdf_syntax::Document) -> Vec<pdf_syntax::ObjectId> {
+    fn descend(
+        document: &pdf_syntax::Document,
+        node: &pdf_syntax::Dictionary,
+        depth: usize,
+        out: &mut Vec<pdf_syntax::ObjectId>,
+    ) {
+        if depth > 32 {
+            return;
+        }
+        let kids = document.get_key(node, "Kids");
+        let Some(kids) = kids.as_array() else {
+            return;
+        };
+        for kid in kids {
+            let Some(id) = kid.as_reference() else {
+                continue;
+            };
+            let child = document.get(id);
+            let Some(child) = child.as_dict() else {
+                continue;
+            };
+            if child.get("Kids").is_some() {
+                descend(document, child, depth.saturating_add(1), out);
+            } else {
+                out.push(id);
+            }
+        }
+    }
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "Pages");
+    let mut out = Vec::new();
+    if let Some(root) = root.as_dict() {
+        descend(document, root, 0, &mut out);
+    }
+    out
+}

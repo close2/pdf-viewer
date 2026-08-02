@@ -377,11 +377,11 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// code to the *glyph's* name and each glyph is a Greek letter. Both readbacks are defensible
 /// and the clause is about naming what was drawn, which is what ours does.
 ///
-/// The remaining four are partial for reasons nobody has diagnosed further: `issue13211.pdf`,
-/// `issue16538.pdf`, `issue16553.pdf` and `bug1392647.pdf`. **All of them agree with the
-/// reference consensus on pixels**, measured in the sixty-sixth session with one filtered
-/// oracle run, so every one of them draws a picture two independent renderers accept and fails
-/// only at naming what it drew.
+/// The remaining three are partial for reasons nobody has diagnosed further: `issue13211.pdf`,
+/// `issue16553.pdf` and `bug1392647.pdf`. **All of them agree with the reference consensus on
+/// pixels**, measured in the sixty-sixth session with one filtered oracle run, so every one of
+/// them draws a picture two independent renderers accept and fails only at naming what it drew.
+/// (`issue16538.pdf` was a fourth until §9.7.5.2's `CMap`s landed; see below.)
 ///
 /// **Two left this list in the hundred-and-twenty-seventh session and neither was diagnosed
 /// here**: `issue19182.pdf` and `issue19971.pdf` were reading a font the font *cache* had
@@ -389,7 +389,7 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// so a form `XObject`'s font was answering the page's question. The first now reports the
 /// predefined `CMap` it actually names and leaves this gate's population; the second rose above
 /// the floor. **A text-extraction shortfall nobody could diagnose was a font nobody had
-/// looked up** — worth remembering before spending a session on §9.10.2 for the four left. The whole of what is left
+/// looked up** — worth remembering before spending a session on §9.10.2 for the three left. The whole of what is left
 /// on this list is §9.10.2, and none of it is a drawing defect — which is worth knowing before
 /// spending a session on any of them, and is the cheapest thing to check about an entry here.
 ///
@@ -412,11 +412,21 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// — and it is *new to this list without its readback changing at all*. It reported §9.3.8's
 /// text knockout until that clause was implemented, and only pages we draw completely are
 /// gated. A gate's numerator moves when its denominator does, and only one of those is news.
-const TEXT_BELOW_FLOOR: [&str; 42] = [
+/// # Six left in the hundred-and-fifty-sixth session, and the list heard in the hundred-and-sixty-sixth
+///
+/// `arial_unicode_en_cidfont.pdf`, `issue13147.pdf`, `issue16538.pdf`, `issue2884_reduced.pdf`,
+/// `issue7696.pdf` and `vertical.pdf` all read back **100%** of `pdftotext`'s words once
+/// §9.7.5.2's predefined `CMap`s and §9.10.2's third method arrived (ADR 0140). Six is the
+/// number that session's own handover entry records — and the constant below still had all six
+/// in it, so **this gate has been failing since, and two sessions of "everything re-verified"
+/// did not notice**. The lesson is the ratchet's, not the clause's: an entry that becomes a
+/// success fails the build in a message that reads like a regression, and a session that reads
+/// only the summary line will believe the summary. `doc/HANDOVER.md`'s own "36 below the floor"
+/// was right about the *measurement* and wrong about the list the whole time.
+const TEXT_BELOW_FLOOR: [&str; 36] = [
     "ArabicCIDTrueType.pdf",
     "PDFJS-7562-reduced.pdf",
     "Type3WordSpacing.pdf",
-    "arial_unicode_en_cidfont.pdf",
     "bug1001080.pdf",
     "bug1027533.pdf",
     "bug1392647.pdf",
@@ -428,25 +438,21 @@ const TEXT_BELOW_FLOOR: [&str; 42] = [
     "issue11131_reduced.pdf",
     "issue11656.pdf",
     "issue12705.pdf",
-    "issue13147.pdf",
     "issue13211.pdf",
     "issue14046.pdf",
     "issue14999_reduced.pdf",
     "issue15516_reduced.pdf",
-    "issue16538.pdf",
     "issue16553.pdf",
     "issue17069.pdf",
     "issue19802.pdf",
     "issue2017r.pdf",
     "issue2537r.pdf",
-    "issue2884_reduced.pdf",
     "issue3188.pdf",
     "issue5010.pdf",
     "issue5501.pdf",
     "issue5677.pdf",
     "issue5874.pdf",
     "issue5896.pdf",
-    "issue7696.pdf",
     "issue8187.pdf",
     "issue8697.pdf",
     "issue918.pdf",
@@ -454,7 +460,6 @@ const TEXT_BELOW_FLOOR: [&str; 42] = [
     "issue9915_reduced.pdf",
     "javauninstall-7r.pdf",
     "simpletype3font.pdf",
-    "vertical.pdf",
 ];
 
 /// The floor a complete page's extraction must clear.

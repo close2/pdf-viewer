@@ -16,3 +16,4 @@
 //! Implemented after Phase 5.
 
 #![forbid(unsafe_code)]
+pub mod chrome;

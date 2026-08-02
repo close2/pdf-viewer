@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 log.workspace = true
+pdf-font.workspace = true
+pdf-model.workspace = true
 pdf-render.workspace = true
 pdf-sandbox.workspace = true
 pollster.workspace = true
@@ -22,6 +24,8 @@ winit.workspace = true
 # dev-dependencies because the shell itself will drive rendering through `viewer-core`
 # rather than reaching for a backend directly.
 [dev-dependencies]
+# `tests/panel.rs` builds an outline by hand, and §12.3.2's destination names an object.
+pdf-syntax.workspace = true
 test-scenes.workspace = true
 # For `tests/notices.rs`, which checks the vendored fonts against the digests committed beside
 # them. Already in the tree for ISO 32000-2 §7.6.4.3.4's Algorithm 2.B.

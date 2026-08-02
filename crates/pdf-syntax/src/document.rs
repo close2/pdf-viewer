@@ -132,6 +132,25 @@ impl Document {
         Ok(document)
     }
 
+    /// A document of no bytes and no objects, for reading a dictionary this program built.
+    ///
+    /// Every route into `pdf-model` and `pdf-font` takes a `&Document` beside its
+    /// `&Dictionary`, and that is not an accident of style: a PDF dictionary's values may be
+    /// indirect references (§7.3.10), so only the file can say what one holds. A dictionary
+    /// **this** program assembled has no indirect references in it, and this is what fills the
+    /// parameter — one empty `Arc`, one empty [`XrefTable`] and three empty maps, so it parses
+    /// nothing and reads nothing.
+    ///
+    /// The caller is `pdf_font::LoadedFont::standard`, which loads one of §9.6.2.2's fourteen
+    /// for text the *interface* draws rather than text a document states. Anything reached
+    /// through this that does hold a reference resolves to [`Object::Null`], which is what
+    /// [`Self::get`] answers for an object number the table does not name — the same answer a
+    /// real file gives for a dangling reference, rather than a special case.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::around(Arc::from(&[][..]), XrefTable::default(), Limits::DEFAULT)
+    }
+
     /// The document a cross-reference table and some bytes make, before authentication.
     fn around(bytes: Arc<[u8]>, xref: XrefTable, limits: Limits) -> Self {
         Self {

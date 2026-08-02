@@ -3080,8 +3080,11 @@ name = "viewer-ui"
 version = "0.1.0"
 dependencies = [
  "log",
+ "pdf-font",
+ "pdf-model",
  "pdf-render",
  "pdf-sandbox",
+ "pdf-syntax",
  "pollster",
  "render-cpu",
  "render-gpu",

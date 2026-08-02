@@ -5,8 +5,8 @@
 //! ``
 //!
 //! `--page N` opens at a page. Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, `a`
-//! selects the whole page and dragging selects part of it, `s` saves what was changed beside the
-//! document, Escape quits. The window title shows
+//! selects the whole page and dragging selects part of it, `o` shows §12.3.3's outline, `s`
+//! saves what was changed beside the document, Escape quits. The window title shows
 //! the page's own label where the document states one (§12.4.2), the page number, and how many
 //! things on the page could not be drawn; the things themselves are printed.
 //!
@@ -16,6 +16,12 @@
 //! pages, zoom, links and actions is in that crate, and what is left here is a window, a
 //! keyboard, a GPU and the two decisions a host owns — which files a document may name, and what
 //! to do when it asks for a password.
+//!
+//! And, since the hundred-and-sixty-sixth session, **chrome**: `viewer_ui::chrome` draws
+//! §12.3.3's outline in a panel of this program's own, because winit is a window and an event
+//! loop and there is no toolkit here to ask for a tree view. A native host would use its
+//! platform's, from the same [`viewer_core::Query::Outline`]; what is host-specific is the
+//! drawing, not the data.
 //!
 //! Tier 2 means the pixels never cross the boundary: `viewer-core` hands over a display list and
 //! a target, this draws it onto the surface with `render-gpu`, and answers `Rendered::Presented`.
@@ -52,6 +58,7 @@ use viewer_core::{
     Answer, Command, DocumentId, Event, PageTarget, PointerAction, Purpose, Query, RenderRequest,
     Rendered, Selection, Viewer, Zoom,
 };
+use viewer_ui::chrome::{Chrome, Hit, Panel};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -162,6 +169,15 @@ fn main() {
         dragging: false,
         dirty: false,
         attempts: 0,
+        chrome: match Chrome::new() {
+            Ok(chrome) => Some(chrome),
+            Err(problem) => {
+                eprintln!("note: no panel: {problem}");
+                None
+            }
+        },
+        panel: Panel::default(),
+        outline: pdf_model::outline::Outline::default(),
         context: RenderContext::new(),
         state: None,
     };
@@ -187,7 +203,8 @@ fn usage() {
     eprintln!("       pdf-viewer --licences");
     eprintln!();
     eprintln!("Arrows, Page Up/Down or Space turn pages; Home and End jump; + and - zoom;");
-    eprintln!("drag to select text, a selects the page, s saves, Escape quits.");
+    eprintln!("o shows the document's outline; drag to select text, a selects the page,");
+    eprintln!("s saves, Escape quits.");
     eprintln!();
     eprintln!("  --no-sandbox  decode JBIG2 and JPEG 2000 images in this process rather than");
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
@@ -265,6 +282,20 @@ struct App {
     dirty: bool,
     /// How many passwords have been asked for.
     attempts: usize,
+    /// The fonts this program draws its own text with, or why it cannot.
+    ///
+    /// An `Option` because a build whose compiled-in faces will not parse must still show the
+    /// document: the panel is chrome and the page is the point. The refusal is printed once.
+    chrome: Option<Chrome>,
+    /// §12.3.3's outline, as this program draws it — the first panel this project has had.
+    panel: Panel,
+    /// The outline itself, taken once when the document opened.
+    ///
+    /// Copied out of `Query::Outline` rather than asked for per frame, and not for speed:
+    /// `Answer::Outline` borrows the viewer, and a panel that is about to send it a command
+    /// cannot be holding a borrow of it. The document is immutable and no edit reaches
+    /// §12.3.3, so a copy taken at open cannot go stale.
+    outline: pdf_model::outline::Outline,
     context: RenderContext,
     state: Option<State>,
 }
@@ -323,6 +354,156 @@ impl std::fmt::Debug for Target {
 }
 
 impl App {
+    /// The window's extent in device pixels and its scale factor, once there is a window.
+    fn window(&self) -> Option<(u32, u32, f32)> {
+        let state = self.state.as_ref()?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a display's scale factor is a small ratio"
+        )]
+        let scale = state.window.scale_factor() as f32;
+        Some((
+            state.surface.config.width,
+            state.surface.config.height,
+            scale,
+        ))
+    }
+
+    /// How many device pixels down the left edge the panel occupies.
+    ///
+    /// **The page's viewport is the window less this.** A panel drawn *over* the page would
+    /// hide part of it and leave the core centring the page behind the panel; telling the core
+    /// about the smaller viewport instead is what makes a fitted page fit what is visible. It
+    /// also means every coordinate crossing the boundary — a pointer going in, a selection quad
+    /// coming out — is offset by exactly this and nothing else.
+    fn inset(&self) -> u32 {
+        self.window()
+            .map_or(0, |(_, _, scale)| self.panel.inset(scale))
+    }
+
+    /// Tells the core how much of the window is the page's, after the panel appeared or went.
+    fn resize_page(&mut self) {
+        let Some((width, height, scale)) = self.window() else {
+            return;
+        };
+        self.dispatch(Command::Resize {
+            width: width.saturating_sub(self.inset()).max(1),
+            height,
+            scale,
+        });
+        self.redraw();
+    }
+
+    /// The panel's own display list for this frame, or `None` when there is nothing to draw.
+    ///
+    /// Rebuilt per frame rather than kept: it is a few hundred glyph fills against the page's
+    /// tens of thousands, and a cache would be one more thing that can disagree with the scroll
+    /// position.
+    fn panel_list(&self, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        if !self.panel.shown {
+            return None;
+        }
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        Some(self.panel.draw(chrome, &self.outline, height, scale))
+    }
+
+    /// What the pointer moving does: the panel's highlight, or the page's §12.5.5 appearance.
+    ///
+    /// Only one of the two, and never both: a hover highlight in the panel and a rollover
+    /// appearance on the page are both answers to "what is under the pointer", and answering
+    /// both would leave an annotation lit up behind a panel.
+    fn pointer_moved(&mut self) {
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        if self.panel.hover(at(self.cursor), &self.outline, scale) {
+            self.redraw();
+        }
+        if self.over_panel() {
+            if let Some(state) = self.state.as_ref() {
+                state.window.set_cursor(winit::window::CursorIcon::Default);
+            }
+            return;
+        }
+        let point = self.on_page(self.cursor);
+        self.dispatch(Command::Pointer {
+            at: point,
+            action: if self.dragging {
+                PointerAction::Dragged
+            } else {
+                PointerAction::Moved
+            },
+        });
+        // §12.5.6.5's activation region, asked at pointer speed — which is why it is a query
+        // rather than a command with an event coming back.
+        if let (Answer::Link(over), Some(state)) =
+            (self.viewer.query(Query::LinkAt(point)), self.state.as_ref())
+        {
+            state.window.set_cursor(if over {
+                winit::window::CursorIcon::Pointer
+            } else {
+                winit::window::CursorIcon::Default
+            });
+        }
+    }
+
+    /// Whether the pointer is over the panel rather than over the page.
+    fn over_panel(&self) -> bool {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a panel width in pixels, which is hundreds"
+        )]
+        let edge = self.inset() as f32;
+        edge > 0.0 && at(self.cursor).0 < edge
+    }
+
+    /// A window point in the page's own viewport, which begins where the panel ends.
+    fn on_page(&self, cursor: (f64, f64)) -> (f32, f32) {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a panel width in pixels, which is hundreds"
+        )]
+        let edge = self.inset() as f32;
+        let (x, y) = at(cursor);
+        (x - edge, y)
+    }
+
+    /// What a click inside the panel does.
+    fn click_panel(&mut self) {
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        // The outline is a field rather than a query for exactly this: `Panel::click` produces a
+        // command for the viewer, and `Answer::Outline` would still be borrowing it.
+        let hit = self.panel.click(at(self.cursor), &self.outline, scale);
+        match hit {
+            Some(Hit::Follow(target)) => self.dispatch(Command::GoTo(target)),
+            Some(Hit::Toggle) => self.redraw(),
+            Some(Hit::Nothing) | None => {}
+        }
+    }
+
+    /// A wheel notch: the panel's list where the pointer is over it, the page otherwise.
+    fn wheel(&mut self, delta: winit::event::MouseScrollDelta) {
+        // A line is not a pixel and winit reports whichever the device produced. Sixteen logical
+        // pixels a line is about one row of this program's own text, which is what a line means
+        // on a list; a touchpad reports pixels and needs no conversion.
+        let by = match delta {
+            winit::event::MouseScrollDelta::LineDelta(_, lines) => -lines * 16.0,
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a scroll delta in pixels, which is tens"
+            )]
+            winit::event::MouseScrollDelta::PixelDelta(position) => -(position.y as f32),
+        };
+        if self.over_panel() {
+            let Some((_, height, scale)) = self.window() else {
+                return;
+            };
+            self.panel.scroll(by / scale, &self.outline, height, scale);
+            self.redraw();
+        } else {
+            self.dispatch(Command::Scroll { dx: 0.0, dy: by });
+        }
+    }
+
     /// Hands a command to the core and deals with everything that comes back.
     ///
     /// A queue rather than recursion, because reacting to an event may produce a command — a
@@ -359,6 +540,18 @@ impl App {
                     std::process::exit(1);
                 }
                 self.attempts = 0;
+                // §12.3.3, taken once. `Query::Outline` borrows the viewer, so what the panel
+                // holds is a copy — see the field's own note.
+                if let Answer::Outline(outline) = self.viewer.query(Query::Outline) {
+                    self.outline = outline.clone();
+                }
+                if !self.outline.items.is_empty() {
+                    println!(
+                        "{}: an outline of {} visible item(s) — press o to show it",
+                        self.title,
+                        self.outline.visible_count()
+                    );
+                }
             }
             Event::OpenFailed { reason, .. } => {
                 eprintln!("cannot open {}: {reason}", self.title);
@@ -552,23 +745,36 @@ impl App {
             let state = self.state.as_ref()?;
             (state.surface.config.width, state.surface.config.height)
         };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a panel width in pixels, which is hundreds"
+        )]
+        let edge = self.inset() as f32;
         let target = TargetSpec {
             width,
             height,
             transform: request
                 .target
                 .transform
-                .then(Transform::translate(origin.0, origin.1)),
+                .then(Transform::translate(origin.0 + edge, origin.1)),
         };
 
         // Interactive chrome crosses as geometry, not pixels: the core hands over the shapes and
         // this host draws them in its own colour. A native one would use macOS's selection
         // colour, KDE's accent or the Windows highlight brush; this one has no theme to ask, so
         // it picks a blue and says so.
-        let highlight = match self.viewer.query(Query::Selection) {
+        let mut highlight = match self.viewer.query(Query::Selection) {
             Answer::Selected(selection) => selection.quads,
             _ => Vec::new(),
         };
+        // The quads are device pixels of the *page's* viewport, which begins where the panel
+        // ends. One addition here rather than a second coordinate space in the core.
+        for quad in &mut highlight {
+            for x in quad.iter_mut().step_by(2) {
+                *x += edge;
+            }
+        }
+        let panel = self.panel_list(height);
         let drawn = if self.processor {
             Err("was not asked, because --cpu".to_owned())
         } else {
@@ -580,6 +786,7 @@ impl App {
                 target,
                 (width, height),
                 &highlight,
+                panel.as_ref(),
             )
         };
         if let Err(problem) = drawn {
@@ -591,7 +798,13 @@ impl App {
             // Reported either way. A page drawn by the slower of two backends is a fact about
             // this build worth saying out loud, and saying it is what would have made the
             // hundred-and-forty-second session's report a sentence rather than a mystery.
-            let fallback = self.on_the_processor(&request, target, (width, height), &highlight);
+            let fallback = self.on_the_processor(
+                &request,
+                target,
+                (width, height),
+                &highlight,
+                panel.as_ref(),
+            );
             match fallback {
                 Ok(()) if self.processor => {}
                 Ok(()) => println!(
@@ -692,6 +905,7 @@ impl App {
         target: TargetSpec,
         viewport: (u32, u32),
         highlight: &[[f32; 8]],
+        panel: Option<&pdf_render::DisplayList>,
     ) -> Result<(), String> {
         let raster = CpuRasterizer::new()
             .rasterize(&request.list, target)
@@ -708,6 +922,7 @@ impl App {
         let mut scene = vello::Scene::new();
         scene.draw_image(&image, vello::kurbo::Affine::IDENTITY);
         draw_selection(&mut scene, highlight);
+        draw_panel(&mut scene, panel, viewport)?;
 
         let Some(state) = self.state.as_mut() else {
             return Err("has no window".to_owned());
@@ -840,6 +1055,14 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                     return;
                 }
+                // The one key this program answers itself rather than by sending a command:
+                // whether a panel is shown is chrome, and `viewer-core` has no opinion about
+                // chrome by construction (rule 5).
+                if matches!(logical_key.as_ref(), Key::Character("o")) {
+                    self.panel.toggle();
+                    self.resize_page();
+                    return;
+                }
                 let Some(command) = key_command(&logical_key.as_ref()) else {
                     return;
                 };
@@ -848,26 +1071,7 @@ impl ApplicationHandler for App {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = (position.x, position.y);
-                self.dispatch(Command::Pointer {
-                    at: at(self.cursor),
-                    action: if self.dragging {
-                        PointerAction::Dragged
-                    } else {
-                        PointerAction::Moved
-                    },
-                });
-                // §12.5.6.5's activation region, asked at pointer speed — which is why it is a
-                // query rather than a command with an event coming back.
-                if let (Answer::Link(over), Some(state)) = (
-                    self.viewer.query(Query::LinkAt(at(self.cursor))),
-                    self.state.as_ref(),
-                ) {
-                    state.window.set_cursor(if over {
-                        winit::window::CursorIcon::Pointer
-                    } else {
-                        winit::window::CursorIcon::Default
-                    });
-                }
+                self.pointer_moved();
             }
 
             WindowEvent::MouseInput {
@@ -875,9 +1079,17 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
+                if self.over_panel() {
+                    // Answered once, on the press: a panel that acted on both ends of a click
+                    // would follow a destination twice.
+                    if element == ElementState::Pressed {
+                        self.click_panel();
+                    }
+                    return;
+                }
                 self.dragging = element == ElementState::Pressed;
                 self.dispatch(Command::Pointer {
-                    at: at(self.cursor),
+                    at: self.on_page(self.cursor),
                     action: match element {
                         ElementState::Pressed => PointerAction::Pressed,
                         ElementState::Released => PointerAction::Released,
@@ -910,11 +1122,13 @@ impl ApplicationHandler for App {
                     state.bands.reset();
                 }
                 self.dispatch(Command::Resize {
-                    width: size.width.max(1),
+                    width: size.width.saturating_sub(self.panel.inset(scale)).max(1),
                     height: size.height.max(1),
                     scale,
                 });
             }
+
+            WindowEvent::MouseWheel { delta, .. } => self.wheel(delta),
 
             WindowEvent::RedrawRequested => self.redraw_requested(),
 
@@ -1114,6 +1328,31 @@ fn draw_selection(scene: &mut vello::Scene, quads: &[[f32; 8]]) {
     }
 }
 
+/// Puts the panel's display list on top of the page's scene.
+///
+/// The same translation `viewer-core`'s own render takes — `render_gpu::build_scene` — at an
+/// identity transform, because the panel's list is already in the window's device pixels. That
+/// is what makes the panel a display list rather than a pile of Vello calls: the CPU backend
+/// draws it identically, which is what a `--cpu` run and a page the device refuses both need.
+fn draw_panel(
+    scene: &mut vello::Scene,
+    panel: Option<&pdf_render::DisplayList>,
+    viewport: (u32, u32),
+) -> Result<(), String> {
+    let Some(list) = panel else {
+        return Ok(());
+    };
+    let target = TargetSpec {
+        width: viewport.0,
+        height: viewport.1,
+        transform: Transform::IDENTITY,
+    };
+    let drawn = render_gpu::build_scene(list, target, &render_gpu::SoftMaskRasters::none())
+        .map_err(|error| format!("cannot draw its own panel: {error}"))?;
+    scene.append(&drawn, None);
+    Ok(())
+}
+
 /// Reads a password from the terminal, or `None` if the person cancelled with an empty line.
 fn ask_password(name: &str) -> Option<String> {
     eprint!("{name} needs a password (empty line to give up): ");
@@ -1132,6 +1371,7 @@ fn draw(
     target: TargetSpec,
     viewport: (u32, u32),
     highlight: &[[f32; 8]],
+    panel: Option<&pdf_render::DisplayList>,
 ) -> Result<(), String> {
     let (width, height) = viewport;
     let handle = &context.devices[state.surface.dev_id];
@@ -1154,6 +1394,7 @@ fn draw(
     let mut scene = render_gpu::build_scene(list, target, &masks)
         .map_err(|_| "contains content this build cannot draw".to_owned())?;
     draw_selection(&mut scene, highlight);
+    draw_panel(&mut scene, panel, viewport)?;
 
     // `render_gpu::render_checked` rather than `Renderer::render_to_texture`: the latter returns
     // `Ok` over a target the device left blank, which is the black page this session was reported
