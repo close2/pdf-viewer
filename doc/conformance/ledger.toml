@@ -1744,8 +1744,8 @@ clause = "8.7.4.5.2"
 title = "Type 1 (function-based) shadings"
 status = "implemented"
 code = ["crates/pdf-model/src/shading.rs"]
-test = ["crates/pdf-model/tests/shadings.rs::a_function_based_shading_maps_its_domain_through_its_matrix"]
-note = "Table 78: `/Domain` defaulting to the unit square, `/Matrix` mapping the domain into the target space, and `/Function` evaluated over it. The `/Matrix` is composed ahead of the caller's transform so the display list carries one transform per shading — which is also why Table 77's `/BBox`, stated in the *target* space, is applied by the caller rather than here."
+test = ["crates/pdf-model/tests/shadings.rs::a_function_based_shading_maps_its_domain_through_its_matrix", "crates/pdf-model/tests/shadings.rs::a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside_it"]
+note = "Table 78: `/Domain` defaulting to the unit square, `/Matrix` mapping the domain into the target space, and `/Function` evaluated over it. The `/Matrix` is composed ahead of the caller's transform so the display list carries one transform per shading — which is also why Table 77's `/BBox`, stated in the *target* space, is applied by the caller rather than here. **The clause's second half was missing until the hundred-and-eightieth session and this row said `implemented` throughout**: the matrix \"maps the domain rectangle into a corresponding rectangle **or parallelogram**\", and points outside it \"shall be left unpainted\" — where the backend's sampled pattern pads instead, so a rotated `/Matrix` painted a square. `Interpreter::domain_clip` composes the parallelogram as a clip, at both routes into a type 1 shading, exactly as `/BBox` is composed. `function_based_shading.pdf` is the witness and ADR 0150 the argument. `/Background` stays unimplemented and reported, so \"left unpainted\" is the clause's other branch rather than a choice between them."
 
 [[clause]]
 clause = "8.7.4.5.3"

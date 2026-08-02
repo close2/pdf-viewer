@@ -428,7 +428,6 @@ freeculture.pdf page 96
 freeculture.pdf page 97
 freeculture.pdf page 98
 freeculture.pdf page 99
-function_based_shading.pdf page 1
 highlights.pdf page 1
 highlights.pdf page 10
 highlights.pdf page 11

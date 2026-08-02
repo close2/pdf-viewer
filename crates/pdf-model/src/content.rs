@@ -21,12 +21,12 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use pdf_font::Code;
-use pdf_render::Shading;
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin, Paint, Path,
     PathCommand, Point, Rect, Size, SoftMaskId, Stroke, Transform,
 };
+use pdf_render::{Shading, ShadingKind};
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
 use crate::colour::ColourSpace;
@@ -3283,11 +3283,69 @@ impl Interpreter<'_> {
         } else {
             state.stroke_pattern.as_ref()
         };
-        let Some(PatternPaint::Shading(_, Some((corners, transform)))) = pattern else {
+        let Some(PatternPaint::Shading(shading, bbox)) = pattern else {
             return state.clip;
         };
-        self.rect_clip(*corners, *transform, state.clip)
-            .or(state.clip)
+        let shading = Arc::clone(shading);
+        let bbox = *bbox;
+        let clip = match bbox {
+            Some((corners, transform)) => self
+                .rect_clip(corners, transform, state.clip)
+                .or(state.clip),
+            None => state.clip,
+        };
+        self.domain_clip(&shading, clip)
+    }
+
+    /// The parallelogram a function-based shading's domain occupies, as a clip.
+    ///
+    /// ISO 32000-2 §8.7.4.5.2 states where a type 1 shading marks and where it does not:
+    ///
+    /// > The transformation matrix ( Matrix ) then maps the domain rectangle into a
+    /// > corresponding rectangle or parallelogram in the target coordinate space. Points wi
+    /// > thin the shading's bounding box ( BBox ) that fall outside this transformed domain
+    /// > rectangle shall be painted with the shading's background colour ( Background ); if
+    /// > the shading dictionary has no Background entry, such points shall be left unpainted.
+    ///
+    /// **"Or parallelogram" is the whole of it**, and it is why this is a clip rather than a
+    /// property of the sampled grid. `function_based_shading.pdf` states
+    /// `/Matrix [85 85 -85 85 515 382]` — a rotation — so its domain occupies a diamond, and
+    /// this reader painted a *square* against four references' diamond for the project's whole
+    /// life. The backend's pattern is padded outside its grid, which is right for the
+    /// interpolation and says nothing about where the shading ends; where a shading ends is
+    /// this clause's answer and so the interpreter's to compose, exactly as Table 77's
+    /// `/BBox` is.
+    ///
+    /// `Background` is not implemented and is [`Unsupported::Shading`]'s to report; a shading
+    /// that states one is refused before it reaches here, so leaving these points unpainted is
+    /// the clause's other branch rather than a choice between them.
+    ///
+    /// Nothing happens for any other shading type: an axial or radial shading says where it
+    /// stops through `/Extend`, which its ramp already carries, and a mesh through its
+    /// triangles.
+    fn domain_clip(&mut self, shading: &Shading, parent: Option<ClipId>) -> Option<ClipId> {
+        let ShadingKind::Sampled { domain, .. } = shading.kind.as_ref() else {
+            return parent;
+        };
+        // Table 78's order is [x min x max y min y max], which is not `rect_clip`'s.
+        let [x0, x1, y0, y1] = *domain;
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(x0, y0)));
+        path.push(PathCommand::LineTo(Point::new(x1, y0)));
+        path.push(PathCommand::LineTo(Point::new(x1, y1)));
+        path.push(PathCommand::LineTo(Point::new(x0, y1)));
+        path.push(PathCommand::Close);
+        self.list
+            .add_clip(Clip {
+                path,
+                // The shading's own `/Matrix` is composed into this already, which is what
+                // makes the domain rectangle's corners the right four points to send.
+                transform: shading.transform,
+                fill_rule: FillRule::NonZero,
+                parent,
+            })
+            .ok()
+            .or(parent)
     }
 
     /// Registers a clip shaped like a rectangle, nested inside `parent`.
@@ -4755,6 +4813,8 @@ impl Interpreter<'_> {
             state.smoothness,
         ) {
             Ok(shading) => {
+                // §8.7.4.5.2's domain, which for a type 1 shading is where it marks at all.
+                let clip = self.domain_clip(&shading, clip);
                 let mut path = Path::new();
                 path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
                 path.push(PathCommand::LineTo(Point::new(self.page.width, 0.0)));

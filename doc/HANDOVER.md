@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-eightieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -89,7 +89,7 @@ that exists (ADR 0146).
 |---|---|---|
 | tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **23 of them diagnosed and 732 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **35 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1684** we call complete: **846 agree**, **72 contradicted**, 755 ambiguous — **24 of them diagnosed and 731 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **35 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -786,6 +786,17 @@ are the pair that agree most closely with each other. **The clause decided a pag
 could not**, and `Stroke::device_width` conditions the rule on `/SA` rather than applying it
 always, which is what makes ours a derivation instead of a coincidence — 30 corpus documents state
 `/SA true` and this is the one page where it changes a pixel.
+
+**And the fourth session found a defect the ranking's numbers could not have named but its
+*picture* did.** `function_based_shading.pdf page 1` draws nine type 1 swatches; one states
+`/Matrix [85 85 -85 85 515 382]`, a rotation, and §8.7.4.5.2 maps a domain "into a corresponding
+rectangle **or parallelogram**" with everything outside it "left unpainted". Four references drew
+a diamond and we drew a **square** — the sampled grid reaches the backend as a padded pattern,
+which is right for the interpolation and says nothing about where the shading stops. One clip,
+composed by the interpreter from the domain's four corners exactly as Table 77's `/BBox` already
+is, and both backends inherit it. ADR 0150, and the row for that clause had said `implemented`
+throughout. **Open the side-by-side before the numbers**: the ranking chose the page, and the
+picture named the defect in one look.
 
 What is *not* acceptable is a fourth shape: a group that names no clause. That is the corpus
 being treated as the specification, which principle 5 forbids, and it is easy to write because
@@ -2358,3 +2369,4 @@ above rather than here.
 | 177 | A subsection filed one object too high: the page one nobody had ever seen | 0148 |
 | 178 | A CMYK JPEG converted by its decoder rather than by the one conversion | 0149 |
 | 179 | §10.7.5's last sentence decides a page four renderers could not | — |
+| 180 | A type 1 shading's domain is a parallelogram, and we painted a square | 0150 |

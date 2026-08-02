@@ -288,6 +288,59 @@ fn a_shading_that_does_not_extend_paints_nothing_beyond_its_ends() {
     assert_eq!(pixel(&raster, 95, 50).3, 255);
 }
 
+/// ISO 32000-2 §8.7.4.5.2: a type 1 shading marks its transformed domain and nothing else.
+///
+/// > The transformation matrix ( Matrix ) then maps the domain rectangle into a
+/// > corresponding rectangle or parallelogram in the target coordinate space. Points wi thin
+/// > the shading's bounding box ( BBox ) that fall outside this transformed domain rectangle
+/// > shall be painted with the shading's background colour ( Background ); if the shading
+/// > dictionary has no Background entry, such points shall be left unpainted.
+///
+/// **"Or parallelogram" is the sentence.** The pair below is one shading under two matrices —
+/// a 45-degree rotation, and a scale covering the page — so the only thing that differs is
+/// where the domain lands. Under the rotation the page's corners are outside it and must stay
+/// unpainted; under the scale the same corner is inside and must be painted.
+///
+/// `function_based_shading.pdf` states `/Matrix [85 85 -85 85 515 382]` and this reader drew
+/// a square where four references drew a diamond, inside an `ambiguous` verdict, for the
+/// project's whole life. ADR 0150.
+#[test]
+fn a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside_it() {
+    // A 2-in function has to be a stream, so it goes in as an extra object and the shading
+    // names it: `{ pop }` leaves the first input, which is grey enough for an alpha test.
+    let function = "7 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1] /Length 7 >>\n\
+                    stream\n{ pop }\nendstream\nendobj\n";
+    let rotated = "<< /ShadingType 1 /ColorSpace /DeviceGray /Domain [0 1 0 1] \
+                   /Matrix [35 35 -35 35 50 15] /Function 7 0 R >>";
+    let whole_page = "<< /ShadingType 1 /ColorSpace /DeviceGray /Domain [0 1 0 1] \
+                      /Matrix [100 0 0 100 0 0] /Function 7 0 R >>";
+
+    let raster = render(pdf_with_extra(rotated, "/Sh0 sh", function));
+    assert_eq!(
+        pixel(&raster, 50, 50).3,
+        255,
+        "the middle of the diamond is inside the domain and must paint"
+    );
+    for corner in [(5, 5), (95, 5), (5, 95), (95, 95)] {
+        assert_eq!(
+            pixel(&raster, corner.0, corner.1).3,
+            0,
+            "the page corner at {corner:?} is outside the rotated domain and must stay \
+             unpainted"
+        );
+    }
+
+    let raster = render(pdf_with_extra(whole_page, "/Sh0 sh", function));
+    for corner in [(5, 5), (95, 5), (5, 95), (95, 95)] {
+        assert_eq!(
+            pixel(&raster, corner.0, corner.1).3,
+            255,
+            "under a matrix covering the page the same corner {corner:?} is inside the \
+             domain and must paint"
+        );
+    }
+}
+
 /// A radial shading with two different radii, which is PDF's general case.
 #[test]
 fn a_radial_shading_grades_between_its_two_circles() {

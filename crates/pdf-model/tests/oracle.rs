@@ -1383,6 +1383,37 @@ const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 1] = ["cmykjpeg.pdf page 1"];
 /// `/SA true` and this is the one page where it decides a pixel.
 const AMBIGUOUS_STROKE_ADJUSTMENT: [&str; 1] = ["bug1743245.pdf page 1"];
 
+/// Ambiguous because two references reduce a discontinuous function to something smooth.
+///
+/// `function_based_shading.pdf` draws nine type 1 swatches, and the one at the bottom left
+/// is object 11: `/Matrix [170 0 0 170 30 182]` over object 20, a §7.10.5 PostScript
+/// calculator function whose whole program is
+///
+/// ```text
+/// { 4 mul floor exch 4 mul floor add 2 mod }
+/// ```
+///
+/// **That can be evaluated by hand, and the clause defines every operator in it.** With
+/// inputs (x, y) in `[0 1]`: `4 mul floor` is `floor(4y)`, `exch 4 mul floor` is
+/// `floor(4x)`, and `add 2 mod` is `(floor(4x) + floor(4y)) mod 2` — a four-by-four
+/// checkerboard of 0 and 1. There is nothing here for renderers to have opinions about.
+///
+/// We draw the checkerboard. So do `mupdf` and `hayro`. **`poppler` draws the swatch solid
+/// black and `ghostscript` draws it flat mid-grey**, which is the average of a checkerboard
+/// and the signature of sampling a discontinuous function onto a smooth mesh. Two failures,
+/// two different pictures, so no consensus and no verdict — trap 9's shape again, and the
+/// reason this page can be *settled* while remaining `ambiguous` for ever.
+///
+/// It is here rather than in `agrees` because of that one swatch: worst tile 191 of 255
+/// against a bound of 5, which is exactly a black square against a white one. The rest of the
+/// page agrees with everybody.
+///
+/// **The page's other half was ours and is fixed** (ADR 0150): object 10 states
+/// `/Matrix [85 85 -85 85 515 382]`, so its domain is a *diamond*, and §8.7.4.5.2 says points
+/// outside the transformed domain "shall be left unpainted". We painted a square. That took
+/// the page from 27.57 bounds from the nearest reference to under 6.
+const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_shading.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1394,6 +1425,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_IMAGE_REDUCTION)
         .chain(&AMBIGUOUS_DEVICE_CMYK_CONVERSION)
         .chain(&AMBIGUOUS_STROKE_ADJUSTMENT)
+        .chain(&AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE)
         .copied()
         .collect()
 }
