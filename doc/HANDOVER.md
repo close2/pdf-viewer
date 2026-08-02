@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-eighty-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-eighty-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -87,7 +87,8 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **866** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
+| tests | **945** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **880 draw with nothing reported**, **79 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **26 of them diagnosed and 725 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -187,7 +188,7 @@ documents' first pages it affects.
 | `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
 | Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
 | A filled degenerate subpath's device pixel (§8.5.3.3.1) | — | The clause calls the result "device-dependent and not generally useful" in the same breath. Recorded, not reported. |
-| **A zero-area fill, which §10.7.4 says may not disappear** | 1 | Found in the hundred-and-eighty-fourth. `issue4260_reduced.pdf` rules its grid with `848 1085 10159 0 re f` — a rectangle of zero height — and three references draw the lines while we draw none of them. This is **not** §8.5.3.3.1's degenerate subpath (whose four points would have to share a coordinate); it is an ordinary fill whose coverage an antialiasing rasteriser computes as zero. §10.7.4: "A shape shall be scan-converted by painting any pixel whose half-open square region intersects the shape, no matter how small the intersection is. This ensures that no shape ever disappears". The rule is stated for fills *and* non-zero strokes, so the fix is `Stroke::device_width`'s shape one level over — a fill whose device extent collapses in one axis marks the thinnest line the device has — and it belongs in `pdf-render` where both backends inherit it. `AMBIGUOUS_ZERO_AREA_FILL`. |
+| A fill under an eighth of a device pixel thick | — | **Measured in the hundred-and-eighty-sixth and not fixed**, beside the rule that closed its geometric twin. `tiny-skia` samples four times per row and rounds, so a filled sliver *with* an area disappears on the CPU backend too: on an 80-unit rule at scale 1.0 the ink against the area's own answer is 0.05 → 0, 0.1 → 0, 0.2 → 19.8 of 16, 0.5 → 39.8 of 40 (`render-cpu/tests/zero_area_fill.rs`). §10.7.4's "no shape ever disappears" again, one step along — a property of the *device's* coverage quantum rather than of the geometry, so it is a rule of its own rather than an extension of the one below, and the GPU backend's own quantum is unmeasured. |
 | A mask at a grid the bound refuses | 1 | `issue16263.pdf`: a 2×2 image with a 34862×4332 mask, 604 MB. The clause's answer is compositing at *device* resolution, which needs the display list to carry image and mask separately. |
 | JPEG 2000 at reduced resolution | 1 | `issue19517.pdf`, 212 megapixels. The format's answer needs the intended scale to reach the decoder. |
 | A stream whose data is in an external file (§7.3.8.1) | 0 | The renderer has no filesystem (principle 3). Refused by name rather than drawn from the bytes the clause says to ignore — which is what it did, silently, for the project's whole life. |
@@ -840,23 +841,45 @@ with 的 and not much else, and two documents that had been drawing went blank. 
 incomplete, oracle `agrees` 840 → **847**. ADR 0153, which also names what is left: a *per-character*
 fallback, which every real text stack has.
 
-**And the eighth session found the first page in this bucket that is plainly *our* defect, still
-unfixed.** `issue4260_reduced.pdf` rules a grid with `848 1085 10159 0 re f` — zero-height
-rectangles — and §10.7.4 forbids exactly what we do with them: "A shape shall be scan-converted by
+**And the eighth session found the first page in this bucket that is plainly *our* defect.**
+`issue4260_reduced.pdf` rules a grid with `848 1085 10159 0 re f` — zero-height
+rectangles — and §10.7.4 forbids exactly what we did with them: "A shape shall be scan-converted by
 painting any pixel whose half-open square region intersects the shape, no matter how small the
 intersection is. This ensures that no shape ever disappears." Three references draw the grid; an
-antialiasing rasteriser computes the coverage as zero and we draw the surrounding box and nothing
-inside it. It is recorded in `AMBIGUOUS_ZERO_AREA_FILL` with the clause, and the fix is
-`Stroke::device_width`'s shape one level over, in `pdf-render` where both backends inherit it.
-**A group may say "we are wrong" — what it may not do is say nothing.**
+antialiasing rasteriser computes the coverage as zero and we drew the surrounding box and nothing
+inside it. **A group may say "we are wrong" — what it may not do is say nothing.**
+
+**The eleventh session drew it, and the reading was not the easy one.** `pdf_render::collapsed`
+gives a subpath with no extent along one axis the thinnest mark the device has — §8.4.3.2's and
+§10.7.5's width, stated once in `pdf_render::thinnest_line` and now asked for by three rules
+rather than two. The argument is in that module because §10.7.4 does not settle it alone: two
+paragraphs above the sentence quoted here it treats a shape as half-open, "boundaries along their
+'floor' sides, but not along their 'ceiling' sides", which for a rectangle whose floor and ceiling
+are one line leaves an empty region and nothing to paint. **What breaks the tie is §8.5.3.3.1**,
+which says a *point* — the most degenerate shape a fill can have — "shall be considered to enclose
+the single device pixel lying under that point". A shape may not mark less of the page than a
+shape it contains. The same two clauses also say why the point case stays a departure while this
+one does not: §8.5.3.3.1 calls its own answer "device-dependent and not generally useful" in the
+same breath, and §10.7.4 hedges nothing.
+
+The page stays in `AMBIGUOUS_ZERO_AREA_FILL` because what is left is **weight** rather than
+existence, and the group now says so with a measurement: ink over the page is ours **19.79**,
+`hayro` **19.83**, `ghostscript` 6.29, `poppler` 3.51, `mupdf` 2.16. The clause asks for the pixel
+to be *painted*, "no matter how small the intersection is", which is a full mark — and the two
+Rust renderers put one down while the three C ones shade it by under a fifth. That is
+`CONTRADICTED_ANTIALIASED_EDGES` from the other side. **And writing the test found a second
+disappearance nobody had looked for**: a sliver *with* an area, under about an eighth of a device
+pixel, vanishes on the CPU backend as well, because `tiny-skia` samples four times per row and
+rounds. Measured, named in the table above and in the ledger, and not fixed — it is a fact about
+the device's coverage quantum rather than about the geometry.
 
 What is *not* acceptable is a fourth shape: a group that names no clause.
 
-**Ten sessions in, here is the account.** The bucket went 754 → 751 and that number is the least
-interesting thing about it: 26 pages carry a diagnosis, **five defects were found and four
-fixed** — a page one that was page two (0148), a photograph rendered black (0149), a shading
-painted as a square (0150), a stencil that drew nothing (0151), and a whole grid that disappears
-(recorded, not fixed) — and two of the ten sessions spent their time on what the first found
+**Eleven sessions in, here is the account.** The bucket went 754 → 751 and that number is the
+least interesting thing about it: 26 pages carry a diagnosis, **five defects were found and all
+five are fixed** — a page one that was page two (0148), a photograph rendered black (0149), a
+shading painted as a square (0150), a stencil that drew nothing (0151), and a whole grid that
+disappeared (ADR 0154) — and two of the sessions spent their time on what the first found
 underneath: ten documents whose substituted font drew none of its characters in silence (0152) and
 the coverage rule that made eight of them draw (0153). `agrees` went 846 → **847** through a
 denominator that moved twice; that is the wrong number to watch, and *five defects nobody could
@@ -1310,7 +1333,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption, §7.5.6's writer | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler, every algorithm against its own subclause; `document.rs` decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `xref.rs` is §7.5 whole, and the thing to know is that an entry is an `Option<Location>`: a free entry and an unknown entry type both *record* that the number names nothing, because §7.5.6 makes a deletion the most recent copy of an object (ADR 0100). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees in one module, because the second clause defines itself as the first with integer keys (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is *not* ISO Latin 1. `date.rs` is §7.9.4, beside it because NOTE 1 makes a date a text string that happens to spell one (ADR 0092). `write.rs` is the *only* writing in the tree: clause 7's syntax on the way out and §7.5.6's incremental update, which appends and never rewrites (ADRs 0121, 0129) — and `Document::encrypt_for_update` beside `decrypt_object` is §7.6.2 in the other direction, so an encrypted document can be saved. `filter.rs` is §7.4's ten filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately `None` so a *content* stream naming one is visibly unsupported |
 | `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` constructs what a subtype's clause states, splices under `/NeedAppearances`, and argues the refusals (ADRs 0030, 0032); `icon.rs` beside it is the one module that is pure invention and says so (ADR 0109). `view.rs` is the `ViewState` §12.6.4's actions change — **the precedent the edit log will follow**. `variable_text.rs` is §12.7.4.3 and the one place this tree *writes* a content stream. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused, its `Decode` one table per component and its `Conversion` an *exact* per-image memo (ADRs 0034, 0035). `page.rs` is §7.7.3 and §14.11.2's five boundaries. `accessibility.rs`, `uri.rs` and `file_spec.rs` hold no PDF at all. Then one module per clause family: `action.rs`, `forms_data.rs`, `named_page.rs`, `structure.rs`, `article.rs`, `collection.rs`, `measurement.rs`, `thumbnail.rs`, `signature.rs`, `attachment.rs`, `page_label.rs`, `navigation.rs`, `requirements.rs`, `document_part.rs`, `viewer_preferences.rs` |
 | `pdf-font` | Glyph outlines via `skrifa`, §9.6.2.2's fourteen and §9.7.5.2's `CMap`s compiled in | Owns both simple-font encoding algorithms (§9.6.5.2, §9.6.5.4 — ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code, and `cff.rs` and `type1.rs` each produce one because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is the one program kept *parsed*, measured: re-parsing per glyph put 11 ms on `tracemonkey.pdf`. `cmap.rs` is §9.7, where `Code` carries a value *and* a length. `predefined.rs` is §9.7.5.2's 239 registered `CMap`s, deflated one at a time by `build.rs` and inflated on demand, and it is where §9.10.2's third method reads a collection's `-UCS2` table (ADR 0140). `standard.rs` is §9.6.2.2's fourteen font programs as `static` bytes, and it is what stopped `substitute.rs` being the only machine-dependent code in the tree (ADR 0133): the fourteen come from the binary, everything else from the machine with the binary behind it. `collection.rs` is a `ttcf` container in a `/FontFile2` — malformed by Table 127, written by two corpus documents — with the face chosen by the descriptor's own `/FontName` (ADR 0141). `substitute.rs` ranks three sources of a request with an argument — the name, then §9.8.3.2's PANOSE, then Table 121's flags, which producers set carelessly (ADR 0086) |
-| `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Three device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025) and `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028). `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
+| `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Four device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025), `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028) and `collapsed::split_collapsed_fill` (§10.7.4's "no shape ever disappears", ADR 0154) — the last two ask `thinnest_line` for the same width, which is the point of its being a function. `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** startup path. `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047). Draws a page on every core since session 155 (ADR 0139) — `encode_in_strips` cuts the target only at rows `pdf_render::unsplittable_rows` permits, so **the picture does not depend on how it was divided**, which is the property `with_strips` exists to let a test check and the reason the oracle's verdicts did not move |
 | `render-gpu` | Vello/wgpu backend | Headless by construction. Its own soft-mask readback, because Vello's luminance mask is the SVG formula and no blend mode is a `/TR` |
 | `viewer-core` | Toolkit-independent application logic | `Command` in, `Event` out, `Query` → `Answer` beside them (ADRs 0116, 0117). `select.rs` is every choice a selection needs and the standard does not state (ADR 0119); `interact.rs` is what a click does — §12.5.6.5's links and the eleven §12.6 actions; `notes.rs` is what a document says about itself when it opens. `viewer.rs` is the state machine and the one place a render is scheduled; `open.rs` is one document's page, zoom and scroll, and `fitted` there is why a page fitted to a window is not one pixel taller than it; `report.rs` words an `Unsupported` for a person, which is a presentation decision and so not `pdf-model`'s. `tests/headless.rs` is consumer #2 and the proof the crate's first sentence is true |
@@ -2454,3 +2477,4 @@ above rather than here.
 | 183 | A substitute chosen by coverage: eight blank pages draw | 0153 |
 | 184 | §10.7.4 says no shape may disappear, and a page of ruling lines does | — |
 | 185 | Everything re-verified after ten sessions of change | — |
+| 186 | §10.7.4 says no shape may disappear, and a grid of ruling lines now draws | 0154 |

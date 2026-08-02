@@ -1432,19 +1432,19 @@ const AMBIGUOUS_STROKE_ADJUSTMENT: [&str; 1] = ["bug1743245.pdf page 1"];
 /// the page from 27.57 bounds from the nearest reference to under 6.
 const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_shading.pdf page 1"];
 
-/// Ambiguous, and the clause says we are the ones who are wrong.
+/// Ambiguous, and the clause said we were the ones who were wrong — **fixed in the
+/// hundred-and-eighty-sixth session**, and the page stays here because what is left of the
+/// difference is a departure this project has already argued.
 ///
-/// **The first group here whose diagnosis is a defect of ours**, and it is written down rather
-/// than fixed because the fix is a scan-conversion rule and this session had a page rather than
-/// a design. `issue4260_reduced.pdf` draws a grid of ruling lines as **zero-height rectangles**:
+/// `issue4260_reduced.pdf` draws a grid of ruling lines as **zero-height rectangles**:
 ///
 /// ```text
 /// 848 1085 10159 0 re f
 /// 848 1281 10159 0 re f
 /// ```
 ///
-/// Three references draw the grid; we draw the surrounding box and nothing inside it. §10.7.4
-/// is unambiguous about that:
+/// Three references drew the grid; we drew the surrounding box and nothing inside it. §10.7.4
+/// is where the answer is:
 ///
 /// > A shape shall be scan-converted by painting any pixel whose half-open square region
 /// > intersects the shape, no matter how small the intersection is. This ensures that no shape
@@ -1453,18 +1453,32 @@ const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_sh
 /// > shall always be at least as large as the area of the original shape. This rule applies both
 /// > to fill operations and to strokes with non-zero width.
 ///
-/// **This is not §8.5.3.3.1's degenerate subpath**, which the handover already records as a
-/// documented departure: that clause defines degenerate as "consists entirely of one or more
-/// points at the same coordinates", and these four points differ in x. It is an ordinary
-/// zero-area fill, and an antialiasing rasteriser computes its coverage as zero and paints
-/// nothing — which is the *other* half of this tree's §10.7.4 departure from the one
-/// `CONTRADICTED_ANTIALIASED_EDGES` names. That one is about how an edge is shaded; this one is
-/// about a shape disappearing, which the clause forbids in as many words.
+/// **This is not §8.5.3.3.1's degenerate subpath**, which this tree records as a documented
+/// departure: that clause defines degenerate as "consists entirely of one or more points at the
+/// same coordinates", and these four points differ in x. It is an ordinary zero-area fill, and
+/// an antialiasing rasteriser computes its coverage as zero and paints nothing.
 ///
-/// The verdict is `ambiguous` because the references disagree about the grid's *weight* — a
-/// hairline lands differently on each of their grids — so nobody's pair agrees closely enough to
-/// contradict us for drawing none of it. A page can be plainly wrong inside this verdict, which
-/// is §3a's whole argument.
+/// `pdf_render::collapsed` is the rule that now draws it, and its module comment is where the
+/// reading is argued — the half-open convention two paragraphs above the sentence quoted here
+/// annihilates a shape whose floor and ceiling are one line, and what breaks that tie is
+/// §8.5.3.3.1 stating that a *point* encloses a device pixel. A shape cannot mark less of the
+/// page than a shape it contains.
+///
+/// # What is left, measured
+///
+/// The grid draws, and the page is still `ambiguous` because the difference is now about the
+/// lines' **weight** rather than their existence. Ink over the page, as `255 − mean` on the
+/// artefacts beside this file: ours **19.79**, `hayro` **19.83**, `ghostscript` 6.29, `poppler`
+/// 3.51, `mupdf` 2.16. §10.7.4 asks for the pixel to be *painted* — "no matter how small the
+/// intersection is" — which is a full mark and is what the two Rust renderers put down; the
+/// three C ones shade it by something under a fifth. That is
+/// `CONTRADICTED_ANTIALIASED_EDGES`' departure seen from the other side, and this project's
+/// answer is the clause's rather than the consensus's.
+///
+/// The verdict was `ambiguous` before the fix as well, because the references disagree about the
+/// weight among themselves, so nobody's pair ever agreed closely enough to contradict us for
+/// drawing **none** of it. A page can be plainly wrong inside this verdict, which is §3a's whole
+/// argument, and this is the group that demonstrates it.
 const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 
 /// The ambiguous pages that carry a written diagnosis, as one list.

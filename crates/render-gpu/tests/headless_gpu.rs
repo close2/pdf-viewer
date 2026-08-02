@@ -1027,3 +1027,76 @@ fn cpu_and_gpu_agree_on_a_clip_that_admits_nothing() {
         );
     }
 }
+
+/// A fill with no area draws the same on both backends: ISO 32000-2 §10.7.4.
+///
+/// The third instance of the shape the two scenes above guard, and the reason it is here
+/// rather than only in `render-cpu`'s pixel test. "A shape shall be scan-converted by painting
+/// any pixel whose half-open square region intersects the shape … This ensures that no shape
+/// ever disappears", and a subpath with no extent along one axis has zero area, so *both*
+/// rasterisers compute zero coverage for it and both drew nothing — a page of ruling lines
+/// written as `848 1085 10159 0 re f` came out blank on either backend, and a cross-backend
+/// comparison agreeing about nothing is what trap 2 is for.
+///
+/// `pdf_render::collapsed` builds the mark, so what this checks is that both backends *ask*:
+/// the geometry is shared and the width is `thinnest_line`'s, so a difference here can only be
+/// one backend skipping the rule. Two scales, because the mark's width is a reciprocal of the
+/// scale and one scale cannot tell a reciprocal from a constant.
+#[test]
+fn cpu_and_gpu_agree_on_a_fill_with_no_area() {
+    use pdf_render::{
+        BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Size,
+        Transform,
+    };
+    use std::sync::Arc;
+
+    let page = 200.0_f32;
+    let mut list = DisplayList::new(Size::new(page, page));
+    // A grid: horizontal rules written as zero-height rectangles and vertical ones as
+    // zero-width, so that both axes of the rule are drawn and a backend implementing one of
+    // them shows up as a half-drawn page.
+    for step in 1..8 {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "test code: the loop counter is under ten"
+        )]
+        let at = step as f32 * 25.0;
+        let mut row = Path::new();
+        row.push(PathCommand::MoveTo(Point::new(20.0, at)));
+        row.push(PathCommand::LineTo(Point::new(180.0, at)));
+        row.push(PathCommand::Close);
+        let mut column = Path::new();
+        column.push(PathCommand::MoveTo(Point::new(at, 20.0)));
+        column.push(PathCommand::LineTo(Point::new(at, 180.0)));
+        column.push(PathCommand::Close);
+        for path in [row, column] {
+            list.push(Command::Fill {
+                path: Arc::new(path),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(Color::BLACK),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+    }
+
+    for scale in [1.0, 2.5] {
+        let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+        let cpu = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let gpu = gpu().rasterize(&list, target).expect("supported");
+        // A page of nothing but one-pixel marks is a page of nothing but antialiased edge,
+        // which is what the loosened differing-channel bound is for — and it is the same
+        // three-fold loosening `cpu_and_gpu_agree_on_the_thinnest_line_the_device_draws`
+        // takes for the same reason. Deleting either backend's call to the rule fails this
+        // on the *mean*, which is the threshold that catches a mark that is not there.
+        assert_within(
+            &format!("a grid of flat fills at scale {scale}"),
+            raster_compare::compare(&cpu, &gpu).expect("same size"),
+            MAX_DIFFERING_FRACTION * 3.0,
+        );
+    }
+}

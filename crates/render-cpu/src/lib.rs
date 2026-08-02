@@ -771,6 +771,91 @@ impl CpuRasterizer {
         Ok(())
     }
 
+    /// Draws a filled path, including the marks a shape with no area cannot make itself.
+    ///
+    /// Split out of [`CpuRasterizer::draw`] because ISO 32000-2 §10.7.4 turns one command into
+    /// two draws: a subpath with no extent along one axis has zero area, so this rasteriser
+    /// computes zero coverage for it at every placement and every scale, and the clause says
+    /// no shape may disappear. What it marks instead is `pdf-render`'s geometry rather than
+    /// this backend's hairline, so that the two backends cannot answer it differently — and
+    /// the marks are filled under the non-zero rule whatever the command's own rule is,
+    /// because a mark is a shape in its own right rather than part of the path's winding.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CpuRasterError`] for a path the rasteriser rejects or a paint this backend
+    /// does not implement.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the fields of one display list command, passed through rather than \
+                  regrouped: a struct here would be a second spelling of `Command::Fill`"
+    )]
+    fn draw_fill(
+        &self,
+        surface: &mut tiny_skia::PixmapMut<'_>,
+        (source, fill_rule): (&Path, pdf_render::FillRule),
+        transform: Transform,
+        paint: &Paint,
+        blend: tiny_skia::BlendMode,
+        to_device: Transform,
+        clip: Option<&tiny_skia::Mask>,
+    ) -> Result<(), CpuRasterError> {
+        let at = transform.then(to_device);
+        let path = convert::path(source).ok_or(CpuRasterError::InvalidPath)?;
+
+        // A mesh carries a colour per triangle corner, which no shader can express, so it is
+        // drawn triangle by triangle inside the shape rather than as a paint over it.
+        if let Paint::Shading(shading) = paint
+            && let pdf_render::ShadingKind::Mesh { triangles } = shading.kind.as_ref()
+        {
+            shading::fill_mesh(
+                surface,
+                &path,
+                triangles,
+                shading.transform.then(to_device),
+                convert::fill_rule(fill_rule),
+                convert::transform(at),
+                clip,
+                blend,
+                self.anti_alias,
+            );
+            return Ok(());
+        }
+
+        // A sampled shading's pixels are borrowed by its shader, so they need somewhere to
+        // live for exactly as long as this call.
+        let mut scratch = None;
+        let brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
+        let split = pdf_render::thinnest_line(at)
+            .and_then(|thinnest| pdf_render::split_collapsed_fill(source, thinnest));
+        if let Some(split) = &split
+            && !split.marks.is_empty()
+            && let Some(marks) = convert::path(&split.marks)
+        {
+            surface.fill_path(
+                &marks,
+                &brush,
+                tiny_skia::FillRule::Winding,
+                convert::transform(at),
+                clip,
+            );
+        }
+        let path = match &split {
+            // Every subpath collapsed, so the marks are the whole of the drawing.
+            Some(split) if split.filled.is_empty() => return Ok(()),
+            Some(split) => convert::path(&split.filled).ok_or(CpuRasterError::InvalidPath)?,
+            None => path,
+        };
+        surface.fill_path(
+            &path,
+            &brush,
+            convert::fill_rule(fill_rule),
+            convert::transform(at),
+            clip,
+        );
+        Ok(())
+    }
+
     /// Draws one command onto `surface`, which is the band its clip admits.
     ///
     /// `to_device` maps page space onto that band, so it already carries the band's row
@@ -790,50 +875,22 @@ impl CpuRasterizer {
     ) -> Result<(), CpuRasterError> {
         match command {
             Command::Fill {
-                path,
+                path: source,
                 transform,
                 fill_rule,
                 paint,
                 blend,
                 ..
             } => {
-                let path = convert::path(path).ok_or(CpuRasterError::InvalidPath)?;
-
-                // A mesh carries a colour per triangle corner, which no shader can
-                // express, so it is drawn triangle by triangle inside the shape rather
-                // than as a paint over it.
-                if let Paint::Shading(shading) = paint
-                    && let pdf_render::ShadingKind::Mesh { triangles } = shading.kind.as_ref()
-                {
-                    shading::fill_mesh(
-                        surface,
-                        &path,
-                        triangles,
-                        shading.transform.then(to_device),
-                        convert::fill_rule(*fill_rule),
-                        convert::transform(transform.then(to_device)),
-                        clip,
-                        compose.mode(*blend),
-                        self.anti_alias,
-                    );
-                    return Ok(());
-                }
-
-                // A sampled shading's pixels are borrowed by its shader, so they need
-                // somewhere to live for exactly as long as this call.
-                let mut scratch = None;
-                surface.fill_path(
-                    &path,
-                    &self.paint(
-                        paint,
-                        compose.mode(*blend),
-                        page_to_path(*transform)?,
-                        &mut scratch,
-                    )?,
-                    convert::fill_rule(*fill_rule),
-                    convert::transform(transform.then(to_device)),
+                self.draw_fill(
+                    surface,
+                    (source, *fill_rule),
+                    *transform,
+                    paint,
+                    compose.mode(*blend),
+                    to_device,
                     clip,
-                );
+                )?;
             }
             Command::Stroke {
                 path,

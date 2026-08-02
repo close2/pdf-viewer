@@ -418,7 +418,54 @@ impl Spaces {
     }
 }
 
-/// Encodes one fill command.
+/// Encodes one fill command, including the marks a shape with no area cannot make itself.
+///
+/// Split out of [`encode`] because ISO 32000-2 §10.7.4 turns one command into two draws: a
+/// subpath with no extent along one axis covers no pixel any rasteriser can measure, and the
+/// clause says no shape may disappear. What it marks instead is `pdf-render`'s own geometry
+/// rather than whatever a hairline would be on this backend, so that the two backends cannot
+/// answer it differently — and it is filled under the non-zero rule whatever the command's own
+/// rule is, because a mark is a shape in its own right rather than part of the path's winding.
+fn encode_fill_command(
+    scene: &mut vello::Scene,
+    (path, rule): (&Path, peniko::Fill),
+    spaces: Spaces,
+    to_path: Transform,
+    paint: &Paint,
+    how: (Compose, BlendMode),
+    target: TargetSpec,
+) -> Result<(), GpuRasterError> {
+    let split = pdf_render::thinnest_line(to_path)
+        .and_then(|thinnest| pdf_render::split_collapsed_fill(path, thinnest));
+    let Some(split) = split else {
+        return encode_fill(scene, &bez_path(path), spaces, rule, paint, how, target);
+    };
+    if !split.marks.is_empty() {
+        encode_fill(
+            scene,
+            &bez_path(&split.marks),
+            spaces,
+            peniko::Fill::NonZero,
+            paint,
+            how,
+            target,
+        )?;
+    }
+    if split.filled.is_empty() {
+        return Ok(());
+    }
+    encode_fill(
+        scene,
+        &bez_path(&split.filled),
+        spaces,
+        rule,
+        paint,
+        how,
+        target,
+    )
+}
+
+/// Encodes one shape of a fill command.
 ///
 /// Separate from the dispatch loop because a fill has three shapes: an ordinary brush, a
 /// brush under a blend layer, and a mesh, which is not a brush at all.
@@ -623,11 +670,11 @@ fn encode(
                 blend,
                 ..
             } => {
-                encode_fill(
+                encode_fill_command(
                     scene,
-                    &bez_path(path),
+                    (path, fill_rule(*rule)),
                     Spaces::new(*transform, to_device)?,
-                    fill_rule(*rule),
+                    transform.then(to_device),
                     paint,
                     (spec.compose, *blend),
                     spec.target,

@@ -299,17 +299,27 @@ pub struct Path {
     /// page 101, measured with `callgrind_annotate --tree=caller` in session 163. The walk
     /// happens once now and every later call maps this rectangle.
     hull: std::sync::OnceLock<Option<Rect>>,
+    /// Whether any subpath encloses no area, built on first use.
+    ///
+    /// Memoised for the same reason [`Self::hull`] is and against the same measurement: the
+    /// question is asked once per fill command per strip the rasteriser cuts the page into,
+    /// and a dense text page is five thousand fills of forty control points each. The answer
+    /// is a property of the commands and not of the transform — an affine map takes a shape
+    /// with no extent along an axis to a shape with no extent along its image — so one walk
+    /// answers it at every scale the page is ever drawn at.
+    collapses: std::sync::OnceLock<bool>,
 }
 
 impl Clone for Path {
-    /// Clones the commands and *not* the cache, which the clone will rebuild if it is asked.
+    /// Clones the commands and *not* the caches, which the clone will rebuild if it is asked.
     ///
-    /// Copying it would be correct — the hull is a function of the commands — and `OnceLock`
+    /// Copying them would be correct — both are functions of the commands — and `OnceLock`
     /// is not `Clone`, so this says the cheap true thing rather than reaching for `get()`.
     fn clone(&self) -> Self {
         Self {
             commands: self.commands.clone(),
             hull: std::sync::OnceLock::new(),
+            collapses: std::sync::OnceLock::new(),
         }
     }
 }
@@ -329,7 +339,24 @@ impl Path {
         Self {
             commands: Vec::new(),
             hull: std::sync::OnceLock::new(),
+            collapses: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Whether any subpath of this path encloses no area, ISO 32000-2 §10.7.4.
+    ///
+    /// True where a subpath's extent along one axis is exactly zero while the other is not —
+    /// a rectangle written with a zero side, a run of points along one line — which is the
+    /// shape an antialiasing rasteriser computes no coverage for at any resolution. What is
+    /// then drawn instead is [`split_collapsed_fill`]'s business; this only says whether to
+    /// ask, and it is memoised because a fill command is asked once per strip.
+    ///
+    /// [`split_collapsed_fill`]: crate::collapsed::split_collapsed_fill
+    #[must_use]
+    pub fn collapses(&self) -> bool {
+        *self
+            .collapses
+            .get_or_init(|| crate::collapsed::any_subpath_collapses(self))
     }
 
     /// Appends a command.

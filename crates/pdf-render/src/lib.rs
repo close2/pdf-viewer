@@ -22,6 +22,7 @@
 #![forbid(unsafe_code)]
 
 pub mod backend;
+pub mod collapsed;
 pub mod degenerate;
 pub mod display_list;
 pub mod geom;
@@ -34,13 +35,16 @@ pub use backend::{
     BackendError, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer, TargetSpec,
     impose_on_medium,
 };
+pub use collapsed::{CollapsedFill, split_collapsed_fill};
 pub use degenerate::{
     DegenerateStroke, ZERO_DASH, dash_mark, dashes_showing_direction, split_dash_marks,
     split_degenerate,
 };
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
-pub use paint::{BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke};
+pub use paint::{
+    BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke, thinnest_line,
+};
 pub use shading::{MeshRaster, Ramp, Shading, ShadingKind, Stop, Triangle};
 pub use soft_mask::{SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{

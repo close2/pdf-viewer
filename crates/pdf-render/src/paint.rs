@@ -196,20 +196,43 @@ impl Stroke {
     /// visibly different line on it.
     ///
     pub fn device_width(&self, to_device: Transform) -> f32 {
-        let stretch = to_device.max_stretch();
         // A degenerate transform has collapsed the path to a line or a point; there is no
         // width in device space to compare against and nothing to divide by.
-        if !stretch.is_finite() || stretch <= 0.0 {
+        let Some(one_pixel) = thinnest_line(to_device) else {
             return self.width;
-        }
-        let one_pixel = 1.0 / stretch;
-        let in_device = self.width * stretch;
-        if self.width <= 0.0 || (self.adjust && in_device < 0.5) {
+        };
+        // §10.7.5's "less than half a pixel", asked in the path's own space rather than in
+        // device space, because that is the space both sides of the comparison are already in
+        // and it costs no second decomposition of the transform.
+        if self.width <= 0.0 || (self.adjust && self.width < 0.5 * one_pixel) {
             one_pixel
         } else {
             self.width
         }
     }
+}
+
+/// One device pixel, expressed in the space of a path that `to_device` maps to the device.
+///
+/// ISO 32000-2 §8.4.3.2 states the device's thinnest mark in *device* pixels — "1 device pixel
+/// wide" — while every width this renderer hands a backend is in the path's own space, so the
+/// quantity has to be carried across the transform. Both of this crate's readings of "the
+/// thinnest thing this device can put down" resolve to it: [`Stroke::device_width`] for a line
+/// §8.4.3.2 or §10.7.5 asks to be one pixel thick, and [`split_collapsed_fill`] for the fill
+/// §10.7.4 says may not disappear. One function so that the two cannot drift apart, and so that
+/// a backend never divides by a stretch of its own.
+///
+/// Returns `None` where the transform is singular or not finite: a path collapsed to a point
+/// has no space of its own left for a width to be stated in.
+///
+/// [`split_collapsed_fill`]: crate::collapsed::split_collapsed_fill
+#[must_use]
+pub fn thinnest_line(to_device: Transform) -> Option<f32> {
+    let stretch = to_device.max_stretch();
+    if !stretch.is_finite() || stretch <= 0.0 {
+        return None;
+    }
+    Some(1.0 / stretch)
 }
 
 impl Default for Stroke {
