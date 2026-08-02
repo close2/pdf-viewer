@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use pdf_render::{Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Transform};
 use pdf_syntax::ObjectId;
-use viewer_core::{Layer, PageTarget};
+use viewer_core::Layer;
 
 /// How wide the panel is, in logical pixels.
 ///
@@ -287,8 +287,8 @@ enum Marker {
 enum Act {
     /// Nothing: a heading, an attachment, a group whose row acts only through its switch.
     None,
-    /// §12.3.2's destination.
-    Follow(PageTarget),
+    /// §12.3.3: activate the item, whatever `/Dest` or `/A` says that means.
+    Activate(ObjectId),
 }
 
 /// One drawn line of a panel.
@@ -381,8 +381,8 @@ pub struct Content<'a> {
 /// What a click on the sidebar asked for.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Hit {
-    /// Follow this outline item's §12.3.2 destination.
-    Follow(PageTarget),
+    /// §12.3.3: activate this outline item — jump, or trigger whatever `/A` states.
+    Activate(ObjectId),
     /// §8.11: switch an optional content group on or off.
     SetGroup {
         /// Which group.
@@ -522,7 +522,7 @@ impl Sidebar {
             });
         }
         Some(match row.act {
-            Act::Follow(target) => Hit::Follow(target),
+            Act::Activate(object) => Hit::Activate(object),
             Act::None => Hit::Nothing,
         })
     }
@@ -626,10 +626,11 @@ impl Sidebar {
                 } else {
                     Marker::Disclosure { id, open }
                 },
-                act: match item.destination {
-                    Some(destination) => Act::Follow(PageTarget::Destination(destination)),
-                    None => Act::None,
-                },
+                // **Activation rather than navigation**, because §12.3.3 asks for both halves
+                // of one sentence: "jump to a destination or trigger an action associated with
+                // the item". A `Follow` here would perform the first half of an item whose `/A`
+                // is a URI and silently drop the second.
+                act: Act::Activate(item.id),
                 group: None,
             });
             if item.children.is_empty() {

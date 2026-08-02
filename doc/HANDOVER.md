@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixty-seventh** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixty-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -63,7 +63,8 @@ quadrilaterals they cover (ADR 0134); what is left is a host that hands them to 
 sidebar since the hundred-and-sixty-sixth and -seventh** — §12.3.3's outline, §8.11.4.3's layers
 with their switches, and §7.11.4's embedded files, in `viewer-ui`'s own chrome, with `pdf-font`'s
 compiled-in Helvetica and a `pdf-render` display list, so both backends draw it. A click on an
-outline title sends `PageTarget::Destination`; a click on a layer's switch sends
+outline title sends `Command::Activate` and the *document* decides what that means — a jump, a
+URI, a layer, whatever §12.6.2's chain says; a click on a layer's switch sends
 `Command::SetGroup` and the page redraws, which is §8.11's interactive half working for the first
 time. What a file tab still cannot do is get the bytes *out*.
 
@@ -71,7 +72,7 @@ time. What a file tab still cannot do is get the bytes *out*.
 
 | gate | number | where |
 |---|---|---|
-| tests | **988**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **989**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
@@ -108,8 +109,8 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 368 | every normative requirement in the clause is executed |
-| `partial` | 241 | some are; the note says which are not |
+| `implemented` | 369 | every normative requirement in the clause is executed |
+| `partial` | 240 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -155,7 +156,6 @@ documents' first pages it affects.
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | Each reported where it can change a pixel: a knockout element whose shape is not its coverage (5), a non-isolated group NOTE 5 cannot flatten whose elements blend (6), a blending space that is not the device's three components (4, all `/DeviceCMYK`), a soft-mask group with such a space (7). |
 | Optional content's interactive half | — | **Closed in session 167.** §8.11 is honoured wherever it decides what is drawn; `/Order`, `/ListMode`, `/Locked`, `/RBGroups` and `/Name` have been read since session 67 and `Query::Layers` with `Command::SetGroup` since 131; `viewer_ui::chrome`'s second tab now draws the tree and throws the switch, with Table 99's `/Locked` refusing the change as the clause requires. Still unread: alternate `/Configs`, and `/ListMode`'s `VisiblePages`. |
 | Getting an embedded file *out* | — | §7.11.4's list is read, and since session 167 it is shown — name, media type, the size Table 45 claims. `Query::Attachments` hands the stream over undecoded and nothing writes it anywhere: extraction wants a command, an event carrying bytes, and a host with a file dialogue. |
-| An outline item whose `/A` is not a go-to | — | §12.3.3: "[c]licking the text of any visible item activates the item, causing the interactive PDF processor to jump to a destination **or trigger an action**". The panel does the jump. Measured over the corpus: of 281 outline items carrying an `/A`, 249 are `GoTo` and are followed; 7 `URI` over three documents, 5 `Named`, 1 `SetOCGState` and 1 `GoToR` are not, and 18 `JavaScript` in one file are excluded. `interact::activate` performs all of those for a *link* — what is missing is the path from an outline item to it. |
 | `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
 | Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
 | A filled degenerate subpath's device pixel (§8.5.3.3.1) | — | The clause calls the result "device-dependent and not generally useful" in the same breath. Recorded, not reported. |
@@ -238,9 +238,10 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Viewer::query(&self, Query) -> Answer` beside it. **Selection cannot wait for a render round
   trip**, which is why the second channel is not a command.
 - `Command`: `Open { id, bytes, password }`, `Close`, `Focus`, `Resize { width, height, scale }`,
-  `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, `Pointer { at, action }`, `Select`,
-  `Edit(Edit)`, `Undo`, `Redo`, `Save`, `Supply { purpose, bytes }`, `Tick { millis }`,
-  `RenderReady { token, rendered }`.
+  `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
+  `Select`, `Edit(Edit)`, `Undo`, `Redo`, `Save`, `Supply { purpose, bytes }`, `Tick { millis }`,
+  `RenderReady { token, rendered }`. **`Activate` is what a panel row sends** — the object, not a
+  payload, so the *document* decides what activating it means (ADR 0144).
 - `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
   `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`, `Dirty`,
   `Saved { bytes }`,
@@ -527,7 +528,7 @@ next to what it covers.
   validation needing a trust store or network, 5 need a second file, a media engine or a network,
   3 are icon clauses whose own verb is *should*, and the rest name a device or a user control this
   program does not have. That population is worked out.
-- **The 241 `partial` rows are the population with no gate**, and reading them has paid five
+- **The 240 `partial` rows are the population with no gate**, and reading them has paid five
   sessions running. What to look for, in the order the findings came: a note that *understates*
   the code (five in session 115); a note whose **reason** has expired — "while §X does not
   exist", "needs §Y" — which no gate can watch (117, 118); a note claiming an entry is *unread*
@@ -1648,6 +1649,15 @@ anchor that makes it checkable.
   eight integer divisions per *transparent* pixel — and §11.4.7's isolated page group makes most of
   a page transparent. Amdahl's law names where to look after any successful division. ADR 0139.
 
+- **Read the whole sentence a feature is built from, and count what the other half is worth
+  before deciding.** §12.3.3 says a click makes a processor "jump to a destination **or trigger
+  an action**"; the hundred-and-sixty-sixth session built the jump and shipped a `Command`
+  variant shaped exactly like half a sentence. Two sessions later the count — 281 corpus outline
+  items with an `/A`, 32 of them not a go-to — said the other half was one refactor away, and the
+  variant became a path nobody takes and was removed. **A command shaped like half a clause is a
+  command that will be replaced**, and the habit is ADR 0110's one level up: where a rule lists
+  what it applies to, count them against the code *before* designing the interface.
+
 - **A gate that cannot see a surface is a gate that cannot see a surface.** The corpus
   interprets page one, the oracle rasterises pages it is handed, the text gate reads words and
   the date gate reads strings — not one of them opens a viewer, so every line of chrome this
@@ -2023,3 +2033,4 @@ above rather than here.
 | 165 | What a rendering library would have to be, for a team writing one; the frame split measured | — |
 | 166 | The first panel: §12.3.3's outline drawn in the fourteen fonts the clause guarantees | 0142 |
 | 167 | The other two: §8.11's layers with their switches, and §7.11.4's files | 0143 |
+| 168 | Activate the item rather than its destination, and §12.3.3 closes | 0144 |

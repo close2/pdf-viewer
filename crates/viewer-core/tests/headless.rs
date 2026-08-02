@@ -1247,16 +1247,15 @@ fn with_durations() -> Vec<u8> {
     out.into_bytes()
 }
 
-/// §12.3.3's outline navigates, and the index it lands on is the page tree's.
+/// §12.3.3's outline activates, and the index it lands on is the page tree's.
 ///
-/// `PageTarget::Destination` exists because a host cannot resolve one: §12.3.2.2's target is a
-/// page *object*, and turning an object into an index is a walk of the page tree. So the check
+/// `Command::Activate` exists because a host cannot do this itself twice over: §12.3.2.2's
+/// target is a page *object*, and turning one into an index is a walk of the page tree; and
+/// Table 151's `/A` may be any of §12.6's types and a whole `/Next` chain of them. So the check
 /// walks the tree **here**, by `/Kids`, rather than asking `pdf_model::Pages` — a test that
 /// resolved the destination through the same function the command uses would agree with itself.
 #[test]
 fn an_outline_item_goes_to_the_page_its_destination_names() {
-    use pdf_model::destination::{Destination, Target, View};
-
     let document = pdf_syntax::Document::open(specification_bytes()).expect("a committed PDF");
     let pages = page_objects(&document);
     assert_eq!(pages.len(), PAGES, "the tree walk found every page");
@@ -1266,59 +1265,91 @@ fn an_outline_item_goes_to_the_page_its_destination_names() {
         panic!("the note has a §12.3.3 outline");
     };
     // Flattened, because what a panel shows is the whole tree and what a click sends is one
-    // item's destination whatever its depth.
-    let mut wanted: Vec<(String, usize)> = Vec::new();
+    // item's object whatever its depth.
+    let mut wanted: Vec<(String, pdf_syntax::ObjectId, usize)> = Vec::new();
     let mut stack: Vec<&pdf_model::outline::Item> = outline.items.iter().rev().collect();
     while let Some(item) = stack.pop() {
-        if let Some(Destination {
-            target: Target::Object(id),
-            ..
-        }) = item.destination
-            && let Some(index) = pages.iter().position(|page| *page == id)
+        if let Some(destination) = item.destination
+            && let pdf_model::destination::Target::Object(page) = destination.target
+            && let Some(index) = pages.iter().position(|candidate| *candidate == page)
         {
-            wanted.push((item.title.clone(), index));
+            wanted.push((item.title.clone(), item.id, index));
         }
         stack.extend(item.children.iter().rev());
     }
     assert!(
-        wanted.iter().any(|(_, index)| *index > 0),
+        wanted.iter().any(|(_, _, index)| *index > 0),
         "every item points at page one, so nothing here would move"
     );
 
-    for (title, index) in wanted {
+    for (title, id, index) in wanted {
         viewer
             .handle(Command::GoTo(PageTarget::First))
             .for_each(drop);
-        let destination = Destination {
-            target: Target::Object(pages[index]),
-            view: View::Fit,
-        };
-        viewer
-            .handle(Command::GoTo(PageTarget::Destination(destination)))
-            .for_each(drop);
+        viewer.handle(Command::Activate(id)).for_each(drop);
         let Answer::Page { index: at, .. } = viewer.query(Query::CurrentPage) else {
             panic!("a document is open");
         };
         assert_eq!(at, index, "{title:?}");
     }
 
-    // §12.3.2.2's NOTE makes a bare page *number* a page in a remote document, so it names
-    // nothing here and moves nowhere — rather than being read as an index into this file.
+    // An object that is not an outline item activates nothing and says nothing: it is the host
+    // that named the wrong thing, and `Event::Reported` is for what the *document* could not do.
     viewer
-        .handle(Command::GoTo(PageTarget::First))
+        .handle(Command::GoTo(PageTarget::Last))
         .for_each(drop);
-    viewer
-        .handle(Command::GoTo(PageTarget::Destination(Destination {
-            target: Target::Number(3),
-            view: View::Fit,
-        })))
-        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(999_999, 0)))
+        .collect();
+    assert!(events.is_empty(), "{events:?}");
     let Answer::Page { index, .. } = viewer.query(Query::CurrentPage) else {
         panic!("a document is open");
     };
-    assert_eq!(
-        index, 0,
-        "a remote page number is not an index into this one"
+    assert_eq!(index, PAGES - 1, "nothing moved");
+}
+
+/// §12.3.3's other half: an item whose `/A` is a URI hands the URI over.
+///
+/// The sentence is one sentence — "jump to a destination **or trigger an action** associated
+/// with the item" — and until the hundred-and-sixty-eighth session only the jump happened. Seven
+/// corpus outline items over three documents carry a `/URI` action; this is one of them, and
+/// what it proves is that the action path a *link* takes is the one an outline item takes.
+#[test]
+fn an_outline_item_whose_action_is_a_uri_hands_it_over() {
+    let Some(bytes) = corpus_bytes("issue3214.pdf") else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    let Answer::Outline(outline) = viewer.query(Query::Outline) else {
+        panic!("the fixture has an outline");
+    };
+    let mut items: Vec<(String, pdf_syntax::ObjectId)> = Vec::new();
+    let mut stack: Vec<&pdf_model::outline::Item> = outline.items.iter().rev().collect();
+    while let Some(item) = stack.pop() {
+        items.push((item.title.clone(), item.id));
+        stack.extend(item.children.iter().rev());
+    }
+    assert!(!items.is_empty(), "the fixture states items");
+
+    let mut opened: Vec<String> = Vec::new();
+    for (_, id) in items {
+        for event in viewer.handle(Command::Activate(id)) {
+            if let Event::OpenUri { uri, .. } = event {
+                opened.push(uri);
+            }
+        }
+    }
+    assert!(
+        !opened.is_empty(),
+        "no outline item in this document handed over a URI"
     );
 }
 

@@ -33,6 +33,9 @@ const HEIGHT: u32 = 300;
 /// An item with a destination naming an object, which is §12.3.2.2's first form.
 fn item(title: &str, page: u32, children: Vec<Item>) -> Item {
     Item {
+        // The item's own object. `page + 100` keeps it distinct from the page it points at, so
+        // a test that confused the two would fail rather than pass by coincidence.
+        id: ObjectId::new(page + 100, 0),
         title: title.to_owned(),
         destination: Some(Destination {
             target: Target::Object(ObjectId::new(page, 0)),
@@ -148,18 +151,11 @@ fn a_click_lands_on_the_row_it_was_aimed_at() {
         Some(Hit::Redraw)
     );
 
-    // The first row's title.
-    let followed = panel.click((80.0, 36.0), only(&outline), 1.0);
-    let Some(Hit::Follow(target)) = followed else {
-        panic!("a click on a title follows its destination, not {followed:?}");
-    };
+    // The first row's title. §12.3.3 asks for the *item* to be activated rather than for its
+    // destination to be followed, because the same sentence covers `/A`.
     assert_eq!(
-        target,
-        viewer_core::PageTarget::Destination(
-            outline.items[0]
-                .destination
-                .expect("the fixture states one")
-        )
+        panel.click((80.0, 36.0), only(&outline), 1.0),
+        Some(Hit::Activate(outline.items[0].id))
     );
 
     // The first row's disclosure triangle, which is the left fourteen pixels.
@@ -195,19 +191,11 @@ fn closing_a_subtree_does_not_renumber_the_items_below_it() {
         "the closed subtree is still being drawn: {two_rows} against {three_rows}"
     );
 
-    // Chapter two is now the second visible row, and clicking *it* must reach chapter two's
-    // destination rather than the section's.
-    let followed = panel.click((80.0, 56.0), only(&outline), 1.0);
-    let Some(Hit::Follow(target)) = followed else {
-        panic!("the second visible row follows nothing: {followed:?}");
-    };
+    // Chapter two is now the second visible row, and clicking *it* must reach chapter two
+    // rather than the section that was hidden.
     assert_eq!(
-        target,
-        viewer_core::PageTarget::Destination(
-            outline.items[1]
-                .destination
-                .expect("the fixture states one")
-        ),
+        panel.click((80.0, 56.0), only(&outline), 1.0),
+        Some(Hit::Activate(outline.items[1].id)),
         "the row below a closed subtree is chapter two"
     );
 

@@ -555,7 +555,7 @@ impl App {
         );
         drop(layers);
         match hit {
-            Some(Hit::Follow(target)) => self.dispatch(Command::GoTo(target)),
+            Some(Hit::Activate(object)) => self.dispatch(Command::Activate(object)),
             // §8.11.2.2: switching a group re-decides what the page draws, so this goes to the
             // core and comes back as a render rather than as a repaint of the panel.
             Some(Hit::SetGroup { group, on }) => self.dispatch(Command::SetGroup { group, on }),
@@ -1324,6 +1324,7 @@ fn describe_command(command: &Command) -> String {
         Command::Zoom(zoom) => format!("zoom {zoom:?}"),
         Command::Scroll { dx, dy } => format!("scroll {dx} {dy}"),
         Command::SetGroup { group, on } => format!("layer {group:?} {on}"),
+        Command::Activate(object) => format!("activate {object:?}"),
         Command::Pointer { at, action } => format!("pointer {action:?} at {at:?}"),
         Command::Select(what) => format!("select {what:?}"),
         Command::Edit(edit) => format!("edit {edit:?}"),

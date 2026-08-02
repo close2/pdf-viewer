@@ -79,14 +79,81 @@ pub(crate) fn has_appearance(document: &Document, annotation: ObjectId, pointer:
 /// Returns an empty outcome for a click on nothing, on a link whose action this program will not
 /// perform, or on a link to the page already shown.
 pub(crate) fn activate(open: &mut Open, x: f32, y: f32) -> Outcome {
-    let mut outcome = Outcome::default();
     let Some(page) = open.shown_page() else {
-        return outcome;
+        return Outcome::default();
     };
     let links = pdf_model::link::links(&open.document, page);
     let Some(link) = pdf_model::link::at(&links, x, y) else {
-        return outcome;
+        return Outcome::default();
     };
+    let (actions, destination, rect) = (link.actions.clone(), link.destination, link.rect);
+    drop(links);
+    perform(
+        open,
+        &actions,
+        destination,
+        Some(((x, y), rect)),
+        "this link",
+    )
+}
+
+/// Activates an object the *host* named, which is §12.3.3's outline item and nothing else yet.
+///
+/// The clause: "[c]licking the text of any visible item activates the item, causing the
+/// interactive PDF processor to jump to a destination or trigger an action associated with the
+/// item." A host has a row in a panel and no way to read `/A`; what it hands over is the item's
+/// object, and everything about what activation *means* stays on this side with the document —
+/// which is the same division `Command::GoTo(PageTarget::Destination)` makes for the half of the
+/// sentence that is a jump.
+///
+/// Table 151 gives an item `/Dest` **or** `/A` and forbids both, so the two are read in that
+/// order and the second is a whole `/Next` chain. An object that is not an outline item states
+/// neither and activates nothing, which is the right answer for a host that named the wrong
+/// thing.
+pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
+    let object = open.document.get(id);
+    let Some(dict) = object.as_dict() else {
+        return Outcome::default();
+    };
+    let actions = pdf_model::action::read(
+        &open.document,
+        dict.get("A").unwrap_or(&pdf_syntax::Object::Null),
+    );
+    // Table 151's `/Dest` first, then a go-to anywhere in the chain — the same order and the
+    // same reason as `pdf_model::link`'s: reading only the outermost `/S` would miss a jump
+    // §12.6.2 put after a sound.
+    let destination = dict
+        .get("Dest")
+        .and_then(|dest| pdf_model::destination::Destination::read(&open.document, dest))
+        .or_else(|| {
+            actions.iter().find_map(|action| match action {
+                Action::GoTo(destination) => Some(*destination),
+                _ => None,
+            })
+        });
+    // **No position.** §12.6.4.8's `/IsMap` "applies only to actions triggered by the user's
+    // clicking an annotation; it shall be ignored for actions associated with outline items" —
+    // so the clause itself says what a caller with no cursor position does here.
+    perform(open, &actions, destination, None, "this item")
+}
+
+/// Performs §12.6.2's action sequence and resolves whatever page it names.
+///
+/// One function for both callers, because §12.6.2 makes an action list an action list wherever
+/// it came from. `at` is the click that started it, where there was one: it carries the cursor
+/// and the annotation's `/Rect`, which is what §12.6.4.8's `/IsMap` needs and the only thing in
+/// the whole sequence that does.
+///
+/// `subject` is how a refusal names itself to a person — "this link declines", "this item
+/// declines" — and nothing else depends on it.
+fn perform(
+    open: &mut Open,
+    actions: &[Action],
+    destination: Option<pdf_model::destination::Destination>,
+    at: Option<((f32, f32), [f32; 4])>,
+    subject: &str,
+) -> Outcome {
+    let mut outcome = Outcome::default();
 
     // §12.6.4's actions first, because two of the eleven this program performs change what the
     // *current* page draws — a layer's state (§12.6.4.13) and an annotation's Hidden flag
@@ -96,19 +163,18 @@ pub(crate) fn activate(open: &mut Open, x: f32, y: f32) -> Outcome {
     // this program does not perform arrives as `Action::Refused` carrying its own reason, and
     // dropping it silently would make a click that does nothing indistinguishable from a click
     // on nothing.
-    for action in &link.actions {
+    for action in actions {
         if let Action::Refused(why) = action {
-            outcome.notes.push(format!("this link declines — {why}"));
+            outcome.notes.push(format!("{subject} declines — {why}"));
         }
     }
-    let requests = open.view.perform_all(&open.document, &link.actions);
+    let requests = open.view.perform_all(&open.document, actions);
 
     // The first request that names a page wins, because a chain that jumps twice has shown the
     // second page either way and §12.6.2 states no rule for the pair.
     let pages = Pages::new(&open.document);
-    let mut target = link
-        .destination
-        .and_then(|destination| destination.page_index(&open.document, &pages));
+    let mut target =
+        destination.and_then(|destination| destination.page_index(&open.document, &pages));
     let (mut import, mut embedded) = (None, None);
     for request in &requests {
         match request {
@@ -123,9 +189,10 @@ pub(crate) fn activate(open: &mut Open, x: f32, y: f32) -> Outcome {
             Request::DocumentPart(jump) => {
                 target = target.or_else(|| jump.page_in(&open.document, &pages));
             }
-            Request::Resolve(uri) => outcome
-                .uris
-                .push(uri.at_position((x, y), link.rect).clone()),
+            Request::Resolve(uri) => outcome.uris.push(match at {
+                Some((point, rect)) => uri.at_position(point, rect),
+                None => uri.uri.clone(),
+            }),
             // Deferred rather than performed here: both need `&mut open` and `pages` still
             // borrows the document. Nothing is lost by the wait — §12.6.2 makes a chain a
             // sequence, and neither changes a page number.

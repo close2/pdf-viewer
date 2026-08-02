@@ -106,6 +106,21 @@ pub enum Command {
     ///
     /// A drag is [`Self::Pointer`]'s business; this is what a menu item or a keystroke asks for.
     Select(Selection),
+    /// Activate an object the host is showing outside the page — §12.3.3's outline item.
+    ///
+    /// The clause: "[c]licking the text of any visible item activates the item, causing the
+    /// interactive PDF processor to jump to a destination **or trigger an action** associated
+    /// with the item." A panel row is not a point on a page, so [`Self::Pointer`] cannot express
+    /// it; and a host cannot perform the action itself, because `/A` may be any of §12.6's
+    /// types and a whole `/Next` chain of them. So it hands over the item's *object* and this
+    /// crate reads what activating it means.
+    ///
+    /// An object that is not something this crate knows how to activate does nothing and says
+    /// nothing, which is the right answer for a host that named the wrong thing —
+    /// [`crate::Event::Reported`] is for what the *document* could not do, not for what a
+    /// caller asked.
+    ///
+    Activate(ObjectId),
     /// §8.11: switch an optional content group on or off.
     ///
     /// The group is named by object identity because that is what §8.11.2.2's `/OCGs` and Table
@@ -261,8 +276,14 @@ pub enum Rendered {
 /// Relative and absolute in one enum because they are one question — "which page next" — and a
 /// host that had to turn a key press into an index would be doing the clamping itself.
 ///
-/// Not `Eq`: [`PageTarget::Destination`] carries Table 151's coordinates, which are floats.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// **There is deliberately no `Destination` variant.** One was added in the
+/// hundred-and-sixty-sixth session for the outline panel and removed in the hundred-and-sixty-
+/// eighth, when §12.3.3's other half was read properly: the clause asks a click to "jump to a
+/// destination **or** trigger an action", so what a panel row sends is
+/// [`Command::Activate`] — the item's object, from which this crate reads `/Dest` *and* `/A`.
+/// A variant carrying only the jump would have been a path nobody takes, and `CLAUDE.md` forbids
+/// shipping one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageTarget {
     /// A zero-based index, which is the page tree's numbering and not a reader's.
     Index(usize),
@@ -279,18 +300,6 @@ pub enum PageTarget {
     /// Clamped rather than wrapping: paging past the end and landing back at page one is
     /// disorienting, and the end of a document is information worth feeling.
     Relative(isize),
-    /// §12.3.2's destination, resolved against this document's page tree.
-    ///
-    /// What §12.3.3's outline, §12.3.4's thumbnails and §12.3.5's collection all hold instead of
-    /// a page number, and what a host cannot resolve for itself: a destination names a page
-    /// *object* (or, in §12.3.2.3's form, a structure element), and turning either into an index
-    /// is a walk of the page tree — which lives on this side of the boundary with the document.
-    ///
-    /// A destination naming nothing in this file moves nowhere: §12.3.2.2's NOTE makes
-    /// [`pdf_model::destination::Target::Number`] a page in a *remote* document, so honouring it
-    /// here would send a reader to the wrong page of the right file rather than to no page at
-    /// all.
-    Destination(pdf_model::destination::Destination),
 }
 
 /// How large the page is drawn.

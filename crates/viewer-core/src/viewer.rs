@@ -204,6 +204,7 @@ impl Viewer {
                 open.shown_for = 0.0;
                 self.announce_page(events);
             }
+            Command::Activate(object) => self.activate(object, events),
             Command::Tick { millis } => self.tick(millis, events),
             Command::Zoom(zoom) => self.set_zoom(zoom, events),
             Command::Scroll { dx, dy } => {
@@ -421,6 +422,16 @@ impl Viewer {
                 self.apply(id, outcome, events);
             }
         }
+    }
+
+    /// §12.3.3: activates an object a host is showing outside the page.
+    fn activate(&mut self, object: pdf_syntax::ObjectId, events: &mut Vec<Event>) {
+        let Some(id) = self.focused else { return };
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let outcome = interact::activate_object(open, object);
+        self.apply(id, outcome, events);
     }
 
     /// Takes the bytes a host was asked for, or says that it declined.
@@ -992,10 +1003,6 @@ fn label(open: &Open, index: usize) -> Option<String> {
 }
 
 /// Turns a [`PageTarget`] into an index, clamped to the document.
-///
-/// Takes the whole `Open` rather than two numbers because [`PageTarget::Destination`] is
-/// answered by the *document*: §12.3.2's target is a page object, and only the page tree knows
-/// which index that is.
 fn resolve(open: &Open, target: PageTarget) -> Option<usize> {
     let (current, count) = (open.page_index, open.page_count);
     let last = count.checked_sub(1)?;
@@ -1006,13 +1013,6 @@ fn resolve(open: &Open, target: PageTarget) -> Option<usize> {
         PageTarget::Next => current.saturating_add(1).min(last),
         PageTarget::Previous => current.saturating_sub(1),
         PageTarget::Relative(delta) => current.saturating_add_signed(delta).min(last),
-        // One page-tree walk per navigation, which is what a link click already costs
-        // (`interact::activate`) and is not the per-item loop ADR 0124 was about — a *panel*
-        // resolving every item at once wants `Destination::page_index_with` instead.
-        PageTarget::Destination(destination) => {
-            let pages = pdf_model::Pages::new(&open.document);
-            destination.page_index(&open.document, &pages)?.min(last)
-        }
     })
 }
 
