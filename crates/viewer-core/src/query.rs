@@ -48,6 +48,12 @@ pub enum Query<'a> {
     FieldAt((f32, f32)),
     /// Whether anything has been edited since the document opened.
     Dirty,
+    /// Table 29's `/PageMode` and `/PageLayout`: what the *catalog* asks of the window opening it.
+    ///
+    /// Beside [`Query::Preferences`] rather than folded into it, because they are two tables and
+    /// a struct holding both would be a claim that they are one. §7.7.2's pair says which panel
+    /// is open and how the pages are laid out; Table 147's says everything else about a window.
+    Opening,
     /// §12.2's viewer preferences: what the document asks of the window showing it.
     ///
     /// Handed over rather than acted on, because every entry of Table 147 is about chrome the
@@ -129,6 +135,8 @@ pub enum Answer<'a> {
     Found(Vec<Vec<[f32; 8]>>),
     /// Whether anything has been edited.
     Dirty(bool),
+    /// Table 29's two display entries.
+    Opening(pdf_model::viewer_preferences::Opening),
     /// §12.2's Table 147, whole.
     Preferences(pdf_model::viewer_preferences::ViewerPreferences),
     /// The pixels the viewer holds, and where they belong on the screen.

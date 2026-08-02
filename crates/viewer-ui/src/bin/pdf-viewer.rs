@@ -59,7 +59,7 @@ use viewer_core::{
     Answer, Command, DocumentId, Event, PageTarget, PointerAction, Purpose, Query, RenderRequest,
     Rendered, Selection, Viewer, Zoom,
 };
-use viewer_ui::chrome::{Chrome, Content, Hit, Sidebar};
+use viewer_ui::chrome::{Chrome, Content, Hit, Sidebar, Tab};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -431,6 +431,7 @@ impl App {
         if let Answer::Attachments(files) = self.viewer.query(Query::Attachments) {
             self.attachments = files;
         }
+        self.obey_page_mode();
         let layers = self.layers().len();
         if !self.outline.items.is_empty() || !self.attachments.is_empty() || layers > 0 {
             println!(
@@ -461,6 +462,45 @@ impl App {
         match std::fs::write(&path, bytes) {
             Ok(()) => println!("extracted {} bytes to {}", bytes.len(), path.display()),
             Err(error) => println!("note: cannot write {}: {error}", path.display()),
+        }
+    }
+
+    /// Table 29: opens the panel the document asks for, and says what it cannot do.
+    ///
+    /// §7.7.2's `/PageMode` is "how the document shall be displayed when opened", and until the
+    /// hundred-and-seventieth session this program had no panel for any of its answers to name.
+    /// Three of the six it can now obey. The other three name chrome that does not exist here,
+    /// and each is said once rather than ignored: a document asking for something and getting
+    /// silence is trap 5 in an interface.
+    ///
+    /// `/PageLayout` likewise. This window shows one page at a time, which is Table 29's own
+    /// default, so a document stating `SinglePage` — 24 of the corpus's 43 — is answered exactly
+    /// and says nothing.
+    fn obey_page_mode(&mut self) {
+        use pdf_model::viewer_preferences::{PageLayout, PageMode};
+        let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+            return;
+        };
+        match opening.mode {
+            PageMode::UseNone => {}
+            PageMode::UseOutlines => self.panel.show(Tab::Contents),
+            PageMode::UseOptionalContent => self.panel.show(Tab::Layers),
+            PageMode::UseAttachments => self.panel.show(Tab::Files),
+            PageMode::UseThumbs => println!(
+                "note: this document asks for §12.3.4's thumbnail panel, which this program \
+                 does not draw"
+            ),
+            PageMode::FullScreen => println!(
+                "note: this document asks to open full screen (§7.7.2), which is chrome this \
+                 program does not have"
+            ),
+        }
+        if opening.layout != PageLayout::SinglePage {
+            println!(
+                "note: this document asks for the {:?} page layout (§7.7.2); this window shows \
+                 one page at a time",
+                opening.layout
+            );
         }
     }
 
@@ -1127,9 +1167,11 @@ impl ApplicationHandler for App {
         });
         self.retitle();
         // The window's size is the first thing the core has been told about the viewport, and
-        // it is what makes page one render.
+        // it is what makes page one render. **Less the sidebar**, which Table 29's `/PageMode`
+        // may already have opened: the document was opened before this window existed, so the
+        // first `Resize` is the first chance to say how much of it the page has.
         self.dispatch(Command::Resize {
-            width: size.width.max(1),
+            width: size.width.saturating_sub(self.panel.inset(scale)).max(1),
             height: size.height.max(1),
             scale,
         });

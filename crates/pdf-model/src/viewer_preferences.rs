@@ -1,5 +1,12 @@
 //! ISO 32000-2 §12.2's viewer preferences: how a document asks to be presented.
 //!
+//! **And Table 29's two display entries**, which are §7.7.2's and are here because they are the
+//! same question asked by the same table's neighbour and answered by the same host: `/PageMode`
+//! says which panel is open when the document is opened and `/PageLayout` how the pages are laid
+//! out, and §12.2's `/NonFullScreenPageMode` is defined by reference to the first of them.
+//! [`Opening`] is that pair and is deliberately a separate type — one struct holding two tables
+//! is how a row comes to claim what its neighbour implements.
+//!
 //! The catalog's `/ViewerPreferences` is a dictionary "controlling the way the document shall
 //! be presented on the screen or in print", and §12.2 states the fallback for a document that
 //! has none: "PDF processors should behave in accordance with their own current user
@@ -113,7 +120,14 @@ pub struct ViewerPreferences {
     pub enforce_print_scaling: bool,
 }
 
-/// Table 147's `/NonFullScreenPageMode`, which is also the catalog's `/PageMode` vocabulary.
+/// Table 29's `/PageMode`, of which Table 147's `/NonFullScreenPageMode` is the first four.
+///
+/// **The two tables share a vocabulary and not a value set.** §7.7.2's `/PageMode` adds
+/// `FullScreen` and `UseAttachments`; §12.2's `/NonFullScreenPageMode` lists neither, the first
+/// because it is the entry's own condition and the second because Table 147 does not name it.
+/// One enum with the union, and [`ViewerPreferences::in_catalog`] refuses the two extra names
+/// where the clause does not offer them — which is a rule about *which* entry was read rather
+/// than about what the name means, and so belongs at the reading site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageMode {
     /// `UseNone`: "[n]either document outline nor thumbnail images visible". The default.
@@ -125,6 +139,95 @@ pub enum PageMode {
     UseThumbs,
     /// `UseOC`: "[o]ptional content group panel visible".
     UseOptionalContent,
+    /// `FullScreen`: "[f]ull-screen mode, with no menu bar, window controls, or any other
+    /// window visible". Table 29 only.
+    FullScreen,
+    /// `UseAttachments`: "[a]ttachments panel visible". Table 29 only, PDF 1.6.
+    UseAttachments,
+}
+
+/// Table 29's `/PageLayout`: "the page layout shall be used when the document is opened".
+///
+/// Six names and one default, and the difference between them is *how many pages are on the
+/// screen and whether they scroll*, which is a property of a window rather than of a page. Read
+/// and handed over, like the rest of what a document says about a window it cannot see.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PageLayout {
+    /// `SinglePage`: "[d]isplay one page at a time". The default.
+    #[default]
+    SinglePage,
+    /// `OneColumn`: "[d]isplay the pages in one column".
+    OneColumn,
+    /// `TwoColumnLeft`: "in two columns, with odd-numbered pages on the left".
+    TwoColumnLeft,
+    /// `TwoColumnRight`: "in two columns, with odd-numbered pages on the right".
+    TwoColumnRight,
+    /// `TwoPageLeft`: "two at a time, with odd-numbered pages on the left" (PDF 1.5).
+    TwoPageLeft,
+    /// `TwoPageRight`: "two at a time, with odd-numbered pages on the right" (PDF 1.5).
+    TwoPageRight,
+}
+
+/// Table 29's two display entries: what the catalog asks of the window that opens it.
+///
+/// Both are *optional with a stated default*, so a document that says nothing gets the same
+/// struct as one that says `UseNone` and `SinglePage` — the same rule §12.2 states for its own
+/// dictionary, and the reason neither field is an `Option`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Opening {
+    /// `/PageMode`: "how the document shall be displayed when opened".
+    pub mode: PageMode,
+    /// `/PageLayout`: "the page layout shall be used when the document is opened".
+    pub layout: PageLayout,
+}
+
+impl Opening {
+    /// Reads the catalog's `/PageMode` and `/PageLayout`.
+    ///
+    /// A name outside either table is not a value this processor can honour, so it produces the
+    /// entry's default rather than an error — Table 29 states one for both, and `Use0` is what
+    /// one corpus document writes.
+    #[must_use]
+    pub fn read(document: &Document) -> Self {
+        let Ok(catalog) = document.catalog() else {
+            return Self::default();
+        };
+        Self::in_catalog(document, &catalog)
+    }
+
+    /// The same, for a caller that already holds the catalog.
+    #[must_use]
+    pub fn in_catalog(document: &Document, catalog: &Dictionary) -> Self {
+        Self {
+            mode: named(document, catalog, "PageMode", page_mode).unwrap_or_default(),
+            layout: named(document, catalog, "PageLayout", |name| {
+                Some(match name.as_bytes() {
+                    b"OneColumn" => PageLayout::OneColumn,
+                    b"TwoColumnLeft" => PageLayout::TwoColumnLeft,
+                    b"TwoColumnRight" => PageLayout::TwoColumnRight,
+                    b"TwoPageLeft" => PageLayout::TwoPageLeft,
+                    b"TwoPageRight" => PageLayout::TwoPageRight,
+                    // Including `SinglePage` itself, and including a name Table 29 does not
+                    // define: both are the entry's default.
+                    _ => PageLayout::SinglePage,
+                })
+            })
+            .unwrap_or_default(),
+        }
+    }
+}
+
+/// Table 29's `/PageMode` names, whole.
+fn page_mode(name: &Name) -> Option<PageMode> {
+    Some(match name.as_bytes() {
+        b"UseNone" => PageMode::UseNone,
+        b"UseOutlines" => PageMode::UseOutlines,
+        b"UseThumbs" => PageMode::UseThumbs,
+        b"UseOC" => PageMode::UseOptionalContent,
+        b"FullScreen" => PageMode::FullScreen,
+        b"UseAttachments" => PageMode::UseAttachments,
+        _ => return None,
+    })
 }
 
 /// Table 147's `/Direction`.
@@ -238,12 +341,13 @@ impl ViewerPreferences {
                 document,
                 preferences,
                 "NonFullScreenPageMode",
-                |name| match name.as_bytes() {
-                    b"UseNone" => Some(PageMode::UseNone),
-                    b"UseOutlines" => Some(PageMode::UseOutlines),
-                    b"UseThumbs" => Some(PageMode::UseThumbs),
-                    b"UseOC" => Some(PageMode::UseOptionalContent),
-                    _ => None,
+                // Table 147 lists four of Table 29's six here, and the two it leaves out are
+                // refused rather than accepted: `FullScreen` would be the entry's own condition
+                // read as its value, and `UseAttachments` is a name this entry does not define.
+                |name| {
+                    page_mode(name).filter(|mode| {
+                        !matches!(mode, PageMode::FullScreen | PageMode::UseAttachments)
+                    })
                 },
             )
             .unwrap_or_default(),
@@ -337,7 +441,7 @@ fn enforced(document: &Document, preferences: &Dictionary, name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Direction, PageMode, PrintScaling, ViewerPreferences};
+    use super::{Direction, Opening, PageLayout, PageMode, PrintScaling, ViewerPreferences};
     use crate::page::Boundary;
     use pdf_syntax::Document;
 
@@ -436,5 +540,47 @@ mod tests {
             "<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /PrintPageRange [1 4 9] >> >>",
         );
         assert!(ViewerPreferences::read(&doc).print_page_range.is_empty());
+    }
+
+    /// Table 29's two display entries, including the two names §12.2 does not share.
+    ///
+    /// The last assertion is what a single shared enum could hide: `FullScreen` and
+    /// `UseAttachments` are Table 29's and Table 147's `/NonFullScreenPageMode` lists neither —
+    /// the first because it is that entry's own condition ("meaningful only if the value of the
+    /// `PageMode` entry in the catalog dictionary … is `FullScreen`"), the second because the
+    /// table does not name it. A reader that accepted them there would let a document say
+    /// "when you leave full screen, go full screen".
+    #[test]
+    fn table_29s_display_entries_are_not_table_147s() {
+        let doc = document("<< /Type /Catalog /Pages 2 0 R >>");
+        assert_eq!(
+            Opening::read(&doc),
+            Opening::default(),
+            "the stated defaults"
+        );
+
+        let doc = document(
+            "<< /Type /Catalog /Pages 2 0 R /PageMode /UseAttachments /PageLayout /TwoPageRight >>",
+        );
+        let opening = Opening::read(&doc);
+        assert_eq!(opening.mode, PageMode::UseAttachments);
+        assert_eq!(opening.layout, PageLayout::TwoPageRight);
+
+        // A name outside either table is the entry's default, not an error: one corpus catalog
+        // writes `/PageMode /Use0`.
+        let doc =
+            document("<< /Type /Catalog /Pages 2 0 R /PageMode /Use0 /PageLayout /Sideways >>");
+        assert_eq!(Opening::read(&doc), Opening::default());
+
+        let doc = document(
+            "<< /Type /Catalog /Pages 2 0 R /PageMode /FullScreen \
+             /ViewerPreferences << /NonFullScreenPageMode /FullScreen >> >>",
+        );
+        assert_eq!(Opening::read(&doc).mode, PageMode::FullScreen);
+        assert_eq!(
+            ViewerPreferences::read(&doc).non_full_screen_page_mode,
+            PageMode::UseNone,
+            "Table 147 does not offer FullScreen, so the entry falls to its default"
+        );
     }
 }

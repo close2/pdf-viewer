@@ -445,6 +445,12 @@ impl Sidebar {
         self.shown = !self.shown;
     }
 
+    /// Opens the sidebar on a tab, which is what Table 29's `/PageMode` asks for.
+    pub fn show(&mut self, tab: Tab) {
+        self.shown = true;
+        self.tab = tab;
+    }
+
     /// Scrolls the current list by a number of **logical** pixels, clamped to its own ends.
     ///
     /// Clamped rather than wrapped or unbounded, for the same reason `Command::Scroll` clamps a

@@ -1454,3 +1454,59 @@ fn an_embedded_file_comes_out_of_the_document() {
         "{events:?}"
     );
 }
+
+/// Table 29's `/PageMode` reaches a host, which is what makes three of its six values mean
+/// anything.
+///
+/// The entry names *panels* — `UseOutlines` shows the document outline, `UseOC` the optional
+/// content group panel, `UseAttachments` the attachments panel — so until the sidebar of
+/// sessions 166 and 167 existed there was nothing for a host to do with it. This checks the
+/// answer rather than the panel, because the panel is `viewer-ui`'s and the query is the
+/// boundary.
+#[test]
+fn the_catalog_says_which_panel_a_host_should_open() {
+    use pdf_model::viewer_preferences::{PageLayout, PageMode};
+
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: specification_bytes(),
+            password: None,
+        })
+        .for_each(drop);
+    // The committed note asks for both: its outline panel, and one continuous column of pages.
+    // The second is a layout this window does not have and says so once — a document asking for
+    // something and getting silence is trap 5 in an interface.
+    let Answer::Opening(opening) = viewer.query(Query::Opening) else {
+        panic!("a document is open");
+    };
+    assert_eq!(
+        opening.mode,
+        PageMode::UseOutlines,
+        "this document asks for the outline panel"
+    );
+    assert_eq!(opening.layout, PageLayout::OneColumn);
+
+    // A document stating neither gets Table 29's own defaults rather than an absence.
+    let mut plain = Viewer::new(800, 1000, 1.0);
+    plain
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_durations(),
+            password: None,
+        })
+        .for_each(drop);
+    let Answer::Opening(opening) = plain.query(Query::Opening) else {
+        panic!("a document is open");
+    };
+    assert_eq!(
+        (opening.mode, opening.layout),
+        (PageMode::UseNone, PageLayout::SinglePage)
+    );
+
+    // And nothing is answered for a viewer with no document, which is the same answer every
+    // other query gives.
+    let empty = Viewer::new(800, 1000, 1.0);
+    assert!(matches!(empty.query(Query::Opening), Answer::None));
+}

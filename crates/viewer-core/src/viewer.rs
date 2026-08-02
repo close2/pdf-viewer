@@ -122,6 +122,9 @@ impl Viewer {
                 })
                 .map_or(Answer::None, Answer::Field),
             Query::Dirty => Answer::Dirty(open.dirty()),
+            Query::Opening => {
+                Answer::Opening(pdf_model::viewer_preferences::Opening::read(&open.document))
+            }
             Query::Preferences => Answer::Preferences(
                 pdf_model::viewer_preferences::ViewerPreferences::read(&open.document),
             ),

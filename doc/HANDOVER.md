@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixty-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -67,13 +67,15 @@ outline title sends `Command::Activate` and the *document* decides what that mea
 URI, a layer, whatever §12.6.2's chain says; a click on a layer's switch sends
 `Command::SetGroup` and the page redraws, which is §8.11's interactive half working for the first
 time; and a click on an embedded file sends `Command::Extract`, so the bytes come out decoded
-with Table 45's checksum checked against them (§7.11.4, ADR 0145).
+with Table 45's checksum checked against them (§7.11.4, ADR 0145). **The document chooses which
+tab is open**: Table 29's `/PageMode` names a panel, and three of its six values now name one
+that exists (ADR 0146).
 
 ### The four gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **991**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **993**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
@@ -249,7 +251,7 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
   `Selection`, `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
-  `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
+  **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
   and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
   chrome off the rendering path.
 - **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and
@@ -535,6 +537,15 @@ next to what it covers.
   where the tree reads it (three in 122, **five more in 159**). ~185 rows remain unread against
   the code. **The class that resists a grep is a note whose "what IS done" half is wrong**,
   because the name being present is what the grep would look for.
+  **Session 170 ran both again and found the largest stale claim this ledger has held**:
+  §7.7.2's row listed twenty-five catalog entries as "not read" and **eighteen of them are**,
+  most read by the session that built their clause — `/PageLabels` in the forty-eighth,
+  `/Outlines` in the fiftieth, `/StructTreeRoot` in the seventy-eighth, `/DSS` in the
+  ninety-ninth — and it closed with "none is started" about three features that had shipped a
+  hundred and twenty sessions earlier. **A family's parent row is not maintained by the sessions
+  that implement its members**, because the clauses do not cite each other; this is the third
+  instance (§12.3's parent, §14.8.5.1's, and now §7.7.2's) and the grep that finds it takes a
+  minute. ADR 0146.
   **Session 159 ran both sweeps together and they are twenty lines of Python**: one regular
   expression over the notes for an expired blocker, and one that pulls every `/Key` out of a
   "Not read:" list and greps the tree for it. Six of ten "Not read" lists had a live entry, and
@@ -2045,3 +2056,4 @@ above rather than here.
 | 167 | The other two: §8.11's layers with their switches, and §7.11.4's files | 0143 |
 | 168 | Activate the item rather than its destination, and §12.3.3 closes | 0144 |
 | 169 | An embedded file comes out of the document, and its checksum finds a place to be checked | 0145 |
+| 170 | A catalog row wrong about eighteen entries, and the two the sweep made worth building | 0146 |
