@@ -1393,3 +1393,64 @@ fn page_objects(document: &pdf_syntax::Document) -> Vec<pdf_syntax::ObjectId> {
     }
     out
 }
+
+/// §7.11.4: an embedded file's bytes come out of the document, decoded.
+///
+/// The clause is the one part of §7.11 that needs no filesystem — "the bytes are inside the
+/// document" — and until the hundred-and-sixty-ninth session this crate listed them and could
+/// not hand one over. What the *host* does with them is rule 2's business and not this test's.
+///
+/// The check is against the file's own content rather than against a length: an extraction that
+/// handed back the still-deflated stream would be the right number of nothing.
+#[test]
+fn an_embedded_file_comes_out_of_the_document() {
+    let Some(bytes) = corpus_bytes("attachment.pdf") else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    let Answer::Attachments(files) = viewer.query(Query::Attachments) else {
+        panic!("the fixture embeds a file");
+    };
+    let [file] = files.as_slice() else {
+        panic!("one embedded file, not {}", files.len());
+    };
+    let (key, claimed) = (file.name.clone(), file.size);
+
+    let events: Vec<_> = viewer.handle(Command::Extract { name: key }).collect();
+    let [Event::Extracted { name, bytes, .. }] = events.as_slice() else {
+        panic!("one extraction, not {events:?}");
+    };
+    assert_eq!(name, "foo.txt", "Table 43's own name for the file");
+    assert_eq!(
+        String::from_utf8_lossy(bytes),
+        "bar baz \n",
+        "the file itself, with §7.4's filters undone"
+    );
+    // Table 45's `/Size` is "the size of the uncompressed embedded file, in bytes" — the
+    // document's claim, and here is the one place this tree can check one against a measurement.
+    assert_eq!(
+        claimed.map(usize::try_from),
+        Some(Ok(bytes.len())),
+        "the document's stated size and the bytes disagree"
+    );
+
+    // A name the tree does not hold is reported rather than swallowed: a click that produced
+    // nothing and said nothing would be indistinguishable from one that worked.
+    let events: Vec<_> = viewer
+        .handle(Command::Extract {
+            name: "nothing.txt".to_owned(),
+        })
+        .collect();
+    assert!(
+        matches!(events.as_slice(), [Event::Reported { .. }]),
+        "{events:?}"
+    );
+}

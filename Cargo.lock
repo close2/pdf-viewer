@@ -1917,6 +1917,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "iai-callgrind",
+ "md-5",
  "pdf-font",
  "pdf-render",
  "pdf-sandbox",

@@ -443,6 +443,27 @@ impl App {
         }
     }
 
+    /// Writes an extracted embedded file beside the document.
+    ///
+    /// **Rule 2 in the other direction**: the core produced the bytes and the host decides where
+    /// they go. Beside the open document and nowhere else, which is the mirror of the policy
+    /// §12.7.6.4's import takes — and the file's own name is a string *the document wrote*, so
+    /// only its last component is used and a name that is a path, is empty, or is `..` is
+    /// refused rather than followed. §7.11.4 states no policy at all, because a policy is a
+    /// property of the processor.
+    fn write_extracted(&self, name: &str, bytes: &[u8]) {
+        let stem = std::path::Path::new(name).file_name();
+        let Some(stem) = stem.filter(|stem| !stem.is_empty()) else {
+            println!("note: the embedded file's name {name:?} is not a file name");
+            return;
+        };
+        let path = self.directory.clone().unwrap_or_default().join(stem);
+        match std::fs::write(&path, bytes) {
+            Ok(()) => println!("extracted {} bytes to {}", bytes.len(), path.display()),
+            Err(error) => println!("note: cannot write {}: {error}", path.display()),
+        }
+    }
+
     /// §8.11.4.3's `/Order`, asked for fresh.
     ///
     /// Unlike the outline and the attachments this is *not* cached: a click on a layer's switch
@@ -556,6 +577,7 @@ impl App {
         drop(layers);
         match hit {
             Some(Hit::Activate(object)) => self.dispatch(Command::Activate(object)),
+            Some(Hit::Extract(name)) => self.dispatch(Command::Extract { name }),
             // §8.11.2.2: switching a group re-decides what the page draws, so this goes to the
             // core and comes back as a render rather than as a repaint of the panel.
             Some(Hit::SetGroup { group, on }) => self.dispatch(Command::SetGroup { group, on }),
@@ -712,6 +734,7 @@ impl App {
             // Rule 2 in one arm: the core produced the bytes and the host owns the filesystem.
             // Written beside the document with `.edited.pdf` appended rather than over it,
             // because overwriting somebody's file is a decision this program has not been given.
+            Event::Extracted { name, bytes, .. } => self.write_extracted(&name, &bytes),
             Event::Saved { bytes, .. } => {
                 let path = self.path.with_extension("edited.pdf");
                 match std::fs::write(&path, &bytes) {
@@ -1325,6 +1348,7 @@ fn describe_command(command: &Command) -> String {
         Command::Scroll { dx, dy } => format!("scroll {dx} {dy}"),
         Command::SetGroup { group, on } => format!("layer {group:?} {on}"),
         Command::Activate(object) => format!("activate {object:?}"),
+        Command::Extract { name } => format!("extract {name:?}"),
         Command::Pointer { at, action } => format!("pointer {action:?} at {at:?}"),
         Command::Select(what) => format!("select {what:?}"),
         Command::Edit(edit) => format!("edit {edit:?}"),
@@ -1363,6 +1387,9 @@ fn describe_event(event: &Event) -> String {
         Event::Transition { .. } => "a transition".to_owned(),
         Event::Dirty { dirty, .. } => format!("dirty {dirty}"),
         Event::Saved { bytes, .. } => format!("saved, {} bytes", bytes.len()),
+        Event::Extracted { name, bytes, .. } => {
+            format!("extracted {name:?}, {} bytes", bytes.len())
+        }
         Event::Reported { page, notes, .. } => {
             format!("reported about page {page:?}: {}", notes.join("; "))
         }

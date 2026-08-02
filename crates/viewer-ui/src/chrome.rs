@@ -289,6 +289,8 @@ enum Act {
     None,
     /// §12.3.3: activate the item, whatever `/Dest` or `/A` says that means.
     Activate(ObjectId),
+    /// §7.11.4: take this embedded file's bytes out, by its `/EmbeddedFiles` key.
+    Extract(String),
 }
 
 /// One drawn line of a panel.
@@ -383,6 +385,8 @@ pub struct Content<'a> {
 pub enum Hit {
     /// §12.3.3: activate this outline item — jump, or trigger whatever `/A` states.
     Activate(ObjectId),
+    /// §7.11.4: take this embedded file's bytes out, by its `/EmbeddedFiles` key.
+    Extract(String),
     /// §8.11: switch an optional content group on or off.
     SetGroup {
         /// Which group.
@@ -523,6 +527,7 @@ impl Sidebar {
         }
         Some(match row.act {
             Act::Activate(object) => Hit::Activate(object),
+            Act::Extract(name) => Hit::Extract(name),
             Act::None => Hit::Nothing,
         })
     }
@@ -581,6 +586,10 @@ impl Sidebar {
                         file.file_name.clone().unwrap_or_else(|| file.name.clone()),
                     );
                     row.detail = describe(file);
+                    // §7.11.4's whole point from a person's side: the bytes are inside the
+                    // document and a click takes them out. The key is the tree's, which is what
+                    // `Command::Extract` names a file by.
+                    row.act = Act::Extract(file.name.clone());
                     out.push(row);
                 }
                 if out.is_empty() {

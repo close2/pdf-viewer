@@ -330,9 +330,8 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         "an empty list must say it is empty"
     );
 
-    // A document that does embed one: the row carries the file's name, and a click on it is
-    // answered and does nothing — extracting the bytes is not built, and a click that fell
-    // through to the page would be worse than one that does nothing.
+    // A document that does embed one: the row carries the file's name and a click asks for the
+    // bytes.
     let Some(bytes) = corpus_bytes("attachment.pdf") else {
         println!("skipped: the doc/pdf.js submodule is not checked out");
         return;
@@ -346,7 +345,12 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         attachments: &files,
     };
     assert!(ink(&panel.draw(&chrome, listed, HEIGHT, 1.0), 26..46) > 40);
-    assert_eq!(panel.click((80.0, 36.0), listed, 1.0), Some(Hit::Nothing));
+    // The row's click is §7.11.4 from a person's side: the bytes are inside the document, and
+    // the key is the one the `/EmbeddedFiles` tree filed them under.
+    assert_eq!(
+        panel.click((80.0, 36.0), listed, 1.0),
+        Some(Hit::Extract(files[0].name.clone()))
+    );
 }
 
 /// A corpus document's bytes, or `None` when the submodule is not checked out.

@@ -95,6 +95,23 @@ pub enum Command {
     /// A new edit after an undo discards what was undone, which is what a single log with a
     /// cursor means and what every editor does.
     Redo,
+    /// §7.11.4: take an embedded file's bytes out of the document.
+    ///
+    /// Answered with [`crate::Event::Extracted`] carrying the decoded bytes, or with
+    /// [`crate::Event::Reported`] naming why not. The *host* writes them somewhere, for the same
+    /// reason it writes [`Self::Save`]'s: rule 2 says this crate has no filesystem, and where a
+    /// file taken out of a document should land is a policy rather than a rendering decision.
+    ///
+    /// The name is the key §7.11.4.1's `/EmbeddedFiles` tree filed the file under — "the tree
+    /// shall map name strings to file specifications" — which is
+    /// [`pdf_model::attachment::Attachment::name`] and is what [`crate::Query::Attachments`]
+    /// answered with. A name the tree does not hold extracts nothing and says so; a name it
+    /// holds twice extracts the first, because the clause makes a name tree's keys unique and a
+    /// file that broke that has not said which it meant.
+    Extract {
+        /// The `/EmbeddedFiles` key.
+        name: String,
+    },
     /// Write §7.5.6's incremental update for everything the log holds.
     ///
     /// Answered with [`crate::Event::Saved`] carrying the bytes, or with

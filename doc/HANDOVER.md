@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixty-eighth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixty-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -66,20 +66,21 @@ compiled-in Helvetica and a `pdf-render` display list, so both backends draw it.
 outline title sends `Command::Activate` and the *document* decides what that means — a jump, a
 URI, a layer, whatever §12.6.2's chain says; a click on a layer's switch sends
 `Command::SetGroup` and the page redraws, which is §8.11's interactive half working for the first
-time. What a file tab still cannot do is get the bytes *out*.
+time; and a click on an embedded file sends `Command::Extract`, so the bytes come out decoded
+with Table 45's checksum checked against them (§7.11.4, ADR 0145).
 
 ### The four gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **989**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **991**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **119 ms**, and five arrow keys turn to page 6 presenting in 12 to 26 ms with nothing refused | ADR 0126's recipe, session 164 |
-| conformance | 3256 citations, 331 quotations, 182 tables, **823 ledger rows** | `-p conformance` |
+| conformance | 3313 citations, 332 quotations, 182 tables, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -109,8 +110,8 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 369 | every normative requirement in the clause is executed |
-| `partial` | 240 | some are; the note says which are not |
+| `implemented` | 371 | every normative requirement in the clause is executed |
+| `partial` | 238 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 88 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -155,7 +156,6 @@ documents' first pages it affects.
 | A substitute that cannot be addressed | 40 | Counting fonts: composite ones naming an `Identity` ordering, where the codes index a font nobody supplied and §9.10.2's third method has nothing to read; and those whose substitute draws none of the declared codes. Honest refusals. The `-UCS2` `CMap`s closed the rest in session 156. |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | Each reported where it can change a pixel: a knockout element whose shape is not its coverage (5), a non-isolated group NOTE 5 cannot flatten whose elements blend (6), a blending space that is not the device's three components (4, all `/DeviceCMYK`), a soft-mask group with such a space (7). |
 | Optional content's interactive half | — | **Closed in session 167.** §8.11 is honoured wherever it decides what is drawn; `/Order`, `/ListMode`, `/Locked`, `/RBGroups` and `/Name` have been read since session 67 and `Query::Layers` with `Command::SetGroup` since 131; `viewer_ui::chrome`'s second tab now draws the tree and throws the switch, with Table 99's `/Locked` refusing the change as the clause requires. Still unread: alternate `/Configs`, and `/ListMode`'s `VisiblePages`. |
-| Getting an embedded file *out* | — | §7.11.4's list is read, and since session 167 it is shown — name, media type, the size Table 45 claims. `Query::Attachments` hands the stream over undecoded and nothing writes it anywhere: extraction wants a command, an event carrying bytes, and a host with a file dialogue. |
 | `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
 | Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
 | A filled degenerate subpath's device pixel (§8.5.3.3.1) | — | The clause calls the result "device-dependent and not generally useful" in the same breath. Recorded, not reported. |
@@ -239,12 +239,12 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   trip**, which is why the second channel is not a command.
 - `Command`: `Open { id, bytes, password }`, `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
-  `Select`, `Edit(Edit)`, `Undo`, `Redo`, `Save`, `Supply { purpose, bytes }`, `Tick { millis }`,
-  `RenderReady { token, rendered }`. **`Activate` is what a panel row sends** — the object, not a
+  `Select`, `Edit(Edit)`, `Undo`, `Redo`, `Save`, **`Extract { name }`**,
+  `Supply { purpose, bytes }`, `Tick { millis }`, `RenderReady { token, rendered }`. **`Activate` is what a panel row sends** — the object, not a
   payload, so the *document* decides what activating it means (ADR 0144).
 - `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
   `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`, `Dirty`,
-  `Saved { bytes }`,
+  `Saved { bytes }`, **`Extracted { name, bytes }`**,
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
@@ -528,7 +528,7 @@ next to what it covers.
   validation needing a trust store or network, 5 need a second file, a media engine or a network,
   3 are icon clauses whose own verb is *should*, and the rest name a device or a user control this
   program does not have. That population is worked out.
-- **The 240 `partial` rows are the population with no gate**, and reading them has paid five
+- **The 238 `partial` rows are the population with no gate**, and reading them has paid five
   sessions running. What to look for, in the order the findings came: a note that *understates*
   the code (five in session 115); a note whose **reason** has expired — "while §X does not
   exist", "needs §Y" — which no gate can watch (117, 118); a note claiming an entry is *unread*
@@ -903,8 +903,8 @@ Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom,
 arrows scroll a page larger than the window, the wheel scrolls whatever is under it, **`o` shows
 the sidebar** — three tabs: §12.3.3's outline, where a click on a title goes there and a click on
 the triangle opens a subtree; §8.11.4.3's layers, where a click on a switch turns a layer on or
-off unless Table 99's `/Locked` forbids it; and §7.11.4's embedded files, which are listed and
-not yet extractable — and Escape quits. The title bar names how many things on
+off unless Table 99's `/Locked` forbids it; and §7.11.4's embedded files, where a click writes the
+file beside the document — and Escape quits. The title bar names how many things on
 the page could not be drawn and the things themselves are printed. A click follows §12.5.6.5's
 links and performs the eleven §12.6 actions this program can, printing every refusal — including
 §12.7.6.4's import, which reads an FDF file **beside the open document** and nowhere else. A
@@ -1649,6 +1649,16 @@ anchor that makes it checkable.
   eight integer divisions per *transparent* pixel — and §11.4.7's isolated page group makes most of
   a page transparent. Amdahl's law names where to look after any successful division. ADR 0139.
 
+- **A check deferred for cost belongs wherever the cost is already being paid, and nothing tells
+  you when that place appears.** Table 45's `/CheckSum` was read and not verified for eighty-three
+  sessions, on a reason that was true — "checking would mean inflating every attachment" — and
+  that expired the moment one path decoded one stream. The clause names where it belongs:
+  "the checksum of the bytes of the **uncompressed** embedded file". **After a session that
+  makes something decoded, decompressed or laid out for the first time, re-read the entries whose
+  reason for being unread was that nobody had it yet.** ADR 0145, and it is ADR 0108's regular
+  expression looking for a different kind of blocker: not "needs §X" but "would cost too much
+  here".
+
 - **Read the whole sentence a feature is built from, and count what the other half is worth
   before deciding.** §12.3.3 says a click makes a processor "jump to a destination **or trigger
   an action**"; the hundred-and-sixty-sixth session built the jump and shipped a `Command`
@@ -2034,3 +2044,4 @@ above rather than here.
 | 166 | The first panel: §12.3.3's outline drawn in the fourteen fonts the clause guarantees | 0142 |
 | 167 | The other two: §8.11's layers with their switches, and §7.11.4's files | 0143 |
 | 168 | Activate the item rather than its destination, and §12.3.3 closes | 0144 |
+| 169 | An embedded file comes out of the document, and its checksum finds a place to be checked | 0145 |

@@ -226,6 +226,7 @@ impl Viewer {
             Command::Undo => self.move_cursor(-1, events),
             Command::Redo => self.move_cursor(1, events),
             Command::Save => self.save(events),
+            Command::Extract { name } => self.extract(&name, events),
             Command::Select(selection) => {
                 let viewport = self.viewport;
                 let Some(open) = self.focused_mut() else {
@@ -539,6 +540,64 @@ impl Viewer {
                 notes: vec![format!("this document cannot be saved: {error}")],
             }),
         }
+    }
+
+    /// §7.11.4: hands an embedded file's decoded bytes to the host.
+    ///
+    /// The list is re-read rather than cached, for the reason [`Query::Attachments`] is answered
+    /// the same way: it is a walk of one name tree over a document that cannot change, and
+    /// holding a copy of every attachment's stream would hold a copy of every attachment.
+    fn extract(&mut self, name: &str, events: &mut Vec<Event>) {
+        let Some(id) = self.focused else { return };
+        let Some(open) = self.focused() else { return };
+        let Some(file) = pdf_model::attachment::attachments(&open.document)
+            .into_iter()
+            .find(|file| file.name == name)
+        else {
+            events.push(Event::Reported {
+                document: id,
+                page: None,
+                notes: vec![format!("this document embeds no file called {name:?}")],
+            });
+            return;
+        };
+        // Trap 5 on the one path where a *stream* can refuse: §7.6.6 makes a crypt filter's
+        // absent key the stream's answer rather than the file's, and two of the corpus's
+        // twenty-three attachments are exactly that. A silent empty file would be worse than
+        // none.
+        let Some(bytes) = open.document.decoded_stream_data(&file.stream) else {
+            events.push(Event::Reported {
+                document: id,
+                page: None,
+                notes: vec![format!(
+                    "the embedded file {name:?} states a filter or an encryption this program \
+                     cannot undo"
+                )],
+            });
+            return;
+        };
+        // Table 45's `/CheckSum` is the one entry of §7.11.4 that can only be answered by
+        // somebody holding the decoded bytes, and this is the only place in the program that
+        // does. Said and not acted on: the clause calls it "strictly a checksum, and … not used
+        // for security purposes", so a mismatch is the producer's mistake and withholding the
+        // file would tell a person less than handing it over with a sentence.
+        if file.checksum_matches(&bytes) == Some(false) {
+            events.push(Event::Reported {
+                document: id,
+                page: None,
+                notes: vec![format!(
+                    "the embedded file {name:?} does not match the MD5 checksum the document \
+                     states for it (§7.11.4, Table 45)"
+                )],
+            });
+        }
+        events.push(Event::Extracted {
+            document: id,
+            // Table 43's own name for the file where it states one, because that is what a
+            // person would call it; the tree's key otherwise, which is all there is.
+            name: file.file_name.clone().unwrap_or_else(|| file.name.clone()),
+            bytes: bytes.to_vec(),
+        });
     }
 
     /// Adds one edit to the log and applies it.

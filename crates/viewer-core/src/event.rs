@@ -124,6 +124,22 @@ pub enum Event {
         /// The file.
         bytes: Vec<u8>,
     },
+    /// §7.11.4's embedded file, decoded. Write it somewhere.
+    ///
+    /// The answer to [`crate::Command::Extract`], and the bytes are the file itself rather than
+    /// the stream: §7.4's filters are undone here, because a host that had to decode them would
+    /// be a second reader of the document.
+    Extracted {
+        /// Which document it came out of.
+        document: DocumentId,
+        /// Table 43's `/UF` or `/F` where the specification states one, and the
+        /// `/EmbeddedFiles` key otherwise. **A name and not a path**: it is the document's own
+        /// words, and turning it into somewhere on this machine is the host's decision (rule 2)
+        /// — §7.11.4's own note is that `/F` is "a platform-dependent encoding".
+        name: String,
+        /// The file.
+        bytes: Vec<u8>,
+    },
     /// What could not be drawn on the page that was just interpreted.
     ///
     /// Trap 5's channel: every layer of this program reports what it could not handle rather

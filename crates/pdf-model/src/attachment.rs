@@ -97,9 +97,13 @@ pub struct Attachment {
     /// Table 45's `/CheckSum`: "a 16-byte string that is the checksum of the bytes of the
     /// uncompressed embedded file", by MD5.
     ///
-    /// Read and not verified: this tree has no MD5 for it — §7.6's algorithms use one, but
-    /// checking this would mean inflating every attachment — and the clause is explicit that
-    /// "[t]his is strictly a checksum, and is not used for security purposes".
+    /// Carried rather than checked *here*, because checking means inflating: the clause's
+    /// subject is "the bytes of the uncompressed embedded file", so the question cannot be asked
+    /// until somebody has decoded the stream. [`Self::checksum_matches`] is what asks it, and
+    /// the one caller that has the bytes anyway is extraction.
+    ///
+    /// The clause is explicit about what an answer is worth: "[t]his is strictly a checksum, and
+    /// is not used for security purposes."
     pub checksum: Option<Vec<u8>>,
     /// Table 43's `/AFRelationship`, **default `Unspecified`**, which is §14.13's whole point.
     pub relationship: Relationship,
@@ -108,6 +112,32 @@ pub struct Attachment {
 }
 
 impl Attachment {
+    /// Whether the decoded bytes are the ones Table 45's `/CheckSum` describes.
+    ///
+    /// ISO 32000-2 §7.11.4.1, Table 45:
+    ///
+    /// > A 16-byte string that is the checksum of the bytes of the uncompressed embedded file.
+    /// > The checksum shall be calculated by applying the standard MD5 message-digest algorithm
+    /// > (defined in Internet RFC 1321 ) to the bytes of the embedded file stream.
+    ///
+    /// `None` where the file states none, which is not a failure and is most of them: this is an
+    /// *optional* entry, and a document that omits it has said nothing to disagree with.
+    ///
+    /// **A mismatch is worth reporting and is not worth refusing on.** The clause says in the
+    /// same paragraph that it "is strictly a checksum, and is not used for security purposes",
+    /// so a file whose digest differs is a file whose producer made a mistake, and handing over
+    /// the bytes with a sentence beside them says more than withholding them.
+    ///
+    /// A `/CheckSum` that is not sixteen bytes is not what the clause describes, and answers
+    /// `Some(false)` rather than `None`: the file stated a checksum and stated it wrongly, which
+    /// is a different thing from stating none.
+    #[must_use]
+    pub fn checksum_matches(&self, bytes: &[u8]) -> Option<bool> {
+        let stated = self.checksum.as_ref()?;
+        let digest = <md5::Md5 as md5::Digest>::digest(bytes);
+        Some(stated.as_slice() == digest.as_slice())
+    }
+
     /// `/CreationDate` parsed as §7.9.4's date, where the producer wrote a conforming one.
     #[must_use]
     pub fn created_date(&self) -> Option<pdf_syntax::Date> {
@@ -418,6 +448,51 @@ mod tests {
                 .map(<[u8]>::to_vec),
             Some(b"a,b,c".to_vec()),
             "the bytes are reachable and were not decoded until now"
+        );
+    }
+
+    /// Table 45's `/CheckSum` is checked against the bytes, and a file with none says nothing.
+    ///
+    /// The digest is the clause's: "the standard MD5 message-digest algorithm (described in
+    /// Internet RFC 1321) … applied to the bytes of the embedded file stream". `a,b,c` hashes to
+    /// `a44c56c8177e32d3613988f4dba7962e`, taken from `md5sum` rather than from this code, which
+    /// is what makes it a check on the reader and not on itself.
+    #[test]
+    fn a_stated_checksum_is_answered_against_the_bytes() {
+        let with = |checksum: &str| {
+            document(&[
+                "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles 4 0 R >> >>",
+                "<< /Type /Pages /Count 0 /Kids [] >>",
+                "<< /Unused true >>",
+                "<< /Names [(one) 5 0 R] >>",
+                "<< /Type /Filespec /F (data.csv) /EF << /F 6 0 R >> >>",
+                &format!(
+                    "<< /Type /EmbeddedFile /Length 5 /Params << {checksum} >> >>\n\
+                     stream\na,b,c\nendstream"
+                ),
+            ])
+        };
+        let only = |doc: &Document| {
+            let files = attachments(doc);
+            let [file] = files.as_slice() else {
+                panic!("one attachment, got {files:?}");
+            };
+            file.clone()
+        };
+
+        let right = with("/CheckSum <a44c56c8177e32d3613988f4dba7962e>");
+        assert_eq!(only(&right).checksum_matches(b"a,b,c"), Some(true));
+        let wrong = with("/CheckSum <0123456789abcdef0123456789abcdef>");
+        assert_eq!(only(&wrong).checksum_matches(b"a,b,c"), Some(false));
+        // An optional entry the file omits is not a disagreement.
+        let silent = with("/Size 5");
+        assert_eq!(only(&silent).checksum_matches(b"a,b,c"), None);
+        // Stated, and not what the clause describes: sixteen bytes is part of the definition.
+        let short = with("/CheckSum <0123>");
+        assert_eq!(
+            only(&short).checksum_matches(b"a,b,c"),
+            Some(false),
+            "a checksum that is not 16 bytes is a wrong statement, not an absent one"
         );
     }
 
