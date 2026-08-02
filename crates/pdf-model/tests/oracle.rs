@@ -306,10 +306,37 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// What would change this is a *document* asking for a profile — a `/DefaultCMYK`
 /// (§8.6.5.6) or an output intent's `/DestOutputProfile` (§14.11.5), both of which outrank
 /// the table and both of which are already honoured. None of these three files has one.
-const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 4] = [
+///
+/// # A fourth document joined them in the hundred-and-sixtieth session, from the unexplained list
+///
+/// `transparent.pdf` sat in `CONTRADICTED_UNEXPLAINED` and is the cleanest member of this
+/// group, because it has nothing else in it. One page, one shape — a wine bottle — one
+/// operator: `0.82 0.7 0.54 0.67 k`, under a `/GS0` stating `/ca 1.0` and `/BM /Normal`, so
+/// **no compositing stands between the conversion and the pixel**. Sampled inside the shape:
+///
+/// | | R | G | B |
+/// |---|---|---|---|
+/// | ours | 28 | 32 | 40 |
+/// | `poppler` | **28** | **32** | **40** |
+/// | `mupdf` | 25 | 34 | 45 |
+/// | `ghostscript` | 25 | 35 | 46 |
+/// | `hayro` | 26 | 33 | 45 |
+///
+/// Byte-identical to `poppler` and five levels from the pair the gate votes with, which is
+/// this group's shape exactly. And §10.4.2.5's crude approximation is what it is *not*:
+/// `1 − min(1, 0.82 + 0.67)` is 0 in every channel, so the formula draws the bottle black and
+/// **not one of the five renderers does** — every one of them is on §10.3's ICC route, and
+/// what they disagree about is which profile.
+///
+/// The heatmap is the whole silhouette rather than its edges, which is what said "colour, not
+/// geometry" before any pixel was sampled. **Open the side-by-side, then the heatmap, then
+/// sample one pixel** — three minutes, against a page that had been on the unexplained list
+/// since the list existed.
+const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
     "function_based_shading_cmyk.pdf page 1",
     "function_based_shading_cmyk.pdf page 2",
     "postscript_type4_many_outputs.pdf page 1",
+    "transparent.pdf page 1",
     "type4psfunc.pdf page 1",
 ];
 
@@ -1106,7 +1133,7 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 9] = [
 /// any printed metric. That is trap 12's shape rather than a defect: the bound is 6.04 because
 /// two references agree very closely, and no reading of a clause chooses between five
 /// resamplings of one image.
-const CONTRADICTED_UNEXPLAINED: [&str; 14] = [
+const CONTRADICTED_UNEXPLAINED: [&str; 13] = [
     "bug1151216.pdf page 1",
     "bug1252420.pdf page 1",
     "freeculture.pdf page 313",
@@ -1120,7 +1147,6 @@ const CONTRADICTED_UNEXPLAINED: [&str; 14] = [
     "issue7891_bc1.pdf page 1",
     "issue7901.pdf page 1",
     "issue8097_reduced.pdf page 1",
-    "transparent.pdf page 1",
 ];
 
 /// Documents where our page geometry differs from the references' by more than the one

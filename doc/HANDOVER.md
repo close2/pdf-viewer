@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-fifty-ninth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixtieth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -527,11 +527,15 @@ next to what it covers.
 4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured),
 **9 glyph edges** whose ink matches the consensus to half a level (measured, session 75), 7 a
 shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel image, 1 a `CalRGB`
-alternate, 1 an eight-bit mask value, 4 a `DeviceCMYK` conversion, 2 a reference that drew
-nothing, 1 a CID width, 1 a negative line width, **19 substituted fonts**, **14 unexplained**.
+alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK` conversion**, 2 a reference that drew
+nothing, 1 a CID width, 1 a negative line width, **21 substituted fonts**, **13 unexplained**.
 
-**Not one of the 14 is above its bound** — the list starts at 0.85, `issue7696.pdf` having left
-it in the hundred-and-fortieth session. Rank before opening anything,
+**Not one of the 13 is above its bound** — the list starts at 0.85, `issue7696.pdf` having left
+it in the hundred-and-fortieth session and `transparent.pdf` in the hundred-and-sixtieth, which
+took three minutes: the heatmap was the *whole silhouette* rather than its edges, which says
+colour rather than geometry before any pixel is sampled, and the one operator on the page is
+`0.82 0.7 0.54 0.67 k` under `/ca 1.0`. **Look at the shape of the heatmap before opening
+anything else.** Rank before opening anything,
 **by our worst measurement over the bound it is held to**; that has chosen the next item five
 times, twice finding something that was not one page's problem at all (a rule nobody had
 implemented, at 25.7×; the device transform, at 1.81, worth 11 pages). `issue7891_bc1.pdf` at
@@ -1904,3 +1908,4 @@ above rather than here.
 | 157 | A `TrueType` Collection where §9.9 states a font program, and the face the file names | 0141 |
 | 158 | "units per em is zero" was a symptom; two font programs are simply short | — |
 | 159 | Five `partial` rows swept: one blocker expired twice over and fourteen entries called unread | — |
+| 160 | An unexplained contradicted page measured: one `k` operator, and four renderers' profiles | — |
