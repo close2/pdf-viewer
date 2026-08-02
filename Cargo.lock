@@ -1926,6 +1926,7 @@ dependencies = [
  "png",
  "raster-compare",
  "rayon",
+ "read-fonts 0.42.1",
  "render-cpu",
  "test-scenes",
  "thiserror 2.0.19",

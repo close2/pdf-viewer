@@ -25,6 +25,7 @@
 
 pub mod cff;
 pub mod cmap;
+pub mod collection;
 pub mod encoding;
 pub mod name_keyed;
 pub mod panose;
@@ -2410,6 +2411,20 @@ fn embedded_program(
             Program::BareCff
         } else {
             Program::Sfnt
+        };
+
+        // A collection is not a font program (§9.9 Table 127) and four corpus documents
+        // embed one anyway. The face is chosen by the descriptor's own `/FontName` and
+        // copied out before anything else looks at the bytes, so nothing downstream has to
+        // know the container existed.
+        let data = if program == Program::Sfnt {
+            let wanted = document.get_key(descriptor, "FontName");
+            let wanted = wanted
+                .as_name()
+                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned());
+            collection::extract(&data, wanted.as_deref()).map_or(data, Arc::from)
+        } else {
+            data
         };
 
         let data = if program == Program::Sfnt {

@@ -23,6 +23,7 @@ pdfref.workspace = true
 png.workspace = true
 rayon.workspace = true
 raster-compare.workspace = true
+read-fonts.workspace = true
 render-cpu.workspace = true
 test-scenes.workspace = true
 
