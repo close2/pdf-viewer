@@ -623,13 +623,16 @@ impl LoadedFont {
         let (data, program, substituted) = match embedded {
             Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
                 let request = substitute::Request::derive(document, &descendant, descriptor);
+                // Characters the collection's own script requires, so that a face is chosen
+                // by what it can *draw* and not only by the family a descriptor implies.
+                let wanted = script_sample(document, &descendant);
                 // **`installed` rather than `find`, and the difference is §9.7.4.2's.** A
                 // substituted composite font is reachable only through `/ToUnicode`, so its face
                 // has to answer *by character* — which an `sfnt`'s `cmap` does and the
                 // compiled-in name-keyed CFF faces cannot. Handing them to this path would refuse
                 // five corpus documents a machine font draws.
-                let data =
-                    substitute::installed(request).ok_or_else(|| FontError::NoSubstitute {
+                let data = substitute::installed_covering(request, wanted).ok_or_else(|| {
+                    FontError::NoSubstitute {
                         name: name.to_owned(),
                         reason: format!(
                             "no {:?} face this machine offers can be addressed by character, which \
@@ -637,7 +640,8 @@ impl LoadedFont {
                          font",
                             request.family
                         ),
-                    })?;
+                    }
+                })?;
                 (data, Program::Sfnt, true)
             }
             Ok(Embedded { data, program }) => (data, program, false),
@@ -1698,6 +1702,45 @@ fn substitute_code_table(
     }
 
     Ok((table, names))
+}
+
+/// Characters any face standing in for a registered character collection has to be able to draw.
+///
+/// # Why a table, and why it is a *choice*
+///
+/// §9.10.2 says how to find out what a code *means* — the collection's own `-UCS2` table — and
+/// says nothing whatever about which face to draw it with; §9.8.3's substitution hints are
+/// about weight, width and serifs, none of which distinguishes a face that has Chinese from one
+/// that does not. So this is a documented choice in the one place the standard leaves for it,
+/// and the choice is the cheapest true statement available: **a face that cannot draw a
+/// character every font for this collection contains is not a face for this collection.**
+///
+/// One character per registry-ordering, taken from the collection's own script and picked for
+/// being unavoidable in it rather than for being first: Adobe-Japan1's あ, Adobe-GB1's 的,
+/// Adobe-CNS1's 的 (shared with GB1 — the two disagree about *forms*, and a face that has
+/// neither has neither), Adobe-Korea1's and Adobe-KR's 한.
+///
+/// `Identity` and anything unregistered yield nothing, so those fonts keep the family match
+/// they had — the codes there index a font nobody supplied and §9.10.2's third method has
+/// nothing to read either way.
+fn script_sample(document: &Document, descendant: &Dictionary) -> &'static [char] {
+    let info = document.get_key(descendant, "CIDSystemInfo");
+    let Some(info) = info.as_dict() else {
+        return &[];
+    };
+    let text = |key: &str| {
+        document
+            .get_key(info, key)
+            .as_string()
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            .unwrap_or_default()
+    };
+    match (text("Registry").as_str(), text("Ordering").as_str()) {
+        ("Adobe", "Japan1") => &['\u{3042}'],
+        ("Adobe", "GB1" | "CNS1") => &['\u{7684}'],
+        ("Adobe", "Korea1" | "KR") => &['\u{d55c}'],
+        _ => &[],
+    }
 }
 
 /// The character codes the font dictionary says the document uses.

@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-eighty-second** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-eighty-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -88,8 +88,8 @@ that exists (ADR 0146).
 | gate | number | where |
 |---|---|---|
 | tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
-| corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **873 draw with nothing reported**, **86 report something** — twelve of them new in the hundred-and-eighty-first and -second, where a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (ADR 0151) and ten documents whose substituted font draws **none** of the characters it is asked for stopped being silent, eight of them blank pages (ADR 0152) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1672** we call complete: **840 agree**, **70 contradicted**, 751 ambiguous — **25 of them diagnosed and 726 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry. The drop from 1684 is ADR 0152's ten new reports, not a rendering change | `tests/oracle.rs`, **29 s** |
+| corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **880 draw with nothing reported**, **79 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **25 of them diagnosed and 726 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -179,7 +179,7 @@ documents' first pages it affects.
 | `/R` 5 | 1 | Table 21 says `/R` 5 "shall not be used" and states no algorithm. **The non-ASCII revision-4 password left this row in the hundred-and-fifty-second session**: §7.6.4.3.2 step (a)'s conversion now uses the whole of Annex D Table D.3, which `text_string.rs` had held since the ninety-second — the row saying "this crate holds no Annex D table" was wrong for a hundred and twenty-nine sessions. What is still refused is refused by the *encoding*, which has no code for U+00A0 at all. |
 | Icons for `Stamp`, `FileAttachment`, `Sound` | 1 | Their clauses say a reader **should** provide predefined icons; §12.5.6.4 says **shall**, which is why its seven are drawn and these three are not (ADR 0109). |
 
-| A substitute face with no glyph for what the codes mean | 10 | **New in the hundred-and-eighty-second, and eight of the ten are blank pages** (ADR 0152). §9.10.2 gives the code a character and the face a family match found has no glyph for it, so the marks are simply absent — reported per font, and only where the face drew *none* of what it was asked for. What is owed is a substitute chosen by **coverage**: `fc-match :charset=76EE` answers `DroidSansFallback` on this machine, which is why three references draw `issue8372.pdf`. |
+| A substitute face with no glyph for what the codes mean | 2 | **Was 10 and eight of them were blank pages** (ADR 0152, which made the silence loud). §9.10.2 gives the code a character and the face a family match found has no glyph for it. A substitute is chosen by **coverage** since the hundred-and-eighty-third — the widest-repertoire face that can draw a character of the collection's own script (ADR 0153) — and the two left are `issue11555.pdf` and `issue2128r.pdf`, whose characters no face on this machine has. What is owed is a **per-character** fallback, which every real text stack has and which means `LoadedFont` carrying more than one face. |
 | A substitute that cannot be addressed | 40 | Counting fonts: composite ones naming an `Identity` ordering, where the codes index a font nobody supplied and §9.10.2's third method has nothing to read; and those whose substitute draws none of the declared codes. Honest refusals. The `-UCS2` `CMap`s closed the rest in session 156. |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | Each reported where it can change a pixel: a knockout element whose shape is not its coverage (5), a non-isolated group NOTE 5 cannot flatten whose elements blend (6), a blending space that is not the device's three components (4, all `/DeviceCMYK`), a soft-mask group with such a space (7). |
 | Optional content's interactive half | — | **Closed in session 167.** §8.11 is honoured wherever it decides what is drawn; `/Order`, `/ListMode`, `/Locked`, `/RBGroups` and `/Name` have been read since session 67 and `Query::Layers` with `Command::SetGroup` since 131; `viewer_ui::chrome`'s second tab now draws the tree and throws the switch, with Table 99's `/Locked` refusing the change as the clause requires. Still unread: alternate `/Configs`, and `/ListMode`'s `VisiblePages`. |
@@ -827,6 +827,17 @@ comment said `noembed-eucjp.pdf` and `noembed-sjis.pdf` had "the same five kana 
 in all four panels"; our panel is white, `hayro`'s is white, and the three C renderers draw the
 kana. The sentence described the *references'* half of the side-by-side. **A group's comment is a
 claim about a picture and the picture is one `Read` away** — and no gate can check a comment.
+
+**The seventh session took what the sixth had priced, and eight blank pages drew.**
+`substitute::installed` ranks faces by the generic family a descriptor implies, which cannot say
+"this one must have Chinese in it". `installed_covering` keeps the family match where it covers and
+otherwise takes the **widest-repertoire face on the machine that can draw a character of the
+collection's own script** — あ for Adobe-Japan1, 的 for GB1 and CNS1, 한 for Korea1 and KR. Both
+halves are choices, made where §9.10.2 leaves the question open, and the second was got wrong
+first: the *first* qualifying face in path order is `KanjiStrokeOrders.ttf` here, a teaching font
+with 的 and not much else, and two documents that had been drawing went blank. Corpus 86 → 79
+incomplete, oracle `agrees` 840 → **847**. ADR 0153, which also names what is left: a *per-character*
+fallback, which every real text stack has.
 
 What is *not* acceptable is a fourth shape: a group that names no clause. That is the corpus
 being treated as the specification, which principle 5 forbids, and it is easy to write because
@@ -2402,3 +2413,4 @@ above rather than here.
 | 180 | A type 1 shading's domain is a parallelogram, and we painted a square | 0150 |
 | 181 | A stencil whose current colour is a pattern: a blank page, reported complete | 0151 |
 | 182 | A substitute that draws nothing, and the sentence that said it drew | 0152 |
+| 183 | A substitute chosen by coverage: eight blank pages draw | 0153 |

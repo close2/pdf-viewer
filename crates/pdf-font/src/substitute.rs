@@ -635,6 +635,95 @@ pub fn installed(request: Request) -> Option<Arc<[u8]>> {
     None
 }
 
+/// The best face this machine offers that can draw `wanted`, or `None`.
+///
+/// # Why a composite font needs this and [`installed`] is not enough
+///
+/// [`installed`] ranks candidates by the *generic family* a descriptor implies — serif, sans
+/// serif, monospace — which is the right question for a Latin face and cannot express "this
+/// one has to be able to draw Chinese". A non-embedded `Adobe-GB1` font therefore resolved to
+/// a Latin face with no glyph for any character §9.10.2 gave it, and the page came out blank:
+/// `issue8372.pdf`, and seven more like it (ADR 0152).
+///
+/// So the family's preference list is tried first and *kept only if it covers*, and the whole
+/// catalogue is searched in path order otherwise. The order makes the answer deterministic on
+/// one machine and says nothing about which machine — which is inherent: §9.10.2 leaves the
+/// choice of substitute open, and ADR 0133 is why only §9.6.2.2's fourteen are compiled in.
+///
+/// **Coverage means every character in `wanted`, not some.** A face with one of the
+/// collection's characters and not the rest is worse than the family match, because it draws
+/// part of a line and leaves the rest blank at a different metric.
+///
+/// Costs one `cmap` lookup per candidate per character, over faces already read for the
+/// catalogue; it runs only where a composite font is substituted *and* its collection is a
+/// registered one, which is ten of the 974 corpus documents.
+#[must_use]
+pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>> {
+    let covers = |bytes: &Arc<[u8]>| {
+        let Ok(font) = skrifa::FontRef::new(bytes) else {
+            return false;
+        };
+        let charmap = skrifa::MetadataProvider::charmap(&font);
+        wanted.iter().all(|c| charmap.map(*c).is_some())
+    };
+    if let Some(bytes) = installed(request)
+        && (wanted.is_empty() || covers(&bytes))
+    {
+        return Some(bytes);
+    }
+    if wanted.is_empty() {
+        return None;
+    }
+
+    // Memoised on the characters, because the search is the expensive part: it reads font
+    // files until one covers them, and a document with three Japanese fonts would otherwise
+    // walk the machine's catalogue three times. Measured: 215 ms the first time on this
+    // machine's 1 400 faces, and nothing after it.
+    let key: Vec<char> = wanted.to_vec();
+    let memo = COVERING.get_or_init(|| RwLock::new(Vec::new()));
+    if let Ok(held) = memo.read()
+        && let Some((_, found)) = held.iter().find(|(cached, _)| *cached == key)
+    {
+        return found.clone();
+    }
+
+    // Read straight from the filesystem rather than through `read_cached`: a coverage search
+    // touches most of the catalogue, and caching every face it rejects would hold the
+    // machine's entire font collection in memory to answer one question. Only the winner is
+    // read again through the cache, where the pages that use it will find it.
+    let found = catalogue()
+        .iter()
+        .filter_map(|candidate| {
+            let bytes: Arc<[u8]> = std::fs::read(&candidate.path).ok()?.into();
+            if !covers(&bytes) {
+                return None;
+            }
+            // **The widest repertoire among the faces that qualify**, which is a choice and
+            // is here because the first qualifying face is a worse one. This machine's
+            // catalogue offers `KanjiStrokeOrders.ttf` before `DroidSansFallback.ttf`, and
+            // it is a teaching font: it has 的 and 中 and not the characters
+            // `issue2128r.pdf` shows. Counting a `cmap`'s entries asks the question the
+            // sample is a proxy for — how likely is this face to have the *rest* of the
+            // document's characters — and it is computed only for faces that already
+            // cover the sample.
+            let font = skrifa::FontRef::new(&bytes).ok()?;
+            let mappings = skrifa::MetadataProvider::charmap(&font).mappings().count();
+            Some((mappings, &candidate.path))
+        })
+        .max_by_key(|(mappings, _)| *mappings)
+        .and_then(|(_, path)| read_cached(path));
+    if let Ok(mut held) = memo.write() {
+        held.push((key, found.clone()));
+    }
+    found
+}
+
+/// One remembered answer to [`installed_covering`]'s catalogue search.
+type Covering = (Vec<char>, Option<Arc<[u8]>>);
+
+/// Answers to [`installed_covering`]'s catalogue search, by the characters asked for.
+static COVERING: OnceLock<RwLock<Vec<Covering>>> = OnceLock::new();
+
 /// Reads a font file, reusing the bytes if they have been read already.
 fn read_cached(path: &Path) -> Option<Arc<[u8]>> {
     let cache = LOADED.get_or_init(|| RwLock::new(Vec::new()));

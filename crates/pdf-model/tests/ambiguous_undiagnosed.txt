@@ -473,6 +473,7 @@ issue12963.pdf page 4
 issue12963.pdf page 5
 issue12963.pdf page 7
 issue12963.pdf page 8
+issue13343.pdf page 1
 issue13193.pdf page 1
 issue13201.pdf page 1
 issue13242.pdf page 1
@@ -531,7 +532,6 @@ issue1985.pdf page 1
 issue19971.pdf page 5
 issue19971.pdf page 6
 issue21068.pdf page 1
-issue2128r.pdf page 1
 issue21436.pdf page 1
 issue21570.pdf page 1
 issue2177.pdf page 1
