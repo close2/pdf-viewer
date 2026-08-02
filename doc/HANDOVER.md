@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -89,7 +89,7 @@ that exists (ADR 0146).
 |---|---|---|
 | tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-seventy-fifth: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **32 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous — **19 of them diagnosed and 735 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **38 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -648,18 +648,61 @@ off this list), 19 transparency, 10 annotations over 9 documents, 8 malformed im
 soup (`BT` without `ET`, `BDC` without `EMC`, fuzzed streams), 1 content. Session 59's reading of the corpus's own issue trackers says most of the font half is
 glyph rasterisation on files chosen for having hard fonts, which session 68 then measured on one.
 
-### 3a. The ambiguous bucket — **now the largest unwatched thing, and now the task**
+### 3a. The ambiguous bucket — **watched since the hundred-and-seventy-sixth, and being emptied**
 
-**754 of the 1683 pages the oracle judges come back `ambiguous`, and no gate watches one of
-them.** The verdict means "nobody's difference is large enough to call anybody wrong", which is
-the right thing for the *ratchet* to do and is not the same as "right". `issue7406.pdf` drew a
-JPEG cyan-on-black inside an `ambiguous` verdict for as long as anybody looked, and it is correct
-now, and **nothing announced either event**. That is the bucket in one page: unwatched in both
-directions.
+**754 of the 1683 pages the oracle judges come back `ambiguous`, and until the
+hundred-and-seventy-sixth session no gate watched one of them.** The verdict means "nobody's
+difference is large enough to call anybody wrong", which is the right thing for the *ratchet* to
+do and is not the same as "right". `issue7406.pdf` drew a JPEG cyan-on-black inside an
+`ambiguous` verdict for as long as anybody looked, and it is correct now, and **nothing announced
+either event**. That is the bucket in one page: unwatched in both directions.
 
 The project owner's judgement, in the hundred-and-seventy-fifth session, is that the tree is now
 far enough along for this to be the work rather than a caveat. It is the last large population
 where a defect can live without a name.
+
+**The instrument landed in the hundred-and-seventy-sixth and it has three parts**, all in
+`oracle.rs`:
+
+- **`AMBIGUOUS_*` groups**, exactly the shape the contradicted list has had since the sixth
+  session: a page with a written diagnosis, held by name. A name that stops being ambiguous fails
+  the build, because a diagnosis that outlives what it diagnosed is this file's oldest failure
+  mode.
+- **`tests/ambiguous_undiagnosed.txt`**, the remaining 735 by name, `include_str!`d and held to
+  equality. A page arriving in it *used to agree*, which is the regression nobody could see
+  before; a page leaving it has been fixed or diagnosed. It is data rather than a `const` because
+  the argument for each name is that there is not one yet.
+- **A ranking the gate prints itself**, of the ten undiagnosed pages we sit furthest from the
+  **nearest** reference on. Not the furthest: the printed per-page number is our distance from the
+  *worst* reference, and on nineteen JBIG2 pages that is a `mupdf` which drew a black rectangle.
+  `Distance::nearest` is the number that accuses us — every renderer disagrees with us — and
+  `Distance::furthest` beside it says whether the references are the ones disagreeing.
+
+**The first group was the first thing the ranking found, and it is the gate's fault rather than
+ours.** `AMBIGUOUS_SHARED_JBIG2_DECODER` is 19 pages, every name containing `refine`: `jbig2dec`
+refuses a refinement region, so `mupdf` and `ghostscript` — one implementation on a JBIG2 page —
+both fail, but **mupdf draws the page black and ghostscript draws it white**, so unlike
+`CONTRADICTED_SHARED_JBIG2_DECODER`'s seven they never agree and the page is never judged. The
+evidence that we are right is not poppler's agreement (16 of 19 within 715 pixels of 159 600) but
+`tests/jbig2.rs`: ninety-six documents encode one image through every coding mode ISO/IEC 14492
+defines and all ninety-six decode byte-identically here. On the two `tpgron` files poppler's own
+render is visibly broken — a block of noise above the drawing — and ours is the same picture as
+the other twenty-two encodings.
+
+**The ranking's next item is named and diagnosed and not yet fixed**: `issue7229.pdf page 1`, at
+**77 bounds from the *nearest* reference** — the largest in the corpus, and the only page in the
+top ten whose two numbers are nearly equal, which is the shape that says *we* are alone. It draws
+the **wrong page**. The file is a scan whose original body holds one page (object 3, the front of
+a Russian vehicle-inspection certificate) and whose incremental update adds a second (object 8,
+the reverse with the stamp) by replacing the `/Pages` node with `/Count 2 /Kids [3 0 R 8 0 R]`.
+The original cross-reference section declares its subsection `1 7` and then lists **seven entries
+beginning with object 0's free entry**, so every offset in it belongs to the object one *below*
+the number it is filed under. Under a strict reading object 3 resolves to the content stream, is
+not a `/Type /Page`, and the walk yields only object 8 — so our page one is the page the
+references print second, `Pages::len()` says 2 because `/Count` does, and `get(1)` is `None`.
+Nothing reports any of it. The three references recover, and the recovery is available from the
+file's own words: **an object header at an offset either names the object the table filed it
+under or the entry is not evidence.**
 
 **Its shape, measured rather than assumed:**
 
@@ -1304,6 +1347,13 @@ evidence. Four ways for that to fail.
   and acted on nowhere — marking all three `Shared` for text would leave nothing to vote.
 - **Two answers to two different questions.** `mupdf` constructs no link appearance while
   `ghostscript` renders for paper. Their agreement is a coincidence of two unrelated reasons.
+- **And a fifth, found in the hundred-and-seventy-sixth: two references sharing a decoder can
+  *disagree*, and that is worse than agreeing wrongly.** On nineteen JBIG2 refinement pages
+  `jbig2dec` fails in both of them, `mupdf` renders black and `ghostscript` renders white — so
+  instead of contradicting us they produce no consensus at all and the page becomes `ambiguous`,
+  which nothing was watching. Shared code does not only manufacture agreement; it can also
+  manufacture the *absence* of one, and the second is invisible where the first is at least
+  listed. `AMBIGUOUS_SHARED_JBIG2_DECODER`.
 
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
@@ -1586,13 +1636,15 @@ anchor that makes it checkable.
   what *we* drew, so anything improving extraction loosens a bound — take the raster's digest
   before writing "fixed") **and can leave with pixels moving and still be wrong** (`issue20232.pdf`
   agreed once the y flip was fixed and still draws `56` where three references draw `⌀56`).
-- **A page can be visibly wrong inside a verdict the gate cannot fail on**, and 46% of the judged
-  set lives in `ambiguous` where nothing watches. The standing example was `issue7406.pdf`, which
+- **A page can be visibly wrong inside a verdict the gate cannot fail on**, and 45% of the judged
+  set lived in `ambiguous` where nothing watched until the hundred-and-seventy-sixth session gave
+  it a ratchet (§3a). The standing example was `issue7406.pdf`, which
   drew a JPEG cyan-on-black while its verdict stayed `ambiguous` — **and it is right now**,
   checked in the hundred-and-seventy-fifth by opening the artefact: all five renderers draw the
   same logo and the verdict is still `ambiguous` (mean 5.07 against a bound of 5.00). Nothing
-  announced the fix, because nothing was watching then either. **A page in this bucket is
-  unwatched in both directions**, so an example of it goes stale as quietly as the defect did.
+  announced the fix, because nothing was watching then either. **A page in this bucket was
+  unwatched in both directions**, so an example of it went stale as quietly as the defect did —
+  which is the whole argument for the list the hundred-and-seventy-sixth session put under it.
 - **A report has a price, paid in gated pages.** Print what a condition matched before trusting its
   count; **measure the corpus before choosing between reporting a gap and closing it** (every
   `/Decode` array in all 974 documents is Table 88's default or its exact reversal).
@@ -2221,3 +2273,4 @@ above rather than here.
 | 173 | §14.3.3's `/Info` shown, and an `inapplicable` row that decayed when a panel arrived | — |
 | 174 | §12.6.3's events raised at last, and Table 167's `ReadOnly` read for the first time | — |
 | 175 | Everything re-verified after ten sessions of change | — |
+| 176 | The ambiguous bucket gets a ratchet, a ranking and its first diagnosis | — |

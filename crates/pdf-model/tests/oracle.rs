@@ -1207,6 +1207,144 @@ const CONTRADICTED_UNEXPLAINED: [&str; 2] =
 /// box, `/Rotate` or `/UserUnit` read differently means the comparison cannot even proceed.
 const GEOMETRY: [&str; 0] = [];
 
+/// Ambiguous because the two references that share a JBIG2 decoder both fail, and fail
+/// *differently*.
+///
+/// 19 pages, and every one of their names contains `refine`. This is
+/// [`CONTRADICTED_SHARED_JBIG2_DECODER`]'s finding one verdict over: `mupdf` and
+/// `ghostscript` are one implementation on a JBIG2 page because both link `jbig2dec`, and
+/// on a refinement region it gives up — `unhandled segment type 'intermediate generic
+/// region' (NYI)` on eleven of them, `failed to find reference bitmap` on the halftone one,
+/// and `encountered unpopulated huffman table entry` or `ran off the end of the entries
+/// table!` on the seven Huffman-coded ones. Where those seven pages have the two of them
+/// failing the *same* way, so that they agree with each other and contradict us, these
+/// nineteen have them failing in two different ways: **`mupdf` renders the page black on
+/// every one of the nineteen and `ghostscript` renders it white on eighteen** — on
+/// `bitmap-halftone-refine.pdf` it keeps what it decoded before the refinement segment, at
+/// a mean of 0.9296 against our 0.9314. So no two references agree and there is nothing to
+/// hold us to.
+///
+/// That is the whole reason these sit here rather than in `agrees`, and it is a property of
+/// the gate rather than of the rendering. `poppler`, which has its own decoder, is within
+/// 715 pixels of 159 600 of our render on sixteen of the nineteen, and within 1 534 on a
+/// seventeenth.
+///
+/// The two it is 12 500 pixels away on are `bitmap-refine-tpgron.pdf` and
+/// `bitmap-refine-template1-tpgron.pdf` — typical prediction for a generic refinement
+/// region — and there its render is *visibly* broken: a block of noise above the drawing
+/// and the glyph shapes torn. Ours is the same picture as the other twenty-two encodings of
+/// it, to the byte. **That is the corpus stating an invariant about
+/// itself**, which is what `tests/jbig2.rs` gates: ninety-six documents encode one image
+/// through every coding mode ISO/IEC 14492 defines and all ninety-six decode to
+/// byte-identical pixels here. A decoder wrong about refinement could not produce that, and
+/// no amount of agreement with `poppler` would say as much.
+///
+/// They stay listed rather than excused: if `jbig2dec` learns refinement they will leave
+/// this group, and if our decode changes they will change with it.
+const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
+    "bitmap-composite-and-xnor-refine.pdf page 1",
+    "bitmap-composite-or-xor-replace-refine.pdf page 1",
+    "bitmap-halftone-refine.pdf page 1",
+    "bitmap-refine-customat-tpgron.pdf page 1",
+    "bitmap-refine-customat.pdf page 1",
+    "bitmap-refine-lossless.pdf page 1",
+    "bitmap-refine-refine.pdf page 1",
+    "bitmap-refine-template1-tpgron.pdf page 1",
+    "bitmap-refine-template1.pdf page 1",
+    "bitmap-refine-tpgron.pdf page 1",
+    "bitmap-refine.pdf page 1",
+    "bitmap-symbol-symhuffrefine-textrefine.pdf page 1",
+    "bitmap-symbol-symhuffrefineseveral.pdf page 1",
+    "bitmap-symbol-texthuffrefine.pdf page 1",
+    "bitmap-symbol-texthuffrefineB15.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustomdims.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustompos.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustomsize.pdf page 1",
+    "bitmap-trailing-7fff-stripped-harder-refine.pdf page 1",
+];
+
+/// The ambiguous pages that carry a written diagnosis, as one list.
+///
+/// Held exactly like the contradicted groups, and for the same reason: which group a page
+/// belongs to is a hypothesis about it, so the groups ratchet together and only the total
+/// fails the build.
+fn diagnosed_ambiguous() -> Vec<&'static str> {
+    AMBIGUOUS_SHARED_JBIG2_DECODER.to_vec()
+}
+
+/// The ambiguous pages nobody has diagnosed, one name per line.
+///
+/// # Why this list exists at all
+///
+/// `ambiguous` means "no two references agree closely enough for anybody to be called
+/// wrong". It is the right verdict for the *ratchet* to reach and it is not the same as
+/// "right": 754 of the 1683 pages this gate judges land here, and until the
+/// hundred-and-seventy-sixth session **no gate watched one of them in either direction**.
+/// `issue7406.pdf` drew a JPEG cyan-on-black inside an ambiguous verdict for as long as
+/// anybody looked, and it is correct now, and nothing announced either event.
+///
+/// So the bucket gets the instrument the contradicted pages have had since the sixth
+/// session. A page leaves this file by becoming `agrees` or by joining an `AMBIGUOUS_*`
+/// group with a diagnosis beside it; a page arriving in it is a page that used to agree,
+/// which is a regression nobody would otherwise see. Both directions fail the build.
+///
+/// The list is data rather than a `const` because it is 735 names and the argument for each
+/// one is that there is *no* argument yet — the diagnoses live in the groups above, where
+/// they can be read.
+fn undiagnosed_ambiguous() -> Vec<&'static str> {
+    include_str!("ambiguous_undiagnosed.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect()
+}
+
+/// How far our render sits from the references, as a multiple of the bound applied.
+///
+/// One number per end of the range, because the two answer different questions and §3a's
+/// ranking needs both. `furthest` is the measurement the report prints and the one that
+/// ranks a *contradiction*; on an ambiguous page it is dominated by whichever reference
+/// drew the least like the page — a renderer that failed and produced a black rectangle
+/// sits at 178 and says nothing about us. `nearest` is the one that accuses us: a page
+/// where even the closest reference is far away is a page where we differ from everybody.
+#[derive(Debug, Clone, Copy)]
+struct Distance {
+    nearest: f64,
+    furthest: f64,
+}
+
+impl Distance {
+    /// Over every voting reference, or `None` where nothing was measured.
+    ///
+    /// Each comparison is reduced to the largest of its three ratios against the bounds
+    /// this page was held to, so that a page failing on structural similarity alone ranks
+    /// beside one failing on mean error. The bounds are the page's own — derived from how
+    /// far the references sit from each other — which is what makes the numbers comparable
+    /// across pages at all.
+    fn of(triangulation: &pdfref::Triangulation) -> Option<Self> {
+        let bounds = &triangulation.judged_by;
+        let ratio = |c: &raster_compare::Comparison| {
+            let mean = c.mean_error / bounds.max_mean;
+            let tile = c.worst_tile_error / bounds.max_worst_tile;
+            let structural =
+                (1.0 - c.structural_similarity) / (1.0 - bounds.min_structural_similarity);
+            mean.max(tile).max(structural)
+        };
+        let mut ratios = triangulation.ours.iter().map(|(_, c)| ratio(c));
+        let first = ratios.next()?;
+        Some(ratios.fold(
+            Self {
+                nearest: first,
+                furthest: first,
+            },
+            |d, r| Self {
+                nearest: d.nearest.min(r),
+                furthest: d.furthest.max(r),
+            },
+        ))
+    }
+}
+
 /// What the oracle concluded about one document.
 #[derive(Debug)]
 enum Verdict {
@@ -1261,6 +1399,9 @@ struct Examined {
     verdict: Verdict,
     /// Whether we reported the page as fully drawn. Only complete pages are gated.
     complete: bool,
+    /// How far we sit from the nearest and furthest reference, in bounds. `None` where the
+    /// comparison never happened.
+    distance: Option<Distance>,
     /// Processor time spent in our own pipeline, and in the three external renderers.
     ///
     /// Summed across the run and reported, because "where does this gate's time go" is
@@ -1516,6 +1657,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
                     name,
                     verdict: Verdict::NoRender(detail),
                     complete: false,
+                    distance: None,
                     spent,
                 };
             }
@@ -1534,6 +1676,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
                     name,
                     verdict: Verdict::NotComparable(detail),
                     complete,
+                    distance: None,
                     spent,
                 };
             }
@@ -1547,6 +1690,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
                 name,
                 verdict,
                 complete,
+                distance: None,
                 spent,
             };
         }
@@ -1569,12 +1713,14 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
                     name,
                     verdict: Verdict::NotComparable(format!("{e}")),
                     complete,
+                    distance: None,
                     spent,
                 };
             }
         };
 
     let verdict = verdict_of(&triangulation, outvoted.as_deref());
+    let distance = Distance::of(&triangulation);
     if matches!(verdict, Verdict::Agrees) {
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
         let _ = std::fs::remove_dir_all(&work_dir);
@@ -1602,6 +1748,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         name,
         verdict,
         complete,
+        distance,
         spent,
     }
 }
@@ -1888,6 +2035,17 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         return;
     }
 
+    check_the_ratchets(&results);
+}
+
+/// Holds every gated outcome to the list that carries its argument.
+///
+/// Split out of the gate itself because a hundred lines of ratchet in the middle of a test
+/// is where a reader stops reading, and because each of the three lists below is a
+/// different claim: the contradicted groups are diagnoses of defects, `GEOMETRY` is a class
+/// of defect that has been empty since the twenty-ninth session, and the ambiguous pair is
+/// a population nobody had watched at all until the hundred-and-seventy-sixth.
+fn check_the_ratchets(results: &[Examined]) {
     // Only pages we claim to draw completely are gated: see the module documentation.
     let named = |predicate: &dyn Fn(&Examined) -> bool| -> Vec<&str> {
         results
@@ -1924,11 +2082,48 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
         "contradicted by the reference consensus",
         &named(&|e| matches!(e.verdict, Verdict::Contradicted(_))),
         &contradicted,
+        "Each is a page two independent implementations agree about and we do not. Read \
+         the artefacts named above, then take the disagreement to the specification — \
+         never to what the references produce.",
     );
     assert_ratchet(
         "disagreeing with the references about page geometry",
         &named(&|e| matches!(e.verdict, Verdict::OurGeometry(_))),
         &GEOMETRY,
+        "A page box, /Rotate or /UserUnit is being read differently from every reference, \
+         so the comparison cannot even proceed.",
+    );
+
+    // The ambiguous bucket, watched in both directions since the hundred-and-seventy-sixth
+    // session. A diagnosed page must still be ambiguous or its group is stale; every other
+    // ambiguous page is held by name, so a page that used to agree cannot arrive here in
+    // silence. See `undiagnosed_ambiguous`.
+    let ambiguous = named(&|e| matches!(e.verdict, Verdict::Ambiguous(_)));
+    let diagnosed = diagnosed_ambiguous();
+    let stale: Vec<&str> = diagnosed
+        .iter()
+        .copied()
+        .filter(|name| !ambiguous.contains(name))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "{} page(s) named in an AMBIGUOUS_* group are no longer ambiguous: {stale:?}\n\
+         Delete them from the group: a diagnosis that outlives what it diagnosed is the \
+         staleness this file's own history is made of.",
+        stale.len()
+    );
+    let undiagnosed: Vec<&str> = ambiguous
+        .iter()
+        .copied()
+        .filter(|name| !diagnosed.contains(name))
+        .collect();
+    assert_ratchet(
+        "ambiguous without a diagnosis",
+        &undiagnosed,
+        &undiagnosed_ambiguous(),
+        "Each is a page the references used to settle and no longer do — or one this gate \
+         has never judged. Read the artefacts, then either fix the page or write down what \
+         is going on with it in an AMBIGUOUS_* group.",
     );
 }
 
@@ -2034,6 +2229,42 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
         matches!(e.verdict, Verdict::NotComparable(_))
     });
     summary("no render", &|e| matches!(e.verdict, Verdict::NoRender(_)));
+
+    rank_the_undiagnosed(results);
+}
+
+/// The ten ambiguous pages we sit furthest from *every* reference on.
+///
+/// This is the ranking §3a of the handover asks the ambiguous work to be chosen by, printed
+/// by the gate itself so that the next session's item does not have to be guessed at. It is
+/// ordered by [`Distance::nearest`] rather than by the number the per-page lines print,
+/// because the printed one is our distance from the *worst* reference and that is dominated
+/// by renderers which failed: nineteen JBIG2 pages sit at 178 bounds from a `mupdf` that
+/// drew a black rectangle, and none of them is ours. A page whose nearest reference is far
+/// away is the one worth opening.
+///
+/// Both numbers are printed. Where they are close, every renderer says the same thing and
+/// we are alone; where they are far apart, the references are the ones disagreeing.
+fn rank_the_undiagnosed(results: &[Examined]) {
+    let diagnosed = diagnosed_ambiguous();
+    let mut ranked: Vec<(&Examined, Distance)> = results
+        .iter()
+        .filter(|e| e.complete && matches!(e.verdict, Verdict::Ambiguous(_)))
+        .filter(|e| !diagnosed.contains(&e.name.as_str()))
+        .filter_map(|e| e.distance.map(|d| (e, d)))
+        .collect();
+    ranked.sort_by(|(_, a), (_, b)| {
+        b.nearest
+            .partial_cmp(&a.nearest)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    println!("\n  ambiguous, undiagnosed, and furthest from the nearest reference:");
+    for (examined, distance) in ranked.iter().take(10) {
+        println!(
+            "    {:>6.2} nearest {:>7.2} furthest  {}",
+            distance.nearest, distance.furthest, examined.name
+        );
+    }
 }
 
 /// Holds an outcome to an exact set of pages.
@@ -2041,7 +2272,7 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
 /// Both directions fail. A new name is a regression; a missing one means the list is stale
 /// and the entry must be deleted, which is what keeps a fixed page from silently coming
 /// back.
-fn assert_ratchet(what: &str, actual: &[&str], expected: &[&str]) {
+fn assert_ratchet(what: &str, actual: &[&str], expected: &[&str], guidance: &str) {
     let new: Vec<&str> = actual
         .iter()
         .copied()
@@ -2055,10 +2286,7 @@ fn assert_ratchet(what: &str, actual: &[&str], expected: &[&str]) {
 
     assert!(
         new.is_empty(),
-        "{} page(s) newly {what}: {new:?}\n\
-         Each is a page two independent implementations agree about and we do not. Read \
-         the artefacts named above, then take the disagreement to the specification — \
-         never to what the references produce.",
+        "{} page(s) newly {what}: {new:?}\n{guidance}",
         new.len()
     );
     assert!(
