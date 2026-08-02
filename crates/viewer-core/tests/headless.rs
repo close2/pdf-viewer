@@ -1562,3 +1562,126 @@ fn a_document_hands_over_what_it_says_about_itself() {
     assert!(information.is_empty());
     assert!(!metadata_stream);
 }
+
+/// §12.6.3: the pointer raises Table 197's events, which is the half this crate could not do.
+///
+/// The clause's data and its execution have been here since the seventy-seventh session —
+/// `action::for_annotation` reads the table and `ViewState::perform_all` performs it — and the
+/// row said `partial` because "[n]othing raises an event: entering, pressing and focusing are a
+/// window's business and this crate has no events". `Command::Pointer` arrived in the
+/// hundred-and-thirty-second session and nobody re-read the row for forty-one.
+///
+/// The fixture is a widget whose `/AA` switches an optional content group: `/E` on, `/X` off,
+/// `/D` on again. That makes the *page* the assertion — a layer's state decides what is drawn —
+/// rather than anything about the event plumbing, which is what would still pass if the actions
+/// were read and dropped.
+#[test]
+fn the_pointer_raises_table_197s_events() {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    let opened: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_triggers(),
+            password: None,
+        })
+        .collect();
+    assert_eq!(
+        marks(&opened),
+        Some(0),
+        "the layer opens off, so the page draws nothing"
+    );
+
+    // The page is 100 × 100 in a 400 × 400 viewport, and the widget is its bottom-left quarter.
+    // The points are taken from the *document* through the geometry the viewer reports, which is
+    // trap 12a's rule: a point taken from the code under test would follow it into its own
+    // mirror.
+    let inside = device_point(&viewer, [10.0, 10.0, 30.0, 30.0], 100.0);
+    let outside = device_point(&viewer, [70.0, 70.0, 90.0, 90.0], 100.0);
+
+    let moved = |viewer: &mut Viewer, at| {
+        let events: Vec<Event> = viewer
+            .handle(Command::Pointer {
+                at,
+                action: PointerAction::Moved,
+            })
+            .collect();
+        marks(&events)
+    };
+
+    assert_eq!(
+        moved(&mut viewer, inside),
+        Some(1),
+        "`/E` switched the layer on, so the page has a mark"
+    );
+    assert_eq!(
+        moved(&mut viewer, inside),
+        None,
+        "the cursor is still inside, so nothing is entered again"
+    );
+    assert_eq!(
+        moved(&mut viewer, outside),
+        Some(0),
+        "`/X` switched it off again"
+    );
+
+    let pressed: Vec<Event> = viewer
+        .handle(Command::Pointer {
+            at: inside,
+            action: PointerAction::Pressed,
+        })
+        .collect();
+    assert_eq!(
+        marks(&pressed),
+        Some(1),
+        "`/E` and then `/D`, in the order the cursor arrived and pressed"
+    );
+}
+
+/// How many commands the render these events asked for holds, if they asked for one.
+///
+/// The *page* is the assertion — a layer's state decides what is drawn — rather than anything
+/// about the event plumbing, which is what would still pass if the actions were read and
+/// dropped.
+fn marks(events: &[Event]) -> Option<usize> {
+    events.iter().rev().find_map(|event| match event {
+        Event::NeedsRender(request) => Some(request.list.commands().len()),
+        _ => None,
+    })
+}
+
+/// A page whose one widget states §12.6.3's `/E`, `/X` and `/D`, each switching a layer.
+fn with_triggers() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let content = "/OC /L1 BDC 20 20 10 10 re f EMC";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R \
+         /OCProperties << /OCGs [6 0 R] /D << /OFF [6 0 R] >> >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R \
+         /Annots [5 0 R] /Resources << /Properties << /L1 6 0 R >> >> >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 50 50] /F 4 \
+         /AA << /E 7 0 R /X 8 0 R /D 7 0 R >> >>\nendobj\n\
+         6 0 obj\n<< /Type /OCG /Name (layer) >>\nendobj\n\
+         7 0 obj\n<< /S /SetOCGState /State [/ON 6 0 R] >>\nendobj\n\
+         8 0 obj\n<< /S /SetOCGState /State [/OFF 6 0 R] >>\nendobj\n",
+        content.len().saturating_add(1),
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}

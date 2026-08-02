@@ -10,7 +10,7 @@
 //! two things this program cannot do itself — resolve a URI, read a file — leave as requests.
 
 use pdf_model::Pages;
-use pdf_model::action::{Action, EmbeddedGoTo, ImportData};
+use pdf_model::action::{Action, EmbeddedGoTo, ImportData, Trigger};
 use pdf_model::navigation::Transition;
 use pdf_model::view::{Pointer, Request};
 use pdf_syntax::{Document, ObjectId};
@@ -135,6 +135,29 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     // clicking an annotation; it shall be ignored for actions associated with outline items" —
     // so the clause itself says what a caller with no cursor position does here.
     perform(open, &actions, destination, None, "this item")
+}
+
+/// Performs §12.6.3's trigger event on one annotation, where the file states actions for it.
+///
+/// Table 197's ten events belong to *any* annotation dictionary, and `action::for_annotation`
+/// applies the one precedence rule the table states — "[f]or backward compatibility, the `A`
+/// entry in an annotation dictionary, if present, takes precedence over" `/AA /U`. What is here
+/// is the other half, the one this crate could not supply until session 132 gave it a pointer:
+/// **something has to raise the event**.
+///
+/// No position is handed on, and the clause is why: §12.6.4.8's `/IsMap` "applies only to
+/// actions triggered by the user's clicking an annotation", and a cursor *entering* a region is
+/// not a click. A mouse-up over a link is not routed through here at all — see the caller.
+pub(crate) fn trigger(open: &mut Open, annotation: ObjectId, event: Trigger) -> Outcome {
+    let object = open.document.get(annotation);
+    let Some(dict) = object.as_dict() else {
+        return Outcome::default();
+    };
+    let actions = pdf_model::action::for_annotation(&open.document, dict, event);
+    if actions.is_empty() {
+        return Outcome::default();
+    }
+    perform(open, &actions, None, None, "this annotation")
 }
 
 /// Performs §12.6.2's action sequence and resolves whatever page it names.

@@ -3,10 +3,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use pdf_model::action::Trigger;
 use pdf_model::optional_content::{OptionalContent, Presented};
 use pdf_model::view::Pointer;
 use pdf_render::{Point, Rect, TargetSpec};
-use pdf_syntax::SyntaxError;
+use pdf_syntax::{ObjectId, SyntaxError};
 
 use crate::command::{
     Command, PageTarget, PointerAction, Purpose, Rendered, Selection as CommandSelection, Zoom,
@@ -369,6 +370,14 @@ impl Viewer {
             return;
         };
         let under = point.and_then(|(x, y)| interact::link_at(open, x, y));
+        // §12.6.3's events belong to *any* annotation, so the region they are about is not the
+        // link one. Asked once per pointer message, which is what a `/Rect` test over a page's
+        // annotation array costs — the same shape `Query::FieldAt` already pays at pointer speed.
+        let over = point.and_then(|(x, y)| {
+            let page = open.shown_page()?;
+            let (x, y) = pdf_model::content::user_space_at(page, x, y)?;
+            pdf_model::view::annotation_at(&open.document, page, &open.view, x, y)
+        });
 
         let wanted = match action {
             // A drag is a person choosing text, not looking at an annotation, so it leaves
@@ -394,9 +403,20 @@ impl Viewer {
             open.interpreted = None;
         }
 
+        // Table 197's `/E` and `/X`, in the clause's own order: the cursor leaves one region
+        // before it enters the next, and a document may act on both.
+        let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
+        if open.inside != over {
+            raised.extend(open.inside.map(|left| (left, Trigger::Exit)));
+            raised.extend(over.map(|entered| (entered, Trigger::Enter)));
+            open.inside = over;
+        }
+
         match action {
             PointerAction::Moved => {}
             PointerAction::Pressed => {
+                // `/D`: "a mouse button is pressed inside the annotation's active area".
+                raised.extend(over.map(|annotation| (annotation, Trigger::Down)));
                 open.pressed = under;
                 // A press starts an empty selection where it landed, so that the first drag
                 // has an anchor. An empty selection highlights nothing and is not a selection
@@ -423,17 +443,46 @@ impl Viewer {
                     .selection
                     .is_some_and(|(anchor, focus)| anchor != focus);
                 if selecting || pressed.is_none() || pressed != under {
+                    self.raise(id, raised, events);
                     return;
                 }
-                let Some((x, y)) = point else { return };
+                let Some((x, y)) = point else {
+                    self.raise(id, raised, events);
+                    return;
+                };
+                // Table 197's `/U`, for anything that is not the link about to be activated.
+                // **The exclusion is the precedence rule, not a shortcut**: the table says an
+                // annotation's `/A` "takes precedence over" its `/AA /U`, `interact::activate`
+                // performs a link's `/A`, and `action::for_annotation` would return the same
+                // list again — so routing a link through both would perform its actions twice.
+                if let Some(annotation) = over.filter(|annotation| Some(*annotation) != under) {
+                    raised.push((annotation, Trigger::Up));
+                }
+                self.raise(id, raised, events);
+                let Some(open) = self.focused_mut() else {
+                    return;
+                };
                 let outcome = interact::activate(open, x, y);
                 self.apply(id, outcome, events);
+                return;
             }
+        }
+        self.raise(id, raised, events);
+    }
+
+    /// Performs §12.6.3's events the pointer just raised, in the order they were raised.
+    fn raise(&mut self, id: DocumentId, raised: Vec<(ObjectId, Trigger)>, events: &mut Vec<Event>) {
+        for (annotation, event) in raised {
+            let Some(open) = self.focused_mut() else {
+                return;
+            };
+            let outcome = interact::trigger(open, annotation, event);
+            self.apply(id, outcome, events);
         }
     }
 
     /// §12.3.3: activates an object a host is showing outside the page.
-    fn activate(&mut self, object: pdf_syntax::ObjectId, events: &mut Vec<Event>) {
+    fn activate(&mut self, object: ObjectId, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
         let Some(open) = self.focused_mut() else {
             return;

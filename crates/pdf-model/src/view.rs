@@ -1116,14 +1116,69 @@ fn is_read_only(document: &Document, widget: ObjectId) -> bool {
 
 /// The field a point in default user space is on, with its fully qualified name.
 ///
-/// §12.5.2 puts a widget's `/Rect` "in default user space units", and §12.7.4.1 makes a widget an
-/// annotation of a field — so this is the two clauses together: which annotation covers the
-/// point, and what §12.7.4.2 calls the field it belongs to.
+/// **Any subtype**, which is what separates this from [`field_at`] and from
+/// `crate::link::at`: §12.6.3's trigger events are Table 197's, and Table 197 belongs to every
+/// annotation dictionary rather than to links or widgets.
 ///
 /// The **last** match, because a page lists its annotations in painting order and the one on top
-/// is the one under the pointer. A widget whose field the name table does not reach — a widget
-/// that is not in the `/AcroForm` tree, which §12.7.3 makes malformed — answers `None`, because
-/// there is no name to change the value of.
+/// is the one under the pointer.
+#[must_use]
+pub fn annotation_at(
+    document: &Document,
+    page: &crate::Page,
+    view: &ViewState,
+    x: f32,
+    y: f32,
+) -> Option<ObjectId> {
+    let (x, y) = (f64::from(x), f64::from(y));
+    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = annotations.as_array()?;
+    let mut found = None;
+    for annotation in annotations {
+        let Some(id) = annotation.as_reference() else {
+            continue;
+        };
+        let resolved = document.resolve(annotation);
+        let Some(dict) = resolved.as_dict() else {
+            continue;
+        };
+        // §12.5.3's Hidden, NoView and ReadOnly each say "interact with the user", and
+        // `annotation::interacts` is those three bits and nothing else — an annotation that
+        // renders no ink still has an activation region, which is what a link is.
+        if !crate::annotation::interacts(document, dict, view.annotation(id)) {
+            continue;
+        }
+        if rectangle_covers(document, dict, x, y) {
+            found = Some(id);
+        }
+    }
+    found
+}
+
+/// Whether Table 166's `/Rect` covers a point in default user space.
+///
+/// The rectangle "shall be two opposite corners" and states no order, so both are normalised
+/// before the point is tested against them.
+fn rectangle_covers(document: &Document, annotation: &Dictionary, x: f64, y: f64) -> bool {
+    let rect = document.get_key(annotation, "Rect");
+    let Some(rect) = rect.as_array() else {
+        return false;
+    };
+    let mut corners = rect
+        .iter()
+        .filter_map(|value| document.resolve(value).as_number());
+    let (Some(x0), Some(y0), Some(x1), Some(y1)) = (
+        corners.next(),
+        corners.next(),
+        corners.next(),
+        corners.next(),
+    ) else {
+        return false;
+    };
+    x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1)
+}
+
+/// §12.7.4.2's fully qualified name of the form field at a point in default user space.
 #[must_use]
 pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Option<String> {
     let (x, y) = (f64::from(x), f64::from(y));

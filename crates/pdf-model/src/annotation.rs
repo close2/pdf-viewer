@@ -259,6 +259,67 @@ const FLAG_INVISIBLE: i64 = 1;
 const FLAG_HIDDEN: i64 = 1 << 1;
 /// `/F` bit 6: render nothing *on screen*. A viewer is a screen.
 const FLAG_NO_VIEW: i64 = 1 << 5;
+/// `/F` bit 7: respond to nothing. About interaction alone, and ignored for a widget.
+const FLAG_READ_ONLY: i64 = 1 << 6;
+
+/// Whether §12.5.3's flags let the pointer reach this annotation at all.
+///
+/// **Three of Table 167's bits say it, and each says it differently.** ISO 32000-2 §12.5.3, on
+/// Hidden:
+///
+/// > If set, do not render the annotation or allow it to interact with the user, regardless of
+/// > its annotation type or whether an annotation handler is available.
+///
+/// on `NoView`:
+///
+/// > If set, do not render the annotation on the screen or allow it to interact with the user.
+///
+/// and on `ReadOnly`, which is about **nothing else**:
+///
+/// > If set, do not allow the annotation to interact with the user. The annotation may be
+/// > rendered or printed (depending on the settings of the NoView and Print flags) but should
+/// > not respond to mouse clicks or change its appearance in response to mouse motions. This
+/// > flag shall be ignored for widget annotations; its function is subsumed by the ReadOnly flag
+/// > of the associated form field
+///
+/// That last exception is stated and applied: a widget's own `/F` bit 7 means nothing, and what
+/// governs a widget is Table 226's field flag.
+///
+/// **Deliberately not [`decide`]**, which answers a different question. An annotation may render
+/// nothing because it has no appearance stream and no clause states one, and still have an
+/// activation region a pointer enters: §12.5.6.5's link is the standing example, and Table 197's
+/// events belong to every annotation dictionary. Gating §12.6.3 on *whether ink appeared* would
+/// switch off a document's own trigger events for the annotations that are only regions.
+///
+/// `Invisible` is not here, and Table 167 is why: it governs an annotation whose type is not one
+/// this document defines, and it is about rendering an unknown subtype rather than interaction.
+#[must_use]
+pub(crate) fn interacts(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> bool {
+    let stated = document
+        .get_key(annotation, "F")
+        .as_integer()
+        .unwrap_or_default();
+    let flags = view
+        .flags
+        .map_or(stated, |change| change.applied_to(stated));
+    // §12.6.4.11's hide action clears the Hidden bit for the session, exactly as it does for
+    // rendering; `decide` states the argument.
+    if flags & FLAG_HIDDEN != 0 && view.hidden_by_action != Some(false) {
+        return false;
+    }
+    if flags & FLAG_NO_VIEW != 0 {
+        return false;
+    }
+    let widget = document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"Widget");
+    flags & FLAG_READ_ONLY == 0 || widget
+}
 
 /// Decides what, if anything, an annotation contributes to the page.
 ///

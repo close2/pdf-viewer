@@ -119,6 +119,13 @@ pub(crate) struct Open {
     pub(crate) pointer: Option<(ObjectId, Pointer)>,
     /// The annotation a press went down on, if the button is still down.
     pub(crate) pressed: Option<ObjectId>,
+    /// Which annotation the pointer is inside, for §12.6.3's `/E` and `/X`.
+    ///
+    /// Separate from `pointer` above, which is §12.5.5's *appearance* state and is filtered to
+    /// annotations whose picture can change. Table 197's enter and exit are about the cursor
+    /// crossing an activation region and say nothing about appearances, so an annotation with
+    /// one `/AP` and an `/AA /E` still raises the event.
+    pub(crate) inside: Option<ObjectId>,
     /// §12.7.6.4's import, waiting for the host to supply the file.
     pub(crate) importing: Option<ImportData>,
     /// Everything a person has changed, in the order they changed it.
@@ -253,6 +260,7 @@ impl Open {
             pending: None,
             pointer: None,
             pressed: None,
+            inside: None,
             importing: None,
             log: Vec::new(),
             cursor: 0,

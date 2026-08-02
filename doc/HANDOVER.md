@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-seventy-third** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-seventy-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -75,7 +75,7 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **999**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
+| tests | **1000**, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in sessions 162 to 164: five fuzzers, `deny`, `fmt`, `clippy --all-targets`, the four gates, both performance numbers and the window |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something**, 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **846 agree**, **72 contradicted**, 754 ambiguous, 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **37 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 992 of 23 412), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~31 s |
@@ -158,6 +158,7 @@ documents' first pages it affects.
 | A substitute that cannot be addressed | 40 | Counting fonts: composite ones naming an `Identity` ordering, where the codes index a font nobody supplied and §9.10.2's third method has nothing to read; and those whose substitute draws none of the declared codes. Honest refusals. The `-UCS2` `CMap`s closed the rest in session 156. |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | Each reported where it can change a pixel: a knockout element whose shape is not its coverage (5), a non-isolated group NOTE 5 cannot flatten whose elements blend (6), a blending space that is not the device's three components (4, all `/DeviceCMYK`), a soft-mask group with such a space (7). |
 | Optional content's interactive half | — | **Closed in session 167.** §8.11 is honoured wherever it decides what is drawn; `/Order`, `/ListMode`, `/Locked`, `/RBGroups` and `/Name` have been read since session 67 and `Query::Layers` with `Command::SetGroup` since 131; `viewer_ui::chrome`'s second tab now draws the tree and throws the switch, with Table 99's `/Locked` refusing the change as the clause requires. Still unread: alternate `/Configs`, and `/ListMode`'s `VisiblePages`. |
+| Six of Table 197's ten trigger events | 15 | §12.6.3's `/E`, `/X`, `/D` and `/U` are raised by the pointer since session 174. `/Fo` and `/Bl` want keyboard focus, which this crate does not have; `/PO`, `/PC`, `/PV` and `/PI` want a page-visibility model a one-page-at-a-time window does not have. |
 | `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
 | Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
 | A filled degenerate subpath's device pixel (§8.5.3.3.1) | — | The clause calls the result "device-dependent and not generally useful" in the same breath. Recorded, not reported. |
@@ -1697,6 +1698,14 @@ anchor that makes it checkable.
   expression looking for a different kind of blocker: not "needs §X" but "would cost too much
   here".
 
+- **Sweep for the reason's *shape*, not for its clause.** Sessions 118 and 122 grepped the
+  ledger's notes for "while §X does not exist" and for entries claimed unread. The
+  hundred-and-seventy-fourth grepped for a third shape — "this program has no ___", "no panel",
+  "which this is not" — over `partial`, `reported` **and** `inapplicable` rows, and found
+  §12.6.3 saying "[n]othing raises an event … this crate has no events", which stopped being
+  true in the hundred-and-thirty-second when `Command::Pointer` landed. Forty-one sessions. The
+  three sweeps are twenty lines of Python apiece and each has paid on its first run.
+
 - **An `inapplicable` row whose reason is "this program has no ___" is a row waiting for a
   session that gives the program one.** §14.3.3 was `inapplicable` because "a viewer with a
   document-properties panel would read it; this one has no panel", and the panel arrived seven
@@ -2095,3 +2104,4 @@ above rather than here.
 | 171 | A photograph's colours converted on eight threads; the priced item named the wrong loop | 0147 |
 | 172 | `/NOTICE` over the page in Courier: the About panel the owner asked for | — |
 | 173 | §14.3.3's `/Info` shown, and an `inapplicable` row that decayed when a panel arrived | — |
+| 174 | §12.6.3's events raised at last, and Table 167's `ReadOnly` read for the first time | — |
