@@ -752,21 +752,27 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// the PDF processor", and what `CLAUDE.md`'s principle 5 means by not treating agreement with
 /// other renderers as the definition of right.
 ///
-/// # Two more in the hundred-and-fifty-sixth, and they are a silence ending rather than a defect
+/// # Two more in the hundred-and-fifty-sixth, and the sentence written about them was false
 ///
 /// `noembed-eucjp.pdf` and `noembed-sjis.pdf` are one line of あいうえお in a non-embedded
-/// Japanese font. Until §9.7.5.2's predefined `CMap`s were compiled in they reported a `CMap`
-/// this tree did not have and the oracle did not judge them; now the codes decode, §9.10.2's
-/// third method says what they mean, and a machine face draws them. **Both are correct and both
-/// are contradicted**: the side-by-side has the same five kana in the same places in all four
-/// panels, at worst tile 18.98 against a bound of 5.00, which is what two different Japanese
-/// faces look like.
+/// Japanese font, and they were added here with a comment saying that "the side-by-side has the
+/// same five kana in the same places in all four panels … which is what two different Japanese
+/// faces look like". **Our panel is blank.** The interpretation produces *no commands at all*
+/// and the raster's mean is exactly 1.0; `poppler`, `mupdf` and `ghostscript` draw the kana and
+/// `hayro`, the other Rust renderer, is blank beside us. The pages were contradicted because we
+/// drew nothing, not because we drew a different face.
 ///
-/// This is the denominator moving, which `oracle.rs` says of the incomplete count and is no
-/// different here: a page that reported was not judged, and a page that draws is. Reaching for a
-/// report to make a contradiction go away is what trap 5 forbids; recording the two pages with
-/// the reason is what it asks for instead.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 21] = [
+/// Nothing announced that, because a substituted composite font whose face has no glyph for the
+/// characters §9.10.2 gives it simply drew nothing and reported nothing — which is what the
+/// hundred-and-eighty-second session fixed (ADR 0152). Both pages now report and leave this
+/// list, and **that is the denominator moving rather than a fix**: a page that reports is not
+/// judged. What the pages need is a substitute chosen by *coverage* rather than by family name,
+/// which this machine could satisfy — `fc-match :charset=76EE` answers `DroidSansFallback` — and
+/// which no session has built.
+///
+/// The lesson is the older one about this file: a group's comment is a claim about a picture,
+/// and a picture is one `Read` away.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
     "bad-PageLabels.pdf page 1",
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
@@ -786,8 +792,6 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 21] = [
     "issue8088.pdf page 3",
     "issue8125.pdf page 1",
     "issue9243.pdf page 1",
-    "noembed-eucjp.pdf page 1",
-    "noembed-sjis.pdf page 1",
 ];
 
 /// Pages that are almost entirely glyph edges, where our *ink* matches the consensus.

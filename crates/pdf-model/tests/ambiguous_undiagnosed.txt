@@ -477,7 +477,6 @@ issue13193.pdf page 1
 issue13201.pdf page 1
 issue13242.pdf page 1
 issue13316_reduced.pdf page 1
-issue13343.pdf page 1
 issue13343.pdf page 2
 issue1350.pdf page 1
 issue1350.pdf page 2
@@ -540,7 +539,6 @@ issue269_1.pdf page 1
 issue269_2.pdf page 1
 issue2840.pdf page 1
 issue2884_reduced.pdf page 1
-issue3521.pdf page 1
 issue3584.pdf page 1
 issue4246.pdf page 1
 issue4260_reduced.pdf page 1
@@ -567,7 +565,6 @@ issue7454.pdf page 1
 issue7769.pdf page 1
 issue7821.pdf page 1
 issue8187.pdf page 1
-issue8372.pdf page 1
 issue840.pdf page 1
 issue840.pdf page 2
 issue8697.pdf page 1

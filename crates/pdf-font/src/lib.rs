@@ -1036,6 +1036,34 @@ impl LoadedFont {
         }
     }
 
+    /// The character a code stands for, where the substitute cannot draw it.
+    ///
+    /// `Some` only in one situation, and it is the one worth reporting: the font was
+    /// **substituted**, §9.10.2 gave the code a character, and the face this machine offered
+    /// has no glyph for that character. Everything else answers `None` — an embedded font, a
+    /// code the mapping does not cover (which §9.7.6.3 answers with CID 0), or a character the
+    /// face draws.
+    ///
+    /// It exists because a font is otherwise reported as a whole: [`FontError`] is the only
+    /// channel a font has, so a substitute that draws *some* of a document's characters draws
+    /// those and says nothing about the rest — and one that draws none of them, on a page
+    /// whose every code is Chinese, drew a blank page in silence. `issue8372.pdf` is that
+    /// page: `AdobeHeitiStd-Regular`, not embedded, `Adobe-GB1` through `UniGB-UTF16-H`, and
+    /// the substitute a family match finds is a Latin face with no 目 in it.
+    ///
+    /// A space is why this asks the question in this direction rather than by looking for a
+    /// missing outline: U+0020 is in every face, so a blank glyph and an absent one stay
+    /// distinguishable without the caller having to know which is which.
+    #[must_use]
+    pub fn uncovered_character(&self, code: Code) -> Option<char> {
+        let CodeMapping::Substituted { text, cmap } = &self.mapping else {
+            return None;
+        };
+        let font = FontRef::new(&self.data).ok()?;
+        let character = text.char_for(cmap, code)?;
+        font.charmap().map(character).is_none().then_some(character)
+    }
+
     /// The glyph index a character code reaches, or `None` where it reaches none.
     ///
     /// Public for one reason: the strongest check in this tree is that the document's stated
