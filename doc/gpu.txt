@@ -1,0 +1,45 @@
+## The one-sentence difference
+
+Vello is a general 2D vector renderer that happens to be pointed at documents; the optimal fit here would be a **document** renderer — one that assumes most of the page is repeated glyphs and axis-aligned rectangles, and treats general curve filling as the rare case rather than the uniform one.
+
+Everything below follows from measurements already in this conversation, not from a survey of the field.
+
+## What it would do differently
+
+**1. Retained scene, not re-encoded every frame.** Vello's `build_scene` runs on the CPU per frame — ~5 900 commands and ~95 000 path points for page 6, at every zoom step. The display list is already immutable behind an `Arc`; its GPU form should be too. A zoom or scroll becomes a new uniform, not a new upload. This alone is probably the largest interactive win, and it's the thing that makes smooth zoom possible at all.
+
+**2. A glyph atlas keyed on quantised sub-pixel phase.** Page 6 is 5 933 fills of **107 distinct outlines**, re-flattened every frame. An exactly-correct coverage cache hits 116 times of 5 933, and not once on `tracemonkey.pdf`, because the phase is an arbitrary float — but at **1/16 of a pixel** the reuse is 5.0× and 1.3×, and the oracle is clean at that quantisation (it contradicts at 1/8). That measurement was taken to price a *CPU* cache and refused, because `tiny-skia` provides no blitter for it. On a GPU the blitter is a textured quad — the natural primitive — so the same number becomes a reason to build rather than a reason to stop.
+
+**3. A rectangle fast path.** PDF pages are full of axis-aligned fills: rules, backgrounds, underlines, table cells. Exact analytic coverage in a shader, no tiling, no binning. Combined with (2), the overwhelming majority of a text page never touches a general path pipeline.
+
+**4. Clause 11 natively, instead of through SVG semantics.** This is where vello can't be patched. Its layers composite over the layer's whole *bounding box*, so `Compose::Copy` erased a row outside the shape — §11.4.6's knockout needs Porter-Duff Source modulated by **coverage**, and a raster of premultiplied samples carries opacity but not shape. A purpose-built backend carries shape as its own channel, so knockout is expressible rather than approximated. Same for soft masks: §11.5.3's luminosity with its own backdrop colour and §11.6.5.1's `/TR` as a 256-entry LUT, evaluated **on the GPU** rather than read back to the CPU as `render-gpu` does today.
+
+**5. Memory that grows, and a failure that speaks.** Vello's cardinal sin isn't the fixed buffers — it's returning `Ok(())` over a blank target. Two passes: count tiles and segments, then allocate exactly; or a growable arena with a fence that reruns on overflow. Banding then becomes an optimisation rather than a rescue.
+
+**6. Few pipelines, compiled lazily.** Vello compiles ~15 compute shaders up front, which is most of the startup cost you asked about earlier. A hybrid design needs maybe five or six — glyph quads, rect fills, general path coverage, composite, mask build, image blit — and only the first three are needed for page one. Shadings and meshes compile on first use. That's startup time as a design constraint rather than something to hide behind a CPU fallback.
+
+**7. Damage rendering.** Persistent geometry plus per-tile dirty tracking means a caret blink or a selection change redraws a few tiles, not a page.
+
+## How it would work, concretely
+
+The encoder walks the flat display list — commands are already independent, each carrying its absolute transform and clip — and partitions it:
+
+| class | how it's drawn |
+|---|---|
+| glyph fill (shared outline, seen ≥ n times) | instanced quad against an R8 atlas, key = (outline, scale bucket, phase/16) |
+| axis-aligned rect fill | analytic coverage in the fragment shader |
+| image | textured quad, sampling decided by `Image::is_smoothed` / `area_averaged` |
+| general path | tile-binned coverage, the only compute-heavy stage |
+| shading | function evaluated per fragment; meshes via the shared `MeshRaster` |
+
+Clip chains become cached R8 masks — `DisplayList::add_clip` already collapses 303 identical regions to one, which is exactly the deduplication that makes caching them viable. Groups render to their own target and composite through a shader implementing §11.3.5's sixteen modes, the four non-separable ones included.
+
+Atlas rasterisation is the interesting choice: doing it with `tiny-skia` means the glyphs come from **the oracle itself**, which is a correctness argument no other design gets for free.
+
+## What stays exactly as it is
+
+The display list remains the neutral form, the `Rasterizer` trait remains the boundary, and `render-cpu` remains both oracle and startup path. The three device decisions in `pdf-render` — `is_smoothed`, `area_averaged`, `device_width` — are inherited, not re-decided, which is trap 2's whole point. And the new backend must report what it cannot draw rather than drawing something plausible.
+
+## The honest caveat
+
+This is a substantial project — plausibly the largest single item on the roadmap — and the argument for it should be made against a measurement nobody has taken: **how much of a frame is CPU encoding versus GPU execution?** If encoding dominates, then point (1) alone, implemented as scene caching on top of vello, might deliver most of the benefit for a fraction of the work. Points (2) and (4) are the ones that genuinely need a backend of our own; the rest could arrive incrementally.

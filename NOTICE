@@ -69,7 +69,47 @@ licence texts are data/standard-fonts/LICENSE_FOXIT and data/standard-fonts/LICE
 
 
 -------------------------------------------------------------------------------
-2. The specification, and the test corpus
+2. The predefined CMaps
+-------------------------------------------------------------------------------
+
+ISO 32000-2 §9.7.5.2 names some seventy CMaps a PDF may reference without carrying them, and
+states the obligation as a shall: "A PDF processor shall support Adobe-CNS1-7, Adobe-GB1-5,
+Adobe-Japan1-7 and Adobe-KR-9 character collections." The clause adds that "[t]he CMap programs
+that define the predefined CMaps are available through a variety of online sources." All 239 of
+them, for the six character collections, are compiled into this binary. They live in data/cmaps/,
+their provenance is data/cmaps/PROVENANCE.md, and the verbatim licence text is
+data/cmaps/LICENSE_ADOBE. Every file also carries the same notice inline, in its own %%Copyright
+lines, as Adobe published it.
+
+    Copyright 1990-2019 Adobe.
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without modification, are
+    permitted provided that the following conditions are met:
+
+    Redistributions of source code must retain the above copyright notice, this list of
+    conditions and the following disclaimer.
+
+    Redistributions in binary form must reproduce the above copyright notice, this list of
+    conditions and the following disclaimer in the documentation and/or other materials
+    provided with the distribution.
+
+    Neither the name of Adobe nor the names of its contributors may be used to endorse or
+    promote products derived from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS
+    OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+    MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+    COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+    EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+    GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+    ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+    OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+-------------------------------------------------------------------------------
+3. The specification, and the test corpus
 -------------------------------------------------------------------------------
 
 Neither is part of the program, and neither is in the binary. They are recorded here because they

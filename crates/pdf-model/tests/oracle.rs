@@ -724,7 +724,22 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// the same on every machine — which is what §9.6.2.2 means by "[t]hese fonts … shall be available to
 /// the PDF processor", and what `CLAUDE.md`'s principle 5 means by not treating agreement with
 /// other renderers as the definition of right.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
+///
+/// # Two more in the hundred-and-fifty-sixth, and they are a silence ending rather than a defect
+///
+/// `noembed-eucjp.pdf` and `noembed-sjis.pdf` are one line of あいうえお in a non-embedded
+/// Japanese font. Until §9.7.5.2's predefined `CMap`s were compiled in they reported a `CMap`
+/// this tree did not have and the oracle did not judge them; now the codes decode, §9.10.2's
+/// third method says what they mean, and a machine face draws them. **Both are correct and both
+/// are contradicted**: the side-by-side has the same five kana in the same places in all four
+/// panels, at worst tile 18.98 against a bound of 5.00, which is what two different Japanese
+/// faces look like.
+///
+/// This is the denominator moving, which `oracle.rs` says of the incomplete count and is no
+/// different here: a page that reported was not judged, and a page that draws is. Reaching for a
+/// report to make a contradiction go away is what trap 5 forbids; recording the two pages with
+/// the reason is what it asks for instead.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 21] = [
     "bad-PageLabels.pdf page 1",
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
@@ -744,6 +759,8 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
     "issue8088.pdf page 3",
     "issue8125.pdf page 1",
     "issue9243.pdf page 1",
+    "noembed-eucjp.pdf page 1",
+    "noembed-sjis.pdf page 1",
 ];
 
 /// Pages that are almost entirely glyph edges, where our *ink* matches the consensus.

@@ -293,13 +293,16 @@ fn the_cid_widths_agree_with_the_font_programs_own_advances() {
     );
 }
 
-/// A predefined `CMap` other than the two Identity ones is refused and named.
+/// A predefined `CMap` is resolved from the data this binary carries, on a real document.
 ///
-/// The data those names stand for is not in the tree, and §9.7.5.2 makes them data rather than
-/// an algorithm — so guessing would draw plausible, wrong text. `90ms_rksj_h_sample.pdf` is
-/// the fixture, and this pins the refusal rather than the eventual implementation.
+/// **This test used to assert the opposite.** §9.7.5.2 makes these names *data* rather than an
+/// algorithm, the data was not in the tree, and the refusal was what there was to pin. It is in
+/// the tree since the hundred-and-fifty-sixth session, so the same fixture now pins the
+/// mapping: `90ms_rksj_h_sample.pdf` shows Shift-JIS text through Microsoft Code Page 932, and
+/// what says the `CMap` was really consulted is that a *two-byte* code comes back — an
+/// unconsulted `CMap` would take the same bytes one at a time.
 #[test]
-fn a_predefined_cmap_is_refused_by_name() {
+fn a_predefined_cmap_is_resolved_by_name() {
     let Some(document) = corpus_document("90ms_rksj_h_sample.pdf") else {
         println!("skipped: the doc/pdf.js submodule is not checked out");
         return;
@@ -309,11 +312,13 @@ fn a_predefined_cmap_is_refused_by_name() {
         .iter()
         .find(|(key, _)| key == "F1")
         .expect("page one has /F1");
-    let error = pdf_font::LoadedFont::load(&document, dict, "F1")
-        .expect_err("a predefined CMap this tree has no data for must be refused");
-    assert!(
-        error.to_string().contains("90ms-RKSJ-H"),
-        "the report must name the CMap so it is actionable: {error}"
+    let font = pdf_font::LoadedFont::load(&document, dict, "F1")
+        .expect("90ms-RKSJ-H is one of the predefined CMaps this binary carries");
+    let codes = font.decode(b"\x82\xa0\x41");
+    assert_eq!(
+        codes.iter().map(|code| code.length()).collect::<Vec<_>>(),
+        vec![2, 1],
+        "Code Page 932 is a mixed-width encoding and the CMap's codespace is what says so"
     );
 }
 

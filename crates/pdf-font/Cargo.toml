@@ -7,7 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[build-dependencies]
+flate2.workspace = true
+
 [dependencies]
+flate2.workspace = true
 pdf-render.workspace = true
 pdf-syntax.workspace = true
 thiserror.workspace = true

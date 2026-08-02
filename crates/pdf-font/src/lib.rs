@@ -28,6 +28,7 @@ pub mod cmap;
 pub mod encoding;
 pub mod name_keyed;
 pub mod panose;
+pub mod predefined;
 pub mod standard;
 pub mod standard_metrics;
 pub mod substitute;
@@ -113,16 +114,49 @@ enum CodeMapping {
     /// A composite font with no usable program, resolved through what its codes *mean*.
     ///
     /// The only route to a substitute for a composite font: a CID indexes the glyphs of
-    /// the font that defined it, so it says nothing about any other font, and only
-    /// `/ToUnicode` records what the producer meant by it. The `CMap` is still needed, to
-    /// split the string into codes — §9.7.4.2 is explicit that a CID plays no part here:
-    /// "In this case, CIDs shall not participate in glyph selection".
+    /// the font that defined it, so it says nothing about any other font. The `CMap` is
+    /// still needed, to split the string into codes — §9.7.4.2 is explicit that a CID plays
+    /// no part here: "In this case, CIDs shall not participate in glyph selection".
     Substituted {
         /// Codes to CIDs, used for the code boundaries and for `/W`'s widths.
         cmap: Box<CMap>,
-        /// What the producer said each code means.
-        text: Box<tounicode::ToUnicode>,
+        /// What each code means, by whichever of §9.10.2's methods answered.
+        text: Box<Meaning>,
     },
+}
+
+/// What a code means, by whichever of ISO 32000-2 §9.10.2's methods produced it.
+///
+/// Two of the clause's three methods apply to a composite font and they are keyed
+/// differently, which is the whole reason this is an enum rather than one table: the first
+/// is the producer's `/ToUnicode` and is keyed by *character code*; the third is the
+/// character collection's own `registry-ordering-UCS2` table and is keyed by *CID*. Folding
+/// the second into the first would mean enumerating every code the `CMap` defines, which for
+/// a UTF-32 codespace is not a finite thing to do at load time.
+#[derive(Debug, Clone)]
+pub enum Meaning {
+    /// §9.10.2's first method: the producer's own `/ToUnicode`, by character code.
+    ByCode(tounicode::ToUnicode),
+    /// §9.10.2's third method: the collection's table, by CID.
+    ///
+    /// > e. Map the CID obtained in step (a) according to the CMap obtained in step (d),
+    /// > producing a Unicode value.
+    ByCid(tounicode::ToUnicode),
+}
+
+impl Meaning {
+    /// The single character a code represents, given the `CMap` that turns it into a CID.
+    ///
+    /// One character rather than a string because this is what *substitution* needs: a
+    /// substitute face is addressed by character, so a code standing for a cluster has no
+    /// glyph to look up.
+    #[must_use]
+    pub fn char_for(&self, cmap: &CMap, code: Code) -> Option<char> {
+        match self {
+            Self::ByCode(table) => table.char_for(code.value()),
+            Self::ByCid(table) => table.char_for(cmap.cid(code)?),
+        }
+    }
 }
 
 /// How a `CIDFont` turns a CID into a glyph index (ISO 32000-2 §9.7.4.2).
@@ -299,6 +333,12 @@ pub struct LoadedFont {
     substituted: bool,
     /// What the producer said each code means, when the font says so.
     to_unicode: tounicode::ToUnicode,
+    /// §9.10.2's third method, for a composite font whose descendant names a registered
+    /// character collection: the collection's own CID table, keyed by CID.
+    ///
+    /// Held beside `to_unicode` rather than folded into it because the two are keyed
+    /// differently — see [`Meaning`] — and because the clause ranks them, `/ToUnicode` first.
+    collection: Option<tounicode::ToUnicode>,
     /// The glyph name each code selects, for simple fonts.
     ///
     /// The fallback for extraction when there is no `/ToUnicode`: a glyph name identifies
@@ -499,6 +539,7 @@ impl LoadedFont {
             units_per_em,
             substituted: substituted.is_some(),
             to_unicode: to_unicode(document, dict),
+            collection: None,
             glyph_names: names,
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
@@ -583,13 +624,23 @@ impl LoadedFont {
             // the same thing from the other side: with the program absent, "CIDs shall not
             // participate in glyph selection", and a `/CIDToGIDMap` "shall be ignored, since
             // it is not meaningful to refer to glyph indices in an external font program".
-            let text = to_unicode(document, dict);
-            if text.is_empty() {
-                return Err(FontError::UnsupportedEncoding {
-                    name: name.to_owned(),
-                    encoding: "no /ToUnicode, so a substitute cannot be addressed".to_owned(),
-                });
-            }
+            // §9.10.2's first method, then its third. The third became reachable in the
+            // hundred-and-fifty-sixth session, when this binary started carrying the
+            // collections' own tables; before it, a CJK font without a `/ToUnicode` was
+            // refused whatever its `/CIDSystemInfo` said.
+            let direct = to_unicode(document, dict);
+            let text = if direct.is_empty() {
+                collection_meaning(document, &descendant).ok_or_else(|| {
+                    FontError::UnsupportedEncoding {
+                        name: name.to_owned(),
+                        encoding: "neither a /ToUnicode nor a registered character collection, \
+                                   so a substitute cannot be addressed (§9.10.2)"
+                            .to_owned(),
+                    }
+                })?
+            } else {
+                Meaning::ByCode(direct)
+            };
             CodeMapping::Substituted {
                 cmap: Box::new(cmap),
                 text: Box::new(text),
@@ -616,6 +667,10 @@ impl LoadedFont {
             mapping,
             substituted,
             to_unicode: to_unicode(document, dict),
+            collection: match collection_meaning(document, &descendant) {
+                Some(Meaning::ByCid(table)) => Some(table),
+                _ => None,
+            },
             glyph_names: None,
             widths: composite_widths(document, &descendant),
             default_width,
@@ -660,6 +715,21 @@ impl LoadedFont {
     /// on the page, and returning a `String` would allocate for every one.
     pub fn text(&self, code: Code, out: &mut String) -> bool {
         if self.to_unicode.append(code.value(), out) {
+            return true;
+        }
+        // §9.10.2's third method, in the clause's own position: after `/ToUnicode` and before
+        // the permission it grants where its methods fail. It applies to an *embedded*
+        // composite font as much as to a substituted one — the collection says what a CID
+        // means whether or not the program that defines the CID is present.
+        if let Some(table) = self.collection.as_ref()
+            && let Some(cid) = match &self.mapping {
+                CodeMapping::Composite { cmap, .. } | CodeMapping::Substituted { cmap, .. } => {
+                    cmap.cid(code)
+                }
+                CodeMapping::Named(_) => None,
+            }
+            && table.append(cid, out)
+        {
             return true;
         }
         let Some(names) = self.glyph_names.as_ref() else {
@@ -914,9 +984,9 @@ impl LoadedFont {
             }
             // The substitute has no notion of this document's CIDs, so the code is taken
             // to the character it stands for and that character is looked up.
-            CodeMapping::Substituted { text, .. } => {
+            CodeMapping::Substituted { text, cmap } => {
                 let font = FontRef::new(&self.data).ok()?;
-                let character = text.char_for(code.value())?;
+                let character = text.char_for(cmap, code)?;
                 let id = font.charmap().map(character)?;
                 u16::try_from(id.to_u32()).ok()
             }
@@ -1068,11 +1138,11 @@ fn narrow(value: f64) -> f32 {
 /// > The name of a predefined `CMap`, or a stream containing a `CMap` that maps character codes
 /// > to font numbers and CIDs.
 ///
-/// Of the predefined names, Table 116's two Identity `CMap`s are the only ones this tree can
-/// build, because the other seventy-odd *are* data — the registered `CMap` files — and
-/// vendoring them is a licensing decision rather than a coding one. Guessing at one would map
-/// codes to the wrong glyphs, which is plausible-looking wrong text and the worst kind of
-/// rendering error, so a font naming one is refused and reported.
+/// Of the predefined names, Table 116's two Identity `CMap`s are built here and the rest are
+/// *data* — the registered `CMap` files — which this binary has carried since the
+/// hundred-and-fifty-sixth session (see [`crate::predefined`]). A name it does not carry is
+/// still refused and reported rather than approximated: guessing at a `CMap` maps codes to the
+/// wrong glyphs, which is plausible-looking wrong text and the worst kind of rendering error.
 ///
 /// Vertical writing is *drawn*, and this comment said it was refused for eighty-five sessions
 /// after it stopped being. §9.7.5.1 makes the mode a property of the `CMap` and it decides the
@@ -1100,7 +1170,10 @@ fn composite_cmap(document: &Document, dict: &Dictionary, name: &str) -> Result<
             // §9.7.5.2: the two Identity `CMap`s differ only in their writing mode, and
             // the vertical one carries `/WMode 1`, which `CMap::identity_vertical` states.
             b"Identity-V" => return Ok(CMap::identity_vertical()),
-            other => return Err(unsupported(&String::from_utf8_lossy(other))),
+            other => {
+                let named = String::from_utf8_lossy(other);
+                return predefined::cmap(&named).ok_or_else(|| unsupported(&named));
+            }
         },
         Object::Stream(_) => read_cmap(document, &encoding, name, 0)?,
         _ => return Err(unsupported("no /Encoding naming a CMap")),
@@ -1141,9 +1214,10 @@ fn composite_cmap(document: &Document, dict: &Dictionary, name: &str) -> Result<
 /// > present, the referencing `CMap` shall specify only the character mappings that differ from
 /// > the referenced `CMap`.
 ///
-/// A stream is read and built upon; a *name* is a predefined `CMap`, whose data this tree does
-/// not have, so the referencing map's mappings would be missing an unknown share of their
-/// codes — refused rather than half-applied.
+/// A stream is read and built upon; a *name* is a predefined `CMap`, which this binary carries
+/// (see [`crate::predefined`]) and which is therefore resolved rather than refused. A name it
+/// does not carry is still refused: the referencing map's mappings would be missing an unknown
+/// share of their codes, which is worse than saying so.
 ///
 /// §9.7.5.4 a) requires a `usecmap` operator inside the file to be named by `/UseCMap` as well:
 ///
@@ -1184,11 +1258,12 @@ fn read_cmap(
     let used = match document.get_key(&stream.dict, "UseCMap") {
         Object::Null => None,
         Object::Name(named) if named.as_bytes() == b"Identity-H" => Some(CMap::identity()),
+        Object::Name(named) if named.as_bytes() == b"Identity-V" => Some(CMap::identity_vertical()),
         Object::Name(named) => {
-            return Err(unsupported(&format!(
-                "a CMap built on the predefined {}",
-                String::from_utf8_lossy(named.as_bytes())
-            )));
+            let name_used = String::from_utf8_lossy(named.as_bytes()).into_owned();
+            Some(predefined::cmap(&name_used).ok_or_else(|| {
+                unsupported(&format!("a CMap built on the predefined {name_used}"))
+            })?)
         }
         referenced => Some(read_cmap(
             document,
@@ -1433,6 +1508,27 @@ fn encoding_names(
 }
 
 /// Reads a font's `/ToUnicode` `CMap`, which is absent more often than not.
+/// ISO 32000-2 §9.10.2's third method, steps b) to d): the character collection's own table.
+///
+/// > b. Obtain the registry and ordering of the character collection used by the font's CMap
+/// > (for example, Adobe and Japan1) from its CIDSystemInfo dictionary.
+///
+/// `None` where the descendant states no `/CIDSystemInfo`, or states one this binary carries no
+/// table for — which is every registry but Adobe's, and `Identity` orderings, where the codes
+/// are indices into a font nobody supplied and no table could say what they mean.
+fn collection_meaning(document: &Document, descendant: &Dictionary) -> Option<Meaning> {
+    let info = document.get_key(descendant, "CIDSystemInfo");
+    let info = info.as_dict()?;
+    let text = |key: &str| {
+        document
+            .get_key(info, key)
+            .as_string()
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+    };
+    let (registry, ordering) = (text("Registry")?, text("Ordering")?);
+    predefined::cid_to_unicode(&registry, &ordering).map(Meaning::ByCid)
+}
+
 fn to_unicode(document: &Document, dict: &Dictionary) -> tounicode::ToUnicode {
     let object = document.get_key(dict, "ToUnicode");
     let Some(stream) = object.as_stream() else {
