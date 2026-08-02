@@ -1,13 +1,15 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-sixty-fourth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
+session, and kept current since; the **hundred-and-sixty-fifth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
 exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
 
 `doc/PLAN.md` holds the phases and the ledger's design; `doc/adr/` holds every decision's
-argument; `doc/conformance/ledger.toml` holds one row per subclause. **This file is the state of
+argument; `doc/conformance/ledger.toml` holds one row per subclause; **`doc/RENDER_LIBRARY.md` is
+what a rendering library would have to be to fit this viewer**, written for a team building one
+and grounded in this tree's own measurements. **This file is the state of
 play, the traps, the habits and what to do next** — where something is written elsewhere, this is
 a pointer.
 
@@ -767,6 +769,19 @@ with the phase quantised, which is a positional departure, and **the oracle cont
 page 6, 1.3× on `tracemonkey.pdf`, worth at most 39% and 11% of those pages' rasterisation before
 the cost of a blitter `tiny-skia` does not provide. Refused, with the numbers.
 
+**What the whole of that argument became is a document.** `doc/RENDER_LIBRARY.md` (session 165)
+specifies the library this viewer would want from a team writing one: the input model, the API,
+the clause-11 obligations an SVG-shaped model cannot express, the failure contract Vello breaks,
+and a performance section built on the measurement `doc/gpu.txt` said nobody had taken.
+**`examples/frame_split` is that measurement** — fastest of ten offscreen frames on the 890M —
+and it reverses the obvious plan. Scene encoding is **1.1 to 1.6 ms and flat across a sixteenfold
+range of pixels**, so a retained scene is worth 4% of a frame at 4× and 22% at a thumbnail's size.
+What dominates is the per-pixel floor: the same viewport drawn from a list of **one rectangle**
+costs 3.48 ms at 596×842, 8.77 at 1191×1684 and 26.73 at 2382×3368, which is **55% to 92% of the
+frame before any of the page is drawn**, and most of it scales with bytes at about 1.2 GB/s —
+consistent with the readback a windowed host would not pay. Page 6's 5 933 glyph fills cost 2.4 to
+3.3 ms on top of that floor and **do not grow with resolution**.
+
 **That changes the case for our own backend rather than removing it.** The atlas was ADR 0128's
 headline and a GPU atlas quantises the same phase for the same reuse, so what it buys over Vello
 is 1/16-pixel reuse and no more. The other four items — damage rendering, persistent geometry,
@@ -899,6 +914,9 @@ valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_rasterise [file.pdf] [page]
 cargo run --release -p pdf-model --example glyph_reuse -- [file.pdf] [page] [scale]  # ADR 0131
 cargo run --release -p pdf-model --example strip_spans -- [file.pdf] [page] [scale]  # ADRs 0137, 0139
+cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [scale]
+  # where a GPU frame's time goes: encoding, the whole frame, and the same target drawn from a
+  # list of one rectangle. doc/RENDER_LIBRARY.md §6.1
 cargo build --release -p hayro-compare --bins && \
   cargo run --release -p hayro-compare --bin hayro-speed -- doc/pdf.js/test/pdfs/*.pdf   # ~45 min
 cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # one line per file,
@@ -1965,3 +1983,4 @@ above rather than here.
 | 162 | Everything re-verified after seven sessions of change; the strips' instruction cost priced | — |
 | 163 | 541 300 calls to `Path::bounds` become 3 007: the strips' overhead is a third of what it was | — |
 | 164 | The window re-run on `Xvfb` after ten sessions, because no gate turns a page | — |
+| 165 | What a rendering library would have to be, for a team writing one; the frame split measured | — |
