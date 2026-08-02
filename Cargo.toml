@@ -29,11 +29,16 @@ viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
 
 # External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
-# developed against that brief in its own tree (../render-lib) and wired in here at
-# its final milestone. The explicit version keeps deny.toml's wildcard ban satisfied,
-# as with the internal path dependencies above.
-quorra-gpu = { path = "../render-lib/crates/quorra-gpu", version = "0.1.0" }
-quorra-scene = { path = "../render-lib/crates/quorra-scene", version = "0.1.0" }
+# developed against that brief in its own repository and wired in here at its final
+# milestone. A git dependency rather than a path so that CI and a fresh checkout
+# reach it; Cargo.lock pins the exact revision, and deny.toml names the source.
+# For local work against an unpushed sibling checkout, patch it in:
+#
+#   [patch."https://github.com/close2/quorra"]
+#   quorra-gpu = { path = "../render-lib/crates/quorra-gpu" }
+#   quorra-scene = { path = "../render-lib/crates/quorra-scene" }
+quorra-gpu = { git = "https://github.com/close2/quorra", version = "0.1.0" }
+quorra-scene = { git = "https://github.com/close2/quorra", version = "0.1.0" }
 
 # Error handling
 thiserror = "2.0.19"

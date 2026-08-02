@@ -72,3 +72,6 @@ deny = [
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# The one git dependency: the commissioned document renderer (see the workspace
+# manifest), first-party and pinned through Cargo.lock.
+allow-git = ["https://github.com/close2/quorra"]
