@@ -604,7 +604,9 @@ next to what it covers.
 
 ### 3. What the corpus still names
 
-**The oracle's 65 contradicted pages**, grouped and ratcheted in both directions in `oracle.rs`:
+**The oracle's 72 contradicted pages**, grouped and ratcheted in both directions in `oracle.rs`
+— the groups below sum to exactly that, and this sentence said 65 for sixteen sessions while the
+numbers after the colon said 72:
 4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured),
 **20 glyph edges** whose ink matches the consensus to a fraction of a level (measured, sessions
 75, 140 and 161), 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel
