@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 712 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 711 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (748 on documents we call complete); 48 diagnosed, 712 held by name
+Corpus: 788 ambiguous pages (748 on documents we call complete); 49 diagnosed, 711 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -120,7 +120,7 @@ substituted font drew none of its characters in silence (0152), the coverage rul
 eight of them draw (0153), a pattern cell's clip worth 15% of a page's ink (0155), and a font
 program that draws nothing now saying so (0157).
 
-The bucket itself went 754 → 712 undiagnosed, and that is the least interesting number in this file. *Seven
+The bucket itself went 754 → 711 undiagnosed, and that is the least interesting number in this file. *Seven
 defects nobody could see* is the one to watch — **and one gate that found thirteen more.**
 `jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own hypothesis, and
 checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus `JPXDecode` stream
@@ -144,8 +144,8 @@ reason, and the reason is written down.
 ## The next names on the ranking
 
 `non-embedded-NuptialScript.pdf` (2.32 from the nearest), `issue16316.pdf` (2.17),
-`endchar.pdf` (1.98), `vertical.pdf` pages 2 and 3 (1.95), `stamps.pdf` (1.91),
-`issue7821.pdf` (1.79), `issue4706.pdf` (1.61).
+`endchar.pdf` (1.98), `vertical.pdf` pages 2 and 3 (1.95), `issue7821.pdf` (1.79),
+`issue4706.pdf` (1.61).
 
 **Two of those are already known to be about *where* rather than *how much*.** `stamps.pdf` and
 `issue4706.pdf` come out within 0.2 and 0.12 of every renderer on ink *and* against the

@@ -1426,7 +1426,20 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 ///
 /// Pairwise, ours is nearer every reference (0.018 to 0.037) than any two references are to each
 /// other (0.029 to 0.041), which is the corroboration rather than the finding.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 9] = [
+/// **`stamps.pdf` page 1 is the ninth, and it is the first member this group gained from the
+/// *other* end of the instrument.** Added in the two-hundred-and-twelfth session at 1.91 bounds.
+/// Two photographs with soft masks — a 512×543 and a 480×400 JPEG at 212 and 227 ppi — drawn onto
+/// a 612×792 page, so each is reduced by about three.
+///
+/// **Every renderer's ink agrees**: ours 10.06, `poppler` 10.19, `mupdf` 10.24, `ghostscript`
+/// 10.25, `hayro` 10.15, against a 576 dpi limit of 10.15. A spread of 2% on a page where the
+/// pictures are a fifth of the area says the *quantity* is not in question at all, and step 5's
+/// closed form has nothing further to say — what differs is where each filter puts an edge.
+///
+/// That is worth recording as a shape rather than as a page: **the ink instrument answers "how
+/// much" and is silent on "where"**, and a page whose ink everybody agrees on is one to open the
+/// heatmap for rather than the ink table.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 10] = [
     "bug1799927.pdf page 1",
     "freeculture.pdf page 1",
     "issue5747.pdf page 1",
@@ -1436,6 +1449,7 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 9] = [
     "issue1985.pdf page 1",
     "issue7200.pdf page 1",
     "jp2k-resetprob.pdf page 1",
+    "stamps.pdf page 1",
 ];
 
 /// Ambiguous, and the specification says how far it can be settled — which is not all the way.
