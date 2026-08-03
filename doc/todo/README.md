@@ -33,11 +33,12 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 
 | | item | corpus |
 |---|---|---|
-| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 699 pages |
+| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 698 pages |
 | [01](01-ledger-partial-rows.md) | Read the ledger's 239 `partial` rows against the code | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; a tiling cell's two halves; a hairline at the raster's edge | 4 |
+| [13](13-a-loca-table-that-goes-backwards.md) | A `loca` whose offsets descend: 36 of 71 glyphs refused, in silence | 1 |
 | [12](12-a-radial-shading-is-not-a-conical-gradient.md) | §8.7.4.5.4's greatest *admissible* root, which no gradient implementation has | 2 |
 | [20](20-stencil-with-a-tiling-pattern.md) | A stencil painted with a *tiling* pattern | 2 |
 | [21](21-font-substitution.md) | Per-character fallback; `Identity` orderings; a font reported as a whole | 42 |

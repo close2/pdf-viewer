@@ -2236,6 +2236,31 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
+/// Ambiguous, and **we are the ones who are wrong**: half the sentence is missing.
+///
+/// `issue11131_reduced.pdf` is 207×41 and draws *Operating Account Consolidated Statement* in an
+/// embedded `CIDFontType2` subset under `Identity-H`. We draw about half of it —
+/// `p  r ti g   ou t o soli t  St t     t` — and say nothing, because `FontError` is per font
+/// and this font loaded and produced glyphs.
+///
+/// ```text
+/// ink   ours 3.29   hayro 3.25   mupdf 7.92   poppler 7.91   ghostscript 9.51
+/// ```
+///
+/// **The three renderers that draw the whole sentence are the three that share `libfreetype`**,
+/// and the two that do not are the two that read the font with `skrifa` — trap 9's third shape
+/// with us in the minority, and the clause is what settles it rather than the vote. The font's
+/// `loca` states 72 long offsets for 71 glyphs, which is the shape ISO/IEC 14496-22 requires,
+/// and its contents begin `16776 16776 16776 16776 10674 2188 2590 1886`: the offsets are
+/// **not ascending**, so 36 of the 71 glyphs have a negative stated length. `read-fonts` refuses
+/// those and FreeType derives each entry's extent from the entry itself.
+///
+/// Diagnosed and not fixed, with the repair sized: `doc/todo/13`. It is here rather than in a
+/// `CONTRADICTED_*` group because the verdict is `ambiguous` — `ghostscript` is 1.6 of 255 away
+/// from `poppler` and `mupdf` on a page this small, so there is no consensus to contradict, and
+/// a page can be plainly wrong inside this bucket. That is the whole argument for §3a.
+const AMBIGUOUS_LOCA_OUT_OF_ORDER: [&str; 1] = ["issue11131_reduced.pdf page 1"];
+
 /// Ambiguous, because one reference drew a blank page and the other three agree with us.
 ///
 /// `issue6006.pdf` is 100×100 and is one §8.7.4.5.4 radial shading — red at the rim, white, blue
@@ -2400,6 +2425,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_OUTLINED_TEXT)
         .chain(&AMBIGUOUS_TILED_STROKES)
         .chain(&AMBIGUOUS_REFERENCE_DREW_NOTHING)
+        .chain(&AMBIGUOUS_LOCA_OUT_OF_ORDER)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)

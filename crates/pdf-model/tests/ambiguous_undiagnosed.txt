@@ -432,7 +432,6 @@ highlights.pdf page 8
 highlights.pdf page 9
 images_1bit_grayscale.pdf page 1
 issue10339_reduced.pdf page 1
-issue11131_reduced.pdf page 1
 issue11473.pdf page 1
 issue11913.pdf page 1
 issue11931.pdf page 1
