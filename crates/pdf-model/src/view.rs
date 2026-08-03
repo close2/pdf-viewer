@@ -401,12 +401,16 @@ impl ViewState {
     ///
     /// Returns how many widgets took the value. Zero means the document has no field of that
     /// name — a caller's mistake rather than a document's — or that every widget of it is
-    /// Table 227's `ReadOnly`, which is the document refusing.
+    /// Table 227's `ReadOnly`, or that §12.8.2.2's `/DocMDP` forbids the change: the last two
+    /// are the document refusing.
     ///
     /// **Nothing is written to the file.** `CLAUDE.md`'s rule 1 makes the document immutable;
     /// what a person did is a log beside it, and turning that log into §7.5.6's incremental
     /// update is a separate operation with its own clause.
     pub fn set_field(&mut self, document: &Document, name: &str, value: Option<&str>) -> usize {
+        if !permits_form_filling(document) {
+            return 0;
+        }
         let table = widgets_by_field_name(document);
         let Some(widgets) = table.get(name) else {
             return 0;
@@ -1087,6 +1091,39 @@ fn interactive_form(document: &Document) -> Option<(ObjectId, Dictionary)> {
     let catalog = document.catalog().ok()?;
     let id = catalog.get("AcroForm").and_then(Object::as_reference)?;
     Some((id, document.get(id).as_dict().cloned()?))
+}
+
+/// Whether the document's own permissions let a person fill in a form field (§12.8.2.2).
+///
+/// ISO 32000-2 §12.8.2.2.1 says what a certification signature's `/P` means and, in one
+/// parenthesis, what a *processor* owes it:
+///
+/// > (These changes to the document shall also be prevented if the signature dictionary is
+/// > referred from the DocMDP entry in the permissions dictionary.)
+///
+/// So `/P` is not only a statement about which changes invalidate the signature — with
+/// §12.8.6's `/Perms /DocMDP` beside it, it is a `shall` addressed to whoever modifies the
+/// file. Table 257 gives the levels: 1 permits no change at all, 2 permits "filling in forms,
+/// instantiating page templates, and signing", 3 adds annotations. Filling in a field is
+/// therefore refused at 1 and permitted at 2 and 3.
+///
+/// # Why this only became a requirement in the hundred-and-ninety-first session
+///
+/// The clause binds a processor that *modifies*, and until the hundred-and-thirty-fifth this
+/// one could not: §12.8.6's ledger row said "this program has no feature behind such a gate"
+/// and it was true when it was written. Form filling landed in 135 and saving in 136, and the
+/// sentence above became this tree's to obey without any clause changing. It is the same shape
+/// as §7.6.3.2's random initialisation vector, which sat in an `implemented` row for a hundred
+/// and twenty sessions because a reader only ever *read* one (ADR 0129).
+///
+/// An unknown `/P` — Table 257 defines 1, 2 and 3 — is treated as permitting, because refusing
+/// on a value the standard does not define would let a malformed number lock a document a
+/// person is entitled to fill in.
+fn permits_form_filling(document: &Document) -> bool {
+    !matches!(
+        crate::signature::permissions(document).doc_mdp,
+        Some(crate::signature::Modification::None)
+    )
 }
 
 /// Whether Table 227's `ReadOnly` flag reaches this widget, through §12.7.4.1's inheritance.

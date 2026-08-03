@@ -467,3 +467,67 @@ fn a_read_only_field_refuses_a_person_and_not_an_import() {
     let (after, _) = drawn(&document, &view);
     assert!(after.contains("imported"), "{after:?}");
 }
+
+/// A form whose author certified the document with §12.8.2.2's `/P`.
+///
+/// The catalog gains §12.8.6's `/Perms /DocMDP`, pointing at a signature whose `/Reference`
+/// names the `DocMDP` transform and states the level. Objects are appended, so the
+/// cross-reference table is rebuilt.
+fn certified_form(level: i64) -> Vec<u8> {
+    let form = String::from_utf8(form()).expect("the fixture is ASCII");
+    let with_perms = form.replace(
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm",
+        "<< /Type /Catalog /Perms << /DocMDP 8 0 R >> /Pages 2 0 R /AcroForm",
+    );
+    assert_ne!(with_perms, form, "the fixture states a catalog");
+    let signature = format!(
+        "8 0 obj\n<< /Type /Sig /Reference [9 0 R] >>\nendobj\n\
+         9 0 obj\n<< /Type /SigRef /TransformMethod /DocMDP \
+         /TransformParams << /Type /TransformParams /P {level} /V /1.2 >> >>\nendobj\n"
+    );
+    let body = with_perms
+        .split_once("xref\n")
+        .map_or(with_perms.as_str(), |(body, _)| body);
+    rebuilt(&format!("{body}{signature}"))
+}
+
+/// §12.8.2.2's `/P` 1 prevents a change rather than only invalidating a signature.
+///
+/// ISO 32000-2 §12.8.2.2.1, in a parenthesis that is easy to read past:
+///
+/// > (These changes to the document shall also be prevented if the signature dictionary is
+/// > referred from the DocMDP entry in the permissions dictionary.)
+///
+/// Table 257 makes `/P` 1 "no changes to the document shall be permitted" and `/P` 2 "filling
+/// in forms, instantiating page templates, and signing". So the same fixture at two levels
+/// gives opposite answers to one person typing, which is what makes this a test of the clause
+/// rather than of a flag — and the sentence only became this tree's to obey when it acquired
+/// the verb, in the hundred-and-thirty-fifth session.
+#[test]
+fn a_certified_document_refuses_the_change_its_author_forbade() {
+    let final_document = Document::open(certified_form(1)).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&final_document);
+    assert_eq!(
+        view.set_field(&final_document, "name", Some("typed")),
+        0,
+        "/P 1 permits no change at all"
+    );
+    let (after, _) = drawn(&final_document, &view);
+    assert!(!after.contains("typed"), "{after:?}");
+
+    let fillable = Document::open(certified_form(2)).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&fillable);
+    assert_eq!(
+        view.set_field(&fillable, "name", Some("typed")),
+        1,
+        "/P 2 permits filling in forms"
+    );
+    let (after, _) = drawn(&fillable, &view);
+    assert!(after.contains("typed"), "{after:?}");
+
+    // Table 257 defines 1, 2 and 3 and nothing else; a value outside them may not lock a
+    // document a person is entitled to fill in.
+    let odd = Document::open(certified_form(9)).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&odd);
+    assert_eq!(view.set_field(&odd, "name", Some("typed")), 1);
+}

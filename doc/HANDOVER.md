@@ -2112,6 +2112,22 @@ anchor that makes it checkable.
   expression looking for a different kind of blocker: not "needs §X" but "would cost too much
   here".
 
+- **The three sweeps found a fourth shape in the hundred-and-ninety-first, and it is the
+  strongest one yet: a row whose "this program has no ___" was about a *verb*.** §12.8.6 said
+  a usage-rights signature grants "features of a PDF processor that are not available by
+  default" and that "this program has no feature behind such a gate"; §12.8.2.3 said the same.
+  Both were true when written and both stopped being true in the hundred-and-thirty-fifth and
+  -sixth sessions, when this program learned to fill in a field and save the file — which are
+  exactly the rights Table 258 grants and exactly the changes Table 257's `/P` restricts. And
+  the requirement was not a new one: §12.8.2.2.1 has always carried, in a parenthesis, "(These
+  changes to the document shall also be prevented if the signature dictionary is referred from
+  the DocMDP entry in the permissions dictionary.)" A `shall`, addressed to a processor that
+  modifies, unread for fifty-six sessions after this one became one. `ViewState::set_field` now
+  refuses at `/P` 1 and permits at 2 and 3, and §12.8.2.3's `should` — remove a UR signature
+  the modification exceeds — is named as owed. **After a session that gives the program a verb,
+  the rows to re-read are the ones whose reason is about what the program *is*, not only about
+  what a clause needs.**
+
 - **Sweep for the reason's *shape*, not for its clause.** Sessions 118 and 122 grepped the
   ledger's notes for "while §X does not exist" and for entries claimed unread. The
   hundred-and-seventy-fourth grepped for a third shape — "this program has no ___", "no panel",
@@ -2555,3 +2571,4 @@ above rather than here.
 | 188 | And not applied where it cuts nothing — which found the bound it replaced wrong | 0155 |
 | 189 | The quorra backend over the whole corpus: a fifth gate, and what it found | 0156 |
 | 190 | A page that is all sub-pixel line work, and the pair that antialiases it | — |
+| 191 | The three sweeps run again: §12.8.2.2's parenthesis became a `shall` when the program learned to write | — |

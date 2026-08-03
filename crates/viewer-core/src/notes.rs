@@ -109,6 +109,33 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
             }
         }
     }
+    // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies: "(These
+    // changes to the document shall also be prevented if the signature dictionary is referred
+    // from the DocMDP entry in the permissions dictionary.)" This program modifies since the
+    // hundred-and-thirty-fifth session, so it obeys it — `ViewState::set_field` refuses — and
+    // says so here, because a field that will not take a value is otherwise a person typing
+    // into a document that ignores them.
+    match pdf_model::signature::permissions(document).doc_mdp {
+        Some(pdf_model::signature::Modification::None) => notes.push(
+            "this document's author certified it as final (§12.8.2.2's /P 1), so no change to \
+             it is permitted and none will be accepted"
+                .to_owned(),
+        ),
+        Some(pdf_model::signature::Modification::FormFilling) => notes.push(
+            "this document's author permitted only form filling and signing (§12.8.2.2's /P 2)"
+                .to_owned(),
+        ),
+        Some(pdf_model::signature::Modification::FormFillingAndAnnotation) => notes.push(
+            "this document's author permitted form filling, signing and annotation \
+             (§12.8.2.2's /P 3)"
+                .to_owned(),
+        ),
+        Some(pdf_model::signature::Modification::Unknown(level)) => notes.push(format!(
+            "this document's /DocMDP states /P {level}, which Table 257 does not define; it is \
+             read as permitting rather than as forbidding"
+        )),
+        None => {}
+    }
     notes.push(
         "signatures are not verified — this program has no certificate store, so it says what a \
          signature claims and never whether it is valid"
