@@ -1969,7 +1969,20 @@ const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
 /// contradicted. **The page is the same page and the reading is the same reading** — which is
 /// worth recording, because a group that exists only where the vote happened to go 2–2 would be
 /// a group about the vote rather than about the clause.
-const AMBIGUOUS_LINK_BORDER: [&str; 1] = ["bug766086.pdf page 1"];
+/// **`issue18030.pdf` page 1 is the second, and it adds the sub-pixel half of the question.**
+/// Four links over four words on a 48×71 page, each `/C [0 0 .8]` with a `/Border` and `/F 4`.
+/// Ours, `poppler` and `ghostscript` draw the blue boxes; `mupdf` and `hayro` draw none, for
+/// exactly the reasons above.
+///
+/// The closed form separates the two questions. `mupdf` and `hayro`, with no border at all, sit
+/// at **21.6**. Ours is **31.66** at the page's own scale and **32.82** at eight times it — the
+/// same picture, so our border is a real width that scales. `poppler` is 39.28 at 72 dpi and
+/// **31.39** at 2304, which is a quarter of its ink at the page's own scale coming from painting
+/// a line a fraction of a pixel wide solid (§10.7.4 as written).
+///
+/// So the page carries both of this file's standing arguments at once: whether a link has a
+/// border, and how heavy a sub-pixel one is. Neither is ours to be wrong about.
+const AMBIGUOUS_LINK_BORDER: [&str; 2] = ["bug766086.pdf page 1", "issue18030.pdf page 1"];
 
 /// Ambiguous, and §12.5.6.10 states the region and not one number about the marks in it.
 ///

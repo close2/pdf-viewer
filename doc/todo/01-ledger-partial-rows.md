@@ -39,6 +39,14 @@ Three false-positive shapes on the second, all seen: a note *quoting* its own re
 (§9.6), a key named in a sentence about something else (§12.7.5.3), and a key that is a string in
 an unrelated list (`/Metadata` in `thumbnail.rs`). Read the hit before believing it.
 
+**A fourth, and it is the most common: one short key, three clauses.** The two-hundred-and-ninth
+session's run of the second sweep produced five hits and *all five* were this — §8.4.5's `/BG`
+and `/TR` are Table 57's device transfer and black generation, while `appearance.rs`'s `"BG"` is
+Table 232's widget background and `soft_mask.rs`'s `"TR"` is Table 145's soft-mask transfer
+function. Three clauses, two names, nothing stale. **A clean run of a sweep is a result**: it says
+the population it watches has not drifted since the last one, which is the only way that
+population is ever watched at all.
+
 ## The shape the sweeps found last, and it is the longest-lived
 
 The two-hundred-and-first session ran the capability sweep again. **§12.3.2.1** said a

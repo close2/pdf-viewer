@@ -481,7 +481,6 @@ issue16316.pdf page 1
 issue16473.pdf page 1
 issue16742.pdf page 1
 issue17065.pdf page 1
-issue18030.pdf page 1
 issue18072.pdf page 1
 issue18529.pdf page 1
 issue18911.pdf page 1
