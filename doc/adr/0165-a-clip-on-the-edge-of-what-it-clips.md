@@ -114,6 +114,21 @@ that list's name suggests.
 The fallback to `square(limit)` survives in one place and it is the honest one: where the incoming
 or outgoing direction is unknown, nothing is known about the angle either.
 
+## What it costs, measured
+
+`join_extent` runs per join per stroke, inside `marked_bounds`, which the strip planner and the
+redundant-clip rule both call — so the arithmetic is on a path that runs per command. Callgrind,
+same command before and after, on the two most stroke-heavy pages in the corpus:
+
+| page | before | after |
+|---|---|---|
+| `22060_A1_01_Plans.pdf` — an A1 drawing that is nearly all sub-pixel line work | 50 400 961 302 | **50 394 903 401** |
+| `bug1799927.pdf` — 2 156 inline stencils and a CAD frame | 2 813 294 787 | **2 811 887 134** |
+
+**−0.012% and −0.05%** — a hair *faster*, which is the clip that no longer has to be applied
+paying for the two square roots. `CLAUDE.md`'s principle 2 asks for a benchmark behind an
+optimisation; the same discipline applied to a correctness change says its cost here is nil.
+
 ## Alternatives rejected
 
 - **Drop the `/BBox` clip for appearances.** §8.10.2 makes it a `shall`, and an appearance that

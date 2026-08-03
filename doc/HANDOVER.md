@@ -2317,3 +2317,4 @@ above rather than here.
 | 210 | Sizing the radial fix found trap 2 in the middle of it | — |
 | 211 | A 112-unit border on a 150×20 rectangle, and §12.5.4's one sentence settles it against `poppler` | — |
 | 212 | A page whose ink everybody agrees on is one for the heatmap, not the ink table | — |
+| 213 | Everything re-verified; two recipes that had stopped working; the miter arithmetic costs −0.01% | 0165 |
