@@ -154,27 +154,31 @@ const DIFFERS_AT_THE_EDGES: [&str; 29] = [
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.
 ///
-/// Something is in a different place or not there at all, and each of these is a question for
-/// the backend rather than for its antialiasing.
+/// The name is the *classifier's*, and every page here has now been examined; none is an
+/// open question. What left, and why: `issue4260_reduced.pdf` (§10.7.4's degenerate fills)
+/// moved to the edge group; `issue2177.pdf`, `issue6769.pdf`, `issue6769_no_matrix.pdf` and
+/// `bug946506.pdf` agreed when anisotropically-transformed strokes started outlining in path
+/// space; `issue10572.pdf` and `issue14165.pdf` agreed when quorra raised its ramp sampling
+/// from 256 to 4096 texels — a banded shading's hard stop boundary snapped to the coarser
+/// grid and sat ~3.5 px off on a page-spanning axis.
 ///
-/// What has already left this list says what examining it buys. `issue4260_reduced.pdf`
-/// (§10.7.4's degenerate fills) moved to the edge group. `issue2177.pdf`, `issue6769.pdf` and
-/// `issue6769_no_matrix.pdf` — sheared pattern marks and a shaded bar drawn fat — agree
-/// outright since the backend routes anisotropically-transformed strokes through path-space
-/// outlining instead of a scalar device width; `bug946506.pdf` agreed with them. The two at
-/// today's head, `issue16038.pdf` and `issue16316.pdf`, are examined and are miniature pages
-/// (73×39 px) of sub-half-pixel hairlines and 8-px text: the two rasterisers put the same ink
-/// on different sides of a pixel boundary, the totals match, and a page that small turns that
-/// fraction into a large mean. Matching `tiny-skia`'s sub-pixel distribution byte-for-byte
-/// would be curve-fitting to another renderer, which quorra's own charter forbids; they stay
-/// listed so a *growth* in their numbers is still a finding.
-const DIFFERS_IN_SHAPE: [&str; 17] = [
+/// What stays, measured pixel by pixel: six pages (`copy_paste_ligatures`,
+/// `issue4402_reduced`, `issue18030`, `issue7454`, `issue15150`, `160F-2019`) have **zero**
+/// pixels differing by more than 64 of 255 — miniature or enormous pages where uniform
+/// sub-step coverage differences drag the similarity score below the threshold without any
+/// shape moving. `knockout_groups_test.pdf` and `issue840.pdf` differ on 2 and 4 pixels
+/// respectively. The rest are the hairline-and-texture family — sub-half-pixel rules
+/// (`issue16038`, `issue12295`, `issue20232`, `22060_A1_01_Plans`), 8-px text
+/// (`issue16316`, `standard_fonts`), halftone photographs under the stated linear-sampler
+/// variance (`issue269_2`) — where the two rasterisers put the same ink on different sides
+/// of a pixel boundary. Matching `tiny-skia`'s sub-pixel distribution byte-for-byte would be
+/// curve-fitting to another renderer, which quorra's charter forbids; they stay listed so a
+/// *growth* in their numbers is still a finding.
+const DIFFERS_IN_SHAPE: [&str; 15] = [
     "160F-2019.pdf",
     "22060_A1_01_Plans.pdf",
     "copy_paste_ligatures.pdf",
-    "issue10572.pdf",
     "issue12295.pdf",
-    "issue14165.pdf",
     "issue15150.pdf",
     "issue16038.pdf",
     "issue16316.pdf",
