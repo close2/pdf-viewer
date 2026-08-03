@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 683 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 524 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 78 diagnosed, 683 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 237 diagnosed, 524 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -80,10 +80,20 @@ session is that the tree is far enough along for this to be the work.
 
 6. **Where the difference is scan conversion, the closed form is the same page at eight times the
    resolution.** Ink is a geometric quantity and a renderer's departure from it shrinks as the
-   pixels do, so `pdftoppm -r 576` measures what the page's marks actually cover — no reference
-   is being trusted, because the same renderer is being asked at two resolutions and only the
-   *limit* is used. `bug1799927.pdf` is where this paid: at 72 dpi the five renderers span 5.94
-   to 13.40 and the limit is 10.8, which says which of them is measuring area.
+   pixels do, so `pdftoppm -cropbox -r 576` measures what the page's marks actually cover — no
+   reference is being trusted, because the same renderer is being asked at two resolutions and
+   only the *limit* is used. `bug1799927.pdf` is where this paid: at 72 dpi the five renderers
+   span 5.94 to 13.40 and the limit is 10.8, which says which of them is measuring area.
+
+   **`-cropbox` is not optional either, and it is `-alpha off`'s twin.** `pdftoppm` renders the
+   **`/MediaBox`** by default; the oracle, `mutool draw` and this tree all render the
+   **`/CropBox`**. On a document where the two differ the comparison is between two different
+   pages, and the ink is wrong by the ratio of their areas — on `freeculture.pdf` that is 1.378,
+   so a ladder taken without the flag put `poppler` at 9.10 against our 12.18 and would have
+   manufactured a 34% defect on four pages that agree to **0.03 of 255** (the
+   two-hundred-and-thirty-third session, `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`). The tell is the
+   raster's size: `magick identify` every panel before believing any number, and if the
+   dimensions differ the measurement has not started yet. `mutool draw -r N` needs no flag.
 
    **And the assumption inside it is checkable, because it has failed once.** The step assumes
    the reference *converges on the geometry* as the pixels shrink. On `issue2177.pdf`, a page of
@@ -154,8 +164,17 @@ exist yet.**
 | | |
 |---|---|
 | distinct documents the pages come from | ~181 |
-| `freeculture.pdf` (320) and `pdkids.pdf` (52) | **372 — two long books, half the bucket** |
+| `freeculture.pdf` (309) and `pdkids.pdf` (52) | **361 — two long books** |
+| **one paper under twelve names** (`tracemonkey.pdf` and eleven copies) | **154, diagnosed in the two-hundred-and-thirty-third session** |
 | documents contributing exactly **one** page | ~154 |
+
+**A quarter of the bucket was one document wearing different names, and nothing said so.**
+`tracemonkey.pdf` is pdf.js's canonical fixture and eleven other corpus documents are the same
+fourteen pages with an annotation added; `pdftotext` on page 9 gives the same md5 for all of
+them. One measurement settled 154 names — and the number to report is *one finding*, not 154,
+which is why `AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE` says so in its first line. **Before taking a
+name off this list, check what else in it is the same file**: `pdftotext -f N -l N | md5sum`
+across the documents sharing a page count costs a second and can be worth a hundred names.
 
 Two books and a long tail of single pages. **The books are not what this file said they were.**
 It read "set in fonts nobody embedded, so each renderer substitutes differently", and `pdffonts`
@@ -169,10 +188,21 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`freeculture.pdf` pages 329, 323, 315 and 322 (1.23 down to 1.10), then a plateau of nine pages
-at 0.99 — `comments.pdf` page 4, `bug1992868.pdf` page 9, and seven more that are the same page
-of the same annotation sheet under seven names. **The head of the ranking is the long book now**,
-which is what `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE` already says about it.
+`pr12564.pdf` (0.99 from the nearest, 2.30 from the furthest),
+`chrome-text-selection-markedContent.pdf` (0.98 / 2.15), `standard_fonts.pdf` pages 8 and 7
+(0.96 / 1.42), `issue21436.pdf` (0.95 / **8.01**), `issue11931.pdf` (0.94 / **9.63**),
+`bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf` (0.90 / 4.53),
+`issue9291.pdf` (0.87 / 1.49).
+
+**Every name above 0.85 now has a furthest at least 1.4× its nearest, and two are ten times
+it.** Step 1 says to prefer a page whose two numbers are *close*, because that is the shape that
+says we are alone — and there is no longer one on the ranking. That is a result about the list:
+the head of it is now pages where the *references* disagree, and the two at 8.01 and 9.63 are
+worth opening for what they say about a reference rather than about us.
+
+**Four `freeculture.pdf` pages and one paper under twelve names left it in the
+two-hundred-and-thirty-third**, which is 158 of them, and the shape of that result is in the
+section above: a quarter of this bucket was one document.
 
 **`issue4402_reduced.pdf` left the list in the two-hundred-and-thirty-first session**, and it is
 the clearest instance so far of shape 3 — the clause puts the answer beyond itself and says so.

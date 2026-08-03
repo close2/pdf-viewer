@@ -93,7 +93,7 @@ that exists (ADR 0146).
 | tests | **979** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirtieth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1680** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **78 of them diagnosed and 683 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1680** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **237 of them diagnosed and 524 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 860 of 23 277), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -665,7 +665,7 @@ eight of them draw (0153), and a font program that draws nothing now saying so (
 pixel wide loses the half of `tiny-skia`'s hairline smear that falls outside the raster's top
 edge, so `vertical.pdf`'s two hairlines carry 55% of their area at the page's top and 98%
 everywhere else ([todo 11](todo/11-shapes-that-still-disappear.md) item 3). The bucket itself
-went 754 → 683 undiagnosed and 78 pages carry a diagnosis; *eleven defects nobody could see* is
+went 754 → 524 undiagnosed and 237 pages carry a diagnosis; *eleven defects nobody could see* is
 the number to watch.
 
 **Step 6's own assumption failed for the first time in the two-hundred-and-sixteenth**, on
@@ -1609,6 +1609,18 @@ anchor that makes it checkable.
 - **Before believing "one pixel out" is rounding, compare the raster sizes.** One reference put
   type a row above ours from a raster *the same size as ours*, which no disagreement about row
   counts can explain. ADR 0064.
+- **`magick identify` every panel before believing any number, and the flags before that.**
+  `pdftoppm` renders the **`/MediaBox`** unless told `-cropbox`; this tree, the oracle and
+  `mutool draw` render the **`/CropBox`**. On `freeculture.pdf` the areas differ by 1.378, so a
+  ladder taken without the flag put `poppler` at 9.10 against our 12.18 and would have
+  manufactured a 34% defect on four pages that agree to 0.03 of 255. This is the twin of
+  `-alpha off`, which returns exactly half the ink on a panel that carries an alpha channel;
+  **both are a wrong measurement that looks like a finding**, and both now sit in
+  `doc/todo/00`'s step 6 where a session reaches for the command.
+- **A corpus can hold one document under a dozen names, and the bucket's shape lies until you
+  check.** 154 of the ambiguous bucket's 678 were `tracemonkey.pdf` and eleven copies of it with
+  annotations added — `pdftotext -f 9 -l 9 | md5sum` is identical across them. One measurement
+  settled all 154, and the honest number to report is *one finding*.
 - **When a metric accuses you, find one that measures the same thing differently.** Eight text
   pages failed on mean absolute difference and passed every other bound; the page's *total ink*
   put us within half a level of both voting references. One number from artefacts already written
@@ -2449,3 +2461,4 @@ above rather than here.
 | 230 | Everything re-verified after seventeen rounds of change: five fuzzers, `deny`, the six gates and the window | — |
 | 231 | The ranking's top page, and §10.7.4's own last sentence is the answer to it | — |
 | 232 | A radial shading is not a gradient: §8.7.4.5.4's greatest *admissible* root, on all three backends | 0171 |
+| 233 | A quarter of the ambiguous bucket was one paper under twelve names — and `pdftoppm` renders the wrong box | — |

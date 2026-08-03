@@ -2281,8 +2281,230 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 /// five renderers are inside 0.7 of 255 of one another. **Nobody here is drawing anything anybody
 /// else is not**, which is the finding: these pages are ambiguous by the tolerance's design and
 /// not by any defect, and the tail of the ranking below 1.4 is mostly this book.
-const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 2] =
-    ["freeculture.pdf page 255", "freeculture.pdf page 333"];
+///
+/// # Four more, and the whole head of the ranking with them
+///
+/// The two-hundred-and-thirty-third session took the next four names — the entire undiagnosed
+/// ranking above 1.0 — and they are the same page four times over:
+///
+/// ```text
+///                ours 1x   ours 8x   poppler 1x   poppler 8x   mupdf 8x
+/// page 329        12.066    12.183     12.070       12.165      12.197
+/// page 323        12.212    12.323     12.217       12.305      12.338
+/// page 315        11.859    11.976     11.870       11.959      11.991
+/// page 322        11.029    11.155     11.063       11.141      11.171
+/// ```
+///
+/// The two ladders agree to **0.032 of 255** on the first and no worse than 0.03 on any of
+/// them, so there is a limit; ours sits *between* the two references' limits on all four, and
+/// at the page's own scale ours and `poppler` are **0.004** apart. A page cannot be much more
+/// agreed about than that, and it is still `ambiguous`, because a fifth renderer somewhere in
+/// the set differs by more than a bound measured over dense small glyphs. That is the
+/// tolerance's design and not a defect, one more time and with four decimal places.
+const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 6] = [
+    "freeculture.pdf page 255",
+    "freeculture.pdf page 315",
+    "freeculture.pdf page 322",
+    "freeculture.pdf page 323",
+    "freeculture.pdf page 329",
+    "freeculture.pdf page 333",
+];
+
+/// Ambiguous, and it is **one paper under twelve names** — 154 of the bucket's 678.
+///
+/// `tracemonkey.pdf` is pdf.js's canonical fixture: *Trace-based Just-in-Time Type
+/// Specialization for Dynamic Languages*, fourteen pages of two-column academic text at about
+/// nine points. Eleven other corpus documents are the same fourteen pages with something added
+/// — highlights, comments, free text, an editable annotation, an accessibility tree — and
+/// `pdftotext` on page 9 gives the *same md5* for all of them. So this group is 154 names and
+/// **one** finding, and saying otherwise would make the count a vanity number.
+///
+/// # What the closed form says, on five pages of it
+///
+/// ```text
+///          ours 1x   ours 8x   poppler 1x   poppler 8x   mupdf 8x
+/// page 1   14.8523   14.8523    14.7315      14.8540     14.8678
+/// page 4   19.9253   19.9064    19.7787      19.9137     19.9328
+/// page 9   20.0751   20.0599    19.9217      20.0695     20.0890
+/// page 11  14.8750   14.9197    15.7177      14.9441     14.9504
+/// page 14   7.1371    7.1170     7.0054       7.1184      7.1290
+/// ```
+///
+/// The two ladders agree to **0.014 to 0.023 of 255** on every page, so there is a limit each
+/// time; ours at 8× lands between them or a hundredth under, and **ours at the page's own scale
+/// is already there** — 0.02 to 0.05 from our own limit, where `poppler` at 72 dpi is 0.12 to
+/// 0.15 *below* its. On page 9 the five renderers' ink is ours 20.075, `ghostscript` 20.249,
+/// `mupdf` 19.942, `poppler` 19.922, `hayro` 19.723: a spread of 0.53, and ours is the nearest
+/// of the five to the geometry.
+///
+/// So nobody is drawing anything anybody else is not. What makes all 154 `ambiguous` is the
+/// **text** tolerance — 0.90 structural similarity, measured over 153 reference-against-
+/// reference pairs because five rasterisers cannot agree more closely than that about small
+/// glyphs — applied to a page that is nothing but small glyphs. Across the 154 the metrics form
+/// one band: mean 3.51 to 9.93, worst tile 20.94 to 48.31, ssim 0.7977 to 0.9194, against
+/// bounds of 5.00, 40.00 and 0.9000. §10.7.4's own last sentence is what licenses the spread,
+/// and `AMBIGUOUS_GLYPH_SCAN_CONVERSION` quotes it.
+///
+/// **`poppler` on page 11 is the one number worth keeping.** It is 15.7177 at 72 dpi against its
+/// own 14.9441 at 576 — 5% over its geometry where every other page has it 1% under. That is
+/// §10.7.4 as written on marks a fraction of a pixel wide, one page over from where
+/// `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY` found it, and it is not ours.
+const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 154] = [
+    "bug1992868.pdf page 1",
+    "bug1992868.pdf page 2",
+    "bug1992868.pdf page 3",
+    "bug1992868.pdf page 4",
+    "bug1992868.pdf page 5",
+    "bug1992868.pdf page 6",
+    "bug1992868.pdf page 7",
+    "bug1992868.pdf page 8",
+    "bug1992868.pdf page 9",
+    "bug1992868.pdf page 10",
+    "bug1992868.pdf page 11",
+    "bug1992868.pdf page 12",
+    "bug1992868.pdf page 13",
+    "bug1992868.pdf page 14",
+    "comments.pdf page 1",
+    "comments.pdf page 2",
+    "comments.pdf page 3",
+    "comments.pdf page 4",
+    "comments.pdf page 5",
+    "comments.pdf page 6",
+    "comments.pdf page 7",
+    "comments.pdf page 8",
+    "comments.pdf page 9",
+    "comments.pdf page 10",
+    "comments.pdf page 11",
+    "comments.pdf page 12",
+    "comments.pdf page 13",
+    "comments.pdf page 14",
+    "highlights.pdf page 1",
+    "highlights.pdf page 2",
+    "highlights.pdf page 3",
+    "highlights.pdf page 4",
+    "highlights.pdf page 5",
+    "highlights.pdf page 6",
+    "highlights.pdf page 7",
+    "highlights.pdf page 8",
+    "highlights.pdf page 9",
+    "highlights.pdf page 10",
+    "highlights.pdf page 11",
+    "highlights.pdf page 12",
+    "highlights.pdf page 13",
+    "highlights.pdf page 14",
+    "issue12337.pdf page 2",
+    "issue12337.pdf page 3",
+    "issue12337.pdf page 4",
+    "issue12337.pdf page 5",
+    "issue12337.pdf page 6",
+    "issue12337.pdf page 7",
+    "issue12337.pdf page 8",
+    "issue12337.pdf page 9",
+    "issue12337.pdf page 10",
+    "issue12337.pdf page 11",
+    "issue12337.pdf page 12",
+    "issue12337.pdf page 13",
+    "issue12337.pdf page 14",
+    "issue18911.pdf page 1",
+    "issue18911.pdf page 2",
+    "issue18911.pdf page 3",
+    "issue18911.pdf page 4",
+    "issue18911.pdf page 5",
+    "issue18911.pdf page 6",
+    "issue18911.pdf page 7",
+    "issue18911.pdf page 8",
+    "issue18911.pdf page 9",
+    "issue18911.pdf page 10",
+    "issue18911.pdf page 11",
+    "issue18911.pdf page 12",
+    "issue18911.pdf page 13",
+    "issue18911.pdf page 14",
+    "issue19239.pdf page 1",
+    "issue19239.pdf page 2",
+    "issue19239.pdf page 3",
+    "issue19239.pdf page 4",
+    "issue19239.pdf page 5",
+    "issue19239.pdf page 6",
+    "issue19239.pdf page 7",
+    "issue19239.pdf page 8",
+    "issue19239.pdf page 9",
+    "issue19239.pdf page 10",
+    "issue19239.pdf page 11",
+    "issue19239.pdf page 12",
+    "issue19239.pdf page 13",
+    "issue19239.pdf page 14",
+    "tracemonkey.pdf page 1",
+    "tracemonkey.pdf page 2",
+    "tracemonkey.pdf page 3",
+    "tracemonkey.pdf page 4",
+    "tracemonkey.pdf page 5",
+    "tracemonkey.pdf page 6",
+    "tracemonkey.pdf page 7",
+    "tracemonkey.pdf page 8",
+    "tracemonkey.pdf page 9",
+    "tracemonkey.pdf page 10",
+    "tracemonkey.pdf page 11",
+    "tracemonkey.pdf page 12",
+    "tracemonkey.pdf page 13",
+    "tracemonkey.pdf page 14",
+    "tracemonkey_a11y.pdf page 1",
+    "tracemonkey_annotation_on_page_8.pdf page 1",
+    "tracemonkey_annotation_on_page_8.pdf page 2",
+    "tracemonkey_annotation_on_page_8.pdf page 3",
+    "tracemonkey_annotation_on_page_8.pdf page 4",
+    "tracemonkey_annotation_on_page_8.pdf page 5",
+    "tracemonkey_annotation_on_page_8.pdf page 6",
+    "tracemonkey_annotation_on_page_8.pdf page 7",
+    "tracemonkey_annotation_on_page_8.pdf page 8",
+    "tracemonkey_annotation_on_page_8.pdf page 9",
+    "tracemonkey_annotation_on_page_8.pdf page 10",
+    "tracemonkey_annotation_on_page_8.pdf page 11",
+    "tracemonkey_annotation_on_page_8.pdf page 12",
+    "tracemonkey_annotation_on_page_8.pdf page 13",
+    "tracemonkey_annotation_on_page_8.pdf page 14",
+    "tracemonkey_freetext.pdf page 1",
+    "tracemonkey_freetext.pdf page 2",
+    "tracemonkey_freetext.pdf page 3",
+    "tracemonkey_freetext.pdf page 4",
+    "tracemonkey_freetext.pdf page 5",
+    "tracemonkey_freetext.pdf page 6",
+    "tracemonkey_freetext.pdf page 7",
+    "tracemonkey_freetext.pdf page 8",
+    "tracemonkey_freetext.pdf page 9",
+    "tracemonkey_freetext.pdf page 10",
+    "tracemonkey_freetext.pdf page 11",
+    "tracemonkey_freetext.pdf page 12",
+    "tracemonkey_freetext.pdf page 13",
+    "tracemonkey_freetext.pdf page 14",
+    "tracemonkey_with_annotations.pdf page 1",
+    "tracemonkey_with_annotations.pdf page 2",
+    "tracemonkey_with_annotations.pdf page 3",
+    "tracemonkey_with_annotations.pdf page 4",
+    "tracemonkey_with_annotations.pdf page 5",
+    "tracemonkey_with_annotations.pdf page 6",
+    "tracemonkey_with_annotations.pdf page 7",
+    "tracemonkey_with_annotations.pdf page 8",
+    "tracemonkey_with_annotations.pdf page 9",
+    "tracemonkey_with_annotations.pdf page 10",
+    "tracemonkey_with_annotations.pdf page 11",
+    "tracemonkey_with_annotations.pdf page 12",
+    "tracemonkey_with_annotations.pdf page 13",
+    "tracemonkey_with_annotations.pdf page 14",
+    "tracemonkey_with_editable_annotations.pdf page 1",
+    "tracemonkey_with_editable_annotations.pdf page 2",
+    "tracemonkey_with_editable_annotations.pdf page 3",
+    "tracemonkey_with_editable_annotations.pdf page 4",
+    "tracemonkey_with_editable_annotations.pdf page 5",
+    "tracemonkey_with_editable_annotations.pdf page 6",
+    "tracemonkey_with_editable_annotations.pdf page 7",
+    "tracemonkey_with_editable_annotations.pdf page 8",
+    "tracemonkey_with_editable_annotations.pdf page 9",
+    "tracemonkey_with_editable_annotations.pdf page 10",
+    "tracemonkey_with_editable_annotations.pdf page 11",
+    "tracemonkey_with_editable_annotations.pdf page 12",
+    "tracemonkey_with_editable_annotations.pdf page 13",
+    "tracemonkey_with_editable_annotations.pdf page 14",
+];
 
 /// Ambiguous, and three pages where every renderer paints more than the geometry.
 ///
@@ -2678,6 +2900,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_ONE_LADDER)
         .chain(&AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY)
         .chain(&AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE)
+        .chain(&AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
