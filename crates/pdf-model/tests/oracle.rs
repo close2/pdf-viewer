@@ -2236,6 +2236,31 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
+/// Ambiguous, and three pages where every renderer paints more than the geometry.
+///
+/// ```text
+///                    limit             ours     hayro    poppler   mupdf    ghostscript
+/// issue12963 p8     5.6177 / 5.6180   5.601    5.841    5.921    5.630    5.488
+/// two_pages p2      1.0448 / 1.0457   1.032    1.029    1.070    1.073    1.063
+/// issue12295 p1     7.4106 / 6.9985   8.792   12.744   11.036   10.504   14.763
+/// ```
+///
+/// On the first two the ladders agree to four figures and ours is nearest the geometry — 0.017
+/// and 0.013 under, where the pair that is furthest is 0.3 and 0.03 over.
+///
+/// **`issue12295.pdf` is the extreme of this group's standing subject and is worth its numbers.**
+/// The two ladders themselves are 0.41 apart, so there is no exact limit, but both are near 7
+/// and **all five renderers are above them at the page's own scale** — ours by 1.4, `mupdf` by
+/// 3.1, `poppler` by 3.6, `hayro` by 5.3, `ghostscript` by 7.4. A page whose marks are thin
+/// enough that every renderer paints one to seven levels more than their area is §10.7.4 as
+/// written on five implementations at once, and ADR 0025's departure is why ours is the
+/// smallest of the five overshoots rather than the largest.
+const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 3] = [
+    "issue12963.pdf page 8",
+    "two_pages.pdf page 2",
+    "issue12295.pdf page 1",
+];
+
 /// Ambiguous, three more, and the third is where only one ladder can be climbed.
 ///
 /// ```text
@@ -2548,6 +2573,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
         .chain(&AMBIGUOUS_FOUR_ANSWERS)
         .chain(&AMBIGUOUS_ONE_LADDER)
+        .chain(&AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)

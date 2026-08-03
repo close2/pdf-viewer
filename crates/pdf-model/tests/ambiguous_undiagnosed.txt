@@ -434,7 +434,6 @@ issue10339_reduced.pdf page 1
 issue11473.pdf page 1
 issue11913.pdf page 1
 issue11931.pdf page 1
-issue12295.pdf page 1
 issue12337.pdf page 10
 issue12337.pdf page 11
 issue12337.pdf page 12
@@ -455,7 +454,6 @@ issue12963.pdf page 3
 issue12963.pdf page 4
 issue12963.pdf page 5
 issue12963.pdf page 7
-issue12963.pdf page 8
 issue13343.pdf page 1
 issue13193.pdf page 1
 issue13201.pdf page 1
@@ -686,4 +684,3 @@ tracemonkey_with_editable_annotations.pdf page 8
 tracemonkey_with_editable_annotations.pdf page 9
 transparency_group.pdf page 1
 two_pages.pdf page 1
-two_pages.pdf page 2
