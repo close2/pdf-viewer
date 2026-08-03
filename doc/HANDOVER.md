@@ -90,7 +90,7 @@ that exists (ADR 0146).
 | tests | **945** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **880 draw with nothing reported**, **79 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **26 of them diagnosed and 725 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **27 of them diagnosed and 722 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -885,14 +885,24 @@ the coverage rule that made eight of them draw (0153). `agrees` went 846 → **8
 denominator that moved twice; that is the wrong number to watch, and *five defects nobody could
 see* is the right one.
 
-**The next item is on the printed ranking and has not been opened**: `issue16038.pdf page 1` at
-20.54 bounds from the nearest reference — two squares of a tiling pattern where our lines are
-paler than everybody's and the black border three references draw is missing on ours. The `B`
-operator fills *and* strokes; we appear to do one of them. After it, `22060_A1_01_Plans.pdf`,
-`freeculture.pdf page 1` (the head of the 320-page book, which is font substitution) and
-`issue13316_reduced.pdf`. That is the corpus
-being treated as the specification, which principle 5 forbids, and it is easy to write because
-the pairwise numbers are cheap and the clause takes an hour.
+**The twelfth session took the ranking's head, and the sentence this file had written about it
+was wrong.** It said of `issue16038.pdf page 1` — 20.54 bounds from the nearest reference — that
+"the `B` operator fills *and* strokes; we appear to do one of them". One `open_one` at eight times
+the scale showed the border drawn and the rules drawn, and every difference about their *weight*.
+`AMBIGUOUS_TILING_CELL_CLIP` is what came out of it, and it is the shape §3a asks for: the page's
+own two patterns state the same rules at two phases, so the ink is computable — **316.29 square
+points** — and every renderer is measured against that number rather than against each other. We
+are the only one **below** it (85.3% at the page's own scale, 98.4% at 24×) and §10.7.4 says the
+painted area "shall always be at least as large as the area of the original shape". **Removing the
+suspect found the cause**: deleting the per-cell `/BBox` clip takes the left square from 0.1114 to
+0.1323 against a geometric 0.1333, so a clip that removes no geometry is removing *coverage*,
+because its mask is antialiased and two halves of a boundary pixel composite rather than add.
+That is ours, it is not the antialiasing departure, and the fix is below.
+
+After it, `22060_A1_01_Plans.pdf`, `freeculture.pdf page 1` (the head of the 320-page book, which
+is font substitution) and `issue13316_reduced.pdf`. Ranking by pairwise numbers alone would be the
+corpus being treated as the specification, which principle 5 forbids; the numbers choose the page
+and the clause decides it.
 
 **What "getting rid of" means, and it is not making them agree.** A page leaves this bucket by
 becoming `agrees`, or by joining a **named group with a diagnosis**, exactly as the 72
@@ -2478,3 +2488,4 @@ above rather than here.
 | 184 | §10.7.4 says no shape may disappear, and a page of ruling lines does | — |
 | 185 | Everything re-verified after ten sessions of change | — |
 | 186 | §10.7.4 says no shape may disappear, and a grid of ruling lines now draws | 0154 |
+| 187 | A pattern's cell clipped where it cuts nothing, measured: 15% of the ink | — |

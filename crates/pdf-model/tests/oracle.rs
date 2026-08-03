@@ -1481,6 +1481,87 @@ const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_sh
 /// argument, and this is the group that demonstrates it.
 const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 
+/// Ambiguous, and the page is its own conformance test twice over.
+///
+/// `issue16038.pdf` is 72.7 by 38.7 points and draws two squares, each `B` — filled with an
+/// **uncoloured tiling pattern** in blue and stroked in black at width 0.3985. It headed the
+/// undiagnosed ranking at 20.54 bounds from the nearest reference, and this file used to say
+/// of it that "the `B` operator fills *and* strokes; we appear to do one of them". **That was
+/// wrong and one `open_one` at eight times the scale showed it**: the black border is drawn,
+/// the blue rules are drawn, and every difference is about their *weight*.
+///
+/// # What the document states, as an area
+///
+/// The two patterns are the same figure at two phases, which is what the file was reduced to
+/// demonstrate. `/pgfpat21` has `/BBox [-1.49442 -1.49442 1.49442 1.49442]` and strokes one
+/// horizontal line across the middle of the cell; `/pgfpat22` has `/BBox [0 0 2.98883
+/// 2.98883]` and strokes one along the *bottom* and one along the top. Both steps are
+/// 2.98883, so both put a rule at every multiple of 2.98883 in pattern space — the same rows
+/// of the page — and the second states each of them twice, once from the cell below and once
+/// from the cell above. Table 74 is what makes the two equal rather than the second twice as
+/// heavy: "These boundaries shall be used to clip the pattern cell", and the stroke is 0.3985
+/// wide, so each cell contributes the half of the rule that falls inside its own box.
+///
+/// So the ink the document asks for is computable, and there is no rounding in it: ten rules
+/// per square, each 28.3468 long and 0.3985 wide, plus a border of the same width around a
+/// 28.3468 square — **316.29 square points**. Measured as `(1 − red) × area` on the oracle's
+/// own artefacts, red because the fill is pure blue and the stroke is black, so the red
+/// channel is coverage:
+///
+/// ```text
+/// ours, 24× the page's own scale     311.13   98.4% of what the geometry states
+/// ours, 8×                           307.81   97.3%
+/// ours, 1×                           269.71   85.3%
+/// hayro                              438.53  138.6%
+/// mupdf                              364.83  115.3%
+/// poppler                            495.93  156.8%
+/// ghostscript                        945.78  299.0%
+/// ```
+///
+/// **Every reference is above the area and we are the only one below it**, which is the
+/// direction §10.7.4 names: "The area covered by painted pixels shall always be at least as
+/// large as the area of the original shape." Their excess is that clause working as written —
+/// a rule 0.4 of a pixel wide paints a whole pixel — and this tree's anti-aliasing is the
+/// documented departure that draws it at 0.4. What is *not* a departure is coming out under
+/// the area, and that is what the 1× row is.
+///
+/// # The two squares are the second instrument, and they need no reference at all
+///
+/// Interior coverage of each square, ours against the geometry's 0.1333:
+///
+/// ```text
+///              left    right   right/left
+/// ours        0.1114  0.1159      1.04
+/// hayro       0.1353  0.1367      1.01
+/// mupdf       0.1329  0.2170      1.63
+/// ghostscript 0.3077  0.6538      2.13
+/// poppler     0.2705  0.0821      0.30
+/// ```
+///
+/// The two squares state the same rules, so a renderer whose two squares differ has misread
+/// one of the two `/BBox` conventions — and the three C references each differ in a different
+/// direction. `mupdf`'s 1.63 is Table 74's clip not applied: the doubled rule painted twice at
+/// full width instead of twice at half. Only the two Rust renderers draw the squares alike,
+/// and `mupdf`'s **left** square is 0.1329 against the geometry's 0.1333, which is the
+/// independent confirmation that the closed form above is right.
+///
+/// # What the shortfall is, measured by removing the suspect
+///
+/// The per-cell clip. Deleting it and re-rendering (a probe, not a change): the left square's
+/// coverage goes **0.1114 → 0.1323**, within 0.8% of the 0.1333 the geometry states, while the
+/// right square doubles to 0.2348 — which is what says the clip is load-bearing there and
+/// redundant here. `/pgfpat21`'s rule spans exactly its own box, so clipping removes no
+/// geometry at all; what it removes is *coverage*, because the clip mask is anti-aliased and
+/// the two halves of a boundary pixel composite as `1 − (1−a)(1−b)` rather than adding.
+///
+/// **So this is ours, it is not the anti-aliasing departure, and the fix is a clip that is not
+/// applied where it removes nothing.** What that needs is a bound on a stroke's *outline*
+/// rather than on its path: `Command::device_bounds` reaches `width × miter_limit` in every
+/// direction, which is 3.99 units here against a box 2.99 across, so it cannot show
+/// containment for the shape that most needs it — a butt-capped line ending exactly on the
+/// boundary reaches half a width sideways and nothing at all lengthwise.
+const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1494,6 +1575,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_STROKE_ADJUSTMENT)
         .chain(&AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE)
         .chain(&AMBIGUOUS_ZERO_AREA_FILL)
+        .chain(&AMBIGUOUS_TILING_CELL_CLIP)
         .copied()
         .collect()
 }

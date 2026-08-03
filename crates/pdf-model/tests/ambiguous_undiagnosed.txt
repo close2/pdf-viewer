@@ -486,7 +486,6 @@ issue14953.pdf page 1
 issue14999_reduced.pdf page 1
 issue15012.pdf page 1
 issue15150.pdf page 1
-issue16038.pdf page 1
 issue16224.pdf page 1
 issue16316.pdf page 1
 issue16473.pdf page 1
