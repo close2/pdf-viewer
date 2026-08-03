@@ -87,15 +87,15 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **951** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and six more arrived in the hundred-and-eighty-eighth. Quote the command with the number | — |
+| tests | **954** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the ten sessions from the hundred-and-eighty-sixth added twenty-three. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **30 of them diagnosed and 716 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **900 agree, 50 differ, 7 refused**, 17 not comparable — and the head of the differing list is `pdf-render`'s §10.7.4 rule the new backend does not ask for (ADR 0156) | `render-quorra/tests/corpus.rs`, **28 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **117 ms**, and five arrow keys turn to page 6 presenting in 15 to 35 ms with nothing refused. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **44.6 ms**, and five arrow keys turn to page 6 presenting in **9.3 to 17.4 ms** with nothing refused — re-run in the hundred-and-ninety-fifth, and both numbers are now through **quorra** rather than Vello. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
 | conformance | **346 quotations**, all verbatim, 228 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
@@ -1291,6 +1291,20 @@ of panels, extraction, trigger events and a parallel colour conversion cost the 
 nothing, which is what the numbers are for — and the one place they *did* move is priced beside
 the change that moved it (ADR 0147).
 
+**Session 195 re-measured after the ten from the hundred-and-eighty-sixth, and the total is
++0.41%.** Interpretation **2 184.4 M** against 185's 2 175.5 M; rasterisation of the
+specification's page 6 **4 056.6 M** against 4 023.7 M and page 101 **5 566.4 M** against
+5 566.0 M — the second is the same figure to four digits after two sessions that changed how
+every fill is drawn, which is what says §10.7.4's rule and the tight stroke bound cost the
+rasteriser nothing. **The interpretation figure was 2 211.1 M when it was first taken, and the
+27 M between the two was one line.** ADR 0157's per-font tally used `BTreeMap::entry`, which
+takes the resource name *by value* — an allocation per show string whether or not the font was
+already in the map, and a page names three fonts and shows thousands of strings through them.
+Stubbing the tally out measured 2 155.7 M, so the counter cost **2.2%**; hoisting it out of the
+per-glyph loop and looking up before allocating gave back 27 M of it. **A counter is not free
+where its key is a `String`**, and the way to find that out is to remove it and measure rather
+than to read the profile.
+
 **Session 185 re-measured after the ten from the hundred-and-seventy-sixth, and interpretation is
 the one that moved: 2 156.9 M → 2 175.5 M, +0.86%.** Rasterisation did not — page 6 **4 023.7 M**
 and page 101 **5 566.0 M**, both within the repeat noise of 175's figures — which is the right
@@ -1422,6 +1436,14 @@ subprocesses.** `PDFREF_CACHE=off` asks the three renderers again — how "the c
 re-checked; `PDFVIEWER_ORACLE_ONLY=a,b` compares only matching pages in 0.2 s and refuses to check
 the ratchets, saying so. `PDFVIEWER_CORPUS_TRACE=1` names each document as it starts, which is how
 a hang is identified from a killed run.
+
+**One gate is red and it is not this tree's own prose**: `-p conformance`'s
+`every_citation_names_a_clause_that_exists` names ten `§4.5`, `§2.2` and `§4.6` citations in
+`crates/render-quorra`, which are sections of `doc/RENDER_LIBRARY.md` rather than of ISO 32000-2.
+The checker's rule is the one this file states — **a `§` means one document** — and it already
+accepts another document's sections when the document is named first (`RFC 3986 §5.2` is the
+standing example), so the fix is to write `RENDER_LIBRARY.md §4.5`. Left for the crate's author,
+whose working tree holds it.
 
 Cargo prints one line about `proc-macro-error2` being rejected by a future compiler. It arrives
 through `iai-callgrind`, a dev-dependency reaching no shipped binary, and `deny.toml` records the
@@ -2609,3 +2631,4 @@ above rather than here.
 | 192 | The 320-page book's cover is one reduced JPEG, and `pdfimages` said so in twenty minutes | — |
 | 193 | A font program that draws nothing says so, and the condition was not the one written down | 0157 |
 | 194 | A one-bit scan reduced by six: the bucket's fourth entry is one image too | — |
+| 195 | Everything re-verified after ten sessions of change; a 2.2% counter given back | — |

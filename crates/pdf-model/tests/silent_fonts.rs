@@ -76,5 +76,5 @@ fn a_page_of_ordinary_text_reports_nothing_about_its_fonts() {
         !said.contains("no outline for any"),
         "a page that draws its text must not report: {said}"
     );
-    assert!(interpretation.is_complete(), "and it is complete: {}", said);
+    assert!(interpretation.is_complete(), "and it is complete: {said}");
 }
