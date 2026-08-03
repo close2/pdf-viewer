@@ -93,7 +93,7 @@ that exists (ADR 0146).
 | tests | **970** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-eight sessions from the hundred-and-eighty-sixth added thirty-three. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **75 of them diagnosed and 686 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **77 of them diagnosed and 684 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -107,9 +107,14 @@ written down as one (trap 5). The 14 specification PDFs in `doc/` — including 
 1023 pages, 101 318 objects — all parse, draw page one with nothing reported, and extract 100% of
 `pdftotext`'s words.
 
-**Read the oracle's 45% ambiguous with care.** 372 of those pages are two long books set in fonts
-nobody embedded, so each renderer substitutes differently. That row means "reported nothing", not
-"drew it right" — and since the hundred-and-seventy-fifth session **emptying it is a task rather
+**Read the oracle's 45% ambiguous with care.** 372 of those pages are two long books of dense
+text at book size, where `Interpretation::glyphs` earns the page the *text* tolerance — 0.90
+structural similarity, measured over 153 reference-against-reference pairs because the references
+disagree with each other at worst-tile 26 to 28 on text. **This file said for many sessions that
+those books are "set in fonts nobody embedded, so each renderer substitutes differently", and
+`pdffonts` says otherwise**: `freeculture.pdf`'s four fonts are all embedded and nothing
+substitutes on any of its pages (the two-hundred-and-twenty-ninth session, `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`).
+That row means "reported nothing", not "drew it right" — and since the hundred-and-seventy-fifth session **emptying it is a task rather
 than a caveat**: §3a.
 
 **Both moving numbers move in both directions on purpose.** Contradicted pages: 174 → 65 over
@@ -2408,3 +2413,4 @@ above rather than here.
 | 226 | One text field, four renderers, four answers — and one of them draws the string backwards | — |
 | 227 | Three more, one of them the case where step 6 has one ladder and not two | — |
 | 228 | A page where all five renderers paint one to seven levels more than the geometry, and ours the least | — |
+| 229 | Why half the ambiguous bucket is ambiguous — and it is not the reason this file gave for it | — |

@@ -2236,6 +2236,35 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
+/// Ambiguous, and the reason this file's 320 pages are here is not the one that was written down.
+///
+/// `freeculture.pdf` is one of the two long books that make up half §3a's bucket, and this
+/// project's handover explained both of them the same way for many sessions: "two long books set
+/// in fonts nobody embedded, so each renderer substitutes differently". **`pdffonts` says
+/// otherwise** — `P22Typewriter` twice, `ZapfDingbats` and `Monospace821BT-Roman`, and every one
+/// of the four is *embedded*. There is no substitution on these pages at all.
+///
+/// What they are is dense text at book size, where `Interpretation::glyphs` earns the page the
+/// **text** tolerance — 0.90 structural similarity, chosen over 153 reference-against-reference
+/// pairs because the references disagree with each other at worst-tile 26 to 28 on text. A page
+/// of nothing but small glyphs is a page where five rasterisers cannot agree closely enough for
+/// any of them to be called wrong, and the bound is doing exactly what it was measured to do.
+///
+/// The two on the ranking, with the closed form:
+///
+/// ```text
+///                  limit             ours     hayro    poppler   mupdf    ghostscript
+/// page 255        36.144 / 36.149   36.206   36.791   36.091   36.062   36.252
+/// page 333        12.515 / 12.549   12.435   12.141   12.434   12.437   12.529
+/// ```
+///
+/// Ours is 0.06 over the geometry on the first and 0.10 under it on the second, and on both the
+/// five renderers are inside 0.7 of 255 of one another. **Nobody here is drawing anything anybody
+/// else is not**, which is the finding: these pages are ambiguous by the tolerance's design and
+/// not by any defect, and the tail of the ranking below 1.4 is mostly this book.
+const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 2] =
+    ["freeculture.pdf page 255", "freeculture.pdf page 333"];
+
 /// Ambiguous, and three pages where every renderer paints more than the geometry.
 ///
 /// ```text
@@ -2574,6 +2603,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_FOUR_ANSWERS)
         .chain(&AMBIGUOUS_ONE_LADDER)
         .chain(&AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY)
+        .chain(&AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
