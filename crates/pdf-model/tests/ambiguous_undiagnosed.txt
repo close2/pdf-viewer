@@ -11,7 +11,6 @@
 # One page per line, exactly as the gate names it. Blank lines and lines beginning with `#`
 # are ignored.
 160F-2019.pdf page 1
-22060_A1_01_Plans.pdf page 1
 S2.pdf page 1
 TAMReview.pdf page 1
 TAMReview.pdf page 10

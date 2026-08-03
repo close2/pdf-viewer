@@ -1571,6 +1571,58 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// altogether — and the page stays here until somebody takes it.
 const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 
+/// Ambiguous, and it is a page made almost entirely of sub-pixel line work.
+///
+/// `22060_A1_01_Plans.pdf` is an A1 architectural drawing rendered onto 842×1191 pixels: four
+/// floor plans, their hatching, their dimension lines and their annotations, nearly all of it
+/// strokes narrower than a device pixel. At 13.32 bounds from the nearest reference it was
+/// second on the undiagnosed ranking, and the whole of the difference is how heavy a line
+/// thinner than a pixel comes out.
+///
+/// # What the clause determines, and it is not in our favour
+///
+/// §10.7.4's stated scan conversion paints "any pixel whose half-open square region intersects
+/// the shape, no matter how small the intersection is", so a stroke 0.4 of a pixel wide is a
+/// **solid** line — Figure 70 draws exactly that. This tree anti-aliases instead, which is that
+/// subclause's first documented departure, licensed by §10.7.1's NOTE that the algorithm "is
+/// not defined by PDF" and argued in the ledger and in `CONTRADICTED_ANTIALIASED_EDGES`. On a
+/// page of ordinary text and rectangles that departure moves edges; on a page that is *all*
+/// edges it moves the whole picture.
+///
+/// **§10.7.5 does not apply here and that was checked rather than assumed.** The clause that
+/// would make a sub-half-pixel stroke one pixel wide is conditioned on stroke adjustment, and
+/// this document does not enable it: `/SA` occurs **zero** times in its 6.3 MB, raw and inside
+/// every stream that inflates. `bug1743245.pdf` is the page where the same clause *does* apply
+/// and decides it (`AMBIGUOUS_STROKE_ADJUSTMENT`); the two together are what make ours a
+/// derivation rather than a preference.
+///
+/// # The measurement, and it splits the renderers into two camps
+///
+/// Ink over the page, `(1 − mean) × 255` on the greyscale of each artefact:
+///
+/// ```text
+/// ours 10.00   hayro 10.27   ghostscript 10.59  │  poppler 13.49   mupdf 13.75
+/// ```
+///
+/// And mean absolute difference from our render, over the 841×1190 both rasters share:
+///
+/// ```text
+/// hayro 571   mupdf 1478   poppler 1749   ghostscript 2091      (poppler vs mupdf: 1081)
+/// ```
+///
+/// **We agree with `hayro` almost twice as closely as the closest pair of references agree
+/// with each other**, and `hayro` is the other renderer here that anti-aliases at a shape's
+/// own coverage. The pair that agrees most closely with *each other* — `poppler` and `mupdf`,
+/// 2% apart in ink — is the pair that draws a thin line heavier than its coverage, which is
+/// §10.7.4 as written.
+///
+/// **One thing measured and not explained**: `ghostscript` is the *furthest* from us of the
+/// four while carrying almost the same total ink, and no whole-pixel shift improves it (all
+/// nine offsets are worse than none). So its difference is about *where* rather than *how
+/// much* — a plan drawing is exactly the kind of document that carries optional content, and
+/// what `gs` does with a configuration is a separate question from this one.
+const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 1] = ["22060_A1_01_Plans.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1585,6 +1637,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE)
         .chain(&AMBIGUOUS_ZERO_AREA_FILL)
         .chain(&AMBIGUOUS_TILING_CELL_CLIP)
+        .chain(&AMBIGUOUS_SUB_PIXEL_LINE_WORK)
         .copied()
         .collect()
 }
