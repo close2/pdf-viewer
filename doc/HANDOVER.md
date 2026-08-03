@@ -1,19 +1,21 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-eighty-sixth** is the last one in it. Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed
-exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
+session, and kept current since; the **hundred-and-ninety-sixth** is the last one in it, and it
+is the session that moved the owed work out into `doc/todo/`. Read `/CLAUDE.md` first — the five
+principles, what *done* means, and the closed exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
 
-`doc/PLAN.md` holds the phases and the ledger's design; `doc/adr/` holds every decision's
-argument; `doc/conformance/ledger.toml` holds one row per subclause; **`doc/RENDER_LIBRARY.md` is
-what a rendering library would have to be to fit this viewer**, written for a team building one
-and grounded in this tree's own measurements. **`doc/QUORRA_FEEDBACK.md` is what came back**:
-the findings of the corpus-scale comparison, written for that team rather than for this file's
-readers, with a reproduction command against each one. **This file is the state of
-play, the traps, the habits and what to do next** — where something is written elsewhere, this is
-a pointer.
+**`doc/todo/` holds one file per piece of owed work**, numbered so that `ls` sorts by priority;
+its `README.md` is the index and `02-every-round.md` is what a round does. `doc/PLAN.md` holds the
+phases and the ledger's design; `doc/adr/` holds every decision's argument;
+`doc/conformance/ledger.toml` holds one row per subclause; **`doc/RENDER_LIBRARY.md` is what a
+rendering library would have to be to fit this viewer** and `doc/QUORRA_FEEDBACK.md` is what came
+back when one was built to it.
+
+**This file is the state of play, the traps and the habits** — where something is written
+elsewhere, this is a pointer, and the pointer is the whole entry.
 
 **A lesson lives here exactly once**: in a trap if it changes how you write code, in Habits if it
 changes how you work, in the numbers if it is a fact about today. A session's narrative belongs
@@ -85,7 +87,7 @@ with Table 45's checksum checked against them (§7.11.4, ADR 0145). **The docume
 tab is open**: Table 29's `/PageMode` names a panel, and three of its six values now name one
 that exists (ADR 0146).
 
-### The four gates, today
+### The five gates, today
 
 | gate | number | where |
 |---|---|---|
@@ -171,79 +173,70 @@ are met by construction. ADR 0122.
 
 ### What is not implemented
 
-Every one is *reported* at runtime rather than silently skipped. The count is how many of the 974
-documents' first pages it affects.
+Every one is *reported* at runtime rather than silently skipped, and **each has a file in
+`doc/todo/`** carrying the evidence, the clause and what it would cost. The count is how many of
+the 974 documents' first pages it affects.
 
-| Missing | Corpus | Notes |
+| Missing | Corpus | |
 |---|---|---|
-| A stencil painted with a *tiling* pattern (§8.9.6.2) | 2 | 5 images over 2 documents. The shading half landed in the hundred-and-eighty-first — the stencil becomes a §11.5.2 alpha mask and the pattern fills through it (ADR 0151) — and a tiling pattern is a replayed content stream rather than a paint, so it needs the tiling machinery to accept a mask. Refused by name; it used to be painted in whatever colour the state last held. |
-| A `/DA` font `/DR` does not define | 7 | A malformed file, not a clause gap: §12.7.4.3 requires the name to match a `/DR` entry. Since ADR 0112 the value is laid out in a stand-in **where the stand-in can draw all of it** and the missing font is named; four Arabic-valued documents decline, because a Latin stand-in drawing their punctuation is worse than a blank. |
-| A composite `/DA` font, a list box, `/DS`, `/RV` | 0 | The rest of §12.7.4.3's edges, none reached. A composite font needs §9.7.6.2's codespace ranges inverted; §12.7.5.4 states which items are selected and nothing about how that *looks*; `/DS` and `/RV` are XFA. |
-| Public-key handlers (§7.6.5) | 0 | CMS enveloped data, X.509, the user's private keys — an infrastructure and a threat model, not a cipher. |
-| `/R` 5 | 1 | Table 21 says `/R` 5 "shall not be used" and states no algorithm. **The non-ASCII revision-4 password left this row in the hundred-and-fifty-second session**: §7.6.4.3.2 step (a)'s conversion now uses the whole of Annex D Table D.3, which `text_string.rs` had held since the ninety-second — the row saying "this crate holds no Annex D table" was wrong for a hundred and twenty-nine sessions. What is still refused is refused by the *encoding*, which has no code for U+00A0 at all. |
-| Icons for `Stamp`, `FileAttachment`, `Sound` | 1 | Their clauses say a reader **should** provide predefined icons; §12.5.6.4 says **shall**, which is why its seven are drawn and these three are not (ADR 0109). |
+| A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
+| A fill under an eighth of a device pixel; a tiling cell's two halves | 2 | [todo 11](todo/11-shapes-that-still-disappear.md) |
+| A stencil painted with a *tiling* pattern (§8.9.6.2) | 2 | [todo 20](todo/20-stencil-with-a-tiling-pattern.md) |
+| A substitute with no glyph for a character; one that cannot be addressed | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
+| A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
+| Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
+| A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
+| Six of Table 197's ten trigger events; `NoZoom`, `NoRotate`, `/FixedPrint` | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
+| Icons for `Stamp`, `FileAttachment`, `Sound` — their clauses say *should* | 1 | [todo 26](todo/26-icons-a-clause-only-recommends.md) |
+| §14.3.2's XMP | 319 | [todo 50](todo/50-xmp.md) |
+| Signature *validation*, public-key handlers (§7.6.5), `/R` 5 | 1 | [todo 51](todo/51-signatures-and-public-keys.md) |
+| Sandboxing the interpreter and rasteriser | — | [todo 34](todo/34-sandbox-the-interpreter.md) |
 
-| A substitute face with no glyph for what the codes mean | 2 | **Was 10 and eight of them were blank pages** (ADR 0152, which made the silence loud). §9.10.2 gives the code a character and the face a family match found has no glyph for it. A substitute is chosen by **coverage** since the hundred-and-eighty-third — the widest-repertoire face that can draw a character of the collection's own script (ADR 0153) — and the two left are `issue11555.pdf` and `issue2128r.pdf`, whose characters no face on this machine has. What is owed is a **per-character** fallback, which every real text stack has and which means `LoadedFont` carrying more than one face. |
-| A substitute that cannot be addressed | 40 | Counting fonts: composite ones naming an `Identity` ordering, where the codes index a font nobody supplied and §9.10.2's third method has nothing to read; and those whose substitute draws none of the declared codes. Honest refusals. The `-UCS2` `CMap`s closed the rest in session 156. |
-| Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | Each reported where it can change a pixel: a knockout element whose shape is not its coverage (5), a non-isolated group NOTE 5 cannot flatten whose elements blend (6), a blending space that is not the device's three components (4, all `/DeviceCMYK`), a soft-mask group with such a space (7). |
-| Optional content's interactive half | — | **Closed in session 167.** §8.11 is honoured wherever it decides what is drawn; `/Order`, `/ListMode`, `/Locked`, `/RBGroups` and `/Name` have been read since session 67 and `Query::Layers` with `Command::SetGroup` since 131; `viewer_ui::chrome`'s second tab now draws the tree and throws the switch, with Table 99's `/Locked` refusing the change as the clause requires. Still unread: alternate `/Configs`, and `/ListMode`'s `VisiblePages`. |
-| Six of Table 197's ten trigger events | 15 | §12.6.3's `/E`, `/X`, `/D` and `/U` are raised by the pointer since session 174. `/Fo` and `/Bl` want keyboard focus, which this crate does not have; `/PO`, `/PC`, `/PV` and `/PI` want a page-visibility model a one-page-at-a-time window does not have. |
-| `NoZoom`, `NoRotate`, `/FixedPrint` | — | Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a resolution-independent display list cannot express. **Measured**: 90 corpus annotations set `NoZoom` — 78 popups this tree draws nothing for, 11 `Text`, 1 `FileAttachment`. |
-| Grid-fitting a stroke's coordinates (`/SA`) | — | A documented departure: the non-uniformity it removes is an artefact of the binary scan conversion §10.7.4 requires and this tree already departs from. |
-| A filled degenerate subpath's device pixel (§8.5.3.3.1) | — | The clause calls the result "device-dependent and not generally useful" in the same breath. Recorded, not reported. |
-| **A §10.7.4 mark that moves with sub-pixel placement — take this in one of the next rounds** | 1 | **Diagnosed from the other side, and the proposal is `doc/QUORRA_HAIRLINE_MARKS.md`.** `split_collapsed_fill` gives a degenerate fill one device pixel of ink at *the shape's own fractional position*, so a rule at y = 1085.3 splits half and half across two rows while one at y = 1085.0 is crisp — and a page ruled with both is visibly uneven beside Okular on a high-DPI screen (measured through a vertical cut: ours 2 rows and 1.00 of ink per line, Okular's 1 row and 0.13). **The strongest argument is the one the proposal does not make**: a mark whose appearance depends on where it falls between two pixel centres is exactly "unfavourable placement relative to the device pixel grid", which is what §10.7.4's sentence says its rule prevents. Read literally the clause paints the *pixel* the shape touches, whole — crisp like Okular's and full-ink like ours — so snapping the mark to the grid under an axis-preserving transform is the clause rather than a preference, with today's band kept as the stated fallback under a shear. **Two things to settle before the code moves.** The scope: `zero_area_fill.rs` asserts the mark is byte-identical to a `0 w` hairline stroke, which splits across two rows for the same reason, and snapping the *stroke* would be §10.7.5's grid-fitting done without `/SA` — which is what `AMBIGUOUS_STROKE_ADJUSTMENT`'s derivation rests on this tree not doing. The reading that lets them diverge is that a stroke has a stated width §10.7.5 governs conditionally while a degenerate fill has none and its mark is wholly this processor's construction under §10.7.4 — write that down, and turn the byte-identity test into an ink test. The cost: it moves `render-cpu`'s pixels, so every corpus and oracle ratchet touching a page with degenerate fills shifts, and the expectation that they shift *toward* the references is an expectation and not a measurement. |
-| A fill under an eighth of a device pixel thick | — | **Measured in the hundred-and-eighty-sixth and not fixed**, beside the rule that closed its geometric twin. `tiny-skia` samples four times per row and rounds, so a filled sliver *with* an area disappears on the CPU backend too: on an 80-unit rule at scale 1.0 the ink against the area's own answer is 0.05 → 0, 0.1 → 0, 0.2 → 19.8 of 16, 0.5 → 39.8 of 40 (`render-cpu/tests/zero_area_fill.rs`). §10.7.4's "no shape ever disappears" again, one step along — a property of the *device's* coverage quantum rather than of the geometry, so it is a rule of its own rather than an extension of the one below, and the GPU backend's own quantum is unmeasured. |
-| A mask at a grid the bound refuses | 1 | `issue16263.pdf`: a 2×2 image with a 34862×4332 mask, 604 MB. The clause's answer is compositing at *device* resolution, which needs the display list to carry image and mask separately. |
-| JPEG 2000 at reduced resolution | 1 | `issue19517.pdf`, 212 megapixels. The format's answer needs the intended scale to reach the decoder. |
-| A stream whose data is in an external file (§7.3.8.1) | 0 | The renderer has no filesystem (principle 3). Refused by name rather than drawn from the bytes the clause says to ignore — which is what it did, silently, for the project's whole life. |
-| `/ColorTransform` (Table 13) | — | Its one corpus witness contradicts the clause. |
-| Sampled shadings on the GPU | 2 | Type 1 only; the CPU backend draws them. |
-| A page whose scene overflows Vello's buffers | — | **Closed in session 143 by banding, and the page that motivated it stopped overflowing in 147** (ADR 0132: 303 clip identifiers for one region became one). Vello sizes its GPU working buffers from constants "hand picked to accommodate the vello test scenes", offers no way to enlarge them, and draws *nothing* when a scene needs more — page 6 of ISO 32000-2 at 1132×1600 needs 4% more tile records than the buffer holds. `render_checked` sees the flag and halves the target until it fits, which is Vello's own issue 366 remedy; 38.1 ms against 24.6 ms unbanded and 98 ms on the processor. The CPU fallback remains for a scene no band can hold, and the witness is now synthetic. ADRs 0127, 0132. |
-| §14.3.2's XMP | 319 | RDF/XML, so reading it is an **XML parser over untrusted bytes** — a dependency decision of the kind `zune-jpeg` and `skrifa` were, with a fuzz target owed alongside, and this tree has not taken it. What the absence costs is named rather than silent: §12.2's `/DisplayDocTitle` asks for `dc:title` and gets §14.3.3's `/Info /Title`, which Table 349's own NOTE 1 calls the same fact in the other place — a *choice*, printed once for each of the 18 documents that set the flag and carry a stream. |
-| Rendering intents beyond `AbsoluteColorimetric` | — | Read and recorded; `A2B0` not yet selected for `Perceptual`. |
-| §12.7.6.2's submit, §12.6.4's remote/launch/sound/movie | — | A network, a second file, a media engine. Refused by name and printed on a click. |
-| Signature *validation* (§12.8.3) | — | 17 ledger rows. Needs a trust store and a network; what a program without one can say is said (ADRs 0088, 0089). |
-| Sandboxing the interpreter and rasteriser | — | Spike D confines the image codecs (ADR 0014). §0 makes this a transport change rather than a design question. |
+**Closed by decision rather than by work**, recorded in the ledger and not owed to anybody:
+`/ColorTransform` (Table 13, whose one corpus witness contradicts the clause), a stream whose data
+is in an external file (§7.3.8.1 — the renderer has no filesystem, principle 3), §12.7.6.2's
+submit and §12.6.4's remote, launch, sound and movie actions, a filled degenerate subpath's device
+pixel (§8.5.3.3.1, which the clause itself calls "device-dependent and not generally useful"),
+grid-fitting a stroke's coordinates under `/SA`, and rendering intents beyond
+`AbsoluteColorimetric` (read and recorded; `A2B0` not yet selected for `Perceptual`).
+
+Two that *were* here and are closed by work: optional content's interactive half (session 167)
+and a page whose scene overflows Vello's buffers (banded in 143, and the page that motivated it
+stopped overflowing in 147 — ADRs 0127, 0132).
 
 ---
 
 ## What to do next
 
-**Two tracks, and take from both in every session.** *Demand-driven* is what the corpus and the
-oracle name; *spec-driven* is the ledger's 33 `reported` rows and the notes on its 239 `partial`
-ones. A project running only the first finishes when the corpus goes quiet, which can happen with
-much of the standard unimplemented and nothing able to say which parts; one running only the
-second ships features no file exercises. This is a principle-5 rule, not a suggestion.
+**The work itself lives in `doc/todo/`**, one file per item, numbered so that `ls` sorts by
+priority — `00`–`09` standing, `10`–`19` defects, `20`–`29` owed features with corpus demand,
+`30`–`39` capability, `40`–`49` measured performance, `50`–`59` blocked. `doc/todo/README.md` is
+the index, and `doc/todo/02-every-round.md` is what a round does around whatever it takes.
 
-**The ten sessions from the hundred-and-sixty-sixth are the shape to copy, and what they say is
-that a capability makes clauses reachable.** Five built chrome, one was a measured optimisation,
-three were readings, and one re-verified everything — and **four clauses closed without anybody
-picking them off a list**. §12.3.3 closed because a panel existed to display an outline in;
-§14.3.3 because a panel existed to display `/Info` in; §7.7.2's `/PageMode` and §12.6.3's trigger
-events became worth reading because a sidebar and a pointer had arrived. Each of those rows said
-some version of *this program has no ___*, and each stayed true for between seven and forty-one
-sessions after it stopped being true.
+What stays here is the *shape* of choosing, which is the part that has been wrong before.
 
-**So the sweeps are the cheapest work in the project and there are now three of them**, twenty
-lines of Python apiece, each of which has paid on its first run: a note whose stated blocker has
-expired (session 118), a note claiming an entry is unread where the tree reads it (122), and a
-note whose reason is a *capability* the program has since acquired (174). The last two found the
-largest stale claim the ledger has held — §7.7.2 listing eighteen entries as unread that are read
-— and a clause that had been waiting forty-one sessions for somebody to notice `Command::Pointer`
-existed. **Run all three after any session that adds a verb.**
+**Two tracks, and take from both in every round.** *Demand-driven* is what the corpus and the
+oracle name; *spec-driven* is the ledger's `reported` rows and the notes on its `partial` ones. A
+project running only the first finishes when the corpus goes quiet, which can happen with much of
+the standard unimplemented and nothing able to say which parts; one running only the second ships
+features no file exercises. This is a principle-5 rule, not a suggestion.
 
-**The ten sessions from the hundred-and-fifty-fifth alternated between the two tracks, and the
-cheapest of them paid the most**: two regular expressions over the ledger's notes found five
-stale rows in twenty minutes, and a heatmap and one `magick` invocation per page took the
-unexplained list from fourteen to two.
+**A capability makes clauses reachable, and nothing announces it.** The ten sessions from the
+hundred-and-sixty-sixth closed four clauses without anybody picking them off a list: §12.3.3
+because a panel existed to display an outline in, §14.3.3 because a panel existed to display
+`/Info` in, §7.7.2's `/PageMode` and §12.6.3's trigger events because a sidebar and a pointer had
+arrived. Each of those rows said some version of *this program has no ___*, and each stayed true
+for between seven and forty-one sessions after it stopped being true. The three sweeps that catch
+it are in `doc/todo/01-ledger-partial-rows.md`, and the hundred-and-ninety-first session found a
+`shall` that had been binding for fifty-six.
 
-**But the ten sessions from the hundred-and-twentieth found that the map is not the territory.**
-Four of their six findings were on no list: a `shall` hiding behind a silence about artwork (ADR
-0109), a clause with two populations where the row named one (ADR 0110), a malformed optional
-entry that erased a font (ADR 0111), and a font cache keyed by a name that drew wrong glyphs in
-silence for thirty-one sessions (ADR 0115). None was `silent`, none was `reported`, and no gate
-could see the last. Three were found by reading the clause beside the code; the fourth by
-measuring something else.
+**But the map is not the territory.** Four of the six findings in the ten sessions from the
+hundred-and-twentieth were on no list at all: a `shall` hiding behind a silence about artwork (ADR
+0109), a clause with two populations where the row named one (0110), a malformed optional entry
+that erased a font (0111), and a font cache keyed by a name that drew wrong glyphs in silence for
+thirty-one sessions (0115). None was `silent`, none was `reported`, and no gate could see the
+last. Three were found by reading the clause beside the code; the fourth by measuring something
+else.
 
 ### 0. The UI boundary — built, with two consumers on it and one panel on top
 
@@ -313,48 +306,37 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 - `Rendered::{Raster, Presented, Failed}` is where tier 1 and tier 2 differ and the only place
   they do: a host drawing onto its own surface has no raster to hand back and has not failed.
 
-#### What is still owed, in the order to do it
+#### What is still owed
 
-1. **Both costs §7.5.6's writer recorded are closed.** Encryption on the way out landed in the
-   hundred-and-forty-fourth session (ADR 0129), so every one of the corpus's 26 encrypted
-   documents can be saved; §12.7.4.3's appearance stream is *written into the file* since the
-   hundred-and-forty-fifth (ADR 0130), so a reader that ignores Table 224's `/NeedAppearances`
-   still sees the new value. **What the writer still owes is an `Edit` variant that carries a new
-   object rather than a field's value** — the markup and free-text annotation authoring under
-   "Near, and far" below. `Update` in `view.rs` already allocates object numbers for it.
-2. **The vocabulary is complete, and ten sessions of building on it added five messages rather
-   than changing any.** `Command::Activate`, `Command::Extract`, `Event::Extracted`,
-   `Query::Opening` and `Query::Properties` — each because a *clause* needed a channel, and one
-   variant was **removed** the session after it was added because the fuller reading of §12.3.3
-   made it a path nobody takes (ADR 0144). What is left of §0's five owed features is a *host*:
-   an AccessKit bridge and a presentation player that draws a transition's frames. That is what
-   the boundary was built to make possible, and it is not itself a boundary question.
-3. **Then one native host.** GTK4 via `gtk4-rs` first — Rust-safe, no C++ bridge, and it is the
-   development platform. Qt/KDE second via `cxx-qt`, because that costs a C++ bridge and should
-   not be the experiment that shapes the API.
-4. **`viewer-ffi` last**, and it is the **only** crate permitted `unsafe`. Every crate touching
-   PDF bytes keeps `#![forbid(unsafe_code)]`; the FFI crate touches messages, not documents, so
-   the compiler-enforced rule survives. **Do not freeze a C ABI until two Rust consumers have
-   shaken the API out** — the vocabulary roughly doubles with selection and editing.
+**The writer's two recorded costs are closed** — encryption on the way out (ADR 0129) and
+§12.7.4.3's appearance stream written into the file rather than owed to the next reader (ADR
+0130). What it still owes is an `Edit` variant carrying a *new object* rather than a field's
+value: [todo 33](todo/33-annotation-editing.md), where `Update` in `view.rs` already allocates the
+object numbers.
+
+**The vocabulary is complete**, and ten sessions of building on it added five messages rather than
+changing any — `Command::Activate`, `Command::Extract`, `Event::Extracted`, `Query::Opening`,
+`Query::Properties`, each because a *clause* needed a channel — with one variant **removed** the
+session after it was added, because the fuller reading of §12.3.3 made it a path nobody takes
+(ADR 0144).
+
+So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md) a native
+host and then `viewer-ffi`, [31](todo/31-accessibility-host.md) AccessKit,
+[32](todo/32-presentation-player.md) a presentation player.
 
 **The panels this file called "the largest single thing this project owes" for thirty sessions
 are drawn.** `viewer_ui::chrome` is a sidebar of four tabs and a modal card, in a `pdf-render`
-display list at an identity transform so that both backends draw it. ADRs 0142 to 0145.
+display list at an identity transform so that both backends draw it (ADRs 0142 to 0145). None of
+the gates can see any of it, which is why `viewer-ui/tests/panel.rs` rasterises the panel's own
+display list with `render-cpu` and **counts ink** rather than asserting a command count — checked
+by deleting the glyph fill, which fails four of its eight cases.
 
 **The one thing it needed that did not exist is worth naming, because it is not a UI problem.**
 Text this program generates for *itself* had no font: every route into `pdf-font` takes a
-`&Document` beside a `&Dictionary`, and an interface has neither. `LoadedFont::standard` loads
-one of §9.6.2.2's fourteen through the ordinary `LoadedFont::load` against a new
-`Document::empty`, so the encoding is §9.6.5.2's and the widths are the clause's own — and an
-interface set in Helvetica is set in the same Helvetica on a machine with no fonts installed.
-
-**What is left of §0 is a *native* host**, and after it `viewer-ffi`. None of the four gates can
-see any of the chrome, which is why `viewer-ui/tests/panel.rs` rasterises it with `render-cpu`
-and counts ink rather than asserting a command count — checked by deleting the glyph fill, which
-fails four of its eight cases.
-
-Adding `egui` buys a widget set for a large dependency and no architectural proof: winit + vello
-*is* the unnative UI. The thing worth adding was the headless consumer, and it is there.
+`&Document` beside a `&Dictionary`, and an interface has neither. `LoadedFont::standard` loads one
+of §9.6.2.2's fourteen through the ordinary `LoadedFont::load` against a new `Document::empty`, so
+the encoding is §9.6.5.2's and the widths are the clause's own — and an interface set in Helvetica
+is set in the same Helvetica on a machine with no fonts installed.
 
 #### Crates
 
@@ -471,24 +453,20 @@ Design with that in mind from the first line even if the sandbox lands much late
 
 #### Near, and far
 
-- **Form-field editing landed in the hundred-and-thirty-fifth session** and saving in the
-  hundred-and-thirty-sixth. What is left of it is a *caret*: a host sends whole values, and
-  nothing lays out a cursor between two characters. The text layer has the geometry for one.
-- **Markup and free-text annotation editing is next, and is the same log and the same writer.**
-  The constructions exist (§12.5.6.6, §12.5.6.10) and `pdf_syntax::write` puts an object into a
-  file; what is new is authoring `/QuadPoints` and `/Rect` from a drag, and an `Edit` variant
-  that carries a new object rather than a field's value.
-- **Editing the page's own text is far** and deliberately out of scope until the first two exist:
-  it means re-laying-out content streams whose producer's intent is recorded nowhere.
+Form-field editing landed in the hundred-and-thirty-fifth session and saving in the
+hundred-and-thirty-sixth. What is left of *using* a document — markup and free-text annotations, a
+caret, and §14.8.2.5's logical order for a selection taken in content order — is one file:
+[todo 33](todo/33-annotation-editing.md). Editing the page's own text is far and deliberately out
+of scope until those exist.
 
-### 1. Third-party data: cleared to ship, in this order
+### 1. Third-party data: shipped, and the record of what was read
 
 **This project is MIT** as of the hundred-and-thirtieth session (relicensed from MPL-2.0; one
 author in the whole history, so nobody else's consent was needed). `deny.toml`'s allow-list
 dropped MPL with it.
 
-**All three items have shipped**, and the table stays because it is the record of what was read.
-Read off copies on this machine, not recalled:
+**All three items shipped**, in the order this section used to prescribe, and the table stays
+because it is the record of what was read — off copies on this machine, not recalled:
 
 | data | source examined | terms |
 |---|---|---|
@@ -497,71 +475,49 @@ Read off copies on this machine, not recalled:
 | Liberation Sans | `LICENSE_LIBERATION` | **SIL OFL 1.1** (reserved font name: ship and use freely, do not modify and keep the name) |
 | poppler's `cidToUnicode`, `nameToUnicode`, `unicodeMap` | `poppler-data`'s `COPYING` | **GPL-2 or GPL-3** — Glyph & Cog's, *not* Adobe's |
 
-`BSD-3-Clause` was already allowed. Its cost is three obligations: reproduce the notice and
-disclaimer "in the documentation and/or other materials provided with the distribution", keep
-them in source, never use Adobe's or Google's name to endorse this.
+`BSD-3-Clause` costs three obligations: reproduce the notice and disclaimer "in the documentation
+and/or other materials provided with the distribution", keep them in source, never use Adobe's or
+Google's name to endorse this. **The surface for that is `/NOTICE`** — at the repository root,
+`include_str!`d by `pdf-viewer --licences`, put over the page by `?` as the About panel, set in
+§9.6.2.2's own Courier and deliberately *not* re-wrapped, because re-flowing text a licence
+obliges this program to reproduce would be editing it. `viewer-ui/tests/notices.rs` checks that
+every `.pfb` and `.ttf` under `data/` is named **by file name**, that the required sentences are
+verbatim, and that the bytes still hash to `SHA256SUMS` — that test exists because `cargo deny`
+reads Cargo metadata and **cannot see vendored data**.
 
 **The trap is the last row.** `poppler-data` is two data sets under two licences and says so. A
 `CMap` gets code → CID; getting a CID to a glyph in a **non-embedded** CJK font needs CID →
 Unicode, which is the GPL half. The permissive equivalent is Adobe's own `Adobe-Japan1-UCS2`,
-`Adobe-GB1-UCS2`, `Adobe-CNS1-UCS2`, `Adobe-KR-UCS2` — BSD files inside the `cMap` directory,
-counted. For an *embedded* CIDFont none of it is needed: the font's own charset or `/CIDToGIDMap`
-answers.
+`Adobe-GB1-UCS2`, `Adobe-CNS1-UCS2`, `Adobe-KR-UCS2` — BSD files inside the `cMap` directory. For
+an *embedded* CIDFont none of it is needed: the font's own charset or `/CIDToGIDMap` answers.
 
-| set | files | raw | compressed |
-|---|---|---|---|
-| the 14 standard fonts (10 Foxit `.pfb`, 4 Liberation `.ttf`) | 14 | **804 KB** | 177 KB gzipped (`.pfb`s alone) |
-| Adobe `CMap`s, poppler's copy | 248 | **13 MB** | ~1.6 MB, one `zstd -19` archive |
-| Adobe `CMap`s, `hayro`'s compacted blob | 1 | — | **250 KB** brotli, `include_bytes!` |
-| Adobe `CMap`s, pdf.js's per-file binary form | 169 | 1.7 MB | — |
+**What shipped**: `data/standard-fonts/` holds §9.6.2.2's fourteen font programs, 804 KB, so
+those pages reproduce on any machine and `substitute.rs` is no longer the only machine-dependent
+code in the tree (ADR 0133); `data/cmaps/` holds all 239 `CMap`s Adobe publishes, deflated one at
+a time by `build.rs` into a 3.9 MB blob and inflated only when a document names one, so nothing is
+decompressed at startup (ADR 0140). §9.10.2's third method came with the second, and it is where
+the gates moved: 15 documents left the incomplete list, 9 more oracle pages agree, the readback
+went 97.9% → 98.2%.
 
-How four projects carry it: **poppler** a separate optional package read from a path;
-**ghostscript** a symlink to poppler's, plus a package dependency; **pdf.js** pre-compiled binary
-`CMap`s fetched lazily; **`hayro`** — the Rust one this tree benchmarks against — a crate of its
-own, MIT/Apache for the code, one brotli blob behind a default-on `embed-cmaps` feature, with the
-notice and a pointer to the fork that generated it. **`hayro`'s is the closest precedent.**
+**Three things worth keeping out of the first**: PDFium's `.pfb` files are bare CFF programs
+(`01 00 04 02`), a name-keyed substitute is addressed by glyph *name* and so needs no Adobe Glyph
+List step — which is why `Symbol` and `ZapfDingbats` work — and a *composite* font cannot use them
+at all, because §9.7.4.2 leaves it reachable only through `/ToUnicode`, which addresses by
+character.
 
-**Order, and it is not negotiable:**
+**What none of it fixed** is the 40 fonts naming an `Identity` ordering, where the codes index a
+font nobody supplied: [todo 21](todo/21-font-substitution.md).
 
-1. **The attribution surface — done in the hundred-and-forty-eighth session.** `/NOTICE` at the
-   root names every vendored file and carries both licences' load-bearing clauses;
-   `pdf-viewer --licences` `include_str!`s and prints it; `viewer-ui/tests/notices.rs` checks that
-   every `.pfb` and `.ttf` under `data/` is named **by file name**, that the required sentences
-   are verbatim, and that the bytes still hash to `SHA256SUMS`. That test exists because
-   `cargo deny` reads Cargo metadata and **cannot see vendored data**. **The About panel the
-   owner asked for landed in the hundred-and-seventy-second** — `?` puts `/NOTICE` over the page
-   as a card, set in §9.6.2.2's own Courier so its columns line up and **not re-wrapped**,
-   because re-flowing text a licence obliges this program to reproduce would be editing it. So
-   the obligation now has a surface a person can reach as well as a flag.
-2. **The 14 standard fonts — done in the hundred-and-forty-eighth session** (ADR 0133), together
-   with step 1, because step 1 exists to serve it. `data/standard-fonts/` holds the 804 KB,
-   `pdf_font::standard` compiles it in, and `substitute::find` consults it first for a
-   `/BaseFont` naming one of the fourteen and last otherwise — so those pages reproduce on any
-   machine and `substitute.rs` is no longer the only machine-dependent code in the tree.
-   `substitute::find` can no longer fail at all. **Three things came out of it worth keeping**:
-   PDFium's `.pfb` files are bare CFF programs (`01 00 04 02`), a name-keyed substitute is
-   addressed by glyph *name* and so needs no Adobe Glyph List step — which is why `Symbol` and
-   `ZapfDingbats` work — and a *composite* font cannot use them at all, because §9.7.4.2 leaves
-   it reachable only through `/ToUnicode`, which addresses by character.
-3. **The predefined `CMap`s — done in the hundred-and-fifty-sixth session** (ADR 0140), in the
-   shape this list specified: `data/cmaps/` holds all 239 files Adobe publishes, `build.rs`
-   deflates each on its own into a 3.9 MB blob, and `pdf_font::predefined` inflates one when a
-   document names it, so nothing is decompressed at startup and interpretation is unchanged at
-   2 133.2 M. All of them rather than Table 116's list, so the `usecmap` chains are transitively
-   closed by construction. Adobe's bytes go in unconverted, because `CMap::parse` already reads
-   §9.7.5.4's syntax and `ToUnicode::parse` already reads the `-UCS2` files' `beginbfchar` form.
-   **§9.10.2's third method came with it** and is where the gates moved: 15 documents left the
-   incomplete list, 9 more oracle pages agree, the readback went 97.9% → 98.2%.
-4. **What none of it fixes**: the 27 documents whose composite fonts name an `Identity` ordering,
-   where the codes are indices into a font nobody supplied. **This is now the whole of what is
-   left** on the font-substitution list.
-
-**Provenance is a principle-4 question.** The tree has one precedent — `pdf-spec`'s Arlington
+**Provenance is a principle-4 question**, and the tree has one precedent — `pdf-spec`'s Arlington
 tables, built by `build.rs` from a pinned submodule. Vendored data arrives the same way: a
 checked-in tool, a pinned upstream revision recorded beside the bytes, the licence file verbatim
 next to what it covers.
 
 ### 2. The ledger, and where a false claim can still hide
+
+**The reading task itself is [todo 01](todo/01-ledger-partial-rows.md)** — the three sweeps, the
+five shapes a stale note takes, and what the last run found. What belongs here is the part that
+is about *this file's* claims rather than about the ledger's.
 
 - **Keep `REVIEW_OWED` empty.** A clause the code cites and nobody has read is the cheapest debt
   this project can accrue, and the list fails the build the moment one appears.
@@ -569,40 +525,6 @@ next to what it covers.
   auditing (ADRs 0098, 0100, 0101, 0102), **every one of which found a false or unheld claim**.
   It does *not* say the right test was named: three of the four false claims it hid were caught
   by the oracle rather than by a row.
-- **The 33 `reported` rows have two known failure classes and both were found by reading.** A row
-  whose reason is a true observation about the *wrong half of the sentence* (§12.5.6.4's icon was
-  refused for stating no artwork, which it does, while requiring one anyway with a `shall` — ADR
-  0109); and a row that names one of a clause's *two* populations (§11.7.4.4 governs `B`, `B*`,
-  `b`, `b*` **and** glyphs in text mode 2 or 6 — ADR 0110). **All 33 that remain were read in the
-  hundred-and-twenty-first and -second and none is of either class**: 17 are cryptographic
-  validation needing a trust store or network, 5 need a second file, a media engine or a network,
-  3 are icon clauses whose own verb is *should*, and the rest name a device or a user control this
-  program does not have. That population is worked out.
-- **The 239 `partial` rows are the population with no gate**, and reading them has paid five
-  sessions running. What to look for, in the order the findings came: a note that *understates*
-  the code (five in session 115); a note whose **reason** has expired — "while §X does not
-  exist", "needs §Y" — which no gate can watch (117, 118); a note claiming an entry is *unread*
-  where the tree reads it (three in 122, **five more in 159**). ~185 rows remain unread against
-  the code. **The class that resists a grep is a note whose "what IS done" half is wrong**,
-  because the name being present is what the grep would look for.
-  **Session 170 ran both again and found the largest stale claim this ledger has held**:
-  §7.7.2's row listed twenty-five catalog entries as "not read" and **eighteen of them are**,
-  most read by the session that built their clause — `/PageLabels` in the forty-eighth,
-  `/Outlines` in the fiftieth, `/StructTreeRoot` in the seventy-eighth, `/DSS` in the
-  ninety-ninth — and it closed with "none is started" about three features that had shipped a
-  hundred and twenty sessions earlier. **A family's parent row is not maintained by the sessions
-  that implement its members**, because the clauses do not cite each other; this is the third
-  instance (§12.3's parent, §14.8.5.1's, and now §7.7.2's) and the grep that finds it takes a
-  minute. ADR 0146.
-  **Session 159 ran both sweeps together and they are twenty lines of Python**: one regular
-  expression over the notes for an expired blocker, and one that pulls every `/Key` out of a
-  "Not read:" list and greps the tree for it. Six of ten "Not read" lists had a live entry, and
-  §7.7.3.3's had **eleven of eighteen** — `/BleedBox`, `/Thumb`, `/Dur`, `/Trans`, `/AA`,
-  `/StructParents`, `/VP` and the rest, each read by the session that built its clause. The
-  second sweep has three false-positive shapes worth knowing: a note *quoting* its own retired
-  wording (§9.6), a key named in a sentence about something else (§12.7.5.3), and a key that is
-  a string in an unrelated list (`/Metadata` in `thumbnail.rs`). Read the hit before believing
-  it.
 - **A gate cannot see a cache.** ADR 0115's defect drew wrong glyphs on two documents in silence
   for thirty-one sessions: no report, no contradicted page, and one of them sat on the text gate's
   "undiagnosed" list at 83%. **Where a lookup is memoised, ask what the key claims.** Every cache
@@ -614,388 +536,61 @@ next to what it covers.
 
 ### 3. What the corpus still names
 
-**The oracle's 72 contradicted pages**, grouped and ratcheted in both directions in `oracle.rs`
-— the groups below sum to exactly that, and this sentence said 65 for sixteen sessions while the
-numbers after the colon said 72:
-4 page rounding, 2 our own anti-aliasing at a shape's edge (§10.7.4's first departure, measured),
-**20 glyph edges** whose ink matches the consensus to a fraction of a level (measured, sessions
-75, 140 and 161), 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel
-image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK` conversion**, 2 a
-reference that drew nothing, 1 a CID width, 1 a negative line width, **21 substituted fonts**,
-**2 unexplained**.
+**The oracle's 70 contradicted pages**, grouped and ratcheted in both directions in `oracle.rs`,
+where each group carries its own diagnosis and its measurement: 4 page rounding, 2 our own
+anti-aliasing at a shape's edge, **20 glyph edges** whose ink matches the consensus to a fraction
+of a level, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel image, 1 a
+`CalRGB` alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK` conversion**, 2 a reference that
+drew nothing, 1 a CID width, 1 a negative line width, **21 substituted fonts**, **2 unexplained**.
 
-**The unexplained list is 2**, down from 14 in two sessions, and neither session opened a debugger.
-**Look at the shape of the heatmap, then measure the ink.** `transparent.pdf` left in the
-hundred-and-sixtieth: its heatmap is the whole silhouette rather than its edges, which says
-colour before any pixel is sampled, and the one operator on the page is `0.82 0.7 0.54 0.67 k`
-under `/ca 1.0`. Eleven left in the hundred-and-sixty-first: every heatmap is glyph outlines and
-nothing else, and our ink is within 0.3 of every reference on every page — which is
-`CONTRADICTED_GLYPH_EDGES`' whole diagnosis. What is left is `freeculture.pdf` page 313 and
-`issue7891_bc1.pdf`, the second of which was measured in session 61 and is trap 12's shape. Rank before opening anything,
-**by our worst measurement over the bound it is held to**; that has chosen the next item five
-times, twice finding something that was not one page's problem at all (a rule nobody had
-implemented, at 25.7×; the device transform, at 1.81, worth 11 pages). `issue7891_bc1.pdf` at
-1.78 was measured in session 61 and is not a defect (trap 12). The 8 glyph-edge pages are one
-population, measured in session 75.
+**The unexplained list is 2**, down from 14 in two sessions and neither of them opened a debugger
+— the method is in [todo 00](todo/00-ambiguous-bucket.md), which is the same method the ambiguous
+work uses. What is left is `freeculture.pdf` page 313 and `issue7891_bc1.pdf`, and the second was
+measured in session 61 and is trap 12's shape rather than a defect.
 
-Three entries that used to be here are the argument for spending the hour: `issue20504.pdf` was
-worth 15 of 81 and was a whole subclause; `close-path-bug.pdf` was every dashed line in every
-document; `issue11279.pdf` was §8.10.1 step c) on every form since the first. **The only way to
-find out which kind an entry is, is to open `<target>/tmp/oracle/<stem>/p<n>/` and look at the
-side-by-side first.** Two cautions: a page may be contradicted for a reason other than the one its
-group names (seven for seven on the group being wrong), and "make it match mupdf" is the failure
-principle 5 forbids.
+**Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
+the one its group names — seven for seven, so far, on the group being wrong — and "make it match
+mupdf" is the failure principle 5 forbids. And a page can be contradicted by a departure this
+project decided on purpose: `colors.pdf` pages 1 and 2 left the unexplained list in session 68 and
+are *not* fixed, because §10.7.4 asks for the hard edge and this tree anti-aliases
+(`CONTRADICTED_ANTIALIASED_EDGES`, and `doc/todo/_scan-conversion.md`).
 
-**`colors.pdf` pages 1 and 2 left this list in session 68 and are not fixed.** All five renderers
-agree about the swatch interiors to the byte and sit on a spectrum of edge softness; §10.7.4 asks
-for the hard edge, this tree's anti-aliasing is that subclause's first documented departure, and
-the pair the gate votes with is the pair nearest the clause. **A page can be contradicted by a
-departure this project decided on purpose**, and `CONTRADICTED_ANTIALIASED_EDGES` says so.
+**The 80 incomplete documents**: fonts (fewest since session 6 — session 156's `CMap`s took 15 off
+this list), 19 transparency, 10 annotations over 9 documents, 8 malformed images, 8 operator soup
+(`BT` without `ET`, `BDC` without `EMC`, fuzzed streams), 1 content, and since the
+hundred-and-ninety-third 4 whose font program draws nothing (ADR 0157). Session 59's reading of
+the corpus's own issue trackers says most of the font half is glyph rasterisation on files chosen
+for having hard fonts, which session 68 then measured on one.
 
-**The 74 incomplete documents**: fonts (fewest since session 6 — session 156's `CMap`s took 15
-off this list), 19 transparency, 10 annotations over 9 documents, 8 malformed images, 8 operator
-soup (`BT` without `ET`, `BDC` without `EMC`, fuzzed streams), 1 content. Session 59's reading of the corpus's own issue trackers says most of the font half is
-glyph rasterisation on files chosen for having hard fonts, which session 68 then measured on one.
+### 3a. The ambiguous bucket — watched since the hundred-and-seventy-sixth, and being emptied
 
-### 3a. The ambiguous bucket — **watched since the hundred-and-seventy-sixth, and being emptied**
+**748 of the pages the oracle judges come back `ambiguous`, and until the hundred-and-seventy-
+sixth session no gate watched one of them.** The verdict means "nobody's difference is large
+enough to call anybody wrong", which is the right thing for the *ratchet* to do and is not the
+same as "right". `issue7406.pdf` drew a JPEG cyan-on-black inside an `ambiguous` verdict for as
+long as anybody looked, and it is correct now, and **nothing announced either event**.
 
-**754 of the 1683 pages the oracle judges come back `ambiguous`, and until the
-hundred-and-seventy-sixth session no gate watched one of them.** The verdict means "nobody's
-difference is large enough to call anybody wrong", which is the right thing for the *ratchet* to
-do and is not the same as "right". `issue7406.pdf` drew a JPEG cyan-on-black inside an
-`ambiguous` verdict for as long as anybody looked, and it is correct now, and **nothing announced
-either event**. That is the bucket in one page: unwatched in both directions.
+The project owner's judgement, in the hundred-and-seventy-fifth session, is that the tree is far
+enough along for this to be the work rather than a caveat. It is the last large population where
+a defect can live without a name, and **the task, the instrument, the method and the next names
+are [todo 00](todo/00-ambiguous-bucket.md)**.
 
-The project owner's judgement, in the hundred-and-seventy-fifth session, is that the tree is now
-far enough along for this to be the work rather than a caveat. It is the last large population
-where a defect can live without a name.
+**What it has produced, because that is the argument for keeping at it.** Seventeen sessions,
+**five defects found and all five fixed** — a page one that was page two (ADR 0148), a photograph
+rendered black (0149), a shading painted as a square (0150), a stencil that drew nothing (0151),
+a whole grid that disappeared (0154) — plus a pattern cell's clip worth 15% of a page's ink
+(0155), ten documents whose substituted font drew none of its characters in silence (0152), the
+coverage rule that made eight of them draw (0153), and a font program that draws nothing now
+saying so (0157). The bucket itself went 754 → 716 and 30 pages carry a diagnosis; *five defects
+nobody could see* is the number to watch.
 
-**The instrument landed in the hundred-and-seventy-sixth and it has three parts**, all in
-`oracle.rs`:
-
-- **`AMBIGUOUS_*` groups**, exactly the shape the contradicted list has had since the sixth
-  session: a page with a written diagnosis, held by name. A name that stops being ambiguous fails
-  the build, because a diagnosis that outlives what it diagnosed is this file's oldest failure
-  mode.
-- **`tests/ambiguous_undiagnosed.txt`**, the remaining 735 by name, `include_str!`d and held to
-  equality. A page arriving in it *used to agree*, which is the regression nobody could see
-  before; a page leaving it has been fixed or diagnosed. It is data rather than a `const` because
-  the argument for each name is that there is not one yet.
-- **A ranking the gate prints itself**, of the ten undiagnosed pages we sit furthest from the
-  **nearest** reference on. Not the furthest: the printed per-page number is our distance from the
-  *worst* reference, and on nineteen JBIG2 pages that is a `mupdf` which drew a black rectangle.
-  `Distance::nearest` is the number that accuses us — every renderer disagrees with us — and
-  `Distance::furthest` beside it says whether the references are the ones disagreeing.
-
-**The first group was the first thing the ranking found, and it is the gate's fault rather than
-ours.** `AMBIGUOUS_SHARED_JBIG2_DECODER` is 19 pages, every name containing `refine`: `jbig2dec`
-refuses a refinement region, so `mupdf` and `ghostscript` — one implementation on a JBIG2 page —
-both fail, but **mupdf draws the page black and ghostscript draws it white**, so unlike
-`CONTRADICTED_SHARED_JBIG2_DECODER`'s seven they never agree and the page is never judged. The
-evidence that we are right is not poppler's agreement (16 of 19 within 715 pixels of 159 600) but
-`tests/jbig2.rs`: ninety-six documents encode one image through every coding mode ISO/IEC 14492
-defines and all ninety-six decode byte-identically here. On the two `tpgron` files poppler's own
-render is visibly broken — a block of noise above the drawing — and ours is the same picture as
-the other twenty-two encodings.
-
-**The ranking's first answer was a real defect and the hundred-and-seventy-seventh session fixed
-it.** `issue7229.pdf page 1` sat at **77 bounds from the *nearest* reference** — the largest in the
-corpus, and the only page in the top ten whose two numbers were nearly equal, which is the shape
-that says *we* are alone — and it was drawing the **wrong page**. Its original cross-reference
-section declares its subsection `1 7` and then lists seven entries beginning with object 0's free
-entry, so every entry is filed one object number too high; object 3 resolved to a content stream,
-the page-tree walk skipped it and returned the *second* kid, and `get(1)` was then `None`. Page
-one was the page the references print second, page two did not exist, and **nothing reported any
-of it**. §7.5.4 gives an entry's object number by position and §7.3.10 gives it again in the
-object's own header, so where two or more in-use entries agree the header is displaced by the same
-amount, the subsection is renumbered from the objects. ADR 0148. Page 1 went to under 10 bounds and
-page 2 renders at all — the oracle's `no render` list, which is a list of pages nobody has ever
-looked at, is 19 → 18 — and both pages are now diagnosed in `AMBIGUOUS_IMAGE_REDUCTION`, where six
-pairwise measurements put our reduction of the scan **inside** the references' own spread.
-
-**And its second answer was another one.** `cmykjpeg.pdf page 1` sat at 30.19 bounds from the
-nearest reference against 30.23 from the furthest — the same shape, everybody against us — and it
-was drawing a photograph of a dog on a beach **black**. `zune-jpeg` converts a four-component
-codestream to RGB by default, with `(1 − C)(1 − K)` over samples it assumes are stored inverted,
-which is what a *standalone* Adobe CMYK JPEG stores and not what this file has. So a colour was
-becoming a pixel in a **dependency**, which trap 6 forbids outright, and PDF has an entry for the
-polarity of a sample: §8.9.5.2's `/Decode`, whose Table 88 default for `DeviceCMYK` is the
-identity. A CMYK codestream is now asked for as CMYK and converted where every other colour is.
-Mean 6.28 → 0.40, worst tile 151 → 12.0, and the page keeps an `ambiguous` verdict for the honest
-reason — it is a `DeviceCMYK` photograph, where `mupdf` and `ghostscript` share a profile and
-`poppler` does not (ADR 0048), and we are now closer to each of them than `poppler` is to either.
-ADR 0149.
-
-**That is the shape of this work and it is worth stating twice.** The ranking does not find pages
-that are slightly wrong. Its first item was a document whose page one was a different page
-altogether; its second was a photograph rendered black. Both were drawn in silence, for the
-project's whole life, on gates that were watching.
-
-**Its shape, measured rather than assumed:**
-
-| | |
-|---|---|
-| ambiguous pages on documents we call complete | **755** |
-| distinct documents they come from | **181** |
-| `freeculture.pdf` (320) and `pdkids.pdf` (52) | **372 — 49% of the bucket, two long books** |
-| documents contributing exactly **one** page | **154** |
-
-So it is two books and a long tail of single pages. The two books are set in fonts nobody
-embedded, so each renderer substitutes differently and the *bound* is loose because the
-references disagree with one another — trap 12's mechanism running the other way. **Take the tail
-first**: 154 documents, one page each, each one a file somebody added to a corpus for a reason.
-
-**And that reason is written down, which is the instrument this task turns on.** Every pdf.js
-fixture is named after the issue that introduced it:
-
-- `issueNNNN…pdf` → `https://github.com/mozilla/pdf.js/issues/NNNN`
-- `bugNNNNNNN…pdf` → `https://bugzilla.mozilla.org/show_bug.cgi?id=NNNNNNN`
-- a suffix is usually a variant the reporter supplied, and **a pair is an A/B**: `issue7891_bc0`
-  and `issue7891_bc1` differ in `/BC [0 0 0]` against `/BC [1 1 1]` and nothing else, which is a
-  conformance test the corpus handed us for free.
-
-Reading the issue turns "five renders differ slightly" into "this file is about the backdrop
-colour of a soft mask" or "about DQT markers placed after `SOF{n}`" before anything is opened.
-The habit already exists — *a test corpus has a bibliography, and nobody had read it* — and it is
-now the **first** step on an ambiguous page rather than an occasional one.
-
-**`ambiguous` is the gate's verdict and never the answer, and this is the rule an `AMBIGUOUS_*`
-group is held to.** The project owner put it in one sentence in the hundred-and-seventy-eighth
-session: *even if the oracle cannot agree, we should be able to determine what is actually true,
-based on the spec.* The references disagreeing tells you only that triangulation has nothing to
-say; it says nothing whatever about what the page should look like, and a group whose whole
-argument is "we sit inside their spread" has answered the easy question. **Every group must say
-what the specification determines about its pages** — and the answer has three shapes, all of them
-findings:
-
-- **The clause determines it, and we can be checked against it.** `AMBIGUOUS_SHARED_JBIG2_DECODER`
-  is this one: ISO/IEC 14492 defines the decoding exactly, and `tests/jbig2.rs` checks us against
-  the corpus's own invariant — ninety-six encodings of one image, byte-identical — with no
-  reference involved at all. Where a clause states arithmetic, **write the closed form down and
-  compare** (trap 12).
-- **The clause determines that everyone here is departing from it.**
-  `AMBIGUOUS_IMAGE_REDUCTION`: §10.7.4 says "there shall not be averaging over the pixel area",
-  every one of the five renderers averages, and ours is ADR 0025's documented departure. The
-  finding is the departure; the spread is corroboration.
-- **The clause puts the answer beyond itself, and says so.** `AMBIGUOUS_DEVICE_CMYK_CONVERSION`:
-  §10.4.2.1 ranks two answers, §10.3.1 makes the destination profile "beyond the scope of this
-  document", and its NOTE names "assumptions made by the PDF processor software". Four renderers
-  assuming four presses is the standard working as written. **Say which clause leaves it open**,
-  and name the assumption this tree makes (`colour.rs`'s `CMYK_CORNERS`).
-
-**The third session on this work is the standing example of the first shape**, and it took an
-afternoon. `bug1743245.pdf page 1` is squared paper whose grid lines transform to under a fifth of
-a device pixel, and the references split two against two, which is why nothing could be
-concluded — and §10.7.5's last sentence settles it outright: "[i]f stroke adjustment is enabled and
-the requested line width, transformed into device space, is less than half a pixel, the stroke
-shall be rendered as a single-pixel line." The document's own object 4 states `/SA true` and its
-content stream applies it, so the condition is the *file's*, not a guess. We draw one pixel;
-`poppler` and `hayro` do too; `mupdf` and `ghostscript` scan-convert the true sub-pixel width and
-are the pair that agree most closely with each other. **The clause decided a page four renderers
-could not**, and `Stroke::device_width` conditions the rule on `/SA` rather than applying it
-always, which is what makes ours a derivation instead of a coincidence — 30 corpus documents state
-`/SA true` and this is the one page where it changes a pixel.
-
-**And the fourth session found a defect the ranking's numbers could not have named but its
-*picture* did.** `function_based_shading.pdf page 1` draws nine type 1 swatches; one states
-`/Matrix [85 85 -85 85 515 382]`, a rotation, and §8.7.4.5.2 maps a domain "into a corresponding
-rectangle **or parallelogram**" with everything outside it "left unpainted". Four references drew
-a diamond and we drew a **square** — the sampled grid reaches the backend as a padded pattern,
-which is right for the interpolation and says nothing about where the shading stops. One clip,
-composed by the interpreter from the domain's four corners exactly as Table 77's `/BBox` already
-is, and both backends inherit it. ADR 0150, and the row for that clause had said `implemented`
-throughout. **Open the side-by-side before the numbers**: the ranking chose the page, and the
-picture named the defect in one look.
-
-**The fifth session found the worst kind of page the bucket can hide.** `issue13372.pdf page 1` is
-a stencil mask painted with a shading pattern, and this reader drew a **blank page** and called the
-document complete — one command, `unsupported: []`, nothing to see. A stencil is drawn as an image
-whose samples carry the fill colour and **no image sample can carry a pattern**, so `scn` with a
-pattern name left `state.fill` at its initial transparent black and every layer did its job. It
-sat at 26.95 bounds inside a verdict that cannot distinguish a blank page from a grainy one:
-`ambiguous` is not a measure of how wrong a page is. §8.9.6.2 and §8.7.2 meet in the fix — the
-stencil becomes a §11.5.2 alpha soft mask and the pattern fills the image's unit square through it
-— and the two cases that construction cannot take are refused by name, at a cost of two documents
-and the corpus's incomplete count going 74 → 76. ADR 0151.
-
-**The sixth session's page was blank too, and what it disproved is worth more than what it
-fixed.** `issue8372.pdf` draws 目录 in a non-embedded `Adobe-GB1` font; three references draw it
-and we drew nothing, with `0 commands` and `unsupported: []`. §9.10.2's third method works — the
-codes become CIDs, the collection's table makes them 目 and 录 — and the *face* a family match
-finds is Latin and has no glyph for either. `LoadedFont::uncovered_character` now names that, per
-font per page and only where the face drew **none** of what it was asked for, which is the
-condition the simple-font path has applied at load time since session 123. Reporting every
-uncovered code named 13 documents that mostly draw fine; this names 10, **eight of them blank
-pages**. ADR 0152.
-
-**And one of the eight was a page this file said we drew.** `CONTRADICTED_SUBSTITUTED_FONT`'s
-comment said `noembed-eucjp.pdf` and `noembed-sjis.pdf` had "the same five kana in the same places
-in all four panels"; our panel is white, `hayro`'s is white, and the three C renderers draw the
-kana. The sentence described the *references'* half of the side-by-side. **A group's comment is a
-claim about a picture and the picture is one `Read` away** — and no gate can check a comment.
-
-**The seventh session took what the sixth had priced, and eight blank pages drew.**
-`substitute::installed` ranks faces by the generic family a descriptor implies, which cannot say
-"this one must have Chinese in it". `installed_covering` keeps the family match where it covers and
-otherwise takes the **widest-repertoire face on the machine that can draw a character of the
-collection's own script** — あ for Adobe-Japan1, 的 for GB1 and CNS1, 한 for Korea1 and KR. Both
-halves are choices, made where §9.10.2 leaves the question open, and the second was got wrong
-first: the *first* qualifying face in path order is `KanjiStrokeOrders.ttf` here, a teaching font
-with 的 and not much else, and two documents that had been drawing went blank. Corpus 86 → 79
-incomplete, oracle `agrees` 840 → **847**. ADR 0153, which also names what is left: a *per-character*
-fallback, which every real text stack has.
-
-**And the eighth session found the first page in this bucket that is plainly *our* defect.**
-`issue4260_reduced.pdf` rules a grid with `848 1085 10159 0 re f` — zero-height
-rectangles — and §10.7.4 forbids exactly what we did with them: "A shape shall be scan-converted by
-painting any pixel whose half-open square region intersects the shape, no matter how small the
-intersection is. This ensures that no shape ever disappears." Three references draw the grid; an
-antialiasing rasteriser computes the coverage as zero and we drew the surrounding box and nothing
-inside it. **A group may say "we are wrong" — what it may not do is say nothing.**
-
-**The eleventh session drew it, and the reading was not the easy one.** `pdf_render::collapsed`
-gives a subpath with no extent along one axis the thinnest mark the device has — §8.4.3.2's and
-§10.7.5's width, stated once in `pdf_render::thinnest_line` and now asked for by three rules
-rather than two. The argument is in that module because §10.7.4 does not settle it alone: two
-paragraphs above the sentence quoted here it treats a shape as half-open, "boundaries along their
-'floor' sides, but not along their 'ceiling' sides", which for a rectangle whose floor and ceiling
-are one line leaves an empty region and nothing to paint. **What breaks the tie is §8.5.3.3.1**,
-which says a *point* — the most degenerate shape a fill can have — "shall be considered to enclose
-the single device pixel lying under that point". A shape may not mark less of the page than a
-shape it contains. The same two clauses also say why the point case stays a departure while this
-one does not: §8.5.3.3.1 calls its own answer "device-dependent and not generally useful" in the
-same breath, and §10.7.4 hedges nothing.
-
-**And the mark it draws is not the last word on that page**: the quorra side, drawing the same
-rule through the same shared helper, found it fuzzy beside Okular on a high-DPI screen and traced
-it to the mark sitting at the shape's own fractional position rather than on the pixel grid. That
-is an owed item with a proposal attached — see the table above and `doc/QUORRA_HAIRLINE_MARKS.md`
-— and it is the first change to come *back* through `pdf-render` from a backend, which is what
-that crate is for.
-
-The page stays in `AMBIGUOUS_ZERO_AREA_FILL` because what is left is **weight** rather than
-existence, and the group now says so with a measurement: ink over the page is ours **19.79**,
-`hayro` **19.83**, `ghostscript` 6.29, `poppler` 3.51, `mupdf` 2.16. The clause asks for the pixel
-to be *painted*, "no matter how small the intersection is", which is a full mark — and the two
-Rust renderers put one down while the three C ones shade it by under a fifth. That is
-`CONTRADICTED_ANTIALIASED_EDGES` from the other side. **And writing the test found a second
-disappearance nobody had looked for**: a sliver *with* an area, under about an eighth of a device
-pixel, vanishes on the CPU backend as well, because `tiny-skia` samples four times per row and
-rounds. Measured, named in the table above and in the ledger, and not fixed — it is a fact about
-the device's coverage quantum rather than about the geometry.
-
-What is *not* acceptable is a fourth shape: a group that names no clause.
-
-**Eleven sessions in, here is the account.** The bucket went 754 → 751 and that number is the
-least interesting thing about it: 26 pages carry a diagnosis, **five defects were found and all
-five are fixed** — a page one that was page two (0148), a photograph rendered black (0149), a
-shading painted as a square (0150), a stencil that drew nothing (0151), and a whole grid that
-disappeared (ADR 0154) — and two of the sessions spent their time on what the first found
-underneath: ten documents whose substituted font drew none of its characters in silence (0152) and
-the coverage rule that made eight of them draw (0153). `agrees` went 846 → **847** through a
-denominator that moved twice; that is the wrong number to watch, and *five defects nobody could
-see* is the right one.
-
-**The twelfth session took the ranking's head, and the sentence this file had written about it
-was wrong.** It said of `issue16038.pdf page 1` — 20.54 bounds from the nearest reference — that
-"the `B` operator fills *and* strokes; we appear to do one of them". One `open_one` at eight times
-the scale showed the border drawn and the rules drawn, and every difference about their *weight*.
-`AMBIGUOUS_TILING_CELL_CLIP` is what came out of it, and it is the shape §3a asks for: the page's
-own two patterns state the same rules at two phases, so the ink is computable — **316.29 square
-points** — and every renderer is measured against that number rather than against each other. We
-are the only one **below** it (85.3% at the page's own scale, 98.4% at 24×) and §10.7.4 says the
-painted area "shall always be at least as large as the area of the original shape". **Removing the
-suspect found the cause**: deleting the per-cell `/BBox` clip takes the left square from 0.1114 to
-0.1323 against a geometric 0.1333, so a clip that removes no geometry is removing *coverage*,
-because its mask is antialiased and two halves of a boundary pixel composite rather than add.
-That is ours, it is not the antialiasing departure, and **the thirteenth session fixed it**: a
-cell's box is not applied as a clip where it removes no geometry (ADR 0155). The left square is
-0.1323 against the geometry's 0.1333 and the page's worst-reference distance went 61.72 bounds to
-41.12, with every oracle verdict, corpus count and text percentage unchanged and interpretation
-*below* where it was, because the pass over the first cell's commands is cheaper than the clips it
-stops creating. **What the fix needed found a defect in what it replaced**: asserting that the
-strip planner's fast bound contains the new tight one failed at once, because the fast one grew a
-*device*-space box by a **path**-space width — under-bounding every stroke past the factor of two
-of slack in its formula, which `misses_target` would then skip a strip of. Both are right now and
-a test holds them together. What is left on that page is the *other* square, where the clip is
-load-bearing and the two halves of each rule composite rather than add; that needs a tiling
-rasterised once rather than cell by cell.
-
-**The fourteenth session took the next one, `22060_A1_01_Plans.pdf page 1`, and it is the same
-question one page over.** An A1 architectural drawing on 842×1191 pixels is almost entirely
-strokes narrower than a device pixel, and §10.7.4's stated scan conversion makes every one of
-them solid — which is what `poppler` and `mupdf` draw. `/SA` occurs **zero** times in the
-document's 6.3 MB, raw and inside every stream that inflates, so §10.7.5's promotion is not
-asked for and the difference is this tree's licensed antialiasing departure, on a page where it
-moves everything because the page is all edges. The instrument is the pairing: ink 10.00 ours,
-10.27 `hayro`, 10.59 `ghostscript` against 13.49 `poppler` and 13.75 `mupdf`, and a mean absolute
-difference from our render of **571 for `hayro`** against 1478, 1749 and 2091 — closer to the
-other renderer that antialiases at true coverage than the closest pair of references are to each
-other (1081). `AMBIGUOUS_SUB_PIXEL_LINE_WORK`, with one thing measured and unexplained inside it:
-`ghostscript` is the furthest of the four while carrying nearly the same ink, and no whole-pixel
-shift improves it.
-
-**The fifteenth session took `freeculture.pdf page 1` and it cost twenty minutes.** The head of
-the 320-page book that is 42% of the bucket draws with **one command**, and `pdfimages` says what
-it is: a single 1366×2048 JPEG with an `/SMask`, reduced into 490×734 device pixels. The cover is
-a field of horizontal stripes, so the reduction beats the stripe frequency against the pixel grid
-and four renderers make four moirés — `issue13372.pdf`'s halftone one format over, and the same
-clause: §10.7.4's "there shall not be averaging over the pixel area", which every renderer here
-departs from and which ADR 0025 argues for this one. It joins `AMBIGUOUS_IMAGE_REDUCTION` with
-its numbers: ours to `hayro` 0.0342 against a reference spread of 0.0334 to 0.1710. **The
-interior pages of that book are in the bucket for a different reason** — nobody embedded its
-fonts — so the group takes one page and not 320.
-
-**The sixteenth session opened `issue13316_reduced.pdf` and found the class of defect this
-bucket exists for.** Two hundred points by fifty, one `Tj` of nine codes through an embedded
-`TrueType` program, and this reader drew **nothing** with `unsupported: []` — while `poppler` and
-`hayro` drew 开票通知单 and the other two drew `A C  E F`. The cause was not the drawing: the
-tally behind ADR 0152's report counted a code that reached *no outline* as a code that drew, and
-counted a code that drew as nothing at all, so the rule it applied was "this font misses one of
-§9.10.2's characters and shows no space" while its own comment, this file and the ledger all said
-"the face drew none of what it was asked for". **A comment is not a test, and no gate compares one
-with the code beneath it.** ADR 0157: one tally, three outcomes, one condition — and a code that
-*reads back as whitespace* is not tallied at all, which is the whole of what keeps it honest
-(counting spaces took the corpus's incomplete count from 79 to 109). Four documents report now,
-one of them `issue20232.pdf`, whose missing ⌀ this file has recorded for thirty sessions. Two
-*stop* reporting — `issue11555.pdf` and `issue2128r.pdf` draw most of their text, and both pages
-agree with every reference, so what they carried was an overstatement.
-
-**And `issue5747.pdf` went the same way in the seventeenth, in ten minutes.** One command, and
-`pdfimages` says a single **one-bit CCITT scan, 2480×1748, reduced into 420×595 device pixels** —
-the loudest case resampling has, since every output pixel averages thirty-odd black-or-white
-samples. Three of our four distances are below *every* distance between two references (ours to
-`hayro` 0.0434, to `mupdf` 0.0458, to `poppler` 0.0502, against a best reference pair of 0.0583),
-so there is no consensus here to be wrong about. **Three of the bucket's four largest entries
-turned out to be one reduced image apiece, and `pdfimages -list` found each of them faster than
-opening a debugger** — a page drawn by one command is a page whose diagnosis is one question.
-
-After it, `issue7821.pdf` at 5.44 and `jp2k-resetprob.pdf` at 5.03. Ranking by pairwise numbers alone would be the
-corpus being treated as the specification, which principle 5 forbids; the numbers choose the page
-and the clause decides it.
-
-**What "getting rid of" means, and it is not making them agree.** A page leaves this bucket by
-becoming `agrees`, or by joining a **named group with a diagnosis**, exactly as the 72
-contradicted pages have. The contradicted list is the model: `CONTRADICTED_SHARED_JBIG2_DECODER`
-is seven pages where the *gate* is wrong and says so; `CONTRADICTED_ANTIALIASED_EDGES` is two
-pages this project decided to differ on. An ambiguous page with a written reason is watched; one
-without is not. **The target is a ratcheted `AMBIGUOUS_*` set of the same shape**, and the
-denominator rule applies to it too: it may only shrink, except where a rise is written down.
-
-Two cautions carried over from the contradicted work. **Ranking is by our worst measurement over
-the bound it is held to**, which has chosen the next item five times — and here the *other* end
-matters as well: a page where the references agree tightly and we sit just inside a loose bound
-is likelier to be ours than one where everybody disagrees. And the artefacts are already on disk:
-an ambiguous page keeps its `<target>/tmp/oracle/<stem>/p<n>/` directory, so the side-by-side is
-one `Read` away.
-
-**The text gate's 36 below the floor**: fonts where all three of §9.10.2's methods fail *and* the
-program names nothing — six fewer since the third method landed in session 156 — 7 are right-to-left text read back in painting order (**not**
-§14.8.2.5.3's `ReversedChars`, which no corpus document writes — measured in session 83), 1 is a
-Symbol font naming Greek glyphs, 4 undiagnosed. **All of the undiagnosed agree with the reference
-consensus on pixels**, so none of what is left is a drawing defect. Two left this list in session
-127 and neither was diagnosed here — both were the font cache. **A text shortfall nobody can
-diagnose may be a font nobody has looked up.**
+**Two of those are worth repeating here because they are about this file rather than about a
+page.** `CONTRADICTED_SUBSTITUTED_FONT`'s comment said two documents drew "the same five kana in
+the same places in all four panels" — our panel was white, and the sentence described the
+*references'* half of the side-by-side. **A group's comment is a claim about a picture, the
+picture is one `Read` away, and no gate can check a comment.** And `ambiguous` is not a measure of
+how wrong a page is: `issue13372.pdf` sat at 26.95 bounds inside a verdict that cannot tell a
+blank page from a grainy one.
 
 ### 3b. The quorra backend, and what a corpus-scale comparison found in it
 
@@ -1198,10 +793,7 @@ cached per object (ADR 0069), re-measured unchanged in session 113. What is left
 `tiny_skia::pipeline::lowp::gradient` 36.6%, `Mask::intersect_path` 8.1%, `build_soft_mask` 8.0%,
 `fill_path_impl` 6.4%, `calloc` 4.5%. **The two mask lines are one item**: `MaskCache::get` is
 24.34% of the page, 3608 chains, no eviction and no duplication worth removing (ADR 0103). The
-shortcut nobody has taken is in `MaskCache::build`'s own comment — a child's band is inside its
-parent's, so a chain could be one crop and one intersect instead of a fill and three; it needs the
-intermediate clips cached and the page is at 87% of `MASK_BUDGET`, so it starts with a
-measurement of what those cost.
+shortcut nobody has taken is [todo 40](todo/40-mask-chain-crop.md).
 
 **A page turn on the largest document was 380 ms and is 9 ms** (session 141, ADR 0124). §12.3.3's
 `section_at` resolved every outline item's destination with `Pages::index_of`, which is a *search*
@@ -1341,10 +933,11 @@ time, because each band allocates a `Conversion` table and one sized to a twenty
 image collides no less than one sized to an eighth. The split is exact because the memo is a memo
 of a *pure function of one pixel's samples* — which is precisely what ADR 0138's strips were not.
 
-**Still open, priced or unpriced**: carrying an image *and its sampling intent* to the backends, which is one
-`pdf-render` change unblocking three items — reduction happens at decode resolution, a mask of a
-very different size is bounded rather than composited at device resolution, and the JPEG 2000
-decoder cannot be told a target resolution.
+**Still open, each priced and each with a file**: carrying an image *and its sampling intent* to
+the backends, which is one `pdf-render` change unblocking three refusals
+([todo 24](todo/24-image-sampling-intent.md)); a clip chain as one crop and one intersect on the
+corpus's worst page ([todo 40](todo/40-mask-chain-crop.md)); and a decoded-stream cache, measured
+at 0.7% of interpretation and deliberately not taken ([todo 41](todo/41-decoded-stream-cache.md)).
 
 Two fixes worth carrying as patterns: unpacking JPEG output cost 6.89 G until two paired
 `chunks_exact` iterators took it to 1.25 G — **the safety habits this project enforces everywhere
@@ -1366,10 +959,22 @@ line printed is the step that did not finish. `--trace` also installs a receiver
 write to the `log` facade and a facade with nothing behind it drops every record, which is how a
 page that would not draw produced no output at all.
 
-**Rebuild the release binary before saying anything about speed, and at the end of any session
-that touches the viewer.** The agent's builds go to `/home/AI/cargo-target/pdf-viewer/`, so
-`release/pdf-viewer` there is what a person runs — and `cargo test` only ever builds the *debug*
-one. The hundred-and-forty-second session was reported as "still lags" against a binary three
+**Put the binaries where a person can run them, at the end of every round.** The agent builds
+into `/home/AI/cargo-target/pdf-viewer/`, which the human's shell never looks at, so the last step
+of a round copies what a person would run into the project's own `target/`:
+
+```sh
+cargo build --release -p viewer-ui --bin pdf-viewer && cargo build --release -p pdf-sandbox --bins
+install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer         target/pdf-viewer
+install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker target/pdf-sandbox-worker
+```
+
+Both, and both beside each other: the worker is a separate executable the viewer spawns for JBIG2
+and JPEG 2000, and a viewer that cannot find it refuses those images rather than falling back.
+`doc/todo/02-every-round.md` is the rest of what a round does.
+
+**And rebuild before saying anything about speed**: `cargo test` only ever builds the *debug*
+binaries. The hundred-and-forty-second session was reported as "still lags" against a binary three
 hours and six commits old, one of which was the 40× page-turn fix. A stale executable is a
 measurement of the past.
 
@@ -2639,3 +2244,4 @@ above rather than here.
 | 193 | A font program that draws nothing says so, and the condition was not the one written down | 0157 |
 | 194 | A one-bit scan reduced by six: the bucket's fourth entry is one image too | — |
 | 195 | Everything re-verified after ten sessions of change; a 2.2% counter given back | — |
+| 196 | The corpus feedback answered; the owed work moved into `doc/todo/` and this file halved again | — |
