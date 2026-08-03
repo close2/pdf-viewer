@@ -1656,6 +1656,60 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// what `gs` does with a configuration is a separate question from this one.
 const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 1] = ["22060_A1_01_Plans.pdf page 1"];
 
+/// Ambiguous, and every renderer here is guessing at a face nobody shipped.
+///
+/// `issue8697.pdf` is 250×50 points and shows one string, *What Operating Systems Do*, in
+/// `/SegoeUISymbol` at 18 pt with no `/FontFile2`. It sat sixth on §3a's ranking at 3.52 bounds
+/// from the nearest reference and **3.55 from the furthest** — the everybody-against-us shape —
+/// because we drew a single `∝`. The name ends in the word "Symbol" and `substitute::family_of`
+/// matched the substring before reading the `/Encoding /WinAnsiEncoding` and Table 121's
+/// Nonsymbolic flag the file also states, so §9.6.5.4's Latin code-to-glyph-name table was
+/// replaced by the standard-14 `Symbol`'s. ADR 0158; the sentence is on the page now and the
+/// distance is **0.21 from the nearest, 0.99 from the furthest**.
+///
+/// # What the clause determines, and where it stops
+///
+/// It determines the mapping and says so twice. §9.6.5.4: "If the font has a named Encoding
+/// entry of either MacRomanEncoding or WinAnsiEncoding , or if the font descriptor's
+/// Nonsymbolic flag … is set, the PDF processor shall create a table that maps from character
+/// codes to glyph names". §9.6.5.2 says the same of a Type 1 program's built-in encoding. Both
+/// are `shall`, both are now implemented, and both are about *which glyph* — not about which
+/// face draws it.
+///
+/// **Which face is left to the processor, in as many words.** §9.8.2 on the Nonsymbolic flag:
+/// "This influences the font's default base encoding and *may* affect a PDF processor's font
+/// substitution strategies." A *may*, and the clause states no strategy. So the page stays
+/// ambiguous by construction: nobody here has `SegoeUISymbol`, and five renderers pick five
+/// faces.
+///
+/// # The measurement, and it is the references that disagree
+///
+/// Mean absolute difference over the 250×50 raster all five share:
+///
+/// ```text
+/// ours vs mupdf  359      mupdf vs poppler       1768
+/// ours vs hayro  618      ghostscript vs poppler 1483
+/// ours vs gs     989      ghostscript vs mupdf   1181
+/// ours vs poppler 1704
+/// ```
+///
+/// **We are three to five times closer to `mupdf` than any two references are to each other**,
+/// which is what makes the verdict ambiguous rather than a contradiction, and it is the bound
+/// doing its job (trap 12 in reverse).
+///
+/// Ink, `(1 − mean) × 255` on each greyscale artefact, splits the five the way trap 9's third
+/// shape predicts:
+///
+/// ```text
+/// ours 9.22   hayro 9.08  │  mupdf 18.40   ghostscript 18.62   poppler 18.75
+/// ```
+///
+/// The three C references link one `libfreetype`; we and `hayro` rasterise glyphs ourselves. At
+/// 18 pt on an unscaled page a stem is about a pixel and a half, which is exactly where stem
+/// darkening doubles the ink — the same split `CONTRADICTED_GLYPH_EDGES` measures on twenty
+/// pages, here inside an `ambiguous` verdict because the substitution spread swamps it.
+const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 1] = ["issue8697.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1671,6 +1725,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_ZERO_AREA_FILL)
         .chain(&AMBIGUOUS_TILING_CELL_CLIP)
         .chain(&AMBIGUOUS_SUB_PIXEL_LINE_WORK)
+        .chain(&AMBIGUOUS_SUBSTITUTED_FACE)
         .copied()
         .collect()
 }

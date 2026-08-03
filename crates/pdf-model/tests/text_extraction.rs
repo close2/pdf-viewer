@@ -371,11 +371,17 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// about which glyph was drawn — which is what this test is for — and a fix belongs to whoever
 /// builds selection.
 ///
-/// **`issue8697.pdf` is the one that is a question about a clause.** It draws
-/// `Ωηατ Οπερατινγ Σψστεµσ ∆ο` where `pdftotext` reads `What Operating Systems Do`: a Symbol
-/// font whose glyphs are Greek and whose codes are Latin, so §9.10.2's second method takes each
-/// code to the *glyph's* name and each glyph is a Greek letter. Both readbacks are defensible
-/// and the clause is about naming what was drawn, which is what ours does.
+/// **`issue8697.pdf` was described here as "a question about a clause" and it was a defect.**
+/// The entry said the file draws `Ωηατ Οπερατινγ Σψστεµσ ∆ο` where `pdftotext` reads
+/// `What Operating Systems Do`, that this is a Symbol font whose glyphs are Greek and whose
+/// codes are Latin, and that "both readbacks are defensible" because §9.10.2 names what was
+/// drawn. Every sentence of that is true about the readback and none of it asked why the Greek
+/// was on the page: the font is `/SegoeUISymbol`, a sans-serif face whose *name* ends in the
+/// word, and both `/Encoding /WinAnsiEncoding` and Table 121's Nonsymbolic flag say so.
+/// §9.6.5.4 makes that a `shall` — the code-to-glyph-name table is the Latin one — and the
+/// standard-14 `Symbol` was being substituted off the name alone. ADR 0158; the readback is
+/// 100% now. **A gate entry that reasons about its own half of the pipeline can be right in
+/// every sentence and still be describing a defect one stage upstream.**
 ///
 /// The remaining three are partial for reasons nobody has diagnosed further: `issue13211.pdf`,
 /// `issue16553.pdf` and `bug1392647.pdf`. **All of them agree with the reference consensus on
@@ -423,7 +429,7 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// success fails the build in a message that reads like a regression, and a session that reads
 /// only the summary line will believe the summary. `doc/HANDOVER.md`'s own "36 below the floor"
 /// was right about the *measurement* and wrong about the list the whole time.
-const TEXT_BELOW_FLOOR: [&str; 36] = [
+const TEXT_BELOW_FLOOR: [&str; 35] = [
     "ArabicCIDTrueType.pdf",
     "PDFJS-7562-reduced.pdf",
     "Type3WordSpacing.pdf",
@@ -454,7 +460,6 @@ const TEXT_BELOW_FLOOR: [&str; 36] = [
     "issue5874.pdf",
     "issue5896.pdf",
     "issue8187.pdf",
-    "issue8697.pdf",
     "issue918.pdf",
     "issue9655_reduced.pdf",
     "issue9915_reduced.pdf",

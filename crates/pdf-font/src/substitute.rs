@@ -156,7 +156,7 @@ impl Request {
             });
 
         Self {
-            family: family_of(&folded, document, descriptor, panose),
+            family: family_of(&folded, document, dict, descriptor, panose),
             bold,
             italic,
             standard: names_a_standard_font(&folded),
@@ -221,6 +221,8 @@ impl Flags {
     const FIXED_PITCH: u32 = 1 << 0;
     /// Bit 2: glyphs have serifs.
     const SERIF: u32 = 1 << 1;
+    /// Bit 6: the font uses the Standard Latin character set, or a subset of it.
+    const NONSYMBOLIC: u32 = 1 << 5;
     /// Bit 7: the font slopes to the right.
     const ITALIC: u32 = 1 << 6;
     /// Bit 19: bold glyphs are painted with extra weight.
@@ -298,21 +300,79 @@ fn panose(document: &Document, descriptor: &Dictionary) -> Option<crate::panose:
     crate::panose::Panose::read(value.as_string()?)
 }
 
+/// Whether the document states that this font's codes are Latin glyph names.
+///
+/// ISO 32000-2 §9.6.5.4 states two conditions disjunctively and gives them one effect:
+///
+/// > If the font has a named Encoding entry of either MacRomanEncoding or WinAnsiEncoding , or
+/// > if the font descriptor's Nonsymbolic flag (see "Table 121 -Font flags") is set, the PDF
+/// > processor shall create a table that maps from character codes to glyph names
+///
+/// The clause is written for TrueType, but the statement is about the *codes* rather than about
+/// one font type: §9.6.5.2 says of a Type 1 program that "An Encoding entry in the PDF font
+/// dictionary, if present, shall override a Type 1 font's mapping from character codes to
+/// character names", and Table 121's own prose says the Nonsymbolic flag means "the font's
+/// character set is the Standard Latin character set (or a subset of it) and that it uses the
+/// standard names for those glyphs".
+///
+/// Neither symbolic standard-14 font has a glyph under a Latin name, so a font described this
+/// way cannot be stood in for by one — whatever its `/BaseFont` is spelled. §9.8.2 is the clause
+/// that permits the flag to decide a substitute at all: "This influences the font's default base
+/// encoding and may affect a PDF processor's font substitution strategies."
+///
+/// The `/Encoding` half is read here rather than through the font module's own reader because
+/// this is a question about what the document *said*, not about what the encoding resolves to:
+/// a `/BaseEncoding` this crate does not implement still states that the codes are Latin.
+fn states_latin_codes(
+    document: &Document,
+    dict: &Dictionary,
+    descriptor: Option<&Dictionary>,
+) -> bool {
+    if descriptor.is_some_and(|d| flag(document, d, Flags::NONSYMBOLIC)) {
+        return true;
+    }
+    // §9.6.5.4 names the *Encoding entry*; Table 112 makes `/BaseEncoding` the same statement
+    // one level in, and §9.6.5.4's second bullet reads a dictionary's entry exactly that way.
+    let encoding = document.get_key(dict, "Encoding");
+    let named = encoding
+        .as_name()
+        .map(|value| value.as_bytes().to_vec())
+        .or_else(|| {
+            encoding
+                .as_dict()
+                .map(|d| document.get_key(d, "BaseEncoding"))
+                .and_then(|value| value.as_name().map(|n| n.as_bytes().to_vec()))
+        });
+    matches!(
+        named.as_deref(),
+        Some(b"MacRomanEncoding" | b"WinAnsiEncoding")
+    )
+}
+
 /// Chooses a family from the font name, then §9.8.3.2's classification, then the flags.
 fn family_of(
     folded: &str,
     document: &Document,
+    dict: &Dictionary,
     descriptor: Option<&Dictionary>,
     panose: Option<crate::panose::Panose>,
 ) -> Family {
     // The two symbolic standard-14 fonts are matched first: their names are unambiguous
     // and getting them wrong substitutes Latin letters for symbols, which is unreadable
     // rather than merely imperfect.
-    if folded.contains("zapfdingbat") || folded.contains("dingbat") {
-        return Family::ZapfDingbats;
-    }
-    if folded.contains("symbol") {
-        return Family::Symbol;
+    //
+    // **Unless the document has said the codes are Latin**, which it may do twice over and
+    // which outranks a substring of a name: `SegoeUISymbol` is a sans-serif face whose name
+    // ends in the word, and `issue8697.pdf` draws "What Operating Systems Do" in it under
+    // `/Encoding /WinAnsiEncoding` with Table 121's Nonsymbolic flag set. See
+    // [`states_latin_codes`] for the clauses.
+    if !states_latin_codes(document, dict, descriptor) {
+        if folded.contains("zapfdingbat") || folded.contains("dingbat") {
+            return Family::ZapfDingbats;
+        }
+        if folded.contains("symbol") {
+            return Family::Symbol;
+        }
     }
     if folded.contains("courier") || folded.contains("mono") || folded.contains("consol") {
         return Family::Monospace;
@@ -744,7 +804,78 @@ fn read_cached(path: &Path) -> Option<Arc<[u8]>> {
 /// ISO 32000-2 §9.9.2's subset tag, which is a rule about six letters and a plus sign.
 #[cfg(test)]
 mod tests {
-    use super::strip_subset_prefix;
+    use pdf_syntax::{Dictionary, Document, Name, Object};
+
+    use super::{Family, Request, strip_subset_prefix};
+
+    /// A font dictionary carrying the entries a case needs and nothing else.
+    fn font(entries: &[(&str, &str)]) -> Dictionary {
+        let mut dict = Dictionary::new();
+        for (key, value) in entries {
+            dict.insert(
+                Name::new(key.as_bytes().to_vec()),
+                Object::Name(Name::new(value.as_bytes().to_vec())),
+            );
+        }
+        dict
+    }
+
+    /// A descriptor whose `/Flags` are the integer given.
+    fn descriptor(flags: i64) -> Dictionary {
+        let mut dict = Dictionary::new();
+        dict.insert(Name::new(b"Flags".to_vec()), Object::Integer(flags));
+        dict
+    }
+
+    /// ISO 32000-2 §9.6.5.4:
+    ///
+    /// > If the font has a named Encoding entry of either MacRomanEncoding or WinAnsiEncoding ,
+    /// > or if the font descriptor's Nonsymbolic flag (see "Table 121 -Font flags") is set, the
+    /// > PDF processor shall create a table that maps from character codes to glyph names
+    ///
+    /// So a name that merely *contains* "symbol" cannot select the standard-14 `Symbol`, whose
+    /// glyphs carry no Latin name: `issue8697.pdf` draws "What Operating Systems Do" in
+    /// `/SegoeUISymbol` and states both of the clause's two conditions. ADR 0158.
+    #[test]
+    fn a_document_that_states_latin_codes_is_not_given_a_symbolic_substitute() {
+        let document = Document::empty();
+        let nonsymbolic = descriptor(32);
+
+        let segoe = font(&[
+            ("BaseFont", "SegoeUISymbol"),
+            ("Encoding", "WinAnsiEncoding"),
+        ]);
+        let request = Request::derive(&document, &segoe, Some(&nonsymbolic));
+        assert_eq!(request.family, Family::SansSerif);
+
+        // Either condition alone is enough — the clause states them disjunctively.
+        let flag_only = font(&[("BaseFont", "SegoeUISymbol")]);
+        assert_eq!(
+            Request::derive(&document, &flag_only, Some(&nonsymbolic)).family,
+            Family::SansSerif
+        );
+        let encoding_only = font(&[
+            ("BaseFont", "SegoeUISymbol"),
+            ("Encoding", "MacRomanEncoding"),
+        ]);
+        assert_eq!(
+            Request::derive(&document, &encoding_only, None).family,
+            Family::SansSerif
+        );
+
+        // And a document that states neither still gets the symbolic face, which is the case
+        // the name check was written for.
+        let plain = font(&[("BaseFont", "Symbol")]);
+        assert_eq!(
+            Request::derive(&document, &plain, None).family,
+            Family::Symbol
+        );
+        let dingbats = font(&[("BaseFont", "ZapfDingbats")]);
+        assert_eq!(
+            Request::derive(&document, &dingbats, Some(&descriptor(4))).family,
+            Family::ZapfDingbats
+        );
+    }
 
     /// §9.9.2:
     ///

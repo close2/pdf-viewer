@@ -560,7 +560,6 @@ issue7821.pdf page 1
 issue8187.pdf page 1
 issue840.pdf page 1
 issue840.pdf page 2
-issue8697.pdf page 1
 issue9084.pdf page 1
 issue9291.pdf page 1
 issue9972-1.pdf page 1

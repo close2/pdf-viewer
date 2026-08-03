@@ -91,11 +91,11 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **954** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the ten sessions from the hundred-and-eighty-sixth added twenty-three. Quote the command with the number | — |
+| tests | **955** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the eleven sessions from the hundred-and-eighty-sixth added twenty-four. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **30 of them diagnosed and 716 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
-| text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **31 of them diagnosed and 715 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **912 agree, 44 differ, 1 refused**, 17 not comparable — 29 of the 44 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -575,14 +575,21 @@ enough along for this to be the work rather than a caveat. It is the last large 
 a defect can live without a name, and **the task, the instrument, the method and the next names
 are [todo 00](todo/00-ambiguous-bucket.md)**.
 
-**What it has produced, because that is the argument for keeping at it.** Seventeen sessions,
-**five defects found and all five fixed** — a page one that was page two (ADR 0148), a photograph
+**What it has produced, because that is the argument for keeping at it.** Eighteen sessions,
+**six defects found and all six fixed** — a page one that was page two (ADR 0148), a photograph
 rendered black (0149), a shading painted as a square (0150), a stencil that drew nothing (0151),
-a whole grid that disappeared (0154) — plus a pattern cell's clip worth 15% of a page's ink
+a whole grid that disappeared (0154), a sentence drawn as one Greek letter because the font's
+name ends in the word "Symbol" (0158) — plus a pattern cell's clip worth 15% of a page's ink
 (0155), ten documents whose substituted font drew none of its characters in silence (0152), the
 coverage rule that made eight of them draw (0153), and a font program that draws nothing now
-saying so (0157). The bucket itself went 754 → 716 and 30 pages carry a diagnosis; *five defects
+saying so (0157). The bucket itself went 754 → 715 and 31 pages carry a diagnosis; *six defects
 nobody could see* is the number to watch.
+
+**And the sixth was found by a comment rather than by a number.** `issue8697.pdf` was on the
+text gate's list with a paragraph explaining that its readback was a question about §9.10.2 and
+that "both readbacks are defensible" — four true sentences about the readback, none of which
+asked why the page was in Greek. The defect was in font *substitution* one stage upstream, and
+the gate that could see the symptom had closed the question downstream of it. ADR 0158.
 
 **Two of those are worth repeating here because they are about this file rather than about a
 page.** `CONTRADICTED_SUBSTITUTED_FONT`'s comment said two documents drew "the same five kana in
@@ -2245,3 +2252,4 @@ above rather than here.
 | 194 | A one-bit scan reduced by six: the bucket's fourth entry is one image too | — |
 | 195 | Everything re-verified after ten sessions of change; a 2.2% counter given back | — |
 | 196 | The corpus feedback answered; the owed work moved into `doc/todo/` and this file halved again | — |
+| 197 | A name that ends in the word "Symbol" is not the standard-14 `Symbol`, and §9.6.5.4 says which half of the file wins | 0158 |
