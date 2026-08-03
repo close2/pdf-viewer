@@ -1,13 +1,22 @@
-# quorra, measured against the corpus — findings for the library's team
+# quorra, measured against the corpus — findings, and what came back
 
-Written 2026-08-03, at the end of this viewer's hundred-and-ninety-fifth session, from the run
-described in ADR 0156. It is the counterpart to `doc/RENDER_LIBRARY.md`: that document is the
-brief this project wrote for a team building a renderer, and this one is what came back when the
-renderer met 974 real documents.
+Written 2026-08-03 at the end of this viewer's hundred-and-ninety-fifth session, from the run
+described in ADR 0156; **rewritten the same day, after every finding in it was answered.** It is
+the counterpart to `RENDER_LIBRARY.md` — that document is the brief this project wrote for a team
+building a renderer, and this one is what came back when the renderer met 974 real documents,
+and then what the team did about it.
 
-**Everything here is a measurement with a command beside it.** Where something is a matter of
-taste it says so, and where the difference is the two rasterisers' antialiasing rather than
-anybody's defect it says that too — §4 exists so that the rest can be trusted.
+Each finding below keeps its evidence and carries what closed it, because a feedback document
+that still reads as a complaint after the complaint was answered is worse than no document.
+
+**Where it stands, at the page's own scale:**
+
+| | first run | now |
+|---|---|---|
+| agree | 900 | **912** |
+| differ | 50 | **44** — 29 of them the antialiasing floor (§4) |
+| refused | 7 | **1** |
+| median page | 2.64× the CPU backend | **2.05×** |
 
 ---
 
@@ -29,178 +38,153 @@ rasterisers disagreeing and a refusal is a command quorra cannot draw.
 The glyph-phase quantum is **off** in this gate, so what it measures is the adapter and the
 translation rather than a trade `real_pages.rs` gates separately.
 
-Today's result, on an AMD Radeon 890M (RADV, Vulkan), release build:
-
-```text
-957 pages compared: 900 agree, 50 differ, 7 refused, 17 not comparable
-```
-
-The 50 and the 7 are held by name in that file. A page arriving in either list fails the build;
-so does a page leaving it, because a hole that closes should be noticed.
+The differing and refused pages are held by name in that file. A page arriving in either list
+fails the build; so does a page leaving it, because a hole that closes should be noticed — which
+is how the numbers in this document were kept honest between the two runs.
 
 ---
 
-## 1. §10.7.4's degenerate fill is not asked for
+## 1. §10.7.4's degenerate fill was not asked for — **answered**
 
-**Severity: a page of ruling lines comes out blank.**
+**Was: a page of ruling lines came out blank.**
 
 `issue4260_reduced.pdf` rules its grid with zero-height rectangles — `848 1085 10159 0 re f` —
-and the CPU backend draws the grid while quorra draws the surrounding box and nothing inside it.
-Mean 14.19, structural similarity **0.49**, the worst page in the run. The two renders are in
-`target/tmp/quorra/issue4260_reduced/`.
+and the CPU backend drew the grid while quorra drew the surrounding box and nothing inside it.
+Mean 14.19, structural similarity **0.49**, the worst page in the run.
 
-This is not a rasterisation difference. ISO 32000-2 §10.7.4:
+Not a rasterisation difference. ISO 32000-2 §10.7.4:
 
 > A shape shall be scan-converted by painting any pixel whose half-open square region intersects
 > the shape, no matter how small the intersection is. This ensures that no shape ever disappears
 
 A subpath with no extent along one axis has zero area, so *any* coverage-based rasteriser
-computes nothing for it. This viewer therefore states the answer once, in the crate both
-backends consume, so that neither decides it alone:
+computes nothing for it. This viewer therefore states the answer once, in the crate both backends
+consume, so that neither decides it alone: `pdf_render::thinnest_line` for the width and
+`pdf_render::split_collapsed_fill` for the split, with the marks filled under the **non-zero**
+rule whatever the command's own rule is — a mark added to an even-odd path's winding would punch
+a hole in what it was meant to draw.
 
-- `pdf_render::thinnest_line(to_device) -> Option<f32>` — one device pixel in the path's own
-  space, which is also §8.4.3.2's zero-width line and §10.7.5's sub-half-pixel one.
-- `pdf_render::split_collapsed_fill(path, thinnest) -> Option<CollapsedFill>` — the subpaths
-  that enclose an area, and the rectangles the rest should mark. `None` for an ordinary path,
-  and it allocates nothing then; the predicate behind it is memoised on the `Path`.
+**Answered**: fills run through `split_collapsed_fill`, as the two sibling backends do.
+`issue4260_reduced.pdf` goes from similarity **0.49 to 0.9938** (mean 14.19 → 1.73) and leaves
+the shape list for the antialiasing floor.
 
-`render-cpu`'s `draw_fill` and `render-gpu`'s `encode_fill_command` are the two call sites to
-copy. The marks are filled under the **non-zero** rule whatever the command's own rule is — a
-mark is a shape in its own right, and adding it to an even-odd path's winding would punch a hole
-in what it was meant to draw.
-
-`crates/render-quorra/src/stroke.rs` already asks `pdf-render` for §8.5.3.2's degenerate
-*strokes*; what is missing is the same question for fills, in `scene.rs`'s `fill`.
-
-**This is not a criticism of the library, and the timing says why**: the rule landed in this
+**It was never a criticism of the library, and the timing is why**: the rule landed in this
 viewer in ADR 0154, three sessions before the backend was measured, and nothing announces a new
-device decision to a backend. It is the standing argument for keeping such decisions in
+device decision to a backend. That is the standing argument for keeping such decisions in
 `pdf-render`, and the reason this gate exists.
 
 ---
 
-## 2. The resource caches never evict
+## 2. The resource caches never evicted — **answered**
 
-**Severity: a long-lived rasteriser stops drawing. Only a corpus-scale run can see it.**
+**Was: a long-lived rasteriser stopped drawing, and only a corpus-scale run could see it.**
 
-At four times the page's own scale, **533 of 952 pages are refused**:
+At four times the page's own scale, **533 of 952 pages were refused**:
 
 ```text
 resource upload refused: uploading would hold 536871036 resource bytes
 (536870896 already resident), over the stated budget of 536870912
 ```
 
-536 870 896 bytes resident is the 512 MB budget, full. The proof that it is not the pages:
+536 870 896 bytes resident is the 512 MB budget, full. The proof that it was not the pages:
+`tiling-pattern-box.pdf` was refused in the full run and **passed on its own**.
 
-```sh
-PDFVIEWER_QUORRA_SCALE=4 PDFVIEWER_QUORRA_ONLY=tiling-pattern-box \
-  cargo test --release -p render-quorra --test corpus -- --ignored --nocapture
-```
+`QuorraRasterizer` holds one `Device` and three maps keyed by pinned `Arc` identity, and the
+design note beside them is right that this is what lets the cache span `rasterize` calls. What it
+had no way to do was stop: the entry pinned the allocation for as long as it lived, and nothing
+decided that it should stop living. A per-document suite starts with an empty device every time
+and cannot see this; a viewer with a document open all afternoon is exactly the long-lived
+instance it describes.
 
-`tiling-pattern-box.pdf` is refused in the full run and **passes on its own**. The refusals begin
-partway through the alphabet and never stop.
+**Answered**, and by the first of the three shapes this document asked for — a policy inside the
+device, so the caller need not know: entries carry recency, and after every frame (refused ones
+included) the least-recently-used entries the frame did not touch are released until the device
+holds no more than **half** its budget. Half rather than all, so eviction is not a cliff and a
+hot entry is never evicted.
 
-`QuorraRasterizer` holds one `Device` and three maps — outlines, images and ramps — keyed by
-pinned `Arc` identity, and the design note beside them is right that this is what lets the cache
-span `rasterize` calls (a zoom re-uploads nothing). What it does not have is a way *out*: the
-entry pins the allocation for as long as it lives, and nothing decides that it should stop
-living. A per-document test suite starts with an empty device every time and cannot see this; a
-viewer with a document open all afternoon is exactly the long-lived instance it describes.
-
-What this side would find easy to work with, in rough order of preference:
-
-1. An eviction policy inside the device with a stated budget — least-recently-used is the
-   obvious one, and the caller does not have to know about it.
-2. Failing that, a `Device::release_unused()` or a generation the caller can retire, so the
-   host can drop everything a closed document uploaded.
-3. Failing both, a documented "resources are resident until the device is dropped", so a host
-   can build a device per document and pay the pipeline warm-up.
-
-The refusal itself is *correct behaviour* — it refuses rather than drawing something plausible,
-which is what `doc/RENDER_LIBRARY.md`'s failure contract asked for and is more than Vello does.
-The gap is that nothing can make room.
+**The 4× run's 533 resource refusals are zero**, and that scale went from 413 pages agreeing to
+**918**.
 
 ---
 
-## 3. A refusal message whose arithmetic contradicts it
+## 3. A refusal message whose arithmetic contradicted it — **answered**
 
-**Severity: cosmetic, but it costs the reader the diagnosis.**
+**Was:** six refusals said "frame needs N bytes of instance data, over the stated budget of
+33554432" with `N` equal to 21 093, 114 140, 1 170 768, 3 763 825, 20 263 595, 29 621 489 and
+29 666 103 — every one of them *under* the budget it was said to exceed.
 
-Six of the seven refusals at the page's own scale say:
+**Answered on quorra's side.** The refusals that remain add up, and the one that replaced the
+mis-stated limit says what it is:
 
 ```text
-frame refused: frame needs N bytes of instance data, over the stated budget of 33554432
+frame needs 1411676992 bytes of instance data, over the stated budget of 268435456
+the frame's rasterised coverage outgrew the 16384x16384 scratch image this adapter allows
 ```
 
-with `N` equal to **21 093** (`issue14497.pdf`), **114 140** (`zerowidthline.pdf` at 4×),
-**1 170 768** (`tiling-pattern-large-steps.pdf`), **3 763 825** (`issue9418.pdf`), **20 263 595**
-(`issue1905.pdf`), **29 621 489** and **29 666 103** (`bug1703683_page2_reduced.pdf`,
-`bug1721218_reduced.pdf`). Every one of them is *under* the 33 554 432 it is said to exceed.
-
-Either the message names the wrong budget or the comparison is against a different quantity. The
-number that is actually being exceeded is the one worth printing, and the largest of these is a
-page this viewer already knows is pathological (`bug1721218_reduced.pdf` is its worst page by
-some margin), so the limit may well be the right one — it is only the sentence that does not add
-up.
-
-The seventh refusal is `issue17848.pdf`: "this backend cannot draw a mesh shading with no
-visible raster", which is a stated limit rather than a defect.
+Six of the seven pages the old message refused now draw. **One refusal is left at the page's own
+scale** — `bug1721218_reduced.pdf`, this viewer's own worst page by some margin, on the scratch
+image's limit — and eighteen at 4×, all with coherent arithmetic.
 
 ---
 
 ## 4. What is **not** a finding
 
-Twenty-eight of the fifty differing pages have structural similarity **above 0.99** — the same
-shapes in the same places — and twenty of those are one document family (`tracemonkey.pdf` and
-its relatives) sitting at mean 1.52 with a worst tile of 5.09. That is a page of dense text
+Twenty-nine of the forty-four differing pages have structural similarity **above 0.99** — the
+same shapes in the same places — and twenty of those are one document family (`tracemonkey.pdf`
+and its relatives) sitting at mean 1.52 with a worst tile of 5.09. That is a page of dense text
 measured against a different glyph rasteriser. `real_pages.rs` measures the specification's own
-pages at 1.18 and reports that the Vello backend measures 1.16 on the same cases: **the two
-rasterisers' antialiasing is essentially the whole floor**, and quorra is not adding to it.
+pages at 1.18 and reports the Vello backend at 1.16 on the same cases: **the two rasterisers'
+antialiasing is essentially the whole floor**, and quorra is not adding to it.
 
-The remaining twenty-two differ structurally. One is §1 above; the rest are unexamined and are
-listed by name in `DIFFERS_IN_SHAPE` with their numbers, largest first: `issue2177.pdf` (8.16),
-`issue16038.pdf` (6.16), `issue16316.pdf` (5.06), `issue6769.pdf` and `issue6769_no_matrix.pdf`
-(4.81, similarity 0.84–0.86). Their artefact pairs are on disk after a run. This side has not
-opened them; the list is the offer.
+The floor also shrinks as the page grows, which is what a floor should do: at 2× only 17 pages
+differ at all and at 4× only 16, against 44 here.
+
+Fifteen pages still differ structurally, largest first: `issue16038.pdf` (6.16),
+`issue16316.pdf` (5.06), `copy_paste_ligatures.pdf` (3.86), `issue4402_reduced.pdf` (3.86),
+`issue12295.pdf` (2.16, similarity 0.879). `issue2177.pdf`, `issue6769.pdf`,
+`issue6769_no_matrix.pdf` and `bug946506.pdf` left this list when strokes under an
+anisotropic transform started being outlined in path space — a fix nobody asked for, found by
+reading the shape list rather than by being told. Their artefact pairs are on disk after a run;
+this side has not opened the fifteen, and the list is the offer.
 
 ---
 
 ## 5. Speed, offscreen
 
-Page one of every document, both backends, same display list. **The GPU figures include the
-readback to system memory**, which a windowed host does not pay — `doc/RENDER_LIBRARY.md` §6.1
-measures that at 55% to 92% of a frame — so these are offscreen numbers and say nothing directly
-about presenting.
+Page one of every document, both backends, same display list, AMD Radeon 890M (RADV), release.
+**The GPU figures include the readback to system memory**, which a windowed host does not pay —
+`RENDER_LIBRARY.md` section 6.1 measures that at 55% to 92% of a frame — so these are offscreen
+numbers and say nothing directly about presenting.
 
-| scale | pages drawn | `render-cpu` | quorra | median page |
-|---|---|---|---|---|
-| 1.0 — the page's own | 950 | **2.63 s** | 6.21 s | quorra **2.64×** |
-| 2.0 — a window's | 940 | **6.72 s** | 12.64 s | quorra **3.18×** |
-| 4.0 | 419 of 952; the rest refused, see §2 | 4.12 s | 10.30 s | quorra **3.77×** |
+| scale | pages drawn | `render-cpu` | quorra | median page | was |
+|---|---|---|---|---|---|
+| 1.0 — the page's own | 956 | **2.55 s** | 6.26 s | quorra **2.05×** | 2.64× |
+| 2.0 — a window's | 948 | **5.21 s** | 10.16 s | quorra **2.87×** | 3.18× |
+| 4.0 | 934 of 952 | **11.34 s** | 24.13 s | quorra **3.24×** | 3.77×, over 419 pages |
 
 **Quote the total against the median and say which.** The totals ratio *improves* with scale
-(2.36× → 1.88×) while the median ratio *worsens* (2.64× → 3.18×), and both are true: this
+(2.45× → 1.95×) while the median ratio *worsens* (2.05× → 3.24×), and both are true: this
 viewer's CPU rasterisation grows with the pixels, so the heavy pages close the gap in the total,
 while the median page is small enough to be dominated by a per-frame floor that does not shrink.
-The scale-4 row is not comparable with the other two, because half the corpus is refused and the
-survivors are the pages whose resources fit; it is here because leaving it out would hide the
-refusals rather than the number.
+The 4× row is comparable with the others for the first time — before the eviction fix it covered
+419 pages and the survivors were the ones whose resources fit.
 
 For contrast, the *presented* path — `pdf-viewer` on `Xvfb`, ISO 32000-2 through quorra — puts
 page one on screen in **44.6 ms** and turns to page 6 in **9.3 to 17.4 ms** a page. That is the
 number the swap was made for, and this gate is deliberately not it.
 
-**The instrument had the same shape of defect the library does, and it is recorded here so that
-nobody trusts an earlier draft**: a refused frame is a fast frame, so the first scale-4 run
-reported a median of `0.00×`. Only frames that were produced are timed now.
+**The instrument had the same shape of defect the library did, and it is recorded here so that
+nobody trusts an earlier draft**: a refused frame is a fast frame, so the first 4× run reported a
+median of `0.00×`. Only frames that were produced are timed now.
 
 ---
 
-## 6. One thing this side owes back
+## 6. One thing this side owed back — **settled both ways**
 
-`cargo test -p conformance` fails on ten citations in `crates/render-quorra` — `§4.5`, `§2.2`,
-`§4.6` — which are sections of `doc/RENDER_LIBRARY.md` rather than of ISO 32000-2. This tree's
-rule is that a bare `§` means one document, and the checker already accepts another document's
-sections when the document is named first (`RFC 3986 §5.2` is the standing example). Writing
-`RENDER_LIBRARY.md §4.5` clears it. Nothing about the library is wrong here; it is a convention
-of the caller's repository that the brief did not state, and it is stated now.
+`cargo test -p conformance` used to fail on ten citations in `crates/render-quorra` — `§4.5`,
+`§2.2`, `§4.6` — which are sections of `RENDER_LIBRARY.md` rather than of ISO 32000-2. This
+tree's rule is that a bare `§` means one document, and the brief never said so.
+
+Settled from both ends: the citations now read `RENDER_LIBRARY.md section 4.5`, and the
+conformance checker was taught to say what is wrong when a project document's name precedes a
+`§` — so the next person to write one is told rather than left to guess.

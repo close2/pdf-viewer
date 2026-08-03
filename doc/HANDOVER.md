@@ -95,7 +95,7 @@ that exists (ADR 0146).
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **30 of them diagnosed and 716 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
-| **quorra vs the CPU oracle** (974 documents, page one, same display list) | **900 agree, 50 differ, 7 refused**, 17 not comparable — and the head of the differing list is `pdf-render`'s §10.7.4 rule the new backend does not ask for (ADR 0156) | `render-quorra/tests/corpus.rs`, **28 s** |
+| **quorra vs the CPU oracle** (974 documents, page one, same display list) | **912 agree, 44 differ, 1 refused**, 17 not comparable — 29 of the 44 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **44.6 ms**, and five arrow keys turn to page 6 presenting in **9.3 to 17.4 ms** with nothing refused — re-run in the hundred-and-ninety-fifth, and both numbers are now through **quorra** rather than Vello. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
 | conformance | **346 quotations**, all verbatim, 228 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
@@ -1001,28 +1001,32 @@ disagreeing and a refusal is a hole in the new one. Three ratchets held by name 
 differing at the edges (similarity above 0.99), differing in shape — and both renders of every
 differing page written to `target/tmp/quorra/<stem>/`.
 
-**900 agree, 50 differ, 7 refused.** Three findings, and two of them are only visible at this
-scale — all three are written up for the library's team in `doc/QUORRA_FEEDBACK.md`, with the
-command that reproduces each:
+**The first run was 900 agree, 50 differ, 7 refused, and every finding in it has been answered.**
+The three were written up for the library's team in `doc/QUORRA_FEEDBACK.md`, with the command
+that reproduces each, and the same document now carries what closed them:
 
-- **The head of the differing list is trap 2's shape.** `issue4260_reduced.pdf` at similarity
-  **0.49**: §10.7.4's rule that no shape may disappear lives in `pdf_render::collapsed` so that
-  both backends inherit it (ADR 0154), and the new backend does not ask for it — it asks
-  `pdf-render` for §8.5.3.2's degenerate *strokes* and nothing asks for §10.7.4's degenerate
-  *fills*. The CPU backend draws the grid and quorra draws the empty box. **A device decision
-  added to `pdf-render` does not announce itself to a backend.**
-- **The caches never evict, and only a long run says so.** At 4× the page's own scale, 533 of
-  952 pages are refused with "uploading would hold 536871036 resource bytes (536870896 already
-  resident)" — the 512 MB budget, full — and `tiling-pattern-box.pdf`, refused in the full run,
-  **passes on its own**. A per-document suite starts empty every time; a viewer left open does
-  not.
-- **Six of the seven refusals at the default scale give a reason whose arithmetic contradicts
-  it**: "frame needs 21093 bytes of instance data, over the stated budget of 33554432".
+- **§10.7.4's rule was not asked for** — trap 2's shape. `issue4260_reduced.pdf` drew an empty
+  box at similarity **0.49** because the rule lives in `pdf_render::collapsed` so that both
+  backends inherit it (ADR 0154) and the new one did not ask. It asks now: **0.9938**.
+- **The caches never evicted**, which only a long run can see: 533 of 952 pages refused at 4×
+  with the 512 MB budget full, and a page refused in the full run passing on its own. Entries
+  carry recency now and the device releases down to half its budget after every frame —
+  **zero** resource refusals at 4×, where 413 pages agreed before and 918 do now.
+- **Six refusal messages named a byte count under the budget they exceeded.** They add up now,
+  and the one that replaced the mis-stated limit says what it is.
+
+**And the shape list bought something nobody asked for**: reading it found strokes under an
+*anisotropic* transform being given one scalar device width, which is exact for a similarity and
+exactly wrong for a shear. Four documents left the list.
+
+**Where it stands: 912 agree, 44 differ, 1 refused** — and 29 of the 44 are the glyph
+antialiasing floor, which shrinks as the page grows (17 pages differ at 2×, 16 at 4×).
 
 **Performance, offscreen, readback included** (AMD 890M, RADV, release): at the page's own scale
-the CPU backend takes **2.63 s** over 950 pages against quorra's 6.21 s, median page **2.64×**;
-at a window's 2× it is 6.72 s against 12.64 s, median **3.18×**. The totals ratio *improves*
-with scale while the median *worsens*, and both are true — our CPU cost grows with the pixels
+the CPU backend takes **2.55 s** over 956 pages against quorra's 6.26 s, median page **2.05×**;
+at a window's 2× it is 5.21 s against 10.16 s, median **2.87×**; at 4× — comparable for the first
+time now that the eviction fix draws 934 of 952 pages — 11.34 s against 24.13 s, median 3.24×.
+The totals ratio *improves* with scale while the median *worsens*, and both are true — our CPU cost grows with the pixels
 while the median page is dominated by a per-frame floor that does not. Quote the total against
 the median and say which. The window is not measured here and this gate is deliberately not the
 place to: a presented frame pays no readback.
@@ -1439,14 +1443,6 @@ subprocesses.** `PDFREF_CACHE=off` asks the three renderers again — how "the c
 re-checked; `PDFVIEWER_ORACLE_ONLY=a,b` compares only matching pages in 0.2 s and refuses to check
 the ratchets, saying so. `PDFVIEWER_CORPUS_TRACE=1` names each document as it starts, which is how
 a hang is identified from a killed run.
-
-**One gate is red and it is not this tree's own prose**: `-p conformance`'s
-`every_citation_names_a_clause_that_exists` names ten `§4.5`, `§2.2` and `§4.6` citations in
-`crates/render-quorra`, which are sections of `doc/RENDER_LIBRARY.md` rather than of ISO 32000-2.
-The checker's rule is the one this file states — **a `§` means one document** — and it already
-accepts another document's sections when the document is named first (`RFC 3986 §5.2` is the
-standing example), so the fix is to write `RENDER_LIBRARY.md §4.5`. Left for the crate's author,
-whose working tree holds it.
 
 Cargo prints one line about `proc-macro-error2` being rejected by a future compiler. It arrives
 through `iai-callgrind`, a dev-dependency reaching no shipped binary, and `deny.toml` records the

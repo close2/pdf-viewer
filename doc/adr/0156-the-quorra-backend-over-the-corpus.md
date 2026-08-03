@@ -25,6 +25,12 @@ mark from a soft edge.
 
 ## What it found, at the page's own scale
 
+> **Every finding below was answered by the library's team within the day, and
+> `doc/QUORRA_FEEDBACK.md` carries what closed each one and the measurement that shows it.**
+> The account here is left as it was taken: an ADR records what was true when the decision was
+> made, and the value of this one is the argument for the gate rather than the state of the
+> numbers.
+
 957 pages compared: **900 agree, 50 differ, 7 refused, 17 not comparable.**
 
 - **`issue4260_reduced.pdf`, mean 14.19 and similarity 0.49, is trap 2's shape.** It is a page
