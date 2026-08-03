@@ -11,7 +11,7 @@ use pdf_model::outline::Outline;
 use pdf_model::page_label::PageLabels;
 use pdf_model::view::ViewState;
 use pdf_model::{Page, Pages};
-use pdf_render::{DisplayList, Raster, Size, TargetSpec};
+use pdf_render::{DisplayList, Raster, Rect, Size, TargetSpec};
 use pdf_syntax::Document;
 
 use crate::command::Zoom;
@@ -20,12 +20,11 @@ use pdf_model::action::ImportData;
 use pdf_model::view::Pointer;
 use pdf_syntax::ObjectId;
 
-/// The zoom a document opens at.
+/// The zoom a document opens at, where its `/OpenAction` states none.
 ///
-/// §12.3.2.1's `/OpenAction` may state a magnification and this does not honour it yet, which
-/// is a gap named rather than hidden: `Destination::view` carries `/XYZ`'s zoom and `/Fit`'s
-/// family, and turning those into a [`Zoom`] is a page-positioning question that belongs with
-/// scrolling to a destination rather than with opening a file.
+/// Where one does, [`Self::pending_view`] carries it and `apply_view` replaces this on the first
+/// settled frame — which is why this is still a mode rather than a number: a document with no
+/// opinion should follow the window, and one with an opinion should be obeyed.
 const INITIAL_ZOOM: Zoom = Zoom::FitPage;
 
 /// How far one [`Zoom::In`] or [`Zoom::Out`] step moves.
@@ -61,6 +60,13 @@ pub(crate) struct Open {
     pub(crate) page_index: usize,
     /// How large the page is drawn.
     pub(crate) zoom: Zoom,
+    /// §12.3.2.1's other two items, waiting for a viewport and a display list to be applied to.
+    ///
+    /// A destination states a page, a location and a magnification; the page is a property of the
+    /// document and is applied at once, while the other two need to know how large the window is
+    /// and — for `/FitB`, `/FitBH` and `/FitBV` — what the page's contents cover. Both are known
+    /// in `Viewer::settle` and nowhere earlier, so the view waits here until then. ADR 0162.
+    pub(crate) pending_view: Option<pdf_model::destination::View>,
     /// How far the page is scrolled under the viewport, in device pixels.
     ///
     /// Positive means the content has moved up and left — the top-left of the raster is off the
@@ -236,10 +242,13 @@ impl Open {
         // specify a destination that shall be displayed when the document is opened." Table 29
         // states the other half — an absent or unresolvable entry means the top of the first
         // page — which is what `unwrap_or(0)` is, and why nothing is reported here.
-        let page_index = pdf_model::destination::Destination::open_action(&document)
-            .and_then(|destination| destination.page_index(&document, &pages))
-            .filter(|index| *index < page_count)
-            .unwrap_or(0);
+        let open_action =
+            pdf_model::destination::Destination::open_action(&document).and_then(|destination| {
+                let index = destination.page_index(&document, &pages)?;
+                (index < page_count).then_some((index, destination.view))
+            });
+        let page_index = open_action.map_or(0, |(index, _)| index);
+        let open_view = open_action.map(|(_, view)| view);
         drop(pages);
         let view = ViewState::of(&document);
         Self {
@@ -250,6 +259,7 @@ impl Open {
             page_count,
             page_index,
             zoom: INITIAL_ZOOM,
+            pending_view: open_view,
             scroll: (0.0, 0.0),
             current: None,
             shown_for: 0.0,
@@ -377,6 +387,7 @@ impl Open {
         let magnification = match self.zoom {
             Zoom::FitPage => fitted(viewport.0, size.width).min(fitted(viewport.1, size.height)),
             Zoom::FitWidth => fitted(viewport.0, size.width),
+            Zoom::FitHeight => fitted(viewport.1, size.height),
             Zoom::Scale(zoom) => zoom.clamp(ZOOM_RANGE.0, ZOOM_RANGE.1) * scale,
             // Neither reaches here: `Viewer` resolves a step into the scale it lands on
             // before storing it, because a chain of steps has to compose and a mode cannot.
@@ -390,7 +401,7 @@ impl Open {
         let stepped = match direction {
             Zoom::In => current * ZOOM_STEP,
             Zoom::Out => current / ZOOM_STEP,
-            Zoom::FitPage | Zoom::FitWidth | Zoom::Scale(_) => current,
+            Zoom::FitPage | Zoom::FitWidth | Zoom::FitHeight | Zoom::Scale(_) => current,
         };
         stepped.clamp(ZOOM_RANGE.0, ZOOM_RANGE.1)
     }
@@ -416,6 +427,154 @@ impl Open {
         )
     }
 
+    /// Applies §12.3.2.1's other two items — where the window sits, and how large.
+    ///
+    /// Table 149's eight forms, and every one of them is two decisions: a **magnification**,
+    /// which becomes a [`Zoom`], and a **point of the page put at the window's top-left corner**,
+    /// which becomes a scroll. The clause states them in default user space and this works in
+    /// device pixels of a raster, so each coordinate goes through the page's own transform
+    /// (§7.7.3.3's rotation, the crop box's origin, `/UserUnit`) and then through the
+    /// magnification, with the y axis flipped once on the way — a raster's rows count down from
+    /// the top and PDF's coordinates count up from the bottom.
+    ///
+    /// §12.3.2.2, of Table 149's own null:
+    ///
+    /// > A null value for any of the parameters left , top , or zoom specifies that the current
+    /// > value of that parameter shall be retained unchanged.
+    ///
+    /// So an absent coordinate leaves the scroll where it is and an absent zoom leaves the
+    /// magnification, which is why each is applied separately rather than as a whole position.
+    ///
+    /// `bounds` is what the page's contents cover, in the display list's own space, and is only
+    /// consulted by the three `/FitB` forms — "the smallest rectangle enclosing all of its
+    /// contents", which no page dictionary states and only a display list can answer.
+    ///
+    /// Returns whether anything changed, which is what decides a redraw.
+    pub(crate) fn apply_view(
+        &mut self,
+        view: pdf_model::destination::View,
+        viewport: (u32, u32),
+        scale: f32,
+        bounds: Option<Rect>,
+    ) -> bool {
+        use pdf_model::destination::View;
+
+        let Some(size) = self.page_size(self.page_index) else {
+            return false;
+        };
+        let before = (self.zoom, self.scroll);
+        // The box each form fits: the page for five of them, its contents for the `/FitB`
+        // family. A `/FitB` on a page whose contents cover nothing falls back to the page,
+        // because the alternative is a magnification of infinity.
+        let content = bounds.filter(|box_| box_.max.x > box_.min.x && box_.max.y > box_.min.y);
+        let (fit_width, fit_height) = match view {
+            View::FitB | View::FitBH { .. } | View::FitBV { .. } => content
+                .map_or((size.width, size.height), |box_| {
+                    (box_.max.x - box_.min.x, box_.max.y - box_.min.y)
+                }),
+            _ => (size.width, size.height),
+        };
+
+        match view {
+            View::Xyz { zoom, .. } => {
+                if let Some(zoom) = zoom.filter(|zoom| zoom.is_finite() && *zoom > 0.0) {
+                    self.zoom = Zoom::Scale(zoom);
+                }
+            }
+            View::Fit | View::FitB => {
+                self.zoom = Zoom::Scale(
+                    fitted(viewport.0, fit_width).min(fitted(viewport.1, fit_height)) / scale,
+                );
+            }
+            View::FitH { .. } | View::FitBH { .. } => {
+                self.zoom = Zoom::Scale(fitted(viewport.0, fit_width) / scale);
+            }
+            View::FitV { .. } | View::FitBV { .. } => {
+                self.zoom = Zoom::Scale(fitted(viewport.1, fit_height) / scale);
+            }
+            View::FitR { rect } => {
+                let (width, height) = ((rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs());
+                // Table 149 says "magnified just enough to fit *the rectangle*", so a rectangle
+                // with no extent in one direction states no magnification in it and the other
+                // one decides alone. Neither: the file has stated a point, and the zoom stands.
+                self.zoom = match (width > 0.0, height > 0.0) {
+                    (true, true) => Zoom::Scale(
+                        fitted(viewport.0, width).min(fitted(viewport.1, height)) / scale,
+                    ),
+                    (true, false) => Zoom::Scale(fitted(viewport.0, width) / scale),
+                    (false, true) => Zoom::Scale(fitted(viewport.1, height) / scale),
+                    (false, false) => self.zoom,
+                };
+            }
+        }
+
+        // The magnification the new zoom lands on, which is what turns a user-space coordinate
+        // into a device one. Read back rather than remembered: `Zoom::Scale` is clamped.
+        let Some(magnification) = self.magnification(viewport, scale) else {
+            self.zoom = before.0;
+            return false;
+        };
+        let corner = match view {
+            View::Xyz { left, top, .. } => (left, top),
+            View::FitH { top } | View::FitBH { top } => (None, top),
+            View::FitV { left } | View::FitBV { left } => (left, None),
+            // Table 149 puts the rectangle's own corner at the window's.
+            View::FitR { rect } => (Some(rect[0].min(rect[2])), Some(rect[1].max(rect[3]))),
+            // "Display the page ... with its contents magnified just enough to fit the entire
+            // page within the window" — the whole page is in view, so there is nothing to
+            // scroll to and the top-left corner is the answer in both directions.
+            View::Fit => (Some(0.0), Some(size.height)),
+            View::FitB => content.map_or((Some(0.0), Some(size.height)), |box_| {
+                (Some(box_.min.x), Some(box_.max.y))
+            }),
+        };
+        self.scroll_to(corner, view, magnification, size.height);
+        self.clamp_scroll(viewport, raster_extent(size, magnification));
+        (self.zoom, self.scroll) != before
+    }
+
+    /// Puts a point of the page at the window's top-left corner.
+    ///
+    /// The `/FitB` forms already carry display-list coordinates, because that is the space a
+    /// content bounding box is measured in; every other form states default user space and goes
+    /// through the page's transform first.
+    fn scroll_to(
+        &mut self,
+        corner: (Option<f32>, Option<f32>),
+        view: pdf_model::destination::View,
+        magnification: f32,
+        page_height: f32,
+    ) {
+        use pdf_model::destination::View;
+
+        let already_page_space = matches!(
+            view,
+            View::Fit | View::FitB | View::FitBH { .. } | View::FitBV { .. }
+        );
+        let (x, y) = match (corner.0, corner.1) {
+            (None, None) => return,
+            (left, top) => {
+                let point = (left.unwrap_or(0.0), top.unwrap_or(page_height));
+                if already_page_space {
+                    point
+                } else {
+                    match self.shown_page() {
+                        Some(page) => pdf_model::content::page_space_at(page, point.0, point.1),
+                        None => point,
+                    }
+                }
+            }
+        };
+        if corner.0.is_some() {
+            self.scroll.0 = (x * magnification).max(0.0);
+        }
+        if corner.1.is_some() {
+            // The display list's y counts up from the bottom of the page and a raster's rows
+            // count down from the top, so the distance scrolled is measured from the *top*.
+            self.scroll.1 = ((page_height - y) * magnification).max(0.0);
+        }
+    }
+
     /// Holds the scroll inside the page, which is what stops a page being scrolled out of view.
     pub(crate) fn clamp_scroll(&mut self, viewport: (u32, u32), raster: (u32, u32)) {
         let limit = |viewport: u32, raster: u32| {
@@ -430,6 +589,24 @@ impl Open {
         self.scroll.0 = self.scroll.0.clamp(0.0, limit(viewport.0, raster.0));
         self.scroll.1 = self.scroll.1.clamp(0.0, limit(viewport.1, raster.1));
     }
+}
+
+/// The raster a page of this size occupies at this magnification.
+///
+/// The same rounding `TargetSpec::for_page` does — up, so the raster contains the page — stated
+/// here because `apply_view` clamps a scroll before there is a target to ask.
+fn raster_extent(size: Size, magnification: f32) -> (u32, u32) {
+    let extent = |value: f32| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a page extent times a magnification, both finite and bounded by the \
+                      pixel budget the target spec applies immediately afterwards"
+        )]
+        let pixels = (value * magnification).ceil().max(1.0) as u32;
+        pixels
+    };
+    (extent(size.width), extent(size.height))
 }
 
 /// How many times a fit steps down before it settles for the extra pixel.

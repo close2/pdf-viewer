@@ -91,8 +91,8 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **959** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the fourteen sessions from the hundred-and-eighty-sixth added twenty-eight. Quote the command with the number | — |
+| tests | **961** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the fifteen sessions from the hundred-and-eighty-sixth added thirty. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **34 of them diagnosed and 712 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
@@ -132,8 +132,8 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 372 | every normative requirement in the clause is executed |
-| `partial` | 240 | some are; the note says which are not |
+| `implemented` | 373 | every normative requirement in the clause is executed |
+| `partial` | 239 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 86 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -227,8 +227,11 @@ because a panel existed to display an outline in, §14.3.3 because a panel exist
 `/Info` in, §7.7.2's `/PageMode` and §12.6.3's trigger events because a sidebar and a pointer had
 arrived. Each of those rows said some version of *this program has no ___*, and each stayed true
 for between seven and forty-one sessions after it stopped being true. The three sweeps that catch
-it are in `doc/todo/01-ledger-partial-rows.md`, and the hundred-and-ninety-first session found a
-`shall` that had been binding for fifty-six.
+it are in `doc/todo/01-ledger-partial-rows.md`, the hundred-and-ninety-first session found a
+`shall` that had been binding for fifty-six, and the two-hundred-and-first found the longest one
+yet: §12.3.2.1's magnification and window position, owed since the **hundred-and-thirty-second**
+session put scrolling and zoom in the vocabulary, still explained by "a window with scrolling and
+zoom, which this program does not have" sixty-nine sessions later (ADR 0162).
 
 **But the map is not the territory.** Four of the six findings in the ten sessions from the
 hundred-and-twentieth were on no list at all: a `shall` hiding behind a silence about artwork (ADR
@@ -2272,3 +2275,4 @@ above rather than here.
 | 198 | §12.8.2.3: a save that outgrows a usage rights signature withdraws it — and no corpus document can trip that | 0159 |
 | 199 | An annotation's appearance is a form, so §8.7.2 places its patterns in *its* space — a stamp's gradient was flat | 0160 |
 | 200 | A JPEG 2000 decoder nobody had ever checked: 13 of 30 corpus codestreams disagree with the reference software | 0161 |
+| 201 | §12.3.2.1's other two items: a destination's magnification and its place on the page, owed for sixty-nine sessions after the window arrived | 0162 |

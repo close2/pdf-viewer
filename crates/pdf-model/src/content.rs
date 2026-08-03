@@ -1337,6 +1337,18 @@ pub fn user_space_at(page: &Page, x: f32, y: f32) -> Option<(f32, f32)> {
     Some((point.x, point.y))
 }
 
+/// Maps a point in default user space into the page's own space.
+///
+/// [`user_space_at`]'s forward direction, and the same caution applies in reverse: what comes
+/// back is the display list's space, whose y still points **up** from the bottom of the page.
+/// §12.3.2.2's destinations are the caller this exists for — Table 149 states its coordinates
+/// "in the default user space" and a viewer has to put them somewhere on a raster.
+#[must_use]
+pub fn page_space_at(page: &Page, x: f32, y: f32) -> (f32, f32) {
+    let point = base_transform(page).apply(Point::new(x, y));
+    (point.x, point.y)
+}
+
 /// Builds the transform from PDF user space to the page's own space.
 ///
 /// Two things fold in here. The crop box may not start at the origin, so content is

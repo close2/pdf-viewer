@@ -36,6 +36,12 @@ pub(crate) struct Outcome {
     pub(crate) transitions: Vec<Transition>,
     /// The page to show, where a request named one.
     pub(crate) target: Option<usize>,
+    /// Table 149's view of that page, where the destination that named it stated one.
+    ///
+    /// Carried beside the page rather than resolved here because §12.3.2.1's other two items —
+    /// "[t]he location of the document window on that page" and "[t]he magnification (zoom)
+    /// factor" — need a viewport and a display list, and this function has neither.
+    pub(crate) view: Option<pdf_model::destination::View>,
     /// §12.6.4.4: a document from inside this one, which replaces it.
     pub(crate) replacement: Option<Box<Open>>,
     /// Whether what is on the screen has to be drawn again.
@@ -167,6 +173,37 @@ pub(crate) fn trigger(open: &mut Open, annotation: ObjectId, event: Trigger) -> 
 /// and the annotation's `/Rect`, which is what §12.6.4.8's `/IsMap` needs and the only thing in
 /// the whole sequence that does.
 ///
+/// Where a chain of §12.6.2 actions says to go, and how to look at it there.
+///
+/// **The first request that names a page wins**, because a chain that jumps twice has shown the
+/// second page either way and §12.6.2 states no rule for the pair — and Table 149's view is taken
+/// from the *same* destination as the page, always. A jump that took its page from one
+/// destination and its magnification from another would show a place no link in the file names.
+#[derive(Debug, Default)]
+struct Jump {
+    /// The page index, zero-based.
+    page: Option<usize>,
+    /// §12.3.2.1's other two items, where the destination that won stated them.
+    view: Option<pdf_model::destination::View>,
+}
+
+impl Jump {
+    /// Takes this destination's page and view, if nothing has named a page yet.
+    fn take(
+        &mut self,
+        document: &Document,
+        pages: &Pages,
+        destination: &pdf_model::destination::Destination,
+    ) {
+        if self.page.is_none()
+            && let Some(page) = destination.page_index(document, pages)
+        {
+            self.page = Some(page);
+            self.view = Some(destination.view);
+        }
+    }
+}
+
 /// `subject` is how a refusal names itself to a person — "this link declines", "this item
 /// declines" — and nothing else depends on it.
 fn perform(
@@ -196,21 +233,23 @@ fn perform(
     // The first request that names a page wins, because a chain that jumps twice has shown the
     // second page either way and §12.6.2 states no rule for the pair.
     let pages = Pages::new(&open.document);
-    let mut target =
-        destination.and_then(|destination| destination.page_index(&open.document, &pages));
+    let mut jump = Jump::default();
+    if let Some(destination) = destination.as_ref() {
+        jump.take(&open.document, &pages, destination);
+    }
     let (mut import, mut embedded) = (None, None);
     for request in &requests {
         match request {
-            Request::Display(destination) => {
-                target = target.or_else(|| destination.page_index(&open.document, &pages));
-            }
+            Request::Display(destination) => jump.take(&open.document, &pages, destination),
             Request::Page(named) => {
-                target = target.or_else(|| named.page_from(open.page_index, open.page_count));
+                jump.page = jump
+                    .page
+                    .or_else(|| named.page_from(open.page_index, open.page_count));
             }
             // §12.6.4.5: "changes the view to the Start page of a specified DPart" — a page of
             // *this* document, so it resolves here beside the other two that name one.
-            Request::DocumentPart(jump) => {
-                target = target.or_else(|| jump.page_in(&open.document, &pages));
+            Request::DocumentPart(part) => {
+                jump.page = jump.page.or_else(|| part.page_in(&open.document, &pages));
             }
             Request::Resolve(uri) => outcome.uris.push(match at {
                 Some((point, rect)) => uri.at_position(point, rect),
@@ -222,13 +261,14 @@ fn perform(
             Request::Import(request) => import = Some(request.clone()),
             Request::Embedded(request) => embedded = Some(request.clone()),
             Request::Transition(transition) => outcome.transitions.push(transition.clone()),
-            Request::Thread(jump) => {
+            Request::Thread(thread) => {
                 // §12.4.3's threads are read *here* rather than when the document opens: an
                 // article is a list nothing else consults, and principle 2's "nothing eager"
                 // applies to the two documents in a thousand that would pay for it at launch.
                 let articles = pdf_model::article::Articles::read(&open.document);
-                target = target.or_else(|| {
-                    jump.bead_in(&articles)
+                jump.page = jump.page.or_else(|| {
+                    thread
+                        .bead_in(&articles)
                         .and_then(|bead| bead.page_index(&pages))
                 });
             }
@@ -237,7 +277,8 @@ fn perform(
     drop(pages);
 
     outcome.redraw = open.view != before;
-    outcome.target = target.filter(|target| *target < open.page_count);
+    outcome.target = jump.page.filter(|target| *target < open.page_count);
+    outcome.view = outcome.target.and(jump.view);
     if let Some(import) = import {
         request_file(open, &import, &mut outcome);
     }

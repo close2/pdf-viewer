@@ -329,6 +329,13 @@ pub enum Zoom {
     FitPage,
     /// The page's width, as large as fits, with the rest scrolled.
     FitWidth,
+    /// The page's height, as large as fits, with the rest scrolled.
+    ///
+    /// Here because §12.3.2.2's `/FitV` asks for it — "the contents of the page magnified just
+    /// enough to fit the entire height of the page within the window" — and a viewer that has
+    /// fit-page and fit-width and not this one would have to answer that destination with a
+    /// number rather than with a mode.
+    FitHeight,
     /// A fixed magnification: logical pixels per PDF user space unit, where 1.0 is 72 dpi.
     Scale(f32),
     /// One step larger than whatever is showing now.

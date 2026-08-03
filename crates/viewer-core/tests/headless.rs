@@ -1685,3 +1685,179 @@ fn with_triggers() -> Vec<u8> {
     );
     out.into_bytes()
 }
+
+/// A one-page fixture whose catalog `/OpenAction` states the destination given.
+///
+/// Written out by hand so that the destination array is legible as PDF: what is under test is
+/// this crate's reading of Table 149, and a fixture built by our own code would share any
+/// misreading of it. The page is 600×800 with content in one corner, so a `/FitB` has something
+/// smaller than the page to fit.
+fn with_open_action(destination: &str) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let content = "0 0 1 rg 100 600 200 100 re f\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction {destination} >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n",
+        content.len()
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Opens that fixture into a 300×400 viewport and answers with the page's geometry.
+fn geometry_for(destination: &str) -> viewer_core::PageGeometry {
+    geometry_in(destination, 300, 400)
+}
+
+/// The same, into a viewport of the given size.
+fn geometry_in(destination: &str, width: u32, height: u32) -> viewer_core::PageGeometry {
+    let mut viewer = Viewer::new(width, height, 1.0);
+    let _ = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_open_action(destination),
+            password: None,
+        })
+        .count();
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    geometry
+}
+
+/// ISO 32000-2 §12.3.2.1's other two items, which this crate answered with nothing until now.
+///
+/// > A destination defines a particular view of a document, consisting of the following items:
+/// >
+/// > - The page of the document that shall be displayed
+/// > - The location of the document window on that page
+/// > - The magnification (zoom) factor
+///
+/// The page has always been computed. The other two need a window, and the reason the ledger
+/// gave for not applying them — "properties of a window with scrolling and zoom, which this
+/// program does not have" — stopped being true in the hundred-and-thirty-second session and
+/// went on being written down for sixty-nine more. ADR 0162.
+///
+/// The fixture is a 600×800 page in a 300×400 viewport, so a fit is 0.5 and every number below
+/// is checkable by hand.
+#[test]
+fn an_open_action_states_where_to_look_at_the_page_and_how_large() {
+    // `/Fit`: the whole page, both directions. 300/600 and 400/800 both give 0.5.
+    let fit = geometry_for("[3 0 R /Fit]");
+    assert!(
+        (fit.scale - 0.5).abs() < 1e-3,
+        "the whole page fits at half size, got {}",
+        fit.scale
+    );
+
+    // `/FitH` needs a window the page does not already fit vertically, or there is nothing to
+    // scroll: 300x200, where fitting the 600-wide page gives 0.5 and a 400-tall raster.
+    //
+    // `/FitH 800` puts user-space y 800 — the page's top — at the window's top, which is an
+    // origin of zero rather than the centring a smaller page would get.
+    let fit_h = geometry_in("[3 0 R /FitH 800]", 300, 200);
+    assert!((fit_h.scale - 0.5).abs() < 1e-3, "{}", fit_h.scale);
+    assert!(
+        fit_h.origin.1.abs() < 1.0,
+        "the top of the page is at the top of the window, got {:?}",
+        fit_h.origin
+    );
+
+    // `/FitH 400`: the same magnification, with the middle of the page at the window's top —
+    // 400 user units down from the top, at half size, is 200 device pixels of scroll.
+    let middle = geometry_in("[3 0 R /FitH 400]", 300, 200);
+    assert!(
+        (middle.origin.1 + 200.0).abs() < 2.0,
+        "half way down the page, got {:?}",
+        middle.origin
+    );
+
+    // `/XYZ` states its own magnification, and a zoom of 1 is 72 dpi — one device pixel per
+    // user space unit, whatever the window is.
+    let xyz = geometry_for("[3 0 R /XYZ 0 800 1]");
+    assert!(
+        (xyz.scale - 1.0).abs() < 1e-3,
+        "a zoom of 1 is actual size, got {}",
+        xyz.scale
+    );
+    assert_eq!(
+        (xyz.width, xyz.height),
+        (600, 800),
+        "and the raster is the page's own size"
+    );
+
+    // `/FitR`: a 200x100 rectangle in a 300x400 window fits at 1.5 — the width decides, because
+    // 400/100 would be 4 — and the rectangle's top-left corner goes to the window's.
+    let fit_r = geometry_for("[3 0 R /FitR 100 600 300 700]");
+    assert!(
+        (fit_r.scale - 1.5).abs() < 1e-2,
+        "the narrower fit decides, got {}",
+        fit_r.scale
+    );
+    assert!(
+        (fit_r.origin.0 + 150.0).abs() < 2.0 && (fit_r.origin.1 + 150.0).abs() < 2.0,
+        "the rectangle's corner is the window's corner, got {:?}",
+        fit_r.origin
+    );
+
+    // `/FitB`: the same again for "the smallest rectangle enclosing all of its contents", which
+    // no page dictionary states. The fixture's one rectangle is 200x100 at (100, 600), so this
+    // must land where `/FitR` over the same box did.
+    let fit_b = geometry_for("[3 0 R /FitB]");
+    assert!(
+        (fit_b.scale - fit_r.scale).abs() < 1e-2,
+        "the content box is the rectangle, got {} against {}",
+        fit_b.scale,
+        fit_r.scale
+    );
+}
+
+/// A destination with no magnification leaves the one in force, which is Table 149's own rule.
+///
+/// ISO 32000-2 §12.3.2.2, Table 149:
+///
+/// > A null value for any of the parameters left , top , or zoom specifies that the current
+/// > value of that parameter shall be retained unchanged.
+///
+/// So the two `null`s and the omitted zoom below must each change nothing about the scale, while
+/// still moving the window — which is the distinction that makes this worth its own test: a
+/// reading that treated an absent parameter as a zero would fit the page instead.
+#[test]
+fn a_destinations_null_parameters_leave_what_they_do_not_state() {
+    let stated = geometry_for("[3 0 R /XYZ 0 800 2]");
+    assert!((stated.scale - 2.0).abs() < 1e-3, "{}", stated.scale);
+
+    let no_zoom = geometry_for("[3 0 R /XYZ 0 800 null]");
+    let fitted = geometry_for("[3 0 R /Fit]");
+    assert!(
+        (no_zoom.scale - fitted.scale).abs() < 1e-3,
+        "a null zoom keeps the one the document opened at, got {} against {}",
+        no_zoom.scale,
+        fitted.scale
+    );
+
+    // "A zoom value of 0 has the same meaning as a null value."
+    let zero = geometry_for("[3 0 R /XYZ 0 800 0]");
+    assert!((zero.scale - fitted.scale).abs() < 1e-3, "{}", zero.scale);
+}

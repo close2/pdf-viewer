@@ -11,10 +11,14 @@
 //! > - The magnification (zoom) factor
 //!
 //! The **page** is a property of the document and is computed here. The **location** and the
-//! **magnification** are properties of a window this program does not have — it fits a page to
-//! its surface and has neither scrolling nor zoom — so [`View`] carries Table 149's parameters
-//! exactly as the document states them and nothing acts on them yet. Parsing them and saying
-//! so is the honest half; inventing a viewport for them would not be.
+//! **magnification** are properties of a *window*, so [`View`] carries Table 149's parameters
+//! exactly as the document states them and this crate stops there — a viewport is not something
+//! a model of a file can invent. `viewer_core::Open::apply_view` is where they are applied, and
+//! it is the one place that has both a window and a display list to measure a `/FitB` against.
+//!
+//! This module said for sixty-nine sessions that they were "properties of a window this program
+//! does not have"; the program acquired scrolling and zoom in the hundred-and-thirty-second
+//! session and the sentence stayed. ADR 0162.
 //!
 //! # Three spellings of one thing
 //!

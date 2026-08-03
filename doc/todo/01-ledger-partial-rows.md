@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~185 of the 240 rows have not been re-read.
+Status: **standing task.** ~185 of the 239 rows have not been re-read.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -39,7 +39,19 @@ Three false-positive shapes on the second, all seen: a note *quoting* its own re
 (§9.6), a key named in a sentence about something else (§12.7.5.3), and a key that is a string in
 an unrelated list (`/Metadata` in `thumbnail.rs`). Read the hit before believing it.
 
-## The shape the sweeps found last, and it is the strongest
+## The shape the sweeps found last, and it is the longest-lived
+
+The two-hundred-and-first session ran the capability sweep again. **§12.3.2.1** said a
+destination's other two items — "[t]he location of the document window on that page" and "[t]he
+magnification (zoom) factor" — are "properties of a window with scrolling and zoom, which this
+program does not have". `Command::Zoom` and `Command::Scroll` had been in the vocabulary since
+the **hundred-and-thirty-second** session: sixty-nine of them, the longest any of these has run.
+
+The tell is the same every time: the row explains itself by naming something the *program* lacks
+rather than something the *standard* leaves open. `viewer_core::Open::apply_view` answers all
+eight of Table 149's forms now, and the row is `implemented`. ADR 0162.
+
+## The shape the sweeps found before, and it is the strongest
 
 The hundred-and-ninety-first session ran all three. §12.8.6 said a usage-rights signature grants
 "features of a PDF processor that are not available by default" and that **"this program has no

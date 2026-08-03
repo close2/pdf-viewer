@@ -6,7 +6,7 @@ use std::sync::Arc;
 use pdf_model::action::Trigger;
 use pdf_model::optional_content::{OptionalContent, Presented};
 use pdf_model::view::Pointer;
-use pdf_render::{Point, Rect, TargetSpec};
+use pdf_render::{DisplayList, Point, Rect, TargetSpec, Transform};
 use pdf_syntax::{ObjectId, SyntaxError};
 
 use crate::command::{
@@ -570,6 +570,11 @@ impl Viewer {
         if outcome.redraw {
             open.interpreted = None;
         }
+        // Even a destination naming the page already showing states where to look at it, which
+        // is what an outline item pointing at a heading half way down a page is for.
+        if outcome.view.is_some() {
+            open.pending_view = outcome.view;
+        }
         if let Some(target) = outcome.target
             && target != open.page_index
         {
@@ -858,7 +863,7 @@ impl Viewer {
                 let Some(before) = before else { return };
                 open.zoom = Zoom::Scale(Open::stepped(before / scale, zoom));
             }
-            Zoom::FitPage | Zoom::FitWidth | Zoom::Scale(_) => open.zoom = zoom,
+            Zoom::FitPage | Zoom::FitWidth | Zoom::FitHeight | Zoom::Scale(_) => open.zoom = zoom,
         }
         // Both scrolls are in device pixels of a raster whose size changed by exactly this
         // ratio, so scaling them about the viewport's centre keeps that point where it was.
@@ -932,6 +937,16 @@ impl Viewer {
             return;
         };
         let list = Arc::clone(&interpreted.list);
+
+        // §12.3.2.1's location and magnification, applied here because this is the first place
+        // both of the things they need exist: a viewport, and — for the three `/FitB` forms —
+        // a display list to measure the page's contents from. ADR 0162.
+        if let Some(view) = open.pending_view.take() {
+            let bounds = content_bounds(&list);
+            if open.apply_view(view, viewport, scale, bounds) {
+                open.shown = None;
+            }
+        }
 
         let Some(magnification) = open.magnification(viewport, scale) else {
             return;
@@ -1083,6 +1098,21 @@ impl Viewer {
             origin: open.origin(self.viewport, (target.width, target.height)),
         })
     }
+}
+
+/// What a page's contents cover, in the display list's own space.
+///
+/// §12.3.2.2's `/FitB`, `/FitBH` and `/FitBV` are magnified to fit "the smallest rectangle
+/// enclosing all of its contents" — the *bounding box* — which no page dictionary states and
+/// only the drawing commands can answer. `None` where a command's extent cannot be bounded, in
+/// which case the three forms fall back to the page box and say so.
+fn content_bounds(list: &DisplayList) -> Option<Rect> {
+    let mut union: Option<Rect> = None;
+    for command in list.commands() {
+        let bounds = pdf_render::marked_bounds(command, Transform::IDENTITY)?;
+        union = Some(union.map_or(bounds, |box_| box_.union(bounds)));
+    }
+    union
 }
 
 /// The whole viewport, which is what changes when a frame arrives or a page scrolls.
