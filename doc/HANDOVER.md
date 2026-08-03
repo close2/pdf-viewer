@@ -90,7 +90,7 @@ that exists (ADR 0146).
 | tests | **951** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and six more arrived in the hundred-and-eighty-eighth. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **29 of them diagnosed and 717 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **30 of them diagnosed and 716 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **900 agree, 50 differ, 7 refused**, 17 not comparable — and the head of the differing list is `pdf-render`'s §10.7.4 rule the new backend does not ask for (ADR 0156) | `render-quorra/tests/corpus.rs`, **28 s** |
@@ -951,7 +951,16 @@ one of them `issue20232.pdf`, whose missing ⌀ this file has recorded for thirt
 *stop* reporting — `issue11555.pdf` and `issue2128r.pdf` draw most of their text, and both pages
 agree with every reference, so what they carried was an overstatement.
 
-After it, `issue5747.pdf` at 8.75 and `issue7821.pdf` at 5.44. Ranking by pairwise numbers alone would be the
+**And `issue5747.pdf` went the same way in the seventeenth, in ten minutes.** One command, and
+`pdfimages` says a single **one-bit CCITT scan, 2480×1748, reduced into 420×595 device pixels** —
+the loudest case resampling has, since every output pixel averages thirty-odd black-or-white
+samples. Three of our four distances are below *every* distance between two references (ours to
+`hayro` 0.0434, to `mupdf` 0.0458, to `poppler` 0.0502, against a best reference pair of 0.0583),
+so there is no consensus here to be wrong about. **Three of the bucket's four largest entries
+turned out to be one reduced image apiece, and `pdfimages -list` found each of them faster than
+opening a debugger** — a page drawn by one command is a page whose diagnosis is one question.
+
+After it, `issue7821.pdf` at 5.44 and `jp2k-resetprob.pdf` at 5.03. Ranking by pairwise numbers alone would be the
 corpus being treated as the specification, which principle 5 forbids; the numbers choose the page
 and the clause decides it.
 
@@ -2599,3 +2608,4 @@ above rather than here.
 | 191 | The three sweeps run again: §12.8.2.2's parenthesis became a `shall` when the program learned to write | — |
 | 192 | The 320-page book's cover is one reduced JPEG, and `pdfimages` said so in twenty minutes | — |
 | 193 | A font program that draws nothing says so, and the condition was not the one written down | 0157 |
+| 194 | A one-bit scan reduced by six: the bucket's fourth entry is one image too | — |

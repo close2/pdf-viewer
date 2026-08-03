@@ -1321,6 +1321,24 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// **0.1710**. The interior pages of the same book are in the bucket for a different reason
 /// (nobody embedded its fonts) and are not covered by this group.
 ///
+/// **`issue5747.pdf` page 1 is the fourth and the cleanest measurement of the four**, added in
+/// the hundred-and-ninety-fourth session. One command again, and `pdfimages` again: a single
+/// **one-bit CCITT scan, 2480×1748, reduced into 420×595 device pixels**. A bilevel scan reduced
+/// by six is the loudest case resampling has — every output pixel averages thirty-odd black or
+/// white samples, and each renderer's filter weights them differently. Pairwise mean absolute
+/// difference:
+///
+/// ```text
+/// ours vs hayro        0.0434     poppler vs mupdf        0.0583
+/// ours vs mupdf        0.0458     poppler vs ghostscript  0.0595
+/// ours vs poppler      0.0502     mupdf   vs ghostscript  0.0790
+/// ours vs ghostscript  0.0618
+/// ```
+///
+/// **Three of our four distances are below every distance between two references**, and the
+/// fourth is below the widest of them. There is no consensus here to be wrong about: the three
+/// C renderers are further from each other than we are from any of them.
+///
 /// **Both of the first two pages are here because of the session that put them here.** Until the
 /// hundred-and-seventy-seventh this document drew the *second* page as the first and had no
 /// second page at all — its first cross-reference section files every entry one object number
@@ -1328,8 +1346,9 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// bounds from the nearest reference, the largest in the corpus. The repair moved it to under
 /// 10 and made page 2 render at all, which is why the undiagnosed list gained a name in the
 /// same session that lost one.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 4] = [
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 5] = [
     "freeculture.pdf page 1",
+    "issue5747.pdf page 1",
     "issue7229.pdf page 1",
     "issue7229.pdf page 2",
     "issue13372.pdf page 1",
