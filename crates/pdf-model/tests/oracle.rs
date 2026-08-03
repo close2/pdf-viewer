@@ -2506,6 +2506,84 @@ const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 154] = [
     "tracemonkey_with_editable_annotations.pdf page 14",
 ];
 
+/// Ambiguous, and the reference is the one departing — from a rule PDF states for *encoders*.
+///
+/// `issue11931.pdf` is 1280 × 720 and two `Do`s: a full-page `FlateDecode` `DeviceRGB` image and
+/// a 256 × 16 `DCTDecode` one stretched across a 1146 × 72 band. Ink: ours **1.357**,
+/// `hayro` 1.371, `mupdf` 1.382, `poppler` 1.395 — and `ghostscript` **8.831**, which is six and
+/// a half times the page. The band is a magenta bar with a green arc in it where the other four
+/// draw nothing anybody would notice.
+///
+/// # What the codestream says, read rather than guessed
+///
+/// The JPEG's `SOF0` declares three components with identifiers `0x52 0x47 0x42` — the ASCII
+/// letters **R, G, B**. There is no `JFIF` `APP0` and no Adobe `APP14`, and the image dictionary
+/// states no `/DecodeParms`.
+///
+/// # What §7.4.8's Table 13 determines, and it is the opposite
+///
+/// > If the Adobe-defined marker code (APP14) in the encoded data indicating the ColorTransform
+/// > value is not present and this dictionary entry is not present in the filter dictionary then
+/// > the default value of ColorTransform shall be 1 if the image has three components and 0
+/// > otherwise.
+///
+/// `ColorTransform` 1 means "from YCbCr to RGB after decoding". So **`ghostscript` is the one
+/// obeying the clause**, and its magenta band is what this file says on a literal reading. The
+/// other four — this tree among them — treat the samples as RGB already, because the component
+/// identifiers say so; `zune-jpeg` does it in ten lines whose own comment reads "I am not sure
+/// if this is even specified in any standard".
+///
+/// It is not. The convention is `libjpeg`'s, and no clause of ISO 32000-2 or ISO/IEC 10918-1
+/// gives a component identifier any meaning at all.
+///
+/// # Why that is still the right answer here, and it is `CLAUDE.md`'s two denominators
+///
+/// §7.4.8 closes with a `shall` that is addressed to the *producer*:
+///
+/// > The exact rules for producing and consuming DCT encoded data within PostScript language are
+/// > provided in Adobe Technical Note #5116 and PDF DCT encoding shall exactly follow all those
+/// > rules established by Adobe for the PostScript language.
+///
+/// A conforming file's three-component codestream carries the `APP14` marker or is YCbCr. This
+/// one is neither, so it is outside what the clause describes, and the question stops being
+/// *coverage* — which of the standard's requirements are implemented — and becomes
+/// *robustness*: what a reader does with a file the standard does not describe. Table 13's
+/// default is the answer for files that follow the rules; the codestream's own declaration is
+/// the only evidence there is for a file that does not.
+///
+/// **What was wrong until the two-hundred-and-thirty-fourth session is that nothing said so.**
+/// §7.4.8's ledger row recorded one half of this departure — `issue12841_reduced.pdf`, where the
+/// dictionary says `/ColorTransform 0` and we transform anyway — and was silent about the other,
+/// which is the same decision seen from the other side: **on a `DCTDecode` image this tree lets
+/// the codestream decide, not the dictionary, in both directions.** One policy, stated once now.
+const AMBIGUOUS_JPEG_COMPONENT_IDS: [&str; 1] = ["issue11931.pdf page 1"];
+
+/// Ambiguous, and the page exists at all because §7.7.3.2's tree was rebuilt from Table 31.
+///
+/// `issue21436.pdf` is 450 bytes and its whole content stream is `10 10 180 180 re S`. The trap
+/// is one reference: the catalogue's `/Pages` names object **3**, which is `/Type /Page` — a
+/// leaf where the tree's root belongs — while object 2 is the `/Type /Pages` node nothing points
+/// at. **`mupdf` refuses the document outright** ("invalid page number: -1"), so only three
+/// renderers and `hayro` are comparable at all.
+///
+/// `Pages::new` recovers it the way `xref::rebuild` recovers a cross-reference table: Table 31
+/// makes `/Type` required of a page object and says it "shall be Page", so a document whose tree
+/// walks to nothing is *asked* instead — every object declaring itself a page is one. That is a
+/// recovery from the file's own declarations and from no other reader's behaviour, and it runs
+/// only where the tree produced nothing, so 963 of the 974 corpus documents never reach it.
+///
+/// What is left is one stroke, and the closed form settles it in one line: **ours is 4.5836 at
+/// the page's own scale and 4.5900 at eight times it, and `poppler` is 4.5900 at both.** The
+/// file states no `w`, so §8.4.3.2's default width of 1.0 applies and the geometry is exactly
+/// 4.59. `ghostscript` is **5.85**, 27% over, which is §10.7.4 as written — "any pixel whose
+/// half-open square region intersects the shape" — on a one-unit stroke centred on an integer
+/// coordinate, so it covers two whole columns where the shape covers one.
+///
+/// Three renderers, three answers, and the two that are not ours are a refusal and a documented
+/// departure. `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY` has the same subject with the sign the
+/// other way.
+const AMBIGUOUS_RECOVERED_PAGE_TREE: [&str; 1] = ["issue21436.pdf page 1"];
+
 /// Ambiguous, and three pages where every renderer paints more than the geometry.
 ///
 /// ```text
@@ -2901,6 +2979,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY)
         .chain(&AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE)
         .chain(&AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE)
+        .chain(&AMBIGUOUS_JPEG_COMPONENT_IDS)
+        .chain(&AMBIGUOUS_RECOVERED_PAGE_TREE)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)

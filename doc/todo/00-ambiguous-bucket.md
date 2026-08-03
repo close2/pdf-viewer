@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 524 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 511 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 237 diagnosed, 524 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 238 diagnosed, 511 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -190,15 +190,24 @@ reason, and the reason is written down.
 
 `pr12564.pdf` (0.99 from the nearest, 2.30 from the furthest),
 `chrome-text-selection-markedContent.pdf` (0.98 / 2.15), `standard_fonts.pdf` pages 8 and 7
-(0.96 / 1.42), `issue21436.pdf` (0.95 / **8.01**), `issue11931.pdf` (0.94 / **9.63**),
-`bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf` (0.90 / 4.53),
-`issue9291.pdf` (0.87 / 1.49).
+(0.96 / 1.42), `bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf`
+(0.90 / 4.53), `issue9291.pdf` (0.87 / 1.49), `freeculture.pdf` page 163 (0.86 / 2.09),
+`issue19634.pdf` (0.85 / **5.96**).
 
-**Every name above 0.85 now has a furthest at least 1.4× its nearest, and two are ten times
-it.** Step 1 says to prefer a page whose two numbers are *close*, because that is the shape that
-says we are alone — and there is no longer one on the ranking. That is a result about the list:
-the head of it is now pages where the *references* disagree, and the two at 8.01 and 9.63 are
-worth opening for what they say about a reference rather than about us.
+**Every name above 0.85 now has a furthest at least 1.4× its nearest.** Step 1 says to prefer a
+page whose two numbers are *close*, because that is the shape that says we are alone — and there
+is no longer one on the ranking. That is a result about the list: the head of it is pages where
+the *references* disagree.
+
+**And the two-hundred-and-thirty-fourth session took the two with the widest ratio, 8.01 and
+9.63, and both were exactly that.** `issue21436.pdf` is 450 bytes whose catalogue's `/Pages`
+names a `/Type /Page`: `mupdf` refuses the document, `ghostscript` paints a one-unit stroke 27%
+over its geometry, and ours is 4.5836 at 1× against 4.5900 at 8× — the geometry itself.
+`issue11931.pdf` is a `DCTDecode` image whose `SOF0` identifiers are the letters R, G and B:
+`ghostscript` obeys Table 13's default and paints the band magenta at six and a half times the
+page's ink, and the other four read the codestream. **Both are a clause read correctly by the
+renderer that is alone**, which is the shape a wide ratio is *for* — and both produced a
+correction to a ledger row rather than a change to any pixel.
 
 **Four `freeculture.pdf` pages and one paper under twelve names left it in the
 two-hundred-and-thirty-third**, which is 158 of them, and the shape of that result is in the
