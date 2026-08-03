@@ -7,10 +7,10 @@
 //!
 //! # Unsupported content is reported, never silently dropped
 //!
-//! Text and images are not yet drawn: text needs the font machinery and images need the
-//! codecs. Ignoring them silently would produce a page that looks plausible and is wrong,
-//! which is the single most dangerous failure mode for a viewer — and it would make the
-//! comparison harness report a pass on a page missing half its content.
+//! Ignoring what cannot be drawn would produce a page that looks plausible and is wrong, which
+//! is the single most dangerous failure mode for a viewer — and it would make the comparison
+//! harness report a pass on a page missing half its content. (This said "[t]ext and images are
+//! not yet drawn" until the two-hundred-and-twenty-first session, having been true of the sixth.)
 //!
 //! So [`Interpretation`] carries a list of what it could not draw. A caller can render the
 //! partial page *and* know it is partial: the viewer can say so, and the harness can
@@ -5828,10 +5828,11 @@ fn name_at(operands: &[Object], index: usize) -> Option<String> {
 
 /// Applies the `d` dash operator.
 ///
-/// The array operand is not reconstructed by the content lexer, so only the "solid line"
-/// case is honoured for now: an empty array means solid, and anything else leaves the
-/// existing pattern. Getting this wrong draws a solid line where dashes belong, which is
-/// visible but not structurally wrong.
+/// **This comment said "only the 'solid line' case is honoured for now" until the
+/// two-hundred-and-twenty-first session**, describing the code of the ninth and not the code
+/// below it: the tenth read the array (ADR 0018), and until it did, not one dashed line in 974
+/// documents was dashed. That is the handover's archetype — "[t]he archetype is the `d`
+/// operator" — and its own doc comment was still the sentence from before the fix.
 fn set_dash(operands: &[Object], stroke: &mut Stroke) {
     // `[ 2 1 ] 0 d` arrives as five operands, the two brackets among them as nulls, because
     // the content lexer does not rebuild arrays. Splitting on them gives what is before the

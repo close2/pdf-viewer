@@ -16,10 +16,16 @@
 //!
 //! # Incomplete pages are visible
 //!
-//! Text and images are not yet drawn. [`content::Interpretation`] reports what it could not
-//! draw rather than silently omitting it, because a page that looks plausible and is wrong
-//! is the worst failure a viewer can have — and it would make the comparison harness report
-//! a pass on a page missing half its content.
+//! [`content::Interpretation`] reports what it could not draw rather than silently omitting it,
+//! because a page that looks plausible and is wrong is the worst failure a viewer can have — and
+//! it would make the comparison harness report a pass on a page missing half its content.
+//!
+//! **This paragraph opened "[t]ext and images are not yet drawn" until the two-hundred-and-
+//! twenty-first session**, which was true of the sixth session and of no session since the
+//! thirteenth. A crate's own front door is where a reader learns what it does, and a retired
+//! claim there outlives every ledger row that says otherwise: `doc/todo/01`'s sweeps were
+//! pointed at the ledger, and this is what the same regular expression finds when it is pointed
+//! at the source.
 
 #![forbid(unsafe_code)]
 

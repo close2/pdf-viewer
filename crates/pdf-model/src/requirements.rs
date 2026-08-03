@@ -222,21 +222,32 @@ impl Kind {
             // usage application dictionaries for the `View` event (ADR 0044), §12.5.6.5's
             // links with §12.3.3's outline and the three actions §12.11's own table lists
             // (ADR 0070), and §7.6's encryption at every revision and method (ADR 0031).
-            Self::OcAutoStates | Self::Navigation | Self::Encryption => return None,
-            // A viewer's half, and the data behind each of these is read.
-            Self::OcInteract => {
-                "no optional content panel: §8.11's states are read and switched \
-                                 by an action, and nothing shows a list of them"
-            }
-            Self::AcroFormInteract => {
-                "no form interaction: a field's appearance is built from its value (§12.7.4.3) \
-                 and nothing edits the value"
-            }
+            //
+            // **Met since the sessions named, and this arm said otherwise for between forty and
+            // eighty-six of them.** The doc comment above anticipated exactly that — "a session
+            // that builds a layer panel has to come back and change `OCInteract`" — and nothing
+            // fires when one does, which is `doc/todo/01`'s sweeps pointed at the source rather
+            // than at the ledger (the two-hundred-and-twenty-first session).
+            //
+            // `OCInteract`: `Query::Layers` answers with §8.11.4.3's list and `Command::SetGroup`
+            // switches one unless Table 99's `/Locked` forbids it, drawn in `viewer_ui::chrome`
+            // since the hundred-and-sixty-seventh session. `AcroFormInteract`:
+            // `ViewState::set_field` since the hundred-and-thirty-fifth, saved by §7.5.6's
+            // incremental update since the hundred-and-thirty-sixth. `Attachment`:
+            // `Command::Extract` writes an embedded file's decoded bytes with Table 45's
+            // checksum checked against them, and the sidebar lists them, since the
+            // hundred-and-sixty-seventh (ADR 0145).
+            //
+            // **The claim is about the program this crate is part of and not about the crate**,
+            // which is what makes it decay: the capability is two crates away in every one of
+            // these three cases, and no compiler notices when it arrives.
+            Self::OcAutoStates
+            | Self::Navigation
+            | Self::Encryption
+            | Self::OcInteract
+            | Self::AcroFormInteract
+            | Self::Attachment => return None,
             Self::Markup => "no annotation editing: markup annotations are drawn, not created",
-            Self::Attachment => {
-                "an attachment list is read but not shown, and nothing extracts \
-                                 a file: §7.11.4's streams are listed and left where they are"
-            }
             Self::AttachmentEditing => "no attachment editing, and no attachment list",
             Self::Collection => "no collection view: §12.3.5's collections are unread",
             Self::CollectionEditing => "no collection editing, and no collection view",
@@ -515,17 +526,21 @@ mod tests {
 
     /// What this program cannot meet is named, and what it can is not.
     ///
-    /// `Navigation` is met — links, outlines and the three actions the clause names are all
-    /// implemented — and the other two are not, for two different reasons the strings say.
+    /// `Navigation` and `AcroFormInteract` are met — links, outlines and the three actions the
+    /// clause names, and a field a person can type into and save — and the other two are not,
+    /// for two different reasons the strings say. **The second of those moved in the
+    /// two-hundred-and-twenty-first session**: the arm had said "nothing edits the value" since
+    /// before `ViewState::set_field` existed, and this test had asserted the stale answer.
     #[test]
     fn the_requirements_this_program_cannot_meet_are_named() {
         let doc = document(
             "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
-             << /S /Navigation >> << /S /EnableJavaScripts >> << /S /AcroFormInteract >> ] >>",
+             << /S /Navigation >> << /S /EnableJavaScripts >> << /S /AcroFormInteract >> \
+             << /S /Markup >> ] >>",
         );
         let unmet = unmet(&doc);
         let kinds: Vec<&str> = unmet.iter().map(|(r, _)| r.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["EnableJavaScripts", "AcroFormInteract"]);
+        assert_eq!(kinds, vec!["EnableJavaScripts", "Markup"]);
         assert!(
             unmet
                 .first()

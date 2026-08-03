@@ -36,6 +36,26 @@ that adds a verb.
 | capability | `this program has no ___`, `no panel`, `which this is not` | §12.6.3's "this crate has no events", 41 sessions after `Command::Pointer` |
 | **retired claim** | the *string* a correction retired, grepped over every other row | §8.9.6.1 still said "reported rather than applied on 28 corpus documents" fourteen sessions after §11.6.4.3 retired that exact sentence |
 
+**And a fifth: run all four over the *source tree*, not only over the ledger.** The
+two-hundred-and-twentieth session found `icon.rs`'s module comment blocked on a flag that had
+arrived three sessions earlier, by accident. Run deliberately in the two-hundred-and-twenty-first
+it produced four more, all of them false for between forty and two hundred sessions:
+
+- `pdf-model`'s own **crate documentation** opened "[t]ext and images are not yet drawn", true of
+  the sixth session; `content.rs`'s module comment said the same. A crate's front door is where a
+  reader learns what it does, and it outlives every ledger row that says otherwise.
+- `set_dash`'s doc comment said "only the 'solid line' case is honoured for now" — the sentence
+  from *before* ADR 0018, on the function the handover calls the archetype of a feature switched
+  off in one place.
+- `requirements::unmet` named three of §12.11's requirements as unmet whose capability had
+  arrived: `OCInteract` (a layer panel, session 167), `AcroFormInteract` (a field a person types
+  into, 135) and `Attachment` (`Command::Extract`, 167). **Its own doc comment had predicted it**
+  — "a session that builds a layer panel has to come back and change `OCInteract`" — which is the
+  strongest form of this failure: a warning written where the work is does not fire either.
+
+**The ledger has a gate and the source does not**, which is why these lasted longer. One `grep`
+apiece.
+
 **The fourth sweep is new in the two-hundred-and-sixteenth session and it is the cheapest of the
 four.** Whenever a row is corrected, the note says so in the row that was corrected — "this
 sentence said X" — and X is a string. Grep the *whole* ledger for X's distinctive words: two

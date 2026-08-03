@@ -1723,7 +1723,15 @@ anchor that makes it checkable.
   the corpus output for as long as the gate has existed; those four bytes are `ttcf`, so the
   report was saying "this is a font collection" in hexadecimal. Reading it took ninety lines and
   closed two documents. **Convert the number in a refusal you have stopped reading.** ADR 0141.
-- **A retired claim is a string, and strings are greppable.** When a session disproves a sentence
+- **Run the sweeps over the source, not only over the ledger.** The ledger has a gate and the
+source does not, and the two-hundred-and-twenty-first session found four claims in `crates/`
+false for between forty and two hundred sessions — `pdf-model`'s own crate documentation ("[t]ext
+and images are not yet drawn"), `set_dash`'s ("only the 'solid line' case is honoured for now",
+the sentence from before ADR 0018), and three of `requirements::unmet`'s arms whose capability
+had arrived. **The last had predicted itself**: "a session that builds a layer panel has to come
+back and change `OCInteract`". A warning written where the work is does not fire either.
+
+**A retired claim is a string, and strings are greppable.** When a session disproves a sentence
   this tree repeats, the work is done when the *sentence* is gone. "Vertical writing is refused"
   was true until session 36 and still written in four places in session 122 — a ledger row, a doc
   comment and two paragraphs of this file. ADRs 0101, 0111.
@@ -2388,3 +2396,4 @@ above rather than here.
 | 218 | A stencil through a tiling pattern — and then the page was still blank, because every tile in the tree was measured from the wrong place | 0169 |
 | 219 | Three more off the ranking, one of them a reference that drew nothing; and the fourth sweep's second catch | — |
 | 220 | §12.5.6.4's own sentence about the view, reachable three sessions after the flag it names | — |
+| 221 | The four sweeps run over the *source* instead of the ledger: four claims false for between forty and two hundred sessions | — |
