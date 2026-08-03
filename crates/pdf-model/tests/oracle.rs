@@ -2165,6 +2165,70 @@ const AMBIGUOUS_MARKUP_ARTWORK: [&str; 1] = ["bug1538111.pdf page 1"];
 /// the page's own scale ours is 42.02 against `mupdf`'s 41.09 and `poppler`'s 41.03. Ours is
 /// nearest the geometry and the two `libfreetype` references are 6% under it, which is hinting
 /// — the same result `copy_paste_ligatures.pdf` gives above, on a page of ten rows.
+/// Ambiguous, and the page has no fonts at all — the words are paths.
+///
+/// `issue12213.pdf` is 449×72 and reads *blue [shield] of california*. `pdffonts` lists **no
+/// font**, because the producer converted the type to outlines, which is what makes this page
+/// worth its own entry: `Interpretation::glyphs` sees no glyphs, so the oracle gives it the
+/// *vector* tolerance rather than the text one, and a page of letter-shaped curves is then held
+/// to 0.99 structural similarity. It sat at 1.60 from the nearest reference for that reason
+/// alone.
+///
+/// Step 6's closed form settles it outright. `poppler` at 72, 576 and 2304 dpi gives 9.567,
+/// 8.921 and **8.862**, so the marks cover 8.86 of 255, and at the page's own scale:
+///
+/// ```text
+/// ours 8.898   ghostscript 8.945   hayro 8.736   poppler 9.567   mupdf 7.384
+///              └ the limit is 8.862
+/// ```
+///
+/// **Ours is 0.04 from the geometry and nearest of the five.** `poppler` is 0.71 over and
+/// converges down to the limit as the pixels shrink, which is scan conversion of curves at 72
+/// dpi; `mupdf` is 1.48 under. §10.7.4 states the rule these five are spread around — "there
+/// shall not be averaging over the pixel area" — and this tree's departure from it is ADR 0025's,
+/// argued and measured. What no clause states is how a curve's edge lands on a pixel grid.
+const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
+
+/// Ambiguous, and the instrument the method file recommends is the thing that fails here.
+///
+/// `issue2177.pdf` is 225×225: a yellow rectangle and three circles filled with a §8.7.3 tiling
+/// pattern of stroked ellipses. The pattern's content stream states **no `w` at all**, so the
+/// width is Table 57's initial 1.0 in pattern space, and `/Matrix [1.4 1 -.5 .7 0 0]` carries it
+/// to the page. That matrix's own arithmetic gives the width exactly: `MᵀM` is diagonal —
+/// `1.4² + 1² = 2.96` and `0.5² + 0.7² = 0.74`, the off-diagonal `1.4×(−0.5) + 1×0.7` being zero
+/// — so the singular values are **1.72 and 0.86 device pixels**, and every ellipse is stroked
+/// between those two widths depending on its direction. Half of that is under a pixel, which is
+/// why the page is here at all: at its own scale the five renderers span
+///
+/// ```text
+/// poppler 34.15   ours 36.75   hayro 37.12   mupdf 37.84   ghostscript 47.48
+/// ```
+///
+/// # Step 6 says take the reference to a high resolution, and on this page that is wrong
+///
+/// `poppler` at 576 and 2304 dpi gives **18.03 and 16.32** — less than half its own answer at
+/// 72 — which would say every renderer here paints two to three times the geometry. It is
+/// `poppler` that is moving: opened side by side at 8×, its ellipse outlines are a fraction of
+/// the width the matrix above states, while ours are the stated width.
+///
+/// The ladder that settles it is two renderers' rather than one, which is what this page adds to
+/// the method:
+///
+/// ```text
+/// ours at 1×, 2×, 4×, 8×:   36.75   37.37   37.25   37.20
+/// mupdf at 8×:                                      37.20
+/// ghostscript at 8×:                                40.86
+/// poppler at 8×:                                    18.03
+/// ```
+///
+/// **Ours and `mupdf` agree to four significant figures at 8×**, having differed by 1.09 at the
+/// page's own scale, and our own ink is flat across four scales — a renderer measuring area.
+/// `ghostscript` is 10% over and `poppler` is at half. So the *geometry* is 37.2, the page's
+/// ambiguity at 1× is §10.7.4 applied to strokes 0.86 of a pixel wide, and step 6's assumption —
+/// that a reference converges on the geometry as the pixels shrink — does not hold for a tiling
+/// pattern. `doc/todo/00` carries the caveat.
+const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
+
 /// Ambiguous, and eighty-two per cent of the page is within *one level* of `poppler`.
 ///
 /// `issue7821.pdf` is a 166×55 "APPROVED" stamp whose whole area is one §8.7.4.5.3 axial
@@ -2270,6 +2334,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_MARKUP_ARTWORK)
         .chain(&AMBIGUOUS_GLYPH_COVERAGE)
         .chain(&AMBIGUOUS_GRADIENT_QUANTISATION)
+        .chain(&AMBIGUOUS_OUTLINED_TEXT)
+        .chain(&AMBIGUOUS_TILED_STROKES)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
         .copied()

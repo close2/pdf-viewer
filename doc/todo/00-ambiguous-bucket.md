@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 704 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 702 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (748 on documents we call complete); 56 diagnosed, 704 held by name
+Corpus: 788 ambiguous pages (748 on documents we call complete); 58 diagnosed, 702 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -85,6 +85,15 @@ session is that the tree is far enough along for this to be the work.
    *limit* is used. `bug1799927.pdf` is where this paid: at 72 dpi the five renderers span 5.94
    to 13.40 and the limit is 10.8, which says which of them is measuring area.
 
+   **And the assumption inside it is checkable, because it has failed once.** The step assumes
+   the reference *converges on the geometry* as the pixels shrink. On `issue2177.pdf`, a page of
+   §8.7.3 tiling patterns, `poppler` goes 34.15 → 18.03 → 16.32 from 72 to 2304 dpi — its
+   strokes get thinner rather than its edges getting sharper — and taking its limit would have
+   said all five renderers paint two to three times the geometry. Ours is flat at 36.75, 37.37,
+   37.25, 37.20 across four scales and `mupdf` at 8× is 37.20, which is the answer.
+   **Take a second renderer's ladder, or ours beside one**: a limit is only a limit if the thing
+   taking it is converging, and one ladder cannot tell convergence from drift.
+
 ## What a group must say
 
 **`ambiguous` is the gate's verdict and never the answer.** The owner put it in one sentence:
@@ -154,9 +163,10 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`issue4706.pdf` (1.61 from the nearest), `issue12213.pdf` (1.60), `issue2177.pdf` (1.58),
-`issue18529.pdf` (1.56), `issue6006.pdf` (1.52), `issue4402_reduced.pdf` (1.41),
-`freeculture.pdf` page 255 (1.37).
+`issue4706.pdf` (1.61 from the nearest), `issue18529.pdf` (1.56), `issue6006.pdf` (1.52),
+`issue4402_reduced.pdf` (1.41), `freeculture.pdf` page 255 (1.37), `issue7339_reduced.pdf`
+(1.30), `issue11131_reduced.pdf` (1.23) — and then the long book begins, four of the next six
+being `freeculture.pdf`.
 
 **The whole of the list above 1.6 went in the two-hundred-and-fifteenth session**, six pages in
 one sitting, and the shape of that result is worth as much as the pages: **the ranking's top is

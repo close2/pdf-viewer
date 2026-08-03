@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~185 of the 239 rows have not been re-read.
+Status: **standing task.** ~183 of the 239 rows have not been re-read.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -34,6 +34,17 @@ that adds a verb.
 | expired blocker | `while §X does not exist`, `needs §Y`, `until §Z` | session 118; found §9.7.5.2's "a licensing decision" 150 sessions after the decision |
 | entry claimed unread | every `/Key` in a "Not read:" list, grepped against the tree | six of ten lists had a live entry; §7.7.3.3's had eleven of eighteen |
 | capability | `this program has no ___`, `no panel`, `which this is not` | §12.6.3's "this crate has no events", 41 sessions after `Command::Pointer` |
+| **retired claim** | the *string* a correction retired, grepped over every other row | §8.9.6.1 still said "reported rather than applied on 28 corpus documents" fourteen sessions after §11.6.4.3 retired that exact sentence |
+
+**The fourth sweep is new in the two-hundred-and-sixteenth session and it is the cheapest of the
+four.** Whenever a row is corrected, the note says so in the row that was corrected — "this
+sentence said X" — and X is a string. Grep the *whole* ledger for X's distinctive words: two
+clauses describing one mechanism is the commonest shape in this file, and correcting one leaves
+the other lying. It found §8.9.6.1 on its first run, and a second understating row beside it:
+§8.9.5.1 said `/Mask` was "read only to report it", which stopped being true in the *fourteenth*
+session (ADR 0023) and is the **third** entry in that one list to be recorded as unread while the
+tree read it — a list that has been wrong three times about itself is a list to check rather than
+to read.
 
 Three false-positive shapes on the second, all seen: a note *quoting* its own retired wording
 (§9.6), a key named in a sentence about something else (§12.7.5.3), and a key that is a string in

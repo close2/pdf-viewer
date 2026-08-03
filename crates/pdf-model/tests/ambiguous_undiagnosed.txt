@@ -436,7 +436,6 @@ issue11131_reduced.pdf page 1
 issue11473.pdf page 1
 issue11913.pdf page 1
 issue11931.pdf page 1
-issue12213.pdf page 1
 issue12295.pdf page 1
 issue12337.pdf page 1
 issue12337.pdf page 10
@@ -514,7 +513,6 @@ issue19971.pdf page 5
 issue19971.pdf page 6
 issue21436.pdf page 1
 issue21570.pdf page 1
-issue2177.pdf page 1
 issue269_1.pdf page 1
 issue269_2.pdf page 1
 issue2840.pdf page 1

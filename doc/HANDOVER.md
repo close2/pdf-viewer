@@ -93,14 +93,14 @@ that exists (ADR 0146).
 | tests | **964** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-eight sessions from the hundred-and-eighty-sixth added thirty-three. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **56 of them diagnosed and 704 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **58 of them diagnosed and 702 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **46.3 ms**, and five arrow keys turn to page 6 presenting in **9.2 to 18.1 ms** with nothing refused — re-run in the two-hundred-and-thirteenth, on `lavapipe` through Vello and so not comparable with the hundred-and-ninety-fifth's 44.6 ms through **quorra**; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
-| conformance | **370 quotations**, all verbatim, 3651 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
+| conformance | **371 quotations**, all verbatim, 3662 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -132,8 +132,8 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 372 | every normative requirement in the clause is executed |
-| `partial` | 240 | some are; the note says which are not |
+| `implemented` | 373 | every normative requirement in the clause is executed |
+| `partial` | 239 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 86 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -143,6 +143,13 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 **`silent` is zero** — there is no requirement in the eight technical clauses that this program
 fails without saying so. That is a narrow claim: `partial` and `reported` are 272 rows between
 them and each names what it owes.
+
+**And a sixth was found in the two-hundred-and-sixteenth, by a sweep that is one `grep`:** a
+sentence a session *retired* in one row, still standing in the other row that describes the same
+mechanism. §11.6.4.3 recorded in the two-hundred-and-first that the graphics state's soft mask is
+applied and had been since the eighteenth session; §8.9.6.1 went on saying it was "reported rather
+than applied on 28 corpus documents" for fourteen more. **A correction is a string, and the string
+is greppable** — `doc/todo/01`'s fourth sweep.
 
 **And a fifth way for a row to be wrong was found in the hundred-and-seventieth to
 -seventy-fourth**: not overstating, not understating, but *stale about its neighbour*. §7.7.2
@@ -612,6 +619,14 @@ raster's top edge, so `vertical.pdf`'s two hairlines carry 55% of their area at 
 and 98% everywhere else ([todo 11](todo/11-shapes-that-still-disappear.md) item 3). The bucket
 itself went 754 → 704 and 56 pages carry a diagnosis; *ten defects nobody could see* is the
 number to watch.
+
+**Step 6's own assumption failed for the first time in the two-hundred-and-sixteenth**, on
+`issue2177.pdf`: the closed form takes a reference to eight times the resolution because a
+renderer's departure from the geometry shrinks with the pixels, and `poppler` on a §8.7.3 tiling
+pattern goes the other way — 34.15 → 18.03 → 16.32 from 72 to 2304 dpi, its strokes thinning
+rather than its edges sharpening. Ours is flat across four scales and `mupdf` at 8× agrees with
+us to four significant figures. **A limit is only a limit if the thing taking it is converging,
+and one ladder cannot tell convergence from drift** — take two.
 
 **And the two-hundred-and-fifteenth session cleared the whole ranking above 1.6 in one sitting —
 seven pages — which is a result about the *list* rather than about any page.** Two were a face
@@ -2361,3 +2376,4 @@ above rather than here.
 | 213 | Everything re-verified; two recipes that had stopped working; the miter arithmetic costs −0.01% | 0165 |
 | 214 | Ctrl + wheel zooms about the pointer, which needed a page point the scroll cannot express; and a field's two names, one of which a `shall` asks for | 0166, 0167 |
 | 215 | The ambiguous ranking above 1.6 emptied in one sitting — seven pages, four groups, and the only defect in them found by a synthetic ladder | — |
+| 216 | A fourth sweep — grep the *string* a correction retired — and a page where the high-resolution limit is the thing that is wrong | — |
