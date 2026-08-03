@@ -87,20 +87,21 @@ with Table 45's checksum checked against them (§7.11.4, ADR 0145). **The docume
 tab is open**: Table 29's `/PageMode` names a panel, and three of its six values now name one
 that exists (ADR 0146).
 
-### The five gates, today
+### The six gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **962** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the sixteen sessions from the hundred-and-eighty-sixth added thirty-one. Quote the command with the number | — |
+| tests | **962** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-seven sessions from the hundred-and-eighty-sixth added thirty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **49 of them diagnosed and 711 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **44.6 ms**, and five arrow keys turn to page 6 presenting in **9.3 to 17.4 ms** with nothing refused — re-run in the hundred-and-ninety-fifth, and both numbers are now through **quorra** rather than Vello. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
-| conformance | **346 quotations**, all verbatim, 228 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
+| **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **46.3 ms**, and five arrow keys turn to page 6 presenting in **9.2 to 18.1 ms** with nothing refused — re-run in the two-hundred-and-thirteenth, on `lavapipe` through Vello and so not comparable with the hundred-and-ninety-fifth's 44.6 ms through **quorra**; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
+| conformance | **368 quotations**, all verbatim, 3637 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -2073,11 +2074,18 @@ reaching `/home/cl/projects/pdf-viewer` through the `coders` group.
 
   ```sh
   Xvfb :77 -screen 0 900x1100x24 &
-  DISPLAY=:77 pdf-viewer --trace doc/ISO_32000-2_sponsored_EC3.pdf &
-  DISPLAY=:77 xdotool windowfocus --sync $(DISPLAY=:77 xdotool search --name ISO_32000 | tail -1)
-  DISPLAY=:77 xdotool key --delay 300 Right Right Right
-  DISPLAY=:77 xwd -root -silent | magick - screen.png
+  DISPLAY=:77 target/pdf-viewer --trace doc/ISO_32000-2_sponsored_EC3.pdf &
+  sleep 20   # 1023 pages: the window is up long before this, but the title is not
+  DISPLAY=:77 xdotool windowfocus --sync $(DISPLAY=:77 xdotool search --name "ISO 32000" | tail -1)
+  DISPLAY=:77 xdotool key --delay 400 Right Right Right Right Right
+  DISPLAY=:77 xwd -root -silent -out screen.xwd && magick xwd:screen.xwd screen.png
   ```
+
+  **Two corrections from the two-hundred-and-thirteenth session's run, both of which cost time.**
+  `xdotool search --name ISO_32000` finds nothing: that document sets `/DisplayDocTitle`, so its
+  title bar reads *ISO 32000-2:2020 (PDF 2.0)…* with a space, which is the feature working. And
+  `xwd … | magick - screen.png` fails with *no decode delegate*, because this machine's
+  ImageMagick no longer sniffs xwd from a pipe; `-out` plus `magick xwd:<file>` does.
 
   **This is the only way to exercise the loop** — key press to command to request to frame to
   window — which is where every defect of sessions 140 to 142 lived and which no gate touches.

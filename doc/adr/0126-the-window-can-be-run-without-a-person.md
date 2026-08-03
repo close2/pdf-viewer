@@ -20,7 +20,12 @@ Xvfb :77 -screen 0 900x1100x24 &
 DISPLAY=:77 pdf-viewer --trace doc/ISO_32000-2_sponsored_EC3.pdf &
 DISPLAY=:77 xdotool windowfocus --sync $(DISPLAY=:77 xdotool search --name ISO_32000 | tail -1)
 DISPLAY=:77 xdotool key --delay 300 Right Right Right Right Right
-DISPLAY=:77 xwd -root -silent | magick - screen.png     # and read the pixels
+DISPLAY=:77 xwd -root -silent -out screen.xwd && magick xwd:screen.xwd screen.png
+# ^ the pipe form this line used to give — `xwd -root -silent | magick - screen.png` —
+#   stopped working when this machine's ImageMagick lost its xwd *decode* delegate for
+#   stdin: it still reads `xwd:<file>` and no longer sniffs the format from a pipe.
+#   Re-checked in the two-hundred-and-thirteenth session; the recipe is the point of
+#   this ADR, so a recipe that has stopped working is the ADR being wrong.
 ```
 
 That is a **complete viewer test**: real event loop, real key events, real surface, real
