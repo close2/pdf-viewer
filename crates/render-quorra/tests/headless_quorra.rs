@@ -143,6 +143,21 @@ fn cpu_and_quorra_agree_on_diagonal_strokes() {
     );
 }
 
+/// §8.7.4.5.4's cone, the one radial where the clause and a gradient disagree.
+///
+/// `test_scenes::radial_cone` has the geometry. quorra has its own radial primitive, and it is
+/// a two-point conical like everybody else's, so this scene is the one that would catch the
+/// third backend keeping it: all three upload `pdf_render::RadialRaster`'s bytes instead —
+/// quorra through its mesh paint, which is exactly "an RGBA raster already at device
+/// resolution, placed at (left, top)".
+#[test]
+fn cpu_and_quorra_agree_on_a_radial_cone() {
+    assert_within_tolerance(
+        "radial cone",
+        compare("radial cone", &test_scenes::radial_cone()),
+    );
+}
+
 #[test]
 fn cpu_and_quorra_agree_on_curves() {
     // As with strokes: curves are boundary-dominated fixtures.

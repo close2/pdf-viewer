@@ -47,7 +47,9 @@ pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{
     BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke, thinnest_line,
 };
-pub use shading::{MeshRaster, Ramp, Shading, ShadingKind, Stop, Triangle};
+pub use shading::{
+    MeshRaster, Radial, RadialRaster, Ramp, Shading, ShadingKind, Stop, Triangle, blend_parameter,
+};
 pub use soft_mask::{SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{
     command_extents, replay_ratio, row_costs, strip_boundaries, strip_boundaries_avoiding,

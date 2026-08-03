@@ -547,6 +547,47 @@ pub fn curves() -> DisplayList {
     list
 }
 
+/// ISO 32000-2 §8.7.4.5.4's cone: the radial geometry where the clause and every two-point
+/// conical gradient part company.
+///
+/// `/Coords [150 100 25 70 100 60]` with `/Extend [true false]` — `radial_gradients.pdf`'s own
+/// cell, translated onto a 200-unit page. The centres are 80 apart and the radii differ by 35,
+/// so neither circle contains the other and a point can lie on **two** blend circles at once.
+/// At the ending circle's centre the two are s = 0.478 and s = 2.333, and `/Extend[1]` is
+/// false, so the greater is not a circle at all and the clause's "greatest value of s" is the
+/// *lesser* root. Every gradient library paints nothing there.
+///
+/// So all three backends leave their native gradient here and draw
+/// [`pdf_render::RadialRaster`]'s bytes — which is what makes this scene worth sharing: it is
+/// the one radial where agreement between two backends is agreement about an *evaluation*
+/// rather than about two libraries' shaders.
+#[must_use]
+pub fn radial_cone() -> DisplayList {
+    let mut list = DisplayList::new(Size::new(200.0, 200.0));
+
+    list.push(Command::Fill {
+        path: Arc::new(rect(10.0, 10.0, 190.0, 190.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            kind: Arc::new(pdf_render::ShadingKind::Radial {
+                start: Point::new(150.0, 100.0),
+                start_radius: 25.0,
+                end: Point::new(70.0, 100.0),
+                end_radius: 60.0,
+                ramp: pdf_render::Ramp::sample(|t| Color::rgb(1.0 - t, 0.0, t)),
+                extend: (true, false),
+            }),
+            transform: Transform::IDENTITY,
+        })),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    list
+}
+
 /// A page filled edge to edge, on a page whose pixel width is not a multiple of the
 /// GPU row alignment.
 ///

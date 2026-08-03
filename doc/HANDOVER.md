@@ -90,11 +90,11 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **972** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirtieth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| tests | **979** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirtieth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1680** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **78 of them diagnosed and 683 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
-| text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
+| text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 860 of 23 277), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
@@ -137,8 +137,8 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 373 | every normative requirement in the clause is executed |
-| `partial` | 239 | some are; the note says which are not |
+| `implemented` | 374 | every normative requirement in the clause is executed |
+| `partial` | 238 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 86 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -193,7 +193,7 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
-| §8.7.4.5.4's greatest *admissible* root, on a cone | 2 | [todo 12](todo/12-a-radial-shading-is-not-a-conical-gradient.md) |
+| A `NoZoom` strike-out that no longer spans the words it strikes | 1 | [todo 13](todo/13-a-strikeout-that-does-not-follow-its-text.md) |
 | A substitute with no glyph for a character; one that cannot be addressed | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
@@ -645,26 +645,28 @@ enough along for this to be the work rather than a caveat. It is the last large 
 a defect can live without a name, and **the task, the instrument, the method and the next names
 are [todo 00](todo/00-ambiguous-bucket.md)**.
 
-**What it has produced, because that is the argument for keeping at it.** Thirty sessions,
-**eleven defects found and nine of them fixed** — a page one that was page two (ADR 0148), a photograph
-rendered black (0149), a shading painted as a square (0150), a stencil that drew nothing (0151),
-a whole grid that disappeared (0154), a sentence drawn as one Greek letter because the font's
-name ends in the word "Symbol" (0158), a stamp's gradient painted flat (0160), a widget's border
-losing a fifth of its ink to a clip on its own edge and a comb field's separators losing theirs
-to a miter bound (0165) — and one found and *not* fixed, §8.7.4.5.4's greatest admissible root,
-which is `doc/todo/12` because all three backends inherit the same wrong construction — plus a pattern cell's clip worth 15% of a page's ink
-(0155), ten documents whose substituted font drew none of its characters in silence (0152), the
-coverage rule that made eight of them draw (0153), and a font program that draws nothing now
-saying so (0157). The **eleventh** is `issue11131_reduced.pdf`'s font, whose `loca` offsets
-descend so that 36 of its 71 glyphs have a negative stated length and `read-fonts` refuses every
-one of them, in silence — found and fixed one session apart (ADR 0170), and six of the corpus's
-623 embedded TrueType programs have such a table. The tenth is
-found and not fixed either, in the two-hundred-and-fifteenth: a
-stroke under a pixel wide loses the half of `tiny-skia`'s hairline smear that falls outside the
-raster's top edge, so `vertical.pdf`'s two hairlines carry 55% of their area at the page's top
-and 98% everywhere else ([todo 11](todo/11-shapes-that-still-disappear.md) item 3). The bucket
-itself went 754 → 698 and 63 pages carry a diagnosis; *eleven defects nobody could see* is the
-number to watch.
+**What it has produced, because that is the argument for keeping at it.** Thirty-two sessions,
+**eleven defects found and ten of them fixed** — a page one that was page two (ADR 0148), a
+photograph rendered black (0149), a shading painted as a square (0150), a stencil that drew
+nothing (0151), a whole grid that disappeared (0154), a sentence drawn as one Greek letter
+because the font's name ends in the word "Symbol" (0158), a stamp's gradient painted flat
+(0160), a widget's border losing a fifth of its ink to a clip on its own edge and a comb field's
+separators losing theirs to a miter bound (0165), a `loca` whose offsets descend so that 36 of
+one font's 71 glyphs were refused in silence (0170), and **§8.7.4.5.4's greatest *admissible*
+root** — found in the two-hundred-and-sixth session, fixed in the two-hundred-and-thirty-second
+on all three backends at once (0171), and the longest-standing of them because every gradient
+library gets it wrong the same way.
+
+Beside them: a pattern cell's clip worth 15% of a page's ink (0155), ten documents whose
+substituted font drew none of its characters in silence (0152), the coverage rule that made
+eight of them draw (0153), and a font program that draws nothing now saying so (0157).
+
+**The eleventh is found and not fixed**, from the two-hundred-and-fifteenth: a stroke under a
+pixel wide loses the half of `tiny-skia`'s hairline smear that falls outside the raster's top
+edge, so `vertical.pdf`'s two hairlines carry 55% of their area at the page's top and 98%
+everywhere else ([todo 11](todo/11-shapes-that-still-disappear.md) item 3). The bucket itself
+went 754 → 683 undiagnosed and 78 pages carry a diagnosis; *eleven defects nobody could see* is
+the number to watch.
 
 **Step 6's own assumption failed for the first time in the two-hundred-and-sixteenth**, on
 `issue2177.pdf`: the closed form takes a reference to eight times the resolution because a
@@ -2446,3 +2448,4 @@ above rather than here.
 | 229 | Why half the ambiguous bucket is ambiguous — and it is not the reason this file gave for it | — |
 | 230 | Everything re-verified after seventeen rounds of change: five fuzzers, `deny`, the six gates and the window | — |
 | 231 | The ranking's top page, and §10.7.4's own last sentence is the answer to it | — |
+| 232 | A radial shading is not a gradient: §8.7.4.5.4's greatest *admissible* root, on all three backends | 0171 |

@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~183 of the 239 rows have not been re-read.
+Status: **standing task.** ~182 of the 238 rows have not been re-read.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -11,7 +11,7 @@ fifty-sixth session, and the statuses are gated: `silent` is **zero**, `REVIEW_O
 fails the build the moment a cited-but-unread clause appears, and `FILE_ONLY_EVIDENCE_CEILING` is
 zero and asserted with `==`.
 
-What no gate can watch is a **note that has gone stale**, and the 239 `partial` rows are where
+What no gate can watch is a **note that has gone stale**, and the 238 `partial` rows are where
 those live. Five failure shapes, in the order they were found:
 
 1. A note that *understates* what the code does (five in session 115).

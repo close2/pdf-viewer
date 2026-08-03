@@ -822,6 +822,44 @@ impl CpuRasterizer {
             return Ok(());
         }
 
+        // A radial shading whose two circles do not contain one another is §8.7.4.5.4's cone,
+        // where a point can lie on two blend circles and the clause's "greatest value of s"
+        // decides between them — including the case where the greater root is one `/Extend`
+        // refuses. No two-point conical gradient expresses that, so the cone is evaluated
+        // exactly and drawn as a raster; every other radial keeps the native gradient, which
+        // `shading::is_a_cone` proves is enough there.
+        if let Paint::Shading(shading) = paint
+            && let pdf_render::ShadingKind::Radial {
+                start,
+                start_radius,
+                end,
+                end_radius,
+                ramp,
+                extend,
+            } = shading.kind.as_ref()
+            && shading::is_a_cone(*start, *start_radius, *end, *end_radius)
+            && shading::fill_radial(
+                surface,
+                &path,
+                pdf_render::Radial {
+                    start: *start,
+                    start_radius: *start_radius,
+                    end: *end,
+                    end_radius: *end_radius,
+                    ramp,
+                    extend: *extend,
+                },
+                shading.transform.then(to_device),
+                convert::fill_rule(fill_rule),
+                convert::transform(at),
+                clip,
+                blend,
+                self.anti_alias,
+            )
+        {
+            return Ok(());
+        }
+
         // A sampled shading's pixels are borrowed by its shader, so they need somewhere to
         // live for exactly as long as this call.
         let mut scratch = None;

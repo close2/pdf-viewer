@@ -2043,17 +2043,36 @@ const AMBIGUOUS_WIDGET_BORDER: [&str; 1] = ["bug1863910.pdf page 1"];
 /// are `s = 0.478` and `s = 2.333`; the greater is outside `/Extend`, so the clause paints the
 /// point at **t = 0.478** and we paint nothing.
 ///
-/// `render-cpu` hands the shading to `tiny_skia::RadialGradient` — the SVG two-point conical
-/// gradient — which solves for one root and clamps it with its spread mode, where the clause says
-/// take the greatest *admissible* root. The other two backends build their own gradients from the
-/// same `ShadingKind::Radial`, so all three inherit the same decision, which is why the fix
-/// belongs in `pdf-render` beside `MeshRaster` and is `doc/todo/12`.
+/// # Fixed in the two-hundred-and-thirty-second session, and the group stays
 ///
-/// Ink: ours 66.05 and 67.19 against 70.55 to 73.94 for the four references on the two pages —
-/// consistently 7% short, which is the missing discs.
+/// `render-cpu` handed the shading to `tiny_skia::RadialGradient` — the SVG two-point conical
+/// gradient — which solves for one root and clamps it with its spread mode, where the clause
+/// says take the greatest *admissible* root. The other two backends built their own gradients
+/// from the same `ShadingKind::Radial`, so all three inherited the same decision.
+/// `pdf_render::blend_parameter` solves the quadratic and `pdf_render::RadialRaster` evaluates
+/// it per device pixel; all three backends now draw those same bytes through the shape, exactly
+/// as they already did for §8.7.4.5.5's mesh (ADR 0171).
 ///
-/// **This group says we are wrong**, which §3a allows and `AMBIGUOUS_ZERO_AREA_FILL` did for two
-/// sessions before its fix. It stays until the shared rasteriser lands.
+/// ```text
+///                    ink        worst tile   worst mean
+/// page 4  before    66.05         108.49         8.62
+/// page 4  after     70.62          15.78         4.42
+/// page 5  before    67.19         109.58         8.67
+/// page 5  after     71.42          15.78         4.52
+/// ```
+///
+/// against 70.55 to 73.94 for the four references, so the 7% shortfall was the missing discs
+/// and it is gone. **The group stays because the pages are still `ambiguous`**, and now for the
+/// reason the bucket is *for*: twenty-four shadings on one page put twenty-four antialiased
+/// boundaries and twenty-four ramps in front of five rasterisers, and no two of them agree
+/// closely enough for anybody to be called wrong. What is left is §10.7.4's own subject and not
+/// this clause's — including one departure this tree makes on purpose, because the raster is
+/// point-sampled, so the *shading*'s boundary is hard where the *shape*'s is antialiased.
+/// `MeshRaster` made that trade one shading type over and for the same reason.
+///
+/// **This group said "we are wrong" for twenty-six sessions**, which §3a allows and
+/// `AMBIGUOUS_ZERO_AREA_FILL` did for two before its own fix. Both of them being right about
+/// that is the argument for letting a group say it.
 const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
     ["radial_gradients.pdf page 4", "radial_gradients.pdf page 5"];
 
@@ -2453,7 +2472,7 @@ const AMBIGUOUS_LOCA_OUT_OF_ORDER: [&str; 1] = ["issue11131_reduced.pdf page 1"]
 /// with the default being *nothing*, which is the shape that makes a page ambiguous rather than
 /// contradicted because there is no consensus left to contradict.
 ///
-/// **Not to be confused with `doc/todo/12`**, which is a radial defect this tree does have: that
+/// **Not to be confused with `AMBIGUOUS_RADIAL_CONE`**, which was a radial defect this tree did have until ADR 0171: that
 /// is §8.7.4.5.4's greatest *admissible* root on a cone whose circles do not contain one
 /// another, and this page's circles are concentric, where every gradient implementation agrees.
 const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 1] = ["issue6006.pdf page 1"];

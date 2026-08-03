@@ -506,6 +506,45 @@ fn encode_fill(
         return Ok(());
     }
 
+    // §8.7.4.5.4's cone: a point can lie on two blend circles and the clause's "greatest
+    // value of s" decides between them, which no two-point conical gradient expresses. The
+    // exact evaluation is drawn as an image inside a layer clipped to the shape, exactly as
+    // a mesh is; every other radial keeps Vello's gradient. See `shading::is_a_cone`.
+    if let Paint::Shading(shading) = paint
+        && let pdf_render::ShadingKind::Radial {
+            start,
+            start_radius,
+            end,
+            end_radius,
+            ramp,
+            extend,
+        } = shading.kind.as_ref()
+        && crate::shading::is_a_cone(*start, *start_radius, *end, *end_radius)
+    {
+        let mode = layer.unwrap_or(peniko::BlendMode::new(
+            peniko::Mix::Normal,
+            peniko::Compose::SrcOver,
+        ));
+        scene.push_layer(rule, mode, 1.0, at, shape);
+        let drawn = crate::shading::fill_radial(
+            scene,
+            pdf_render::Radial {
+                start: *start,
+                start_radius: *start_radius,
+                end: *end,
+                end_radius: *end_radius,
+                ramp,
+                extend: *extend,
+            },
+            shading.transform.then(spaces.to_device),
+            device_bounds(shape, at, target),
+        );
+        scene.pop_layer();
+        if drawn {
+            return Ok(());
+        }
+    }
+
     let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
 
     // A non-normal blend mode needs its own layer: Vello composites a layer against its
@@ -966,6 +1005,42 @@ fn reconcile_layers(
     }
 
     Ok(())
+}
+
+/// The device pixels a shape covers, clamped to the target.
+///
+/// What a [`pdf_render::RadialRaster`] is worth evaluating over: an extended radial covers
+/// everything, and `radial_gradients.pdf` puts twenty-four of them on one page, so a
+/// page-sized raster apiece is a cost the shape already rules out. Half a pixel of margin on
+/// each side, because a pixel is sampled at its centre and a shape ending at x = 10.0 still
+/// covers the sample at 9.5 — `MeshRaster::build`'s own margin.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "each cast is between a device pixel index and its coordinate, both bounded by \
+              the target's extent"
+)]
+fn device_bounds(
+    shape: &kurbo::BezPath,
+    at: kurbo::Affine,
+    target: TargetSpec,
+) -> (u32, u32, u32, u32) {
+    // The bounding box of the transformed box rather than of the transformed path: a
+    // conservative outer bound is all a raster's extent needs, and it avoids rebuilding the
+    // whole path in device space to measure it.
+    let bounds = at.transform_rect_bbox(kurbo::Shape::bounding_box(shape));
+    (
+        (bounds.x0 - 0.5).floor().max(0.0) as u32,
+        (bounds.y0 - 0.5).floor().max(0.0) as u32,
+        (bounds.x1 + 0.5)
+            .ceil()
+            .max(0.0)
+            .min(f64::from(target.width)) as u32,
+        (bounds.y1 + 0.5)
+            .ceil()
+            .max(0.0)
+            .min(f64::from(target.height)) as u32,
+    )
 }
 
 #[cfg(test)]

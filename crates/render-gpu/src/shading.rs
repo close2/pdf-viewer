@@ -153,3 +153,59 @@ pub(crate) fn fill_mesh(
         vello::kurbo::Affine::translate((f64::from(raster.left), f64::from(raster.top))),
     );
 }
+
+/// Whether a radial shading is §8.7.4.5.4's cone, where the clause and a gradient differ.
+///
+/// The condition and its proof live in `render_cpu::shading::is_a_cone` and this is the same
+/// expression: the leading coefficient of the quadratic whose roots are the blend circles
+/// through a point is `|c1 - c0|^2 - (r1 - r0)^2`, and only where it is **positive** can a
+/// point lie on two blend circles at once. It is repeated rather than shared because a
+/// backend does not depend on its sibling; both are three lines over
+/// [`pdf_render::blend_parameter`]'s own arithmetic, which is where the clause is stated.
+#[must_use]
+pub(crate) fn is_a_cone(
+    start: pdf_render::Point,
+    start_radius: f32,
+    end: pdf_render::Point,
+    end_radius: f32,
+) -> bool {
+    let (dx, dy, dr) = (end.x - start.x, end.y - start.y, end_radius - start_radius);
+    dr.mul_add(-dr, dx.mul_add(dx, dy * dy)) > 0.0
+}
+
+/// Draws a radial cone exactly into the current layer (ISO 32000-2 §8.7.4.5.4).
+///
+/// The counterpart of [`fill_mesh`] one shading type over, and it mirrors `render-cpu` for
+/// the same reason: [`pdf_render::RadialRaster`] evaluates the clause once, so the two
+/// backends draw the *same bytes* rather than two approximations that have to be tuned to
+/// agree. The caller has already pushed a layer clipped to the shape, so `within` is the
+/// shape's device bounds and nothing here clips.
+///
+/// Returns `false` when the raster is empty, so the caller can fall back to the gradient
+/// rather than drawing nothing.
+pub(crate) fn fill_radial(
+    scene: &mut vello::Scene,
+    radial: pdf_render::Radial<'_>,
+    to_device: Transform,
+    within: (u32, u32, u32, u32),
+) -> bool {
+    let Some(raster) = pdf_render::RadialRaster::build(radial, to_device, within) else {
+        return false;
+    };
+    let data = peniko::ImageData {
+        data: peniko::Blob::new(std::sync::Arc::new(raster.image.data.to_vec())),
+        format: peniko::ImageFormat::Rgba8,
+        // Straight alpha, matching `pdf_render::Image`'s documented format.
+        alpha_type: peniko::ImageAlphaType::Alpha,
+        width: raster.image.width,
+        height: raster.image.height,
+    };
+    // `Low` is nearest-neighbour, for `fill_mesh`'s reason: the raster is at device
+    // resolution and placed at whole pixels, so no sample can be interpolated.
+    let brush = peniko::ImageBrush::new(data).with_quality(peniko::ImageQuality::Low);
+    scene.draw_image(
+        &brush,
+        vello::kurbo::Affine::translate((f64::from(raster.left), f64::from(raster.top))),
+    );
+    true
+}

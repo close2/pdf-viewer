@@ -621,6 +621,238 @@ impl MeshRaster {
     }
 }
 
+/// The blend circle that paints a point, ISO 32000-2 §8.7.4.5.4.
+///
+/// # What the clause states, and what a gradient library states instead
+///
+/// §8.7.4.5.4 builds a *family* of circles indexed by a parameter `s`, with centre
+/// `c(s) = c0 + s(c1 - c0)` and radius `r(s) = r0 + s(r1 - r0)`, and says how they compose:
+///
+/// > Conceptually, all of the blend circles shall be painted in order of increasing values of
+/// > s , from smallest to largest. … The painting is opaque, with the colour of each circle
+/// > completely overlaying those preceding it. Therefore, if a point lies on more than one
+/// > blend circle, its final colour shall be that of the last of the enclosing circles to be
+/// > painted, corresponding to the greatest value of s .
+///
+/// A point lies on `c(s)` exactly when `|p − c(s)| = r(s)`, which squares to a quadratic in
+/// `s` with at most two roots. The clause therefore asks for **the greatest root that is
+/// actually painted** — and *painted* is the second half of it, because `/Extend` decides
+/// whether the family exists outside `[0, 1]` at all:
+///
+/// > If the first of the two elements is true , the shading shall be extended beyond the
+/// > defined starting circle to values of s less than 0.0; if the second element is true , the
+/// > shading shall be extended beyond the defined ending circle to s values greater than 1.0
+/// > unless radii r 0 and r 1 in the Coords array are both zero.
+///
+/// So a root outside `[0, 1]` that `/Extend` does not admit is not "clamped" and is not
+/// "transparent": it is **not a circle**, and the other root — if it is admissible — is the
+/// one that paints the point. That fallback is what no two-point conical gradient expresses,
+/// because a conical gradient solves for one root and clamps it with a spread mode. It is
+/// why `radial_gradients.pdf` pages 4 and 5 draw a crescent under `tiny_skia::RadialGradient`
+/// where four other renderers draw a filled disc with a cone on it.
+///
+/// NOTE 1's two limits need no separate handling. "[T]he family of blend circles continues as
+/// far as that value of s for which the radius of the blend circle r(s) = 0" is
+/// `r(s) >= 0` below, and "as far as that s value for which r(s) is large enough to encompass
+/// the shading's entire bounding box" is a statement about *where painting stops being
+/// visible*, not about which circle passes through a given point — solving for the root
+/// answers that directly and needs no bounding box.
+///
+/// # Returns
+///
+/// The greatest admissible `s`, or `None` where no blend circle passes through the point —
+/// which is a point the shading leaves unpainted, not a point painted with an end colour.
+/// The caller clamps to `[0, 1]` before reading the ramp, because the clause paints an
+/// extended circle "in the same colour defined […] for the starting circle" and likewise for
+/// the ending one.
+#[must_use]
+pub fn blend_parameter(
+    point: Point,
+    start: Point,
+    start_radius: f32,
+    end: Point,
+    end_radius: f32,
+    extend: (bool, bool),
+) -> Option<f32> {
+    let (dx, dy, dr) = (end.x - start.x, end.y - start.y, end_radius - start_radius);
+    let (px, py) = (point.x - start.x, point.y - start.y);
+
+    // |p − c(s)|² = r(s)² expanded and collected in s.
+    let a = dr.mul_add(-dr, dx.mul_add(dx, dy * dy));
+    let b = -2.0 * start_radius.mul_add(dr, px.mul_add(dx, py * dy));
+    let c = start_radius.mul_add(-start_radius, px.mul_add(px, py * py));
+
+    // Both radii zero: r(s) is zero everywhere, so no circle has an interior and the
+    // clause's own proviso withdraws the upper extension. Nothing is painted.
+    if start_radius == 0.0 && end_radius == 0.0 {
+        return None;
+    }
+
+    let admits = |s: f32| -> Option<f32> {
+        if !s.is_finite() || start_radius.mul_add(1.0, s * dr) < 0.0 {
+            return None;
+        }
+        if (s < 0.0 && !extend.0) || (s > 1.0 && !extend.1) {
+            return None;
+        }
+        Some(s)
+    };
+
+    // The centres are exactly |dr| apart, so the quadratic degenerates to a line. This is
+    // not a rounding case to be nudged: it is the geometry where the two circles are
+    // internally tangent, and one root has gone to infinity.
+    if a == 0.0 {
+        if b == 0.0 {
+            return None;
+        }
+        return admits(-c / b);
+    }
+
+    let discriminant = b.mul_add(b, -4.0 * a * c);
+    if discriminant < 0.0 {
+        return None;
+    }
+    // The stable form of the quadratic formula: adding the root of the discriminant to the
+    // coefficient of like sign avoids the cancellation that costs the smaller root its
+    // significant figures, and the smaller root is the one this function falls back to.
+    let sign: f32 = if b < 0.0 { -1.0 } else { 1.0 };
+    let q = -0.5 * sign.mul_add(discriminant.sqrt(), b);
+    let first = q / a;
+    let second = if q == 0.0 { first } else { c / q };
+    let (lower, upper) = if first <= second {
+        (first, second)
+    } else {
+        (second, first)
+    };
+
+    admits(upper).or_else(|| admits(lower))
+}
+
+/// A radial shading rasterised into device pixels, ISO 32000-2 §8.7.4.5.4.
+///
+/// The same construction as [`MeshRaster`] and for the same reason: the clause states an
+/// algorithm no rasteriser's native primitive implements, so it is evaluated once here, at
+/// device resolution, and both backends draw the result as an image confined to the shape
+/// being painted. The *colour* is this crate's and identical everywhere; the *edge* is the
+/// shape's, antialiased by the backend as every other fill's is.
+///
+/// [`blend_parameter`] is why it cannot be a gradient. What is given up is the same thing
+/// [`MeshRaster`] gives up — the shading's own boundary is point-sampled rather than
+/// antialiased — and §10.7.4 asks for a hard edge there in any case.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RadialRaster {
+    /// Device x of the raster's first column.
+    pub left: i32,
+    /// Device y of the raster's first row.
+    pub top: i32,
+    /// Straight-alpha RGBA8 samples, one per device pixel.
+    pub image: crate::Image,
+}
+
+/// A radial shading's geometry and colours, as [`ShadingKind::Radial`] carries them.
+///
+/// A parameter list rather than six arguments, because [`RadialRaster::build`] would
+/// otherwise take nine and the six travel together everywhere they appear.
+#[derive(Debug, Clone, Copy)]
+pub struct Radial<'a> {
+    /// Centre of the circle carrying the ramp's first colour.
+    pub start: Point,
+    /// Its radius.
+    pub start_radius: f32,
+    /// Centre of the circle carrying the ramp's last colour.
+    pub end: Point,
+    /// Its radius.
+    pub end_radius: f32,
+    /// The colours passed through.
+    pub ramp: &'a Ramp,
+    /// Whether the shading continues beyond each circle.
+    pub extend: (bool, bool),
+}
+
+impl RadialRaster {
+    /// Rasterises a radial shading over the device pixels of `within`.
+    ///
+    /// `to_device` carries the shading's own coordinates onto the target. `within` is the
+    /// region worth evaluating, in device pixels as `(left, top, right, bottom)` — the
+    /// caller's shape bounds intersected with the target, because an extended shading covers
+    /// everything and a raster the size of the page per shading is not a cost worth paying
+    /// on a sheet of twenty-four of them.
+    ///
+    /// Returns `None` when the region is empty or the transform cannot be inverted.
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        reason = "every cast is between a device pixel index and its coordinate, both \
+                  bounded by the target's extent, which `MAX_EXTENT` keeps under 2^24 — \
+                  except the channel quantisation, whose argument is clamped to [0, 1] \
+                  one expression earlier and so cannot be negative"
+    )]
+    pub fn build(
+        radial: Radial<'_>,
+        to_device: Transform,
+        within: (u32, u32, u32, u32),
+    ) -> Option<Self> {
+        let (left, top, right, bottom) = within;
+        let (span, rows) = (right.checked_sub(left)?, bottom.checked_sub(top)?);
+        if span == 0 || rows == 0 {
+            return None;
+        }
+        let to_shading = to_device.invert()?;
+
+        let mut data = vec![
+            0u8;
+            (span as usize)
+                .saturating_mul(rows as usize)
+                .saturating_mul(4)
+        ];
+        let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+        for (row, line) in data
+            .chunks_exact_mut((span as usize).saturating_mul(4))
+            .enumerate()
+        {
+            let y = top.saturating_add(u32::try_from(row).unwrap_or(u32::MAX)) as f32 + 0.5;
+            for (column, pixel) in line.chunks_exact_mut(4).enumerate() {
+                // A pixel's colour is the shading's value at the pixel's centre, which is
+                // the sampling `MeshRaster` uses and the one §10.7.4 describes for images.
+                let device = Point {
+                    x: left.saturating_add(u32::try_from(column).unwrap_or(u32::MAX)) as f32 + 0.5,
+                    y,
+                };
+                let Some(s) = blend_parameter(
+                    to_shading.apply(device),
+                    radial.start,
+                    radial.start_radius,
+                    radial.end,
+                    radial.end_radius,
+                    radial.extend,
+                ) else {
+                    continue;
+                };
+                let colour = radial.ramp.colour_at(s.clamp(0.0, 1.0));
+                pixel[0] = channel(colour.r);
+                pixel[1] = channel(colour.g);
+                pixel[2] = channel(colour.b);
+                pixel[3] = channel(colour.a);
+            }
+        }
+
+        Some(Self {
+            left: i32::try_from(left).ok()?,
+            top: i32::try_from(top).ok()?,
+            image: crate::Image {
+                width: span,
+                height: rows,
+                data: data.into(),
+                // Nearest sampling, for `MeshRaster`'s reason: the raster is already at
+                // device resolution and drawn at 1:1, so no filter can be reached.
+                interpolate: false,
+            },
+        })
+    }
+}
+
 /// One triangle of a mesh shading, with a colour at each corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Triangle {
@@ -823,7 +1055,7 @@ impl Triangle {
 
 #[cfg(test)]
 mod tests {
-    use super::{Ramp, Triangle};
+    use super::{Ramp, Triangle, blend_parameter};
     use crate::{Color, Point};
 
     /// A break makes a step, and a ramp without one averages across it.
@@ -1030,5 +1262,152 @@ mod tests {
                 .len(),
             "and a smooth curve is already described to within half a level"
         );
+    }
+    /// §8.7.4.5.4's worked case, at the point the clause's own rule decides.
+    ///
+    /// `radial_gradients.pdf`'s cell states `/Coords [511 489 25 431 489 60]` and
+    /// `/Extend [true false]`, so `c(s) = (511 − 80s, 489)` and `r(s) = 25 + 35s`: the
+    /// centres are 80 apart and the radii differ by 35, which is NOTE 3's cone rather than a
+    /// sphere. Take **P = (431, 489)**, the centre of the ending circle. `|P − c(s)| = 80|s − 1|`
+    /// and `r(s) = 25 + 35s`, so the blend circles through P are at s = 0.478 and s = 2.333.
+    ///
+    /// The greater root is out of range and `/Extend[1]` is false, so it is not a circle at
+    /// all — and the clause's "greatest value of s" is then the other one. A two-point conical
+    /// gradient has no way to say that, which is the whole of this defect: for two hundred
+    /// sessions the point was painted with nothing.
+    #[test]
+    fn the_greatest_root_a_cone_admits_is_not_always_the_greater_root() {
+        let (start, end) = (Point { x: 511.0, y: 489.0 }, Point { x: 431.0, y: 489.0 });
+        let s = blend_parameter(end, start, 25.0, end, 60.0, (true, false))
+            .expect("the lower root is admissible and paints the point");
+        assert!(
+            (s - 0.478_260_9).abs() < 1e-4,
+            "the clause's arithmetic gives 0.478, not {s}"
+        );
+
+        // And with the upper end extended, the greater root wins — same geometry, same point.
+        let extended = blend_parameter(end, start, 25.0, end, 60.0, (true, true))
+            .expect("both roots are admissible now");
+        assert!(
+            (extended - 2.333_333).abs() < 1e-4,
+            "the greater root is 2.333, not {extended}"
+        );
+    }
+
+    /// A point no blend circle passes through is unpainted, which is not the end colour.
+    ///
+    /// Two concentric circles of radius 10 and 20 with neither end extended paint the annulus
+    /// and nothing else: the centre lies on no circle of the family, and §8.7.4.5.4 gives it
+    /// no colour rather than the starting one.
+    #[test]
+    fn a_point_outside_every_admissible_circle_is_left_unpainted() {
+        let centre = Point { x: 0.0, y: 0.0 };
+        assert_eq!(
+            blend_parameter(centre, centre, 10.0, centre, 20.0, (false, false)),
+            None,
+            "the centre is inside the starting circle and on none of them"
+        );
+        assert_eq!(
+            blend_parameter(
+                Point { x: 30.0, y: 0.0 },
+                centre,
+                10.0,
+                centre,
+                20.0,
+                (false, false)
+            ),
+            None,
+            "and so is a point beyond the ending circle"
+        );
+        let inside = blend_parameter(centre, centre, 10.0, centre, 20.0, (true, false))
+            .expect("extending the smaller end reaches r(s) = 0 at s = −1");
+        assert!(
+            (inside - (-1.0)).abs() < 1e-5,
+            "r(s) = 10 + 10s is zero at s = −1, not at {inside}"
+        );
+    }
+
+    /// The clause's own proviso: both radii zero means the upper end does not extend.
+    ///
+    /// "[T]he shading shall be extended beyond the defined ending circle to s values greater
+    /// than 1.0 **unless radii r0 and r1 in the Coords array are both zero**". A family of
+    /// circles of radius zero has no interior at any s, so nothing is painted anywhere — which
+    /// is what the proviso exists to prevent a processor from extending forever.
+    #[test]
+    fn a_family_of_zero_radius_circles_paints_nothing() {
+        let start = Point { x: 0.0, y: 0.0 };
+        let end = Point { x: 100.0, y: 0.0 };
+        for point in [start, end, Point { x: 50.0, y: 0.0 }] {
+            assert_eq!(
+                blend_parameter(point, start, 0.0, end, 0.0, (true, true)),
+                None,
+                "no circle of the family has an interior"
+            );
+        }
+    }
+
+    /// A radius the family never reaches is not admissible, however the extension is set.
+    ///
+    /// NOTE 1: "[i]f the shading is extended at the smaller end, the family of blend circles
+    /// continues as far as that value of s for which the radius of the blend circle r(s) = 0."
+    /// So an extension downwards stops there rather than running on into negative radii, and a
+    /// root beyond it is not a circle.
+    #[test]
+    fn a_root_with_a_negative_radius_is_not_a_circle() {
+        // c(s) = (0, 0) for all s, r(s) = 20 + 20s: zero at s = −1, negative below.
+        let centre = Point { x: 0.0, y: 0.0 };
+        let far = Point { x: 200.0, y: 0.0 };
+        // |P − c| = 200 needs r(s) = 200, so s = 9 — admissible only when the upper end does.
+        assert_eq!(
+            blend_parameter(far, centre, 20.0, centre, 40.0, (true, false)),
+            None
+        );
+        let s = blend_parameter(far, centre, 20.0, centre, 40.0, (true, true))
+            .expect("extended, the family reaches it");
+        assert!(
+            (s - 9.0).abs() < 1e-4,
+            "r(s) = 20 + 20s is 200 at s = 9, not {s}"
+        );
+    }
+
+    /// The degenerate case where the quadratic is a line, and it is geometry rather than noise.
+    ///
+    /// When the centres are exactly `|r1 − r0|` apart the two circles are internally tangent,
+    /// the `s²` coefficient vanishes and one root has gone to infinity. The remaining root is
+    /// the answer and must not be discarded: this is the shape of a cone whose apex is on the
+    /// axis, and `radial_gradients.pdf` has cells of it.
+    #[test]
+    fn internally_tangent_circles_leave_one_root_and_it_is_used() {
+        let start = Point { x: 0.0, y: 0.0 };
+        let end = Point { x: 10.0, y: 0.0 };
+        // |c1 − c0| = 10 and r1 − r0 = 10, so a = 0 exactly.
+        let s = blend_parameter(
+            Point { x: 10.0, y: 0.0 },
+            start,
+            10.0,
+            end,
+            20.0,
+            (true, true),
+        )
+        .expect("the linear root is the answer");
+        // |P − c(s)| = 10|s − 1| = r(s) = 10 + 10s gives s = 0.
+        assert!(s.abs() < 1e-5, "the one root is 0, not {s}");
+    }
+
+    /// Ramp positions come from the parameter clamped, because extension paints an end colour.
+    ///
+    /// "Blend circles extending beyond the starting circle shall be painted in the same colour
+    /// defined by the shading dictionary's Function entry for the starting circle (t = t0,
+    /// s = 0.0)." So a negative parameter is a real circle painted with the first colour, not a
+    /// circle painted with an extrapolated one — which is what the clamp in
+    /// [`super::RadialRaster::build`] states and what this checks the ramp agrees with.
+    #[test]
+    fn an_extended_circle_carries_the_end_colour_rather_than_an_extrapolated_one() {
+        let ramp = Ramp::sample(|t| Color::rgb(t, 0.0, 0.0));
+        assert_eq!(
+            ramp.colour_at((-3.0f32).clamp(0.0, 1.0)),
+            ramp.colour_at(0.0)
+        );
+        assert_eq!(ramp.colour_at(7.0f32.clamp(0.0, 1.0)), ramp.colour_at(1.0));
     }
 }

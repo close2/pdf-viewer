@@ -21,7 +21,7 @@
 //! percent of the axis wide rather than a hard edge, which is well under a pixel on any
 //! real page.
 
-use pdf_render::{Color, Ramp, Shading, ShadingKind, Transform};
+use pdf_render::{Color, Point, Ramp, Shading, ShadingKind, Transform};
 
 /// How wide the transparent transition at a non-extended end is, as a fraction of the
 /// ramp. Small enough to be sub-pixel on any page, large enough to survive `f32`.
@@ -212,7 +212,137 @@ pub(crate) fn fill_mesh(
     else {
         return;
     };
-    let Some(mut samples) = tiny_skia::Pixmap::new(raster.image.width, raster.image.height) else {
+    fill_with_raster(
+        pixmap,
+        shape,
+        &raster.image,
+        (raster.left, raster.top),
+        fill_rule,
+        shape_transform,
+        clip,
+        blend,
+        anti_alias,
+    );
+}
+
+/// Whether a radial shading's geometry is one §8.7.4.5.4 decides and a gradient cannot.
+///
+/// The quadratic whose roots are the blend circles through a point has leading coefficient
+/// `|c1 − c0|² − (r1 − r0)²`, and its **sign is the whole question**:
+///
+/// - **Negative** — the centres are closer together than the radii differ, so one circle
+///   contains the other: §8.7.4.5.4's NOTE 2 sphere. Exactly one blend circle passes through
+///   any point. `|p − c(s)| − r(s)` is convex in `s` and runs from `+∞` to `−∞`, so it is
+///   monotone and has one root; the other root of the squared equation is where
+///   `|p − c(s)| = −r(s)`, which is not a circle. There is nothing to choose between, so a
+///   two-point conical gradient cannot pick the wrong one.
+/// - **Zero** — internally tangent, one root, the same argument.
+/// - **Positive** — NOTE 3's cone. Now the convex function runs to `+∞` in both directions
+///   and can cross zero twice, so a point can lie on two blend circles and the clause's
+///   "greatest value of s" has work to do — including the case where the *greater* root is
+///   one `/Extend` refuses and the answer is the lesser. That is what no gradient expresses.
+///
+/// So this is not a tuned threshold. It is the exact condition under which the clause's
+/// tie-breaking rule can change a pixel, which is why the exact evaluation is paid for
+/// there and nowhere else.
+#[must_use]
+pub(crate) fn is_a_cone(start: Point, start_radius: f32, end: Point, end_radius: f32) -> bool {
+    let (dx, dy, dr) = (end.x - start.x, end.y - start.y, end_radius - start_radius);
+    dr.mul_add(-dr, dx.mul_add(dx, dy * dy)) > 0.0
+}
+
+/// Draws a radial shading exactly, clipped to a path (ISO 32000-2 §8.7.4.5.4).
+///
+/// The counterpart of [`fill_mesh`] one shading type over, and for the same reason: the
+/// clause states an algorithm the rasteriser's native primitive does not implement, so
+/// [`pdf_render::RadialRaster`] evaluates it at each device pixel's centre and the result is
+/// drawn as an image confined to the shape. [`pdf_render::blend_parameter`] is the algorithm
+/// and [`is_a_cone`] is when it is needed.
+///
+/// The raster covers the shape's own device bounds rather than the target's, because an
+/// extended radial covers everything: `radial_gradients.pdf` puts twenty-four of them on one
+/// page, and a page-sized raster apiece is a cost the shape already rules out.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "these are the parameters `fill_path` itself takes, threaded through one \
+              level; bundling them into a struct would only move the list"
+)]
+pub(crate) fn fill_radial(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    shape: &tiny_skia::Path,
+    radial: pdf_render::Radial<'_>,
+    to_device: Transform,
+    fill_rule: tiny_skia::FillRule,
+    shape_transform: tiny_skia::Transform,
+    clip: Option<&tiny_skia::Mask>,
+    blend: tiny_skia::BlendMode,
+    anti_alias: bool,
+) -> bool {
+    let Some(device_shape) = shape.clone().transform(shape_transform) else {
+        return false;
+    };
+    let bounds = device_shape.bounds();
+    // Half a pixel of margin, because a pixel is sampled at its centre and a shape ending at
+    // x = 10.0 still covers the sample at 9.5 — `MeshRaster::build`'s own margin.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "each cast is between a device pixel index and its coordinate, both bounded \
+                  by the target's extent"
+    )]
+    let within = (
+        (bounds.left() - 0.5).floor().max(0.0) as u32,
+        (bounds.top() - 0.5).floor().max(0.0) as u32,
+        (bounds.right() + 0.5)
+            .ceil()
+            .max(0.0)
+            .min(pixmap.width() as f32) as u32,
+        (bounds.bottom() + 0.5)
+            .ceil()
+            .max(0.0)
+            .min(pixmap.height() as f32) as u32,
+    );
+    let Some(raster) = pdf_render::RadialRaster::build(radial, to_device, within) else {
+        return false;
+    };
+    fill_with_raster(
+        pixmap,
+        shape,
+        &raster.image,
+        (raster.left, raster.top),
+        fill_rule,
+        shape_transform,
+        clip,
+        blend,
+        anti_alias,
+    );
+    true
+}
+
+/// Draws a device-resolution raster through a shape, at whole device pixels.
+///
+/// Shared by [`fill_mesh`] and [`fill_radial`] because the two differ only in what fills the
+/// raster: both evaluate a clause in `pdf-render` so that the backends cannot disagree about
+/// the colour, and both then need the *edge* to be the shape's, antialiased as every other
+/// fill's is.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "these are the parameters `fill_path` itself takes, threaded through one \
+              level; bundling them into a struct would only move the list"
+)]
+fn fill_with_raster(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    shape: &tiny_skia::Path,
+    image: &pdf_render::Image,
+    (left, top): (i32, i32),
+    fill_rule: tiny_skia::FillRule,
+    shape_transform: tiny_skia::Transform,
+    clip: Option<&tiny_skia::Mask>,
+    blend: tiny_skia::BlendMode,
+    anti_alias: bool,
+) {
+    let Some(mut samples) = tiny_skia::Pixmap::new(image.width, image.height) else {
         return;
     };
     // `tiny-skia` pixmaps are premultiplied and `Image` is straight alpha, the same boundary
@@ -220,7 +350,7 @@ pub(crate) fn fill_mesh(
     for (target, source) in samples
         .pixels_mut()
         .iter_mut()
-        .zip(raster.image.data.chunks_exact(4))
+        .zip(image.data.chunks_exact(4))
     {
         let alpha = source[3];
         *target = tiny_skia::PremultipliedColorU8::from_rgba(
@@ -248,14 +378,14 @@ pub(crate) fn fill_mesh(
                     reason = "a device pixel index is far below f32's exact integer limit"
                 )]
                 {
-                    raster.left as f32
+                    left as f32
                 },
                 #[expect(
                     clippy::cast_precision_loss,
                     reason = "a device pixel index is far below f32's exact integer limit"
                 )]
                 {
-                    raster.top as f32
+                    top as f32
                 },
             ),
         ),
@@ -265,8 +395,7 @@ pub(crate) fn fill_mesh(
     };
     // The shape carries its own transform; the pattern's is in *device* space, which is what
     // a paint is read in — see `shader` above, and trap 2.
-    let device_shape = shape.clone().transform(shape_transform);
-    let Some(device_shape) = device_shape else {
+    let Some(device_shape) = shape.clone().transform(shape_transform) else {
         return;
     };
     pixmap.fill_path(

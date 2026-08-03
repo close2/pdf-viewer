@@ -653,6 +653,44 @@ fn cpu_and_gpu_agree_on_a_radial_shading() {
     );
 }
 
+/// §8.7.4.5.4's cone, where the clause and every two-point conical gradient part company.
+///
+/// `test_scenes::radial_cone` has the geometry and why it is the one radial worth a scene of
+/// its own: a point on it lies on two blend circles, the greater root is one `/Extend` refuses,
+/// and the clause's "greatest value of s" is therefore the *lesser* one. Both backends leave
+/// their gradient and draw `pdf_render::RadialRaster`'s bytes, so agreement here is agreement
+/// about an evaluation rather than about two libraries' shaders.
+#[test]
+fn cpu_and_gpu_agree_on_a_radial_cone() {
+    let list = test_scenes::radial_cone();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+    assert_within_tolerance(
+        "radial cone",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+
+    // And agreement about a blank page would be agreement about nothing, so the CPU raster is
+    // checked against the clause's own answer at the point the arithmetic was done for. Device
+    // (70, 100) is the ending circle's centre; the admissible root there is s = 5775/12075 =
+    // 0.478261 and the ramp is `rgb(1 - t, 0, t)`, so the pixel is 133, 0, 122 — the *lesser*
+    // root's colour, which a gradient never reaches.
+    let at = (100 * cpu.width as usize + 70) * 4;
+    let pixel = &cpu.data[at..at + 4];
+    assert_eq!(
+        pixel[3], 255,
+        "the cone's interior is painted, not left clear"
+    );
+    assert!(
+        pixel[0].abs_diff(133) <= 2 && pixel[1] == 0 && pixel[2].abs_diff(122) <= 2,
+        "§8.7.4.5.4's colour at s = 0.478 is 133, 0, 122; the raster says {pixel:?}"
+    );
+}
+
 /// A mesh, which neither rasteriser can shade natively and which both therefore
 /// subdivide into flat triangles.
 ///

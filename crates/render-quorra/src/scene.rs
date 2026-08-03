@@ -195,6 +195,11 @@ impl<'a> Encoder<'a> {
             return Ok(());
         };
         let mask = self.mask_id(builder, mask)?;
+        // What a radial cone's exact evaluation is worth doing over — the shape's own
+        // device pixels rather than the page's, because an extended radial covers
+        // everything. Taken from the whole path, so the collapsed-subpath split below
+        // shares one conservative bound rather than measuring three.
+        let within = self.device_pixels(path, transform);
 
         // ISO 32000-2 §10.7.4: no shape may disappear, and a subpath with no
         // extent along one axis has zero area for every coverage rasteriser. The
@@ -214,6 +219,7 @@ impl<'a> Encoder<'a> {
                     (marks, transform, FillRule::NonZero),
                     paint,
                     (clip, mask, blend),
+                    within,
                 )?;
             }
             if split.filled.is_empty() {
@@ -225,6 +231,7 @@ impl<'a> Encoder<'a> {
                 (filled, transform, rule),
                 paint,
                 (clip, mask, blend),
+                within,
             );
         }
 
@@ -234,6 +241,7 @@ impl<'a> Encoder<'a> {
             (outline, transform, rule),
             paint,
             (clip, mask, blend),
+            within,
         )
     }
 
@@ -248,7 +256,30 @@ impl<'a> Encoder<'a> {
             Option<quorra_scene::MaskId>,
             BlendMode,
         ),
+        within: (u32, u32, u32, u32),
     ) -> Result<(), QuorraRasterError> {
+        // §8.7.4.5.4's cone, where the clause's "greatest value of s" can be a root the
+        // shading's own `/Extend` refuses and the answer is the other one. No two-point
+        // conical gradient expresses that, so all three backends leave their gradient and
+        // draw `pdf_render::RadialRaster`'s bytes — identical bytes, which is the point.
+        // Only a *fill* takes this door, exactly as in the sibling backends: a stroke's
+        // outline is not the shape quorra is handed, and no corpus document strokes a cone.
+        if let Paint::Shading(shading) = paint
+            && let Some(cone) = self.radial_cone(shading, within)?
+        {
+            return builder
+                .fill(
+                    outline,
+                    self.placed(transform),
+                    fill_rule(rule),
+                    quorra_scene::Paint::Mesh(cone),
+                    clip,
+                    blend_mode(blend),
+                    quorra_scene::Compose::SrcOver,
+                    mask,
+                )
+                .map_err(Into::into);
+        }
         let paint = match paint {
             Paint::Solid(c) => quorra_scene::Paint::Solid(colour(*c)),
             Paint::Shading(shading) => match self.shading_paint(shading)? {
@@ -450,6 +481,90 @@ impl<'a> Encoder<'a> {
             mask,
         )?;
         Ok(())
+    }
+
+    /// The device pixels a path covers, clamped to the target.
+    ///
+    /// Half a pixel of margin on each side, because a pixel is sampled at its centre and a
+    /// shape ending at x = 10.0 still covers the sample at 9.5 — `MeshRaster::build`'s own
+    /// margin, and the same bound the sibling backends compute for a radial cone.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "each cast is between a device pixel index and its coordinate, both bounded \
+                  by the target's extent"
+    )]
+    fn device_pixels(&self, path: &Path, transform: Transform) -> (u32, u32, u32, u32) {
+        let Some(bounds) = path.bounds(transform.then(self.target.transform)) else {
+            return (0, 0, self.target.width, self.target.height);
+        };
+        (
+            (bounds.min.x - 0.5).floor().max(0.0) as u32,
+            (bounds.min.y - 0.5).floor().max(0.0) as u32,
+            (bounds.max.x + 0.5)
+                .ceil()
+                .max(0.0)
+                .min(self.target.width as f32) as u32,
+            (bounds.max.y + 0.5)
+                .ceil()
+                .max(0.0)
+                .min(self.target.height as f32) as u32,
+        )
+    }
+
+    /// A radial shading exactly evaluated, where §8.7.4.5.4 and a gradient part company.
+    ///
+    /// `None` for every shading that is not a *cone* — one whose circles are further apart
+    /// than their radii differ, which is the exact condition under which a point can lie on
+    /// two blend circles and the clause's tie-break can change a pixel. The proof is in
+    /// `render_cpu::shading::is_a_cone`; the arithmetic is
+    /// [`pdf_render::blend_parameter`]'s.
+    ///
+    /// The raster is uploaded as a **mesh**, because quorra's mesh paint is precisely "an
+    /// RGBA raster already at device resolution, placed at (left, top)" — which is what this
+    /// is, and what the other two backends draw for the same geometry.
+    fn radial_cone(
+        &mut self,
+        shading: &Shading,
+        within: (u32, u32, u32, u32),
+    ) -> Result<Option<quorra_scene::MeshId>, QuorraRasterError> {
+        let ShadingKind::Radial {
+            start,
+            start_radius,
+            end,
+            end_radius,
+            ramp,
+            extend,
+        } = shading.kind.as_ref()
+        else {
+            return Ok(None);
+        };
+        let (dx, dy, dr) = (end.x - start.x, end.y - start.y, end_radius - start_radius);
+        if dr.mul_add(-dr, dx.mul_add(dx, dy * dy)) <= 0.0 {
+            return Ok(None);
+        }
+        let Some(raster) = pdf_render::RadialRaster::build(
+            pdf_render::Radial {
+                start: *start,
+                start_radius: *start_radius,
+                end: *end,
+                end_radius: *end_radius,
+                ramp,
+                extend: *extend,
+            },
+            shading.transform.then(self.target.transform),
+            within,
+        ) else {
+            return Ok(None);
+        };
+        let id = self.device.upload_mesh(&quorra_scene::MeshSpec {
+            left: raster.left,
+            top: raster.top,
+            image: spec(&raster.image),
+        })?;
+        self.transient.push(id.into());
+        Ok(Some(id))
     }
 
     /// A mesh shading, through the shared rasteriser both existing backends use

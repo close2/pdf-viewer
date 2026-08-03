@@ -125,9 +125,10 @@ of them fixed** — a page one that was page two (ADR 0148), a photograph render
 shading painted as a square (0150), a stencil that drew nothing (0151), a whole grid that
 disappeared (0154), a sentence drawn as one Greek letter (0158), a stamp's gradient painted flat
 (0160), and two coverage losses that moved the oracle's own headline (0165: a `/BBox` clip on a
-widget border's own edge, and a miter bound on a comb field's separators). The ninth is found and
-*not* fixed: §8.7.4.5.4's greatest admissible root, which every backend gets wrong from the same
-place and which is `doc/todo/12`.
+widget border's own edge, and a miter bound on a comb field's separators). The ninth was found and not fixed for
+twenty-six sessions and is fixed now: §8.7.4.5.4's greatest admissible root, which every backend
+got wrong from the same place because every gradient library gets it wrong the same way
+(ADR 0171).
 
 Beside them: the ten documents whose substituted font drew none of its characters in silence
 (0152), the coverage rule that made eight of them draw (0153), a pattern cell's clip worth 15% of
@@ -215,8 +216,9 @@ sixth, one list over.
 
 **Fifteen names left the list in the two-hundred-and-fifth to -eleventh sessions**, and the shape
 of the result is the argument for the tail: two were defects in this tree (`bug1863910.pdf`'s
-`/BBox` clip and `issue21068.pdf`'s miter bound, both ADR 0165), one is a defect with its own
-file (`radial_gradients.pdf`, `doc/todo/12`), one is a clause `poppler` does not honour
+`/BBox` clip and `issue21068.pdf`'s miter bound, both ADR 0165), one was a defect with its own
+file (`radial_gradients.pdf`, fixed in the two-hundred-and-thirty-second session, ADR 0171),
+one is a clause `poppler` does not honour
 (`bug1552113.pdf`'s 112-unit border), and the rest are scan conversion or artwork the standard
 does not state.
 
