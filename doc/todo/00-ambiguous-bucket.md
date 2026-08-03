@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 704 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 712 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 748 ambiguous pages on documents we call complete; 42 diagnosed, 704 held by name
+Corpus: 788 ambiguous pages (748 on documents we call complete); 48 diagnosed, 712 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -120,7 +120,7 @@ substituted font drew none of its characters in silence (0152), the coverage rul
 eight of them draw (0153), a pattern cell's clip worth 15% of a page's ink (0155), and a font
 program that draws nothing now saying so (0157).
 
-The bucket itself went 754 → 704, and that is the least interesting number in this file. *Seven
+The bucket itself went 754 → 712 undiagnosed, and that is the least interesting number in this file. *Seven
 defects nobody could see* is the one to watch — **and one gate that found thirteen more.**
 `jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own hypothesis, and
 checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus `JPXDecode` stream
@@ -143,9 +143,22 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`issue21068.pdf` (2.82 from the nearest), `copy_paste_ligatures.pdf` (2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70, both of them within 0.01 of their
-*furthest*, which is the everybody-against-us shape), `bug766086.pdf` (2.58),
-`issue18030.pdf` (2.52), `bug1538111.pdf` (2.50), `non-embedded-NuptialScript.pdf` (2.32).
+`non-embedded-NuptialScript.pdf` (2.32 from the nearest), `issue16316.pdf` (2.17),
+`endchar.pdf` (1.98), `vertical.pdf` pages 2 and 3 (1.95), `stamps.pdf` (1.91),
+`issue7821.pdf` (1.79), `issue4706.pdf` (1.61).
+
+**Two of those are already known to be about *where* rather than *how much*.** `stamps.pdf` and
+`issue4706.pdf` come out within 0.2 and 0.12 of every renderer on ink *and* against the
+high-resolution limit, so whatever separates them is placement. That is worth knowing before
+opening one: **step 5's closed form answers "how much" and is silent on "where"**, and a page
+where everybody's ink agrees needs the heatmap instead.
+
+**Fifteen names left the list in the two-hundred-and-fifth to -eleventh sessions**, and the shape
+of the result is the argument for the tail: two were defects in this tree (`bug1863910.pdf`'s
+`/BBox` clip and `issue21068.pdf`'s miter bound, both ADR 0165), one is a defect with its own
+file (`radial_gradients.pdf`, `doc/todo/12`), one is a clause `poppler` does not honour
+(`bug1552113.pdf`'s 112-unit border), and the rest are scan conversion or artwork the standard
+does not state.
 
 **And the sixth defect the bucket has produced came out of the next name down.** `bug1863910.pdf`
 was two empty text fields, and its one-point borders carried 22% less ink than their geometry —
