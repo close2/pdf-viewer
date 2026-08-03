@@ -329,7 +329,10 @@ session after it was added, because the fuller reading of §12.3.3 made it a pat
 
 So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md) a native
 host and then `viewer-ffi`, [31](todo/31-accessibility-host.md) AccessKit,
-[32](todo/32-presentation-player.md) a presentation player.
+[32](todo/32-presentation-player.md) a presentation player, and
+[35](todo/35-zoom-with-the-wheel.md) Ctrl + wheel zooming — which is a *host* feature with one
+question in the core, and the question is the interesting half: `Command::Zoom` carries no
+position, and a zoom that is not anchored where the pointer is does not feel like magnification.
 
 **The panels this file called "the largest single thing this project owes" for thirty sessions
 are drawn.** `viewer_ui::chrome` is a sidebar of four tabs and a modal card, in a `pdf-render`
