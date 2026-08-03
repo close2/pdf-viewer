@@ -93,6 +93,7 @@ that exists (ADR 0146).
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **27 of them diagnosed and 722 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
+| **quorra vs the CPU oracle** (974 documents, page one, same display list) | **900 agree, 50 differ, 7 refused**, 17 not comparable — and the head of the differing list is `pdf-render`'s §10.7.4 rule the new backend does not ask for (ADR 0156) | `render-quorra/tests/corpus.rs`, **28 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb` + `lavapipe`, presented in **117 ms**, and five arrow keys turn to page 6 presenting in 15 to 35 ms with nothing refused. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
 | conformance | **346 quotations**, all verbatim, 228 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
@@ -937,6 +938,43 @@ Symbol font naming Greek glyphs, 4 undiagnosed. **All of the undiagnosed agree w
 consensus on pixels**, so none of what is left is a drawing defect. Two left this list in session
 127 and neither was diagnosed here — both were the font cache. **A text shortfall nobody can
 diagnose may be a font nobody has looked up.**
+
+### 3b. The quorra backend, and what a corpus-scale comparison found in it
+
+**A second GPU backend arrived in the hundred-and-eighty-sixth to -eighth sessions**, written
+against `doc/RENDER_LIBRARY.md`'s brief in its own tree and adapted here by `render-quorra`; the
+window presents through it. It came with eleven cross-backend scenes and four real pages, which
+is a better suite than the Vello backend ever had — and trap 12b is about exactly that gap.
+**`render-quorra/tests/corpus.rs` closes it** (ADR 0156): every one of the 974 documents' first
+pages, both backends handed the *same display list*, so a difference is two rasterisers
+disagreeing and a refusal is a hole in the new one. Three ratchets held by name — refused,
+differing at the edges (similarity above 0.99), differing in shape — and both renders of every
+differing page written to `target/tmp/quorra/<stem>/`.
+
+**900 agree, 50 differ, 7 refused.** Three findings, and two of them are only visible at this
+scale:
+
+- **The head of the differing list is trap 2's shape.** `issue4260_reduced.pdf` at similarity
+  **0.49**: §10.7.4's rule that no shape may disappear lives in `pdf_render::collapsed` so that
+  both backends inherit it (ADR 0154), and the new backend does not ask for it — it asks
+  `pdf-render` for §8.5.3.2's degenerate *strokes* and nothing asks for §10.7.4's degenerate
+  *fills*. The CPU backend draws the grid and quorra draws the empty box. **A device decision
+  added to `pdf-render` does not announce itself to a backend.**
+- **The caches never evict, and only a long run says so.** At 4× the page's own scale, 533 of
+  952 pages are refused with "uploading would hold 536871036 resource bytes (536870896 already
+  resident)" — the 512 MB budget, full — and `tiling-pattern-box.pdf`, refused in the full run,
+  **passes on its own**. A per-document suite starts empty every time; a viewer left open does
+  not.
+- **Six of the seven refusals at the default scale give a reason whose arithmetic contradicts
+  it**: "frame needs 21093 bytes of instance data, over the stated budget of 33554432".
+
+**Performance, offscreen, readback included** (AMD 890M, RADV, release): at the page's own scale
+the CPU backend takes **2.63 s** over 950 pages against quorra's 6.21 s, median page **2.64×**;
+at a window's 2× it is 6.72 s against 12.64 s, median **3.18×**. The totals ratio *improves*
+with scale while the median *worsens*, and both are true — our CPU cost grows with the pixels
+while the median page is dominated by a per-frame floor that does not. Quote the total against
+the median and say which. The window is not measured here and this gate is deliberately not the
+place to: a presented frame pays no readback.
 
 ### 4. Performance
 
@@ -2501,3 +2539,4 @@ above rather than here.
 | 186 | §10.7.4 says no shape may disappear, and a grid of ruling lines now draws | 0154 |
 | 187 | A pattern's cell clipped where it cuts nothing, measured: 15% of the ink | — |
 | 188 | And not applied where it cuts nothing — which found the bound it replaced wrong | 0155 |
+| 189 | The quorra backend over the whole corpus: a fifth gate, and what it found | 0156 |
