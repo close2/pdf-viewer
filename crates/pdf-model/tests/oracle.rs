@@ -1365,6 +1365,33 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// Three of our four distances are below every distance between two references. A diagnosis that
 /// removes a candidate is worth what one that finds a defect is, and unlike reading the picture
 /// it is checkable. ADR 0161.
+/// **`issue7200.pdf` page 1 is the eighth, and it is the family's cleanest result.** Added in the
+/// two-hundred-and-third session at 3.81 bounds, from the top of the ranking. One command:
+/// `pdfimages` says a **501×583 four-bit indexed image at 80 ppi** — a whole page of Lorem ipsum
+/// rasterised into a picture — drawn into about 451×525 device pixels, a reduction of 0.9. Text
+/// resampled just under one to one is where filters differ most and where an eye sees it least.
+///
+/// Step 6's closed form: `poppler` at 72, 288 and 576 dpi gives 11.37, 11.54, **11.46**, so the
+/// geometry is 11.5. Ours is **11.46**, `mupdf` 11.52, `ghostscript` 11.59, `hayro` 11.72,
+/// `poppler` 11.37 — everyone within 2% of the truth and of each other, which says the difference
+/// is *where* the ink is rather than how much.
+///
+/// And pairwise it is as clean as this bucket gets: **every one of our four distances (0.0142 to
+/// 0.0291) is at or below every distance between two references (0.0267 to 0.0358)**. There is no
+/// consensus here to be outside of.
+/// **`issue1985.pdf` page 1 is the seventh and the extreme of the family.** Added in the
+/// two-hundred-and-third session at 4.10 bounds. Three commands, and `pdfimages` names the
+/// subject: an **861×537 one-bit CCITT stencil at 418 ppi drawn into 20×21 device pixels** — a
+/// reduction of forty-three, so every output pixel averages about eleven hundred samples and the
+/// whole page is 420 pixels.
+///
+/// The closed form of step 6: `poppler` at 72, 288, 1152 and 3200 dpi gives 2.86, 2.98, 3.05,
+/// **3.05**, so the geometry is 3.05. At the page's own scale, ours 3.33, `hayro` 3.23, `mupdf`
+/// 3.10, `poppler` 2.86, `ghostscript` 2.35 — a spread of 42% about a limit every one of them is
+/// several percent from, in either direction, on a page where a whole device pixel is 0.24% of
+/// the ink. `ghostscript` draws a hard black blob where the other four draw a grey smudge, which
+/// is a threshold rather than an average. Pairwise, ours sits 0.0058 from `poppler` against a
+/// tightest reference pair of 0.0053.
 /// **`bug1799927.pdf` page 1 is the sixth, and it is where this group finally got a closed
 /// form.** Added in the two-hundred-and-second session from the ranking's top, at 4.57 bounds. It
 /// is an A4 CAD drawing whose text is not text: **2 156 of its 2 331 commands are inline
@@ -1396,13 +1423,15 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 ///
 /// Pairwise, ours is nearer every reference (0.018 to 0.037) than any two references are to each
 /// other (0.029 to 0.041), which is the corroboration rather than the finding.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 7] = [
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 9] = [
     "bug1799927.pdf page 1",
     "freeculture.pdf page 1",
     "issue5747.pdf page 1",
     "issue7229.pdf page 1",
     "issue7229.pdf page 2",
     "issue13372.pdf page 1",
+    "issue1985.pdf page 1",
+    "issue7200.pdf page 1",
     "jp2k-resetprob.pdf page 1",
 ];
 
@@ -1795,6 +1824,48 @@ const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 1] = ["issue8697.pdf page 1"];
 /// upstream release closes it, at which point `jpeg2000.rs`'s own list fails first. ADR 0161.
 const AMBIGUOUS_IRREVERSIBLE_JPEG_2000: [&str; 2] = ["S2.pdf page 1", "issue5475.pdf page 1"];
 
+/// Ambiguous, and the file has broken the one rule Table 73 states about `scn`.
+///
+/// `issue18894.pdf` is 612×792 with two commands, and the second is a 50×50 square. Five
+/// renderers paint it five colours:
+///
+/// ```text
+/// ours (75, 5, 50)   poppler (0, 0, 0)   mupdf (74, 75, 74)   ghostscript (50, 50, 50)
+/// hayro (75, 75, 75)
+/// ```
+///
+/// # What the clause determines
+///
+/// The content stream sets no colour space at all before painting. §8.6.8 makes the initial
+/// non-stroking space `DeviceGray`, and Table 73 says of `SC` — which `sc` and `scn` inherit —
+///
+/// > The number of operands required and their interpretation depends on the current stroking
+/// > colour space: For DeviceGray , CalGray , and Indexed colour spaces, one operand shall be
+/// > required (n = 1).
+///
+/// The stream writes **three**: `0.294118 0.019608 0.196078 scn`. So the clause determines the
+/// operand count exactly, the file has broken it, and the standard states nothing whatever about
+/// what a processor should then paint. That is §3a's third shape, one level down from a clause
+/// leaving something open: here the clause is closed and the *file* is outside it.
+///
+/// # Four recoveries, and each is legible in the pixels
+///
+/// | | reads | |
+/// |---|---|---|
+/// | ours | the three operands as an RGB triple | `(75, 5, 50)` |
+/// | `mupdf`, `hayro` | the **first** operand as the grey | `0.294 × 255 = 75` |
+/// | `ghostscript` | the **last** operand as the grey | `0.196 × 255 = 50` |
+/// | `poppler` | nothing; the initial `DeviceGray` colour stands | black |
+///
+/// **Ours is the one derived from the file rather than from the operator.** Three numbers in the
+/// order `0.294, 0.020, 0.196` is a dark maroon written by a producer that forgot its
+/// `/DeviceRGB cs`, and `set_colour`'s rule — "where the operand count disagrees with the
+/// declared space, the operands win" — recovers what the producer specified, which is what
+/// `CLAUDE.md` asks of a renderer. It is a **documented choice** and not a derivation: the
+/// clause states no recovery, and a session that wants a different one should argue with the
+/// paragraph above rather than with a reference's pixels.
+const AMBIGUOUS_COLOUR_OPERANDS: [&str; 1] = ["issue18894.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1812,6 +1883,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_SUB_PIXEL_LINE_WORK)
         .chain(&AMBIGUOUS_SUBSTITUTED_FACE)
         .chain(&AMBIGUOUS_IRREVERSIBLE_JPEG_2000)
+        .chain(&AMBIGUOUS_COLOUR_OPERANDS)
         .copied()
         .collect()
 }

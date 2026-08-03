@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 711 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 707 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 748 ambiguous pages on documents we call complete; 35 diagnosed, 711 held by name
+Corpus: 748 ambiguous pages on documents we call complete; 39 diagnosed, 707 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -112,7 +112,7 @@ substituted font drew none of its characters in silence (0152), the coverage rul
 eight of them draw (0153), a pattern cell's clip worth 15% of a page's ink (0155), and a font
 program that draws nothing now saying so (0157).
 
-The bucket itself went 754 → 711, and that is the least interesting number in this file. *Seven
+The bucket itself went 754 → 707, and that is the least interesting number in this file. *Seven
 defects nobody could see* is the one to watch — **and one gate that found thirteen more.**
 `jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own hypothesis, and
 checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus `JPXDecode` stream
@@ -135,11 +135,16 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`issue1985.pdf` (4.10 from the nearest), `issue7200.pdf` (3.81),
-`issue18894.pdf` (3.50), `bug1863910.pdf` (3.03), `issue21068.pdf` (2.82),
-`copy_paste_ligatures.pdf` (2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70, both of
-them within 0.01 of their *furthest*, which is the everybody-against-us shape),
-`bug766086.pdf` (2.58).
+`bug1863910.pdf` (3.03 from the nearest), `issue21068.pdf` (2.82), `copy_paste_ligatures.pdf`
+(2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70, both of them within 0.01 of their
+*furthest*, which is the everybody-against-us shape), `bug766086.pdf` (2.58),
+`issue18030.pdf` (2.52), `bug1538111.pdf` (2.50), `non-embedded-NuptialScript.pdf` (2.32).
+
+**Step 6 emptied the top of the list in one session.** Four of the five names above 3.5 were
+image reductions whose whole difference is scan conversion, and the high-resolution limit settled
+each in minutes: `bug1799927.pdf`, `issue1985.pdf`, `issue7200.pdf` and `jp2k-resetprob.pdf`.
+The fifth, `issue18894.pdf`, was a file that had broken Table 73's operand count. None was a
+defect; all five now say *what the clause determines* rather than sitting inside a spread.
 
 **`issue8697.pdf` left this list in the hundred-and-ninety-seventh session and is the ranking's
 own argument**: 3.52 from the nearest against 3.55 from the furthest, which step 1 says to

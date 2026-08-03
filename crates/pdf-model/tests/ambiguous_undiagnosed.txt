@@ -488,7 +488,6 @@ issue17065.pdf page 1
 issue18030.pdf page 1
 issue18072.pdf page 1
 issue18529.pdf page 1
-issue18894.pdf page 1
 issue18911.pdf page 1
 issue18911.pdf page 10
 issue18911.pdf page 11
@@ -521,7 +520,6 @@ issue19239.pdf page 8
 issue19239.pdf page 9
 issue19326.pdf page 1
 issue19634.pdf page 1
-issue1985.pdf page 1
 issue19971.pdf page 5
 issue19971.pdf page 6
 issue21068.pdf page 1
@@ -548,7 +546,6 @@ issue6769_no_matrix.pdf page 1
 issue6931_reduced.pdf page 1
 issue7014.pdf page 1
 issue7074_reduced.pdf page 1
-issue7200.pdf page 1
 issue7339_reduced.pdf page 1
 issue7406.pdf page 1
 issue7454.pdf page 1
