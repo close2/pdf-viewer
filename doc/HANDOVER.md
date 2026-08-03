@@ -9,7 +9,9 @@ right, never the definition of right.
 `doc/PLAN.md` holds the phases and the ledger's design; `doc/adr/` holds every decision's
 argument; `doc/conformance/ledger.toml` holds one row per subclause; **`doc/RENDER_LIBRARY.md` is
 what a rendering library would have to be to fit this viewer**, written for a team building one
-and grounded in this tree's own measurements. **This file is the state of
+and grounded in this tree's own measurements. **`doc/QUORRA_FEEDBACK.md` is what came back**:
+the findings of the corpus-scale comparison, written for that team rather than for this file's
+readers, with a reproduction command against each one. **This file is the state of
 play, the traps, the habits and what to do next** — where something is written elsewhere, this is
 a pointer.
 
@@ -1000,7 +1002,8 @@ differing at the edges (similarity above 0.99), differing in shape — and both 
 differing page written to `target/tmp/quorra/<stem>/`.
 
 **900 agree, 50 differ, 7 refused.** Three findings, and two of them are only visible at this
-scale:
+scale — all three are written up for the library's team in `doc/QUORRA_FEEDBACK.md`, with the
+command that reproduces each:
 
 - **The head of the differing list is trap 2's shape.** `issue4260_reduced.pdf` at similarity
   **0.49**: §10.7.4's rule that no shape may disappear lives in `pdf_render::collapsed` so that
