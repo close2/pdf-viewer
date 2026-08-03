@@ -235,6 +235,21 @@ impl Command {
         }
     }
 
+    /// Replaces the clip in effect for this command.
+    ///
+    /// Exists for one caller and states its reason here rather than there: a tiling pattern's
+    /// cell is drawn under its `/BBox` clip and the clip is taken back off where it removed no
+    /// geometry (§8.7.3.1, Table 74). Doing that by editing the command is what saves running
+    /// the cell's content stream a second time to find out.
+    pub fn set_clip(&mut self, clip: Option<ClipId>) {
+        match self {
+            Self::Fill { clip: at, .. }
+            | Self::Stroke { clip: at, .. }
+            | Self::Image { clip: at, .. }
+            | Self::Group { clip: at, .. } => *at = clip,
+        }
+    }
+
     /// The region of the target this command can mark, ignoring its clip, or `None` where
     /// this cannot say.
     ///
@@ -258,16 +273,20 @@ impl Command {
                 ..
             } => {
                 let placed = transform.then(to_device);
-                let bounds = path.bounds(placed)?;
                 // A mitre reaches `miter_limit × width / 2` from the join, which is the
                 // furthest any stroke decoration goes: §8.4.3.5's caps reach half a width,
                 // and a dash's caps are on the same line. One whole width times the limit is
                 // that with room to spare, which is the direction a bound has to err in.
+                //
+                // **The reach is grown into the path's hull before it is mapped**, because a
+                // line width is stated in the path's own space and this rectangle is in the
+                // device's. Growing the mapped box by an unmapped width under-bounds every
+                // stroke drawn at a scale above the slack above — a page at 3× with a mitre
+                // near its limit — and `misses_target` would then skip a strip the mitre
+                // reaches into. Found by `outline::stroked_bounds`, which answers the same
+                // question the slow exact way and refused to fit inside this one.
                 let reach = stroke.device_width(placed) * stroke.miter_limit.max(1.0);
-                Some(Rect {
-                    min: Point::new(bounds.min.x - reach, bounds.min.y - reach),
-                    max: Point::new(bounds.max.x + reach, bounds.max.y + reach),
-                })
+                Some(path.hull()?.grown(reach).mapped(placed))
             }
             // §8.9.5.2 puts an image in the unit square and the transform carries the rest.
             Self::Image { transform, .. } => {

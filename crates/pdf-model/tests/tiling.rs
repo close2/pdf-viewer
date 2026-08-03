@@ -551,3 +551,82 @@ fn a_pattern_that_composites_trivially_is_not_wrapped_in_a_group() {
         "nothing composites, so §11.4.4's NOTE 5 says there is no group to build"
     );
 }
+
+/// A cell that stays inside its own box is not clipped to it.
+///
+/// Table 74 says a cell's box "shall be used to clip the pattern cell", and where the cell
+/// draws nothing outside it that clip removes no geometry — so it is taken back off, one
+/// clip for the whole tiling instead of one per cell. The saving is not why: an anti-aliased
+/// clip mask removes *coverage* from a mark lying on its boundary even when it removes no
+/// geometry, which is what the next test measures.
+///
+/// Asserted on the clips the display list actually references, because that is the thing that
+/// changed; the picture is the next test's business.
+#[test]
+fn a_cell_that_stays_inside_its_box_is_not_clipped_to_it() {
+    let content = "1 0 0 rg 2 2 6 6 re f";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
+         /XStep 10 /YStep 10 /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    );
+    let document = Document::open(pdf_with(&pattern, "/Pattern cs /P0 scn 0 0 100 100 re f"))
+        .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+
+    let clips: std::collections::BTreeSet<_> = list
+        .commands()
+        .iter()
+        .map(pdf_render::Command::clip)
+        .collect();
+    assert_eq!(
+        clips.len(),
+        1,
+        "one clip — the filled path's — for a hundred cells that never reach their own edges"
+    );
+    assert!(
+        list.commands().len() >= 100,
+        "the cells are still drawn: {} commands",
+        list.commands().len()
+    );
+}
+
+/// And the ink it deposits is the ink its geometry states.
+///
+/// This is `issue16038.pdf`'s own geometry in a fixture: a rule spanning **exactly** its cell,
+/// 0.3985 wide, repeated every 2.98883 units, which is a cell about three device pixels
+/// across. Every cell boundary falls at a fraction of a pixel, and clipping each cell to a box
+/// its rule reaches exactly makes the two halves of every boundary pixel composite as
+/// `1 − (1−a)(1−b)` instead of adding — 15% of the page's ink, measured on the real file
+/// before this was fixed (`AMBIGUOUS_TILING_CELL_CLIP`).
+///
+/// The expected coverage is the geometry's own: a rule 0.3985 wide every 2.98883 units covers
+/// `0.3985 / 2.98883` of the page, and the tolerance is a fiftieth of that. It is a
+/// discriminating test in both directions — with the clip applied the coverage is 0.111, and
+/// `a_cell_is_clipped_to_its_bounding_box` above fails if the clip is dropped where it is
+/// load-bearing.
+#[test]
+fn a_rule_spanning_its_whole_cell_deposits_the_ink_its_geometry_states() {
+    let content = "0 0 0 RG 0.3985 w -1.49442 0 m 1.49442 0 l S";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 \
+         /BBox [-1.49442 -1.49442 1.49442 1.49442] /XStep 2.98883 /YStep 2.98883 \
+         /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    );
+    let raster = render(pdf_with(&pattern, "/Pattern cs /P0 scn 0 0 100 100 re f"));
+
+    let ink: f64 = raster
+        .data
+        .chunks_exact(4)
+        .map(|pixel| f64::from(pixel[3]) / 255.0)
+        .sum();
+    let covered = ink / f64::from(raster.width.saturating_mul(raster.height));
+    let expected = 0.3985 / 2.98883;
+    assert!(
+        (covered - expected).abs() < expected / 50.0,
+        "the rules cover {covered:.4} of the page where their own width and spacing say \
+         {expected:.4}"
+    );
+}

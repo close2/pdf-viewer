@@ -1554,12 +1554,21 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// geometry at all; what it removes is *coverage*, because the clip mask is anti-aliased and
 /// the two halves of a boundary pixel composite as `1 − (1−a)(1−b)` rather than adding.
 ///
-/// **So this is ours, it is not the anti-aliasing departure, and the fix is a clip that is not
-/// applied where it removes nothing.** What that needs is a bound on a stroke's *outline*
-/// rather than on its path: `Command::device_bounds` reaches `width × miter_limit` in every
-/// direction, which is 3.99 units here against a box 2.99 across, so it cannot show
-/// containment for the shape that most needs it — a butt-capped line ending exactly on the
-/// boundary reaches half a width sideways and nothing at all lengthwise.
+/// **So this was ours, it was not the anti-aliasing departure, and the
+/// hundred-and-eighty-eighth session fixed it**: a cell's box is not applied as a clip where it
+/// removes no geometry (ADR 0155). The left square is **0.1323** against the geometry's 0.1333,
+/// and the page's worst-reference distance went 61.72 bounds to 41.12. What it needed was a
+/// bound on a stroke's *outline* rather than on its path — `Command::device_bounds` reaches
+/// `width × miter_limit` in every direction, 3.99 units here against a box 2.99 across, so it
+/// cannot show containment for the shape that most needs it — and `pdf_render::outline` is that
+/// bound.
+///
+/// **What is left is the right square, at 0.1159 against 0.1333.** There the clip is
+/// load-bearing: the rule sits on the cell's edge and is *meant* to be halved, so each half is
+/// drawn by a different cell and the two composite rather than add. Removing that clip would
+/// draw the rule twice at full width, which is what `mupdf` does. Fixing it means rasterising
+/// the tiling's coverage once rather than cell by cell, which is a different construction
+/// altogether — and the page stays here until somebody takes it.
 const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 
 /// The ambiguous pages that carry a written diagnosis, as one list.

@@ -3422,6 +3422,74 @@ impl Interpreter<'_> {
             .ok()
     }
 
+    /// Takes a pattern cell's `/BBox` clip back off it where the clip removes no geometry.
+    ///
+    /// Returns whether it did, in which case the caller stops applying the box to the cells
+    /// that follow — every cell is the same figure translated, so the first one decides.
+    ///
+    /// # Why a clip that removes nothing is not free
+    ///
+    /// Table 74 says a cell's box "shall be used to clip the pattern cell", and applying it
+    /// where the cell draws nothing outside it is correct and costs a picture. A clip mask is
+    /// anti-aliased, so a mark lying *on* the boundary keeps a fraction of its coverage in the
+    /// boundary pixel and the neighbouring cell keeps the rest, and two fractions composite as
+    /// `1 − (1−a)(1−b)` rather than adding. `issue16038.pdf` rules a grid with a line spanning
+    /// exactly its own cell and lost **15% of the ink its geometry states** to that — measured
+    /// by removing the clip, `AMBIGUOUS_TILING_CELL_CLIP`. The clip is load-bearing on the
+    /// same page's *other* pattern, whose rule sits on the cell edge and is meant to be halved,
+    /// which is why this is a question rather than a rule.
+    ///
+    /// # Why it is decided after the cell is drawn rather than before
+    ///
+    /// The extent of a cell's marks is not known until its content stream has run, and running
+    /// it twice is not free of consequence: the readback, the text layer, the artifact spans
+    /// and §9.3.8's overlap bookkeeping all accumulate as it goes. So the cell is drawn *with*
+    /// the clip and the clip is removed afterwards, which needs no rollback at all — the
+    /// commands carry their geometry and name their clip, and only the name changes.
+    ///
+    /// Conservative in three places, each of which keeps a picture rather than a saving: a
+    /// command whose extent cannot be bounded, a command whose clip is a *chain* the cell's own
+    /// content built on top of the box, and a box that fails to contain what the cell drew.
+    fn unclip_redundant_cell(
+        &mut self,
+        mark: usize,
+        corners: [f32; 4],
+        offset: Transform,
+        to_pattern: Transform,
+        outer: Option<ClipId>,
+    ) -> bool {
+        let [x0, y0, x1, y1] = corners;
+        let box_in_pattern = Rect::from_corners(
+            offset.apply(Point::new(x0, y0)),
+            offset.apply(Point::new(x1, y1)),
+        );
+        let cell = self.list.commands().get(mark..).unwrap_or_default();
+        if cell.is_empty() {
+            return false;
+        }
+        let Some(bbox_clip) = cell.first().and_then(Command::clip) else {
+            // The box produced no clip — `rect_clip` refused it, or there was none — so the
+            // commands already carry the outer clip and there is nothing to take off.
+            return false;
+        };
+        for command in cell {
+            let contained = pdf_render::marked_bounds(command, to_pattern)
+                .is_some_and(|marks| box_in_pattern.contains(marks));
+            if !contained || command.clip() != Some(bbox_clip) {
+                return false;
+            }
+        }
+
+        let mut commands = self.list.split_off_commands(mark);
+        for command in &mut commands {
+            command.set_clip(outer);
+        }
+        for command in commands {
+            self.list.push(command);
+        }
+        true
+    }
+
     /// Draws one image `XObject`.
     /// §8.9.5.4 step c): which of a hidden base image's `/Alternates` is drawn in its place.
     ///
@@ -4868,12 +4936,17 @@ impl Interpreter<'_> {
         // graphics state's soft mask reached nothing at all.
         let mark = self.list.command_count();
 
+        // Whether the cell's own box has to be applied as a clip at all; see
+        // [`Interpreter::unclip_redundant_cell`], which answers it from the first cell and
+        // takes the clip back off it when the answer is no.
+        let mut box_clips = tiling.bbox.is_some();
         for row in first_row..=last_row {
             for column in first_column..=last_column {
                 let offset = Transform::translate(
                     tiling.step.0 * as_f32(column),
                     tiling.step.1 * as_f32(row),
                 );
+                let first_cell = self.list.command_count();
                 let to_page = offset.then(tiling.to_page);
                 let mut cell = GraphicsState::initial(to_page);
                 // Table 74: "These boundaries shall be used to clip the pattern cell." The
@@ -4882,6 +4955,7 @@ impl Interpreter<'_> {
                 // by both. A file whose box is unusable keeps the path clip alone.
                 cell.clip = tiling
                     .bbox
+                    .filter(|_| box_clips)
                     .and_then(|corners| self.rect_clip(corners, to_page, clip))
                     .or(clip);
                 // An uncoloured pattern is a stencil: the colour given alongside the
@@ -4902,6 +4976,15 @@ impl Interpreter<'_> {
                     MAX_FORM_DEPTH - 1,
                 );
                 self.uncoloured = saved_uncoloured;
+                // Asked once, of the first cell, and the answer holds for every one of them:
+                // the cells are one figure at translations of each other.
+                if first_cell == mark
+                    && box_clips
+                    && let Some(corners) = tiling.bbox
+                    && self.unclip_redundant_cell(mark, corners, offset, to_pattern, clip)
+                {
+                    box_clips = false;
+                }
             }
         }
 

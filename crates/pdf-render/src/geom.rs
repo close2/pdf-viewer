@@ -83,6 +83,47 @@ impl Rect {
             max: Point::new(self.max.x.max(other.max.x), self.max.y.max(other.max.y)),
         }
     }
+
+    /// The rectangle grown by `reach` on every side.
+    ///
+    /// Negative values shrink it and may cross the corners over, which is why the result is
+    /// re-normalised: a bound that inverted itself would compare as containing everything.
+    #[must_use]
+    pub fn grown(self, reach: f32) -> Self {
+        Self::from_corners(
+            Point::new(self.min.x - reach, self.min.y - reach),
+            Point::new(self.max.x + reach, self.max.y + reach),
+        )
+    }
+
+    /// The smallest axis-aligned rectangle containing this one's image under `transform`.
+    ///
+    /// An affine map takes a rectangle to a parallelogram, so the four mapped corners are
+    /// what bound it — and the box of the image contains the image of the box, which is what
+    /// lets a bound be computed in one space and used in another.
+    #[must_use]
+    pub fn mapped(self, transform: Transform) -> Self {
+        let corners = [
+            transform.apply(self.min),
+            transform.apply(Point::new(self.max.x, self.min.y)),
+            transform.apply(self.max),
+            transform.apply(Point::new(self.min.x, self.max.y)),
+        ];
+        let mut mapped = Self::from_corners(corners[0], corners[0]);
+        for corner in corners {
+            mapped = mapped.union(Self::from_corners(corner, corner));
+        }
+        mapped
+    }
+
+    /// Whether every point of `other` lies within this rectangle, edges included.
+    #[must_use]
+    pub fn contains(self, other: Self) -> bool {
+        self.min.x <= other.min.x
+            && self.min.y <= other.min.y
+            && self.max.x >= other.max.x
+            && self.max.y >= other.max.y
+    }
 }
 
 /// A 2D affine transform.
@@ -449,20 +490,19 @@ impl Path {
         // shear or a general rotation it is not, so the walk runs — which is the ordinary case
         // for a page and the rare one for a glyph.
         if transform.preserves_axes() {
-            let hull = (*self.hull.get_or_init(|| self.walked(Transform::IDENTITY)))?;
-            let corners = [
-                transform.apply(hull.min),
-                transform.apply(Point::new(hull.max.x, hull.min.y)),
-                transform.apply(hull.max),
-                transform.apply(Point::new(hull.min.x, hull.max.y)),
-            ];
-            let mut mapped = Rect::from_corners(*corners.first()?, *corners.first()?);
-            for corner in corners {
-                mapped = mapped.union(Rect::from_corners(corner, corner));
-            }
-            return Some(mapped);
+            return Some(self.hull()?.mapped(transform));
         }
         self.walked(transform)
+    }
+
+    /// The path's untransformed hull, walked once and kept.
+    ///
+    /// Public because a caller that wants to grow the hull *before* mapping it — which is
+    /// what a stroke's reach is, since a line width is stated in the path's own space — would
+    /// otherwise have to map, grow and hope the transform was a similarity.
+    #[must_use]
+    pub fn hull(&self) -> Option<Rect> {
+        *self.hull.get_or_init(|| self.walked(Transform::IDENTITY))
     }
 
     /// [`Self::bounds`] without the cache: every control point, transformed and met.

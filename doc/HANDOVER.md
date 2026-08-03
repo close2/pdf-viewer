@@ -87,8 +87,8 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **945** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen. Quote the command with the number | — |
+| tests | **951** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and six more arrived in the hundred-and-eighty-eighth. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **880 draw with nothing reported**, **79 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **27 of them diagnosed and 722 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
@@ -897,7 +897,18 @@ painted area "shall always be at least as large as the area of the original shap
 suspect found the cause**: deleting the per-cell `/BBox` clip takes the left square from 0.1114 to
 0.1323 against a geometric 0.1333, so a clip that removes no geometry is removing *coverage*,
 because its mask is antialiased and two halves of a boundary pixel composite rather than add.
-That is ours, it is not the antialiasing departure, and the fix is below.
+That is ours, it is not the antialiasing departure, and **the thirteenth session fixed it**: a
+cell's box is not applied as a clip where it removes no geometry (ADR 0155). The left square is
+0.1323 against the geometry's 0.1333 and the page's worst-reference distance went 61.72 bounds to
+41.12, with every oracle verdict, corpus count and text percentage unchanged and interpretation
+*below* where it was, because the pass over the first cell's commands is cheaper than the clips it
+stops creating. **What the fix needed found a defect in what it replaced**: asserting that the
+strip planner's fast bound contains the new tight one failed at once, because the fast one grew a
+*device*-space box by a **path**-space width — under-bounding every stroke past the factor of two
+of slack in its formula, which `misses_target` would then skip a strip of. Both are right now and
+a test holds them together. What is left on that page is the *other* square, where the clip is
+load-bearing and the two halves of each rule composite rather than add; that needs a tiling
+rasterised once rather than cell by cell.
 
 After it, `22060_A1_01_Plans.pdf`, `freeculture.pdf page 1` (the head of the 320-page book, which
 is font substitution) and `issue13316_reduced.pdf`. Ranking by pairwise numbers alone would be the
@@ -2489,3 +2500,4 @@ above rather than here.
 | 185 | Everything re-verified after ten sessions of change | — |
 | 186 | §10.7.4 says no shape may disappear, and a grid of ruling lines now draws | 0154 |
 | 187 | A pattern's cell clipped where it cuts nothing, measured: 15% of the ink | — |
+| 188 | And not applied where it cuts nothing — which found the bound it replaced wrong | 0155 |

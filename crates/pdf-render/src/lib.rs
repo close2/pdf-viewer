@@ -26,6 +26,7 @@ pub mod collapsed;
 pub mod degenerate;
 pub mod display_list;
 pub mod geom;
+pub mod outline;
 pub mod paint;
 pub mod shading;
 pub mod soft_mask;
@@ -42,6 +43,7 @@ pub use degenerate::{
 };
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
+pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{
     BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke, thinnest_line,
 };
