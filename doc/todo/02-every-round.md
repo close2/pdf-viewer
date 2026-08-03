@@ -41,11 +41,18 @@ how this project has been wrong four times.
 
 ## 4. Sweep, after a round that adds a verb
 
-Three greps over the ledger's notes, twenty lines of Python apiece, each of which has paid on
-its first run: a note whose stated blocker has expired ("while §X does not exist", "needs §Y"),
-a note claiming an entry is unread where the tree reads it, and a note whose reason is a
-*capability* — "this program has no ___", "no panel", "which this is not". The third found a
-`shall` that had been binding for fifty-six sessions (see `01-ledger-partial-rows.md`).
+**Four** greps now, twenty lines of Python apiece, each of which has paid on its first run: a
+note whose stated blocker has expired ("while §X does not exist", "needs §Y"), a note claiming an
+entry is unread where the tree reads it, a note whose reason is a *capability* — "this program
+has no ___", "no panel", "which this is not" — and the string a correction retired, grepped over
+every *other* row. The third found a `shall` binding for fifty-six sessions; the fourth found
+§8.9.6.1 still carrying a sentence §11.6.4.3 had retired fourteen sessions earlier.
+
+**And run all four over `crates/` as well as over `ledger.toml`.** The ledger has a gate and the
+source does not, which is why the two-hundred-and-twenty-first session found four claims in the
+code false for between forty and two hundred sessions — including `pdf-model`'s own crate
+documentation and a doc comment that had *predicted* its own expiry. See
+`01-ledger-partial-rows.md`.
 
 ## 5. Put the binaries where a person can run them
 
@@ -73,3 +80,15 @@ page-turn fix.
 - The ADR, if the round made a decision. The argument goes there, not in the handover.
 - `doc/HANDOVER.md`: the gate numbers if they moved, one row in "How the project got here".
 - The todo file: delete it if the item is done, correct it if the round changed what it owes.
+
+## 7. Two habits these rounds added, which belong here rather than in a trap
+
+- **A closed form taken from one renderer is not a limit.** `doc/todo/00`'s step 6 climbs a
+  reference to eight times the resolution because its departure from the geometry shrinks with
+  the pixels — and on a tiling pattern `poppler` goes the other way, 34.15 → 16.32, its strokes
+  thinning rather than its edges sharpening. Take two ladders: one cannot tell convergence from
+  drift, and two also say when *neither* has converged.
+- **A count that improves is not a picture.** The two-hundred-and-eighteenth session took the
+  corpus's incomplete list from 80 to 78 and both documents were still wrong — one of them
+  blank. Trap 1's oldest sentence, and the second finding was three steps beyond the first, in a
+  function neither document was about.
