@@ -38,7 +38,6 @@ ZapfDingbats.pdf page 1
 blendmode.pdf page 1
 bug1308536.pdf page 1
 bug1703683_page2_reduced.pdf page 1
-bug1844583.pdf page 1
 bug1868759.pdf page 1
 bug1872721.pdf page 1
 bug1885505.pdf page 1
@@ -613,7 +612,6 @@ standard_fonts.pdf page 6
 standard_fonts.pdf page 7
 standard_fonts.pdf page 8
 standard_fonts.pdf page 9
-tagged_stamp.pdf page 1
 tensor-allflags-withfunction.pdf page 1
 textfields.pdf page 1
 tiling-pattern-box.pdf page 1

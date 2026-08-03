@@ -2236,6 +2236,32 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
+/// Ambiguous, and four renderers give four answers about one text field.
+///
+/// `bug1844583.pdf` is 178×54 and holds one widget containing *Hello World*. The four other
+/// renderers disagree about two separate things, neither of which is the text:
+///
+/// ```text
+/// ours 11.21   hayro 11.51   mupdf 13.52   ghostscript 15.76   poppler 4.44
+/// ```
+///
+/// `poppler` draws **no border at all**, which is the whole of its 4.44; `mupdf` draws a heavier
+/// one than ours; and `ghostscript` draws the string **backwards** — `DlrowOlleh`. Step 6 cannot
+/// arbitrate: `poppler` converges on 4.475 and `mupdf` on 13.523, a factor of three apart, which
+/// is two renderers drawing different pictures rather than one grid resolving.
+///
+/// So the page is here rather than diagnosed against a limit, and what is worth recording is
+/// that the *spread* is about §12.5.4's border and §9.7's writing direction and not about
+/// anything this tree does with the value. `AMBIGUOUS_WIDGET_BORDER` and
+/// `AMBIGUOUS_CONSTRUCTED_WIDGET` are the two neighbours; this one is listed beside them because
+/// no single clause settles it and a fifth renderer would probably give a fifth answer.
+///
+/// `tagged_stamp.pdf` is here for the opposite reason: 612×792 and almost blank, ink 0.639
+/// against a two-ladder limit of 0.6406 and 0.6390 — **all five renderers inside 0.02 of 255 of
+/// each other**, and ours a thousandth from the geometry. A page with almost no ink is a page
+/// where any bound is tight in relative terms, which is the other way to reach this bucket.
+const AMBIGUOUS_FOUR_ANSWERS: [&str; 2] = ["bug1844583.pdf page 1", "tagged_stamp.pdf page 1"];
+
 /// Ambiguous, and on all three ours is the render nearest the geometry.
 ///
 /// Three pages of small marks — `issue7339_reduced.pdf` at 115×220, `issue21570.pdf` at 842×595
@@ -2491,6 +2517,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_LOCA_OUT_OF_ORDER)
         .chain(&AMBIGUOUS_SPACE_DRAWN_AS_A_MARK)
         .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
+        .chain(&AMBIGUOUS_FOUR_ANSWERS)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
