@@ -127,7 +127,15 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// artefacts settle it. What every entry does establish is that two implementations sharing
 /// no code agree about this page and we do not.
 ///
-/// The four that remain are the ones whose story is still only about rounding.
+/// **And two more left in the two-hundred-and-fifth session, for the same reason one page over.**
+/// `bug1669097.pdf` and `issue19505.pdf` were filed here on the page-size split and both agree
+/// now that a redundant `/BBox` clip is taken back off an annotation's appearance — they are
+/// widget borders, and the clip was eating a fifth of every stroke's coverage (ADR 0165). **Six
+/// of this group's eight members have now left it for a reason other than its name**, which is
+/// the strongest statement this file makes about what a group name is worth: it says what the
+/// pages have in common, and twice running that has not been what they differ by.
+///
+/// The two that remain are the ones whose story is still only about rounding.
 /// `colorkeymask.pdf` became comparable when §8.9.6.4's colour key masking landed and is the
 /// 595-against-596 split, ours and `ghostscript`'s against `poppler`'s and `mupdf`'s; its
 /// difference is three vertical lines one pixel wide at the three band edges of a page whose
@@ -143,12 +151,7 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// before, inside the bound after. Its raster really is 595x842 against `poppler`'s and
 /// `mupdf`'s 596, which is what put it here; that was true and was not what the references
 /// were disagreeing about.
-const CONTRADICTED_PAGE_ROUNDING: [&str; 4] = [
-    "colorkeymask.pdf page 1",
-    "issue21346.pdf page 1",
-    "bug1669097.pdf page 1",
-    "issue19505.pdf page 1",
-];
+const CONTRADICTED_PAGE_ROUNDING: [&str; 2] = ["colorkeymask.pdf page 1", "issue21346.pdf page 1"];
 
 /// Contradicted, where the difference is this tree's own anti-aliasing at a shape's edge.
 ///
@@ -1866,6 +1869,30 @@ const AMBIGUOUS_IRREVERSIBLE_JPEG_2000: [&str; 2] = ["S2.pdf page 1", "issue5475
 /// paragraph above rather than with a reference's pixels.
 const AMBIGUOUS_COLOUR_OPERANDS: [&str; 1] = ["issue18894.pdf page 1"];
 
+/// Ambiguous, and it is a page of nothing but widget borders at their own geometry.
+///
+/// `bug1863910.pdf` is 353×59 with two commands: two text fields whose appearance streams each
+/// state `0.5 0.5 149 21 re s` inside a `/BBox [0 0 150 22]` — a one-point stroke whose outer
+/// edge lies **exactly** on the box that clips it.
+///
+/// It sat at 3.03 bounds from the nearest reference and 11.41 from the furthest, and the finding
+/// is ADR 0165: the `/BBox` clip was multiplying its anti-aliased coverage into every stroke that
+/// touched it, so the page carried **22% less ink than its geometry states**. Taking a clip that
+/// cuts nothing back off — ADR 0155's rule, one path over — closes it.
+///
+/// # What is left, and the closed form says it is not us
+///
+/// Step 6's limit: `poppler` at 72, 576 and 2304 dpi gives 8.16, 8.29, **8.30**, and 8.30 is also
+/// the arithmetic — two rectangles' perimeters at one point wide over a 353×59 page. Ours is
+/// **8.299**. `poppler` 8.16, `mupdf` 8.20, `hayro` 6.46, `ghostscript` 10.60.
+///
+/// So we are on the geometry to three figures, `poppler` and `mupdf` are 1–2% under it,
+/// `ghostscript` 28% over — §10.7.4's "any pixel whose half-open square region intersects the
+/// shape" applied to a stroke a pixel wide — and `hayro` is 22% under, which is where we were.
+/// The verdict is `ambiguous` at 0.79 because four renderers draw four one-pixel borders in four
+/// slightly different places on a page that is 59 rows tall.
+const AMBIGUOUS_WIDGET_BORDER: [&str; 1] = ["bug1863910.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1884,6 +1911,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_SUBSTITUTED_FACE)
         .chain(&AMBIGUOUS_IRREVERSIBLE_JPEG_2000)
         .chain(&AMBIGUOUS_COLOUR_OPERANDS)
+        .chain(&AMBIGUOUS_WIDGET_BORDER)
         .copied()
         .collect()
 }

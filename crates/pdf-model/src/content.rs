@@ -3506,18 +3506,44 @@ impl Interpreter<'_> {
             offset.apply(Point::new(x0, y0)),
             offset.apply(Point::new(x1, y1)),
         );
-        let cell = self.list.commands().get(mark..).unwrap_or_default();
-        if cell.is_empty() {
+        self.unclip_redundant(mark, box_in_pattern, to_pattern, outer)
+    }
+
+    /// Takes a `/BBox` clip back off the commands it enclosed, where it removes no geometry.
+    ///
+    /// The rule and its whole argument are `unclip_redundant_cell`'s, and the argument is not
+    /// about tiling patterns: **a clip mask is anti-aliased, so a mark lying on the boundary
+    /// keeps only a fraction of the boundary pixel** — and where the boundary cuts nothing, that
+    /// fraction is ink the geometry states and nothing removes.
+    ///
+    /// `box_` is the clip's rectangle and `to_box` maps a command's own coordinates into the
+    /// space that rectangle is stated in.
+    ///
+    /// Conservative in the same three places: a command whose extent cannot be bounded, a
+    /// command whose clip is a *chain* built on top of the box, and a box that fails to contain
+    /// what was drawn. Each keeps the picture rather than the saving. ADRs 0155 and 0165.
+    fn unclip_redundant(
+        &mut self,
+        mark: usize,
+        box_: Rect,
+        to_box: Transform,
+        outer: Option<ClipId>,
+    ) -> bool {
+        let inside = self.list.commands().get(mark..).unwrap_or_default();
+        if inside.is_empty() {
             return false;
         }
-        let Some(bbox_clip) = cell.first().and_then(Command::clip) else {
+        let Some(bbox_clip) = inside.first().and_then(Command::clip) else {
             // The box produced no clip — `rect_clip` refused it, or there was none — so the
             // commands already carry the outer clip and there is nothing to take off.
             return false;
         };
-        for command in cell {
-            let contained = pdf_render::marked_bounds(command, to_pattern)
-                .is_some_and(|marks| box_in_pattern.contains(marks));
+        if Some(bbox_clip) == outer {
+            return false;
+        }
+        for command in inside {
+            let contained = pdf_render::marked_bounds(command, to_box)
+                .is_some_and(|marks| box_.contains(marks));
             if !contained || command.clip() != Some(bbox_clip) {
                 return false;
             }
@@ -4109,7 +4135,18 @@ impl Interpreter<'_> {
         let outer_base = std::mem::replace(&mut self.base, transform);
         // Depth 1 rather than 0: an appearance is itself a form, so a chain of forms
         // inside it is bounded the same way one inside the page content is.
+        let mark = self.list.command_count();
         self.run(&data, &resources, &state, 1);
+        // §8.10.2's box clips the appearance, and where it cuts nothing it is taken back off.
+        // A widget's border is the case this was found on: `bug1863910.pdf` states
+        // `0.5 0.5 149 21 re s` inside a `/BBox [0 0 150 22]`, so a one-point stroke's outer
+        // edge lies *exactly* on the box, and multiplying the stroke's anti-aliased coverage by
+        // the clip's cost it **22% of the page's ink**. ADR 0165.
+        let box_in_page = Rect::from_corners(
+            transform.apply(Point::new(bbox[0], bbox[1])),
+            transform.apply(Point::new(bbox[2], bbox[3])),
+        );
+        self.unclip_redundant(mark, box_in_page, Transform::IDENTITY, view_clip);
         self.base = outer_base;
     }
 

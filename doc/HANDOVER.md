@@ -94,7 +94,7 @@ that exists (ADR 0146).
 | tests | **962** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the sixteen sessions from the hundred-and-eighty-sixth added thirty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **39 of them diagnosed and 707 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **40 of them diagnosed and 706 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **912 agree, 44 differ, 1 refused**, 17 not comparable — 29 of the 44 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -113,11 +113,11 @@ nobody embedded, so each renderer substitutes differently. That row means "repor
 than a caveat**: §3a.
 
 **Both moving numbers move in both directions on purpose.** Contradicted pages: 174 → 65 over
-sessions 6 to 61, steady at 65 until the hundred-and-forty-eighth took it to 70 and the
-hundred-and-fifty-sixth to **72** — the last two were `noembed-eucjp.pdf` and `noembed-sjis.pdf`,
+sessions 6 to 61, steady at 65 until the hundred-and-forty-eighth took it to 70, the
+hundred-and-fifty-sixth to **72** and the two-hundred-and-fifth back to **68** — the last two were `noembed-eucjp.pdf` and `noembed-sjis.pdf`,
 recorded as drawing あいうえお "in a face the references do not have" — **and they were drawing
 nothing at all**, which the hundred-and-eighty-second session found by making the silence loud
-(ADR 0152). Both report now and the count is **70**. Five of the earlier ones were net,
+(ADR 0152). Both report now, and two widget-border pages left in the two-hundred-and-fifth session (ADR 0165), so the count is **68**. Five of the earlier ones were net,
 argued and written down in `CONTRADICTED_SUBSTITUTED_FONT`: the standard 14 are compiled in now,
 so we stopped reading the same URW faces off this machine's disk that the three C references
 read, and the oracle noticed within one run (ADR 0133). Corpus documents drawing incompletely: 291 → 89 over
@@ -2297,3 +2297,4 @@ above rather than here.
 | 202 | The ink recipe was halving our own page, two sessions ran on it, and the fix for it was written in the wrong file in 161 | 0163 |
 | 203 | Four pages off the ranking with the repaired instrument: three reductions against their own high-resolution limit, and an `scn` the file broke | — |
 | 204 | A page turn is six events in one order, and Table 198's two had been read since session 77 with no caller | 0164 |
+| 205 | A widget's border lost a fifth of its ink to a `/BBox` clip lying on its own edge; the miter bound was the thing in the way | 0165 |

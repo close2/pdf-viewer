@@ -85,30 +85,108 @@ pub fn stroked_bounds(path: &Path, stroke: &Stroke, to_device: Transform) -> Opt
     if !half.is_finite() || half < 0.0 {
         return None;
     }
-    Some(hull(path, stroke, half)?.mapped(to_device))
-}
-
-/// The outline's extent in the path's own space, `half` being half the line width there.
-fn hull(path: &Path, stroke: &Stroke, half: f32) -> Option<Rect> {
-    /// A projecting square cap's far corner sits `√2` half-widths from the endpoint.
-    const SQUARE_CAP_CORNER: f32 = std::f32::consts::SQRT_2;
-
-    let join_reach = match stroke.join {
-        LineJoin::Miter => half * stroke.miter_limit.max(1.0),
-        LineJoin::Round | LineJoin::Bevel => half,
-    };
-    let cap_reach = match stroke.cap {
-        LineCap::Butt => 0.0,
-        LineCap::Round => half,
-        LineCap::Square => half * SQUARE_CAP_CORNER,
-    };
+    let hull = hull(path, stroke, half)?;
     // A dash pattern ends a dash anywhere along the path, and each end wears a cap, so a
     // non-butt cap on a dashed stroke reaches from every point rather than from two.
     let everywhere = if stroke.dash_array.is_empty() {
         0.0
     } else {
-        cap_reach
+        cap_reach(stroke, half)
     };
+    let hull = Rect {
+        min: Point::new(hull.min.x - everywhere, hull.min.y - everywhere),
+        max: Point::new(hull.max.x + everywhere, hull.max.y + everywhere),
+    };
+    Some(hull.mapped(to_device))
+}
+
+/// Where a join can put ink, given the two directions meeting at its vertex.
+///
+/// ISO 32000-2 §8.4.3.4's miter join is where "[t]he outer edges of the strokes for the two
+/// segments shall be extended until they meet at an angle, as in a picture frame", and §8.4.3.5
+/// bounds how far that can be:
+///
+/// > The miter limit shall impose a maximum on the ratio of the miter length to the line
+/// > width (see "Figure 15 -Miter length"). When the limit is exceeded, the join is converted
+/// > from a miter to a bevel.
+///
+/// A *maximum*, not a length. **The old bound was the maximum alone** — a square of side
+/// `2 × half × miter_limit` around every vertex, which for the default limit of 10 puts a
+/// rectangle's corner five widths outside the rectangle. Sound as a bound, and useless as a
+/// containment test: `pdf_model`'s rule for taking a redundant `/BBox` clip back off (ADR 0155)
+/// could never fire for a stroked border, and `bug1863910.pdf` lost **22% of its ink** to a clip
+/// that cut nothing.
+///
+/// The tip of a miter sits where the two outer offset lines cross, and *which* side is outer
+/// depends on the turn — so both candidates are returned rather than the turn being worked out.
+/// Their union is still far tighter than the square: at a right angle it is the stroke's own
+/// outer corner rather than ten widths in every direction. Where the two directions nearly
+/// reverse, the crossing runs away and the limit is the whole answer. ADR 0165.
+fn join_extent(
+    stroke: &Stroke,
+    half: f32,
+    incoming: Option<Point>,
+    vertex: Point,
+    outgoing: Option<Point>,
+) -> Rect {
+    let limit = half * stroke.miter_limit.max(1.0);
+    let square = |reach: f32| {
+        Rect::from_corners(
+            Point::new(vertex.x - reach, vertex.y - reach),
+            Point::new(vertex.x + reach, vertex.y + reach),
+        )
+    };
+    if !matches!(stroke.join, LineJoin::Miter) {
+        return square(half);
+    }
+    let Some((from, to)) = incoming.zip(outgoing) else {
+        return square(limit);
+    };
+    let unit = |a: Point, b: Point| {
+        let (dx, dy) = (b.x - a.x, b.y - a.y);
+        let length = dx.hypot(dy);
+        (length > 0.0).then(|| (dx / length, dy / length))
+    };
+    let (Some(into), Some(out)) = (unit(from, vertex), unit(vertex, to)) else {
+        return square(limit);
+    };
+    // The outward normals of the two segments, on one arbitrary side; their sum bisects the
+    // angle, and `|n1 + n2|² = 2(1 + cos φ)` falls to zero as the join doubles back.
+    let (n1, n2) = ((-into.1, into.0), (-out.1, out.0));
+    let (sx, sy) = (n1.0 + n2.0, n1.1 + n2.1);
+    let square_length = sx.mul_add(sx, sy * sy);
+    if square_length <= f32::EPSILON {
+        return square(limit);
+    }
+    let scale = 2.0 * half / square_length;
+    let (dx, dy) = (sx * scale, sy * scale);
+    if dx.hypot(dy) > limit {
+        return square(limit);
+    }
+    Rect::from_corners(
+        Point::new(vertex.x - dx, vertex.y - dy),
+        Point::new(vertex.x + dx, vertex.y + dy),
+    )
+}
+
+/// How far past an endpoint §8.4.3.3's line cap reaches.
+fn cap_reach(stroke: &Stroke, half: f32) -> f32 {
+    /// A projecting square cap's far corner sits `√2` half-widths from the endpoint.
+    const SQUARE_CAP_CORNER: f32 = std::f32::consts::SQRT_2;
+
+    match stroke.cap {
+        LineCap::Butt => 0.0,
+        LineCap::Round => half,
+        LineCap::Square => half * SQUARE_CAP_CORNER,
+    }
+}
+
+/// The outline's extent in the path's own space, `half` being half the line width there.
+fn hull(path: &Path, stroke: &Stroke, half: f32) -> Option<Rect> {
+    let join_box = |incoming: Option<Point>, vertex: Point, outgoing: Option<Point>| {
+        join_extent(stroke, half, incoming, vertex, outgoing)
+    };
+    let cap_reach = cap_reach(stroke, half);
 
     let mut hull: Option<Rect> = None;
     let add = |rect: Rect, hull: &mut Option<Rect>| {
@@ -123,8 +201,15 @@ fn hull(path: &Path, stroke: &Stroke, half: f32) -> Option<Rect> {
 
     let mut cursor: Option<Point> = None;
     let mut start: Option<Point> = None;
-    // The point a join would sit at, set once a subpath has a segment behind it.
+    // The point a join would sit at, set once a subpath has a segment behind it, and the point
+    // the incoming segment's tangent comes *from* — its own start for a line, its second control
+    // point for a curve, which is where a Bézier's end tangent points.
     let mut joins_at: Option<Point> = None;
+    let mut joins_from: Option<Point> = None;
+    // Where the subpath's *first* segment goes, which is the outgoing direction of the join a
+    // `Close` creates at the start point. Without it that one join falls back to the miter
+    // limit, and one join at the limit is enough to put a rectangle's bound five widths out.
+    let mut leaves_start: Option<Point> = None;
     for command in path.commands() {
         match *command {
             PathCommand::MoveTo(p) => {
@@ -144,15 +229,21 @@ fn hull(path: &Path, stroke: &Stroke, half: f32) -> Option<Rect> {
                 cursor = Some(p);
                 start = Some(p);
                 joins_at = None;
+                joins_from = None;
+                leaves_start = None;
                 add(around(p, cap_reach), &mut hull);
             }
             PathCommand::LineTo(p) => {
                 let from = cursor.or(start)?;
                 add(segment(from, p, half), &mut hull);
                 if let Some(vertex) = joins_at {
-                    add(around(vertex, join_reach), &mut hull);
+                    add(join_box(joins_from, vertex, Some(p)), &mut hull);
                 }
                 joins_at = Some(p);
+                joins_from = Some(from);
+                if leaves_start.is_none() {
+                    leaves_start = Some(p);
+                }
                 cursor = Some(p);
                 start.get_or_insert(from);
             }
@@ -162,23 +253,34 @@ fn hull(path: &Path, stroke: &Stroke, half: f32) -> Option<Rect> {
                     add(around(point, half), &mut hull);
                 }
                 if let Some(vertex) = joins_at {
-                    add(around(vertex, join_reach), &mut hull);
+                    // A cubic's tangent at its start points at the first control point that is
+                    // not the start itself.
+                    let leaves_to = [c1, c2, p].into_iter().find(|point| *point != vertex);
+                    add(join_box(joins_from, vertex, leaves_to), &mut hull);
                 }
                 joins_at = Some(p);
+                joins_from = [c2, c1, from].into_iter().find(|point| *point != p);
+                if leaves_start.is_none() {
+                    leaves_start = [c1, c2, p].into_iter().find(|point| *point != from);
+                }
                 cursor = Some(p);
                 start.get_or_insert(from);
             }
             PathCommand::Close => {
                 if let (Some(from), Some(to)) = (cursor, start) {
                     add(segment(from, to, half), &mut hull);
-                    // Closing makes both ends joins rather than caps.
-                    add(around(to, join_reach), &mut hull);
+                    // Closing makes both ends joins rather than caps. The join *at* the start
+                    // point has the closing segment coming in and the subpath's first segment
+                    // going out, which is what `leaves_start` was kept for.
+                    add(join_box(Some(from), to, leaves_start), &mut hull);
                     if let Some(vertex) = joins_at {
-                        add(around(vertex, join_reach), &mut hull);
+                        add(join_box(joins_from, vertex, Some(to)), &mut hull);
                     }
                     cursor = Some(to);
                 }
                 joins_at = None;
+                joins_from = None;
+                leaves_start = None;
                 start = None;
             }
         }
@@ -190,14 +292,7 @@ fn hull(path: &Path, stroke: &Stroke, half: f32) -> Option<Rect> {
         add(around(end, cap_reach), &mut hull);
     }
 
-    let hull = hull?;
-    if everywhere > 0.0 {
-        return Some(Rect {
-            min: Point::new(hull.min.x - everywhere, hull.min.y - everywhere),
-            max: Point::new(hull.max.x + everywhere, hull.max.y + everywhere),
-        });
-    }
-    Some(hull)
+    hull
 }
 
 /// The axis-aligned box of the rectangle a straight segment's stroke covers.
@@ -277,9 +372,21 @@ mod tests {
         assert!((bounds.max.x - (90.0 + reach)).abs() < 1e-4);
     }
 
-    /// A mitre reaches the limit times half the width, and only where there is a join.
+    /// A mitre reaches as far as its own angle says, capped by §8.4.3.5's limit.
+    ///
+    /// ISO 32000-2 §8.4.3.5:
+    ///
+    /// > The miter limit shall impose a maximum on the ratio of the miter length to the line
+    /// > width (see "Figure 15 -Miter length"). When the limit is exceeded, the join is converted
+    /// > from a miter to a bevel.
+    ///
+    /// A *maximum*, not a length. A miter's tip sits where the two outer offset lines cross, which
+    /// for a right angle is the stroke's own outer corner; only a join that nearly doubles back
+    /// reaches the cap. This bound was the cap alone until the two-hundred-and-fifth session,
+    /// which made it useless as a containment test and cost `bug1863910.pdf` 22% of its ink
+    /// (ADR 0165).
     #[test]
-    fn a_mitre_reaches_from_the_join_and_a_line_has_none() {
+    fn a_mitre_reaches_as_far_as_its_angle_and_no_further_than_the_limit() {
         let corner = path(&[
             PathCommand::MoveTo(Point::new(10.0, 10.0)),
             PathCommand::LineTo(Point::new(50.0, 10.0)),
@@ -291,10 +398,21 @@ mod tests {
             ..Stroke::default()
         };
         let bounds = stroked_bounds(&corner, &stroke, Transform::IDENTITY).expect("bounded");
-        // The join at (50, 10) reaches 20 in every direction; the two open ends do not.
-        assert_eq!(bounds.max.x, 70.0);
-        assert_eq!(bounds.min.y, -10.0);
+        // The join at (50, 10) turns by a right angle, so its miter tip is the stroke's own
+        // outer corner at (52, 8) — half a width out along each axis — rather than the limit's
+        // twenty in every direction. The two open ends reach nothing.
+        assert_eq!(bounds.max.x, 52.0, "{bounds:?}");
+        assert_eq!(bounds.min.y, 8.0, "{bounds:?}");
         assert_eq!(bounds.min.x, 10.0, "the butt end reaches nothing along x");
+
+        // A join that doubles back reaches for ever, and the limit is the whole answer.
+        let spike = path(&[
+            PathCommand::MoveTo(Point::new(10.0, 10.0)),
+            PathCommand::LineTo(Point::new(50.0, 10.0)),
+            PathCommand::LineTo(Point::new(11.0, 11.0)),
+        ]);
+        let capped = stroked_bounds(&spike, &stroke, Transform::IDENTITY).expect("bounded");
+        assert!((capped.max.x - 70.0).abs() < 1e-3, "{capped:?}");
 
         let bevelled = stroked_bounds(
             &corner,

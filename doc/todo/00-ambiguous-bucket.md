@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 707 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 706 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 748 ambiguous pages on documents we call complete; 39 diagnosed, 707 held by name
+Corpus: 748 ambiguous pages on documents we call complete; 40 diagnosed, 706 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -112,7 +112,7 @@ substituted font drew none of its characters in silence (0152), the coverage rul
 eight of them draw (0153), a pattern cell's clip worth 15% of a page's ink (0155), and a font
 program that draws nothing now saying so (0157).
 
-The bucket itself went 754 → 707, and that is the least interesting number in this file. *Seven
+The bucket itself went 754 → 706, and that is the least interesting number in this file. *Seven
 defects nobody could see* is the one to watch — **and one gate that found thirteen more.**
 `jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own hypothesis, and
 checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus `JPXDecode` stream
@@ -135,10 +135,16 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`bug1863910.pdf` (3.03 from the nearest), `issue21068.pdf` (2.82), `copy_paste_ligatures.pdf`
-(2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70, both of them within 0.01 of their
+`issue21068.pdf` (2.82 from the nearest), `copy_paste_ligatures.pdf` (2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70, both of them within 0.01 of their
 *furthest*, which is the everybody-against-us shape), `bug766086.pdf` (2.58),
 `issue18030.pdf` (2.52), `bug1538111.pdf` (2.50), `non-embedded-NuptialScript.pdf` (2.32).
+
+**And the sixth defect the bucket has produced came out of the next name down.** `bug1863910.pdf`
+was two empty text fields, and its one-point borders carried 22% less ink than their geometry —
+an anti-aliased `/BBox` clip lying exactly on the stroke's outer edge, which is ADR 0155's finding
+one path over. Fixing it moved the oracle's own headline: **agrees 849 → 851, contradicted 70 →
+68** (ADR 0165). Two of the three pages the ranking has produced since the instrument was repaired
+were defects.
 
 **Step 6 emptied the top of the list in one session.** Four of the five names above 3.5 were
 image reductions whose whole difference is scan conversion, and the high-resolution limit settled

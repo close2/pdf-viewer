@@ -43,7 +43,6 @@ bug1671312_ArialNarrow.pdf page 1
 bug1703683_page2_reduced.pdf page 1
 bug1844576.pdf page 1
 bug1844583.pdf page 1
-bug1863910.pdf page 1
 bug1868759.pdf page 1
 bug1872721.pdf page 1
 bug1885505.pdf page 1
