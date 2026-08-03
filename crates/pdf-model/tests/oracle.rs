@@ -2037,6 +2037,47 @@ const AMBIGUOUS_MARKUP_ARTWORK: [&str; 1] = ["bug1538111.pdf page 1"];
 /// renderers disagree by more than any bound can call, on a page of fifteen rows.
 const AMBIGUOUS_GLYPH_COVERAGE: [&str; 1] = ["copy_paste_ligatures.pdf page 1"];
 
+/// Ambiguous, and §12.5.4's one sentence settles it against `poppler`.
+///
+/// `bug1552113.pdf` is 250×50 with one link, and the link is a trap: `/Border [0 0 112]` on a
+/// `/Rect [5 25 155 45]`. Table 166 makes the third number the border's width, so the file asks
+/// for a **112-unit border on a 150 × 20 rectangle**.
+///
+/// §12.5.4, of any annotation's border:
+///
+/// > If present, the border shall be drawn completely inside the annotation rectangle.
+///
+/// A `shall`, and it decides the picture entirely: a border that wide, drawn inside that
+/// rectangle, *is* the rectangle. Ours fills it. **`poppler` strokes 112 units centred on the
+/// rectangle's edge**, so its blue covers most of the page — ink **201.31** against ours 29.64,
+/// and the document's own text says "this text should be visible". `mupdf` 17.06,
+/// `ghostscript` 17.33 and `hayro` 16.85 draw no link border at all, for
+/// `CONTRADICTED_LINK_BORDER`'s reasons.
+///
+/// So four renderers disagree three ways and the clause names one of them. This is the shape
+/// step 1 calls everybody-against-us read the other way round: the page reached 1.90 bounds
+/// because *one* reference is very far off, and the printed distance from the nearest is the
+/// number that accuses us — 1.90 here, against 19.33 from the furthest.
+const AMBIGUOUS_OVERSIZED_BORDER: [&str; 1] = ["bug1552113.pdf page 1"];
+
+/// Ambiguous, and it is what four renderers construct for a widget the file left to them.
+///
+/// `bug1844576.pdf` is a form: a text field holding "Hello World" and a push button reading
+/// "Click", with `/NeedAppearances true` on the interactive form. The text field states
+/// `/MK << /BC [0 0 0] >>` and no `/Border` or `/BS`, so Table 191 gives it a black border and
+/// §12.5.4 gives that border a width — "[i]f neither the Border nor the BS entry is present, the
+/// border shall be drawn as a solid line with a width of 1 point".
+///
+/// Ours, `mupdf`, `ghostscript` and `hayro` draw the border; **`poppler` draws none**. Ink: ours
+/// 22.04, `hayro` 22.57, `mupdf` 25.21, `ghostscript` 27.23, `poppler` 15.70 — and `poppler` at
+/// 576 dpi is 15.88, so its omission is a decision rather than a resolution effect.
+/// `ghostscript`'s extra is Table 168's `/S /B` bevel on the button, which the file does not ask
+/// for.
+///
+/// Four out of five and the clause agree, which is as settled as this bucket gets without a
+/// closed form. What keeps it `ambiguous` is that the four draw four slightly different borders.
+const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -2060,6 +2101,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_LINK_BORDER)
         .chain(&AMBIGUOUS_MARKUP_ARTWORK)
         .chain(&AMBIGUOUS_GLYPH_COVERAGE)
+        .chain(&AMBIGUOUS_OVERSIZED_BORDER)
+        .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
         .copied()
         .collect()
 }
