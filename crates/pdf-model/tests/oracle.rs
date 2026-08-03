@@ -1439,8 +1439,15 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// That is worth recording as a shape rather than as a page: **the ink instrument answers "how
 /// much" and is silent on "where"**, and a page whose ink everybody agrees on is one to open the
 /// heatmap for rather than the ink table.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 10] = [
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 11] = [
     "bug1799927.pdf page 1",
+    // Arrived in the judged set in the two-hundred-and-eighteenth session, when the stencil it
+    // is made of stopped being refused: a 421x320 one-bit CCITT scan drawn into 252x191 points
+    // through a tiling pattern, which is this group's subject with two clauses in front of it.
+    // Two ladders agree on the geometry — `poppler` 1.228 at 576 dpi and 1.227 at 2304, `mupdf`
+    // 1.235 at 576 — and at the page's own scale ours is 1.236, `hayro` 1.274, `poppler` 1.218,
+    // `mupdf` 1.205, `ghostscript` 1.091. Ours is 0.009 from the limit and nearest of the five.
+    "issue13561_reduced.pdf page 1",
     "freeculture.pdf page 1",
     "issue5747.pdf page 1",
     "issue7229.pdf page 1",

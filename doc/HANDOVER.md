@@ -90,10 +90,10 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **968** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| tests | **969** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-eight sessions from the hundred-and-eighty-sixth added thirty-three. Quote the command with the number | — |
-| corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **58 of them diagnosed and 702 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **59 of them diagnosed and 702 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -189,7 +189,6 @@ the 974 documents' first pages it affects.
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
 | §8.7.4.5.4's greatest *admissible* root, on a cone | 2 | [todo 12](todo/12-a-radial-shading-is-not-a-conical-gradient.md) |
-| A stencil painted with a *tiling* pattern (§8.9.6.2) | 2 | [todo 20](todo/20-stencil-with-a-tiling-pattern.md) |
 | A substitute with no glyph for a character; one that cannot be addressed | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
@@ -591,7 +590,7 @@ project decided on purpose: `colors.pdf` pages 1 and 2 left the unexplained list
 are *not* fixed, because §10.7.4 asks for the hard edge and this tree anti-aliases
 (`CONTRADICTED_ANTIALIASED_EDGES`, and `doc/todo/_scan-conversion.md`).
 
-**The 80 incomplete documents**: fonts (fewest since session 6 — session 156's `CMap`s took 15 off
+**The 78 incomplete documents**: fonts (fewest since session 6 — session 156's `CMap`s took 15 off
 this list), 19 transparency, 10 annotations over 9 documents, 8 malformed images, 8 operator soup
 (`BT` without `ET`, `BDC` without `EMC`, fuzzed streams), 1 content, and since the
 hundred-and-ninety-third 4 whose font program draws nothing (ADR 0157). Session 59's reading of
@@ -2386,3 +2385,4 @@ above rather than here.
 | 215 | The ambiguous ranking above 1.6 emptied in one sitting — seven pages, four groups, and the only defect in them found by a synthetic ladder | — |
 | 216 | A fourth sweep — grep the *string* a correction retired — and a page where the high-resolution limit is the thing that is wrong | — |
 | 217 | §12.5.3's `NoZoom` and `NoRotate`, blocked for 217 sessions on a reason that was two reasons | 0168 |
+| 218 | A stencil through a tiling pattern — and then the page was still blank, because every tile in the tree was measured from the wrong place | 0169 |

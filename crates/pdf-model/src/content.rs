@@ -3765,12 +3765,16 @@ impl Interpreter<'_> {
     /// and this reader drew **nothing** for it and said nothing either: `image::decode` was
     /// handed `state.fill`, which a pattern leaves at its initial black with zero alpha.
     ///
-    /// Two cases are refused by name rather than approximated. A **tiling** pattern is not a
-    /// paint at all — it is a content stream replayed per cell — so it cannot be handed to a
-    /// `Fill`, and building the cells through this mask needs the replay machinery to accept
-    /// one; no corpus document asks. And a stencil under a graphics-state soft mask would need
-    /// two masks where a command carries one, which §11.6.5 makes a composition rather than a
-    /// choice.
+    /// **A tiling pattern goes the same way since the two-hundred-and-eighteenth session**, and
+    /// what makes that possible is that the mask is on the *state* rather than on a command:
+    /// `Interpreter::tile` already ends by putting the state's soft mask on the group it builds
+    /// out of the cells, because §11.6.7 asks for the cells to composite once. So the stencil is
+    /// handed to it as that mask and the unit square is the path whose cells are drawn — the
+    /// same two halves, recomposed at the only other place in this file that can hold them.
+    ///
+    /// One case is still refused by name rather than approximated: a stencil under a
+    /// *graphics-state* soft mask would need two masks where a command carries one, which
+    /// §11.6.5 makes a composition rather than a choice.
     fn stencil_through_a_pattern(
         &mut self,
         stream: &Arc<pdf_syntax::Stream>,
@@ -3778,16 +3782,16 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         state: &GraphicsState,
     ) {
-        let Some(PatternPaint::Shading(..)) = &state.fill_pattern else {
+        if state.fill_pattern.is_none() {
             self.note(Unsupported::Image {
-                name: format!("{name}: a stencil mask painted with a tiling pattern (§8.9.6.2)"),
+                name: format!("{name}: a stencil mask painted with no pattern (§8.9.6.2)"),
             });
             return;
-        };
+        }
         if state.soft_mask.is_some() {
             self.note(Unsupported::Image {
                 name: format!(
-                    "{name}: a stencil mask painted with a shading pattern under a soft mask, \
+                    "{name}: a stencil mask painted with a pattern under a soft mask, \
                      which would be two masks on one command (§8.9.6.2, §11.6.5)"
                 ),
             });
@@ -3830,6 +3834,24 @@ impl Interpreter<'_> {
         path.push(PathCommand::LineTo(Point::new(1.0, 1.0)));
         path.push(PathCommand::LineTo(Point::new(0.0, 1.0)));
         path.push(PathCommand::Close);
+
+        if let Some(PatternPaint::Tiling(tiling)) = state.fill_pattern.clone() {
+            // The cells go through the mask the same way a `ca` or a blend mode does: on the
+            // group `tile` builds when the state composites non-trivially. Everything else
+            // about the state is the caller's, which is why this is a copy with one field
+            // changed rather than a second construction.
+            let mut masked = state.clone();
+            masked.soft_mask = Some(mask);
+            self.tile(
+                &Arc::new(path),
+                state.transform,
+                FillRule::NonZero,
+                &tiling,
+                &masked,
+            );
+            return;
+        }
+
         // The pattern's own `/BBox` and a type 1 shading's domain are composed here, as they
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
@@ -5048,8 +5070,7 @@ impl Interpreter<'_> {
         let Some(bounds) = bounds_of(path, path_to_pattern) else {
             return;
         };
-        let (first_column, last_column) = span(bounds.0, bounds.2, tiling.step.0);
-        let (first_row, last_row) = span(bounds.1, bounds.3, tiling.step.1);
+        let ((first_column, last_column), (first_row, last_row)) = spans(tiling, bounds);
 
         let columns = last_column.saturating_sub(first_column).saturating_add(1);
         let rows = last_row.saturating_sub(first_row).saturating_add(1);
@@ -6006,13 +6027,52 @@ fn bounds_of(path: &Path, transform: Transform) -> Option<(f32, f32, f32, f32)> 
     bounds
 }
 
-/// The range of tile indices covering an interval, given a step.
-fn span(low: f32, high: f32, step: f32) -> (i32, i32) {
+/// Which tiles of a pattern the given bounds in pattern space touch, by column and by row.
+///
+/// Where the cell itself is matters, which is [`span`]'s subject. Table 74 makes `/BBox`
+/// required, and a pattern that states none is tiled as though its cell began at the origin —
+/// which is what this did for every pattern until the two-hundred-and-eighteenth session.
+fn spans(tiling: &Tiling, bounds: (f32, f32, f32, f32)) -> ((i32, i32), (i32, i32)) {
+    let cell = tiling
+        .bbox
+        .unwrap_or([0.0, 0.0, tiling.step.0, tiling.step.1]);
+    (
+        span(
+            bounds.0,
+            bounds.2,
+            tiling.step.0,
+            cell[0].min(cell[2]),
+            cell[0].max(cell[2]),
+        ),
+        span(
+            bounds.1,
+            bounds.3,
+            tiling.step.1,
+            cell[1].min(cell[3]),
+            cell[1].max(cell[3]),
+        ),
+    )
+}
+
+/// The range of tile indices covering an interval, given a step and where the cell itself sits.
+///
+/// §8.7.3.1 places the pattern cell where its content stream draws it and replicates that at
+/// multiples of `/XStep` and `/YStep` — so the offsets needed to cover `low..high` are measured
+/// from the **cell's own extent**, not from the pattern space's origin. Tile `k` covers
+/// `cell + k × step`, so it is wanted when `cell_low + k × step <= high` and
+/// `cell_high + k × step >= low`.
+///
+/// **This took `cell_low` and `cell_high` from the two-hundred-and-eighteenth session and did
+/// not before**, which was invisible for as long as it was because Table 74's `/BBox` is nearly
+/// always at the pattern's origin: the ±1 of slack `floor` and `ceil` give covers a cell within
+/// one step of it. `issue13561_reduced.pdf` states `/BBox [35.4 396.6 287.4 588]` against a
+/// `/YStep` of 191.4 — two steps out — and every tile landed two rows below the page.
+fn span(low: f32, high: f32, step: f32, cell_low: f32, cell_high: f32) -> (i32, i32) {
     /// Bounds the index range so a huge path or a tiny step cannot overflow.
     const LIMIT: f32 = 1e6;
 
-    let first = (low / step).floor().clamp(-LIMIT, LIMIT);
-    let last = (high / step).ceil().clamp(-LIMIT, LIMIT);
+    let first = ((low - cell_high) / step).floor().clamp(-LIMIT, LIMIT);
+    let last = ((high - cell_low) / step).ceil().clamp(-LIMIT, LIMIT);
     #[expect(
         clippy::cast_possible_truncation,
         reason = "both are clamped to a million, well inside i32"

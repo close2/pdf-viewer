@@ -630,3 +630,40 @@ fn a_rule_spanning_its_whole_cell_deposits_the_ink_its_geometry_states() {
          {expected:.4}"
     );
 }
+
+/// The cell is where its content draws it, and the tiles are that cell stepped from *there*.
+///
+/// §8.7.3.1 places the pattern cell where its own content stream draws it and replicates that at
+/// multiples of `/XStep` and `/YStep`. So the offsets needed to cover a path are measured from
+/// the cell's own extent — and until the two-hundred-and-eighteenth session they were measured
+/// from the pattern space's origin, which is the same answer for every pattern whose `/BBox` is
+/// within one step of it and a wrong one for the rest.
+///
+/// This cell sits at `[60 60 80 80]` with a step of 20, which is three steps out. The mark must
+/// still land on the path, and on the same lattice as a cell drawn at the origin — because that
+/// is what "stepped from there" means: 60 is a multiple of 20, so the two patterns tile
+/// identically and only a reader measuring from the wrong place can tell them apart.
+#[test]
+fn a_cell_far_from_the_patterns_origin_still_tiles_onto_the_path() {
+    let far = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [60 60 80 80] \
+         /XStep 20 /YStep 20 /Resources << >> /Length {} >>\nstream\n{}\nendstream",
+        "1 0 0 rg 60 60 10 10 re f".len().saturating_add(1),
+        "1 0 0 rg 60 60 10 10 re f"
+    );
+    let raster = render(pdf_with(&far, "/Pattern cs /P0 scn 0 0 100 100 re f"));
+
+    // The same five rows and columns `a_tiling_pattern_repeats_its_cell_across_the_filled_path`
+    // checks, because 60 is three whole steps: the lattice is the same one.
+    for step in 0..5u32 {
+        let across = step * 20 + 4;
+        let down = 99 - across;
+        let (red, green, blue, alpha) = pixel(&raster, across, down);
+        assert_eq!(
+            alpha, 255,
+            "a cell three steps from the origin must still reach ({across},{down})"
+        );
+        assert!(red > 240 && green < 15 && blue < 15, "{red},{green},{blue}");
+    }
+    assert_eq!(pixel(&raster, 15, 85).3, 0, "and the gaps are still gaps");
+}
