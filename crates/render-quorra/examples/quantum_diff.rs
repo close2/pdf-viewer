@@ -1,5 +1,5 @@
 //! The measurement behind `tests/real_pages.rs`'s gates: the glyph-phase
-//! quantum's cost against the CPU oracle on a real text page, per §4.5's
+//! quantum's cost against the CPU oracle on a real text page, per `RENDER_LIBRARY.md` section 4.5's
 //! "measured, never assumed". Run with `--release`; edit the page index and scale
 //! to reproduce the numbers quoted in the gate comments.
 #![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]

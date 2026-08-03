@@ -1,6 +1,6 @@
 //! Tier 2: the page presented straight onto a window's surface, no readback.
 //!
-//! This is the tier the brief's §6.1 measurements pointed at from the start: the
+//! This is the tier `RENDER_LIBRARY.md` section 6.1 measurements pointed at from the start: the
 //! readback that dominates a `rasterize` call simply does not exist here — quorra
 //! renders the scene and presents the swapchain texture, and the pixels never
 //! cross back to the CPU. One frame carries everything the window shows, each at
@@ -41,9 +41,7 @@ pub struct PresentFrame<'a> {
 pub struct QuorraPresenter {
     device: quorra_gpu::Device,
     background: Color,
-    outlines: std::collections::HashMap<usize, (Arc<pdf_render::Path>, quorra_scene::OutlineId)>,
-    images: std::collections::HashMap<usize, (Arc<[u8]>, quorra_scene::ImageId)>,
-    ramps: std::collections::HashMap<usize, (Arc<pdf_render::ShadingKind>, quorra_scene::RampId)>,
+    caches: crate::cache::ResourceCaches,
 }
 
 impl QuorraPresenter {
@@ -71,9 +69,7 @@ impl QuorraPresenter {
         Ok(Self {
             device,
             background: Color::WHITE,
-            outlines: std::collections::HashMap::new(),
-            images: std::collections::HashMap::new(),
-            ramps: std::collections::HashMap::new(),
+            caches: crate::cache::ResourceCaches::new(),
         })
     }
 
@@ -95,6 +91,7 @@ impl QuorraPresenter {
         if frame.width == 0 || frame.height == 0 {
             return Ok(()); // minimised: nothing to present to
         }
+        self.caches.begin_frame();
         let mut builder = quorra_scene::SceneBuilder::new();
         let mut transient: Vec<ResourceId> = Vec::new();
         let built = self.build(&mut builder, &frame, &mut transient);
@@ -119,6 +116,10 @@ impl QuorraPresenter {
                 release_error.get_or_insert(error);
             }
         }
+        // Frames drawn and frames refused both settle the caches: a viewer with
+        // documents open all afternoon is the long-lived instance
+        // QUORRA_FEEDBACK.md section 2 described.
+        self.caches.evict_settled(&mut self.device)?;
         rendered?;
         if let Some(error) = release_error {
             return Err(error.into());
@@ -153,16 +154,8 @@ impl QuorraPresenter {
         )?;
 
         if let Some((list, target)) = frame.page {
-            Encoder::new(
-                &mut self.device,
-                list,
-                target,
-                &mut self.outlines,
-                &mut self.images,
-                &mut self.ramps,
-                transient,
-            )
-            .commands(builder, list.commands())?;
+            Encoder::new(&mut self.device, list, target, &mut self.caches, transient)
+                .commands(builder, list.commands())?;
         }
         if let Some(raster) = frame.raster {
             let image = self.device.upload_image(&quorra_scene::ImageSpec {
@@ -201,16 +194,8 @@ impl QuorraPresenter {
                 height: frame.height,
                 transform: Transform::IDENTITY,
             };
-            Encoder::new(
-                &mut self.device,
-                list,
-                spec,
-                &mut self.outlines,
-                &mut self.images,
-                &mut self.ramps,
-                transient,
-            )
-            .commands(builder, list.commands())?;
+            Encoder::new(&mut self.device, list, spec, &mut self.caches, transient)
+                .commands(builder, list.commands())?;
         }
         Ok(())
     }

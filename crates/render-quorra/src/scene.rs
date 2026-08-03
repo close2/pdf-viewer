@@ -4,7 +4,7 @@
 //! One walk over the commands, mirroring the recursive structure (groups and soft
 //! masks carry command lists of the same display list). Resources upload through
 //! the [`Encoder`]'s caches — outlines and images by their `Arc` identity, exactly
-//! the keying `doc/RENDER_LIBRARY.md` §2.2 asks for — or transiently for the
+//! the keying `RENDER_LIBRARY.md` section 2.2 asks for — or transiently for the
 //! per-frame forms (clips, dashed strokes, meshes, sampled grids, area-averaged
 //! images), which the caller releases after the frame.
 
@@ -18,6 +18,7 @@ use pdf_render::{
 use quorra_scene::{ResourceId, SceneBuilder};
 
 use crate::QuorraRasterError;
+use crate::cache::ResourceCaches;
 
 /// The walk's state: the device and caches it uploads through, and the per-list
 /// clip and mask tables it resolves against.
@@ -25,12 +26,24 @@ pub(crate) struct Encoder<'a> {
     device: &'a mut quorra_gpu::Device,
     list: &'a DisplayList,
     target: TargetSpec,
-    outlines: &'a mut HashMap<usize, (Arc<Path>, quorra_scene::OutlineId)>,
-    images: &'a mut HashMap<usize, (Arc<[u8]>, quorra_scene::ImageId)>,
-    ramps: &'a mut HashMap<usize, (Arc<ShadingKind>, quorra_scene::RampId)>,
+    caches: &'a mut ResourceCaches,
     transient: &'a mut Vec<ResourceId>,
     clips: HashMap<usize, ResolvedClip>,
     masks: HashMap<usize, quorra_scene::MaskId>,
+}
+
+/// What a non-solid paint resolved to.
+pub(crate) enum ShadedPaint {
+    /// A quorra paint, ready to fill or stroke with.
+    Ready(quorra_scene::Paint),
+    /// A sampled grid: not a quorra paint — the caller draws it as an image
+    /// clipped to the shape.
+    Sampled,
+    /// A shading with nothing visible to paint — a mesh whose raster is empty.
+    /// pdf.js calls the document defective there (issue #17848, PR #17858 rejects
+    /// the zero-extent bounds) and both sibling backends draw nothing, so nothing
+    /// is what this draws too.
+    Nothing,
 }
 
 /// A display-list clip chain, resolved once: either it admits nothing anywhere —
@@ -61,18 +74,14 @@ impl<'a> Encoder<'a> {
         device: &'a mut quorra_gpu::Device,
         list: &'a DisplayList,
         target: TargetSpec,
-        outlines: &'a mut HashMap<usize, (Arc<Path>, quorra_scene::OutlineId)>,
-        images: &'a mut HashMap<usize, (Arc<[u8]>, quorra_scene::ImageId)>,
-        ramps: &'a mut HashMap<usize, (Arc<ShadingKind>, quorra_scene::RampId)>,
+        caches: &'a mut ResourceCaches,
         transient: &'a mut Vec<ResourceId>,
     ) -> Self {
         Self {
             device,
             list,
             target,
-            outlines,
-            images,
-            ramps,
+            caches,
             transient,
             clips: HashMap::new(),
             masks: HashMap::new(),
@@ -186,14 +195,67 @@ impl<'a> Encoder<'a> {
             return Ok(());
         };
         let mask = self.mask_id(builder, mask)?;
+
+        // ISO 32000-2 §10.7.4: no shape may disappear, and a subpath with no
+        // extent along one axis has zero area for every coverage rasteriser. The
+        // split — which subpaths enclose area, which become one-device-pixel
+        // marks — is `pdf-render`'s, stated once for every backend (the viewer's
+        // ADR 0154; QUORRA_FEEDBACK.md section 1 was a page of ruling lines drawn
+        // blank). Marks fill under the **non-zero** rule whatever the command's
+        // own rule is: a mark is a shape in its own right, and adding it to an
+        // even-odd path's winding would punch a hole in what it should draw.
+        let split = pdf_render::thinnest_line(transform.then(self.target.transform))
+            .and_then(|thinnest| pdf_render::split_collapsed_fill(path, thinnest));
+        if let Some(split) = split {
+            if !split.marks.is_empty() {
+                let marks = self.transient_outline(&split.marks)?;
+                self.emit_fill(
+                    builder,
+                    (marks, transform, FillRule::NonZero),
+                    paint,
+                    (clip, mask, blend),
+                )?;
+            }
+            if split.filled.is_empty() {
+                return Ok(());
+            }
+            let filled = self.transient_outline(&split.filled)?;
+            return self.emit_fill(
+                builder,
+                (filled, transform, rule),
+                paint,
+                (clip, mask, blend),
+            );
+        }
+
         let outline = self.outline(path)?;
+        self.emit_fill(
+            builder,
+            (outline, transform, rule),
+            paint,
+            (clip, mask, blend),
+        )
+    }
+
+    /// One fill, geometry already uploaded: the paint decides the lane.
+    fn emit_fill(
+        &mut self,
+        builder: &mut SceneBuilder,
+        (outline, transform, rule): (quorra_scene::OutlineId, Transform, FillRule),
+        paint: &Paint,
+        (clip, mask, blend): (
+            Option<quorra_scene::ClipId>,
+            Option<quorra_scene::MaskId>,
+            BlendMode,
+        ),
+    ) -> Result<(), QuorraRasterError> {
         let paint = match paint {
             Paint::Solid(c) => quorra_scene::Paint::Solid(colour(*c)),
             Paint::Shading(shading) => match self.shading_paint(shading)? {
-                Some(paint) => paint,
+                ShadedPaint::Ready(paint) => paint,
                 // A sampled shading is not a quorra paint: it draws as an image
                 // clipped to this fill's path instead.
-                None => {
+                ShadedPaint::Sampled => {
                     return self.sampled_fill(
                         builder,
                         (outline, transform, rule),
@@ -201,6 +263,7 @@ impl<'a> Encoder<'a> {
                         (clip, mask, blend),
                     );
                 }
+                ShadedPaint::Nothing => return Ok(()),
             },
             other => {
                 return Err(QuorraRasterError::Unsupported(format!("paint {other:?}")));
@@ -219,14 +282,16 @@ impl<'a> Encoder<'a> {
         Ok(())
     }
 
-    /// The quorra paint for a shading, or `None` for the sampled kind (drawn as an
-    /// image by the caller).
+    /// What a shading resolves to: a quorra paint, the sampled kind (drawn as an
+    /// image by the caller), or nothing at all.
     pub(crate) fn shading_paint(
         &mut self,
         shading: &Shading,
-    ) -> Result<Option<quorra_scene::Paint>, QuorraRasterError> {
+    ) -> Result<ShadedPaint, QuorraRasterError> {
         let kind = match shading.kind.as_ref() {
-            ShadingKind::Axial { start, end, extend, .. } => quorra_scene::ShadingKind::Axial {
+            ShadingKind::Axial {
+                start, end, extend, ..
+            } => quorra_scene::ShadingKind::Axial {
                 start: point(*start),
                 end: point(*end),
                 extend: *extend,
@@ -245,18 +310,19 @@ impl<'a> Encoder<'a> {
                 end_radius: *end_radius,
                 extend: *extend,
             },
-            ShadingKind::Sampled { .. } => return Ok(None),
+            ShadingKind::Sampled { .. } => return Ok(ShadedPaint::Sampled),
             ShadingKind::Mesh { triangles } => {
-                return Ok(Some(quorra_scene::Paint::Mesh(
-                    self.mesh(triangles, shading.transform)?,
-                )));
+                return Ok(match self.mesh(triangles, shading.transform)? {
+                    Some(mesh) => ShadedPaint::Ready(quorra_scene::Paint::Mesh(mesh)),
+                    None => ShadedPaint::Nothing,
+                });
             }
             other => {
                 return Err(QuorraRasterError::Unsupported(format!("shading {other:?}")));
             }
         };
         let ramp = self.ramp(shading)?;
-        Ok(Some(quorra_scene::Paint::Shading {
+        Ok(ShadedPaint::Ready(quorra_scene::Paint::Shading {
             ramp,
             kind,
             // quorra anchors a shading through its own transform, exactly as the
@@ -278,7 +344,11 @@ impl<'a> Encoder<'a> {
         builder: &mut SceneBuilder,
         (outline, transform, rule): (quorra_scene::OutlineId, Transform, FillRule),
         shading: &Shading,
-        (clip, mask, blend): (Option<quorra_scene::ClipId>, Option<quorra_scene::MaskId>, BlendMode),
+        (clip, mask, blend): (
+            Option<quorra_scene::ClipId>,
+            Option<quorra_scene::MaskId>,
+            BlendMode,
+        ),
     ) -> Result<(), QuorraRasterError> {
         let ShadingKind::Sampled {
             domain,
@@ -354,7 +424,7 @@ impl<'a> Encoder<'a> {
         let mask = self.mask_id(builder, mask)?;
         let placement = transform.then(self.target.transform);
 
-        // The two decisions §4.5 settles on this side of the boundary: area
+        // The two decisions RENDER_LIBRARY.md section 4.5 settles on this side of the boundary: area
         // averaging for minification, and the resolved smoothing for the placement.
         let (id, smoothed) = match image.area_averaged(placement) {
             Some(reduced) => {
@@ -389,40 +459,40 @@ impl<'a> Encoder<'a> {
         &mut self,
         triangles: &[pdf_render::Triangle],
         shading_transform: Transform,
-    ) -> Result<quorra_scene::MeshId, QuorraRasterError> {
+    ) -> Result<Option<quorra_scene::MeshId>, QuorraRasterError> {
         let to_device = shading_transform.then(self.target.transform);
-        let raster = pdf_render::MeshRaster::build(
+        // An empty raster is `None`, and the caller draws nothing — not a
+        // refusal: pdf.js's issue #17848 traced such a mesh to a defective
+        // document, and both sibling backends already skip it silently.
+        let Some(raster) = pdf_render::MeshRaster::build(
             triangles,
             to_device,
             self.target.width,
             self.target.height,
-        )
-        .ok_or_else(|| {
-            QuorraRasterError::Unsupported("a mesh shading with no visible raster".into())
-        })?;
+        ) else {
+            return Ok(None);
+        };
         let id = self.device.upload_mesh(&quorra_scene::MeshSpec {
             left: raster.left,
             top: raster.top,
             image: spec(&raster.image),
         })?;
         self.transient.push(id.into());
-        Ok(id)
+        Ok(Some(id))
     }
 
-    /// The uploaded outline for a path, keyed by the `Arc`'s identity (§2.2: one
-    /// glyph outline, thousands of fills, one upload). The entry pins the `Arc`
-    /// so the address cannot be recycled while the key lives — see the cache's
-    /// own docs.
+    /// The uploaded outline for a path, keyed by the `Arc`'s identity
+    /// (`RENDER_LIBRARY.md` section 2.2: one glyph outline, thousands of fills, one
+    /// upload). Pinning and eviction are [`ResourceCaches`]' business.
     pub(crate) fn outline(
         &mut self,
         path: &Arc<Path>,
     ) -> Result<quorra_scene::OutlineId, QuorraRasterError> {
-        let key = Arc::as_ptr(path).cast::<u8>() as usize;
-        if let Some((_, id)) = self.outlines.get(&key) {
-            return Ok(*id);
+        if let Some(id) = self.caches.outline(path) {
+            return Ok(id);
         }
         let id = self.device.upload_outline(&segments(path))?;
-        self.outlines.insert(key, (Arc::clone(path), id));
+        self.caches.store_outline(path, id);
         Ok(id)
     }
 
@@ -438,12 +508,11 @@ impl<'a> Encoder<'a> {
     }
 
     fn cached_image(&mut self, image: &Image) -> Result<quorra_scene::ImageId, QuorraRasterError> {
-        let key = image.data.as_ptr() as usize;
-        if let Some((_, id)) = self.images.get(&key) {
-            return Ok(*id);
+        if let Some(id) = self.caches.image(&image.data) {
+            return Ok(id);
         }
         let id = self.device.upload_image(&spec(image))?;
-        self.images.insert(key, (Arc::clone(&image.data), id));
+        self.caches.store_image(&image.data, id);
         Ok(id)
     }
 
@@ -456,9 +525,8 @@ impl<'a> Encoder<'a> {
                 shading.kind
             )));
         };
-        let key = Arc::as_ptr(&shading.kind).cast::<u8>() as usize;
-        if let Some((_, id)) = self.ramps.get(&key) {
-            return Ok(*id);
+        if let Some(id) = self.caches.ramp(&shading.kind) {
+            return Ok(id);
         }
         let stops: Vec<quorra_scene::Stop> = ramp
             .stops
@@ -469,7 +537,7 @@ impl<'a> Encoder<'a> {
             })
             .collect();
         let id = self.device.upload_ramp(&stops)?;
-        self.ramps.insert(key, (Arc::clone(&shading.kind), id));
+        self.caches.store_ramp(&shading.kind, id);
         Ok(id)
     }
 

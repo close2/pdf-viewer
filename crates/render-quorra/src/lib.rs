@@ -13,22 +13,21 @@
 //!   domain is a strict improvement, and the one divergence (no pad-extension
 //!   beyond the domain rectangle) is documented at the conversion.
 //! - **Strokes.** quorra strokes but does not dash — dashing is settled on this
-//!   side by the brief's §4.5 — so dashes run through the same `kurbo::dash` the
+//!   side by `RENDER_LIBRARY.md` section 4.5 — so dashes run through the same `kurbo::dash` the
 //!   `render-gpu` backend uses, and the §8.5.3.2 zero-length rules through the same
 //!   `pdf-render` helpers, keeping the backends' answers identical by construction.
 //! - **Alpha and the medium.** quorra renders onto transparency and hands back
-//!   straight alpha (its §3); the medium is imposed here through
+//!   straight alpha (`RENDER_LIBRARY.md` section 3); the medium is imposed here through
 //!   [`pdf_render::impose_on_medium`], the same function every backend uses.
 
 #![forbid(unsafe_code)]
-
-use std::collections::HashMap;
 
 use pdf_render::{
     ClipId, Color, DisplayList, Raster, RasterFormat, Rasterizer, SoftMaskId, TargetSpec,
 };
 use quorra_scene::ResourceId;
 
+mod cache;
 mod present;
 mod scene;
 mod stroke;
@@ -66,26 +65,14 @@ pub enum QuorraRasterError {
 }
 
 /// The quorra backend: a persistent device, resource caches keyed by the display
-/// list's own `Arc` identities, and the medium colour to impose.
-///
-/// Each cache entry **holds a clone of the `Arc` it is keyed by**. That is not a
-/// convenience: a pointer key alone is an ABA bug — drop a display list, let the
-/// allocator hand the same address to a different path, and the cache serves the
-/// old outline for the new geometry, sporadically, by allocator mood. Pinning the
-/// allocation makes the address unique for as long as the entry lives, and is
-/// what lets the cache span rasterize calls (a zoom re-renders the same `Arc`s
-/// and re-uploads nothing, which is the §2.2 economy).
+/// list's own `Arc` identities (pinned and evicted by [`cache::ResourceCaches`],
+/// whose docs carry both the ABA argument for pinning and the eviction policy
+/// `QUORRA_FEEDBACK.md` section 2 asked for), and the medium colour to impose.
 #[derive(Debug)]
 pub struct QuorraRasterizer {
     device: quorra_gpu::Device,
     background: Color,
-    /// Uploaded outlines by (pinned) path identity — 5 933 fills of 107 distinct
-    /// outlines upload 107 outlines, once.
-    outlines: HashMap<usize, (std::sync::Arc<pdf_render::Path>, quorra_scene::OutlineId)>,
-    /// Uploaded images by (pinned) sample-data identity.
-    images: HashMap<usize, (std::sync::Arc<[u8]>, quorra_scene::ImageId)>,
-    /// Uploaded colour ramps by (pinned) shading-kind identity.
-    ramps: HashMap<usize, (std::sync::Arc<pdf_render::ShadingKind>, quorra_scene::RampId)>,
+    caches: cache::ResourceCaches,
 }
 
 impl QuorraRasterizer {
@@ -114,7 +101,7 @@ impl QuorraRasterizer {
         })
     }
 
-    /// A backend with explicit quorra options — the brief's §4.5 makes the glyph
+    /// A backend with explicit quorra options — `RENDER_LIBRARY.md` section 4.5 makes the glyph
     /// cache's sub-pixel quantum the caller's decision to take, and this is where
     /// a caller takes it.
     ///
@@ -125,9 +112,7 @@ impl QuorraRasterizer {
         Ok(Self {
             device: quorra_gpu::Device::headless(options)?,
             background: Color::WHITE,
-            outlines: HashMap::new(),
-            images: HashMap::new(),
-            ramps: HashMap::new(),
+            caches: cache::ResourceCaches::new(),
         })
     }
 
@@ -154,15 +139,14 @@ impl Rasterizer for QuorraRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
+        self.caches.begin_frame();
         let mut builder = quorra_scene::SceneBuilder::new();
         let mut transient: Vec<ResourceId> = Vec::new();
         let built = scene::Encoder::new(
             &mut self.device,
             list,
             target,
-            &mut self.outlines,
-            &mut self.images,
-            &mut self.ramps,
+            &mut self.caches,
             &mut transient,
         )
         .commands(&mut builder, list.commands());
@@ -191,6 +175,9 @@ impl Rasterizer for QuorraRasterizer {
                 release_error.get_or_insert(error);
             }
         }
+        // Frames drawn and frames refused both settle the caches: a long session
+        // must stay healthy through its refusals (QUORRA_FEEDBACK.md section 2).
+        self.caches.evict_settled(&mut self.device)?;
         let frame = rendered?;
         if let Some(error) = release_error {
             return Err(error.into());

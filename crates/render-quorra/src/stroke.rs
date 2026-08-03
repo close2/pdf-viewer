@@ -1,7 +1,7 @@
 //! Strokes: what quorra draws, and what is settled here first.
 //!
 //! quorra expands caps, joins and miters itself from a resolved **device** width —
-//! `doc/RENDER_LIBRARY.md` §4.5's contract — but it does not dash, and it does not
+//! `RENDER_LIBRARY.md` section 4.5's contract — but it does not dash, and it does not
 //! re-take the decisions `pdf-render` already owns. So this module runs the same
 //! shared machinery the other backends run, in the same order:
 //!
@@ -44,9 +44,17 @@ pub(crate) fn encode(
     let mask = enc.mask_id(builder, mask)?;
     let quorra_paint = match paint {
         Paint::Solid(c) => quorra_scene::Paint::Solid(colour(*c)),
-        Paint::Shading(shading) => enc.shading_paint(shading)?.ok_or_else(|| {
-            QuorraRasterError::Unsupported("a sampled shading painting a stroke".into())
-        })?,
+        Paint::Shading(shading) => match enc.shading_paint(shading)? {
+            crate::scene::ShadedPaint::Ready(paint) => paint,
+            crate::scene::ShadedPaint::Sampled => {
+                return Err(QuorraRasterError::Unsupported(
+                    "a sampled shading painting a stroke".into(),
+                ));
+            }
+            // Nothing visible to paint with — the stroke marks nothing, as on
+            // the sibling backends.
+            crate::scene::ShadedPaint::Nothing => return Ok(()),
+        },
         other => {
             return Err(QuorraRasterError::Unsupported(format!("paint {other:?}")));
         }
@@ -54,10 +62,11 @@ pub(crate) fn encode(
 
     // §8.4.3.2 with §10.7.5, resolved by the shared method — which answers in
     // *path* units despite its name (the other backends scale it through the draw
-    // transform). quorra expands on device-space geometry, so the resolved width
-    // is carried to device scale here: exact for the similarity transforms every
-    // page transform in this viewer is, and the widest direction otherwise — the
-    // same §10.7.5 reading `device_width` itself takes for its half-pixel test.
+    // transform). quorra expands on device-space geometry with one scalar width,
+    // which is exact for a similarity transform and exactly wrong for any other:
+    // a sheared or unevenly-scaled stroke must vary its device width with
+    // direction (§8.4.3.2's own note), and a scalar cannot. So the transform's
+    // anisotropy decides the route below.
     let to_device = transform.then(enc.target().transform);
     let path_width = s.device_width(to_device);
     let width = path_width * to_device.max_stretch();
@@ -73,29 +82,67 @@ pub(crate) fn encode(
 
     let at = enc.placed(transform);
     if !solid.is_empty() {
-        // The untouched common case keeps the path's `Arc` identity, so a glyph
-        // stroked a thousand times uploads once; computed geometry is per-frame.
-        let outline = if dashed.is_none() && split.is_none() {
-            enc.outline(path)?
+        if anisotropy(to_device) > MAX_ISOTROPY_ERROR {
+            // The stroke is expanded here, in path space, where the transform
+            // scales its width per direction as §8.4.3.2 asks — through the same
+            // `kurbo::stroke` the Vello backend outlines with, so the corpus's
+            // sheared pattern marks (issue2177, issue6769) get the CPU oracle's
+            // geometry rather than the widest direction everywhere. quorra then
+            // fills the outline; its own stroke lane is for the scalar case.
+            let style = kurbo::Stroke::new(f64::from(path_width))
+                .with_caps(kurbo_cap(s.cap))
+                .with_join(kurbo_join(s.join))
+                .with_miter_limit(f64::from(s.miter_limit.max(1.0)));
+            // A quarter device pixel, expressed in path units — the same
+            // flattening tolerance quorra itself draws with.
+            let tolerance = f64::from((0.25 / to_device.max_stretch()).clamp(1e-4, 1.0));
+            let outlined = from_bez(
+                kurbo::stroke(
+                    bez(solid).iter(),
+                    &style,
+                    &kurbo::StrokeOpts::default(),
+                    tolerance,
+                )
+                .iter(),
+            );
+            let outline = enc.transient_outline(&outlined)?;
+            builder.fill(
+                outline,
+                at,
+                quorra_scene::FillRule::NonZero,
+                quorra_paint,
+                clip,
+                blend_mode(blend),
+                quorra_scene::Compose::SrcOver,
+                mask,
+            )?;
         } else {
-            enc.transient_outline(solid)?
-        };
-        builder.stroke(
-            outline,
-            at,
-            quorra_scene::Stroke {
-                width,
-                cap: cap(s.cap),
-                join: join(s.join),
-                // §8.4.3.5 defines the limit as a ratio of at least 1; a smaller
-                // value from a malformed file behaves as the smallest legal one.
-                miter_limit: s.miter_limit.max(1.0),
-            },
-            quorra_paint,
-            clip,
-            blend_mode(blend),
-            mask,
-        )?;
+            // The untouched common case keeps the path's `Arc` identity, so a
+            // glyph stroked a thousand times uploads once; computed geometry is
+            // per-frame.
+            let outline = if dashed.is_none() && split.is_none() {
+                enc.outline(path)?
+            } else {
+                enc.transient_outline(solid)?
+            };
+            builder.stroke(
+                outline,
+                at,
+                quorra_scene::Stroke {
+                    width,
+                    cap: cap(s.cap),
+                    join: join(s.join),
+                    // §8.4.3.5 defines the limit as a ratio of at least 1; a
+                    // smaller value from a malformed file behaves as the smallest
+                    // legal one.
+                    miter_limit: s.miter_limit.max(1.0),
+                },
+                quorra_paint,
+                clip,
+                blend_mode(blend),
+                mask,
+            )?;
+        }
     }
     if !dots.is_empty() {
         let outline = enc.transient_outline(&dots)?;
@@ -113,6 +160,42 @@ pub(crate) fn encode(
     Ok(())
 }
 
+/// How far a scalar device width may sit from the truth before the path-space
+/// route takes over: the ratio of the transform's two singular values, allowed to
+/// reach 1% — under the antialiasing floor every gate already tolerates, and far
+/// under the 1.9× that made issue6769's bar visibly fat.
+const MAX_ISOTROPY_ERROR: f32 = 1.01;
+
+/// The ratio of the transform's larger singular value to its smaller — 1 exactly
+/// for a similarity transform, growing with shear or uneven scale.
+fn anisotropy(t: Transform) -> f32 {
+    let max = t.max_stretch();
+    let determinant = t.determinant().abs();
+    if !max.is_finite() || max <= 0.0 || !determinant.is_finite() || determinant <= 0.0 {
+        // Degenerate: no direction to vary a width along; the scalar route is as
+        // good as any.
+        return 1.0;
+    }
+    // |det| = product of the singular values, so min = |det| / max.
+    (max * max) / determinant
+}
+
+fn kurbo_cap(cap: LineCap) -> kurbo::Cap {
+    match cap {
+        LineCap::Butt => kurbo::Cap::Butt,
+        LineCap::Round => kurbo::Cap::Round,
+        LineCap::Square => kurbo::Cap::Square,
+    }
+}
+
+fn kurbo_join(join: LineJoin) -> kurbo::Join {
+    match join {
+        LineJoin::Miter => kurbo::Join::Miter,
+        LineJoin::Round => kurbo::Join::Round,
+        LineJoin::Bevel => kurbo::Join::Bevel,
+    }
+}
+
 /// Cuts the dash pattern, in path space, or returns `None` for a solid stroke.
 ///
 /// ISO 32000-2 §8.4.3.6: an empty dash array — or one whose lengths sum to
@@ -126,7 +209,11 @@ fn dash(geometry: &Path, s: &Stroke, width: f32, dots: &mut Path) -> Option<Path
     let phase = f64::from(s.dash_phase);
     if let Some(showing) = pdf_render::dashes_showing_direction(&s.dash_array, s.cap) {
         let pattern: Vec<f64> = showing.iter().copied().map(f64::from).collect();
-        let cut = from_bez(kurbo::dash(source.elements().iter().copied(), phase, &pattern));
+        let cut = from_bez(kurbo::dash(
+            source.elements().iter().copied(),
+            phase,
+            &pattern,
+        ));
         let marks = pdf_render::split_dash_marks(&cut, s.cap, width);
         dots.extend(marks.dots.commands());
         Some(marks.stroked)

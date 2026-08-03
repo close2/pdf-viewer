@@ -1,8 +1,8 @@
-//! The number the brief's §6.2 judges everything by: wall-clock `rasterize` time
+//! The number `RENDER_LIBRARY.md` section 6.2 judges everything by: wall-clock `rasterize` time
 //! on the dense page, all three backends, same display list, same target.
 //!
 //! Run with `--release`. The CPU baseline the brief quotes is 5.9 ms at 1191×1684;
-//! §6.2 calls a third of that a success and a tenth a clear win.
+//! `RENDER_LIBRARY.md` section 6.2 calls a third of that a success and a tenth a clear win.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use std::time::Instant;
@@ -10,7 +10,11 @@ use std::time::Instant;
 use pdf_render::{Rasterizer, TargetSpec};
 use pdf_syntax::Document;
 
-fn fastest<R: Rasterizer>(backend: &mut R, list: &pdf_render::DisplayList, target: TargetSpec) -> f64
+fn fastest<R: Rasterizer>(
+    backend: &mut R,
+    list: &pdf_render::DisplayList,
+    target: TargetSpec,
+) -> f64
 where
     R::Error: std::fmt::Display,
 {

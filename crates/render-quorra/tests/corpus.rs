@@ -23,14 +23,14 @@
 //!   be one somebody wrote down rather than one nobody counted.
 //! - **Speed**, both totals and the per-page median ratio, which answer different questions.
 //!   A GPU frame here includes the readback to system memory, which a windowed host does not
-//!   pay — `doc/RENDER_LIBRARY.md` §6.1 measures that at 55% to 92% of a frame — so the
+//!   pay — `RENDER_LIBRARY.md` section 6.1 measures that at 55% to 92% of a frame — so the
 //!   ratio below is the *offscreen* one and says nothing directly about the window.
 //!
 //! # Running it
 //!
-//! ```text
+//! ``text
 //! cargo test --release -p render-quorra --test corpus -- --ignored --nocapture
-//! ```
+//! ``
 //!
 //! `PDFVIEWER_QUORRA_ONLY=a,b` restricts it to matching file names and **refuses to check the
 //! ratchets**, saying so — a list held to equality over a subset would report every document
@@ -63,7 +63,7 @@ const SCALE: f32 = 1.0;
 /// The scale to render at, which `PDFVIEWER_QUORRA_SCALE` may override.
 ///
 /// It exists for the speed half of this gate rather than the fidelity half. A GPU frame's
-/// cost is dominated by a per-pixel floor and a readback (`doc/RENDER_LIBRARY.md` §6.1) while
+/// cost is dominated by a per-pixel floor and a readback (`RENDER_LIBRARY.md` section 6.1) while
 /// this tree's CPU rasterisation grows with the pixels, so the ratio between them is a
 /// *function of the scale* and one scale cannot say which way it runs — the same trap ADR
 /// 0136 met comparing `rasterrocket` at 72 and 150 dpi. Overriding it **skips the ratchets**,
@@ -93,23 +93,17 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// Held to equality in both directions: a page arriving here is a new hole in the backend,
 /// and a page leaving it is a hole closed. The reason each one gives is printed by the run.
 ///
-/// **Six of the seven give one reason and its own arithmetic does not support it**: "frame
-/// needs N bytes of instance data, over the stated budget of 33554432", where N is 21 093 on
-/// `issue14497.pdf`, 1 170 768 on `tiling-pattern-large-steps.pdf` and 29 666 103 on
-/// `bug1721218_reduced.pdf` — every one of them *under* the budget it is compared against.
-/// Either the message names the wrong budget or the comparison is against the wrong quantity;
-/// it is the backend's to answer, and this list is where it will show when it does. The
-/// seventh, `issue17848.pdf`, is a mesh shading with no visible raster, which the display list
-/// can carry and this backend says it cannot draw.
-const REFUSED: [&str; 7] = [
-    "bug1703683_page2_reduced.pdf",
-    "bug1721218_reduced.pdf",
-    "issue14497.pdf",
-    "issue17848.pdf",
-    "issue1905.pdf",
-    "issue9418.pdf",
-    "tiling-pattern-large-steps.pdf",
-];
+/// **One page, and its refusal now says what actually ran out.** `bug1721218_reduced.pdf` is
+/// this viewer's most pathological page by some margin, and quorra refuses it with "the
+/// frame's rasterised coverage outgrew the 16384x16384 scratch image this adapter allows" —
+/// a texture-capacity limit named as one. The six pages that used to sit here beside it were
+/// casualties of the *old* scratch sheet (2048 texels wide, and a refusal message whose
+/// arithmetic contradicted itself — `QUORRA_FEEDBACK.md` section 3); quorra widened the sheet
+/// to the device dimension and all six draw. `issue17848.pdf` left for a different reason:
+/// its mesh shading has no visible raster, pdf.js's issue #17848 traced that to a defective
+/// document, and the backend now draws nothing for it exactly as this viewer's own two
+/// backends always have.
+const REFUSED: [&str; 1] = ["bug1721218_reduced.pdf"];
 
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.
 ///
@@ -121,7 +115,12 @@ const REFUSED: [&str; 7] = [
 /// own pages at 1.18 and this is the same floor on a heavier page. **This group is the floor,
 /// not a defect list** — what would make it one is a page arriving in it whose similarity is
 /// high because the difference is uniform.
-const DIFFERS_AT_THE_EDGES: [&str; 28] = [
+///
+/// `issue4260_reduced.pdf` — once the worst page in the run at similarity 0.49, a grid of
+/// zero-height rectangles drawn blank — arrived here from the shape list when the backend
+/// started asking `pdf_render::split_collapsed_fill` the §10.7.4 question: the grid draws,
+/// and what remains is hairline-mark coverage at the edges.
+const DIFFERS_AT_THE_EDGES: [&str; 29] = [
     "bug1308536.pdf",
     "bug1885505.pdf",
     "bug1992868.pdf",
@@ -140,6 +139,7 @@ const DIFFERS_AT_THE_EDGES: [&str; 28] = [
     "issue19239.pdf",
     "issue21068.pdf",
     "issue2884_reduced.pdf",
+    "issue4260_reduced.pdf",
     "issue7014.pdf",
     "issue7492.pdf",
     "issue8187.pdf",
@@ -157,18 +157,20 @@ const DIFFERS_AT_THE_EDGES: [&str; 28] = [
 /// Something is in a different place or not there at all, and each of these is a question for
 /// the backend rather than for its antialiasing.
 ///
-/// **The head of the list is diagnosed and it is trap 2's shape.** `issue4260_reduced.pdf` at
-/// mean 14.19 and similarity **0.49** is a page of ruling lines written as zero-height
-/// rectangles: §10.7.4 says no shape may disappear, `pdf_render::collapsed` is where that rule
-/// lives so that both backends inherit it, and this backend does not ask for it — `stroke.rs`
-/// asks `pdf-render` for §8.5.3.2's degenerate strokes and nothing asks for §10.7.4's
-/// degenerate fills. The artefacts say it in one look: the CPU backend draws the grid, quorra
-/// draws the surrounding box and nothing inside it. **A device decision added to `pdf-render`
-/// does not announce itself to a backend**, which is exactly why those decisions live there.
-const DIFFERS_IN_SHAPE: [&str; 22] = [
+/// What has already left this list says what examining it buys. `issue4260_reduced.pdf`
+/// (§10.7.4's degenerate fills) moved to the edge group. `issue2177.pdf`, `issue6769.pdf` and
+/// `issue6769_no_matrix.pdf` — sheared pattern marks and a shaded bar drawn fat — agree
+/// outright since the backend routes anisotropically-transformed strokes through path-space
+/// outlining instead of a scalar device width; `bug946506.pdf` agreed with them. The two at
+/// today's head, `issue16038.pdf` and `issue16316.pdf`, are examined and are miniature pages
+/// (73×39 px) of sub-half-pixel hairlines and 8-px text: the two rasterisers put the same ink
+/// on different sides of a pixel boundary, the totals match, and a page that small turns that
+/// fraction into a large mean. Matching `tiny-skia`'s sub-pixel distribution byte-for-byte
+/// would be curve-fitting to another renderer, which quorra's own charter forbids; they stay
+/// listed so a *growth* in their numbers is still a finding.
+const DIFFERS_IN_SHAPE: [&str; 17] = [
     "160F-2019.pdf",
     "22060_A1_01_Plans.pdf",
-    "bug946506.pdf",
     "copy_paste_ligatures.pdf",
     "issue10572.pdf",
     "issue12295.pdf",
@@ -178,12 +180,8 @@ const DIFFERS_IN_SHAPE: [&str; 22] = [
     "issue16316.pdf",
     "issue18030.pdf",
     "issue20232.pdf",
-    "issue2177.pdf",
     "issue269_2.pdf",
-    "issue4260_reduced.pdf",
     "issue4402_reduced.pdf",
-    "issue6769.pdf",
-    "issue6769_no_matrix.pdf",
     "issue7454.pdf",
     "issue840.pdf",
     "knockout_groups_test.pdf",

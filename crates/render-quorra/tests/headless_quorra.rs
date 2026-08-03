@@ -157,7 +157,7 @@ fn cpu_and_quorra_agree_on_unaligned_full_bleed() {
     );
 }
 
-/// The determinism half of the contract (`doc/RENDER_LIBRARY.md` §4.6): the same
+/// The determinism half of the contract (`RENDER_LIBRARY.md` section 4.6): the same
 /// list at the same target renders byte-identically on the same adapter.
 #[test]
 fn quorra_frames_are_deterministic() {

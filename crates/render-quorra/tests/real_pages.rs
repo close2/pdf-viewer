@@ -12,7 +12,7 @@
 //!   add on top of the unavoidable rasteriser-vs-rasteriser antialiasing floor.
 //!   Measured answer: nothing — quorra sits at the Vello backend's exact distance
 //!   from the oracle on every case (see the constants).
-//! - **The quantum's cost envelope**, at the default 1/16: the caller's own §4.5
+//! - **The quantum's cost envelope**, at the default 1/16: the caller's own `RENDER_LIBRARY.md` section 4.5
 //!   decision (ADR 0131, 5× glyph-cache reuse) moves text by at most 1/32 px,
 //!   which trades edge pixels without touching structure. Its measured cost is
 //!   pinned so a quantisation regression shows as a failure, not a drift.
