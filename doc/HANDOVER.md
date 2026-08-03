@@ -94,7 +94,7 @@ that exists (ADR 0146).
 | tests | **961** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the fifteen sessions from the hundred-and-eighty-sixth added thirty. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **34 of them diagnosed and 712 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **35 of them diagnosed and 711 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **912 agree, 44 differ, 1 refused**, 17 not comparable — 29 of the 44 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -587,6 +587,14 @@ name ends in the word "Symbol" (0158), a stamp's gradient painted flat (0160) �
 coverage rule that made eight of them draw (0153), and a font program that draws nothing now
 saying so (0157). The bucket itself went 754 → 715 and 31 pages carry a diagnosis; *seven defects
 nobody could see* is the number to watch.
+
+**And the ninth was a correction rather than a finding, which is why it is here.** Two of the
+eight above quoted an ink table that was **half** ours and `hayro`'s and whole for the three C
+references, because the method file's own command averaged an alpha channel in — a defect
+session 161 found, fixed and wrote down in two places, neither of them the file a session reads
+when it goes hunting. Both ADRs carry the correction, the recipe is repaired, and there is a new
+closed form beside it: the same page at eight times the resolution, which is what says *which*
+renderer is measuring area. ADR 0163.
 
 **And the eighth was a gate rather than a page.** `jp2k-resetprob.pdf` sat first on the ranking
 at 5.03 and its name is a JPEG 2000 coding option; checking that hypothesis meant decoding every
@@ -1731,6 +1739,13 @@ anchor that makes it checkable.
   `magick -colorspace Gray` was averaging alpha in as a fourth channel — so **the tell was that
   the two renderers agreeing with us were the two whose output *format* matched ours**. Ask what
   the agreeing group has in common besides the answer.
+- **A lesson recorded where it was learned and not where it is *used* has not been recorded.**
+  The paragraph above was written in session 161, in this file and in `CONTRADICTED_GLYPH_EDGES`.
+  The recipe in `doc/todo/00-ambiguous-bucket.md` — the file a session opens when it goes hunting
+  — still carried the broken command, and sessions 197 and 199 followed it and drew the same
+  wrong conclusion twice, with the same 2.00 ratio in front of them. Both ADRs carry the
+  correction now and the recipe is fixed. **When a habit lands, ask which document a person will
+  be holding when they need it.** ADR 0163.
 - **Look at the heatmap's shape before opening anything else.** Twelve of the oracle's fourteen
   unexplained pages were diagnosed in two sessions without a debugger: a heatmap that is the
   whole silhouette says colour, one that is glyph outlines says grid-fitting, and the ink table
@@ -2276,3 +2291,4 @@ above rather than here.
 | 199 | An annotation's appearance is a form, so §8.7.2 places its patterns in *its* space — a stamp's gradient was flat | 0160 |
 | 200 | A JPEG 2000 decoder nobody had ever checked: 13 of 30 corpus codestreams disagree with the reference software | 0161 |
 | 201 | §12.3.2.1's other two items: a destination's magnification and its place on the page, owed for sixty-nine sessions after the window arrived | 0162 |
+| 202 | The ink recipe was halving our own page, two sessions ran on it, and the fix for it was written in the wrong file in 161 | 0163 |

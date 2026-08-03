@@ -84,6 +84,14 @@ flagging it nonsymbolic contradicts itself, and the clause says which half wins.
   which is the honest end state: the face is a substitute, so its glyph shapes are this
   machine's rather than the document's, and no verdict can say otherwise. What changed is that
   the page says what it says.
+
+  **Corrected in session 202**: this ADR and the group it added originally read the ink as
+  "ours 9.22, `hayro` 9.08 │ `mupdf` 18.40, `ghostscript` 18.62, `poppler` 18.75" and concluded
+  that three `libfreetype`-linked renderers were darkening stems. The instrument was halving the
+  first two, because our artefacts and `hayro`'s carry an alpha channel and the measuring command
+  was averaging it in. All five are within 0.6 of each other — ours **18.43**, `hayro` **18.16**,
+  `mupdf` 18.40, `ghostscript` 18.62, `poppler` 18.75 — which is ink conserved and the difference
+  confined to where the glyphs are. ADR 0163.
 - The text gate reads it back at **100%**, up from below the 0.90 floor, and
   `TEXT_BELOW_FLOOR` goes 36 → 35. The corpus readback moved 22 849 → 22 852 of 23 269 words.
 - Every other gate is unchanged: the corpus's 80 incomplete documents, the oracle's

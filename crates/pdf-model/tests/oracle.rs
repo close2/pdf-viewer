@@ -1365,7 +1365,39 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// Three of our four distances are below every distance between two references. A diagnosis that
 /// removes a candidate is worth what one that finds a defect is, and unlike reading the picture
 /// it is checkable. ADR 0161.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 6] = [
+/// **`bug1799927.pdf` page 1 is the sixth, and it is where this group finally got a closed
+/// form.** Added in the two-hundred-and-second session from the ranking's top, at 4.57 bounds. It
+/// is an A4 CAD drawing whose text is not text: **2 156 of its 2 331 commands are inline
+/// one-bit stencils, 2 153 of them 7×10 samples**, drawn at 116 ppi onto a 72 dpi page — so every
+/// glyph is about 4.3 × 6.2 device pixels and every one of its samples is well under a pixel.
+///
+/// # The closed form, and no reference is trusted for it
+///
+/// Ink is a *geometric* quantity: it is what the page's marks cover, and a renderer's departure
+/// from it shrinks as the pixels shrink. So the same renderer at rising resolution converges on
+/// the answer, and the limit is the measurement — `poppler` at 72, 288 and 576 dpi gives 12.64,
+/// 11.39, **10.82**, and `mupdf` 13.40 → **11.40**. Nobody's *verdict* is being borrowed; two
+/// programs are being asked the same question at two scales and only the limit is used.
+///
+/// Against that, the five renderers at the page's own scale:
+///
+/// ```text
+/// ours 10.94 │ ghostscript 11.70 │ poppler 12.64 │ mupdf 13.40 │ hayro 5.94
+///            └ the 576 dpi limit is 10.8
+/// ```
+///
+/// **We are the only one of the five already at the geometry**, within 1% of the limit, while the
+/// three C references deposit 8% to 24% more at 72 dpi than *they themselves* deposit at 576.
+/// That is not an accusation: §10.7.4 says to paint "any pixel whose half-open square region
+/// intersects the shape, no matter how small the intersection is", which is exactly what puts
+/// ink where the geometry has none. Ours is ADR 0025's documented departure from that sentence,
+/// and on this page the departure is what lands on the truth. `hayro` at 5.94 is 45% *under* and
+/// its panel is visibly missing most of the stencil text.
+///
+/// Pairwise, ours is nearer every reference (0.018 to 0.037) than any two references are to each
+/// other (0.029 to 0.041), which is the corroboration rather than the finding.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 7] = [
+    "bug1799927.pdf page 1",
     "freeculture.pdf page 1",
     "issue5747.pdf page 1",
     "issue7229.pdf page 1",
@@ -1717,17 +1749,22 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 1] = ["22060_A1_01_Plans.pdf page 1"
 /// which is what makes the verdict ambiguous rather than a contradiction, and it is the bound
 /// doing its job (trap 12 in reverse).
 ///
-/// Ink, `(1 − mean) × 255` on each greyscale artefact, splits the five the way trap 9's third
-/// shape predicts:
+/// Ink, `-alpha off -channel R` on each greyscale artefact:
 ///
 /// ```text
-/// ours 9.22   hayro 9.08  │  mupdf 18.40   ghostscript 18.62   poppler 18.75
+/// ours 18.43   hayro 18.16   mupdf 18.40   ghostscript 18.62   poppler 18.75
 /// ```
 ///
-/// The three C references link one `libfreetype`; we and `hayro` rasterise glyphs ourselves. At
-/// 18 pt on an unscaled page a stem is about a pixel and a half, which is exactly where stem
-/// darkening doubles the ink — the same split `CONTRADICTED_GLYPH_EDGES` measures on twenty
-/// pages, here inside an `ambiguous` verdict because the substitution spread swamps it.
+/// **All five within 0.6 of each other**, which is ink conserved and the difference confined to
+/// where the glyphs are — five substitutes for a face nobody shipped, drawing the same sentence
+/// in the same places.
+///
+/// **This entry first read "ours 9.22, hayro 9.08 │ mupdf 18.40, ghostscript 18.62, poppler
+/// 18.75" and concluded that three `libfreetype` references were darkening stems.** They were
+/// not: our artefacts and `hayro`'s carry an alpha channel and `-colorspace Gray` was averaging
+/// it in, halving both. Session 161 found exactly this and recorded it in
+/// `CONTRADICTED_GLYPH_EDGES`; the recipe in `doc/todo/00-ambiguous-bucket.md` was not corrected
+/// and the two-hundred-and-second session followed the recipe. ADR 0163.
 const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 1] = ["issue8697.pdf page 1"];
 
 /// Ambiguous, and the reason is a JPEG 2000 decoder that is measurably wrong.

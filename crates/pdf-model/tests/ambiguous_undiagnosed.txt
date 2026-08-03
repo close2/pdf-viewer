@@ -41,7 +41,6 @@ bug1538111.pdf page 1
 bug1552113.pdf page 1
 bug1671312_ArialNarrow.pdf page 1
 bug1703683_page2_reduced.pdf page 1
-bug1799927.pdf page 1
 bug1844576.pdf page 1
 bug1844583.pdf page 1
 bug1863910.pdf page 1

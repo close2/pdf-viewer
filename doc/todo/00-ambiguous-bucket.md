@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 712 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 711 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 748 ambiguous pages on documents we call complete; 34 diagnosed, 712 held by name
+Corpus: 748 ambiguous pages on documents we call complete; 35 diagnosed, 711 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -52,8 +52,30 @@ session is that the tree is far enough along for this to be the work.
    page reported complete**, which is the worst thing this bucket hides and has been a real
    defect every time (`issue13372.pdf`, `issue8372.pdf`, `issue13316_reduced.pdf`).
 5. **Measure with a closed form where the clause states one**, and with pairwise distances only
-   as corroboration. `magick <png> -colorspace Gray -format "%[fx:(1-mean)*255]"` is the ink;
-   `magick compare -metric MAE a.png b.png null:` is the pairwise number.
+   as corroboration. The ink is
+
+   ```sh
+   magick <png> -alpha off -channel R -colorspace Gray -format "%[fx:(1-mean)*255]" info:
+   ```
+
+   and `magick compare -metric MAE a.png b.png null:` is the pairwise number.
+
+   **`-alpha off` is not optional and this file said so too late.** Our renders and `hayro`'s
+   carry an alpha channel; `poppler`'s, `mupdf`'s and `ghostscript`'s do not. Without it
+   `-colorspace Gray` averages alpha in as a second channel and returns **exactly half** the ink
+   — so a comparison between our panel and a reference's compares half of one number with all of
+   another, and the two renderers that "agree" with us are the two whose *file format* matches
+   ours. Session 161 found this and wrote it in `CONTRADICTED_GLYPH_EDGES` and in the handover's
+   Habits; the recipe here was not corrected, and the two-hundred-and-second session followed the
+   recipe and drew two wrong conclusions from it (ADR 0163). **A lesson recorded in the place it
+   was learned and not in the place it is used has not been recorded.**
+
+6. **Where the difference is scan conversion, the closed form is the same page at eight times the
+   resolution.** Ink is a geometric quantity and a renderer's departure from it shrinks as the
+   pixels do, so `pdftoppm -r 576` measures what the page's marks actually cover — no reference
+   is being trusted, because the same renderer is being asked at two resolutions and only the
+   *limit* is used. `bug1799927.pdf` is where this paid: at 72 dpi the five renderers span 5.94
+   to 13.40 and the limit is 10.8, which says which of them is measuring area.
 
 ## What a group must say
 
@@ -90,7 +112,7 @@ substituted font drew none of its characters in silence (0152), the coverage rul
 eight of them draw (0153), a pattern cell's clip worth 15% of a page's ink (0155), and a font
 program that draws nothing now saying so (0157).
 
-The bucket itself went 754 → 712, and that is the least interesting number in this file. *Seven
+The bucket itself went 754 → 711, and that is the least interesting number in this file. *Seven
 defects nobody could see* is the one to watch — **and one gate that found thirteen more.**
 `jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own hypothesis, and
 checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus `JPXDecode` stream
@@ -113,7 +135,7 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`bug1799927.pdf` (4.57 from the nearest), `issue1985.pdf` (4.10), `issue7200.pdf` (3.81),
+`issue1985.pdf` (4.10 from the nearest), `issue7200.pdf` (3.81),
 `issue18894.pdf` (3.50), `bug1863910.pdf` (3.03), `issue21068.pdf` (2.82),
 `copy_paste_ligatures.pdf` (2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70, both of
 them within 0.01 of their *furthest*, which is the everybody-against-us shape),

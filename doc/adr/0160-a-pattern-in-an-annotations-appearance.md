@@ -57,10 +57,16 @@ against a run with the fix stashed — so one corpus document's page one has a p
 annotation appearance, and the rest of the aggregate is untouched: 893 agree, 78 contradicted,
 788 ambiguous, before and after.
 
-It is **still ambiguous**, and honestly so: what remains is the glyph-rasterisation split that
-§3a keeps meeting. Ink over the page — ours 22.9, `hayro` 24.2, `mupdf` 47.1, `poppler` 46.7,
-`ghostscript` 50.0 — is trap 9's third shape, three references sharing one `libfreetype` against
-two Rust renderers that do not.
+It is **still ambiguous**, and honestly so: five renderers substitute five faces for a font the
+file does not embed, and the box is drawn at 166×55 points where a rounded corner is two pixels.
+
+**The ink table this section first carried was wrong and the correction is ADR 0163's.** It read
+"ours 22.9, `hayro` 24.2, `mupdf` 47.1, `poppler` 46.7, `ghostscript` 50.0" and called the split
+trap 9's third shape — three references sharing one `libfreetype` against two Rust renderers.
+There is no split: our artefacts and `hayro`'s carry an alpha channel that the measuring command
+was averaging in, halving both. The five are ours **45.71**, `hayro` 48.33, `poppler` 46.69,
+`mupdf` 47.08, `ghostscript` 50.00 — a spread of 9%, with `ghostscript` the outlier rather than
+us.
 
 ## The lesson, and it is the third time this row has been wrong
 
