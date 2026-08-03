@@ -1086,7 +1086,6 @@ impl App {
             self.dispatch(Command::RenderReady { token, rendered });
         }
     }
-
 }
 
 impl ApplicationHandler for App {
@@ -1477,4 +1476,3 @@ fn ask_password(name: &str) -> Option<String> {
     let password = line.trim_end_matches(['\r', '\n']).to_owned();
     (!password.is_empty()).then_some(password)
 }
-
