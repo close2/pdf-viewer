@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~185 of the 239 rows have not been re-read.
+Status: **standing task.** ~185 of the 240 rows have not been re-read.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -63,10 +63,12 @@ because a reader only ever *reads* one (ADR 0129).
 
 ## What is still owed, named
 
-- **§12.8.2.3's `should`**, opened by the session above and not closed: "A PDF processor that
-  modifies a PDF, with a UR signature in excess of the rights that are granted by that signature,
-  should remove that signature prior to writing the newly modified PDF." `pdf_syntax::write`
-  appends §7.5.6's incremental update and removes nothing.
+- ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).
+  Table 258's rights are read, `ViewState::save` rewrites the permissions dictionary without its
+  `/UR3` where a save would exceed them, and the condition was *counted* before it was trusted:
+  all four corpus documents carrying a `/UR3` grant what this program does, so no file here can
+  trip it. What is still owed under §12.8.2.3 is §12.8.2.2.2's comparison of two revisions, which
+  needs the digest.
 - **~185 `partial` rows** not yet re-read against the code.
 - **The 33 `reported` rows are worked out** — all read in the hundred-and-twenty-first and
   -second, and none is of the two known failure classes (a true observation about the wrong half

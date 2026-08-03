@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pdf_model::signature::{Coverage, permissions, signatures};
+use pdf_model::signature::{Coverage, Right, UsageRights, permissions, signatures};
 use pdf_syntax::Document;
 
 /// The pdf.js corpus, or `None` when the submodule is not checked out.
@@ -24,6 +24,79 @@ fn corpus() -> Option<Vec<PathBuf>> {
         .collect();
     files.sort();
     Some(files)
+}
+
+/// What a document's `/UR3` grants of the two rights this program can exceed.
+///
+/// §12.8.2.3's `should` binds a processor that writes, and what it binds is "modif[ying] a PDF …
+/// in excess of the rights that are granted". This program fills in a field and saves, so those
+/// are the two to ask about — and the point of printing them is trap 11's: the condition is
+/// derived from the clause and then *counted*, rather than assumed to have members.
+fn granted(name: &str, rights: &UsageRights) -> String {
+    format!(
+        "{name}: FillIn {}, FullSave {}, /P {}, /V 2.2 {}",
+        rights.grants(Right::FillInForm),
+        rights.grants(Right::FullSave),
+        rights.restrictive,
+        rights.version_understood
+    )
+}
+
+/// Whether filling in a field and saving would exceed what this document grants.
+fn exceeded(rights: &UsageRights) -> bool {
+    !rights.grants(Right::FillInForm) || !rights.grants(Right::FullSave)
+}
+
+/// §12.8.2.3's condition, counted over the corpus rather than assumed to have members.
+///
+/// > A PDF processor that modifies a PDF, with a UR signature in excess of the rights that are
+/// > granted by that signature, should remove that signature prior to writing the newly modified
+/// > PDF.
+///
+/// **It has no members, and that is the finding rather than a gap.** All four documents carrying
+/// a `/UR3` grant `/Form /FillIn` and `/Document /FullSave`, which is exactly what this program
+/// does to a document, and all four come out `/P false` — two say so, two leave it to Table
+/// 258's default — which is the entry that says "any possible restriction may be ignored", so
+/// the arrays are not even reached. So `ViewState::save` withdraws no
+/// signature on any file this corpus holds, and `usage_rights_are_withdrawn_when_a_save_exceeds
+/// _them` in `forms_data.rs` is what exercises the code, on a file written for it. Held at zero
+/// here so that a document arriving which *does* trip it announces itself. ADR 0159.
+#[test]
+fn no_corpus_documents_usage_rights_are_exceeded_by_what_this_program_does() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+
+    let mut stated = Vec::new();
+    let mut withdrawn = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let Some(rights) = permissions(&document).usage_rights else {
+            continue;
+        };
+        stated.push(granted(&name, &rights));
+        if exceeded(&rights) {
+            withdrawn.push(name.to_string());
+        }
+    }
+
+    println!("§12.8.2.3's usage rights, and what they grant this program:");
+    for entry in &stated {
+        println!("  {entry}");
+    }
+    assert_eq!(stated.len(), 4, "documents with a /UR3: {stated:?}");
+    assert!(
+        withdrawn.is_empty(),
+        "no corpus document's usage rights are exceeded by filling in a field and saving: \
+         {withdrawn:?}"
+    );
 }
 
 /// Every corpus signature, with what its range covers and what its document permits.
@@ -51,7 +124,7 @@ fn every_signed_corpus_document_says_what_it_signed() {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         let found = signatures(&document);
         let perms = permissions(&document);
-        if perms.doc_mdp.is_some() || perms.usage_rights {
+        if perms.doc_mdp.is_some() || perms.usage_rights.is_some() {
             with_permissions.push(format!("{name}: {perms:?}"));
         }
         if found.is_empty() {
@@ -89,7 +162,6 @@ fn every_signed_corpus_document_says_what_it_signed() {
     println!("  ranges with an unsigned tail: {unsigned_tails:?}");
     println!("  ranges that do not describe this file: {malformed:?}");
     println!("documents stating §12.8.6 permissions: {with_permissions:?}");
-
     assert_eq!(
         signed.len(),
         6,

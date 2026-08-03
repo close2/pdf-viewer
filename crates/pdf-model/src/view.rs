@@ -518,6 +518,11 @@ impl ViewState {
                 update.put(id, Object::Dictionary(form));
             }
         }
+        if !update.is_empty()
+            && let Some((id, catalog)) = withdrawn_usage_rights(document)
+        {
+            update.put(id, Object::Dictionary(catalog));
+        }
         pdf_syntax::write::incremental_update(document, &update.replacements)
     }
 
@@ -1091,6 +1096,65 @@ fn interactive_form(document: &Document) -> Option<(ObjectId, Dictionary)> {
     let catalog = document.catalog().ok()?;
     let id = catalog.get("AcroForm").and_then(Object::as_reference)?;
     Some((id, document.get(id).as_dict().cloned()?))
+}
+
+/// §12.8.2.3's withdrawal: the object to rewrite so that `/UR3` is gone, if it has to go.
+///
+/// > A PDF processor that modifies a PDF, with a UR signature in excess of the rights that are
+/// > granted by that signature, should remove that signature prior to writing the newly modified
+/// > PDF.
+///
+/// A `should`, and the only clause in §12.8 that binds this program because it *writes* rather
+/// than because it reads. What it modifies is a form field's value and then the file itself, so
+/// the two rights to check are Table 258's `/Form /FillIn` and `/Document /FullSave`; where
+/// either is withheld, the signature stops applying to the file this program is about to
+/// produce, and leaving it there would leave a statement about bytes nobody signed.
+///
+/// # What "remove that signature" is, in a file that may only be appended to
+///
+/// `CLAUDE.md` permits §7.5.6's incremental update and nothing else, so the signature *object*
+/// stays in the file — the producer's bytes always do. What is removed is the permissions
+/// dictionary's `/UR3` entry, which is the only thing that makes the object a grant: §12.8.6
+/// defines a usage rights signature as the one "referred to from the UR3 entry in the
+/// permissions dictionary", so a `/Perms` without that key refers to none. The object is
+/// unreachable as a usage rights signature the moment the entry is, which is the same
+/// construction §7.5.6 uses for a deletion.
+///
+/// `/Perms` is rewritten where the catalog states it indirectly and the catalog itself where it
+/// does not, because an update replaces objects and a direct dictionary has no identity to
+/// replace. That is the same distinction `interactive_form` draws for `/AcroForm`, and unlike
+/// there it cannot fail: the catalog always has an object number.
+///
+/// # Measured, not assumed: the condition has no members in the corpus
+///
+/// Four of the 974 documents carry a `/UR3` — `160F-2019.pdf`, `issue6127.pdf`,
+/// `prefilled_f1040.pdf` and `xfa_filled_imm1344e.pdf` — and **all four grant `/Form /FillIn`
+/// and `/Document /FullSave`**, which is precisely what this program does. All four also come
+/// out `/P false` — two say so and two leave it to Table 258's default — and that entry says
+/// outright that "any possible restriction may be ignored", so the arrays are not even reached.
+/// Nothing this program can do to a corpus document exceeds its rights, and this function
+/// returns `None` for all four. It is written because the
+/// clause is, not because a file asked — trap 11's discipline with the answer the other way up.
+/// ADR 0159.
+fn withdrawn_usage_rights(document: &Document) -> Option<(ObjectId, Dictionary)> {
+    use crate::signature::Right;
+
+    let rights = crate::signature::permissions(document).usage_rights?;
+    if rights.grants(Right::FillInForm) && rights.grants(Right::FullSave) {
+        return None;
+    }
+    let catalog = document.catalog().ok()?;
+    if let Some(id) = catalog.get("Perms").and_then(Object::as_reference) {
+        let mut perms = document.get(id).as_dict().cloned()?;
+        perms.remove("UR3");
+        return Some((id, perms));
+    }
+    let id = document.trailer().get("Root")?.as_reference()?;
+    let mut catalog = catalog;
+    let mut perms = catalog.get("Perms")?.as_dict().cloned()?;
+    perms.remove("UR3");
+    catalog.insert(Name::new(&b"Perms"[..]), Object::Dictionary(perms));
+    Some((id, catalog))
 }
 
 /// Whether the document's own permissions let a person fill in a form field (§12.8.2.2).

@@ -136,6 +136,29 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
         )),
         None => {}
     }
+    // §12.8.2.3's `should` is obeyed silently otherwise, and a signature disappearing from a
+    // file is not a thing to do without saying so first: "A PDF processor that modifies a PDF,
+    // with a UR signature in excess of the rights that are granted by that signature, should
+    // remove that signature prior to writing the newly modified PDF." The note is said when the
+    // document opens rather than when it is saved, because that is when a person can still
+    // decide not to.
+    if let Some(rights) = pdf_model::signature::permissions(document).usage_rights {
+        let fills = rights.grants(pdf_model::signature::Right::FillInForm);
+        let saves = rights.grants(pdf_model::signature::Right::FullSave);
+        if fills && saves {
+            notes.push(
+                "this document carries a usage rights signature (§12.8.2.3's /UR3, deprecated \
+                 in PDF 2.0), and it grants filling in a field and saving"
+                    .to_owned(),
+            );
+        } else {
+            notes.push(
+                "this document carries a usage rights signature (§12.8.2.3's /UR3) that does \
+                 not grant filling in a field and saving, so saving a change will remove it"
+                    .to_owned(),
+            );
+        }
+    }
     notes.push(
         "signatures are not verified — this program has no certificate store, so it says what a \
          signature claims and never whether it is valid"

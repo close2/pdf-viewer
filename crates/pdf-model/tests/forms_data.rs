@@ -491,6 +491,82 @@ fn certified_form(level: i64) -> Vec<u8> {
     rebuilt(&format!("{body}{signature}"))
 }
 
+/// A form whose author attached §12.8.2.3's usage rights signature, granting `form` rights.
+///
+/// The `/UR3` sits in the catalog's `/Perms` as a *direct* dictionary here, which is the harder
+/// of the two shapes `withdrawn_usage_rights` handles: a direct dictionary has no object number
+/// of its own, so the catalog is what has to be rewritten.
+fn form_with_usage_rights(form_rights: &str) -> Vec<u8> {
+    let form = String::from_utf8(form()).expect("the fixture is ASCII");
+    let with_perms = form.replace(
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm",
+        "<< /Type /Catalog /Perms << /UR3 8 0 R >> /Pages 2 0 R /AcroForm",
+    );
+    assert_ne!(with_perms, form, "the fixture states a catalog");
+    let signature = format!(
+        "8 0 obj\n<< /Type /Sig /Reference [9 0 R] >>\nendobj\n\
+         9 0 obj\n<< /Type /SigRef /TransformMethod /UR3 \
+         /TransformParams << /Type /TransformParams /V /2.2 /P true \
+         /Document [/FullSave] /Form [{form_rights}] >> >>\nendobj\n"
+    );
+    let body = with_perms
+        .split_once("xref\n")
+        .map_or(with_perms.as_str(), |(body, _)| body);
+    rebuilt(&format!("{body}{signature}"))
+}
+
+/// §12.8.2.3: a save in excess of what a usage rights signature grants withdraws it.
+///
+/// > A PDF processor that modifies a PDF, with a UR signature in excess of the rights that are
+/// > granted by that signature, should remove that signature prior to writing the newly modified
+/// > PDF.
+///
+/// The two fixtures differ in one name — `/Form [/FillIn]` against `/Form [/Import]` — so the
+/// same edit is inside the grant in one and outside it in the other, which is what makes this a
+/// test of the clause rather than of a flag. Both state `/P true`, because Table 258's default
+/// of `false` says "any possible restriction may be ignored" and a fixture at the default would
+/// pass whatever the code did.
+///
+/// **What is removed is the `/Perms` entry, not the object.** `CLAUDE.md` permits only §7.5.6's
+/// incremental update, so the signature's bytes stay where the producer put them; §12.8.6 makes
+/// a usage rights signature the one "referred to from the UR3 entry in the permissions
+/// dictionary", and after this save there is no such entry. ADR 0159.
+#[test]
+fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
+    let granted = Document::open(form_with_usage_rights("/FillIn")).expect("a valid PDF");
+    let mut view = ViewState::of(&granted);
+    assert_eq!(view.set_field(&granted, "name", Some("typed")), 1);
+    let saved = view.save(&granted).expect("the fixture can be updated");
+    let reopened = Document::open(saved).expect("what was written is a PDF");
+    assert!(
+        pdf_model::signature::permissions(&reopened)
+            .usage_rights
+            .is_some(),
+        "filling in a field is what /Form [/FillIn] grants, so the signature stands"
+    );
+
+    let withheld = Document::open(form_with_usage_rights("/Import")).expect("a valid PDF");
+    let mut view = ViewState::of(&withheld);
+    assert_eq!(view.set_field(&withheld, "name", Some("typed")), 1);
+    let saved = view.save(&withheld).expect("the fixture can be updated");
+    let reopened = Document::open(saved).expect("what was written is a PDF");
+    assert!(
+        pdf_model::signature::permissions(&reopened)
+            .usage_rights
+            .is_none(),
+        "/Form [/Import] does not grant filling in, so the signature is withdrawn"
+    );
+    // The rest of the permissions dictionary survives: this removes one entry, not the feature.
+    let catalog = reopened.catalog().expect("the fixture has a catalog");
+    assert!(
+        reopened.get_key(&catalog, "Perms").as_dict().is_some(),
+        "the permissions dictionary is still there, without its /UR3"
+    );
+    // And the value the person typed is in the file that came back.
+    let (after, _) = drawn(&reopened, &ViewState::of(&reopened));
+    assert!(after.contains("typed"), "{after:?}");
+}
+
 /// §12.8.2.2's `/P` 1 prevents a change rather than only invalidating a signature.
 ///
 /// ISO 32000-2 §12.8.2.2.1, in a parenthesis that is easy to read past:

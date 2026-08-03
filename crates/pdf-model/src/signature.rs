@@ -184,12 +184,112 @@ impl Signature {
 pub struct Permissions {
     /// `/DocMDP`'s signature, and the `/P` level its transform parameters state.
     pub doc_mdp: Option<Modification>,
-    /// Whether `/UR3` is present: a usage rights signature, deprecated in PDF 2.0.
+    /// `/UR3`'s usage rights signature and what Table 258 says it grants.
     ///
-    /// Read as a flag rather than as a signature, because what it grants is "the enabling of
-    /// features of a PDF processor that are not available by default" — a permission about
-    /// *this program*, which this program does not have a way to be asked for.
-    pub usage_rights: bool,
+    /// `None` where the permissions dictionary states no `/UR3`. Deprecated in PDF 2.0 — the
+    /// clause opens by saying so — and read anyway, because four corpus documents carry one and
+    /// §12.8.2.3 puts an obligation on a processor that *writes*.
+    pub usage_rights: Option<UsageRights>,
+}
+
+/// §12.8.2.3's UR transform parameters. Table 258.
+///
+/// # What this is for, and it is not for enabling anything
+///
+/// The clause's own framing is that the parameters "spec[ify] the additional rights that shall
+/// be enabled if the signature is valid", which is a statement about a processor with features
+/// behind a gate. This one has none: every operation it can perform, it performs on every
+/// document. What it does have is the clause's other sentence, addressed to whoever writes:
+///
+/// > A PDF processor that modifies a PDF, with a UR signature in excess of the rights that are
+/// > granted by that signature, should remove that signature prior to writing the newly
+/// > modified PDF.
+///
+/// So the rights are read to answer one question — whether a save exceeds them — and
+/// [`UsageRights::grants`] is that question. ADR 0159.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UsageRights {
+    /// `/Document` — Table 258's only defined value is `FullSave`.
+    pub document: Vec<String>,
+    /// `/Annots` — `Create`, `Delete`, `Modify`, `Copy`, `Import`, `Export`, and PDF 1.6's
+    /// `Online` and `SummaryView`.
+    pub annots: Vec<String>,
+    /// `/Form` — `Add`, `Delete`, `FillIn`, `Import`, `Export`, `SubmitStandalone`,
+    /// `SpawnTemplate`, and PDF 1.6's `BarcodePlaintext` and `Online`.
+    pub form: Vec<String>,
+    /// `/Signature` — Table 258's only defined value is `Modify`.
+    pub signature: Vec<String>,
+    /// `/EF` — `Create`, `Delete`, `Modify`, `Import` for named embedded files.
+    pub embedded_files: Vec<String>,
+    /// Whether `/V` is the `2.2` §12.8.2.3's Table 258 requires.
+    ///
+    /// > The value shall be 2.2 . If an unknown version is present, no rights shall be enabled.
+    /// > NOTE This value is a name object, not a number. Default value: 2.2 .
+    ///
+    /// False means the version was stated and was something else, which the clause turns into
+    /// *no rights at all* rather than into a parse failure.
+    pub version_understood: bool,
+    /// Table 258's `/P`: "If false , any possible restriction may be ignored."
+    ///
+    /// Default `false`, which the table states, and which is why this is the first thing
+    /// [`UsageRights::grants`] reads: a document that has not asked for its restrictions to be
+    /// honoured has granted everything.
+    pub restrictive: bool,
+}
+
+/// What this program does to a document, in Table 258's own vocabulary.
+///
+/// One variant per verb this program has. It is deliberately not the whole table: a right no
+/// operation of ours can exceed is a right there is nothing to check against, and inventing an
+/// enum arm for it would claim otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Right {
+    /// Filling in a form field — `/Form /FillIn`, which Table 258 describes as permitting "the
+    /// user to save a document on which form fill-in has been done".
+    FillInForm,
+    /// §12.7.6.4's import of an FDF file into the form — `/Form /Import`.
+    ImportFormData,
+    /// Writing the modified file — `/Document /FullSave`.
+    FullSave,
+}
+
+impl UsageRights {
+    /// Whether Table 258 grants this operation.
+    ///
+    /// Two rules come before the arrays, in this order:
+    ///
+    /// - `/P` false, which is the table's default, means "any possible restriction may be
+    ///   ignored" — so everything is granted and nothing can be in excess.
+    /// - a `/V` other than `2.2` means "no rights shall be enabled", so nothing is granted.
+    ///
+    /// They are read in that order because the second is a rule about the *rights*, and the
+    /// first says the rights need not be consulted at all.
+    #[must_use]
+    pub fn grants(&self, right: Right) -> bool {
+        if !self.restrictive {
+            return true;
+        }
+        if !self.version_understood {
+            return false;
+        }
+        let named = |list: &[String], name: &str| list.iter().any(|entry| entry == name);
+        match right {
+            Right::FillInForm => named(&self.form, "FillIn"),
+            Right::ImportFormData => named(&self.form, "Import"),
+            // Table 258's implicit-FullSave rule, and the sentence that narrows it: "If the PDF
+            // document contains a UR3 dictionary, only rights specified by the Annots entry that
+            // permit the document to be modified shall implicitly enable the FullSave right."
+            // This *is* a UR3 dictionary, so the narrow reading is the one that applies, and the
+            // four modifying annotation rights are the ones the table names.
+            Right::FullSave => {
+                named(&self.document, "FullSave")
+                    || ["Create", "Delete", "Modify", "Import"]
+                        .iter()
+                        .any(|name| named(&self.annots, name))
+            }
+        }
+    }
 }
 
 /// §12.8.2.2's `/P`: which changes the author's signature survives. Table 257.
@@ -322,8 +422,73 @@ pub fn permissions(document: &Document) -> Permissions {
             .get_key(perms, "DocMDP")
             .as_dict()
             .and_then(|signature| modification(document, signature)),
-        usage_rights: !matches!(document.get_key(perms, "UR3"), Object::Null),
+        usage_rights: document
+            .get_key(perms, "UR3")
+            .as_dict()
+            .and_then(|signature| usage_rights(document, signature)),
     }
+}
+
+/// Table 258's parameters, found through the signature's `/Reference` chain.
+///
+/// The walk is `modification`'s, one transform method over: §12.8.2.1 makes `/Reference` an
+/// array of signature reference dictionaries and the transform method is what says which of them
+/// this is. A `/UR3` whose reference chain names no `UR` transform states no rights, which is
+/// `None` rather than an empty grant — the difference matters, because an empty [`UsageRights`]
+/// with `/P` true would refuse everything.
+fn usage_rights(document: &Document, signature: &Dictionary) -> Option<UsageRights> {
+    let references = document.get_key(signature, "Reference");
+    let references = references.as_array()?.to_vec();
+    for reference in &references {
+        let resolved = document.resolve(reference);
+        let Some(reference) = resolved.as_dict() else {
+            continue;
+        };
+        // "UR" is the transform method's name; `/UR3` is the permissions dictionary's key for
+        // the signature that carries it, and the two are not the same string. Table 259 also
+        // records the older `/UR`, which producers still write.
+        let is_ur = document
+            .get_key(reference, "TransformMethod")
+            .as_name()
+            .is_some_and(|method| matches!(method.as_bytes(), b"UR3" | b"UR"));
+        if !is_ur {
+            continue;
+        }
+        let parameters = document.get_key(reference, "TransformParams");
+        let Some(parameters) = parameters.as_dict() else {
+            continue;
+        };
+        let names = |key: &str| {
+            document
+                .get_key(parameters, key)
+                .as_array()
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|entry| {
+                            document
+                                .resolve(entry)
+                                .as_name()
+                                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+                        })
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default()
+        };
+        return Some(UsageRights {
+            document: names("Document"),
+            annots: names("Annots"),
+            form: names("Form"),
+            signature: names("Signature"),
+            embedded_files: names("EF"),
+            version_understood: document
+                .get_key(parameters, "V")
+                .as_name()
+                .is_none_or(|version| version.as_bytes() == b"2.2"),
+            restrictive: matches!(document.get_key(parameters, "P"), Object::Boolean(true)),
+        });
+    }
+    None
 }
 
 /// Table 257's `/P`, found through the signature's `/Reference` chain.
@@ -705,7 +870,7 @@ mod tests {
             Some(Modification::FormFilling),
             "/P 2 permits form filling and signing"
         );
-        assert!(!permissions(&doc).usage_rights);
+        assert!(permissions(&doc).usage_rights.is_none());
     }
 
     /// A prepared but unsigned signature field is not a signature.
