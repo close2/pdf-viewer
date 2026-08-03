@@ -156,9 +156,14 @@ exist yet.**
 | `freeculture.pdf` (320) and `pdkids.pdf` (52) | **372 — two long books, half the bucket** |
 | documents contributing exactly **one** page | ~154 |
 
-Two books and a long tail of single pages. The books are set in fonts nobody embedded, so each
-renderer substitutes differently and the *bound* is loose because the references disagree with
-one another. **Take the tail first**: each of those is a file somebody added to a corpus for a
+Two books and a long tail of single pages. **The books are not what this file said they were.**
+It read "set in fonts nobody embedded, so each renderer substitutes differently", and `pdffonts`
+says `freeculture.pdf` embeds all four of its fonts — nothing substitutes on any of its pages
+(the two-hundred-and-twenty-ninth session, `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`). What they are is
+dense text at book size, which earns the page the *text* tolerance: 0.90 similarity, measured
+over 153 reference-against-reference pairs because five rasterisers cannot agree more closely
+than that about small glyphs. The bound is loose for a reason that was measured, not for a reason
+about the file. **Take the tail first**: each of those is a file somebody added to a corpus for a
 reason, and the reason is written down.
 
 ## The next names on the ranking
