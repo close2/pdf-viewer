@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 702 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 699 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (748 on documents we call complete); 58 diagnosed, 702 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 62 diagnosed, 699 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -163,10 +163,14 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`issue4706.pdf` (1.61 from the nearest), `issue18529.pdf` (1.56), `issue6006.pdf` (1.52),
-`issue4402_reduced.pdf` (1.41), `freeculture.pdf` page 255 (1.37), `issue7339_reduced.pdf`
-(1.30), `issue11131_reduced.pdf` (1.23) — and then the long book begins, four of the next six
-being `freeculture.pdf`.
+`issue4402_reduced.pdf` (1.41 from the nearest), `freeculture.pdf` page 255 (1.37),
+`issue7339_reduced.pdf` (1.30), `issue11131_reduced.pdf` (1.23) — and then the long book begins,
+four of the next six being `freeculture.pdf`.
+
+**`issue18529.pdf` left the list with a difference, not with an explanation**, and it is the one
+name here worth coming back to: ours and `hayro` are both 5.8% under the high-resolution limit on
+a 65×50 page that is one §8.7.4.5.3 gradient, and the three C renderers are on it. 1.3 of 255,
+and the two renderers on one side of it are the two that share no library with the other three.
 
 **The whole of the list above 1.6 went in the two-hundred-and-fifteenth session**, six pages in
 one sitting, and the shape of that result is worth as much as the pages: **the ranking's top is

@@ -2236,6 +2236,62 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
+/// Ambiguous, because one reference drew a blank page and the other three agree with us.
+///
+/// `issue6006.pdf` is 100×100 and is one §8.7.4.5.4 radial shading — red at the rim, white, blue
+/// at the centre. It sat at 1.52 from the nearest reference and **78.43 from the furthest**,
+/// which is the whole diagnosis in two numbers: `ghostscript` renders it as white paper, ink
+/// **0.00**, and a renderer that drew nothing is 78 bounds away from everybody.
+///
+/// The other four:
+///
+/// ```text
+/// ink        ours 126.13   hayro 126.11   poppler 126.18   mupdf 126.58   ghostscript 0.00
+/// vs ours (MAE)           hayro 3.2      poppler 651      mupdf 522      ghostscript 26876
+/// ```
+///
+/// and the geometry, from two ladders at 576 dpi, is `poppler` 126.134 and `mupdf` 126.386 —
+/// **ours is 0.13 from it**. §8.7.4.5.4 states the construction exactly and four of the five
+/// renderers here execute it; the fifth is trap 9's "an unimplemented feature has a default"
+/// with the default being *nothing*, which is the shape that makes a page ambiguous rather than
+/// contradicted because there is no consensus left to contradict.
+///
+/// **Not to be confused with `doc/todo/12`**, which is a radial defect this tree does have: that
+/// is §8.7.4.5.4's greatest *admissible* root on a cone whose circles do not contain one
+/// another, and this page's circles are concentric, where every gradient implementation agrees.
+const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 1] = ["issue6006.pdf page 1"];
+
+/// Ambiguous, and both pages are gradients on a page too small for a bound to be loose.
+///
+/// `issue4706.pdf` is an A4 page of vector artwork and `issue18529.pdf` is 65×50 with a red
+/// gradient frame. Neither is a defect this gate can name, and the two of them together say what
+/// the *bound* is doing, which is why they share an entry.
+///
+/// Step 6's closed form, taken with two ladders because one cannot tell convergence from drift
+/// (the two-hundred-and-sixteenth session's lesson):
+///
+/// ```text
+///                    limit    ours     hayro    poppler   mupdf    ghostscript
+/// issue4706.pdf      8.66     8.664    8.664    8.746     8.635    8.624
+/// issue18529.pdf    23.21    21.874   21.933   23.166    23.391   24.226
+/// ```
+///
+/// **On `issue4706.pdf` ours is 0.004 from the geometry and byte-identical to `hayro`** — MAE
+/// exactly 0 over 595×842, where `ghostscript` is 23 away, `mupdf` 140 and `poppler` 273. Two
+/// renderers sharing no rasteriser (`hayro` draws through `vello_cpu`, this tree through
+/// `tiny-skia`) producing the same bytes is what an axis-aligned page with no anti-aliased edge
+/// looks like from the inside, and the page is ambiguous only because a vector page's bound is
+/// 0.99 similarity and the three C renderers spread 0.12 of ink between them.
+///
+/// **On `issue18529.pdf` ours and `hayro` are both 5.8% under the limit and the three C
+/// renderers are on it**, which is a real difference and a small one: 1.3 of 255 on a page that
+/// is one gradient. It is named rather than diagnosed — what separates two implementations of
+/// §8.7.4.5.3's ramp on a 65×50 raster is a question worth a session of its own, and the two
+/// renderers on one side of it are the two that do not share `libfreetype`, `lcms` or anything
+/// else.
+const AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND: [&str; 2] =
+    ["issue4706.pdf page 1", "issue18529.pdf page 1"];
+
 /// Ambiguous, and eighty-two per cent of the page is within *one level* of `poppler`.
 ///
 /// `issue7821.pdf` is a 166×55 "APPROVED" stamp whose whole area is one §8.7.4.5.3 axial
@@ -2343,6 +2399,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_GRADIENT_QUANTISATION)
         .chain(&AMBIGUOUS_OUTLINED_TEXT)
         .chain(&AMBIGUOUS_TILED_STROKES)
+        .chain(&AMBIGUOUS_REFERENCE_DREW_NOTHING)
+        .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
         .copied()

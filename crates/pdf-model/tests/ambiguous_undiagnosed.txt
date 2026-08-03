@@ -476,7 +476,6 @@ issue16473.pdf page 1
 issue16742.pdf page 1
 issue17065.pdf page 1
 issue18072.pdf page 1
-issue18529.pdf page 1
 issue18911.pdf page 1
 issue18911.pdf page 10
 issue18911.pdf page 11
@@ -522,10 +521,8 @@ issue4246.pdf page 1
 issue4379.pdf page 1
 issue4402_reduced.pdf page 1
 issue4665.pdf page 1
-issue4706.pdf page 1
 issue5244.pdf page 1
 issue5896.pdf page 1
-issue6006.pdf page 1
 issue6081.pdf page 1
 issue6127.pdf page 3
 issue6132.pdf page 1
