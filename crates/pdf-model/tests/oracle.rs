@@ -2942,7 +2942,81 @@ const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 /// **Ours against `hayro` at 0.0219 is the smallest pair in the whole matrix**, and every pair
 /// involving `ghostscript` is larger than our worst. The page reaches this bucket because five
 /// glyph rasterisers disagree with each other, which is the sentence above written out.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 1] = ["issue4402_reduced.pdf page 1"];
+///
+/// # The same finding at page scale
+///
+/// `pr12564.pdf` is a school newsletter — 612 × 1008, **3940 commands**, nine faces, and
+/// essentially no geometry that is not a glyph. The pictures are indistinguishable side by side
+/// and the numbers say why they cannot be identical:
+///
+/// ```text
+///                ours     hayro    mupdf    poppler   ghostscript   limit (pop/mu at 8x)
+/// at 72 dpi     25.050    24.859   25.207    26.268      27.189       25.329 / 25.314
+/// ```
+///
+/// The two ladders agree to **0.015 of 255**, ours at 8× is 25.246 — 0.075 under — and at the
+/// page's own scale ours is the **second nearest of the five** to that limit, behind `mupdf` by
+/// 0.16 and ahead of `poppler` by two thirds of a level and `ghostscript` by one and a half.
+/// Everybody draws the same newsletter; the spread is 2.3 of 255 of glyph coverage, which is the
+/// permission quoted above spread over four thousand marks instead of twenty-four.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 2] =
+    ["issue4402_reduced.pdf page 1", "pr12564.pdf page 1"];
+
+/// Ambiguous, and §9.6.2.2 states fourteen *names* and not one outline.
+///
+/// `standard_fonts.pdf` is the sheet: fourteen pages setting specimen text in Times, Helvetica,
+/// Courier, Symbol and ZapfDingbats and every weight and slope of them, with **not one font
+/// program embedded**. So the page is what each renderer's copy of the standard 14 looks like,
+/// and nothing else.
+///
+/// §9.6.2.2 names them and then puts the artwork beyond itself in one sentence:
+///
+/// > PDF processors supporting PDF 1.0 to PDF 1.7 files shall have these fonts, or their font
+/// > metrics and suitable substitution fonts, available.
+///
+/// Two routes, either acceptable, and neither of them a set of outlines the standard states.
+/// This tree takes the first: `data/standard-fonts/` holds §9.6.2.2's fourteen programs, 804 KB
+/// of PDFium's Foxit faces compiled in, so these pages reproduce on a machine with no fonts
+/// installed (ADR 0133). The three C references read URW's from this machine's disk and `hayro`
+/// answers from its own built-in. **Five renderers, four sets of outlines, one clause that
+/// requires none of them.**
+///
+/// The ink says how much that is worth on page 7 — `poppler` 15.506, `mupdf` 16.402, ours
+/// 17.487, `ghostscript` 18.374, `hayro` 20.518, a spread of **5.0 of 255**, a third of the
+/// page — and the pairwise matrix says who is alone, which is nobody:
+///
+/// ```text
+///              poppler   mupdf   ghostscript   hayro
+/// ours          0.0360  0.0243      0.0265    0.0190
+/// poppler          —    0.0241      0.0274    0.0315
+/// mupdf                    —        0.0147    0.0222
+/// ghostscript                          —      0.0182
+/// ```
+///
+/// Ours against `hayro` is the second-smallest pair of the ten and `poppler` is the furthest
+/// from everybody, including from the two references that share `FreeType` with it. All fourteen
+/// pages sit in one band — mean 4.66 to 7.10, worst tile 15.62 to 23.71, ssim 0.8632 to 0.9088 —
+/// which is the tolerance's design applied to a page whose whole subject is a typeface.
+///
+/// **Not `AMBIGUOUS_SUBSTITUTED_FACE`**, which is §9.8.1's *other* route: a face nobody embedded
+/// and nobody standardised, ranked out of whatever this machine holds. Here the clause names the
+/// font and we have it; what differs is whose drawing of it.
+const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 14] = [
+    "standard_fonts.pdf page 1",
+    "standard_fonts.pdf page 10",
+    "standard_fonts.pdf page 11",
+    "standard_fonts.pdf page 12",
+    "standard_fonts.pdf page 13",
+    "standard_fonts.pdf page 14",
+    "standard_fonts.pdf page 2",
+    "standard_fonts.pdf page 3",
+    "standard_fonts.pdf page 4",
+    "standard_fonts.pdf page 5",
+    "standard_fonts.pdf page 6",
+    "standard_fonts.pdf page 7",
+    "standard_fonts.pdf page 8",
+    "standard_fonts.pdf page 9",
+];
 
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
@@ -2981,6 +3055,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE)
         .chain(&AMBIGUOUS_JPEG_COMPONENT_IDS)
         .chain(&AMBIGUOUS_RECOVERED_PAGE_TREE)
+        .chain(&AMBIGUOUS_STANDARD_FOURTEEN_FACE)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
