@@ -12,7 +12,7 @@ its `README.md` is the index and `02-every-round.md` is what a round does. `doc/
 phases and the ledger's design; `doc/adr/` holds every decision's argument;
 `doc/conformance/ledger.toml` holds one row per subclause; **`doc/RENDER_LIBRARY.md` is what a
 rendering library would have to be to fit this viewer** and `doc/QUORRA_FEEDBACK.md` is what came
-back when one was built to it.
+back when one was built to it; `doc/JPEG2000_FEEDBACK.md` is the same shape one dependency over.
 
 **This file is the state of play, the traps and the habits** — where something is written
 elsewhere, this is a pointer, and the pointer is the whole entry.
@@ -91,10 +91,10 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **958** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the thirteen sessions from the hundred-and-eighty-sixth added twenty-seven. Quote the command with the number | — |
+| tests | **959** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the fourteen sessions from the hundred-and-eighty-sixth added twenty-eight. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **31 of them diagnosed and 715 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **34 of them diagnosed and 712 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **912 agree, 44 differ, 1 refused**, 17 not comparable — 29 of the 44 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -584,6 +584,14 @@ name ends in the word "Symbol" (0158), a stamp's gradient painted flat (0160) �
 coverage rule that made eight of them draw (0153), and a font program that draws nothing now
 saying so (0157). The bucket itself went 754 → 715 and 31 pages carry a diagnosis; *seven defects
 nobody could see* is the number to watch.
+
+**And the eighth was a gate rather than a page.** `jp2k-resetprob.pdf` sat first on the ranking
+at 5.03 and its name is a JPEG 2000 coding option; checking that hypothesis meant decoding every
+`JPXDecode` stream in the corpus against ISO/IEC 15444-5's reference software, which **ruled the
+codec out for that file and found thirteen of the thirty codestreams wrong** — every one of them
+on the irreversible 9/7 path, by up to 87 levels of 255. Four codecs reach this tree through
+dependencies and only two of them had ever been checked against anything. ADR 0161,
+`doc/JPEG2000_FEEDBACK.md`.
 
 **The seventh was the ranking's own first name.** `issue7821.pdf` sat at 5.44 bounds with a
 stamp whose rounded box looked like a plausible flat green fill and is a shading pattern in four
@@ -2263,3 +2271,4 @@ above rather than here.
 | 197 | A name that ends in the word "Symbol" is not the standard-14 `Symbol`, and §9.6.5.4 says which half of the file wins | 0158 |
 | 198 | §12.8.2.3: a save that outgrows a usage rights signature withdraws it — and no corpus document can trip that | 0159 |
 | 199 | An annotation's appearance is a form, so §8.7.2 places its patterns in *its* space — a stamp's gradient was flat | 0160 |
+| 200 | A JPEG 2000 decoder nobody had ever checked: 13 of 30 corpus codestreams disagree with the reference software | 0161 |

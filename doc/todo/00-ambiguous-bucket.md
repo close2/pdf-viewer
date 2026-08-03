@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 715 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 712 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 748 ambiguous pages on documents we call complete; 31 diagnosed, 715 held by name
+Corpus: 748 ambiguous pages on documents we call complete; 34 diagnosed, 712 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -90,8 +90,13 @@ substituted font drew none of its characters in silence (0152), the coverage rul
 eight of them draw (0153), a pattern cell's clip worth 15% of a page's ink (0155), and a font
 program that draws nothing now saying so (0157).
 
-The bucket itself went 754 → 715, and that is the least interesting number in this file. *Seven
-defects nobody could see* is the one to watch.
+The bucket itself went 754 → 712, and that is the least interesting number in this file. *Seven
+defects nobody could see* is the one to watch — **and one gate that found thirteen more.**
+`jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own hypothesis, and
+checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus `JPXDecode` stream
+against ISO/IEC 15444-5's reference software. It ruled the codec out for that file — the decode
+is byte-identical — and found thirteen of the other twenty-nine codestreams wrong (ADR 0161).
+**A page on this list is sometimes a question about an instrument that does not exist yet.**
 
 ## Its shape, measured
 
@@ -108,13 +113,16 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`jp2k-resetprob.pdf` (5.03 from the nearest), `bug1799927.pdf` (4.57), `issue1985.pdf` (4.10),
-`issue7200.pdf` (3.81), `issue18894.pdf` (3.50), `bug1863910.pdf` (3.03), `issue21068.pdf`
-(2.82), `copy_paste_ligatures.pdf` (2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70,
-both of them within 0.01 of their *furthest*, which is the everybody-against-us shape).
+`bug1799927.pdf` (4.57 from the nearest), `issue1985.pdf` (4.10), `issue7200.pdf` (3.81),
+`issue18894.pdf` (3.50), `bug1863910.pdf` (3.03), `issue21068.pdf` (2.82),
+`copy_paste_ligatures.pdf` (2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70, both of
+them within 0.01 of their *furthest*, which is the everybody-against-us shape),
+`bug766086.pdf` (2.58).
 
 **`issue8697.pdf` left this list in the hundred-and-ninety-seventh session and is the ranking's
 own argument**: 3.52 from the nearest against 3.55 from the furthest, which step 1 says to
 prefer, and it was drawing one Greek letter where the file states a sentence. ADR 0158. And
 `issue7821.pdf` left it in the hundred-and-ninety-ninth from the *top* of the list, where it had
 been for four sessions: 5.44, and the picture was a stamp anybody would have accepted. ADR 0160.
+`jp2k-resetprob.pdf`, `S2.pdf` and `issue5475.pdf` left it in the two-hundredth, all three
+through `tests/jpeg2000.rs`. ADR 0161.

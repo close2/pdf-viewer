@@ -11,7 +11,6 @@
 # One page per line, exactly as the gate names it. Blank lines and lines beginning with `#`
 # are ignored.
 160F-2019.pdf page 1
-S2.pdf page 1
 TAMReview.pdf page 1
 TAMReview.pdf page 10
 TAMReview.pdf page 11
@@ -541,7 +540,6 @@ issue4402_reduced.pdf page 1
 issue4665.pdf page 1
 issue4706.pdf page 1
 issue5244.pdf page 1
-issue5475.pdf page 1
 issue5896.pdf page 1
 issue6006.pdf page 1
 issue6081.pdf page 1
@@ -566,7 +564,6 @@ issue9972-1.pdf page 1
 issue9972-2.pdf page 1
 issue9972-3.pdf page 1
 jbig2_symbol_offset.pdf page 1
-jp2k-resetprob.pdf page 1
 jpx_smaskindata.pdf page 1
 knockout_groups_test.pdf page 1
 multiline.pdf page 1

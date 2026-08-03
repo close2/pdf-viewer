@@ -1346,12 +1346,32 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// bounds from the nearest reference, the largest in the corpus. The repair moved it to under
 /// 10 and made page 2 render at all, which is why the undiagnosed list gained a name in the
 /// same session that lost one.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 5] = [
+/// **`jp2k-resetprob.pdf` page 1 is the fifth, and it is here because a *cause was ruled out*.**
+/// Added in the two-hundredth session, from the top of the printed ranking at 5.03 bounds. One
+/// command again: a 40×27 JPEG 2000 photograph of a sunset drawn into 30×21 device pixels.
+/// `opj_dump` says its code-blocks state `cblksty=0x2` — ISO/IEC 15444-1 Table A.19's RESET,
+/// which is the coding option the file's name announces and exactly the sort of thing a decoder
+/// gets subtly wrong — so the obvious hypothesis was the codec. It is not: `tests/jpeg2000.rs`
+/// decodes this codestream **byte-identically** to the reference software's, which leaves the
+/// reduction. Pairwise mean absolute difference:
+///
+/// ```text
+/// ours vs hayro        0.0161     mupdf   vs poppler        0.0267
+/// ours vs mupdf        0.0215     ghostscript vs hayro      0.0469
+/// ours vs ghostscript  0.0353     ghostscript vs mupdf      0.0537
+/// ours vs poppler      0.0399     ghostscript vs poppler    0.0682
+/// ```
+///
+/// Three of our four distances are below every distance between two references. A diagnosis that
+/// removes a candidate is worth what one that finds a defect is, and unlike reading the picture
+/// it is checkable. ADR 0161.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 6] = [
     "freeculture.pdf page 1",
     "issue5747.pdf page 1",
     "issue7229.pdf page 1",
     "issue7229.pdf page 2",
     "issue13372.pdf page 1",
+    "jp2k-resetprob.pdf page 1",
 ];
 
 /// Ambiguous, and the specification says how far it can be settled — which is not all the way.
@@ -1710,6 +1730,34 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 1] = ["22060_A1_01_Plans.pdf page 1"
 /// pages, here inside an `ambiguous` verdict because the substitution spread swamps it.
 const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 1] = ["issue8697.pdf page 1"];
 
+/// Ambiguous, and the reason is a JPEG 2000 decoder that is measurably wrong.
+///
+/// `S2.pdf` page 1 is a set of six colour photographs and four greyscale plates; `issue5475.pdf`
+/// page 1 is one 512×512 greyscale image. Both sat undiagnosed on §3a's ranking — S2 at 3.89
+/// worst mean over 23.28% of the page, `issue5475.pdf` at 6.68 over 31.05% — and both are made
+/// almost entirely of `JPXDecode` images.
+///
+/// # What the standard determines, and it determines all of it
+///
+/// §7.4.9 says only that the data "shall be" a JPEG 2000 codestream and hands the decoding
+/// entirely to ISO/IEC 15444-1, which defines it exactly. There is no latitude here at all: two
+/// decoders of one codestream produce the same samples or one of them is wrong. That makes this
+/// §3a's *first* shape — the clause determines it and we can be checked against it — and the
+/// check is `tests/jpeg2000.rs`, against the reference software ISO/IEC 15444-5 publishes.
+///
+/// **We are the ones who are wrong.** Every one of `S2.pdf`'s nine quantised codestreams and
+/// `issue5475.pdf`'s single one decodes to samples OpenJPEG does not produce, by up to 87 levels
+/// of 255 on three quarters of the samples. The discriminator across all thirty corpus
+/// codestreams is `qntsty`: the reversible 5/3 path is byte-identical and the irreversible 9/7
+/// one is not, with one 316-byte crossing where the difference rounds away. Our samples move
+/// toward the image's own mean two to one, which is the signature of an inverse quantisation
+/// that reconstructs at the edge of the interval rather than at its middle.
+///
+/// The defect is `hayro-jpeg2000`'s — a crates.io dependency this tree only hands bytes to — and
+/// is written up for its author in `doc/JPEG2000_FEEDBACK.md`. These pages stay here until an
+/// upstream release closes it, at which point `jpeg2000.rs`'s own list fails first. ADR 0161.
+const AMBIGUOUS_IRREVERSIBLE_JPEG_2000: [&str; 2] = ["S2.pdf page 1", "issue5475.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1726,6 +1774,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_TILING_CELL_CLIP)
         .chain(&AMBIGUOUS_SUB_PIXEL_LINE_WORK)
         .chain(&AMBIGUOUS_SUBSTITUTED_FACE)
+        .chain(&AMBIGUOUS_IRREVERSIBLE_JPEG_2000)
         .copied()
         .collect()
 }
