@@ -271,7 +271,3 @@ overflow-checks = true
 lto = "thin"
 codegen-units = 16
 panic = "unwind"
-
-[patch."https://github.com/close2/quorra"]
-quorra-gpu = { path = "../render-lib/crates/quorra-gpu" }
-quorra-scene = { path = "../render-lib/crates/quorra-scene" }
