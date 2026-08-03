@@ -1298,3 +1298,172 @@ fn a_press_with_the_outline_mode_inverts_the_border_alone() {
     assert_eq!(pixel(50, 50), (255, 0, 0), "the contents are not inverted");
     assert_eq!(pixel(50, 12), (0, 255, 255), "the border is");
 }
+
+/// A fixture whose page states a `/Rotate`, and whose annotation's `/F` the caller chooses.
+fn pdf_rotated(rotate: u16, flags: i64, appearance: &str) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Rotate {rotate} \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Square /Rect [40 40 70 70] /F {flags} \
+         /AP << /N 6 0 R >> >>\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 30 30] /Length {} >>\n\
+         stream\n{appearance}\nendstream\nendobj\n",
+        appearance.len().saturating_add(1)
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Renders one of those, at a magnification the caller states or at none.
+fn render_at(bytes: Vec<u8>, magnification: Option<f32>) -> pdf_render::Raster {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    state.set_magnification(magnification);
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+    assert!(
+        interpretation.is_complete(),
+        "the fixture should draw completely: {:?}",
+        interpretation.unsupported
+    );
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    CpuRasterizer::new()
+        .with_background(pdf_render::Color::TRANSPARENT)
+        .rasterize(&list, target)
+        .expect("supported")
+}
+
+/// §12.5.3's `NoRotate`: the annotation stays upright while the page turns under it.
+///
+/// > Similarly, if the NoRotate flag is set, the annotation shall retain its original
+/// > orientation on the screen when the page is rotated (by changing the Rotate entry in the
+/// > page object; see 7.7.3, "Page tree").
+///
+/// and Figure 78's NOTE names the fixed point: "[t]he upper-left corner of the annotation
+/// remains at the same point in default user space; the annotation pivots around that point."
+///
+/// The fixture is a 100×100 page at `/Rotate 90` with a `/Rect [40 40 70 70]` — upper-left
+/// corner (40, 70) — whose appearance fills only the **left half** of its box, so the mark is
+/// asymmetric and a rotation of it is visible. Every number below is one composition of two
+/// matrices and is checkable by hand:
+///
+/// ```text
+/// the mark, in default user space         x 40..55   y 40..70
+/// /Rotate 90 alone, (x, y) -> (y, 100-x)  x 40..70   y 45..60
+/// pivoted first, (x, y) -> (110-y, x+30)  x 40..70   y 70..85
+///   and then rotated                      x 70..85   y 30..60
+/// ```
+#[test]
+fn a_no_rotate_annotation_pivots_about_its_own_corner() {
+    // 4 is Print; 16 is NoRotate.
+    let turned = render_at(pdf_rotated(90, 4, "0 0 0 rg 0 0 15 30 re f"), None);
+    let upright = render_at(pdf_rotated(90, 20, "0 0 0 rg 0 0 15 30 re f"), None);
+
+    assert!(
+        painted(&turned, 50, 50) && !painted(&turned, 75, 45),
+        "without the flag the mark turns with the page: {:?}",
+        extent(&turned)
+    );
+    assert!(
+        painted(&upright, 75, 45) && !painted(&upright, 50, 50),
+        "with it the mark is where the counter-rotation puts it: {:?}",
+        extent(&upright)
+    );
+    assert_eq!(
+        extent(&upright),
+        (70, 30, 84, 59),
+        "and the whole mark is the quadrilateral the two matrices give"
+    );
+    // The clause's fixed point: (40, 70) in default user space is (70, 60) after `/Rotate 90`,
+    // and it is a corner of the mark in both renders.
+    assert_eq!(extent(&turned).2, 69, "the pivot is the mark's own corner");
+}
+
+/// §12.5.3's `NoZoom`: the annotation keeps its size while the page is magnified.
+///
+/// > If the NoZoom flag is set, the annotation shall always maintain the same fixed size on the
+/// > screen and shall be unaffected by the magnification level at which the page itself is
+/// > displayed.
+///
+/// A 30×30 `/Rect` at a magnification of 2 must be drawn 15 units across in the space that is
+/// about to be doubled, so that it comes out 30 pixels — and it must hang off the same corner,
+/// which is (40, 70).
+///
+/// **A magnification nobody stated is not 1.0**, which the third case checks: the corpus gate
+/// and the oracle render a page at its own scale and say nothing about a zoom, and under that
+/// the flag changes nothing at all.
+#[test]
+fn a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified() {
+    // 4 is Print; 8 is NoZoom.
+    let fixture = || pdf_rotated(0, 12, "0 0 0 rg 0 0 30 30 re f");
+
+    let unstated = render_at(fixture(), None);
+    assert_eq!(
+        extent(&unstated),
+        (40, 40, 69, 69),
+        "no magnification stated, so the annotation is its own /Rect"
+    );
+
+    let doubled = render_at(fixture(), Some(2.0));
+    assert_eq!(
+        extent(&doubled),
+        (40, 55, 54, 69),
+        "at 2x it is drawn half as large, hanging off the upper-left corner (40, 70)"
+    );
+
+    let halved = render_at(fixture(), Some(0.5));
+    assert_eq!(
+        extent(&halved),
+        (40, 10, 99, 69),
+        "and at half it is drawn twice as large, off the same corner"
+    );
+
+    // Without the flag the magnification is not the interpreter's business at all.
+    let plain = render_at(pdf_rotated(0, 4, "0 0 0 rg 0 0 30 30 re f"), Some(2.0));
+    assert_eq!(extent(&plain), (40, 40, 69, 69));
+}
+
+/// A page says whether its marks depend on the magnification, so a host knows when to re-ask.
+///
+/// The flag is what makes `NoZoom` affordable: a zoom re-rasterises the same display list, and
+/// re-interpreting on every zoom step to catch 124 annotations in 51 documents would pay for
+/// them on all 974. `NoRotate` is deliberately *not* here — the page's `/Rotate` is in the file,
+/// so an annotation setting only that flag is as pure a function of the document as anything
+/// else on the page.
+#[test]
+fn a_page_says_whether_its_marks_depend_on_the_magnification() {
+    let view_dependent = |flags: i64| {
+        let bytes = pdf_rotated(0, flags, "0 0 0 rg 0 0 30 30 re f");
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        pdf_model::interpret(&document, &page).view_dependent
+    };
+    assert!(!view_dependent(4), "Print alone");
+    assert!(
+        !view_dependent(20),
+        "NoRotate alone is the file's own business"
+    );
+    assert!(view_dependent(12), "NoZoom");
+    assert!(view_dependent(28), "and both");
+}

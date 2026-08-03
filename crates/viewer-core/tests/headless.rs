@@ -2146,3 +2146,75 @@ fn a_zoom_holds_the_point_it_is_given() {
         "a zoom to the magnification already showing is not a scroll: {large:?} then {again:?}"
     );
 }
+
+/// A page with a `NoZoom` annotation is interpreted again on a zoom, and no other page is.
+///
+/// §12.5.3 makes that one annotation's placement a function of the magnification, which is the
+/// one thing in the standard that breaks the display list's promise — and the point of
+/// `Interpretation::view_dependent` is that it breaks it *only* there.
+/// `zooming_rasterises_again_without_interpreting_again` above is the other half of this pair
+/// and holds for every page that has no such annotation.
+#[test]
+fn a_no_zoom_annotation_is_the_one_thing_a_zoom_re_interprets() {
+    let mut viewer = Viewer::new(300, 400, 1.0);
+    let opened: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_no_zoom_annotation(),
+            password: None,
+        })
+        .collect();
+    let first = request(&opened).clone();
+    serve(&mut viewer, &first);
+
+    let zoomed: Vec<_> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::In,
+            at: None,
+        })
+        .collect();
+    let second = request(&zoomed).clone();
+    assert!(
+        !std::sync::Arc::ptr_eq(&first.list, &second.list),
+        "the annotation's size is a function of the zoom, so the page is read again"
+    );
+    assert!(second.target.width > first.target.width);
+}
+
+/// The same fixture as `pdf-model`'s: a 100×100 page and one 30×30 `Square` at `/F 12`.
+fn with_no_zoom_annotation() -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let appearance = "0 0 0 rg 0 0 30 30 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Square /Rect [40 40 70 70] /F 12 \
+         /AP << /N 6 0 R >> >>\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 30 30] /Length {} >>\n\
+         stream\n{appearance}\nendstream\nendobj\n",
+        appearance.len().saturating_add(1)
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}

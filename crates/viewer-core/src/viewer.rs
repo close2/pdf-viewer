@@ -911,6 +911,27 @@ impl Viewer {
         };
         let page = open.page_index;
 
+        // §12.5.3's `NoZoom` makes one annotation's placement a function of the magnification,
+        // so the state interpretation reads has to carry it — and **logical** pixels per user
+        // unit rather than device ones, because "the same fixed size on the screen" is a size a
+        // person sees and a doubled display should draw it sharper rather than smaller.
+        //
+        // Re-interpreting only where the last interpretation said the page would notice is what
+        // keeps the display list's promise: 923 of the 974 corpus documents have no such
+        // annotation and pay nothing for this, and the 51 that do pay exactly what the clause
+        // asks for.
+        let magnification = open
+            .magnification(self.viewport, scale)
+            .map(|device| device / scale);
+        if open.view.set_magnification(magnification)
+            && open
+                .interpreted
+                .as_ref()
+                .is_some_and(|interpreted| interpreted.view_dependent)
+        {
+            open.interpreted = None;
+        }
+
         if open
             .interpreted
             .as_ref()
@@ -937,6 +958,7 @@ impl Viewer {
                 marked: interpretation.marked,
                 described: interpretation.described,
                 language: interpretation.language,
+                view_dependent: interpretation.view_dependent,
             });
             open.current = Some((page, object));
             // A selection is a range of the page that has just been replaced.

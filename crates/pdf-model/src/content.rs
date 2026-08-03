@@ -190,6 +190,14 @@ pub enum Unsupported {
 pub struct Interpretation {
     /// The drawing commands, ready for any backend.
     pub display_list: DisplayList,
+    /// Whether this page's marks depend on the magnification it is drawn at.
+    ///
+    /// True where an annotation sets §12.5.3's `NoZoom`, and only then: everything else in a
+    /// display list is resolution-independent by construction, which is what lets a zoom
+    /// re-rasterise without re-interpreting. A host that zooms should re-interpret a page this
+    /// is set on — `ViewState::set_magnification` is what it would say — and 923 of the corpus's
+    /// 974 documents never set it, so the cost falls only where the clause asks for it.
+    pub view_dependent: bool,
     /// What could not be drawn. Empty means the page is complete.
     pub unsupported: Vec<Unsupported>,
     /// The page's text, in the order the content stream showed it.
@@ -1146,6 +1154,7 @@ pub fn interpret_with(
         text_layer: Vec::new(),
         associated: Vec::new(),
         reversed_chars: 0,
+        view_dependent: false,
         text_cursor: None,
         base: base_transform(page),
         page: size,
@@ -1220,6 +1229,14 @@ pub fn interpret_with(
         interpreter.note(Unsupported::Font { detail });
     }
 
+    finished(document, interpreter)
+}
+
+/// Turns the interpreter's accumulated state into what a caller reads.
+///
+/// Split out because it is bookkeeping rather than interpretation, and because `interpret_with`
+/// is held to a hundred lines.
+fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation {
     let mut unsupported: Vec<Unsupported> = interpreter.unsupported.into_values().collect();
     if interpreter.text_operations > 0 {
         unsupported.push(Unsupported::Text {
@@ -1239,6 +1256,7 @@ pub fn interpret_with(
 
     Interpretation {
         display_list: interpreter.list,
+        view_dependent: interpreter.view_dependent,
         unsupported,
         text: interpreter.text,
         glyphs: interpreter.glyphs,
@@ -1470,6 +1488,8 @@ struct Interpreter<'a> {
     /// A counter because marked content nests and the clause states no limit on it; a show
     /// string is reversed whenever at least one is open.
     reversed_chars: usize,
+    /// Whether any annotation on this page sets §12.5.3's `NoZoom`.
+    view_dependent: bool,
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
     /// Where each shown code's readback sits on the page; see [`Interpretation::text_layer`].
@@ -3907,7 +3927,15 @@ impl Interpreter<'_> {
             if view.hidden_by_action == Some(true) {
                 continue;
             }
-            match crate::annotation::decide(self.document, dict, view) {
+            match crate::annotation::decide(
+                self.document,
+                dict,
+                view,
+                crate::annotation::ViewGeometry {
+                    rotate: page.rotate,
+                    magnification: self.view.magnification(),
+                },
+            ) {
                 crate::annotation::Decision::Nothing => {}
                 crate::annotation::Decision::Unsupported(detail) => {
                     self.note(Unsupported::Annotation { detail });
@@ -3916,6 +3944,7 @@ impl Interpreter<'_> {
                     appearance,
                     owed,
                     highlight,
+                    adjust,
                 } => {
                     // What the subtype's clause asks for and `crate::appearance` could not
                     // construct — a field's value, a bevel's shadow — said out loud beside the
@@ -3924,6 +3953,12 @@ impl Interpreter<'_> {
                         self.note(Unsupported::Annotation { detail });
                     }
                     let before = self.text.len();
+                    // §12.5.5: "Any transformation applied to the annotation as a whole shall
+                    // be applied to the appearance within it" — so §12.5.3's adjustment goes
+                    // between the appearance's own placement and the page's transform, where it
+                    // is still in default user space and can undo what the page does to it.
+                    self.view_dependent |= adjust.view_dependent;
+                    let base = adjust.transform.then(base);
                     self.draw_appearance(&appearance, base, &page.resources, view_clip);
                     self.describe_annotation(dict, before);
                     // §12.5.6.19's `/H`, over the appearance rather than instead of it: the

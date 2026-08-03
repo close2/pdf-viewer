@@ -88,6 +88,19 @@ pub(crate) enum Decision {
         owed: Option<String>,
         /// §12.5.6.19's `/H`, where a press asks for a mark over the appearance.
         highlight: Option<Mark>,
+        /// §12.5.3's `NoZoom` and `NoRotate`, as a transform in default user space.
+        ///
+        /// Beside the appearance rather than inside it, because §12.5.5 applies it to the
+        /// annotation rather than to its stream:
+        ///
+        /// > The annotation may be further scaled and rotated if either the NoZoom or NoRotate
+        /// > flag is set (see 12.5.3, "Annotation flags"). Any transformation applied to the
+        /// > annotation as a whole shall be applied to the appearance within it.
+        ///
+        /// §12.5.6.19's highlight is part of that whole, and it is drawn from the same
+        /// transform for that reason. The identity for every annotation that sets neither flag,
+        /// which is all but 124 in the corpus.
+        adjust: ViewAdjust,
     },
     /// Draw nothing, and say nothing — the document asked for nothing to be drawn.
     Nothing,
@@ -261,6 +274,125 @@ const FLAG_HIDDEN: i64 = 1 << 1;
 const FLAG_NO_VIEW: i64 = 1 << 5;
 /// `/F` bit 7: respond to nothing. About interaction alone, and ignored for a widget.
 const FLAG_READ_ONLY: i64 = 1 << 6;
+/// `/F` bit 4: keep the annotation's size on the screen whatever the magnification is.
+const FLAG_NO_ZOOM: i64 = 1 << 3;
+/// `/F` bit 5: keep the annotation's orientation whatever §7.7.3.3's `/Rotate` says.
+const FLAG_NO_ROTATE: i64 = 1 << 4;
+
+/// What §12.5.3's `NoZoom` and `NoRotate` need to know about the view they are drawn into.
+///
+/// Both flags make an appearance's placement depend on something outside the file, which is why
+/// they are carried in rather than read: the page's `/Rotate` is the file's, but the
+/// magnification is the *reader's*, and `CLAUDE.md`'s rule 1 keeps interpretation a pure
+/// function of the document and the view state.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ViewAdjust {
+    /// The similarity §12.5.3 asks for, in default user space, or the identity.
+    pub transform: Transform,
+    /// Whether this annotation's placement depends on the *magnification* (§12.5.3's `NoZoom`).
+    ///
+    /// Reported even where no magnification was supplied, because that is exactly when a caller
+    /// needs to know: it says "this page would look different if you told me the zoom", which is
+    /// what makes a re-interpretation on zoom cost nothing on the 923 documents with no such
+    /// annotation. `NoRotate` is *not* here — the page's `/Rotate` is in the file, so an
+    /// annotation that only sets that flag is a pure function of the document as everything else
+    /// is.
+    pub view_dependent: bool,
+}
+
+impl Default for ViewAdjust {
+    fn default() -> Self {
+        Self {
+            transform: Transform::IDENTITY,
+            view_dependent: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ViewGeometry {
+    /// §7.7.3.3's `/Rotate`, normalised to 0, 90, 180 or 270.
+    pub rotate: u16,
+    /// Logical pixels per default user space unit — 1.0 at 100%.
+    ///
+    /// `None` is **not** 1.0: it is *nobody has said*, which is what every caller that renders a
+    /// page at its own scale means, and under it `NoZoom` changes nothing. Treating an unstated
+    /// magnification as 100% would make the corpus and the oracle assert a zoom nobody chose.
+    pub magnification: Option<f32>,
+}
+
+impl ViewGeometry {
+    /// §12.5.3's adjustment for one annotation, about the upper-left corner of its `/Rect`.
+    ///
+    /// > If the NoZoom flag is set, the annotation shall always maintain the same fixed size on
+    /// > the screen and shall be unaffected by the magnification level at which the page itself
+    /// > is displayed. Similarly, if the NoRotate flag is set, the annotation shall retain its
+    /// > original orientation on the screen when the page is rotated (by changing the Rotate
+    /// > entry in the page object; see 7.7.3, "Page tree").
+    ///
+    /// and the clause names the fixed point in the sentence after:
+    ///
+    /// > In either case, the annotation's position is defined by the coordinates of the
+    /// > upper-left corner of its annotation rectangle, as defined by the Rect entry in the
+    /// > annotation dictionary and interpreted in the default user space of the page.
+    ///
+    /// So this is a similarity about that corner, expressed in default user space and composed
+    /// *before* the page's own transform — which is what makes it undo that transform's rotation
+    /// and scale rather than adding to them. The `/Rect` itself is untouched, as the clause
+    /// requires: "it shall not actually change the annotation's Rect entry".
+    fn adjustment(self, flags: i64, rect: Option<[f32; 4]>) -> ViewAdjust {
+        let no_zoom = flags & FLAG_NO_ZOOM != 0;
+        let no_rotate = flags & FLAG_NO_ROTATE != 0;
+        let unchanged = ViewAdjust {
+            transform: Transform::IDENTITY,
+            view_dependent: no_zoom,
+        };
+        if !no_zoom && !no_rotate {
+            return ViewAdjust::default();
+        }
+        // No rectangle is no fixed point, and §12.5.3 defines the adjustment entirely in terms
+        // of one — so an annotation with no usable `/Rect` gets no adjustment rather than one
+        // pivoted about the origin, which would move it off the page.
+        let Some(rect) = rect else {
+            return unchanged;
+        };
+        // "the upper-left corner of its annotation rectangle": smallest x, greatest y, since
+        // §7.9.5 lets a rectangle state its corners in either order.
+        let (corner_x, corner_y) = (rect[0].min(rect[2]), rect[1].max(rect[3]));
+
+        // The page turns default user space clockwise by `/Rotate`, so keeping the annotation
+        // upright means turning it the same amount the other way. Written as matrices rather
+        // than through a trigonometric function for the reason `base_transform` is: these four
+        // are exact and a cosine of 90 degrees is not.
+        let rotation = if no_rotate {
+            match self.rotate {
+                // (x, y) -> (-y, x)
+                90 => Transform::new(0.0, 1.0, -1.0, 0.0, 0.0, 0.0),
+                180 => Transform::new(-1.0, 0.0, 0.0, -1.0, 0.0, 0.0),
+                // (x, y) -> (y, -x)
+                270 => Transform::new(0.0, -1.0, 1.0, 0.0, 0.0, 0.0),
+                _ => Transform::IDENTITY,
+            }
+        } else {
+            Transform::IDENTITY
+        };
+        // A magnification of 2 draws every user unit twice as large, so an annotation that is to
+        // come out its stated size is drawn half as large in the space that gets magnified.
+        let scale = match self.magnification.filter(|_| no_zoom) {
+            Some(magnification) if magnification.is_finite() && magnification > 0.0 => {
+                Transform::scale(1.0 / magnification, 1.0 / magnification)
+            }
+            _ => Transform::IDENTITY,
+        };
+        ViewAdjust {
+            transform: Transform::translate(-corner_x, -corner_y)
+                .then(rotation)
+                .then(scale)
+                .then(Transform::translate(corner_x, corner_y)),
+            view_dependent: no_zoom,
+        }
+    }
+}
 
 /// Whether §12.5.3's flags let the pointer reach this annotation at all.
 ///
@@ -335,6 +467,31 @@ pub(crate) fn interacts(
 /// `NoView` is deliberately *not* covered: Table 167 makes it a separate bit about the device
 /// rather than about the annotation's state, and §12.6.4.11 names only the Hidden flag.
 pub(crate) fn decide(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    geometry: ViewGeometry,
+) -> Decision {
+    let mut decision = decided(document, annotation, view);
+    // §12.5.3's two view-dependent flags, applied once and to the whole annotation. Read here
+    // rather than inside each construction because the clause's own sentence is about the
+    // annotation rather than about its appearance, and because the fixed point it pivots about
+    // is `/Rect`'s corner, which both paths already have.
+    if let Decision::Draw { adjust, .. } = &mut decision {
+        let stated = document
+            .get_key(annotation, "F")
+            .as_integer()
+            .unwrap_or_default();
+        let flags = view
+            .flags
+            .map_or(stated, |change| change.applied_to(stated));
+        *adjust = geometry.adjustment(flags, rectangle(document, annotation, "Rect"));
+    }
+    decision
+}
+
+/// [`decide`] without §12.5.3's view-dependent flags, which it applies to whatever this returns.
+fn decided(
     document: &Document,
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
@@ -471,6 +628,7 @@ pub(crate) fn decide(
     }
 
     Decision::Draw {
+        adjust: ViewAdjust::default(),
         highlight: pressed_mark(
             document,
             annotation,
@@ -532,6 +690,7 @@ fn construct(
     // entry shall also be used for nonstroking operations as well."
     let stroke_alpha = opacity(document, annotation, "CA");
     Decision::Draw {
+        adjust: ViewAdjust::default(),
         // A constructed appearance is one the file did not state, so there is no `/D` to have
         // meant `P` by.
         highlight: pressed_mark(document, annotation, view, rect, false),

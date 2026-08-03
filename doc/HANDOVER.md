@@ -90,7 +90,7 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **964** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| tests | **968** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-eight sessions from the hundred-and-eighty-sixth added thirty-three. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **58 of them diagnosed and 702 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
@@ -100,7 +100,7 @@ that exists (ADR 0146).
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **46.3 ms**, and five arrow keys turn to page 6 presenting in **9.2 to 18.1 ms** with nothing refused — re-run in the two-hundred-and-thirteenth, on `lavapipe` through Vello and so not comparable with the hundred-and-ninety-fifth's 44.6 ms through **quorra**; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
-| conformance | **371 quotations**, all verbatim, 3662 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
+| conformance | **376 quotations**, all verbatim, 3689 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -194,7 +194,7 @@ the 974 documents' first pages it affects.
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
 | A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
-| Two of Table 197's ten trigger events; `NoZoom`, `NoRotate`, `/FixedPrint` | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
+| Two of Table 197's ten trigger events; `/FixedPrint`, which waits on printing | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
 | Icons for `Stamp`, `FileAttachment`, `Sound` — their clauses say *should* | 1 | [todo 26](todo/26-icons-a-clause-only-recommends.md) |
 | §14.3.2's XMP | 319 | [todo 50](todo/50-xmp.md) |
 | Signature *validation*, public-key handlers (§7.6.5), `/R` 5 | 1 | [todo 51](todo/51-signatures-and-public-keys.md) |
@@ -228,6 +228,14 @@ oracle name; *spec-driven* is the ledger's `reported` rows and the notes on its 
 project running only the first finishes when the corpus goes quiet, which can happen with much of
 the standard unimplemented and nothing able to say which parts; one running only the second ships
 features no file exercises. This is a principle-5 rule, not a suggestion.
+
+**A reason that names an architecture is two reasons wearing one coat**, which the
+two-hundred-and-seventeenth session found: §12.5.3's `NoZoom` and `NoRotate` were both refused
+because they "make an appearance's placement depend on the view, which a resolution-independent
+display list cannot express". `NoRotate` depends on §7.7.3.3's `/Rotate`, which is in the *file* —
+it was never a view-dependence at all — and `NoZoom`'s real cost is one flag on the interpretation
+and a re-read of 51 documents out of 974 (ADR 0168). **Split a refusal into one claim per entry
+before believing it.**
 
 **A capability makes clauses reachable, and nothing announces it.** The ten sessions from the
 hundred-and-sixty-sixth closed four clauses without anybody picking them off a list: §12.3.3
@@ -2377,3 +2385,4 @@ above rather than here.
 | 214 | Ctrl + wheel zooms about the pointer, which needed a page point the scroll cannot express; and a field's two names, one of which a `shall` asks for | 0166, 0167 |
 | 215 | The ambiguous ranking above 1.6 emptied in one sitting — seven pages, four groups, and the only defect in them found by a synthetic ladder | — |
 | 216 | A fourth sweep — grep the *string* a correction retired — and a page where the high-resolution limit is the thing that is wrong | — |
+| 217 | §12.5.3's `NoZoom` and `NoRotate`, blocked for 217 sessions on a reason that was two reasons | 0168 |

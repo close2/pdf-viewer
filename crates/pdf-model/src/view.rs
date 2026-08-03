@@ -106,6 +106,19 @@ pub struct ViewState {
     /// every render before the seventy-sixth session assumed: nothing is interacting with the
     /// user, so every annotation shows its normal appearance.
     pointer: Option<(ObjectId, Pointer)>,
+    /// How large the page is being drawn, in logical pixels per default user space unit.
+    ///
+    /// The one thing in this struct that is a property of the *window* rather than of anything
+    /// a person did to the document, and it is here because §12.5.3's `NoZoom` makes it decide
+    /// a mark: an annotation with that flag "shall always maintain the same fixed size on the
+    /// screen". Interpretation therefore has to know the magnification, and rule 1 says the
+    /// only way it may is through this state.
+    ///
+    /// `None` is **not** 1.0 and the distinction is the whole point: it is *nobody has said*,
+    /// which is what the corpus gate, the oracle and every caller of [`ViewState::of`] mean.
+    /// Under it `NoZoom` changes nothing, so a page rendered at its own scale is the page it
+    /// always was.
+    magnification: Option<f32>,
 }
 
 /// What the pointer is doing to an annotation, in §12.5.5's terms.
@@ -282,7 +295,31 @@ impl ViewState {
             edited: BTreeMap::new(),
             appended: Vec::new(),
             pointer: None,
+            magnification: None,
         }
+    }
+
+    /// How large the page is being drawn, where a caller has said.
+    ///
+    /// See [`ViewState::set_magnification`] for why `None` is not 1.0.
+    #[must_use]
+    pub fn magnification(&self) -> Option<f32> {
+        self.magnification
+    }
+
+    /// Says how large the page is being drawn, in logical pixels per default user space unit.
+    ///
+    /// Only §12.5.3's `NoZoom` reads it, and only an annotation setting that flag changes when
+    /// it does — which is why a host that never zooms need never call this and a host that does
+    /// may call it on every frame. `Interpretation::view_dependent` says whether this page has
+    /// anything that would notice.
+    ///
+    /// Returns whether the value changed, so a caller can decide whether the page has to be
+    /// interpreted again rather than comparing two floats itself.
+    pub fn set_magnification(&mut self, magnification: Option<f32>) -> bool {
+        let changed = self.magnification != magnification;
+        self.magnification = magnification;
+        changed
     }
 
     /// The optional content configuration, as the state currently stands.

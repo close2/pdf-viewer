@@ -183,6 +183,13 @@ pub(crate) struct Interpreted {
     pub(crate) described: Vec<pdf_model::accessibility::Described>,
     /// The catalog's `/Lang`, which §14.9.2.3 makes the document-wide default.
     pub(crate) language: Option<String>,
+    /// Whether this page has an annotation §12.5.3's `NoZoom` makes depend on the magnification.
+    ///
+    /// The whole point of `NeedsRender` carrying a display list is that a zoom re-rasterises
+    /// without re-interpreting, and `NoZoom` is the one thing in the standard that breaks it.
+    /// This is what keeps the breakage where the clause put it: 51 of the 974 corpus documents
+    /// carry such an annotation and the other 923 never re-interpret on a zoom.
+    pub(crate) view_dependent: bool,
 }
 
 /// A render the host has not answered yet.

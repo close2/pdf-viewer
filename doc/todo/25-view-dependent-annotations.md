@@ -1,8 +1,8 @@
 # Annotations and events that depend on the view
 
-Status: reported; the remaining trigger events want a focus model, and two flags may be unreachable by construction.
+Status: `NoZoom` and `NoRotate` done (ADR 0168); `/Fo` and `/Bl` want a focus model; `/FixedPrint` waits on printing.
 Priority: 25
-Corpus: 15 documents write an `/AA`; 90 annotations set `NoZoom`
+Corpus: 15 documents write an `/AA`; 124 annotations in 51 documents set `NoZoom`
 Clauses: §12.6.3 Table 197, §12.5.3 Table 167
 Code: `crates/pdf-model/src/annotation.rs`, `crates/viewer-core/src/interact.rs`
 
@@ -24,17 +24,28 @@ page may be visible, depending on the page layout", so in this layout the two co
 derivation. Read a blocker that names what the *program* lacks with suspicion; that is
 `doc/todo/01`'s third sweep and this is its second catch in three sessions.
 
-## `NoZoom`, `NoRotate`, `/FixedPrint`
+## `NoZoom` and `NoRotate` — **done in the two-hundred-and-seventeenth session** (ADR 0168)
 
-Table 167 bits 4 and 5 make an appearance's size or orientation depend on the *view*, which a
-resolution-independent display list cannot express: the whole point of the list is that a zoom
-re-rasterises without re-interpreting, and these say the geometry changes with the zoom.
+Both are applied. What this file said — that they "make an appearance's size or orientation
+depend on the *view*, which a resolution-independent display list cannot express" — was a reason
+about this project's architecture rather than about the standard, and splitting it in two
+dissolved most of it:
 
-**Measured rather than assumed**: 90 corpus annotations set `NoZoom` — 78 of them popups this
-tree draws nothing for, 11 `Text` and 1 `FileAttachment`. So the population that would actually
-look different is twelve annotations.
+- **`NoRotate` depends on §7.7.3.3's `/Rotate`, which is in the file.** No vocabulary, no
+  re-interpretation, nothing from a host.
+- **`NoZoom` depends on the magnification**, which arrives through `ViewState` — where rule 1
+  says a statement about the view belongs — and `Interpretation::view_dependent` says whether a
+  page has an annotation that would notice, so 923 of the 974 documents never re-interpret on a
+  zoom.
 
-The honest options are to re-interpret an annotation on zoom (which breaks the list's promise for
-that one command) or to give the display list a "this command's transform is view-relative"
-marker (which every backend then has to honour). Neither is obviously right, which is why it is
-recorded rather than started.
+Measured: 124 annotations in 51 documents set `NoZoom` and 127 in 51 set `NoRotate`, 82 of each
+being popups this tree draws nothing for. **No corpus document has a `NoRotate` annotation this
+tree draws on a page with a non-zero `/Rotate`**, so that half is checked by a hand-built fixture
+whose numbers are one composition of two matrices.
+
+## `/FixedPrint` — still owed, and it is a printing decision
+
+Table 193's entry on a §12.5.6.22 watermark annotation states "graphics that are to be printed at
+a fixed size relative to the target media, and fixed relative position on the target media", so it
+waits on a printing path rather than on a display one. Table 167's Print flag is in the same
+position and has been since the twenty-first session.
