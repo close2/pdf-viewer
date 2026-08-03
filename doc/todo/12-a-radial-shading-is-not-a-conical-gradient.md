@@ -76,6 +76,28 @@ is open. The likely shape is a raster at the *device* resolution of the shape's 
 pattern — which costs one quadratic per device pixel, comparable to a gradient shader, and is
 exact.
 
+## A fourth thing the mesh precedent does not cover, found by looking
+
+`render-cpu` special-cases `ShadingKind::Mesh` **inside `fill`**, where it has the shape and the
+surface. A *stroke* with a mesh paint therefore falls through to `self.paint`, gets no shader and
+comes back `UnsupportedPaint` — which is right for a mesh, because nothing here can express one
+as a paint, and would be a **regression** for a radial, which has a working gradient today.
+
+So the raster has to arrive as a `tiny_skia::Shader` from `paint` rather than as a special case in
+`fill`, which is what `sampled_shader` already does for type 1 — and that runs straight into trap
+2. `fill` and `stroke` hand `paint` a *path-space* transform, because `tiny-skia` applies the
+drawing transform to the paint as well as to the shape; a raster built in **device** space would
+be transformed a second time. Its pattern transform has to be the device translate composed with
+the inverse of the path's, and getting that wrong mirrors every gradient on the page, which is
+exactly what trap 2 is about.
+
+`paint` also does not know the target's extent, which a device-resolution raster needs.
+`MeshRaster::build` takes `width` and `height`; threading those through `paint` is a signature
+change in the one function every fill and stroke goes through.
+
+None of this is hard. It is four intertwined changes across three backends with trap 2 sitting in
+the middle, which is more than a session should start at its end.
+
 ## What has to be settled first
 
 - **Whether to keep the fast path.** A concentric or nearly-concentric shading is the common case
@@ -91,7 +113,11 @@ exact.
 
 ## Why it is not started
 
-The three questions above are a design, and `CLAUDE.md`'s first principle says a thing that
-cannot be done properly now is not started now. What is *done* is the diagnosis: the clause, the
-arithmetic at a named point, the reason the current construction cannot express it, and the
-place the fix belongs.
+The questions above are a design, and `CLAUDE.md`'s first principle says a thing that cannot be
+done properly now is not started now. What is *done* is the diagnosis: the clause, the arithmetic
+at a named point, the reason the current construction cannot express it, the place the fix
+belongs, and — from the two-hundred-and-tenth session, which opened the code to size it — the
+four changes it actually takes and the trap in the middle of them.
+
+**The mesh precedent is a precedent for the evaluator and not for the wiring**, which is the
+thing that was not obvious until somebody read `fill` and `stroke` side by side.
