@@ -1738,7 +1738,24 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// nine offsets are worse than none). So its difference is about *where* rather than *how
 /// much* — a plan drawing is exactly the kind of document that carries optional content, and
 /// what `gs` does with a configuration is a separate question from this one.
-const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 1] = ["22060_A1_01_Plans.pdf page 1"];
+/// **`issue21068.pdf` page 1 is the second, and it is the same clause with a defect in front of
+/// it.** Four rows of comb text fields — 164×162, eight commands — whose separators are thin
+/// vertical rules. It sat at 2.82 bounds until the two-hundred-and-seventh session, and 8% of
+/// that was ours: each separator is a two-point subpath *closed on itself*, so both of its joins
+/// double back, and `pdf_render::hull` bounded a join over the miter limit **by the limit**
+/// instead of by the bevel §8.4.3.5 converts it to. Every separator was therefore bounded 4.5
+/// units outside the `/BBox` that contains it, ADR 0165's redundant-clip rule could not fire,
+/// and the anti-aliased clip ate the difference.
+///
+/// Ink 18.54 → **20.35** against a high-resolution limit of 20.12, and the distance 2.82 → 1.46.
+/// `issue21068.pdf` also left `render-quorra`'s differing list, because both backends draw the
+/// same display list and there was nothing left to differ about.
+///
+/// What remains is the group's own subject: ours 20.35, `poppler` 19.72, `mupdf` 19.99,
+/// `hayro` 18.57, `ghostscript` 25.56 — a page of rules a fraction of a pixel wide, where
+/// §10.7.4 as written paints each of them solid.
+const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 2] =
+    ["22060_A1_01_Plans.pdf page 1", "issue21068.pdf page 1"];
 
 /// Ambiguous, and every renderer here is guessing at a face nobody shipped.
 ///
@@ -1926,6 +1943,34 @@ const AMBIGUOUS_WIDGET_BORDER: [&str; 1] = ["bug1863910.pdf page 1"];
 const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
     ["radial_gradients.pdf page 4", "radial_gradients.pdf page 5"];
 
+/// Ambiguous, and it is `CONTRADICTED_LINK_BORDER`'s subject with `poppler` on our side.
+///
+/// `bug766086.pdf` is 200×50 with one link over one line of text. Its annotation is four
+/// entries — `/Border [0 0 1]`, `/C [1 0 0]`, `/Rect [5 10 190 40]` and a `/GoToR` — so Table 166
+/// makes it a red one-unit border and §12.5.4 puts it "completely inside the annotation
+/// rectangle". Ours and `poppler`'s draw it; `mupdf`, `ghostscript` and `hayro` draw the text
+/// alone.
+///
+/// Ink: ours **20.61**, `poppler` **20.73**, against `mupdf` 12.16, `ghostscript` 12.34 and
+/// `hayro` 11.99 — the border is 40% of the page's ink, which is why a 200×50 page with one line
+/// of text reaches 2.58 bounds.
+///
+/// # Why three renderers drawing nothing is not three votes
+///
+/// `CONTRADICTED_LINK_BORDER` has the reading and every word of it applies here: `mupdf`'s
+/// `pdf_write_appearance` switches over eighteen subtypes and `Link` is not among them, so it
+/// constructs no appearance at all; `ghostscript` implements it and is being asked to *print*,
+/// and Table 167's Print flag is clear because this annotation states no `/F` — "If clear, never
+/// print the annotation, regardless of whether it is rendered on the screen." A viewer is a
+/// screen, where bit 6 `NoView` is the flag with a say and it is clear.
+///
+/// What is different here is only which side the fourth renderer fell on: `poppler` draws the
+/// border too, so there is no two-reference consensus and the verdict is `ambiguous` rather than
+/// contradicted. **The page is the same page and the reading is the same reading** — which is
+/// worth recording, because a group that exists only where the vote happened to go 2–2 would be
+/// a group about the vote rather than about the clause.
+const AMBIGUOUS_LINK_BORDER: [&str; 1] = ["bug766086.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1946,6 +1991,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_COLOUR_OPERANDS)
         .chain(&AMBIGUOUS_WIDGET_BORDER)
         .chain(&AMBIGUOUS_RADIAL_CONE)
+        .chain(&AMBIGUOUS_LINK_BORDER)
         .copied()
         .collect()
 }

@@ -1,7 +1,8 @@
 # ADR 0165 — A clip on the edge of what it clips
 
-Status: accepted, 2026-08-03. Session 205. Found on the fourth page of §3a's ranking, and it
-moved the oracle's headline numbers.
+Status: accepted, 2026-08-03. Sessions 205 and 207. Found on the fourth page of §3a's ranking,
+and it moved the oracle's headline numbers; the next page down found a second bound in the same
+function.
 
 ## The page
 
@@ -62,8 +63,7 @@ inside its own `/BBox` as far as this code was concerned.
 where §8.4.3.4's two outer offset lines cross, which for a right angle is the stroke's own outer
 corner — `(52, 8)` for a 4-wide stroke turning at `(50, 10)`, not twenty in every direction. Both
 candidate tips are returned rather than working out which side is outer; their union is still
-tight. A join that nearly doubles back still falls back to the limit, which is what the limit is
-for.
+tight. A join that nearly doubles back is dealt with below.
 
 Two joins needed direction information the walk did not keep: `joins_from`, the point the
 incoming segment's tangent comes from — its own start for a line, its second control point for a
@@ -84,7 +84,7 @@ rectangle's bound five widths out. That cost an hour and is the whole reason thi
 `bug1669097.pdf` and `issue19505.pdf` left `CONTRADICTED_PAGE_ROUNDING` — both are widget borders,
 and the clip was eating a fifth of every stroke. **Six of that group's eight members have now left
 it for a reason other than its name.** Everything else is unchanged: corpus 80 incomplete, text
-98.2%, quorra 912/44/1, dates 97.99%.
+98.2%, quorra 912/44/1 at the time, dates 97.99%.
 
 ## What is left on the page
 
@@ -92,6 +92,27 @@ it for a reason other than its name.** Everything else is unchanged: corpus 80 i
 geometry — `ghostscript` 10.60, which is §10.7.4's "any pixel whose half-open square region
 intersects the shape" applied to a one-pixel stroke, and `hayro` 6.46, which is where we were.
 Four one-pixel borders in four slightly different places on a page 59 rows tall.
+
+## A second bound, found by the next page down
+
+`issue21068.pdf` is four rows of comb text fields, and the fix above did not reach it. Each
+separator is a two-point subpath **closed on itself**, so both of its joins double back, and
+`join_extent` fell back to `square(limit)` for a reversal — putting every separator 4.5 units
+outside the `/BBox` that contains it, and the clip went on eating a fraction of each.
+
+§8.4.3.5's own next sentence is the answer: "When the limit is exceeded, the join is converted
+from a miter to a bevel." **A miter over the limit is not a long miter; it is a bevel**, and a
+bevel reaches half a width. Bounding it by the limit is the same mistake this ADR is about, one
+case in — the limit is what the join is *not*.
+
+Ink 18.54 → **20.35** against a high-resolution limit of 20.12, distance 2.82 → 1.46, and the page
+also left `render-quorra`'s differing list: both backends draw the same display list, so once the
+redundant clip came off there was nothing left to differ about. **A page on a cross-backend
+differing list can be there because of something upstream of both backends**, which is not what
+that list's name suggests.
+
+The fallback to `square(limit)` survives in one place and it is the honest one: where the incoming
+or outgoing direction is unknown, nothing is known about the angle either.
 
 ## Alternatives rejected
 

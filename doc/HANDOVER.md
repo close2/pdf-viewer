@@ -94,10 +94,10 @@ that exists (ADR 0146).
 | tests | **962** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the sixteen sessions from the hundred-and-eighty-sixth added thirty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **42 of them diagnosed and 704 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **44 of them diagnosed and 702 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
-| **quorra vs the CPU oracle** (974 documents, page one, same display list) | **912 agree, 44 differ, 1 refused**, 17 not comparable — 29 of the 44 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
+| **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **44.6 ms**, and five arrow keys turn to page 6 presenting in **9.3 to 17.4 ms** with nothing refused — re-run in the hundred-and-ninety-fifth, and both numbers are now through **quorra** rather than Vello. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
 | conformance | **346 quotations**, all verbatim, 228 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
@@ -660,7 +660,7 @@ that reproduces each, and the same document now carries what closed them:
 *anisotropic* transform being given one scalar device width, which is exact for a similarity and
 exactly wrong for a shear. Four documents left the list.
 
-**Where it stands: 912 agree, 44 differ, 1 refused** — and 29 of the 44 are the glyph
+**Where it stands: 913 agree, 43 differ, 1 refused** — and 28 of the 43 are the glyph
 antialiasing floor, which shrinks as the page grows (17 pages differ at 2×, 16 at 4×).
 
 **Performance, offscreen, readback included** (AMD 890M, RADV, release): at the page's own scale
@@ -2300,3 +2300,4 @@ above rather than here.
 | 204 | A page turn is six events in one order, and Table 198's two had been read since session 77 with no caller | 0164 |
 | 205 | A widget's border lost a fifth of its ink to a `/BBox` clip lying on its own edge; the miter bound was the thing in the way | 0165 |
 | 206 | A radial shading is not a two-point conical gradient, and all three backends inherit the same wrong one | — |
+| 207 | A miter over the limit is a *bevel*, not a long miter — the second bound in the same function, and a comb field's separators | 0165 |

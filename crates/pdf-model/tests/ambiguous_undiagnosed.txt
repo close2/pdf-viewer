@@ -61,7 +61,6 @@ bug1992868.pdf page 6
 bug1992868.pdf page 7
 bug1992868.pdf page 8
 bug1992868.pdf page 9
-bug766086.pdf page 1
 bug852992_reduced.pdf page 1
 bug886717.pdf page 1
 bug911034.pdf page 1
@@ -521,7 +520,6 @@ issue19326.pdf page 1
 issue19634.pdf page 1
 issue19971.pdf page 5
 issue19971.pdf page 6
-issue21068.pdf page 1
 issue21436.pdf page 1
 issue21570.pdf page 1
 issue2177.pdf page 1

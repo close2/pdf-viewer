@@ -155,13 +155,19 @@ fn join_extent(
     let (n1, n2) = ((-into.1, into.0), (-out.1, out.0));
     let (sx, sy) = (n1.0 + n2.0, n1.1 + n2.1);
     let square_length = sx.mul_add(sx, sy * sy);
+    // **A miter over the limit is not a long miter; it is a bevel**, and a bevel reaches half a
+    // width. §8.4.3.5: "When the limit is exceeded, the join is converted from a miter to a
+    // bevel." Bounding it by the limit instead is the same mistake this function was written to
+    // correct, one case in: `issue21068.pdf` draws each comb separator as a two-point subpath
+    // closed on itself, so both of its joins double back, and bounding those by the limit put
+    // every separator 4.5 units outside the `/BBox` that contains it.
     if square_length <= f32::EPSILON {
-        return square(limit);
+        return square(half);
     }
     let scale = 2.0 * half / square_length;
     let (dx, dy) = (sx * scale, sy * scale);
     if dx.hypot(dy) > limit {
-        return square(limit);
+        return square(half);
     }
     Rect::from_corners(
         Point::new(vertex.x - dx, vertex.y - dy),
@@ -405,14 +411,20 @@ mod tests {
         assert_eq!(bounds.min.y, 8.0, "{bounds:?}");
         assert_eq!(bounds.min.x, 10.0, "the butt end reaches nothing along x");
 
-        // A join that doubles back reaches for ever, and the limit is the whole answer.
+        // A join sharp enough to exceed the limit is not a long miter — §8.4.3.5 converts it to
+        // a bevel, which reaches half a width. Bounding it by the limit would put this spike
+        // twenty units past its own end.
         let spike = path(&[
             PathCommand::MoveTo(Point::new(10.0, 10.0)),
             PathCommand::LineTo(Point::new(50.0, 10.0)),
             PathCommand::LineTo(Point::new(11.0, 11.0)),
         ]);
-        let capped = stroked_bounds(&spike, &stroke, Transform::IDENTITY).expect("bounded");
-        assert!((capped.max.x - 70.0).abs() < 1e-3, "{capped:?}");
+        let bevelled_by_the_limit =
+            stroked_bounds(&spike, &stroke, Transform::IDENTITY).expect("bounded");
+        assert!(
+            (bevelled_by_the_limit.max.x - 52.0).abs() < 1e-3,
+            "{bevelled_by_the_limit:?}"
+        );
 
         let bevelled = stroked_bounds(
             &corner,
