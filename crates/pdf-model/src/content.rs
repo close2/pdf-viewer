@@ -735,6 +735,30 @@ impl TextObject {
     }
 }
 
+/// What one code got out of the font program it was shown through.
+#[derive(Debug, Clone, Copy)]
+enum Drawn {
+    /// An outline, which is the ordinary answer.
+    Yes,
+    /// No outline at all. A space is legitimately blank, so one of these says nothing.
+    NoOutline,
+    /// No outline, and §9.10.2 says why: the substitute face has no glyph for the character
+    /// the code means.
+    NoSuchCharacter,
+}
+
+/// What a page's codes got out of one font, tallied while they are shown.
+#[derive(Debug, Clone, Copy, Default)]
+struct Coverage {
+    /// Codes that reached an outline.
+    drawn: u32,
+    /// Codes that did not.
+    empty: u32,
+    /// How many of `empty` were §9.10.2's uncovered characters, which decides which of the
+    /// two reports a silent font gets.
+    uncovered: u32,
+}
+
 /// A glyph outline's bounding box in page space, for §9.3.8's overlap test.
 ///
 /// Built from the control points rather than from the curves' extremes, so it contains the
@@ -1122,7 +1146,7 @@ pub fn interpret_with(
         list: DisplayList::new(size),
         unsupported: BTreeMap::new(),
         text_operations: 0,
-        substitute_coverage: BTreeMap::new(),
+        glyph_coverage: BTreeMap::new(),
         glyphs: 0,
         operations: 0,
         fonts: BTreeMap::new(),
@@ -1183,19 +1207,29 @@ pub fn interpret_with(
     // this pass follows the content stream rather than being folded into it.
     interpreter.draw_annotations(page, base, view_clip);
 
-    // A substituted face that drew *nothing* of what a font was asked to show: §9.10.2 gave
-    // the codes characters and the face this machine offered has none of them, so the marks
-    // the document states are simply absent. Reported per font and only where the count of
-    // glyphs drawn through it is zero — see `Interpreter::substitute_coverage`.
-    for (name, (drawn, missed)) in std::mem::take(&mut interpreter.substitute_coverage) {
-        if drawn == 0 && missed > 0 {
-            interpreter.note(Unsupported::Font {
-                detail: format!(
-                    "font /{name} is substituted and the face this machine offers draws none \
-                     of the {missed} character(s) it is asked for (§9.10.2)"
-                ),
-            });
+    // A font that drew *nothing* of what it was asked to show. Two ways to get there and one
+    // condition: §9.10.2 gave the codes characters and the substitute face has none of them,
+    // or the program — embedded or not — answers every code with no outline. Reported per font
+    // and only where the count of glyphs drawn through it is zero, which is what keeps a space
+    // and a deliberate `.notdef` from being news; see `Interpreter::glyph_coverage`.
+    for (name, coverage) in std::mem::take(&mut interpreter.glyph_coverage) {
+        if coverage.drawn > 0 || coverage.empty == 0 {
+            continue;
         }
+        let detail = if coverage.uncovered > 0 {
+            format!(
+                "font /{name} is substituted and the face this machine offers draws none of \
+                 the {} character(s) it is asked for (§9.10.2)",
+                coverage.empty
+            )
+        } else {
+            format!(
+                "font /{name}'s program has no outline for any of the {} code(s) the page \
+                 shows through it, so the text it states is not drawn",
+                coverage.empty
+            )
+        };
+        interpreter.note(Unsupported::Font { detail });
     }
 
     let mut unsupported: Vec<Unsupported> = interpreter.unsupported.into_values().collect();
@@ -1373,8 +1407,8 @@ struct Interpreter<'a> {
     /// once rather than flooding the diagnostics.
     unsupported: BTreeMap<Unsupported, Unsupported>,
     text_operations: usize,
-    /// Per font resource name, how many codes a substituted face drew and how many it could
-    /// not. Drained into one report per font at the end of the page.
+    /// Per font resource name, what its codes got out of its program. Drained into one report
+    /// per font at the end of the page.
     ///
     /// **The condition is "drew none", and it was narrowed to that by measurement.** Reporting
     /// every code a substitute cannot draw named 13 corpus documents, most of which draw
@@ -1383,7 +1417,7 @@ struct Interpreter<'a> {
     /// draws *nothing* is the case where a page is blank and nobody is told, which is
     /// `issue8372.pdf`, and it is the same condition the simple-font path applies at load time:
     /// "the face draws none of the codes the document declares".
-    substitute_coverage: BTreeMap<String, (u32, u32)>,
+    glyph_coverage: BTreeMap<String, Coverage>,
     /// Glyphs that marked the page; see [`Interpretation::glyphs`].
     glyphs: usize,
     operations: usize,
@@ -1496,16 +1530,16 @@ impl Interpreter<'_> {
         self.unsupported.insert(item.clone(), item);
     }
 
-    /// Records that a substituted font's code did or did not reach a glyph.
-    fn tally_substitute(&mut self, name: &str, drawn: bool) {
-        let entry = self
-            .substitute_coverage
-            .entry(name.to_owned())
-            .or_insert((0, 0));
-        if drawn {
-            entry.0 = entry.0.saturating_add(1);
-        } else {
-            entry.1 = entry.1.saturating_add(1);
+    /// Records what one code got out of the font program it was shown through.
+    fn tally_glyph(&mut self, name: &str, drawn: Drawn) {
+        let entry = self.glyph_coverage.entry(name.to_owned()).or_default();
+        match drawn {
+            Drawn::Yes => entry.drawn = entry.drawn.saturating_add(1),
+            Drawn::NoOutline => entry.empty = entry.empty.saturating_add(1),
+            Drawn::NoSuchCharacter => {
+                entry.empty = entry.empty.saturating_add(1);
+                entry.uncovered = entry.uncovered.saturating_add(1);
+            }
         }
     }
 
@@ -4319,13 +4353,30 @@ impl Interpreter<'_> {
                                 text,
                                 painting,
                             );
+                            self.tally_glyph(&state.text.font_name, Drawn::Yes);
                         } else if program.uncovered_character(code).is_some() {
                             // §9.10.2 gave this code a character and the substitute face has
                             // no glyph for it, so a mark the document states is not made.
-                            // Tallied rather than reported here: see `substitute_coverage`.
-                            self.tally_substitute(&state.text.font_name, false);
+                            // Tallied rather than reported here: see `glyph_coverage`.
+                            self.tally_glyph(&state.text.font_name, Drawn::NoSuchCharacter);
+                        } else if self
+                            .text
+                            .get(start..)
+                            .is_some_and(|read| read.chars().all(char::is_whitespace))
+                        {
+                            // A code that reads back as a space is *meant* to have no
+                            // outline, so it is neither a mark made nor a mark missed and it
+                            // is not tallied at all. Measured rather than assumed: counting
+                            // it took the corpus's incomplete documents from 79 to 109, and
+                            // twenty-two of the thirty new reports named a single code
+                            // (trap 11 — print what a condition matched before trusting it).
                         } else {
-                            self.tally_substitute(&state.text.font_name, true);
+                            // The program answered with no outline at all, for a code that
+                            // means something else. One of these is not news — a producer's
+                            // deliberate `.notdef` is one — but a font *every* one of whose
+                            // codes comes back empty has drawn nothing the document asked
+                            // for, which is the condition the report below applies.
+                            self.tally_glyph(&state.text.font_name, Drawn::NoOutline);
                         }
                     }
                     Font::Type3(type3) => {

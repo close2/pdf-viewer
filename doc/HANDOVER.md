@@ -89,8 +89,8 @@ that exists (ADR 0146).
 |---|---|---|
 | tests | **951** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and six more arrived in the hundred-and-eighty-eighth. Quote the command with the number | — |
-| corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **880 draw with nothing reported**, **79 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **29 of them diagnosed and 720 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **29 of them diagnosed and 717 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **900 agree, 50 differ, 7 refused**, 17 not comparable — and the head of the differing list is `pdf-render`'s §10.7.4 rule the new backend does not ask for (ADR 0156) | `render-quorra/tests/corpus.rs`, **28 s** |
@@ -936,7 +936,22 @@ its numbers: ours to `hayro` 0.0342 against a reference spread of 0.0334 to 0.17
 interior pages of that book are in the bucket for a different reason** — nobody embedded its
 fonts — so the group takes one page and not 320.
 
-After it, `issue13316_reduced.pdf` at 11.44 and `issue5747.pdf` at 8.75. Ranking by pairwise numbers alone would be the
+**The sixteenth session opened `issue13316_reduced.pdf` and found the class of defect this
+bucket exists for.** Two hundred points by fifty, one `Tj` of nine codes through an embedded
+`TrueType` program, and this reader drew **nothing** with `unsupported: []` — while `poppler` and
+`hayro` drew 开票通知单 and the other two drew `A C  E F`. The cause was not the drawing: the
+tally behind ADR 0152's report counted a code that reached *no outline* as a code that drew, and
+counted a code that drew as nothing at all, so the rule it applied was "this font misses one of
+§9.10.2's characters and shows no space" while its own comment, this file and the ledger all said
+"the face drew none of what it was asked for". **A comment is not a test, and no gate compares one
+with the code beneath it.** ADR 0157: one tally, three outcomes, one condition — and a code that
+*reads back as whitespace* is not tallied at all, which is the whole of what keeps it honest
+(counting spaces took the corpus's incomplete count from 79 to 109). Four documents report now,
+one of them `issue20232.pdf`, whose missing ⌀ this file has recorded for thirty sessions. Two
+*stop* reporting — `issue11555.pdf` and `issue2128r.pdf` draw most of their text, and both pages
+agree with every reference, so what they carried was an overstatement.
+
+After it, `issue5747.pdf` at 8.75 and `issue7821.pdf` at 5.44. Ranking by pairwise numbers alone would be the
 corpus being treated as the specification, which principle 5 forbids; the numbers choose the page
 and the clause decides it.
 
@@ -2583,3 +2598,4 @@ above rather than here.
 | 190 | A page that is all sub-pixel line work, and the pair that antialiases it | — |
 | 191 | The three sweeps run again: §12.8.2.2's parenthesis became a `shall` when the program learned to write | — |
 | 192 | The 320-page book's cover is one reduced JPEG, and `pdfimages` said so in twenty minutes | — |
+| 193 | A font program that draws nothing says so, and the condition was not the one written down | 0157 |

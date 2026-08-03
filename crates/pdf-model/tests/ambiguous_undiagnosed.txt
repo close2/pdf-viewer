@@ -464,7 +464,6 @@ issue12337.pdf page 8
 issue12337.pdf page 9
 issue12705.pdf page 1
 issue12841_reduced.pdf page 1
-issue12963.pdf page 1
 issue12963.pdf page 2
 issue12963.pdf page 3
 issue12963.pdf page 4
@@ -475,7 +474,6 @@ issue13343.pdf page 1
 issue13193.pdf page 1
 issue13201.pdf page 1
 issue13242.pdf page 1
-issue13316_reduced.pdf page 1
 issue13343.pdf page 2
 issue1350.pdf page 1
 issue1350.pdf page 2
@@ -635,7 +633,6 @@ prefilled_f1040.pdf page 2
 radial_gradients.pdf page 4
 radial_gradients.pdf page 5
 rc_annotation.pdf page 1
-recursiveCompositGlyf.pdf page 1
 stamps.pdf page 1
 standard_fonts.pdf page 1
 standard_fonts.pdf page 10
