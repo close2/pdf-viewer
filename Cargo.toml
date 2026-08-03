@@ -32,11 +32,6 @@ render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
 # developed against that brief in its own repository and wired in here at its final
 # milestone. A git dependency rather than a path so that CI and a fresh checkout
 # reach it; Cargo.lock pins the exact revision, and deny.toml names the source.
-# For local work against an unpushed sibling checkout, patch it in:
-#
-#   [patch."https://github.com/close2/quorra"]
-#   quorra-gpu = { path = "../render-lib/crates/quorra-gpu" }
-#   quorra-scene = { path = "../render-lib/crates/quorra-scene" }
 quorra-gpu = { git = "https://github.com/close2/quorra", version = "0.1.0" }
 quorra-scene = { git = "https://github.com/close2/quorra", version = "0.1.0" }
 
@@ -276,3 +271,9 @@ overflow-checks = true
 lto = "thin"
 codegen-units = 16
 panic = "unwind"
+
+# Local work against the sibling checkout while the QUORRA_FEEDBACK.md findings
+# land; remove (and let Cargo.lock re-pin the pushed revision) once they have.
+[patch."https://github.com/close2/quorra"]
+quorra-gpu = { path = "../render-lib/crates/quorra-gpu" }
+quorra-scene = { path = "../render-lib/crates/quorra-scene" }
