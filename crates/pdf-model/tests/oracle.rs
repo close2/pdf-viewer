@@ -2236,6 +2236,31 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
+/// Ambiguous, and the word spaces are drawn as marks.
+///
+/// `issue7074_reduced.pdf` reads *Our 2015 Graduates* in an embedded `CIDFontType2` subset of
+/// Arial Bold under `Identity-H`. Three references and `hayro` draw it with spaces between the
+/// words; we draw `Ourl2015!Graduates` — a narrow mark where each space belongs.
+///
+/// ```text
+/// ink   ours 20.83   hayro 19.52   mupdf 19.15   poppler 19.09   ghostscript 18.06
+/// ```
+///
+/// and the two-ladder limit is `poppler` 19.751 and `mupdf` 19.755 at 576 dpi, so **ours is
+/// 1.08 of 255 over the geometry and the only one above it**. Extra ink where a space belongs is
+/// exactly that shape.
+///
+/// **Not the two-hundred-and-twenty-third session's `loca` repair**, which was the obvious
+/// suspect because this font is one of the six in the corpus whose offsets do not ascend (7 of
+/// 1674 glyphs). Checked rather than assumed: with the repair switched off the page's ink is
+/// 19.576 at 2×, and with it on it is 19.576. The repair does not reach this document's marks.
+///
+/// What is left is a code that should select a blank glyph and does not, which is a question
+/// about `Identity-H` and `/CIDToGIDMap` rather than about the outlines — and the instrument for
+/// it is the one the handover has owed for some time: a report where a *glyph* is shown, which
+/// needs `LoadedFont` to tell "this code has no glyph" from "this code's glyph is blank".
+const AMBIGUOUS_SPACE_DRAWN_AS_A_MARK: [&str; 1] = ["issue7074_reduced.pdf page 1"];
+
 /// Ambiguous, and **we were the ones who were wrong**: half the sentence was missing.
 ///
 /// `issue11131_reduced.pdf` is 207×41 and draws *Operating Account Consolidated Statement* in an
@@ -2432,6 +2457,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_TILED_STROKES)
         .chain(&AMBIGUOUS_REFERENCE_DREW_NOTHING)
         .chain(&AMBIGUOUS_LOCA_OUT_OF_ORDER)
+        .chain(&AMBIGUOUS_SPACE_DRAWN_AS_A_MARK)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
