@@ -37,7 +37,6 @@ XiaoBiaoSong.pdf page 1
 ZapfDingbats.pdf page 1
 blendmode.pdf page 1
 bug1308536.pdf page 1
-bug1671312_ArialNarrow.pdf page 1
 bug1703683_page2_reduced.pdf page 1
 bug1844583.pdf page 1
 bug1868759.pdf page 1
@@ -94,7 +93,6 @@ comments.pdf page 8
 comments.pdf page 9
 coons-allflags-withfunction.pdf page 1
 decodeACSuccessive.pdf page 1
-endchar.pdf page 1
 file_pdfjs_test.pdf page 1
 file_pdfjs_test.pdf page 2
 file_pdfjs_test.pdf page 3
@@ -475,7 +473,6 @@ issue14999_reduced.pdf page 1
 issue15012.pdf page 1
 issue15150.pdf page 1
 issue16224.pdf page 1
-issue16316.pdf page 1
 issue16473.pdf page 1
 issue16742.pdf page 1
 issue17065.pdf page 1
@@ -542,7 +539,6 @@ issue7339_reduced.pdf page 1
 issue7406.pdf page 1
 issue7454.pdf page 1
 issue7769.pdf page 1
-issue7821.pdf page 1
 issue8187.pdf page 1
 issue840.pdf page 1
 issue840.pdf page 2
@@ -555,7 +551,6 @@ jbig2_symbol_offset.pdf page 1
 jpx_smaskindata.pdf page 1
 knockout_groups_test.pdf page 1
 multiline.pdf page 1
-non-embedded-NuptialScript.pdf page 1
 pdfjs_wikipedia.pdf page 1
 pdkids.pdf page 1
 pdkids.pdf page 10
@@ -707,5 +702,3 @@ tracemonkey_with_editable_annotations.pdf page 9
 transparency_group.pdf page 1
 two_pages.pdf page 1
 two_pages.pdf page 2
-vertical.pdf page 2
-vertical.pdf page 3

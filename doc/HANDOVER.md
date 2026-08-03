@@ -93,7 +93,7 @@ that exists (ADR 0146).
 | tests | **964** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-eight sessions from the hundred-and-eighty-sixth added thirty-three. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **49 of them diagnosed and 711 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **56 of them diagnosed and 704 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -180,7 +180,7 @@ the 974 documents' first pages it affects.
 | Missing | Corpus | |
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
-| A fill under an eighth of a device pixel; a tiling cell's two halves | 2 | [todo 11](todo/11-shapes-that-still-disappear.md) |
+| A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
 | §8.7.4.5.4's greatest *admissible* root, on a cone | 2 | [todo 12](todo/12-a-radial-shading-is-not-a-conical-gradient.md) |
 | A stencil painted with a *tiling* pattern (§8.9.6.2) | 2 | [todo 20](todo/20-stencil-with-a-tiling-pattern.md) |
 | A substitute with no glyph for a character; one that cannot be addressed | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
@@ -596,8 +596,8 @@ enough along for this to be the work rather than a caveat. It is the last large 
 a defect can live without a name, and **the task, the instrument, the method and the next names
 are [todo 00](todo/00-ambiguous-bucket.md)**.
 
-**What it has produced, because that is the argument for keeping at it.** Twenty-nine sessions,
-**nine defects found and eight of them fixed** — a page one that was page two (ADR 0148), a photograph
+**What it has produced, because that is the argument for keeping at it.** Thirty sessions,
+**ten defects found and eight of them fixed** — a page one that was page two (ADR 0148), a photograph
 rendered black (0149), a shading painted as a square (0150), a stencil that drew nothing (0151),
 a whole grid that disappeared (0154), a sentence drawn as one Greek letter because the font's
 name ends in the word "Symbol" (0158), a stamp's gradient painted flat (0160), a widget's border
@@ -606,8 +606,19 @@ to a miter bound (0165) — and one found and *not* fixed, §8.7.4.5.4's greates
 which is `doc/todo/12` because all three backends inherit the same wrong construction — plus a pattern cell's clip worth 15% of a page's ink
 (0155), ten documents whose substituted font drew none of its characters in silence (0152), the
 coverage rule that made eight of them draw (0153), and a font program that draws nothing now
-saying so (0157). The bucket itself went 754 → 711 and 49 pages carry a diagnosis; *nine defects
-nobody could see* is the number to watch.
+saying so (0157). The tenth is found and not fixed either, in the two-hundred-and-fifteenth: a
+stroke under a pixel wide loses the half of `tiny-skia`'s hairline smear that falls outside the
+raster's top edge, so `vertical.pdf`'s two hairlines carry 55% of their area at the page's top
+and 98% everywhere else ([todo 11](todo/11-shapes-that-still-disappear.md) item 3). The bucket
+itself went 754 → 704 and 56 pages carry a diagnosis; *ten defects nobody could see* is the
+number to watch.
+
+**And the two-hundred-and-fifteenth session cleared the whole ranking above 1.6 in one sitting —
+seven pages — which is a result about the *list* rather than about any page.** Two were a face
+nobody ships and where §9.8.1 puts the answer, two were one word on a page the size of a postage
+stamp, two were hairlines, one was an eight-bit ramp on a stamp fixed sixteen sessions earlier.
+**The top of the ranking is populations now rather than defects**, and the one new defect in it
+came from a synthetic ladder rather than from a reference.
 
 **And the ninth was a correction rather than a finding, which is why it is here.** Two of the
 eight above quoted an ink table that was **half** ours and `hayro`'s and whole for the three C
@@ -2349,3 +2360,4 @@ above rather than here.
 | 212 | A page whose ink everybody agrees on is one for the heatmap, not the ink table | — |
 | 213 | Everything re-verified; two recipes that had stopped working; the miter arithmetic costs −0.01% | 0165 |
 | 214 | Ctrl + wheel zooms about the pointer, which needed a page point the scroll cannot express; and a field's two names, one of which a `shall` asks for | 0166, 0167 |
+| 215 | The ambiguous ranking above 1.6 emptied in one sitting — seven pages, four groups, and the only defect in them found by a synthetic ladder | — |

@@ -1768,8 +1768,54 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// What remains is the group's own subject: ours 20.35, `poppler` 19.72, `mupdf` 19.99,
 /// `hayro` 18.57, `ghostscript` 25.56 — a page of rules a fraction of a pixel wide, where
 /// §10.7.4 as written paints each of them solid.
-const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 2] =
-    ["22060_A1_01_Plans.pdf page 1", "issue21068.pdf page 1"];
+///
+/// # `vertical.pdf` pages 2 and 3, and they are the clause reduced to two operators
+///
+/// The whole content stream of page 2, decoded:
+///
+/// ```text
+/// q 1 0 0 1 72 249.02 cm
+///   q .1 w -72 71.95 m 177.45 71.95 l S Q
+///   q .1 w -72 -248.97 m 177.45 -248.97 l S Q
+/// Q
+/// ```
+///
+/// Two rules **a tenth of a user unit wide** across a 249.45 × 321.02 page, one 0.05 below its
+/// top edge and one 0.05 above its bottom, and nothing else on the page at all. `/SA` is never
+/// set, so §10.7.5's "rendered as a single-pixel line" does not apply and the width stands at
+/// a tenth of a device pixel; the closed form is 2 × 249.45 × 0.1 over the page's area, which
+/// is **0.159** of 255, and `poppler` at 576 and 2304 dpi gives 0.199 and 0.174, converging on
+/// it from above.
+///
+/// At the page's own scale:
+///
+/// ```text
+/// ours 0.121   mupdf 0.263   ghostscript 0.424   hayro 0.857   poppler 1.578
+///                                                            └ the limit is 0.174
+/// ```
+///
+/// **`poppler` paints these rules nine times their area and `mupdf` one and a half times**,
+/// which is §10.7.4 as written applied to a shape a tenth of a pixel thick, and it is the same
+/// disagreement the two pages above hold. Ours is the only one under the limit, and the reason
+/// is measured rather than guessed: see below.
+///
+/// ## Why ours is *under* it, which is a finding rather than the departure
+///
+/// A synthetic page with the same box and five identical rules — at the top edge, at y 300,
+/// 160, 20 and at the bottom edge — says where the ink goes. Four of the five carry
+/// **0.098 of an expected 0.1**; the one whose edge lies on the page's *top* carries 0.055.
+/// `tiny-skia` draws a stroke under a pixel wide as a hairline smeared symmetrically about the
+/// path — the ladder shows it, since each interior rule splits 0.047/0.051 across two rows
+/// whatever its sub-pixel position — and for a rule 0.05 above the top edge half of that smear
+/// falls above row zero and is lost with the raster. `doc/todo/11` holds it as the third
+/// member of its family: a loss the *rasteriser's own construction* causes rather than the
+/// display list.
+const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 4] = [
+    "22060_A1_01_Plans.pdf page 1",
+    "issue21068.pdf page 1",
+    "vertical.pdf page 2",
+    "vertical.pdf page 3",
+];
 
 /// Ambiguous, and every renderer here is guessing at a face nobody shipped.
 ///
@@ -1828,7 +1874,54 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 2] =
 /// it in, halving both. Session 161 found exactly this and recorded it in
 /// `CONTRADICTED_GLYPH_EDGES`; the recipe in `doc/todo/00-ambiguous-bucket.md` was not corrected
 /// and the two-hundred-and-second session followed the recipe. ADR 0163.
-const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 1] = ["issue8697.pdf page 1"];
+/// # Two more of the same shape, and they add what the clause *does* determine
+///
+/// `non-embedded-NuptialScript.pdf` (350×50) draws one sentence in `/NuptialScript` at 20 pt
+/// with no font program; `bug1671312_ArialNarrow.pdf` (200×50) draws two words in a
+/// non-embedded Arial Narrow. Both sat on §3a's ranking at 2.32 and 1.60 from the nearest
+/// reference.
+///
+/// **The positioning is the document's and every renderer here honours it, which is checkable
+/// and checked.** Table 111 makes `/Widths` "the glyph width for the character code that equals
+/// FirstChar plus the array index", in thousandths of text space. `NuptialScript`'s array gives
+/// `N` 778, so at 20 pt the second glyph starts 15.56 points along — and `mutool`'s own
+/// structured text puts it at 25.560 against an origin of 10.000. Every one of the five
+/// renders places its last mark within two pixels of the others over a 330-pixel line, on both
+/// documents. Nobody is inventing metrics.
+///
+/// **What is left is the face, and §9.8.1 puts that beyond the clause in as many words**:
+///
+/// > These font metrics provide information that enables a PDF processor to synthesise a
+/// > substitute font or select a similar font when the font program is unavailable.
+///
+/// Two routes, neither required, and this tree takes the second: `substitute.rs` ranks the
+/// name, §9.8.3.2's PANOSE and Table 121's flags (ADR 0086), against whatever faces the machine
+/// has — deliberately, because ADR 0133 compiled in §9.6.2.2's fourteen and drew the boundary
+/// there. **We do not take the first route at all**, and these two pages are what that costs:
+/// a substitute's glyphs are narrower than the widths the document states, so the difference
+/// appears as letter spacing. On `bug1671312_ArialNarrow.pdf` we are the only renderer that
+/// finds a *narrow* face at all, and the four that do not draw a better-fitting line.
+///
+/// The measurement says the references are no closer to each other than to us. Mean absolute
+/// difference on `non-embedded-NuptialScript.pdf`:
+///
+/// ```text
+/// ours vs hayro  2924    mupdf vs hayro          422
+/// ours vs mupdf  3972    ghostscript vs mupdf   2924
+/// ours vs gs     4062    hayro vs poppler       4044
+/// ours vs poppler 5833   ghostscript vs poppler 4096
+/// ```
+///
+/// and the 422 is its own small finding: `mupdf` and `hayro` are within a rounding of each
+/// other while every other pair is seven to ten times further apart, because those two answer
+/// a missing face from a *built-in* rather than from this machine. Trap 9's second shape, seen
+/// from outside — ask what data a renderer reads from the machine before crediting its
+/// agreement, and ask the same before crediting its disagreement.
+const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 3] = [
+    "issue8697.pdf page 1",
+    "non-embedded-NuptialScript.pdf page 1",
+    "bug1671312_ArialNarrow.pdf page 1",
+];
 
 /// Ambiguous, and the reason is a JPEG 2000 decoder that is measurably wrong.
 ///
@@ -2049,7 +2142,68 @@ const AMBIGUOUS_MARKUP_ARTWORK: [&str; 1] = ["bug1538111.pdf page 1"];
 /// legible and by construction moves ink; `ghostscript` is 42% over, which is §10.7.4 as written
 /// applied to stems a fraction of a pixel wide. The verdict is `ambiguous` because five
 /// renderers disagree by more than any bound can call, on a page of fifteen rows.
-const AMBIGUOUS_GLYPH_COVERAGE: [&str; 1] = ["copy_paste_ligatures.pdf page 1"];
+/// # Two more, both of them one word on a page the size of a postage stamp
+///
+/// `endchar.pdf` is 40×50 device pixels and draws a single `É` from an embedded `/FontFile3`
+/// whose name is its own hypothesis — the CFF `endchar` operator's four-argument form, which
+/// composes an accented character out of two glyphs. **All five renderers compose it**, so the
+/// hypothesis is answered and what is left is one outline's edges. `poppler` at 2304 dpi gives
+/// 60.98 and at 72 gives 59.06; ours 59.39, `ghostscript` 59.66, `mupdf` 58.16, `hayro` 62.84 —
+/// five renderers spanning 4.7 levels about a limit of 61.0, on a page where one glyph is all
+/// the ink there is.
+///
+/// `issue16316.pdf` is 60×10 device pixels: the word *Experimentation* in an embedded
+/// `NimbusRomNo9L`. Its crop box is **59.813 × 9.375 points**, which has no whole-pixel answer
+/// at all, and the five renderers give it three different rasters — 60×10 (ours, `poppler`,
+/// `mupdf`), 60×9 (`ghostscript`) and 59×9 (`hayro`). `CLAUDE.md` names this among the places
+/// the standard defines nothing: "how a fractional page becomes a whole number of pixels" is a
+/// documented choice, and ours is `TargetSpec::for_page`'s rounding *up* so that the raster
+/// contains the page (ADR 0064).
+///
+/// Among the three that agree about the raster, step 6's closed form settles the rest:
+/// `poppler` at 576 and 2304 dpi gives 43.81 and 43.79, so the outlines cover **43.8**, and at
+/// the page's own scale ours is 42.02 against `mupdf`'s 41.09 and `poppler`'s 41.03. Ours is
+/// nearest the geometry and the two `libfreetype` references are 6% under it, which is hinting
+/// — the same result `copy_paste_ligatures.pdf` gives above, on a page of ten rows.
+/// Ambiguous, and eighty-two per cent of the page is within *one level* of `poppler`.
+///
+/// `issue7821.pdf` is a 166×55 "APPROVED" stamp whose whole area is one §8.7.4.5.3 axial
+/// shading between two very pale greens — `/C0 [.812 .878 .776]`, `/C1 [.949 .969 .922]` — under
+/// a type 3 stitching function. It sat at the *top* of §3a's ranking for four sessions at 5.44
+/// and the two-hundred-and-fifth session fixed what was there: §8.7.2 places a pattern in the
+/// space of the content stream that names it, and an annotation's appearance is a form, so the
+/// axis had been landing off the page and `/Extend` painting one flat colour (ADR 0160).
+///
+/// **What is left is arithmetic no clause reaches.** Per-pixel, against our render:
+///
+/// ```text
+/// identical or one level of 255:   poppler 81.8%   ghostscript 80.6%
+///                                  mupdf   31.8%   hayro       30.6%
+/// ```
+///
+/// and the split is not about the shading at all — `mupdf` rasterises this page 167×55 and
+/// `hayro` 166×54, so the two that disagree are the two whose grid is offset from ours, which
+/// on a ramp that changes by a level every few pixels is the whole difference. Ink: ours 45.69,
+/// `poppler` 46.69, `mupdf` 47.08, `hayro` 48.33, `ghostscript` 50.00, against `poppler`'s own
+/// high-resolution limit of 46.10 — ours and `poppler` bracket it within 0.6.
+///
+/// Every pairwise heatmap is diagonal stripes at right angles to `/Coords`, which is the
+/// signature: §8.7.4.5.3 defines the colour at every point of the axis exactly and says nothing
+/// about what an eight-bit target does with it, so where two renderers round the same ramp in
+/// opposite directions a band one level wide appears. That is §3a's third shape — the clause
+/// determines the value and puts the device's quantisation beyond itself — and the floor is one
+/// level, which is what these two numbers are.
+///
+/// What is *not* quantisation is the remaining 18%: the glyph edges of the word and the rounded
+/// border, differing by up to 86 against `poppler` and 179 against `ghostscript`, which is
+/// `AMBIGUOUS_GLYPH_COVERAGE`'s subject on a page that also has a gradient.
+const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 1] = ["issue7821.pdf page 1"];
+
+const AMBIGUOUS_GLYPH_COVERAGE: [&str; 3] = [
+    "copy_paste_ligatures.pdf page 1",
+    "endchar.pdf page 1",
+    "issue16316.pdf page 1",
+];
 
 /// Ambiguous, and §12.5.4's one sentence settles it against `poppler`.
 ///
@@ -2115,6 +2269,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_LINK_BORDER)
         .chain(&AMBIGUOUS_MARKUP_ARTWORK)
         .chain(&AMBIGUOUS_GLYPH_COVERAGE)
+        .chain(&AMBIGUOUS_GRADIENT_QUANTISATION)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
         .copied()

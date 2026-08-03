@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 711 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 704 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (748 on documents we call complete); 49 diagnosed, 711 held by name
+Corpus: 788 ambiguous pages (748 on documents we call complete); 56 diagnosed, 704 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -111,7 +111,7 @@ wrong"** — `AMBIGUOUS_ZERO_AREA_FILL` did, for two sessions, before the fix.
 
 ## What has come out of it, so far
 
-Ten sessions from the hundred-and-seventy-sixth, then nineteen more: **nine defects found, eight
+Ten sessions from the hundred-and-seventy-sixth, then twenty more: **ten defects found, eight
 of them fixed** — a page one that was page two (ADR 0148), a photograph rendered black (0149), a
 shading painted as a square (0150), a stencil that drew nothing (0151), a whole grid that
 disappeared (0154), a sentence drawn as one Greek letter (0158), a stamp's gradient painted flat
@@ -126,7 +126,11 @@ a page's ink (0155), a font program that draws nothing now saying so (0157), **t
 codestreams that decode to the wrong samples** (0161, `doc/JPEG2000_FEEDBACK.md`), and a
 measuring command that had been halving our own ink for two sessions (0163).
 
-The bucket itself went 754 → 711 undiagnosed, and that is the least interesting number in this
+The tenth is found and not fixed either: a stroke under a pixel wide loses the half of
+`tiny-skia`'s hairline smear that falls outside the raster's top edge, which is `doc/todo/11`
+item 3 and was found by a synthetic ladder rather than by a reference.
+
+The bucket itself went 754 → 704 undiagnosed, and that is the least interesting number in this
 file. *Nine defects nobody could see* is the one to watch — **and one gate that found thirteen
 more.** `jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own
 hypothesis, and checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus
@@ -150,15 +154,31 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`non-embedded-NuptialScript.pdf` (2.32 from the nearest), `issue16316.pdf` (2.17),
-`endchar.pdf` (1.98), `vertical.pdf` pages 2 and 3 (1.95), `issue7821.pdf` (1.79),
-`issue4706.pdf` (1.61).
+`issue4706.pdf` (1.61 from the nearest), `issue12213.pdf` (1.60), `issue2177.pdf` (1.58),
+`issue18529.pdf` (1.56), `issue6006.pdf` (1.52), `issue4402_reduced.pdf` (1.41),
+`freeculture.pdf` page 255 (1.37).
 
-**Two of those are already known to be about *where* rather than *how much*.** `stamps.pdf` and
-`issue4706.pdf` come out within 0.2 and 0.12 of every renderer on ink *and* against the
+**The whole of the list above 1.6 went in the two-hundred-and-fifteenth session**, six pages in
+one sitting, and the shape of that result is worth as much as the pages: **the ranking's top is
+now populations rather than defects.** Two were a face nobody ships, two were one word on a page
+the size of a postage stamp, one was two hairlines, one was an eight-bit ramp — and the only new
+*defect* among them is a rasteriser property that a synthetic page found in ten minutes
+(`doc/todo/11` item 3).
+
+**`issue4706.pdf` is already known to be about *where* rather than *how much*.** It and
+`stamps.pdf` come out within 0.12 and 0.2 of every renderer on ink *and* against the
 high-resolution limit, so whatever separates them is placement. That is worth knowing before
 opening one: **step 5's closed form answers "how much" and is silent on "where"**, and a page
 where everybody's ink agrees needs the heatmap instead.
+
+**A page can be fixed and stay on this list, and this file said otherwise.** The paragraph below
+recorded that `issue7821.pdf` "left it in the hundred-and-ninety-ninth from the top of the list".
+What left was its *position*: ADR 0160 took it from 5.44 to 1.79 and it sat at the top of the
+undiagnosed ranking for fifteen more sessions, because a fix is not a diagnosis and only the
+second takes a name off `ambiguous_undiagnosed.txt`. It has one now
+(`AMBIGUOUS_GRADIENT_QUANTISATION`). **When a session fixes a page on this list, write its group
+in the same session** — the same lesson the text gate's ratchet taught in the hundred-and-sixty-
+sixth, one list over.
 
 **Fifteen names left the list in the two-hundred-and-fifth to -eleventh sessions**, and the shape
 of the result is the argument for the tail: two were defects in this tree (`bug1863910.pdf`'s
@@ -183,7 +203,9 @@ defect; all five now say *what the clause determines* rather than sitting inside
 **`issue8697.pdf` left this list in the hundred-and-ninety-seventh session and is the ranking's
 own argument**: 3.52 from the nearest against 3.55 from the furthest, which step 1 says to
 prefer, and it was drawing one Greek letter where the file states a sentence. ADR 0158. And
-`issue7821.pdf` left it in the hundred-and-ninety-ninth from the *top* of the list, where it had
-been for four sessions: 5.44, and the picture was a stamp anybody would have accepted. ADR 0160.
+`issue7821.pdf` was **fixed** in the hundred-and-ninety-ninth from the *top* of the list, where
+it had been for four sessions: 5.44, and the picture was a stamp anybody would have accepted
+(ADR 0160). It left the list itself only in the two-hundred-and-fifteenth, which is the
+distinction the section above draws.
 `jp2k-resetprob.pdf`, `S2.pdf` and `issue5475.pdf` left it in the two-hundredth, all three
 through `tests/jpeg2000.rs`. ADR 0161.
