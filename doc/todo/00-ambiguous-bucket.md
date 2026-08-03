@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 684 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 683 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 77 diagnosed, 684 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 78 diagnosed, 683 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -168,9 +168,23 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`issue4402_reduced.pdf` (1.41 from the nearest), `freeculture.pdf` page 255 (1.37),
-`issue7339_reduced.pdf` (1.30), `issue11131_reduced.pdf` (1.23) — and then the long book begins,
-four of the next six being `freeculture.pdf`.
+`freeculture.pdf` pages 329, 323, 315 and 322 (1.23 down to 1.10), then a plateau of nine pages
+at 0.99 — `comments.pdf` page 4, `bug1992868.pdf` page 9, and seven more that are the same page
+of the same annotation sheet under seven names. **The head of the ranking is the long book now**,
+which is what `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE` already says about it.
+
+**`issue4402_reduced.pdf` left the list in the two-hundred-and-thirty-first session**, and it is
+the clearest instance so far of shape 3 — the clause puts the answer beyond itself and says so.
+The page is a 215 × 28 crop box holding one line of eight-point text and a rule, so its mean *is*
+its glyph coverage, and §10.7.4's last sentence is "[s]can conversion of character glyphs may be
+performed by a different algorithm from the preceding one". The two ladders agree to 0.012 of 255
+and ours climbs onto the limit (55.41 → 56.71 → 56.78 → 56.91 against 56.98), while at the page's
+own resolution the five renderers spread by 3.0 of 255. `AMBIGUOUS_GLYPH_SCAN_CONVERSION`.
+
+**And the pairwise matrix is worth taking on a page like this**, because it answers a question
+step 5 cannot: ours against `hayro` is 0.0219 MAE, the *smallest* pair among all ten, and every
+pair involving `ghostscript` is larger than our worst. A page where the references disagree with
+each other more than they disagree with us is not a page about us.
 
 **`issue18529.pdf` left the list with a difference, not with an explanation**, and it is the one
 name here worth coming back to: ours and `hayro` are both 5.8% under the high-resolution limit on

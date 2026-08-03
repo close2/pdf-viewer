@@ -2570,6 +2570,61 @@ const AMBIGUOUS_OVERSIZED_BORDER: [&str; 1] = ["bug1552113.pdf page 1"];
 /// closed form. What keeps it `ambiguous` is that the four draw four slightly different borders.
 const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 
+/// Ambiguous, and §10.7.4's own last sentence is the answer.
+///
+/// `issue4402_reduced.pdf` is a 215 × 28 crop box — `/CropBox [19.7223 787.097 234.535 815.348]`
+/// out of an A4 `/MediaBox` — holding one line of eight-point text, *KEY INVESTOR INFORMATION*,
+/// in an embedded `CIDFontType2` subset, and a hairline rule under it. Forty-five commands, no
+/// image, no shading, nothing else on the page. So the page's mean **is** its glyph coverage:
+/// there is nothing else for the five renderers to differ about, and the tolerance is measured
+/// against a mean over 6 020 pixels rather than over a page.
+///
+/// §10.7.4, after eight paragraphs of rules that bind fills, strokes, images and clips:
+///
+/// > Scan conversion of character glyphs may be performed by a different algorithm from the
+/// > preceding one.
+///
+/// > NOTE 2 Font rendering algorithms use hints in the glyph descriptions and techniques that are
+/// > specialised to glyph rasterization.
+///
+/// A *may*, addressed to exactly this page. The clause spends its normative force on the
+/// geometry — the outlines and where they land — and then hands glyph coverage to the
+/// implementation in one sentence. This group is todo `00`'s third shape: the clause puts the
+/// answer beyond itself, and says so.
+///
+/// What is left to check is the half the clause does bind, and the two-ladder closed form checks
+/// it. Ink over the 215 × 28 frame the oracle compares on:
+///
+/// ```text
+///              72 dpi    limit (poppler 1152 / mupdf 1152)
+/// ours          55.41    56.976 / 56.988
+/// hayro         55.37
+/// ghostscript   56.11
+/// mupdf         57.19
+/// poppler       58.38
+/// ```
+///
+/// The two ladders agree to 0.012 of 255, so there is a limit. **Ours climbs onto it** — 55.41,
+/// 56.71, 56.78, 56.91 at 1×, 4×, 8× and 16× — ending 0.07 under, which is our marks covering
+/// the geometry. At the page's own resolution the five spread by **3.0 of 255**, ours 1.57 under
+/// the geometry and `poppler` 1.40 over, with `ghostscript` and `mupdf` between them: a
+/// fourteen-percent spread in text ink on one line of eight-point glyphs.
+///
+/// And we are not the outlier. Every pair of renders, mean absolute error over that frame:
+///
+/// ```text
+///              poppler   mupdf   ghostscript   hayro
+/// ours          0.0450  0.0369      0.0704    0.0219
+/// poppler          —    0.0392      0.0630    0.0338
+/// mupdf                    —        0.0683    0.0288
+/// ghostscript                          —      0.0605
+/// ```
+///
+/// **Ours against `hayro` at 0.0219 is the smallest pair in the whole matrix**, and every pair
+/// involving `ghostscript` is larger than our worst. The page reaches this bucket because five
+/// glyph rasterisers disagree with each other, which is the sentence above written out.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 1] = ["issue4402_reduced.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -2607,6 +2662,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
+        .chain(&AMBIGUOUS_GLYPH_SCAN_CONVERSION)
         .copied()
         .collect()
 }

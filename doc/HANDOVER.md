@@ -93,7 +93,7 @@ that exists (ADR 0146).
 | tests | **972** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirtieth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **77 of them diagnosed and 684 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1680** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **78 of them diagnosed and 683 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -634,8 +634,8 @@ for having hard fonts, which session 68 then measured on one.
 
 ### 3a. The ambiguous bucket — watched since the hundred-and-seventy-sixth, and being emptied
 
-**748 of the pages the oracle judges come back `ambiguous`, and until the hundred-and-seventy-
-sixth session no gate watched one of them.** The verdict means "nobody's difference is large
+**749 of the pages the oracle judges on documents we call complete come back `ambiguous` (788 of
+all 1794), and until the hundred-and-seventy-sixth session no gate watched one of them.** The verdict means "nobody's difference is large
 enough to call anybody wrong", which is the right thing for the *ratchet* to do and is not the
 same as "right". `issue7406.pdf` drew a JPEG cyan-on-black inside an `ambiguous` verdict for as
 long as anybody looked, and it is correct now, and **nothing announced either event**.
@@ -2445,3 +2445,4 @@ above rather than here.
 | 228 | A page where all five renderers paint one to seven levels more than the geometry, and ours the least | — |
 | 229 | Why half the ambiguous bucket is ambiguous — and it is not the reason this file gave for it | — |
 | 230 | Everything re-verified after seventeen rounds of change: five fuzzers, `deny`, the six gates and the window | — |
+| 231 | The ranking's top page, and §10.7.4's own last sentence is the answer to it | — |
