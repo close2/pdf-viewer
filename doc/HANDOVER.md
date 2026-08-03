@@ -90,8 +90,8 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **970** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-eight sessions from the hundred-and-eighty-sixth added thirty-three. Quote the command with the number | — |
+| tests | **972** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirtieth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **77 of them diagnosed and 684 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
@@ -99,8 +99,8 @@ that exists (ADR 0146).
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **46.3 ms**, and five arrow keys turn to page 6 presenting in **9.2 to 18.1 ms** with nothing refused — re-run in the two-hundred-and-thirteenth, on `lavapipe` through Vello and so not comparable with the hundred-and-ninety-fifth's 44.6 ms through **quorra**; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
-| conformance | **376 quotations**, all verbatim, 3689 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **69.7 ms**, and five arrow keys turn to page 6 presenting in **12.0 to 24.7 ms** with nothing refused — re-run in the two-hundred-and-thirtieth, on `lavapipe` through Vello and so not comparable with the hundred-and-ninety-fifth's 44.6 ms through **quorra**; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
+| conformance | **378 quotations**, all verbatim, 3704 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -215,6 +215,36 @@ grid-fitting a stroke's coordinates under `/SA`, and rendering intents beyond
 Two that *were* here and are closed by work: optional content's interactive half (session 167)
 and a page whose scene overflows Vello's buffers (banded in 143, and the page that motivated it
 stopped overflowing in 147 — ADRs 0127, 0132).
+
+### The seventeen rounds from the two-hundred-and-fourteenth
+
+Two features a person can feel, three defects nobody could see, five documents' worth of stale
+prose, and nineteen pages off §3a's ranking. What they have in common is worth more than the
+list: **five of them were blocked on a sentence rather than on work.**
+
+- **Ctrl + the wheel zooms about the pointer** (ADR 0166), and the interesting half was in the
+  core: a zoom anchored at the pointer has to hold a page point `Open::origin` knows about and
+  the scroll does not, because a page smaller than the viewport is *centred*.
+- **§12.5.3's `NoZoom` and `NoRotate`** (0168), refused for two hundred sessions by one sentence
+  that was two claims: `NoRotate` depends on `/Rotate`, which is in the *file*, and was never a
+  view-dependence at all. §12.5.6.4's "text annotations shall behave as if [both] were always
+  set" followed three sessions later, and `icon.rs`'s module comment had carried that blocker in
+  prose the whole time.
+- **A stencil through a tiling pattern** (0169) — and then the page was still blank, because
+  `span` measured every tile in the tree from the pattern space's origin rather than from the
+  cell's own `/BBox`. Wrong for two hundred sessions and invisible because `floor` and `ceil`
+  give a tile of slack at each end.
+- **A `glyf` rebuilt in glyph order** (0170), for a `loca` whose offsets descend: 36 of one
+  font's 71 glyphs refused, half a sentence missing, and nothing said. Six of the corpus's 623
+  embedded TrueType programs have such a table.
+- **A field has two names** (0167), because §14.9.3's `shall` needs the one that *identifies* a
+  field and the one a person is *shown*, and `Query::FieldAt` could carry only one.
+
+And the instrument moved twice: **take two ladders, not one** (`issue2177.pdf`, where `poppler`
+on a tiling pattern drifts instead of converging), and **run `doc/todo/01`'s sweeps over the
+source, not only over the ledger** — which found `pdf-model`'s own crate documentation, the `d`
+operator's doc comment, and three of `requirements::unmet`'s arms all false for between forty and
+two hundred sessions.
 
 ---
 
@@ -2414,3 +2444,4 @@ above rather than here.
 | 227 | Three more, one of them the case where step 6 has one ladder and not two | — |
 | 228 | A page where all five renderers paint one to seven levels more than the geometry, and ours the least | — |
 | 229 | Why half the ambiguous bucket is ambiguous — and it is not the reason this file gave for it | — |
+| 230 | Everything re-verified after seventeen rounds of change: five fuzzers, `deny`, the six gates and the window | — |
