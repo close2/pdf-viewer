@@ -1444,6 +1444,62 @@ fn a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified() {
     assert_eq!(extent(&plain), (40, 40, 69, 69));
 }
 
+/// §12.5.3's `NoZoom` does not reach a text markup annotation, and it is a choice.
+///
+/// Two `shall`s that cannot both hold at a magnification other than 1, with no precedence stated
+/// between them. §12.5.3: "the annotation shall always maintain the same fixed size on the
+/// screen". §12.5.6.10:
+///
+/// > Text markup annotations shall appear as highlights, underlines, strikeouts (all PDF 1.3), or
+/// > jagged ("squiggly") underlines ( PDF 1.4 ) in the text of a document.
+///
+/// Obey the first and a strike-out at 200% covers half the words it struck out, at which point
+/// the second is false. This tree obeys the second, because §12.5.6.10 says what the annotation
+/// *is* and §12.5.3 offers a display option annotations have in general — argued in ADR 0172 and
+/// counted first: 211 of the corpus's 511 text markup annotations carry `NoZoom` and all 211 are
+/// in one document, at one flag value.
+///
+/// The fixture is `/F 220`, which is `ISO_32000-2_sponsored_EC3.pdf`'s own value on every one of
+/// its 211 strike-outs: Locked, `ReadOnly`, `NoRotate`, **`NoZoom`**, Print.
+#[test]
+fn a_text_markup_annotation_scales_with_the_text_it_marks() {
+    for subtype in ["StrikeOut", "Highlight", "Underline", "Squiggly"] {
+        let fixture = || {
+            pdf_with(
+                &format!(
+                    "<< /Type /Annot /Subtype /{subtype} /Rect [40 40 70 70] /F 220 \
+                     /QuadPoints [40 70 70 70 40 40 70 40] /AP << /N 6 0 R >> >>"
+                ),
+                "/BBox [0 0 30 30]",
+                "0 0 0 rg 0 0 30 30 re f",
+            )
+        };
+        assert_eq!(
+            extent(&render_at(fixture(), Some(2.0))),
+            (40, 40, 69, 69),
+            "{subtype} at 2x is still its own /Rect, so it still covers its words"
+        );
+        assert_eq!(
+            extent(&render_at(fixture(), None)),
+            (40, 40, 69, 69),
+            "{subtype} unchanged where no magnification is stated"
+        );
+    }
+
+    // And the exclusion is by subtype rather than by flag: a Square with the same /F 220 still
+    // shrinks, which is what keeps this a reading of §12.5.6.10 and not a repeal of §12.5.3.
+    let square = pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [40 40 70 70] /F 220 /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 30 30]",
+        "0 0 0 rg 0 0 30 30 re f",
+    );
+    assert_eq!(
+        extent(&render_at(square, Some(2.0))),
+        (40, 55, 54, 69),
+        "a Square keeps §12.5.3's behaviour"
+    );
+}
+
 /// A page says whether its marks depend on the magnification, so a host knows when to re-ask.
 ///
 /// The flag is what makes `NoZoom` affordable: a zoom re-rasterises the same display list, and

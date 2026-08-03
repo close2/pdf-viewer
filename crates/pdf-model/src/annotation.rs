@@ -495,12 +495,37 @@ pub(crate) fn decide(
         // an annotation that sets neither flag and cannot be cleared by one that clears them.
         // Unreachable until the two-hundred-and-seventeenth session gave the two flags a
         // meaning, and `icon.rs`'s module comment carried the blocker in prose the whole time.
-        if document
-            .get_key(annotation, "Subtype")
-            .as_name()
-            .is_some_and(|subtype| subtype.as_bytes() == b"Text")
-        {
+        let subtype = document.get_key(annotation, "Subtype");
+        let subtype = subtype.as_name().map(pdf_syntax::Name::as_bytes);
+        if subtype == Some(b"Text".as_slice()) {
             flags |= FLAG_NO_ZOOM | FLAG_NO_ROTATE;
+        }
+        // §12.5.6.10, of the four text markup subtypes and of nothing else:
+        //
+        // > Text markup annotations shall appear as highlights, underlines, strikeouts (all
+        // > PDF 1.3), or jagged ("squiggly") underlines ( PDF 1.4 ) in the text of a document.
+        //
+        // **Two `shall`s that cannot both hold, and the standard states no precedence.** At any
+        // magnification but 1, §12.5.3's "the annotation shall always maintain the same fixed
+        // size on the screen" moves a strike-out off the words it strikes out, and §12.5.6.10's
+        // "in the text of a document" is then false. Table 182 is the second half of it: the
+        // quadrilaterals are stated "in default user space" and each "shall encompasses a word
+        // or group of contiguous words in the text underlying the annotation", so this
+        // annotation's geometry is defined *by reference to the page's text* and cannot be held
+        // still while the text moves.
+        //
+        // The choice, recorded as a choice (ADR 0172): §12.5.6.10 says what the annotation *is*
+        // and §12.5.3 offers a display option that annotations have in general, so the general
+        // option does not get to make the object stop being what its own subclause defines it
+        // as. Counted before it was made: the corpus holds 511 text markup annotations across 34
+        // documents, **211 of them carry `NoZoom` and all 211 are in one document** — every
+        // strike-out of `ISO_32000-2_sponsored_EC3.pdf`, at one flag value, which is a
+        // producer's habit rather than 211 decisions.
+        if matches!(
+            subtype,
+            Some(b"Highlight" | b"Underline" | b"Squiggly" | b"StrikeOut")
+        ) {
+            flags &= !(FLAG_NO_ZOOM | FLAG_NO_ROTATE);
         }
         *adjust = geometry.adjustment(flags, rectangle(document, annotation, "Rect"));
     }

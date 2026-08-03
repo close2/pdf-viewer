@@ -193,7 +193,6 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
-| A `NoZoom` strike-out that no longer spans the words it strikes | 1 | [todo 13](todo/13-a-strikeout-that-does-not-follow-its-text.md) |
 | A substitute with no glyph for a character; one that cannot be addressed | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
@@ -2464,3 +2463,4 @@ above rather than here.
 | 233 | A quarter of the ambiguous bucket was one paper under twelve names — and `pdftoppm` renders the wrong box | — |
 | 234 | Two pages where the *reference* is alone, and both corrected a ledger row rather than a pixel | — |
 | 235 | Fourteen pages of the standard 14, where §9.6.2.2 states the names and not one outline | — |
+| 236 | Two `shall`s that cannot both hold: a strike-out follows the text it strikes out | 0172 |
