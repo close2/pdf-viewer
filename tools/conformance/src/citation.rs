@@ -266,6 +266,23 @@ fn another_document(before: &str) -> Option<String> {
     let before = before.trim_end();
     let mut words = before.split_whitespace().rev();
     let number = words.next()?;
+
+    // A document that is a *file* of this project names itself in one word — an
+    // upper-case stem and the `.md` suffix, immediately before the sign. Such a
+    // `§` used to slip through whenever its number landed on a real clause
+    // (QUORRA_FEEDBACK.md section 2's own citation did); this arm turns it into
+    // a named finding, whose message teaches the "FILE.md section N" spelling
+    // the tree writes for every document that is not the standard.
+    let file = number.trim_matches(['(', '"', '`', ')', ',', ';']);
+    if let Some(stem) = file.strip_suffix(".md")
+        && !stem.is_empty()
+        && stem.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+        })
+    {
+        return Some(file.to_owned());
+    }
+
     let name = words.next()?;
     let acronym = name.trim_start_matches(['(', '"', '`']);
     if !number
@@ -538,5 +555,21 @@ mod tests {
         let scan = scan(&source);
         assert!(scan.foreign.is_empty());
         assert_eq!(scan.citations.len(), 1);
+    }
+
+    /// A project document's own file name before a `§` marks the citation as another
+    /// document's — a finding with the file's name on it, not a silent pass against
+    /// whichever ISO clause the number happens to land on.
+    #[test]
+    fn a_project_documents_file_name_before_a_section_is_not_a_citation() {
+        let source = format!("{DOC} measured, RENDER_LIBRARY.md {SECTION}4.5 says, not assumed\n");
+        let scan = scan(&source);
+        assert!(scan.citations.is_empty(), "{:?}", scan.citations);
+        assert_eq!(
+            scan.foreign
+                .first()
+                .map(|foreign| foreign.document.as_str()),
+            Some("RENDER_LIBRARY.md")
+        );
     }
 }
