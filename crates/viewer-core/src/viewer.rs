@@ -57,6 +57,10 @@ pub struct Viewer {
     scale: f32,
     /// The next token, which only ever increases.
     next_token: u64,
+    /// Whether §12.6.3's page-scoped events are being raised right now.
+    ///
+    /// The bound on a cascade. See [`Self::page_events`].
+    raising: bool,
 }
 
 impl Viewer {
@@ -72,6 +76,7 @@ impl Viewer {
             viewport: (width, height),
             scale: if scale > 0.0 { scale } else { 1.0 },
             next_token: 0,
+            raising: false,
         }
     }
 
@@ -202,6 +207,7 @@ impl Viewer {
                 if index == open.page_index {
                     return;
                 }
+                let left = open.page_index;
                 open.page_index = index;
                 // A new page starts at its top: carrying a scroll position across a page turn
                 // would land a reader in the middle of a page they have not seen.
@@ -211,6 +217,9 @@ impl Viewer {
                 // time has expired" doing the right thing without a second rule.
                 open.shown_for = 0.0;
                 self.announce_page(events);
+                if let Some(id) = self.focused {
+                    self.page_events(id, Some(left), events);
+                }
             }
             Command::Activate(object) => self.activate(object, events),
             Command::Tick { millis } => self.tick(millis, events),
@@ -291,6 +300,13 @@ impl Viewer {
                     });
                 }
                 self.announce_page(events);
+                // §12.6.3 puts `/PO` "after … the OpenAction entry in the document Catalog",
+                // and `Open::around` has already applied that entry's destination — the page it
+                // names is `open.page_index` and its view is waiting in `pending_view` — so the
+                // first page's events are raised here, in the clause's order. An `/OpenAction`
+                // that is an action rather than a destination is still not *performed*; that is
+                // §12.6.4's row and not this one's, and it changes nothing about this ordering.
+                self.page_events(id, None, events);
             }
             // §7.6.4.1's prompt, and the reason this is not an `OpenFailed`: a document that
             // wants a password is not a document this program cannot read.
@@ -561,6 +577,7 @@ impl Viewer {
                 });
             }
             self.announce_page(events);
+            self.page_events(id, None, events);
             return;
         }
 
@@ -578,9 +595,11 @@ impl Viewer {
         if let Some(target) = outcome.target
             && target != open.page_index
         {
+            let left = open.page_index;
             open.page_index = target;
             open.scroll = (0.0, 0.0);
             self.announce_page(events);
+            self.page_events(id, Some(left), events);
         }
     }
 
@@ -1071,6 +1090,78 @@ impl Viewer {
         });
     }
 
+    /// §12.6.3's four page-scoped events and Table 198's two, in the order the clause states.
+    ///
+    /// A page turn raises six things, and §12.6.3 states the order of four of them:
+    ///
+    /// > The action shall be executed after the O action in the page's additional - actions
+    /// > dictionary (see "Table 198 - Entries in a page object's additional - actions
+    /// > dictionary") and the OpenAction entry in the document Catalog (see "Table 29 - Entries
+    /// > in the catalog dictionary"), if such actions are present.
+    ///
+    /// and, of `/PC`, that it shall be executed before the page's own `/C`. So leaving a page is
+    /// its annotations' `/PC` then the page's `/C`, and
+    /// arriving at one is the page's `/O` then its annotations' `/PO` — which is the sequence
+    /// below.
+    ///
+    /// **`/PV` and `/PI` coincide with `/PO` and `/PC` here, and that is derived rather than
+    /// conceded.** §12.6.3 says why the pair exists: "[t]he PV and PI entries allow a distinction
+    /// between pages that are open and pages that are visible. At any one time, while more than
+    /// one page may be visible, depending on the page layout." This viewer shows one page at a
+    /// time, so the two sets have one member each and they are the same member. A host that drew
+    /// a continuous tower of pages would separate them, and the place to do it is here.
+    ///
+    /// NOTE 1 is honoured by not consulting Table 167 at all: "[f]or these trigger events, the
+    /// values of the flags specified by the annotation's F entry … have no bearing on whether a
+    /// given trigger event occurs" — so a hidden annotation's `/PO` is performed.
+    ///
+    /// **Nothing cascades.** An action performed here may turn the page again; raising the same
+    /// six events for *that* turn would let a document with `/PO` pointing at the next page walk
+    /// the whole file, and §12.6.2 states no bound. `raising` is that bound, and it is a flag
+    /// rather than a depth because one level is the only one the clause describes.
+    fn page_events(&mut self, id: DocumentId, left: Option<usize>, events: &mut Vec<Event>) {
+        if self.raising {
+            return;
+        }
+        self.raising = true;
+        let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
+        let mut closed = None;
+        let mut opened = None;
+        if let Some(open) = self.focused() {
+            let pages = pdf_model::Pages::new(&open.document);
+            if let Some(index) = left.filter(|index| *index != open.page_index) {
+                closed = pages.get(index).map(|page| page.dict.clone());
+                for annotation in annotations_on(open, &pages, index) {
+                    raised.push((annotation, Trigger::PageClose));
+                    raised.push((annotation, Trigger::PageInvisible));
+                }
+            }
+            opened = pages.get(open.page_index).map(|page| page.dict.clone());
+        }
+        self.raise(id, raised, events);
+        for (page, event) in [
+            (closed, pdf_model::action::PageTrigger::Close),
+            (opened.clone(), pdf_model::action::PageTrigger::Open),
+        ] {
+            let Some(page) = page else { continue };
+            let Some(open) = self.focused_mut() else {
+                break;
+            };
+            let outcome = interact::page_trigger(open, &page, event);
+            self.apply(id, outcome, events);
+        }
+        let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
+        if let Some(open) = self.focused() {
+            let pages = pdf_model::Pages::new(&open.document);
+            for annotation in annotations_on(open, &pages, open.page_index) {
+                raised.push((annotation, Trigger::PageOpen));
+                raised.push((annotation, Trigger::PageVisible));
+            }
+        }
+        self.raise(id, raised, events);
+        self.raising = false;
+    }
+
     /// The focused document, where one is focused and open.
     fn focused(&self) -> Option<&Open> {
         self.documents.get(&self.focused?)
@@ -1113,6 +1204,26 @@ fn content_bounds(list: &DisplayList) -> Option<Rect> {
         union = Some(union.map_or(bounds, |box_| box_.union(bounds)));
     }
     union
+}
+
+/// Every annotation object on a page, in `/Annots` order.
+///
+/// By object identity, because a trigger performs what the *dictionary* states and a direct
+/// annotation — one the array holds inline rather than by reference — has no identity to raise
+/// an event against. §12.5.2 makes `/Annots` "an array of annotation dictionaries", and every
+/// corpus document writes them indirectly.
+fn annotations_on(open: &Open, pages: &pdf_model::Pages, index: usize) -> Vec<ObjectId> {
+    let Some(page) = pages.get(index) else {
+        return Vec::new();
+    };
+    let entry = open.document.get_key(&page.dict, "Annots");
+    let Some(array) = entry.as_array() else {
+        return Vec::new();
+    };
+    array
+        .iter()
+        .filter_map(pdf_syntax::Object::as_reference)
+        .collect()
 }
 
 /// The whole viewport, which is what changes when a frame arrives or a page scrolls.

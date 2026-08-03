@@ -166,6 +166,24 @@ pub(crate) fn trigger(open: &mut Open, annotation: ObjectId, event: Trigger) -> 
     perform(open, &actions, None, None, "this annotation")
 }
 
+/// Table 198's two page-scoped events, which nothing raised until the two-hundred-and-fourth
+/// session.
+///
+/// `/O` "when the page is opened" and `/C` "when the page is closed" — the same page turn
+/// §12.6.3's `/PO` and `/PC` are about, one level up. Read from the page's *own* dictionary:
+/// `/AA` is not one of §7.7.3.4's inheritable entries, which `action::for_page` states.
+pub(crate) fn page_trigger(
+    open: &mut Open,
+    page: &pdf_syntax::Dictionary,
+    event: pdf_model::action::PageTrigger,
+) -> Outcome {
+    let actions = pdf_model::action::for_page(&open.document, page, event);
+    if actions.is_empty() {
+        return Outcome::default();
+    }
+    perform(open, &actions, None, None, "this page")
+}
+
 /// Performs §12.6.2's action sequence and resolves whatever page it names.
 ///
 /// One function for both callers, because §12.6.2 makes an action list an action list wherever

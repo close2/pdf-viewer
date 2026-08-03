@@ -1861,3 +1861,110 @@ fn a_destinations_null_parameters_leave_what_they_do_not_state() {
     let zero = geometry_for("[3 0 R /XYZ 0 800 0]");
     assert!((zero.scale - fitted.scale).abs() < 1e-3, "{}", zero.scale);
 }
+
+/// A three-page fixture whose annotations and pages carry §12.6.3's page-scoped triggers.
+///
+/// Each event performs a `/URI` action naming itself, because a URI is the one action this crate
+/// hands *out* rather than acting on — so the events arrive in `Event::OpenUri` in the order they
+/// were raised, which is what this test is about.
+fn with_page_triggers() -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let page = |number: usize, object: usize, annot: usize| {
+        format!(
+            "{object} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+             /Resources << >> /Annots [{annot} 0 R] \
+             /AA << /O << /S /URI /URI (page{number}-O) >> \
+             /C << /S /URI /URI (page{number}-C) >> >> >>\nendobj\n\
+             {annot} 0 obj\n<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] \
+             /AA << /PO << /S /URI /URI (page{number}-PO) >> \
+             /PC << /S /URI /URI (page{number}-PC) >> \
+             /PV << /S /URI /URI (page{number}-PV) >> \
+             /PI << /S /URI /URI (page{number}-PI) >> >> >>\nendobj\n"
+        )
+    };
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>\nendobj\n\
+         {}{}{}",
+        page(1, 3, 4),
+        page(2, 5, 6),
+        page(3, 7, 8)
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// The URIs these events handed out, in order.
+fn uris(events: &[Event]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::OpenUri { uri, .. } => Some(uri.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// ISO 32000-2 §12.6.3's four page-scoped trigger events, and Table 198's two, in its order.
+///
+/// > The action shall be executed after the O action in the page's additional - actions
+/// > dictionary (see "Table 198 - Entries in a page object's additional - actions dictionary")
+/// > and the OpenAction entry in the document Catalog (see "Table 29 - Entries in the catalog
+/// > dictionary"), if such actions are present.
+///
+/// and of `/PC`, that it shall be executed before the page's own `/C`. So a turn is: the
+/// leaving page's annotations, then the leaving page; then the
+/// arriving page, then its annotations. Four of Table 197's ten events and both of Table 198's,
+/// none of which anything raised until the two-hundred-and-fourth session. ADR 0164.
+///
+/// `/PV` and `/PI` land beside `/PO` and `/PC` because §12.6.3 says what separates them —
+/// "[t]he PV and PI entries allow a distinction between pages that are open and pages that are
+/// visible. At any one time, while more than one page may be visible, depending on the page
+/// layout" — and this viewer shows one page at a time.
+#[test]
+fn a_page_turn_raises_the_events_the_clause_orders() {
+    let mut viewer = Viewer::new(200, 200, 1.0);
+    let opened: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_page_triggers(),
+            password: None,
+        })
+        .collect();
+    assert_eq!(
+        uris(&opened),
+        ["page1-O", "page1-PO", "page1-PV"],
+        "opening a document opens its first page: the page's own action, then its annotations'"
+    );
+
+    let turned: Vec<Event> = viewer.handle(Command::GoTo(PageTarget::Index(1))).collect();
+    assert_eq!(
+        uris(&turned),
+        [
+            "page1-PC", "page1-PI", "page1-C", "page2-O", "page2-PO", "page2-PV"
+        ],
+        "the leaving page's annotations before its /C, and the arriving page's /O before its"
+    );
+
+    // A page the document does not have raises nothing, and neither does going where we are.
+    let same: Vec<Event> = viewer.handle(Command::GoTo(PageTarget::Index(1))).collect();
+    assert!(uris(&same).is_empty(), "{:?}", uris(&same));
+}

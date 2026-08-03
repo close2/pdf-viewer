@@ -467,3 +467,96 @@ fn an_embedded_go_to_opens_the_document_inside_this_one() {
         "the actions name more than one page of the target: {indices:?}"
     );
 }
+
+/// What the corpus states for §12.6.3's page-scoped events, counted rather than assumed.
+///
+/// Trap 11's discipline for a feature rather than for a report: the six events were implemented
+/// in the two-hundred-and-fourth session (ADR 0164) and the population they reach is a fact worth
+/// having beside them. Table 197's `/PO`, `/PC`, `/PV` and `/PI` on an annotation, Table 198's
+/// `/O` and `/C` on a page.
+///
+/// Ratcheted at the numbers the run below prints, in both directions: a corpus that stops
+/// exercising a feature is as much news as one that starts.
+///
+/// **The population is small and specific.** Three pages of `doc_actions.pdf` state Table 198's
+/// `/O` and `/C`, and one annotation of `issue18305.pdf` states `/PO` and `/PC`. **No corpus
+/// document states `/PV` or `/PI` at all** — which is what §12.6.3 would predict, since those two
+/// exist only to distinguish open pages from visible ones in a multi-page layout, and a producer
+/// writing for a single-page reader has no use for them. So the two events this viewer folds
+/// into `/PO` and `/PC` are the two nothing here exercises, and that is measured rather than
+/// convenient.
+#[test]
+#[ignore = "needs the pdf.js submodule"]
+fn the_corpus_states_these_page_scoped_triggers() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        println!("the pdf.js submodule is not checked out; skipping");
+        return;
+    };
+    let mut files: Vec<std::path::PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "pdf"))
+        .collect();
+    files.sort();
+
+    let mut found: std::collections::BTreeMap<&str, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let count = u32::try_from(document.xref().len()).unwrap_or(u32::MAX);
+        for number in 1..=count {
+            let object = document.get(ObjectId::new(number, 0));
+            let Some(dict) = object.as_dict() else {
+                continue;
+            };
+            let additional = document.get_key(dict, "AA");
+            let Some(additional) = additional.as_dict() else {
+                continue;
+            };
+            // A page's `/AA` and an annotation's are told apart by the dictionary that holds
+            // them, not by the key: Table 198's `/O` and `/C` are page entries and Table 197's
+            // four are an annotation's, and no dictionary has both meanings.
+            let page = document
+                .get_key(dict, "Type")
+                .as_name()
+                .is_some_and(|kind| kind.as_bytes() == b"Page");
+            let keys: &[&str] = if page {
+                &["O", "C"]
+            } else {
+                &["PO", "PC", "PV", "PI"]
+            };
+            for key in keys {
+                if additional.get(key).is_some() {
+                    found
+                        .entry(key)
+                        .or_default()
+                        .push(format!("{name} object {number}"));
+                }
+            }
+        }
+    }
+
+    for (key, where_) in &found {
+        println!("/{key}: {} in {:?}", where_.len(), where_);
+    }
+    let count = |key: &str| found.get(key).map_or(0, Vec::len);
+    assert_eq!(
+        [
+            count("O"),
+            count("C"),
+            count("PO"),
+            count("PC"),
+            count("PV"),
+            count("PI")
+        ],
+        [3, 3, 1, 1, 0, 0],
+        "page /O and /C, then annotation /PO, /PC, /PV and /PI"
+    );
+}

@@ -91,8 +91,8 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **961** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the fifteen sessions from the hundred-and-eighty-sixth added thirty. Quote the command with the number | — |
+| tests | **962** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the sixteen sessions from the hundred-and-eighty-sixth added thirty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **39 of them diagnosed and 707 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
@@ -186,7 +186,7 @@ the 974 documents' first pages it affects.
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
 | A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
-| Six of Table 197's ten trigger events; `NoZoom`, `NoRotate`, `/FixedPrint` | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
+| Two of Table 197's ten trigger events; `NoZoom`, `NoRotate`, `/FixedPrint` | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
 | Icons for `Stamp`, `FileAttachment`, `Sound` — their clauses say *should* | 1 | [todo 26](todo/26-icons-a-clause-only-recommends.md) |
 | §14.3.2's XMP | 319 | [todo 50](todo/50-xmp.md) |
 | Signature *validation*, public-key handlers (§7.6.5), `/R` 5 | 1 | [todo 51](todo/51-signatures-and-public-keys.md) |
@@ -228,10 +228,13 @@ because a panel existed to display an outline in, §14.3.3 because a panel exist
 arrived. Each of those rows said some version of *this program has no ___*, and each stayed true
 for between seven and forty-one sessions after it stopped being true. The three sweeps that catch
 it are in `doc/todo/01-ledger-partial-rows.md`, the hundred-and-ninety-first session found a
-`shall` that had been binding for fifty-six, and the two-hundred-and-first found the longest one
-yet: §12.3.2.1's magnification and window position, owed since the **hundred-and-thirty-second**
+`shall` that had been binding for fifty-six, the two-hundred-and-first found the longest one
+yet — §12.3.2.1's magnification and window position, owed since the **hundred-and-thirty-second**
 session put scrolling and zoom in the vocabulary, still explained by "a window with scrolling and
-zoom, which this program does not have" sixty-nine sessions later (ADR 0162).
+zoom, which this program does not have" sixty-nine sessions later (ADR 0162) — and the
+two-hundred-and-fourth found the same row family's other half, §12.6.3's four page-scoped trigger
+events blocked on "a page-visibility model a one-page-at-a-time window does not have", which is
+what a window that turns pages is (ADR 0164).
 
 **But the map is not the territory.** Four of the six findings in the ten sessions from the
 hundred-and-twentieth were on no list at all: a `shall` hiding behind a silence about artwork (ADR
@@ -2293,3 +2296,4 @@ above rather than here.
 | 201 | §12.3.2.1's other two items: a destination's magnification and its place on the page, owed for sixty-nine sessions after the window arrived | 0162 |
 | 202 | The ink recipe was halving our own page, two sessions ran on it, and the fix for it was written in the wrong file in 161 | 0163 |
 | 203 | Four pages off the ranking with the repaired instrument: three reductions against their own high-resolution limit, and an `scn` the file broke | — |
+| 204 | A page turn is six events in one order, and Table 198's two had been read since session 77 with no caller | 0164 |
