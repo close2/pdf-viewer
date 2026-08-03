@@ -107,7 +107,6 @@ file_pdfjs_test.pdf page 1
 file_pdfjs_test.pdf page 2
 file_pdfjs_test.pdf page 3
 file_pdfjs_test.pdf page 4
-freeculture.pdf page 1
 freeculture.pdf page 10
 freeculture.pdf page 100
 freeculture.pdf page 101

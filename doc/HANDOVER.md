@@ -90,7 +90,7 @@ that exists (ADR 0146).
 | tests | **951** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the hundred-and-eighty-fifth: five fuzzers, `deny`, `fmt`, `clippy`, the four gates, both performance numbers and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and six more arrived in the hundred-and-eighty-eighth. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **880 draw with nothing reported**, **79 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **28 of them diagnosed and 721 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1679** we call complete: **847 agree**, **70 contradicted**, 751 ambiguous — **29 of them diagnosed and 720 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 970 of 23 390), **36** named below the 0.90 floor | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **900 agree, 50 differ, 7 refused**, 17 not comparable — and the head of the differing list is `pdf-render`'s §10.7.4 rule the new backend does not ask for (ADR 0156) | `render-quorra/tests/corpus.rs`, **28 s** |
@@ -925,8 +925,18 @@ other (1081). `AMBIGUOUS_SUB_PIXEL_LINE_WORK`, with one thing measured and unexp
 `ghostscript` is the furthest of the four while carrying nearly the same ink, and no whole-pixel
 shift improves it.
 
-After it, `freeculture.pdf page 1` (the head of the 320-page book, which is font substitution)
-and `issue13316_reduced.pdf`. Ranking by pairwise numbers alone would be the
+**The fifteenth session took `freeculture.pdf page 1` and it cost twenty minutes.** The head of
+the 320-page book that is 42% of the bucket draws with **one command**, and `pdfimages` says what
+it is: a single 1366×2048 JPEG with an `/SMask`, reduced into 490×734 device pixels. The cover is
+a field of horizontal stripes, so the reduction beats the stripe frequency against the pixel grid
+and four renderers make four moirés — `issue13372.pdf`'s halftone one format over, and the same
+clause: §10.7.4's "there shall not be averaging over the pixel area", which every renderer here
+departs from and which ADR 0025 argues for this one. It joins `AMBIGUOUS_IMAGE_REDUCTION` with
+its numbers: ours to `hayro` 0.0342 against a reference spread of 0.0334 to 0.1710. **The
+interior pages of that book are in the bucket for a different reason** — nobody embedded its
+fonts — so the group takes one page and not 320.
+
+After it, `issue13316_reduced.pdf` at 11.44 and `issue5747.pdf` at 8.75. Ranking by pairwise numbers alone would be the
 corpus being treated as the specification, which principle 5 forbids; the numbers choose the page
 and the clause decides it.
 
@@ -2572,3 +2582,4 @@ above rather than here.
 | 189 | The quorra backend over the whole corpus: a fifth gate, and what it found | 0156 |
 | 190 | A page that is all sub-pixel line work, and the pair that antialiases it | — |
 | 191 | The three sweeps run again: §12.8.2.2's parenthesis became a `shall` when the program learned to write | — |
+| 192 | The 320-page book's cover is one reduced JPEG, and `pdfimages` said so in twenty minutes | — |

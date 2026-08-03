@@ -1308,14 +1308,28 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// against a *best* reference pair of 0.0319. The page drew nothing at all until that session
 /// (ADR 0151), which is why it is here rather than in the undiagnosed list.
 ///
-/// **Both pages are here because of the session that put them here.** Until the
+/// **`freeculture.pdf` page 1 is the third instance and the cheapest diagnosis in the bucket**,
+/// added in the hundred-and-ninety-second session. It is the head of the 320-page book that is
+/// 42% of the ambiguous bucket on its own, it sat fourth on the printed ranking at 11.84 bounds
+/// from the nearest reference, and the interpreter draws it with **one command**: `pdfimages`
+/// says why — a single 1366×2048 JPEG with an `/SMask`, reduced into 490×734 device pixels.
+/// The cover artwork is a field of horizontal stripes, so the reduction beats the stripe
+/// frequency against the pixel grid and four renderers produce four moirés, which is
+/// `issue13372.pdf`'s halftone one format over. Pairwise mean absolute difference: **ours to
+/// `hayro` 0.0342**, `poppler` to `mupdf` 0.0334, ours to `mupdf` 0.0493, ours to `poppler`
+/// 0.0706, ours to `ghostscript` 0.1101 — inside a reference spread that runs from 0.0334 to
+/// **0.1710**. The interior pages of the same book are in the bucket for a different reason
+/// (nobody embedded its fonts) and are not covered by this group.
+///
+/// **Both of the first two pages are here because of the session that put them here.** Until the
 /// hundred-and-seventy-seventh this document drew the *second* page as the first and had no
 /// second page at all — its first cross-reference section files every entry one object number
 /// too high (§7.5.4 with §7.3.10, ADR 0148) — and page 1 sat in the undiagnosed list at 77
 /// bounds from the nearest reference, the largest in the corpus. The repair moved it to under
 /// 10 and made page 2 render at all, which is why the undiagnosed list gained a name in the
 /// same session that lost one.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 3] = [
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 4] = [
+    "freeculture.pdf page 1",
     "issue7229.pdf page 1",
     "issue7229.pdf page 2",
     "issue13372.pdf page 1",
