@@ -51,6 +51,14 @@ session is that the tree is far enough along for this to be the work.
    `pdfimages -list -f 1 -l 1 <file>` then names it in a second. **Zero commands means a blank
    page reported complete**, which is the worst thing this bucket hides and has been a real
    defect every time (`issue13372.pdf`, `issue8372.pdf`, `issue13316_reduced.pdf`).
+5b. **Ask the renderer under test the same question at rising resolution too.** Step 6 uses a
+   *reference* at 8× to find the geometry; running `cargo run --release -p pdf-model --example
+   render_at -- <file> <page> <scale> <out.png>` and measuring the same way says whether the
+   difference is our scan conversion or our *shapes*. `bug1538111.pdf` is where it paid: our ink
+   is 1.48 at 1×, 4× and 16× while `poppler`'s limit is 2.24, so the two draw different marks and
+   no amount of anti-aliasing argument was going to explain it. (They are markup annotations
+   whose artwork §12.5.6.10 does not state at all.)
+
 5. **Measure with a closed form where the clause states one**, and with pairwise distances only
    as corroboration. The ink is
 

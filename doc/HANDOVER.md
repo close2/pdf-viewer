@@ -94,7 +94,7 @@ that exists (ADR 0146).
 | tests | **962** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the sixteen sessions from the hundred-and-eighty-sixth added thirty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **44 of them diagnosed and 702 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **46 of them diagnosed and 700 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -1057,6 +1057,9 @@ valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_rasterise [file.pdf] [page]
 cargo run --release -p pdf-model --example glyph_reuse -- [file.pdf] [page] [scale]  # ADR 0131
 cargo run --release -p pdf-model --example strip_spans -- [file.pdf] [page] [scale]  # ADRs 0137, 0139
+cargo run --release -p pdf-model --example render_at -- [file.pdf] [page] [scale] [out.png]
+  # our own render at any resolution, which is how §3a's step 5b tells a scan-conversion
+  # difference from a difference in the shapes themselves
 cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [scale]
   # where a GPU frame's time goes: encoding, the whole frame, and the same target drawn from a
   # list of one rectangle. doc/RENDER_LIBRARY.md §6.1
@@ -2301,3 +2304,4 @@ above rather than here.
 | 205 | A widget's border lost a fifth of its ink to a `/BBox` clip lying on its own edge; the miter bound was the thing in the way | 0165 |
 | 206 | A radial shading is not a two-point conical gradient, and all three backends inherit the same wrong one | — |
 | 207 | A miter over the limit is a *bevel*, not a long miter — the second bound in the same function, and a comb field's separators | 0165 |
+| 208 | Six more of the ranking measured against the closed form; `render_at` asks *our* renderer the same question | — |

@@ -1971,6 +1971,59 @@ const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
 /// a group about the vote rather than about the clause.
 const AMBIGUOUS_LINK_BORDER: [&str; 1] = ["bug766086.pdf page 1"];
 
+/// Ambiguous, and §12.5.6.10 states the region and not one number about the marks in it.
+///
+/// `bug1538111.pdf` has **no content stream at all**: a 595×842 page whose whole ink is four
+/// text markup annotations — a `Highlight`, an `Underline`, and the other two of Table 182's four
+/// — each with a `/QuadPoints` array of six quadrilaterals and a `/C`.
+///
+/// Ink: `hayro` **0**, ours **1.48**, `mupdf` 1.69, `ghostscript` 2.00, `poppler` 2.40. Nobody
+/// agrees with anybody, and one of the five draws nothing at all.
+///
+/// # What the clause determines, and where it stops
+///
+/// §12.5.6.10 is two sentences and a table. It says these annotations "shall appear as
+/// highlights, underlines, strikeouts (all PDF 1.3), or jagged (\"squiggly\") underlines ( PDF
+/// 1.4 ) in the text of a document", and Table 182 gives `/Subtype` and `/QuadPoints`, whose
+/// quadrilaterals "encompass a word or group of contiguous words". **That is the whole of it.**
+/// No line width, no position of an underline within its quadrilateral, no squiggle amplitude,
+/// no rule about what a strikeout crosses.
+///
+/// So the region is determined exactly and the artwork is not determined at all — the same shape
+/// as §12.5.6.4's icons, where "the clause requires one and draws none" (ADR 0109). Ours is a
+/// **documented choice** in `appearance.rs`: a bar one sixteenth of the quadrilateral's height,
+/// on the bottom edge for an underline and at the middle for a strikeout, a squiggle of
+/// amplitude one twelfth, and a highlight filled under `Multiply` — which is not decoration
+/// either, since §11.3.5.2 defines exactly one blend mode whose "result colour is always at
+/// least as dark as either of the two constituent colours".
+///
+/// A renderer drawing a heavier underline is not reading the clause differently; there is
+/// nothing there to read differently. Five numbers between 0 and 2.40 is what a clause that
+/// states no artwork produces, and the honest thing is to say so rather than move toward the
+/// middle of them.
+const AMBIGUOUS_MARKUP_ARTWORK: [&str; 1] = ["bug1538111.pdf page 1"];
+
+/// Ambiguous, and it is the glyph-rasterisation floor with the geometry to settle it.
+///
+/// `copy_paste_ligatures.pdf` is 143×15 device pixels: one line of text with ligatures, and
+/// nothing else. It sat at 2.81 bounds from the nearest reference on a page where a single glyph
+/// is 2% of the ink.
+///
+/// Step 6's closed form says who is measuring the outlines. `poppler` at 72, 576 and 2304 dpi
+/// gives 40.81, 43.17, **43.26**, so the glyphs cover 43.3 of 255. At the page's own scale:
+///
+/// ```text
+/// ours 43.32   hayro 43.55   poppler 40.81   mupdf 40.88   ghostscript 61.38
+///              └ the limit is 43.26
+/// ```
+///
+/// **Ours is on the geometry to three figures.** `poppler` and `mupdf` are 5.7% under it at 72
+/// dpi and converge on it by 576 — which is hinting, a thing that exists to make small text
+/// legible and by construction moves ink; `ghostscript` is 42% over, which is §10.7.4 as written
+/// applied to stems a fraction of a pixel wide. The verdict is `ambiguous` because five
+/// renderers disagree by more than any bound can call, on a page of fifteen rows.
+const AMBIGUOUS_GLYPH_COVERAGE: [&str; 1] = ["copy_paste_ligatures.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1992,6 +2045,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_WIDGET_BORDER)
         .chain(&AMBIGUOUS_RADIAL_CONE)
         .chain(&AMBIGUOUS_LINK_BORDER)
+        .chain(&AMBIGUOUS_MARKUP_ARTWORK)
+        .chain(&AMBIGUOUS_GLYPH_COVERAGE)
         .copied()
         .collect()
 }

@@ -37,7 +37,6 @@ XiaoBiaoSong.pdf page 1
 ZapfDingbats.pdf page 1
 blendmode.pdf page 1
 bug1308536.pdf page 1
-bug1538111.pdf page 1
 bug1552113.pdf page 1
 bug1671312_ArialNarrow.pdf page 1
 bug1703683_page2_reduced.pdf page 1
@@ -96,7 +95,6 @@ comments.pdf page 7
 comments.pdf page 8
 comments.pdf page 9
 coons-allflags-withfunction.pdf page 1
-copy_paste_ligatures.pdf page 1
 decodeACSuccessive.pdf page 1
 endchar.pdf page 1
 file_pdfjs_test.pdf page 1
