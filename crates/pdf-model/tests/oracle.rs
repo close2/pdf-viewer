@@ -2236,6 +2236,35 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
+/// Ambiguous, three more, and the third is where only one ladder can be climbed.
+///
+/// ```text
+///                             limit             ours     hayro    poppler   mupdf    gs
+/// tiling_patterns_variations  23.953 / 23.977  23.897   25.196   25.241   23.968   25.076
+/// issue16224                  12.662 / 12.676  12.656   12.483   12.467   12.517   12.659
+/// issue12337                       — / 16.225  16.030   14.578   16.114   16.010   16.251
+/// ```
+///
+/// `tiling_patterns_variations.pdf` is 600×800 of §8.7.3 cells and ours is 0.06 under the
+/// geometry with `mupdf` 0.01 over it, while `poppler`, `hayro` and `ghostscript` are 1.1 to 1.3
+/// above — the same shape `issue2177.pdf` has one entry over, and on a page whose whole subject
+/// is tiling.
+///
+/// `issue16224.pdf` is 183×33 and ours is 0.01 from the limit and nearest of the five, with the
+/// rest 0.01 to 0.21 under it.
+///
+/// **`issue12337.pdf` is the case where step 6 has one ladder and not two**: `pdftoppm` at 576
+/// dpi produces no image for it at all, so only `mupdf`'s 16.225 is available, and a single
+/// ladder cannot tell convergence from drift. What can be said without it is that four of the
+/// five renderers are inside 0.24 of each other at the page's own scale and `hayro` is 1.4
+/// below all of them, which makes `hayro` the one to explain rather than us. Listed on that
+/// basis, which is weaker than the other two and is said so.
+const AMBIGUOUS_ONE_LADDER: [&str; 3] = [
+    "tiling_patterns_variations.pdf page 1",
+    "issue16224.pdf page 1",
+    "issue12337.pdf page 1",
+];
+
 /// Ambiguous, and four renderers give four answers about one text field.
 ///
 /// `bug1844583.pdf` is 178×54 and holds one widget containing *Hello World*. The four other
@@ -2518,6 +2547,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_SPACE_DRAWN_AS_A_MARK)
         .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
         .chain(&AMBIGUOUS_FOUR_ANSWERS)
+        .chain(&AMBIGUOUS_ONE_LADDER)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
