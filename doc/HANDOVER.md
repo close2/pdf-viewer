@@ -1,8 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **hundred-and-ninety-sixth** is the last one in it, and it
-is the session that moved the owed work out into `doc/todo/`. Read `/CLAUDE.md` first — the five
+session, and kept current since; the **two-hundred-and-thirteenth** is the last one in it. Read `/CLAUDE.md` first — the five
 principles, what *done* means, and the closed exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -583,14 +582,17 @@ enough along for this to be the work rather than a caveat. It is the last large 
 a defect can live without a name, and **the task, the instrument, the method and the next names
 are [todo 00](todo/00-ambiguous-bucket.md)**.
 
-**What it has produced, because that is the argument for keeping at it.** Nineteen sessions,
-**seven defects found and all seven fixed** — a page one that was page two (ADR 0148), a photograph
+**What it has produced, because that is the argument for keeping at it.** Twenty-nine sessions,
+**nine defects found and eight of them fixed** — a page one that was page two (ADR 0148), a photograph
 rendered black (0149), a shading painted as a square (0150), a stencil that drew nothing (0151),
 a whole grid that disappeared (0154), a sentence drawn as one Greek letter because the font's
-name ends in the word "Symbol" (0158), a stamp's gradient painted flat (0160) — plus a pattern cell's clip worth 15% of a page's ink
+name ends in the word "Symbol" (0158), a stamp's gradient painted flat (0160), a widget's border
+losing a fifth of its ink to a clip on its own edge and a comb field's separators losing theirs
+to a miter bound (0165) — and one found and *not* fixed, §8.7.4.5.4's greatest admissible root,
+which is `doc/todo/12` because all three backends inherit the same wrong construction — plus a pattern cell's clip worth 15% of a page's ink
 (0155), ten documents whose substituted font drew none of its characters in silence (0152), the
 coverage rule that made eight of them draw (0153), and a font program that draws nothing now
-saying so (0157). The bucket itself went 754 → 715 and 31 pages carry a diagnosis; *seven defects
+saying so (0157). The bucket itself went 754 → 711 and 49 pages carry a diagnosis; *nine defects
 nobody could see* is the number to watch.
 
 **And the ninth was a correction rather than a finding, which is why it is here.** Two of the
@@ -1041,7 +1043,7 @@ documents, and it prints what it gave up.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
-cargo test -p conformance -- --nocapture   # 3388 citations, 335 quotations, 183 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 3637 citations, 368 quotations, 185 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's (trap 10).
@@ -1050,6 +1052,8 @@ cargo test --release -p pdf-model --test corpus          -- --ignored --nocaptur
 cargo test --release -p pdf-model --test oracle          -- --ignored --nocapture  # 1794 pages, ~32 s
 cargo test --release -p pdf-model --test text_extraction -- --ignored --nocapture  # ~30 s
 cargo test --release -p pdf-model --test dates           -- --ignored --nocapture  # 1545 dates
+cargo test --release -p pdf-model --test jpeg2000        -- --nocapture            # 30 codestreams
+  # against ISO/IEC 15444-5's reference software; needs `opj_decompress` and says so when absent
 cargo deny check                           # from the workspace root: fuzz/ is its own workspace
 cargo bench -p pdf-model
 valgrind --tool=callgrind --callgrind-out-file=/dev/null \

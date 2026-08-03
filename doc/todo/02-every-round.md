@@ -25,6 +25,7 @@ cargo test --release -p pdf-model      --test corpus          -- --ignored --noc
 cargo test --release -p pdf-model      --test oracle          -- --ignored --nocapture
 cargo test --release -p pdf-model      --test text_extraction -- --ignored --nocapture
 cargo test --release -p pdf-model      --test dates           -- --ignored --nocapture
+cargo test --release -p pdf-model      --test jpeg2000        -- --nocapture
 cargo test --release -p render-quorra  --test corpus          -- --ignored --nocapture
 cargo test -p conformance -- --nocapture
 ```

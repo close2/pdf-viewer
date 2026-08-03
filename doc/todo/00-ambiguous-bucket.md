@@ -111,22 +111,29 @@ wrong"** — `AMBIGUOUS_ZERO_AREA_FILL` did, for two sessions, before the fix.
 
 ## What has come out of it, so far
 
-Ten sessions from the hundred-and-seventy-sixth, then nine more: **seven defects found and all
-seven fixed** — a page one that was page two (ADR 0148), a photograph rendered black (0149), a
+Ten sessions from the hundred-and-seventy-sixth, then nineteen more: **nine defects found, eight
+of them fixed** — a page one that was page two (ADR 0148), a photograph rendered black (0149), a
 shading painted as a square (0150), a stencil that drew nothing (0151), a whole grid that
 disappeared (0154), a sentence drawn as one Greek letter (0158), a stamp's gradient painted flat
-(0160) — plus the ten documents whose
-substituted font drew none of its characters in silence (0152), the coverage rule that made
-eight of them draw (0153), a pattern cell's clip worth 15% of a page's ink (0155), and a font
-program that draws nothing now saying so (0157).
+(0160), and two coverage losses that moved the oracle's own headline (0165: a `/BBox` clip on a
+widget border's own edge, and a miter bound on a comb field's separators). The ninth is found and
+*not* fixed: §8.7.4.5.4's greatest admissible root, which every backend gets wrong from the same
+place and which is `doc/todo/12`.
 
-The bucket itself went 754 → 711 undiagnosed, and that is the least interesting number in this file. *Seven
-defects nobody could see* is the one to watch — **and one gate that found thirteen more.**
-`jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own hypothesis, and
-checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus `JPXDecode` stream
-against ISO/IEC 15444-5's reference software. It ruled the codec out for that file — the decode
-is byte-identical — and found thirteen of the other twenty-nine codestreams wrong (ADR 0161).
-**A page on this list is sometimes a question about an instrument that does not exist yet.**
+Beside them: the ten documents whose substituted font drew none of its characters in silence
+(0152), the coverage rule that made eight of them draw (0153), a pattern cell's clip worth 15% of
+a page's ink (0155), a font program that draws nothing now saying so (0157), **thirteen JPEG 2000
+codestreams that decode to the wrong samples** (0161, `doc/JPEG2000_FEEDBACK.md`), and a
+measuring command that had been halving our own ink for two sessions (0163).
+
+The bucket itself went 754 → 711 undiagnosed, and that is the least interesting number in this
+file. *Nine defects nobody could see* is the one to watch — **and one gate that found thirteen
+more.** `jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own
+hypothesis, and checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus
+`JPXDecode` stream against ISO/IEC 15444-5's reference software. It ruled the codec out for that
+file — the decode is byte-identical — and found thirteen of the other twenty-nine codestreams
+wrong (ADR 0161). **A page on this list is sometimes a question about an instrument that does not
+exist yet.**
 
 ## Its shape, measured
 
