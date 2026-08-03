@@ -47,7 +47,26 @@ function. Three clauses, two names, nothing stale. **A clean run of a sweep is a
 the population it watches has not drifted since the last one, which is the only way that
 population is ever watched at all.
 
-## The shape the sweeps found last, and it is the longest-lived
+## The shape the sweeps found last, and it is a new one: the blocker was the *interface*
+
+The two-hundred-and-fourteenth session ran the capability sweep after a round that added a verb.
+**§14.9.3** said Table 226's `/TU` "names a field in a user interface this program does not have"
+— the familiar shape, and false since the hundred-and-thirty-second session put a window on this
+program. But the window was never what blocked it. The clause is a `shall`:
+
+> An alternative name may be specified for an interactive form field (see 12.7, "Forms") which, if
+> present, shall be used in place of the actual field name when an interactive PDF processor
+> identifies the field in a user-interface.
+
+and `Query::FieldAt` answered with **one string**, which cannot be both the identity
+`Edit::SetField` addresses and the label a person is shown. So the row would have gone on being
+true-looking however many windows arrived: what had to change was the *answer's shape*. ADR 0167.
+
+**The lesson for the sweep**: when a row's reason names a capability, ask what the program would
+have to *say* to obey the clause, not only what it would have to have. A row can survive the
+arrival of the very thing it names.
+
+## The shape the sweeps found before that, and it is the longest-lived
 
 The two-hundred-and-first session ran the capability sweep again. **§12.3.2.1** said a
 destination's other two items — "[t]he location of the document window on that page" and "[t]he

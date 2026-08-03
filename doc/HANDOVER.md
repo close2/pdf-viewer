@@ -90,8 +90,8 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **962** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-seven sessions from the hundred-and-eighty-sixth added thirty-one. Quote the command with the number | — |
+| tests | **964** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirteenth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twenty-eight sessions from the hundred-and-eighty-sixth added thirty-three. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1678** we call complete: **851 agree**, **68 contradicted**, 748 ambiguous — **49 of them diagnosed and 711 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
@@ -100,7 +100,7 @@ that exists (ADR 0146).
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
 | the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **46.3 ms**, and five arrow keys turn to page 6 presenting in **9.2 to 18.1 ms** with nothing refused — re-run in the two-hundred-and-thirteenth, on `lavapipe` through Vello and so not comparable with the hundred-and-ninety-fifth's 44.6 ms through **quorra**; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
-| conformance | **368 quotations**, all verbatim, 3637 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
+| conformance | **370 quotations**, all verbatim, 3651 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -237,6 +237,13 @@ two-hundred-and-fourth found the same row family's other half, §12.6.3's four p
 events blocked on "a page-visibility model a one-page-at-a-time window does not have", which is
 what a window that turns pages is (ADR 0164).
 
+**And the two-hundred-and-fourteenth found a row that would have survived the capability arriving.**
+§14.9.3 said `/TU` "names a field in a user interface this program does not have" — false since
+the hundred-and-thirty-second — but the window was never the blocker: `Query::FieldAt` answered
+with one string, and §14.9.3's `shall` needs two, because the name that *addresses* a field is not
+the name a person is shown. **Ask what the program would have to say to obey the clause, not only
+what it would have to have** (ADR 0167).
+
 **But the map is not the territory.** Four of the six findings in the ten sessions from the
 hundred-and-twentieth were on no list at all: a `shall` hiding behind a silence about artwork (ADR
 0109), a clause with two populations where the row named one (0110), a malformed optional entry
@@ -325,14 +332,18 @@ object numbers.
 changing any — `Command::Activate`, `Command::Extract`, `Event::Extracted`, `Query::Opening`,
 `Query::Properties`, each because a *clause* needed a channel — with one variant **removed** the
 session after it was added, because the fuller reading of §12.3.3 made it a path nobody takes
-(ADR 0144).
+(ADR 0144). **Two variants changed shape in the two-hundred-and-fourteenth**, both for the same
+reason and neither adding a message: `Command::Zoom` gained the viewport point to hold still
+(ADR 0166) and `Answer::Field` gained §14.9.3's second name (ADR 0167) — where a host needs two
+things a variant carried one of, the variant changes and every consumer fails to compile, which is
+what nothing being `#[non_exhaustive]` is *for*.
 
 So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md) a native
-host and then `viewer-ffi`, [31](todo/31-accessibility-host.md) AccessKit,
-[32](todo/32-presentation-player.md) a presentation player, and
-[35](todo/35-zoom-with-the-wheel.md) Ctrl + wheel zooming — which is a *host* feature with one
-question in the core, and the question is the interesting half: `Command::Zoom` carries no
-position, and a zoom that is not anchored where the pointer is does not feel like magnification.
+host and then `viewer-ffi`, [31](todo/31-accessibility-host.md) AccessKit, and
+[32](todo/32-presentation-player.md) a presentation player. **Ctrl + wheel zooming landed in the
+two-hundred-and-fourteenth session**, and the interesting half was in the core rather than in the
+host: a zoom anchored at the pointer has to hold a page point that `Open::origin` knows about and
+the scroll does not, because a page smaller than the viewport is *centred* (ADR 0166).
 
 **The panels this file called "the largest single thing this project owes" for thirty sessions
 are drawn.** `viewer_ui::chrome` is a sidebar of four tabs and a modal card, in a `pdf-render`
@@ -1023,7 +1034,8 @@ hours and six commits old, one of which was the 40× page-turn fix. A stale exec
 measurement of the past.
 
 Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom, the up and down
-arrows scroll a page larger than the window, the wheel scrolls whatever is under it, **`o` shows
+arrows scroll a page larger than the window, the wheel scrolls whatever is under it and
+**Ctrl + the wheel magnifies the page about the pointer** (ADR 0166), **`o` shows
 the sidebar** — three tabs: §12.3.3's outline, where a click on a title goes there and a click on
 the triangle opens a subtree; §8.11.4.3's layers, where a click on a switch turns a layer on or
 off unless Table 99's `/Locked` forbids it; and §7.11.4's embedded files, where a click writes the
@@ -2094,6 +2106,17 @@ reaching `/home/cl/projects/pdf-viewer` through the `coders` group.
   `xwd … | magick - screen.png` fails with *no decode delegate*, because this machine's
   ImageMagick no longer sniffs xwd from a pipe; `-out` plus `magick xwd:<file>` does.
 
+  **A wheel notch is two events here.** `xdotool click 4` is a button press *and* a release, and
+  winit's X11 backend turns both into `MouseWheel`, so one `click` is two `Command::Scroll`s or
+  two zoom steps. It has always been so — the sidebar's scrolling has doubled the same way since
+  it landed — and it is a fact about this instrument rather than about the code: divide before
+  believing a step count measured this way. Found in the two-hundred-and-fourteenth session,
+  checking Ctrl + wheel in the window.
+
+  **And the pointer has to be inside the window**, which is 800×1000 on a 900×1100 screen: a
+  `mousemove` to 850 produces no wheel event at all and looks exactly like a binding that does
+  not work. `xdotool getwindowgeometry` first.
+
   **This is the only way to exercise the loop** — key press to command to request to frame to
   window — which is where every defect of sessions 140 to 142 lived and which no gate touches.
   Not a gate itself: `Xvfb` and `xdotool` are not build dependencies and a test that skipped
@@ -2325,3 +2348,4 @@ above rather than here.
 | 211 | A 112-unit border on a 150×20 rectangle, and §12.5.4's one sentence settles it against `poppler` | — |
 | 212 | A page whose ink everybody agrees on is one for the heatmap, not the ink table | — |
 | 213 | Everything re-verified; two recipes that had stopped working; the miter arithmetic costs −0.01% | 0165 |
+| 214 | Ctrl + wheel zooms about the pointer, which needed a page point the scroll cannot express; and a field's two names, one of which a `shall` asks for | 0166, 0167 |

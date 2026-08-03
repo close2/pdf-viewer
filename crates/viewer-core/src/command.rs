@@ -69,8 +69,22 @@ pub enum Command {
     },
     /// Show another page of the focused document.
     GoTo(PageTarget),
-    /// Change the magnification of the focused document.
-    Zoom(Zoom),
+    /// Change the magnification of the focused document, holding one point of the viewport still.
+    ///
+    /// `at` is a point of the viewport in device pixels, and it is what makes a wheel zoom feel
+    /// like magnification rather than like a jump: the page grows about the thing being pointed
+    /// at instead of about the middle of the window. `None` is the viewport's centre, which is
+    /// what a keyboard `+` has to mean because it names no point.
+    ///
+    /// Nothing in the standard decides this — §12.3.2.1's magnification is a *document's*
+    /// opinion about where to look (ADR 0162) and this is a reader's — so it is a documented
+    /// choice, argued in ADR 0166.
+    Zoom {
+        /// How large the page is to be drawn.
+        zoom: Zoom,
+        /// The viewport point to keep still, in device pixels; `None` for its centre.
+        at: Option<(f32, f32)>,
+    },
     /// Move the page under the viewport by a device-pixel delta.
     ///
     /// Positive `dy` moves the *content* up, which is what a wheel scrolling down does. Clamped

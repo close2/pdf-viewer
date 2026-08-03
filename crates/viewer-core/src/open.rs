@@ -15,7 +15,7 @@ use pdf_render::{DisplayList, Raster, Rect, Size, TargetSpec};
 use pdf_syntax::Document;
 
 use crate::command::Zoom;
-use crate::viewer::RenderToken;
+use crate::viewer::{RenderToken, px};
 use pdf_model::action::ImportData;
 use pdf_model::view::Pointer;
 use pdf_syntax::ObjectId;
@@ -425,6 +425,35 @@ impl Open {
             centre(viewport.0, raster.0, self.scroll.0),
             centre(viewport.1, raster.1, self.scroll.1),
         )
+    }
+
+    /// Scrolls so that a point of the viewport keeps the point of the page it was over.
+    ///
+    /// `before` and `after` are magnifications and `at` is a viewport point in device pixels.
+    /// The page point under `at` is `at - origin` in the old raster's coordinates; it is that
+    /// same fraction of the new raster, so scaling it by the ratio and putting it back under
+    /// `at` is the whole of it. **Through `origin` rather than through the scroll**, because a
+    /// page smaller than the viewport is *centred* and its scroll is zero — the arithmetic that
+    /// reads the scroll alone is right only while there is something to scroll, and a wheel is
+    /// pointed at pages of both kinds.
+    ///
+    /// The scroll it produces may exceed what the new raster permits; `Viewer::settle` clamps it
+    /// against the target it is about to ask for, which is where the new raster's size is known.
+    pub(crate) fn hold(
+        &mut self,
+        viewport: (u32, u32),
+        before: f32,
+        after: f32,
+        at: Option<(f32, f32)>,
+    ) {
+        let Some(size) = self.page_size(self.page_index) else {
+            return;
+        };
+        let origin = self.origin(viewport, raster_extent(size, before));
+        let at = at.unwrap_or((px(viewport.0) / 2.0, px(viewport.1) / 2.0));
+        let ratio = after / before;
+        let hold = |at: f32, origin: f32| ((at - origin) * ratio - at).max(0.0);
+        self.scroll = (hold(at.0, origin.0), hold(at.1, origin.1));
     }
 
     /// Applies §12.3.2.1's other two items — where the window sits, and how large.

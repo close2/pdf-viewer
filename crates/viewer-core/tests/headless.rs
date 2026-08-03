@@ -266,7 +266,12 @@ fn zooming_rasterises_again_without_interpreting_again() {
     let first = request(&events).clone();
     serve(&mut viewer, &first);
 
-    let zoomed: Vec<_> = viewer.handle(Command::Zoom(Zoom::In)).collect();
+    let zoomed: Vec<_> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::In,
+            at: None,
+        })
+        .collect();
     let second = request(&zoomed).clone();
     assert!(
         std::sync::Arc::ptr_eq(&first.list, &second.list),
@@ -884,12 +889,70 @@ fn a_click_finds_the_field_it_landed_on() {
     let Answer::Field(name) = viewer.query(Query::FieldAt(at)) else {
         panic!("a field is there");
     };
-    assert_eq!(name, "Text1");
+    assert_eq!(name.qualified, "Text1");
+    // This form states no `/TU`, so §14.9.3's alternative is absent and the name a user
+    // interface shows is the field's own — which is the case the clause's "if present" covers.
+    assert_eq!(name.alternative, None);
+    assert_eq!(name.shown(), "Text1");
     // And nothing is at the very corner of the page.
     assert!(matches!(
         viewer.query(Query::FieldAt((2.0, 2.0))),
         Answer::None
     ));
+}
+
+/// §14.9.3's alternative field name, which a user interface is told to show in place of the real
+/// one.
+///
+/// > An alternative name may be specified for an interactive form field (see 12.7, "Forms")
+/// > which, if present, shall be used in place of the actual field name when an interactive PDF
+/// > processor identifies the field in a user-interface. This alternative name, if provided,
+/// > shall be specified using the TU entry of the field dictionary.
+///
+/// A `shall` addressed to a processor with a user interface, and this became one in the
+/// hundred-and-thirty-second session. The ledger's row said `/TU` "names a field in a user
+/// interface this program does not have" — and what made the clause unreachable was not the
+/// window but the *answer*: one string cannot carry both a field's identity and its label, so a
+/// host had nothing to obey the clause with. ADR 0167.
+///
+/// `issue17492.pdf`'s first widget is §12.5.6.19's merged dictionary — field and annotation in
+/// one — stating `/T (firstName)` and a `/TU` in UTF-16BE, which is also §7.9.2.2's other
+/// encoding taken through the same path.
+#[test]
+fn a_field_states_the_name_a_user_interface_is_to_show() {
+    let Some(bytes) = corpus_bytes("issue17492.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page has a geometry");
+    };
+    // The middle of `/Rect [165.7 673.9 315.7 688.1]`, taken from the document rather than from
+    // the code under test — trap 12a's rule.
+    let at = (
+        geometry.origin.0 + 240.7 * geometry.scale,
+        geometry.origin.1 + (geometry.page.height - 681.0) * geometry.scale,
+    );
+    let Answer::Field(name) = viewer.query(Query::FieldAt(at)) else {
+        panic!("a field is there");
+    };
+    assert_eq!(
+        name.qualified, "firstName",
+        "the name that addresses the field is §12.7.4.2's, unchanged"
+    );
+    assert_eq!(
+        name.shown(),
+        "First name",
+        "and the name shown to a person is Table 226's /TU"
+    );
 }
 
 #[test]
@@ -1967,4 +2030,119 @@ fn a_page_turn_raises_the_events_the_clause_orders() {
     // A page the document does not have raises nothing, and neither does going where we are.
     let same: Vec<Event> = viewer.handle(Command::GoTo(PageTarget::Index(1))).collect();
     assert!(uris(&same).is_empty(), "{:?}", uris(&same));
+}
+
+/// A zoom holds the point it is given, which is what makes a wheel feel like magnification.
+///
+/// No clause decides this — §12.3.2.1's magnification is a *document's* opinion about where to
+/// look and this is a reader's — so what is checked is the invariant the choice was made for:
+/// **the page point under a viewport point is the same page point afterwards**, which is
+/// `(at - origin) / scale` before and after. ADR 0166.
+///
+/// The fixture is the 600×800 page again, so every number below is checkable by hand: at a
+/// magnification of 0.5 the raster is exactly the 300×400 viewport, and one step is 1.25.
+#[test]
+fn a_zoom_holds_the_point_it_is_given() {
+    let held = |geometry: &viewer_core::PageGeometry, at: (f32, f32)| {
+        (
+            (at.0 - geometry.origin.0) / geometry.scale,
+            (at.1 - geometry.origin.1) / geometry.scale,
+        )
+    };
+
+    let mut viewer = Viewer::new(300, 400, 1.0);
+    let _ = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_open_action("[3 0 R /Fit]"),
+            password: None,
+        })
+        .count();
+    let geometry = |viewer: &Viewer| {
+        let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+            panic!("the page on the screen has a geometry");
+        };
+        geometry
+    };
+
+    // Exactly fitted: a 300×400 raster in a 300×400 viewport, so nothing is centred and nothing
+    // is scrolled, and a step in about (60, 100) is the plainest case there is.
+    let at = (60.0, 100.0);
+    let before = geometry(&viewer);
+    assert!((before.scale - 0.5).abs() < 1e-3, "{}", before.scale);
+    viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::In,
+            at: Some(at),
+        })
+        .for_each(drop);
+    let after = geometry(&viewer);
+    assert!((after.scale - 0.625).abs() < 1e-3, "{}", after.scale);
+    assert!(
+        (after.origin.0 + 15.0).abs() < 1e-3 && (after.origin.1 + 25.0).abs() < 1e-3,
+        "60 and 100 grow by a quarter, so the raster moves 15 and 25 up and left: {:?}",
+        after.origin
+    );
+    let (bx, by) = held(&before, at);
+    let (ax, ay) = held(&after, at);
+    assert!(
+        (ax - bx).abs() < 0.01 && (ay - by).abs() < 0.01,
+        "the same page point under the pointer: {bx},{by} then {ax},{ay}"
+    );
+
+    // A page *smaller* than the viewport is centred, and the scroll cannot express an anchor at
+    // all — `Open::origin` returns the slack and `clamp_scroll` puts the scroll back to zero. So
+    // the requirement here is that anchoring is a no-op rather than a jitter.
+    viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(0.25),
+            at: Some((0.0, 0.0)),
+        })
+        .for_each(drop);
+    let small = geometry(&viewer);
+    assert_eq!((small.width, small.height), (150, 200));
+    assert!(
+        (small.origin.0 - 75.0).abs() < 1e-3 && (small.origin.1 - 100.0).abs() < 1e-3,
+        "centred in the slack, not pulled to the corner it was zoomed at: {:?}",
+        small.origin
+    );
+
+    // And out of that centring into a page larger than the viewport, which is the case the
+    // arithmetic that reads the scroll alone gets wrong: the point under (100, 150) is 100 and
+    // 200 user units in, and at a magnification of 1 that is a scroll of 0 and 50.
+    let at = (100.0, 150.0);
+    let (bx, by) = held(&small, at);
+    assert!(
+        (bx - 100.0).abs() < 0.01 && (by - 200.0).abs() < 0.01,
+        "{bx},{by}"
+    );
+    viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(1.0),
+            at: Some(at),
+        })
+        .for_each(drop);
+    let large = geometry(&viewer);
+    assert_eq!((large.width, large.height), (600, 800));
+    let (ax, ay) = held(&large, at);
+    assert!(
+        (ax - bx).abs() < 0.01 && (ay - by).abs() < 0.01,
+        "the same page point again, out of a centred page: {bx},{by} then {ax},{ay}"
+    );
+
+    // A step that changes nothing must move the scroll by nothing rather than by the ratio it
+    // did not get, which is what `Open::stepped`'s clamp produces at either end of `ZOOM_RANGE`.
+    // Asked here as a ratio of exactly one, because the top of that range — 64 — puts this page
+    // past the pixel budget and there would be no geometry to compare.
+    viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(1.0),
+            at: Some((0.0, 0.0)),
+        })
+        .for_each(drop);
+    let again = geometry(&viewer);
+    assert!(
+        (again.scale - large.scale).abs() < 1e-3 && again.origin == large.origin,
+        "a zoom to the magnification already showing is not a scroll: {large:?} then {again:?}"
+    );
 }

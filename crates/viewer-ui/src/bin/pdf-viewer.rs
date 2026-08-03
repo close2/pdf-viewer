@@ -4,13 +4,14 @@
 //! cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf
 //! ``
 //!
-//! `--page N` opens at a page. Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, `a`
-//! selects the whole page and dragging selects part of it, `o` shows the sidebar — §12.3.3's
-//! outline, §8.11's layers and §7.11.4's embedded files — `s` saves what was changed beside the
-//! document, `?` shows the third-party notices this binary carries, Escape quits. The window
-//! title shows
-//! the page's own label where the document states one (§12.4.2), the page number, and how many
-//! things on the page could not be drawn; the things themselves are printed.
+//! `--page N` opens at a page. Arrows, Page Up and Down or Space turn pages, Home and End jump,
+//! `+` and `-` zoom and **Ctrl + the wheel zooms about the pointer**, the wheel alone scrolls
+//! whatever is under it, `a` selects the whole page and dragging selects part of it, `o` shows
+//! the sidebar — §12.3.3's outline, §8.11's layers and §7.11.4's embedded files — `s` saves what
+//! was changed beside the document, `?` shows the third-party notices this binary carries,
+//! Escape quits. The window title shows the page's own label where the document states one
+//! (§12.4.2), the page number, and how many things on the page could not be drawn; the things
+//! themselves are printed.
 //!
 //! # What is here and what is not
 //!
@@ -85,6 +86,14 @@ const NOTICE: &str = include_str!("../../../../NOTICE");
 /// `viewer-core` keeps a set of them because §12.6.4.4's embedded go-to and a tabbed host both
 /// need one; this window shows one at a time, so it names one.
 const DOCUMENT: DocumentId = DocumentId(0);
+
+/// How far a touchpad must be dragged under Ctrl for one zoom step.
+///
+/// A choice, not a derivation: a notch of a mouse wheel is one step by construction and a
+/// touchpad reports a stream of pixels instead, so something has to say how many of them a notch
+/// is worth. Fifty is about a finger's width on this machine's touchpad and gives roughly the
+/// same number of steps per gesture as the wheel does per flick.
+const WHEEL_ZOOM_PIXELS: f32 = 50.0;
 
 fn main() {
     // Parsed before anything opens a document, because it decides where that document's images
@@ -169,6 +178,8 @@ fn main() {
         processor,
         cursor: (0.0, 0.0),
         dragging: false,
+        control: false,
+        pinch: 0.0,
         dirty: false,
         attempts: 0,
         chrome: match Chrome::new() {
@@ -284,6 +295,18 @@ struct App {
     processor: bool,
     /// Whether the button is down, which is what separates a move from a drag.
     dragging: bool,
+    /// Whether Ctrl is held, which is what separates a wheel scroll from a wheel zoom.
+    ///
+    /// `winit` reports a modifier change as its own event and puts nothing in the wheel's, so a
+    /// host that wants to know has to remember. Ctrl + wheel is a convention rather than a
+    /// clause, and it is the one every desktop viewer has converged on. ADR 0166.
+    control: bool,
+    /// A touchpad's accumulated pixels, spent one zoom step at a time.
+    ///
+    /// A wheel notch arrives as a line and a touchpad's pinch as a stream of pixels; sixteen
+    /// pixels is one of this program's own text rows and means nothing to a magnification, so
+    /// the pixels are counted up and a step taken per `WHEEL_ZOOM_PIXELS` rather than per event.
+    pinch: f32,
     /// Whether anything a person did is unsaved.
     dirty: bool,
     /// How many passwords have been asked for.
@@ -628,7 +651,7 @@ impl App {
         }
     }
 
-    /// A wheel notch: the panel's list where the pointer is over it, the page otherwise.
+    /// A wheel notch: the About card, the panel's list, or the page — and under Ctrl, a zoom.
     fn wheel(&mut self, delta: winit::event::MouseScrollDelta) {
         // A line is not a pixel and winit reports whichever the device produced. Sixteen logical
         // pixels a line is about one row of this program's own text, which is what a line means
@@ -647,6 +670,45 @@ impl App {
             };
             self.about.scroll(by / scale, NOTICE, height, scale);
             self.redraw();
+            return;
+        }
+        // Ctrl is a magnification of the *page*, and the sidebar has no scale to change — so a
+        // notch over the sidebar still zooms the page, with **no anchor**: there is no point of
+        // the page under the pointer to hold, and `None` is the core's word for that. A step per
+        // notch, and a step per `WHEEL_ZOOM_PIXELS` of a touchpad — the sixteen-pixels-a-line
+        // conversion above is a distance on a list and says nothing about a magnification.
+        if self.control {
+            let whole = match delta {
+                winit::event::MouseScrollDelta::LineDelta(_, lines) => {
+                    self.pinch = 0.0;
+                    lines.trunc()
+                }
+                winit::event::MouseScrollDelta::PixelDelta(position) => {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "a scroll delta in pixels, which is tens"
+                    )]
+                    let pixels = position.y as f32;
+                    self.pinch += pixels;
+                    let whole = (self.pinch / WHEEL_ZOOM_PIXELS).trunc();
+                    self.pinch -= whole * WHEEL_ZOOM_PIXELS;
+                    whole
+                }
+            };
+            // `ZOOM_RANGE` spans 0.02 to 64, which is thirty-six steps of 1.25 end to end, so a
+            // bound of sixty-four cannot hide a magnification anybody could have reached — it is
+            // there because a `f32` cast saturates and a device reporting nonsense would
+            // otherwise be a loop of two billion commands.
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "clamped to ±64 on the line above"
+            )]
+            let steps = whole.clamp(-64.0, 64.0) as i32;
+            let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
+            let at = (!self.over_panel()).then(|| self.on_page(self.cursor));
+            for _ in 0..steps.unsigned_abs() {
+                self.dispatch(Command::Zoom { zoom, at });
+            }
             return;
         }
         if self.over_panel() {
@@ -1239,6 +1301,12 @@ impl ApplicationHandler for App {
 
             WindowEvent::MouseWheel { delta, .. } => self.wheel(delta),
 
+            // Remembered rather than read at the wheel, because winit puts no modifier state in
+            // the wheel's own event.
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.control = modifiers.state().control_key();
+            }
+
             WindowEvent::RedrawRequested => self.redraw_requested(),
 
             _ => {}
@@ -1258,9 +1326,19 @@ fn key_command(key: &Key<&str>) -> Option<Command> {
         Key::Named(NamedKey::ArrowLeft | NamedKey::PageUp) => Command::GoTo(PageTarget::Previous),
         Key::Named(NamedKey::Home) => Command::GoTo(PageTarget::First),
         Key::Named(NamedKey::End) => Command::GoTo(PageTarget::Last),
-        Key::Character("+" | "=") => Command::Zoom(Zoom::In),
-        Key::Character("-") => Command::Zoom(Zoom::Out),
-        Key::Character("0") => Command::Zoom(Zoom::FitPage),
+        // No anchor: a keyboard names no point, so the core holds the viewport's centre.
+        Key::Character("+" | "=") => Command::Zoom {
+            zoom: Zoom::In,
+            at: None,
+        },
+        Key::Character("-") => Command::Zoom {
+            zoom: Zoom::Out,
+            at: None,
+        },
+        Key::Character("0") => Command::Zoom {
+            zoom: Zoom::FitPage,
+            at: None,
+        },
         Key::Character("a") => Command::Select(Selection::All),
         Key::Character("s") => Command::Save,
         // A page taller than the window: the scroll is in device pixels, so this is about a
@@ -1346,7 +1424,7 @@ fn describe_command(command: &Command) -> String {
             scale,
         } => format!("resize {width}x{height} at {scale}"),
         Command::GoTo(target) => format!("go to {target:?}"),
-        Command::Zoom(zoom) => format!("zoom {zoom:?}"),
+        Command::Zoom { zoom, at } => format!("zoom {zoom:?} at {at:?}"),
         Command::Scroll { dx, dy } => format!("scroll {dx} {dy}"),
         Command::SetGroup { group, on } => format!("layer {group:?} {on}"),
         Command::Activate(object) => format!("activate {object:?}"),

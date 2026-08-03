@@ -51,7 +51,6 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [32](32-presentation-player.md) | Draw a transition's frames | — |
 | [33](33-annotation-editing.md) | Markup and free text, a caret, §14.8.2.5's logical order | — |
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser, not only the codecs | — |
-| [35](35-zoom-with-the-wheel.md) | Ctrl + wheel zooms, anchored where the pointer is | — |
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect | 1 |
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
 | [50](50-xmp.md) | §14.3.2's XMP: an XML parser over untrusted bytes | 319 |

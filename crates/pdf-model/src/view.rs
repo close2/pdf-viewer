@@ -1279,9 +1279,66 @@ fn rectangle_covers(document: &Document, annotation: &Dictionary, x: f64, y: f64
     x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1)
 }
 
-/// §12.7.4.2's fully qualified name of the form field at a point in default user space.
+/// What a form field is called: the name that identifies it, and the name to show a person.
+///
+/// Two names because the standard states two, for two different jobs. §12.7.4.2's fully
+/// qualified name is the field's *identity* — it is what [`crate::view::ViewState::set_field`]
+/// addresses and what §12.7.6.2 exports — and §14.9.3 makes the other one a `shall`:
+///
+/// > An alternative name may be specified for an interactive form field (see 12.7, "Forms")
+/// > which, if present, shall be used in place of the actual field name when an interactive PDF
+/// > processor identifies the field in a user-interface. This alternative name, if provided,
+/// > shall be specified using the TU entry of the field dictionary.
+///
+/// A single string could not carry both: whichever meaning it took, the other would be lost at
+/// the caller. This is why the two are handed over together rather than chosen here — the caller
+/// knows whether it is addressing the field or naming it to a person, and this type does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldName {
+    /// §12.7.4.2's fully qualified name, which identifies the field.
+    pub qualified: String,
+    /// Table 226's `/TU`, where the field states one.
+    pub alternative: Option<String>,
+}
+
+impl FieldName {
+    /// The name §14.9.3 says a user interface shall show, which is `/TU` where there is one.
+    #[must_use]
+    pub fn shown(&self) -> &str {
+        self.alternative.as_deref().unwrap_or(&self.qualified)
+    }
+}
+
+/// Table 226's `/TU` for the field a widget annotation belongs to.
+///
+/// **Not inheritable**, which decides where to look: Table 226 marks `/FT`, `/Ff`, `/V` and
+/// `/DV` inheritable and does not mark this one, so it belongs to the *terminal field* and to no
+/// ancestor of it. That field is the widget's own dictionary where §12.5.6.19's merge applies,
+/// and its `/Parent` where the widget is a kid with no `/T` — which is the same distinction
+/// `walk` makes one level up, from the other end.
+fn alternative_name(document: &Document, widget: ObjectId) -> Option<String> {
+    let mut node = widget;
+    let mut seen = BTreeSet::new();
+    for _ in 0..MAX_FIELD_DEPTH {
+        if !seen.insert(node) {
+            return None;
+        }
+        let resolved = document.get(node);
+        let dict = resolved.as_dict()?;
+        if matches!(document.get_key(dict, "T"), Object::String(_)) {
+            let Object::String(bytes) = document.get_key(dict, "TU") else {
+                return None;
+            };
+            return Some(pdf_syntax::text_string(&bytes));
+        }
+        node = document.get_key(dict, "Parent").as_reference()?;
+    }
+    None
+}
+
+/// The name of the form field at a point in default user space, where there is one.
 #[must_use]
-pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Option<String> {
+pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Option<FieldName> {
     let (x, y) = (f64::from(x), f64::from(y));
     let annotations = document.get_key(&page.dict, "Annots");
     let annotations = annotations.as_array()?;
@@ -1325,7 +1382,13 @@ pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Opti
         // Table 166's rectangle is two opposite corners and states no order, so both are
         // normalised before the point is tested against them.
         if x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1) {
-            found = names.get(&id).cloned().or(found);
+            found = names
+                .get(&id)
+                .map(|qualified| FieldName {
+                    qualified: qualified.clone(),
+                    alternative: alternative_name(document, id),
+                })
+                .or(found);
         }
     }
     found

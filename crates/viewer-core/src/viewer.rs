@@ -223,7 +223,7 @@ impl Viewer {
             }
             Command::Activate(object) => self.activate(object, events),
             Command::Tick { millis } => self.tick(millis, events),
-            Command::Zoom(zoom) => self.set_zoom(zoom, events),
+            Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
             Command::Scroll { dx, dy } => {
                 let viewport = self.viewport;
                 let Some(open) = self.focused_mut() else {
@@ -868,10 +868,10 @@ impl Viewer {
     /// Resolves a zoom command into the magnification it lands on.
     ///
     /// A step is resolved here rather than stored, because two steps have to compose and "one
-    /// larger than fitted" is not a state a mode can hold. Resolving also keeps the viewport's
-    /// centre where it was, which is what makes zooming feel like magnification rather than
-    /// like jumping to a corner.
-    fn set_zoom(&mut self, zoom: Zoom, events: &mut Vec<Event>) {
+    /// larger than fitted" is not a state a mode can hold. Resolving also holds one point of the
+    /// viewport still — the pointer's, or its centre where the command names none — which is what
+    /// makes zooming feel like magnification rather than like jumping to a corner. ADR 0166.
+    fn set_zoom(&mut self, zoom: Zoom, at: Option<(f32, f32)>, events: &mut Vec<Event>) {
         let (viewport, scale) = (self.viewport, self.scale);
         let Some(open) = self.focused_mut() else {
             return;
@@ -884,20 +884,10 @@ impl Viewer {
             }
             Zoom::FitPage | Zoom::FitWidth | Zoom::FitHeight | Zoom::Scale(_) => open.zoom = zoom,
         }
-        // Both scrolls are in device pixels of a raster whose size changed by exactly this
-        // ratio, so scaling them about the viewport's centre keeps that point where it was.
         if let (Some(before), Some(after)) = (before, open.magnification(viewport, scale))
             && before > 0.0
         {
-            let ratio = after / before;
-            let recentre = |scroll: f32, extent: u32| {
-                let half = px(extent) / 2.0;
-                ((scroll + half) * ratio - half).max(0.0)
-            };
-            open.scroll = (
-                recentre(open.scroll.0, viewport.0),
-                recentre(open.scroll.1, viewport.1),
-            );
+            open.hold(viewport, before, after, at);
         }
         events.push(damage(viewport));
     }
@@ -1244,7 +1234,7 @@ fn damage(viewport: (u32, u32)) -> Event {
 /// Exact for every extent a raster may have: [`pdf_render::MAX_EXTENT`] is 2²⁴, which is the
 /// largest integer an `f32` represents exactly. A *viewport* larger than that would round, and
 /// no display is.
-fn px(value: u32) -> f32 {
+pub(crate) fn px(value: u32) -> f32 {
     #[expect(
         clippy::cast_precision_loss,
         reason = "exact below 2^24, which bounds every raster extent; see the doc comment"

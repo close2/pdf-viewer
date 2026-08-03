@@ -42,9 +42,11 @@ pub enum Query<'a> {
     /// query and not a command, and it is the reason the second channel exists. Device pixels
     /// from the viewport's top-left corner.
     LinkAt((f32, f32)),
-    /// The fully qualified name of the form field at a point, where there is one.
+    /// What the form field at a point is called, where there is one.
     ///
     /// What a host needs before it can send [`crate::Edit::SetField`], and it asks on a click.
+    /// Two names come back: [`pdf_model::view::FieldName::qualified`] addresses the field and
+    /// [`pdf_model::view::FieldName::shown`] is what §14.9.3 requires a user interface to show.
     FieldAt((f32, f32)),
     /// Whether anything has been edited since the document opened.
     Dirty,
@@ -131,8 +133,13 @@ pub enum Answer<'a> {
     Link(bool),
     /// What is selected.
     Selected(Selected<'a>),
-    /// §12.7.4.2's fully qualified name of a field.
-    Field(String),
+    /// What the field is called: §12.7.4.2's fully qualified name, and Table 226's `/TU`.
+    ///
+    /// Both, because §14.9.3 says the second "shall be used in place of the actual field name
+    /// when an interactive PDF processor identifies the field in a user-interface" while the
+    /// first is what [`crate::Edit::SetField`] addresses. A host needs each for a different job
+    /// and this crate cannot choose between them on its behalf.
+    Field(pdf_model::view::FieldName),
     /// Where a string occurs, one entry per occurrence in the order they are shown.
     ///
     /// Each is the shapes covering one occurrence, merged per run of a line, in device pixels of
