@@ -188,7 +188,6 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
-| A `loca` whose offsets descend: 36 of 71 glyphs refused, in silence | 1 | [todo 13](todo/13-a-loca-table-that-goes-backwards.md) |
 | §8.7.4.5.4's greatest *admissible* root, on a cone | 2 | [todo 12](todo/12-a-radial-shading-is-not-a-conical-gradient.md) |
 | A substitute with no glyph for a character; one that cannot be addressed | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
@@ -612,7 +611,7 @@ a defect can live without a name, and **the task, the instrument, the method and
 are [todo 00](todo/00-ambiguous-bucket.md)**.
 
 **What it has produced, because that is the argument for keeping at it.** Thirty sessions,
-**ten defects found and eight of them fixed** — a page one that was page two (ADR 0148), a photograph
+**eleven defects found and nine of them fixed** — a page one that was page two (ADR 0148), a photograph
 rendered black (0149), a shading painted as a square (0150), a stencil that drew nothing (0151),
 a whole grid that disappeared (0154), a sentence drawn as one Greek letter because the font's
 name ends in the word "Symbol" (0158), a stamp's gradient painted flat (0160), a widget's border
@@ -621,11 +620,15 @@ to a miter bound (0165) — and one found and *not* fixed, §8.7.4.5.4's greates
 which is `doc/todo/12` because all three backends inherit the same wrong construction — plus a pattern cell's clip worth 15% of a page's ink
 (0155), ten documents whose substituted font drew none of its characters in silence (0152), the
 coverage rule that made eight of them draw (0153), and a font program that draws nothing now
-saying so (0157). The tenth is found and not fixed either, in the two-hundred-and-fifteenth: a
+saying so (0157). The **eleventh** is `issue11131_reduced.pdf`'s font, whose `loca` offsets
+descend so that 36 of its 71 glyphs have a negative stated length and `read-fonts` refuses every
+one of them, in silence — found and fixed one session apart (ADR 0170), and six of the corpus's
+623 embedded TrueType programs have such a table. The tenth is
+found and not fixed either, in the two-hundred-and-fifteenth: a
 stroke under a pixel wide loses the half of `tiny-skia`'s hairline smear that falls outside the
 raster's top edge, so `vertical.pdf`'s two hairlines carry 55% of their area at the page's top
 and 98% everywhere else ([todo 11](todo/11-shapes-that-still-disappear.md) item 3). The bucket
-itself went 754 → 704 and 56 pages carry a diagnosis; *ten defects nobody could see* is the
+itself went 754 → 698 and 63 pages carry a diagnosis; *eleven defects nobody could see* is the
 number to watch.
 
 **Step 6's own assumption failed for the first time in the two-hundred-and-sixteenth**, on
@@ -2399,3 +2402,4 @@ above rather than here.
 | 220 | §12.5.6.4's own sentence about the view, reachable three sessions after the flag it names | — |
 | 221 | The four sweeps run over the *source* instead of the ledger: four claims false for between forty and two hundred sessions | — |
 | 222 | A `loca` that goes backwards, and half a sentence missing in silence — the eleventh defect the ambiguous bucket has produced | — |
+| 223 | And the repair: a `glyf` rebuilt in glyph order, because an entry is self-describing | 0170 |

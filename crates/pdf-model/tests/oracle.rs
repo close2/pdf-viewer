@@ -2236,7 +2236,7 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
-/// Ambiguous, and **we are the ones who are wrong**: half the sentence is missing.
+/// Ambiguous, and **we were the ones who were wrong**: half the sentence was missing.
 ///
 /// `issue11131_reduced.pdf` is 207×41 and draws *Operating Account Consolidated Statement* in an
 /// embedded `CIDFontType2` subset under `Identity-H`. We draw about half of it —
@@ -2255,10 +2255,16 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 /// **not ascending**, so 36 of the 71 glyphs have a negative stated length. `read-fonts` refuses
 /// those and FreeType derives each entry's extent from the entry itself.
 ///
-/// Diagnosed and not fixed, with the repair sized: `doc/todo/13`. It is here rather than in a
-/// `CONTRADICTED_*` group because the verdict is `ambiguous` — `ghostscript` is 1.6 of 255 away
-/// from `poppler` and `mupdf` on a page this small, so there is no consensus to contradict, and
-/// a page can be plainly wrong inside this bucket. That is the whole argument for §3a.
+/// **Fixed in the two-hundred-and-twenty-third session** (ADR 0170): `repaired_loca_order`
+/// rebuilds `glyf` in glyph order with a new monotonic `loca` beside it, which is exact because
+/// a `glyf` entry is self-describing. The whole sentence draws. Six of the corpus's 623 embedded
+/// TrueType programs have such a table.
+///
+/// The page stays here because the verdict is still `ambiguous` — `ghostscript` is 1.6 of 255
+/// away from `poppler` and `mupdf` on a page this small, so there is no consensus to contradict
+/// either way — and the entry stays because **a page can be plainly wrong inside this bucket and
+/// nothing announces either the defect or the fix**. That is the whole argument for §3a, and
+/// this page is the eleventh time it has paid.
 const AMBIGUOUS_LOCA_OUT_OF_ORDER: [&str; 1] = ["issue11131_reduced.pdf page 1"];
 
 /// Ambiguous, because one reference drew a blank page and the other three agree with us.

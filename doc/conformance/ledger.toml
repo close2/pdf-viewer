@@ -2351,7 +2351,7 @@ title = "TrueType fonts"
 status = "implemented"
 code = ["crates/pdf-font/src/lib.rs"]
 test = ["crates/pdf-font/src/lib.rs::a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range", "crates/pdf-font/src/lib.rs::a_unicode_subtable_is_reached_through_the_adobe_glyph_list"]
-note = "Both formats the clause requires — `TrueType` and `OpenType` (ISO/IEC 14496-22) — through `skrifa`, which reads glyf and CFF outlines from an sfnt alike. The clause's own content beyond that is the three differences from Table 109, and the load-bearing one is a pointer to §9.6.5.4. `/BaseFont` is used only as a substitution request, so the two ways the clause says to derive it are the producer's problem rather than a reader's."
+note = "Both formats the clause requires — `TrueType` and `OpenType` (ISO/IEC 14496-22) — through `skrifa`, which reads glyf and CFF outlines from an sfnt alike. The clause's own content beyond that is the three differences from Table 109, and the load-bearing one is a pointer to §9.6.5.4. `/BaseFont` is used only as a substitution request, so the two ways the clause says to derive it are the producer's problem rather than a reader's. **Two malformations of the glyph table are repaired rather than refused, both from what the file states twice about itself**: a byte-swapped `indexToLocFormat`, and a `loca` whose offsets do not ascend — the second rebuilds `glyf` in glyph order because an entry is self-describing and only one of the two readings is self-consistent (ADR 0170). Six of the corpus's 623 embedded TrueType programs carry a non-monotonic `loca`, and before the repair 36 of one font's 71 glyphs drew nothing in silence."
 
 [[clause]]
 clause = "9.6.4"

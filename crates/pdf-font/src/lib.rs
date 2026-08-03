@@ -2537,7 +2537,8 @@ fn embedded_program(
         };
 
         let data = if program == Program::Sfnt {
-            repaired_loca_format(&data).map_or(data, Arc::from)
+            let data = repaired_loca_format(&data).map_or(data, Arc::from);
+            repaired_loca_order(&data).map_or(data, Arc::from)
         } else {
             data
         };
@@ -2734,6 +2735,259 @@ fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
     )?;
     slot.copy_from_slice(&corrected.to_be_bytes());
     Some(repaired)
+}
+
+/// A big-endian `u16` at a byte offset, or `None` past the end.
+fn be16(data: &[u8], at: usize) -> Option<u16> {
+    let bytes = data.get(at..at.checked_add(2)?)?;
+    Some(u16::from_be_bytes([*bytes.first()?, *bytes.get(1)?]))
+}
+
+/// A big-endian `u32` at a byte offset, or `None` past the end.
+fn be32(data: &[u8], at: usize) -> Option<u32> {
+    let bytes = data.get(at..at.checked_add(4)?)?;
+    Some(u32::from_be_bytes([
+        *bytes.first()?,
+        *bytes.get(1)?,
+        *bytes.get(2)?,
+        *bytes.get(3)?,
+    ]))
+}
+
+/// An sfnt's table directory: tag to offset and length.
+fn sfnt_tables(data: &[u8]) -> Option<BTreeMap<Vec<u8>, (usize, usize)>> {
+    let count = be16(data, 4)?;
+    let mut tables = BTreeMap::new();
+    for index in 0..usize::from(count) {
+        let entry = 12usize.checked_add(index.checked_mul(16)?)?;
+        let tag = data.get(entry..entry.checked_add(4)?)?.to_vec();
+        let offset = usize::try_from(be32(data, entry.checked_add(8)?)?).ok()?;
+        let length = usize::try_from(be32(data, entry.checked_add(12)?)?).ok()?;
+        tables.insert(tag, (offset, length));
+    }
+    Some(tables)
+}
+
+/// A copy of an sfnt with some tables replaced, by **appending** the new data and repointing.
+///
+/// Appending rather than rebuilding the file keeps every other table where it was, which is what
+/// lets a caller go on using offsets it read before the repair — `repaired_loca_order` patches
+/// `head` afterwards for exactly that reason. The old bytes stay in the file unreferenced, which
+/// costs the size of the table being replaced and nothing else; `checkSumAdjustment` is left
+/// alone, as it is by every producer that edits a font in place.
+fn rewritten_sfnt(
+    data: &[u8],
+    tables: &BTreeMap<Vec<u8>, (usize, usize)>,
+    replacements: &[(&[u8; 4], Vec<u8>)],
+) -> Option<Vec<u8>> {
+    let count = usize::from(be16(data, 4)?);
+    let mut out = data.to_vec();
+    for (tag, bytes) in replacements {
+        // Which directory entry names this table, found by tag rather than by position: the
+        // directory is sorted by tag and a caller has no business assuming where one sits.
+        let entry = (0..count).find(|index| {
+            12usize
+                .checked_add(index.checked_mul(16).unwrap_or(usize::MAX))
+                .and_then(|at| data.get(at..at.checked_add(4)?))
+                .is_some_and(|found| found == tag.as_slice())
+        })?;
+        let at = 12usize.checked_add(entry.checked_mul(16)?)?;
+        let offset = u32::try_from(out.len()).ok()?;
+        let length = u32::try_from(bytes.len()).ok()?;
+        out.extend_from_slice(bytes);
+        // Every table in an sfnt begins on a four-byte boundary.
+        while !out.len().is_multiple_of(4) {
+            out.push(0);
+        }
+        out.get_mut(at.checked_add(8)?..at.checked_add(12)?)?
+            .copy_from_slice(&offset.to_be_bytes());
+        out.get_mut(at.checked_add(12)?..at.checked_add(16)?)?
+            .copy_from_slice(&length.to_be_bytes());
+    }
+    let _ = tables;
+    Some(out)
+}
+
+/// Rebuilds a `glyf` and `loca` pair whose offsets do not ascend, returning the corrected bytes.
+///
+/// # Why a rebuild rather than [`repaired_loca_format`]'s two bytes
+///
+/// The glyph table's own standard defines a glyph's data as running from `loca[i]` to
+/// `loca[i + 1]`, which
+/// makes the offsets ascending by construction. `issue11131_reduced.pdf` embeds a 71-glyph
+/// `CIDFontType2` subset whose table is the right *shape* — 72 long entries, and the last of them
+/// is `glyf`'s length — and whose contents begin
+///
+/// ```text
+/// 16776  16776  16776  16776  10674  2188  2590  1886
+/// ```
+///
+/// **36 of the 71 glyphs therefore state a negative length**, `read-fonts` refuses each of them,
+/// and the page drew half its sentence with nothing reported: a font that produces *some* glyphs
+/// is a font that loaded. The three reference renderers built on `FreeType` draw the whole
+/// sentence, because it takes the entry's extent from the entry rather than from the pair.
+///
+/// Nothing here is recoverable by changing one number: `loca[i + 1]` is also glyph `i + 1`'s
+/// start and is right as such. The glyphs sit in `glyf` in an order the offsets do not follow, so
+/// the repair is to put them in one.
+///
+/// # Why it is a derivation and not a guess
+///
+/// **A `glyf` entry is self-describing**, which is what makes each glyph's true length readable
+/// from its own bytes: `numberOfContours` decides simple or composite, a simple glyph's extent
+/// follows from its contour count, instruction length and flag stream, and a composite's from its
+/// component loop. So the file states each glyph's extent twice — once in `loca`, once in the
+/// entry — and only one of the two readings is self-consistent. The same shape as
+/// [`repaired_loca_format`] and as the twenty-seventh session's LZW finding, one table over.
+///
+/// Glyph ids do not move, so a composite's references to other glyphs stay valid, and every other
+/// table is copied through unchanged.
+///
+/// Returns `None` when the offsets already ascend — which is every well-formed font, so this
+/// costs one pass over `loca` and nothing else on the common path — and when any glyph's own
+/// bytes cannot be read, in which case the font is damaged in a way this cannot name and
+/// `skrifa`'s own answer stands.
+fn repaired_loca_order(data: &[u8]) -> Option<Vec<u8>> {
+    let tables = sfnt_tables(data)?;
+    let (head, _) = *tables.get(b"head".as_slice())?;
+    let (maxp, _) = *tables.get(b"maxp".as_slice())?;
+    let (loca_at, loca_length) = *tables.get(b"loca".as_slice())?;
+    let (glyf_at, glyf_length) = *tables.get(b"glyf".as_slice())?;
+
+    let long = be16(data, head.checked_add(50)?)? == 1;
+    let glyphs = usize::from(be16(data, maxp.checked_add(4)?)?);
+    let entries = glyphs.checked_add(1)?;
+    let width = if long { 4 } else { 2 };
+    if entries.checked_mul(width)? > loca_length {
+        return None;
+    }
+
+    let offset = |index: usize| -> Option<usize> {
+        let at = loca_at.checked_add(index.checked_mul(width)?)?;
+        if long {
+            usize::try_from(be32(data, at)?).ok()
+        } else {
+            Some(usize::from(be16(data, at)?).checked_mul(2)?)
+        }
+    };
+
+    // The common path: one pass, no allocation, and every well-formed font leaves here.
+    let starts: Vec<usize> = (0..entries).map(offset).collect::<Option<_>>()?;
+    if starts.windows(2).all(|pair| pair[0] <= pair[1]) {
+        return None;
+    }
+
+    let glyf = data.get(glyf_at..glyf_at.checked_add(glyf_length)?)?;
+    let mut rebuilt: Vec<u8> = Vec::with_capacity(glyf_length);
+    let mut offsets: Vec<u32> = Vec::with_capacity(entries);
+    for start in starts.get(..glyphs)? {
+        offsets.push(u32::try_from(rebuilt.len()).ok()?);
+        // An offset past the table is what a well-formed file uses for an empty glyph, and so is
+        // a length of zero; both arrive here as nothing appended.
+        let Some(length) = glyph_length(glyf, *start) else {
+            continue;
+        };
+        rebuilt.extend_from_slice(glyf.get(*start..start.checked_add(length)?)?);
+        // A long `loca` needs no alignment, but padding each entry to a two-byte boundary keeps
+        // the table readable under either format and costs at most one byte a glyph.
+        if !rebuilt.len().is_multiple_of(2) {
+            rebuilt.push(0);
+        }
+    }
+    offsets.push(u32::try_from(rebuilt.len()).ok()?);
+
+    let mut loca = Vec::with_capacity(offsets.len().checked_mul(4)?);
+    for value in &offsets {
+        loca.extend_from_slice(&value.to_be_bytes());
+    }
+    let mut repaired = rewritten_sfnt(data, &tables, &[(b"glyf", rebuilt), (b"loca", loca)])?;
+    // The rebuilt `loca` is long whatever the original was, and `head` has to say so.
+    let slot = repaired.get_mut(head.checked_add(50)?..head.checked_add(52)?)?;
+    slot.copy_from_slice(&1u16.to_be_bytes());
+    Some(repaired)
+}
+
+/// The length of one `glyf` entry, read from the entry itself.
+///
+/// `None` where the entry runs off the table or states a contour count this cannot follow, which
+/// is what makes [`repaired_loca_order`] give up on a font rather than truncate one.
+fn glyph_length(glyf: &[u8], start: usize) -> Option<usize> {
+    /// `numberOfContours`, `xMin`, `yMin`, `xMax`, `yMax`.
+    const HEADER: usize = 10;
+
+    let contours = i16::from_be_bytes([*glyf.get(start)?, *glyf.get(start.checked_add(1)?)?]);
+    if contours >= 0 {
+        let contours = usize::try_from(contours).ok()?;
+        let mut at = start
+            .checked_add(HEADER)?
+            .checked_add(contours.checked_mul(2)?)?;
+        // A glyph with no contours has no point data at all — not even an instruction count.
+        if contours == 0 {
+            return at.checked_sub(start);
+        }
+        let points = usize::from(be16(glyf, at.checked_sub(2)?)?).checked_add(1)?;
+        let instructions = usize::from(be16(glyf, at)?);
+        at = at.checked_add(2)?.checked_add(instructions)?;
+        // The flags are run-length encoded: bit 3 says the next byte is a repeat count.
+        let mut flags: Vec<u8> = Vec::with_capacity(points);
+        while flags.len() < points {
+            let flag = *glyf.get(at)?;
+            at = at.checked_add(1)?;
+            flags.push(flag);
+            if flag & 0x08 != 0 {
+                let repeats = usize::from(*glyf.get(at)?);
+                at = at.checked_add(1)?;
+                for _ in 0..repeats {
+                    if flags.len() >= points {
+                        break;
+                    }
+                    flags.push(flag);
+                }
+            }
+        }
+        // x then y, each coordinate one byte, two bytes, or absent — bit 1 and bit 4 for x, bit
+        // 2 and bit 5 for y, in the clause's own pairing of a short flag with a "same" flag.
+        for (short, same) in [(0x02u8, 0x10u8), (0x04, 0x20)] {
+            for flag in &flags {
+                let width = if flag & short != 0 {
+                    1
+                } else if flag & same != 0 {
+                    0
+                } else {
+                    2
+                };
+                at = at.checked_add(width)?;
+            }
+        }
+        return at.checked_sub(start);
+    }
+
+    // A composite: a loop of components, each of which says whether another follows.
+    let mut at = start.checked_add(HEADER)?;
+    let mut instructions = false;
+    loop {
+        let flags = be16(glyf, at)?;
+        at = at.checked_add(4)?; // the flags and the component's glyph index
+        at = at.checked_add(if flags & 0x0001 != 0 { 4 } else { 2 })?;
+        at = at.checked_add(if flags & 0x0008 != 0 {
+            2
+        } else if flags & 0x0040 != 0 {
+            4
+        } else if flags & 0x0080 != 0 {
+            8
+        } else {
+            0
+        })?;
+        instructions |= flags & 0x0100 != 0;
+        if flags & 0x0020 == 0 {
+            break;
+        }
+    }
+    if instructions {
+        let length = usize::from(be16(glyf, at)?);
+        at = at.checked_add(2)?.checked_add(length)?;
+    }
+    at.checked_sub(start)
 }
 
 /// Returns `true` for a bare CFF font program.
@@ -3222,7 +3476,8 @@ mod truncation_tests {
 #[cfg(test)]
 mod truetype_encoding_tests {
     use super::{
-        Subtables, as_character, named_glyph, post_glyph, repaired_loca_format, symbol_glyph,
+        Subtables, as_character, be32, glyph_length, named_glyph, post_glyph, repaired_loca_format,
+        repaired_loca_order, sfnt_tables, symbol_glyph,
     };
     use skrifa::{FontRef, MetadataProvider};
 
@@ -3313,12 +3568,86 @@ mod truetype_encoding_tests {
         );
     }
 
+    /// A `loca` whose offsets descend is rebuilt from the glyphs' own bytes.
+    ///
+    /// Three glyphs, laid out in `glyf` in the order 2, 0, 1, with a `loca` that names each
+    /// where it actually is. Two of the three pairs then descend, which is `issue11131_reduced`'s
+    /// shape: `read-fonts` reads a negative length and refuses the glyph. After the repair the
+    /// offsets ascend, every glyph's bytes are still its own, and the order in `glyf` is the
+    /// glyph order.
+    ///
+    /// The glyphs are simple ones with no contours — a ten-byte header apiece — because what is
+    /// under test is the ordering, and `a_composite_glyphs_length_is_its_component_loop` covers
+    /// the reading of an entry that is not the simplest possible.
+    #[test]
+    fn a_loca_whose_offsets_descend_is_rebuilt_in_glyph_order() {
+        // Three ten-byte simple glyphs, each with `numberOfContours` 0 and a distinguishing
+        // bounding box, laid out in `glyf` as glyph 2, then 0, then 1.
+        let glyph = |mark: u8| {
+            let mut bytes = vec![0u8; 10];
+            bytes[3] = mark;
+            bytes
+        };
+        let mut glyf = Vec::new();
+        glyf.extend_from_slice(&glyph(2));
+        glyf.extend_from_slice(&glyph(0));
+        glyf.extend_from_slice(&glyph(1));
+        // Where each glyph *is*, in glyph order: 10, 20, 0 — and then the table's length.
+        let mut loca = Vec::new();
+        for at in [10u32, 20, 0, 30] {
+            loca.extend_from_slice(&at.to_be_bytes());
+        }
+        let mut head = vec![0u8; 54];
+        head.splice(50..52, 1_u16.to_be_bytes());
+        let mut maxp = vec![0u8; 6];
+        maxp.splice(4..6, 3_u16.to_be_bytes());
+        let broken = sfnt(&[
+            (*b"head", head),
+            (*b"maxp", maxp),
+            (*b"loca", loca),
+            (*b"glyf", glyf),
+        ]);
+
+        let repaired = repaired_loca_order(&broken).expect("the offsets descend");
+        let tables = sfnt_tables(&repaired).expect("a directory");
+        let (loca_at, _) = tables[b"loca".as_slice()];
+        let (glyf_at, _) = tables[b"glyf".as_slice()];
+        let offsets: Vec<u32> = (0..4)
+            .map(|index| be32(&repaired, loca_at + index * 4).expect("in range"))
+            .collect();
+        assert_eq!(offsets, vec![0, 10, 20, 30], "ascending, in glyph order");
+        for (index, mark) in [0u8, 1, 2].into_iter().enumerate() {
+            let at = glyf_at + index * 10 + 3;
+            assert_eq!(repaired[at], mark, "glyph {index} keeps its own bytes");
+        }
+    }
+
+    /// A composite glyph's length is its component loop, not a fixed size.
+    ///
+    /// One component with `ARG_1_AND_2_ARE_WORDS` and `WE_HAVE_A_TWO_BY_TWO` set and
+    /// `MORE_COMPONENTS` clear: 10 bytes of header, 2 of flags, 2 of glyph index, 4 of
+    /// arguments and 8 of transform.
+    #[test]
+    fn a_composite_glyphs_length_is_its_component_loop() {
+        let mut glyf = vec![0xFF, 0xFF]; // numberOfContours = -1
+        glyf.extend_from_slice(&[0u8; 8]); // the rest of the header
+        glyf.extend_from_slice(&0x0081_u16.to_be_bytes()); // words, two-by-two, no more
+        glyf.extend_from_slice(&0_u16.to_be_bytes()); // the component's glyph index
+        glyf.extend_from_slice(&[0u8; 4]); // two word arguments
+        glyf.extend_from_slice(&[0u8; 8]); // the 2x2 transform
+        assert_eq!(glyph_length(&glyf, 0), Some(26));
+    }
+
     /// A font that states a legal format is left alone, whichever of the two it states.
+
     #[test]
     fn a_font_stating_a_legal_loca_format_is_not_touched() {
         for stated in [0, 1] {
             assert_eq!(repaired_loca_format(&sfnt(&loca_fixture(stated, 8))), None);
         }
+        // And a font whose offsets ascend leaves `repaired_loca_order` on its first pass, which
+        // is every well-formed font and is what makes the repair cost nothing on the common path.
+        assert_eq!(repaired_loca_order(&sfnt(&loca_fixture(1, 8))), None);
     }
 
     /// A font whose lengths agree with *neither* reading keeps its own answer.
