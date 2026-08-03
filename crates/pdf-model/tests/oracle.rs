@@ -2236,6 +2236,38 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
+/// Ambiguous, and on all three ours is the render nearest the geometry.
+///
+/// Three pages of small marks — `issue7339_reduced.pdf` at 115×220, `issue21570.pdf` at 842×595
+/// and `personwithdog.pdf` at 612×792 — where the five renderers spread by more than a bound and
+/// none of them is drawing anything the others are not. Step 6's closed form, taken with two
+/// ladders at 576 dpi:
+///
+/// ```text
+///                        limit           ours     hayro    poppler   mupdf    ghostscript
+/// issue7339_reduced   11.636 / 11.561   11.554   13.181   13.082   12.024   12.904
+/// issue21570          12.562 / 12.547   12.554   12.565   12.683   12.547   12.852
+/// personwithdog       21.991 / 21.101   21.620   20.901   22.114   20.911   21.532
+/// ```
+///
+/// **On the first two ours is inside a hundredth of the limit and every other renderer is above
+/// it**, by up to 1.6 of 255 — §10.7.4 as written applied to marks a fraction of a pixel wide,
+/// which is this group's standing subject and ADR 0025's documented departure from the other
+/// side.
+///
+/// **The third is a result about the instrument rather than about the page, and it is the first
+/// of its kind.** `poppler` and `mupdf` at 576 dpi are 0.89 apart, where on the other two they
+/// agree to a hundredth — so there is no limit to take, and the two-ladder rule the
+/// two-hundred-and-sixteenth session added is doing exactly what it was added for: one ladder
+/// cannot tell convergence from drift, and two say when neither has converged. Ours sits in the
+/// middle of the five at 21.62 and nothing here can rank them. That is a page for a heatmap and
+/// a later session, and it is listed rather than explained.
+const AMBIGUOUS_NEAREST_THE_GEOMETRY: [&str; 3] = [
+    "issue7339_reduced.pdf page 1",
+    "issue21570.pdf page 1",
+    "personwithdog.pdf page 1",
+];
+
 /// Ambiguous, and the word spaces are drawn as marks.
 ///
 /// `issue7074_reduced.pdf` reads *Our 2015 Graduates* in an embedded `CIDFontType2` subset of
@@ -2458,6 +2490,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_REFERENCE_DREW_NOTHING)
         .chain(&AMBIGUOUS_LOCA_OUT_OF_ORDER)
         .chain(&AMBIGUOUS_SPACE_DRAWN_AS_A_MARK)
+        .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)

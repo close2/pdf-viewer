@@ -510,7 +510,6 @@ issue19634.pdf page 1
 issue19971.pdf page 5
 issue19971.pdf page 6
 issue21436.pdf page 1
-issue21570.pdf page 1
 issue269_1.pdf page 1
 issue269_2.pdf page 1
 issue2840.pdf page 1
@@ -528,7 +527,6 @@ issue6132.pdf page 1
 issue6769_no_matrix.pdf page 1
 issue6931_reduced.pdf page 1
 issue7014.pdf page 1
-issue7339_reduced.pdf page 1
 issue7406.pdf page 1
 issue7454.pdf page 1
 issue7769.pdf page 1
@@ -597,7 +595,6 @@ pdkids.pdf page 6
 pdkids.pdf page 7
 pdkids.pdf page 8
 pdkids.pdf page 9
-personwithdog.pdf page 1
 pr12564.pdf page 1
 prefilled_f1040.pdf page 1
 prefilled_f1040.pdf page 2
