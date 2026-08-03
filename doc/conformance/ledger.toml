@@ -1758,10 +1758,10 @@ note = "Table 79 in full: `/Coords` as the axis, `/Domain` defaulting to `[0 1]`
 [[clause]]
 clause = "8.7.4.5.4"
 title = "Type 3 (radial) shadings"
-status = "implemented"
-code = ["crates/pdf-model/src/shading.rs"]
+status = "partial"
+code = ["crates/pdf-model/src/shading.rs", "crates/render-cpu/src/shading.rs"]
 test = ["crates/pdf-model/tests/shadings.rs::a_radial_shading_grades_between_its_two_circles"]
-note = "Table 80: two circles from `/Coords`, `/Domain`, `/Function`, and `/Extend` for each end. The clause's blend of circles is computed rather than approximated by an axial gradient, which is what makes a sphere look like one."
+note = "Table 80: two circles from `/Coords`, `/Domain`, `/Function`, and `/Extend` for each end, all read, with the ramp sampled from the function. **`partial` since the two-hundred-and-sixth session, and the clause states the part that is missing exactly.** \"[I]f a point lies on more than one blend circle, its final colour shall be that of the last of the enclosing circles to be painted, corresponding to the greatest value of s\" — the *greatest admissible* s, and where the greatest root of `|P − c(s)| = r(s)` falls outside `/Extend` the other root still paints. Every backend here hands the shading to a two-point conical gradient — `tiny_skia::RadialGradient` on the CPU — which solves for one root and clamps it with a spread mode, so on §8.7.4.5.4 NOTE 3's cone the disc of the ending circle is left unpainted. `radial_gradients.pdf` pages 4 and 5 are the witnesses, 7% short of every reference's ink, and the arithmetic at a named point is in `doc/todo/12-a-radial-shading-is-not-a-conical-gradient.md` with the design: the evaluator belongs in `pdf-render` for `MeshRaster`'s reason (ADR 0051), because all three backends inherit the same wrong construction from the same place. `AMBIGUOUS_RADIAL_CONE` holds the two pages and says outright that we are wrong."
 
 [[clause]]
 clause = "8.7.4.5.5"

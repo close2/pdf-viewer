@@ -620,8 +620,6 @@ personwithdog.pdf page 1
 pr12564.pdf page 1
 prefilled_f1040.pdf page 1
 prefilled_f1040.pdf page 2
-radial_gradients.pdf page 4
-radial_gradients.pdf page 5
 rc_annotation.pdf page 1
 stamps.pdf page 1
 standard_fonts.pdf page 1

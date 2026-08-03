@@ -1893,6 +1893,39 @@ const AMBIGUOUS_COLOUR_OPERANDS: [&str; 1] = ["issue18894.pdf page 1"];
 /// slightly different places on a page that is 59 rows tall.
 const AMBIGUOUS_WIDGET_BORDER: [&str; 1] = ["bug1863910.pdf page 1"];
 
+/// Ambiguous, and it is the one construction in this file that no gradient implementation has.
+///
+/// `radial_gradients.pdf` pages 4 and 5 are a test sheet: twenty-four §8.7.4.5.4 shadings in a
+/// grid, four `/Extend` combinations across each of six geometries. They sit at 2.70 and 2.74
+/// bounds from the nearest reference and **within 0.01 of the furthest**, which is the
+/// everybody-against-us shape §3a says to prefer, and the pictures say it plainly: on the cone
+/// cells the four references draw a filled disc with a cone on it and we draw only the crescent
+/// between the two.
+///
+/// # What §8.7.4.5.4 determines, exactly
+///
+/// > Therefore, if a point lies on more than one blend circle, its final colour shall be that of
+/// > the last of the enclosing circles to be painted, corresponding to the greatest value of s .
+///
+/// For `/Coords [511 489 25 431 489 60] /Extend [true false]`, `c(s) = (511 − 80s, 489)` and
+/// `r(s) = 25 + 35s`. At the ending circle's own centre `(431, 489)` the blend circles through it
+/// are `s = 0.478` and `s = 2.333`; the greater is outside `/Extend`, so the clause paints the
+/// point at **t = 0.478** and we paint nothing.
+///
+/// `render-cpu` hands the shading to `tiny_skia::RadialGradient` — the SVG two-point conical
+/// gradient — which solves for one root and clamps it with its spread mode, where the clause says
+/// take the greatest *admissible* root. The other two backends build their own gradients from the
+/// same `ShadingKind::Radial`, so all three inherit the same decision, which is why the fix
+/// belongs in `pdf-render` beside `MeshRaster` and is `doc/todo/12`.
+///
+/// Ink: ours 66.05 and 67.19 against 70.55 to 73.94 for the four references on the two pages —
+/// consistently 7% short, which is the missing discs.
+///
+/// **This group says we are wrong**, which §3a allows and `AMBIGUOUS_ZERO_AREA_FILL` did for two
+/// sessions before its fix. It stays until the shared rasteriser lands.
+const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
+    ["radial_gradients.pdf page 4", "radial_gradients.pdf page 5"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -1912,6 +1945,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_IRREVERSIBLE_JPEG_2000)
         .chain(&AMBIGUOUS_COLOUR_OPERANDS)
         .chain(&AMBIGUOUS_WIDGET_BORDER)
+        .chain(&AMBIGUOUS_RADIAL_CONE)
         .copied()
         .collect()
 }
