@@ -482,9 +482,26 @@ pub(crate) fn decide(
             .get_key(annotation, "F")
             .as_integer()
             .unwrap_or_default();
-        let flags = view
+        let mut flags = view
             .flags
             .map_or(stated, |change| change.applied_to(stated));
+        // §12.5.6.4, of a text annotation and of nothing else:
+        //
+        // > Text annotations shall not scale and rotate with the page; they shall behave as if
+        // > the NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were
+        // > always set.
+        //
+        // A `shall` about the *subtype* rather than about the file's `/F`, so it is applied to
+        // an annotation that sets neither flag and cannot be cleared by one that clears them.
+        // Unreachable until the two-hundred-and-seventeenth session gave the two flags a
+        // meaning, and `icon.rs`'s module comment carried the blocker in prose the whole time.
+        if document
+            .get_key(annotation, "Subtype")
+            .as_name()
+            .is_some_and(|subtype| subtype.as_bytes() == b"Text")
+        {
+            flags |= FLAG_NO_ZOOM | FLAG_NO_ROTATE;
+        }
         *adjust = geometry.adjustment(flags, rectangle(document, annotation, "Rect"));
     }
     decision

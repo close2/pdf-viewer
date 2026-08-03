@@ -1467,3 +1467,52 @@ fn a_page_says_whether_its_marks_depend_on_the_magnification() {
     assert!(view_dependent(12), "NoZoom");
     assert!(view_dependent(28), "and both");
 }
+
+/// §12.5.6.4 makes a text annotation behave as though both flags were set, whatever its `/F`.
+///
+/// > Text annotations shall not scale and rotate with the page; they shall behave as if the
+/// > NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were always set.
+///
+/// A `shall` about the *subtype*, so the file's `/F` cannot turn it off — which is the only
+/// thing this checks, since the arithmetic is `a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified`'s.
+/// The fixture is a `Text` annotation with `/F 4`: Print alone, neither flag set.
+#[test]
+fn a_text_annotation_behaves_as_though_both_flags_were_set() {
+    let text = |flags: i64, magnification: Option<f32>| {
+        let bytes = pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Text /Rect [40 40 70 70] /F {flags} \
+                 /AP << /N 6 0 R >> >>"
+            ),
+            "/BBox [0 0 30 30]",
+            "0 0 0 rg 0 0 30 30 re f",
+        );
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let mut state = pdf_model::view::ViewState::of(&document);
+        state.set_magnification(magnification);
+        let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+        let list = interpretation.display_list;
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        let raster = CpuRasterizer::new()
+            .with_background(pdf_render::Color::TRANSPARENT)
+            .rasterize(&list, target)
+            .expect("supported");
+        (extent(&raster), interpretation.view_dependent)
+    };
+
+    assert_eq!(
+        text(4, Some(2.0)).0,
+        (40, 55, 54, 69),
+        "the subtype sets NoZoom, so a doubled page draws it half as large off (40, 70)"
+    );
+    assert_eq!(
+        text(4, None).0,
+        (40, 40, 69, 69),
+        "and an unstated magnification still changes nothing"
+    );
+    assert!(
+        text(4, None).1,
+        "a page with a text annotation depends on the magnification whatever its /F says"
+    );
+}

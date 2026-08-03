@@ -35,9 +35,19 @@
 //! [`crate::appearance`] maps that square onto the largest square that fits inside the
 //! annotation's `/Rect`, centred — a choice too, and the reason for it is that these shapes
 //! carry their meaning in their proportions: a pilcrow stretched to a 400×20 rectangle is not a
-//! pilcrow. §12.5.6.4 would prefer a third answer, that the icon "shall not scale … with the
-//! page", which needs the `NoZoom` flag §12.5.3 does not apply; until it does, the icon is the
-//! size the file's rectangle asks for.
+//! pilcrow.
+//!
+//! **And §12.5.6.4's own answer to the same question is applied since the two-hundred-and-
+//! twentieth session:**
+//!
+//! > Text annotations shall not scale and rotate with the page; they shall behave as if the
+//! > NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were always set.
+//!
+//! This comment said that needed "the `NoZoom` flag §12.5.3 does not apply" — true when written
+//! and false from the two-hundred-and-seventeenth (ADR 0168), which is `doc/todo/01`'s first
+//! sweep finding a stale blocker in *code* rather than in the ledger. The square below is still
+//! what the icon is drawn in; what changed is that it is now the same size on the screen at every
+//! magnification.
 //!
 //! A figure is filled or stroked, never both. A filled figure may lay overlapping subpaths on
 //! top of each other and rely on §8.5.3.3.2's nonzero winding rule to union them, which is what
