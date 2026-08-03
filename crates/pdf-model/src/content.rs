@@ -4079,9 +4079,26 @@ impl Interpreter<'_> {
             crate::annotation::Content::Constructed { resources, .. } => resources.clone(),
         };
 
+        // §8.7.2, of where a pattern's matrix points:
+        //
+        // > Similarly, if a pattern is used within a form XObject (see 8.10, "Form XObjects" ),
+        // > the pattern matrix maps pattern space to the form's default user space (that is, the
+        // > form coordinate space at the time the form is painted with the Do operator).
+        //
+        // **An appearance stream is a form XObject** — §12.5.5 says so and the comment above
+        // this one repeats it — so its patterns map to *its* default space, not to the page's.
+        // `run_form` has done this since it was written; this path is the other way into a
+        // form's content and did not, so a shading pattern in an annotation's appearance was
+        // positioned by the page's default transform. `issue7821.pdf` is a stamp whose rounded
+        // box is filled with a `PatternType 2` axial shading: the page's crop box starts at x
+        // 445.966 and the shading's `/Coords` run from 163.729 to 315.349, so the whole axis
+        // landed off the visible page and `/Extend [true true]` painted the box one flat colour.
+        // ADR 0160.
+        let outer_base = std::mem::replace(&mut self.base, transform);
         // Depth 1 rather than 0: an appearance is itself a form, so a chain of forms
         // inside it is bounded the same way one inside the page content is.
         self.run(&data, &resources, &state, 1);
+        self.base = outer_base;
     }
 
     /// Table 57's `/Font`, which is §8.4.5's other route to the two parameters `Tf` sets.

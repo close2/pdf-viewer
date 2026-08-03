@@ -91,8 +91,8 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **957** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
-| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the twelve sessions from the hundred-and-eighty-sixth added twenty-six. Quote the command with the number | — |
+| tests | **958** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **hundred-and-ninety-fifth**: five fuzzers, `deny`, `fmt`, `clippy`, the **five** gates, both performance numbers and the window |
+| — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the thirteen sessions from the hundred-and-eighty-sixth added twenty-seven. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **879 draw with nothing reported**, **80 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1676** we call complete: **849 agree**, **70 contradicted**, 748 ambiguous — **31 of them diagnosed and 715 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **30 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 852 of 23 269), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
@@ -575,15 +575,23 @@ enough along for this to be the work rather than a caveat. It is the last large 
 a defect can live without a name, and **the task, the instrument, the method and the next names
 are [todo 00](todo/00-ambiguous-bucket.md)**.
 
-**What it has produced, because that is the argument for keeping at it.** Eighteen sessions,
-**six defects found and all six fixed** — a page one that was page two (ADR 0148), a photograph
+**What it has produced, because that is the argument for keeping at it.** Nineteen sessions,
+**seven defects found and all seven fixed** — a page one that was page two (ADR 0148), a photograph
 rendered black (0149), a shading painted as a square (0150), a stencil that drew nothing (0151),
 a whole grid that disappeared (0154), a sentence drawn as one Greek letter because the font's
-name ends in the word "Symbol" (0158) — plus a pattern cell's clip worth 15% of a page's ink
+name ends in the word "Symbol" (0158), a stamp's gradient painted flat (0160) — plus a pattern cell's clip worth 15% of a page's ink
 (0155), ten documents whose substituted font drew none of its characters in silence (0152), the
 coverage rule that made eight of them draw (0153), and a font program that draws nothing now
-saying so (0157). The bucket itself went 754 → 715 and 31 pages carry a diagnosis; *six defects
+saying so (0157). The bucket itself went 754 → 715 and 31 pages carry a diagnosis; *seven defects
 nobody could see* is the number to watch.
+
+**The seventh was the ranking's own first name.** `issue7821.pdf` sat at 5.44 bounds with a
+stamp whose rounded box looked like a plausible flat green fill and is a shading pattern in four
+other renderers: an annotation's appearance stream is a form XObject, and §8.7.2's rule about
+where a pattern's matrix points was applied on the `Do` path and not on the appearance path, so
+the axis landed off the page and `/Extend` painted one colour. **§8.7.2's ledger row has now been
+wrong twice about the same sentence, once per way of becoming a parent content stream.** ADR
+0160.
 
 **And the sixth was found by a comment rather than by a number.** `issue8697.pdf` was on the
 text gate's list with a paragraph explaining that its readback was a question about §9.10.2 and
@@ -2254,3 +2262,4 @@ above rather than here.
 | 196 | The corpus feedback answered; the owed work moved into `doc/todo/` and this file halved again | — |
 | 197 | A name that ends in the word "Symbol" is not the standard-14 `Symbol`, and §9.6.5.4 says which half of the file wins | 0158 |
 | 198 | §12.8.2.3: a save that outgrows a usage rights signature withdraws it — and no corpus document can trip that | 0159 |
+| 199 | An annotation's appearance is a form, so §8.7.2 places its patterns in *its* space — a stamp's gradient was flat | 0160 |

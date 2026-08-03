@@ -81,15 +81,16 @@ wrong"** — `AMBIGUOUS_ZERO_AREA_FILL` did, for two sessions, before the fix.
 
 ## What has come out of it, so far
 
-Ten sessions from the hundred-and-seventy-sixth, then eight more: **six defects found and all
-six fixed** — a page one that was page two (ADR 0148), a photograph rendered black (0149), a
+Ten sessions from the hundred-and-seventy-sixth, then nine more: **seven defects found and all
+seven fixed** — a page one that was page two (ADR 0148), a photograph rendered black (0149), a
 shading painted as a square (0150), a stencil that drew nothing (0151), a whole grid that
-disappeared (0154), a sentence drawn as one Greek letter (0158) — plus the ten documents whose
+disappeared (0154), a sentence drawn as one Greek letter (0158), a stamp's gradient painted flat
+(0160) — plus the ten documents whose
 substituted font drew none of its characters in silence (0152), the coverage rule that made
 eight of them draw (0153), a pattern cell's clip worth 15% of a page's ink (0155), and a font
 program that draws nothing now saying so (0157).
 
-The bucket itself went 754 → 715, and that is the least interesting number in this file. *Six
+The bucket itself went 754 → 715, and that is the least interesting number in this file. *Seven
 defects nobody could see* is the one to watch.
 
 ## Its shape, measured
@@ -107,11 +108,13 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`issue7821.pdf` (5.44 from the nearest), `jp2k-resetprob.pdf` (5.03), `bug1799927.pdf` (4.57),
-`issue1985.pdf` (4.10), `issue7200.pdf` (3.81), `issue18894.pdf` (3.50), `bug1863910.pdf`
-(3.03), `issue21068.pdf` (2.82), `copy_paste_ligatures.pdf` (2.81), `radial_gradients.pdf`
-page 5 (2.74 — and 2.74 from the furthest, which is the everybody-against-us shape).
+`jp2k-resetprob.pdf` (5.03 from the nearest), `bug1799927.pdf` (4.57), `issue1985.pdf` (4.10),
+`issue7200.pdf` (3.81), `issue18894.pdf` (3.50), `bug1863910.pdf` (3.03), `issue21068.pdf`
+(2.82), `copy_paste_ligatures.pdf` (2.81), `radial_gradients.pdf` pages 5 and 4 (2.74 and 2.70,
+both of them within 0.01 of their *furthest*, which is the everybody-against-us shape).
 
 **`issue8697.pdf` left this list in the hundred-and-ninety-seventh session and is the ranking's
 own argument**: 3.52 from the nearest against 3.55 from the furthest, which step 1 says to
-prefer, and it was drawing one Greek letter where the file states a sentence. ADR 0158.
+prefer, and it was drawing one Greek letter where the file states a sentence. ADR 0158. And
+`issue7821.pdf` left it in the hundred-and-ninety-ninth from the *top* of the list, where it had
+been for four sessions: 5.44, and the picture was a stamp anybody would have accepted. ADR 0160.

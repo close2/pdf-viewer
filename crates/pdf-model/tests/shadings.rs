@@ -45,6 +45,11 @@ fn pdf_with_extra(shading: &str, content: &str, extra: &str) -> Vec<u8> {
         content.len().saturating_add(1)
     );
 
+    assemble(&body)
+}
+
+/// Wraps a body of numbered objects in a header, a cross-reference table and a trailer.
+fn assemble(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -642,5 +647,56 @@ fn a_function_based_shading_maps_its_domain_through_its_matrix() {
     assert_eq!(
         shifted_red, red,
         "translating the matrix by half the page moves the colours by half the page"
+    );
+}
+
+/// An annotation's appearance is a form `XObject`, so its patterns map to *its* default space.
+///
+/// ISO 32000-2 §8.7.2:
+///
+/// > Similarly, if a pattern is used within a form XObject (see 8.10, "Form XObjects" ), the
+/// > pattern matrix maps pattern space to the form's default user space (that is, the form
+/// > coordinate space at the time the form is painted with the Do operator).
+///
+/// §12.5.5 makes an appearance stream one of those forms, and `content.rs` had the rule on the
+/// `Do` path and not on this one — so a shading pattern inside an annotation was positioned by
+/// the *page's* default transform. ADR 0160.
+///
+/// The fixture separates the two spaces the way `issue7821.pdf` does: the appearance draws at
+/// x 200–300 and its `/Matrix` brings that back to the page's 0–100. The shading's axis is
+/// stated at 200–300, in the appearance's own space, so under the page's transform it would sit
+/// entirely off the right edge and `/Extend` would paint the whole box one flat colour. Deleting
+/// the `self.base` swap in `draw_appearance` turns both samples below red, which is what
+/// establishes that this test guards it.
+#[test]
+fn a_pattern_in_an_annotation_appearance_is_placed_in_the_appearances_own_space() {
+    let body = concat!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> ",
+        "/Annots [5 0 R] /Contents 4 0 R >>\nendobj\n",
+        "4 0 obj\n<< /Length 1 >>\nstream\n\nendstream\nendobj\n",
+        "5 0 obj\n<< /Type /Annot /Subtype /Stamp /F 4 /Rect [0 0 100 100] ",
+        "/AP << /N 6 0 R >> >>\nendobj\n",
+        "6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [200 200 300 300] ",
+        "/Matrix [1 0 0 1 -200 -200] /Resources << /Pattern << /P0 7 0 R >> >> ",
+        "/Length 42 >>\nstream\n/Pattern cs /P0 scn 200 200 100 100 re f\nendstream\nendobj\n",
+        "7 0 obj\n<< /PatternType 2 /Shading 8 0 R >>\nendobj\n",
+        "8 0 obj\n<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [200 0 300 0] ",
+        "/Extend [true true] /Function << /FunctionType 2 /Domain [0 1] ",
+        "/C0 [1 0 0] /C1 [0 0 1] /N 1 >> >>\nendobj\n",
+    );
+    let raster = render(assemble(body));
+
+    let (left_red, _, left_blue, alpha) = pixel(&raster, 5, 50);
+    assert_eq!(alpha, 255, "the appearance fills its whole box");
+    let (right_red, _, right_blue, _) = pixel(&raster, 95, 50);
+    assert!(
+        left_red > 220 && left_blue < 40,
+        "the axis starts red at the box's left edge, got ({left_red}, _, {left_blue})"
+    );
+    assert!(
+        right_blue > 220 && right_red < 40,
+        "and ends blue at its right edge, got ({right_red}, _, {right_blue})"
     );
 }
