@@ -1,10 +1,11 @@
-# The launch path: 145 ms to the first frame, and what is on it
+# The launch path: 109 to 135 ms to the first frame, and what is left on it
 
-Status: **open**, measured in the two-hundred-and-seventy-fourth session.
+Status: **open**, measured in the two-hundred-and-seventy-fourth session; three of its five items
+taken since, in the two-hundred-and-seventy-sixth, -seventh and -eighty-first.
 Priority: 42 — performance, measured and priced, not yet taken
 Corpus: every document; the two costs that scale do so with the *document*, not with page one
 Code: `crates/viewer-ui/src/bin/pdf-viewer.rs` (`Launch`), `crates/pdf-model/examples/open_cost.rs`,
-`crates/render-quorra/examples/bring_up.rs`, ADR 0179
+`crates/render-quorra/examples/bring_up.rs`, `first_frame.rs`, ADRs 0179, 0180, 0181, 0182
 
 ## Why this is a todo and not a caveat
 
@@ -16,11 +17,11 @@ Code: `crates/viewer-ui/src/bin/pdf-viewer.rs` (`Launch`), `crates/pdf-model/exa
 > **Incremental parsing.** Opening a document reads the trailer and the objects page one needs —
 > not the whole file. **A 500-page document must open no slower than a 5-page one.**
 
-Measured: **27.8 ms against 0.84 ms**, on 1023 pages against 5. The rule was written down and
-never instrumented, which is the same shape as every claim this project has found stale — with the
+Measured: **27.8 ms against 0.84 ms**, on 1023 pages against 5 — 41% of it gone in ADR 0180 and
+the rest moved off the critical path in ADR 0182. The rule was written down and never instrumented, which is the same shape as every claim this project has found stale — with the
 difference that this one is about a number, so the instrument settles it.
 
-## The four items, in the order the timeline ranks them
+## The five items, in the order the timeline ranked them
 
 ### 1. `Document::open` — **taken in the two-hundred-and-seventy-sixth session, 41% off**
 
@@ -38,6 +39,18 @@ a question about `xref.rs`'s `Option<Location>` map (ADR 0100), and the answer c
 `was_recovered` and the writer can promise. The measured floor now: 76.6 M instructions, of which
 inflating the two cross-reference streams is 18 M and nothing can remove it, so the remaining
 ceiling on this route is roughly a further 40%.
+
+### 1a. …and what was left of it is now *beside* the window rather than in front of it
+
+**Taken in the two-hundred-and-eighty-first session** (ADR 0182). Nothing the window needs — an
+event loop, a window, a graphics device — depends on the document, and the document depends on
+none of them, so `main` opens it on a thread of its own and `resumed` joins that thread *after*
+the presenter exists. `document joined` now lands 3 to 6 ms after `graphics device`, where
+`document open` used to be a step of 21 to 28. `viewer-core`'s rule 4 is kept: the core is made on
+that thread and moved back, single-threaded throughout.
+
+**So items 1, 3 and 5's second bullet are the only launch costs still on this list that are ours**,
+and item 1's is the design question rather than a number.
 
 ### 2. `Outline::read` — 3.35 to 6.61 ms for **988 items**
 

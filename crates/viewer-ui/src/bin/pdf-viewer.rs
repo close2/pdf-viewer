@@ -233,6 +233,41 @@ fn arguments() -> Arguments {
     }
 }
 
+/// Reads the file and opens it, wherever this is called from.
+///
+/// Split out of `main` because it is called on a thread of its own — see the comment at the call
+/// site — so it returns the viewer it made and the events it produced rather than touching an
+/// `App` that is being built on another thread at the same time.
+///
+/// **Rule 2 lives here**: the host owns the filesystem, and this is the only place a path becomes
+/// bytes.
+fn open_document(path: &std::path::Path, opens_at: Option<usize>) -> (Viewer, Vec<Event>) {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("cannot read {}: {error}", path.to_string_lossy());
+            std::process::exit(1);
+        }
+    };
+    // No viewport yet: the window does not exist and may not for another 50 ms. The core renders
+    // nothing into one with no extent, which is exactly right — there is nothing to render into.
+    let mut viewer = Viewer::new(0, 0, 1.0);
+    let mut events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .collect();
+    if let Some(page) = opens_at {
+        let turned: Vec<Event> = viewer
+            .handle(Command::GoTo(PageTarget::Index(page.saturating_sub(1))))
+            .collect();
+        events.extend(turned);
+    }
+    (viewer, events)
+}
+
 fn main() {
     let mut launch = Launch::new();
     let Arguments {
@@ -243,15 +278,20 @@ fn main() {
     } = arguments();
     launch.mark("arguments");
 
-    // Rule 2: the host owns the filesystem, and this is the only place a path becomes bytes.
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            eprintln!("cannot read {}: {error}", path.to_string_lossy());
-            std::process::exit(1);
-        }
-    };
-    launch.mark("document read");
+    // **The document opens on a thread of its own, and this is the launch path's one lever that
+    // is ours.** What the window needs is a chain of three steps that must happen in order and on
+    // this thread — an event loop, a window, a graphics device — and on this machine that chain
+    // costs 50 to 90 ms (ADR 0179, ADR 0182). Reading a document depends on none of it, and costs
+    // 21 ms on ISO 32000-2's 101 318 objects. Done one after the other those are 110 ms; done side
+    // by side they are the longer of the two.
+    //
+    // `viewer-core`'s rule 4 is "no threads the core was not handed", and this keeps it: the core
+    // is *made* on that thread and moved back, so it is still single-threaded and still owns none
+    // of its own scheduling. What crosses is a `Viewer` and a `Vec<Event>`, both `Send`.
+    let opening = std::thread::spawn({
+        let path = path.clone();
+        move || open_document(&path, opens_at)
+    });
 
     let chrome = match Chrome::new() {
         Ok(chrome) => Some(chrome),
@@ -293,17 +333,9 @@ fn main() {
         information: pdf_model::metadata::Information::default(),
         metadata_stream: false,
         state: None,
+        opening: Some(opening),
         launch,
     };
-    app.dispatch(Command::Open {
-        id: DOCUMENT,
-        bytes,
-        password: None,
-    });
-    if let Some(page) = opens_at {
-        app.dispatch(Command::GoTo(PageTarget::Index(page.saturating_sub(1))));
-    }
-    app.launch.mark("document open");
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");
     app.launch.mark("event loop");
@@ -445,6 +477,12 @@ struct App {
     /// outline and the attachments are cached under, and exactly not the layers'.
     pages: Vec<viewer_ui::chrome::Page>,
     state: Option<State>,
+    /// The thread opening the document, until the window and the device have been brought up.
+    ///
+    /// `None` from the moment it is joined, which is the first thing `resumed` does after the
+    /// presenter exists — so every later event, command and query sees an ordinary `Viewer` and
+    /// nothing else in this file knows a thread was involved.
+    opening: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
     /// The launch path's milestones, printed once under `--trace` when the first frame lands.
     launch: Launch,
 }
@@ -884,7 +922,34 @@ impl App {
     /// A queue rather than recursion, because reacting to an event may produce a command — a
     /// password supplied, a file read — and a chain of those is a loop rather than a stack.
     fn dispatch(&mut self, command: Command) {
-        let mut queue = VecDeque::from([command]);
+        self.pump(VecDeque::from([command]));
+    }
+
+    /// Reacts to events that were produced somewhere other than a [`Self::dispatch`].
+    ///
+    /// One caller: the thread that opens the document while the window and the graphics device
+    /// come up. Its events are a `Vec` rather than an iterator over the viewer, because the
+    /// viewer they came from was on another thread — and everything after that is the ordinary
+    /// loop, so a `PasswordRequired` from the thread is answered exactly as one from a command.
+    fn receive(&mut self, events: Vec<Event>) {
+        if self.trace {
+            println!(
+                "trace: opened on its own thread -> {} event(s)",
+                events.len()
+            );
+            for event in &events {
+                println!("trace:     {}", describe_event(event));
+            }
+        }
+        let mut queue = VecDeque::new();
+        for event in events {
+            self.react(event, &mut queue);
+        }
+        self.pump(queue);
+    }
+
+    /// Runs commands until nothing is left, reacting to what each produces.
+    fn pump(&mut self, mut queue: VecDeque<Command>) {
         while let Some(command) = queue.pop_front() {
             let started = std::time::Instant::now();
             let described = self.trace.then(|| describe_command(&command));
@@ -1369,6 +1434,19 @@ impl ApplicationHandler for App {
             presenter,
             size: (size.width.max(1), size.height.max(1)),
         });
+
+        // **The document's thread is joined here and not a line earlier.** Everything above this
+        // — the event loop, the window, the device — is what it was running beside; joining after
+        // the presenter exists is what makes the two costs the *longer* of the pair rather than
+        // the sum. If the mark below reads a few hundred microseconds after `graphics device`,
+        // the document was ready and waiting; if it reads milliseconds later, this thread waited,
+        // which is a document large enough for the overlap to have been worth more than it took.
+        if let Some(opening) = self.opening.take() {
+            let (viewer, events) = opening.join().expect("the thread opening the document");
+            self.viewer = viewer;
+            self.launch.mark("document joined");
+            self.receive(events);
+        }
         self.retitle();
         // The window's size is the first thing the core has been told about the viewport, and
         // it is what makes page one render. **Less the sidebar**, which Table 29's `/PageMode`

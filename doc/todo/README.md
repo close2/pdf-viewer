@@ -51,7 +51,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser, not only the codecs | — |
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect | 1 |
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
-| [42](42-the-launch-path.md) | 145 ms to the first frame: an open that scales with the document, an outline that costs per item | all |
+| [42](42-the-launch-path.md) | The launch path: three of five taken, two of what is left are quorra's | all |
 | [50](50-xmp.md) | §14.3.2's XMP: an XML parser over untrusted bytes | 319 |
 | [51](51-signatures-and-public-keys.md) | Validation, public-key handlers, `/R` 5 | 1 |
 | — | [`_scan-conversion.md`](_scan-conversion.md) | shared: §10.7.4, what this tree departs from and why |

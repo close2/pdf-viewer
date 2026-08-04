@@ -60,10 +60,12 @@ two-hundred-and-seventy-third session and written into `CLAUDE.md`'s startup rul
 is therefore *on* the critical path by choice, which makes what it costs a number to keep rather
 than a cost to hide. **Since the two-hundred-and-seventy-fourth session `--trace` prints the whole
 launch as a timeline** — one `Instant` taken at `main`'s first statement, one mark per milestone,
-printed when the first frame lands — and the number a person judges the program by is
-**145 ms from process start to the first frame**, on this machine's software adapter under `Xvfb`,
-for a 5-page document *and* for ISO 32000-2's 1023 pages. Of it: the device 40 to 46 ms, the first
-present 54 to 68, `EventLoop::new` 8 to 37, and the document 0.84 or 27.8 depending on which one.
+printed when the first frame lands. It was **145 ms from process start to the first frame** on this
+machine's software adapter under `Xvfb`, for a 5-page document *and* for ISO 32000-2's 1023 pages,
+and is **109 to 135** since the two-hundred-and-eighty-first: nothing the window needs has ever
+looked at a PDF, so the document opens on a thread of its own and is joined after the device exists
+(ADR 0182). Of what is left: the device 33 to 46 ms, the first present 49 to 60, `EventLoop::new`
+14 to 43, and the document's *join* 3 to 6.
 **Two things on it broke a rule `CLAUDE.md` states**, both named and priced in
 [todo 42](todo/42-the-launch-path.md): `Document::open` cost 12 to 22 ms on 101 318 objects
 against 0.20 on a small file, where the rule is "a 500-page document must open no slower than a
@@ -2684,3 +2686,4 @@ above rather than here.
 | 278 | The five sweeps: a row that contradicted *itself*, a parent stale about three children, a `shall` no host asked | — |
 | 279 | Two off the ambiguous tail's head, and both were a *width*: 0.4 of a pixel, and one sentence on a stamp | — |
 | 280 | The first frame pays 12 ms the tenth does not, and a 1 s sleep proves it is not the shaders | — |
+| 281 | The document opens *beside* the window: nothing the window needs has ever looked at a PDF | 0182 |
