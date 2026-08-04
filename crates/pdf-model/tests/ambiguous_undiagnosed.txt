@@ -37,7 +37,6 @@ file_pdfjs_test.pdf page 3
 file_pdfjs_test.pdf page 4
 images_1bit_grayscale.pdf page 1
 issue10339_reduced.pdf page 1
-issue11473.pdf page 1
 issue12705.pdf page 1
 issue12841_reduced.pdf page 1
 issue12963.pdf page 2
@@ -77,7 +76,6 @@ issue6931_reduced.pdf page 1
 issue7014.pdf page 1
 issue7406.pdf page 1
 issue7454.pdf page 1
-issue7769.pdf page 1
 issue8187.pdf page 1
 issue840.pdf page 1
 issue840.pdf page 2

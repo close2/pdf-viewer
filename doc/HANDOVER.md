@@ -122,7 +122,7 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 | tests | **993** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | re-run in the **two-hundred-and-sixty-seventh**: `deny`, `fmt`, `clippy`, `variable_text` at 50 000, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **883 draw with nothing reported**, **76 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **854 agree**, **68 contradicted**, 749 ambiguous — **651 of them diagnosed and 98 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **854 agree**, **68 contradicted**, 749 ambiguous — **653 of them diagnosed and 96 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 862 of 23 279), **35** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -759,7 +759,7 @@ for having hard fonts, which session 68 then measured on one.
 ### 3a. The ambiguous bucket — watched since the hundred-and-seventy-sixth, and being emptied
 
 **749 of the pages the oracle judges on documents we call complete come back `ambiguous` (787 of
-all 1794), and until the hundred-and-seventy-sixth session no gate watched one of them.** 98 are
+all 1794), and until the hundred-and-seventy-sixth session no gate watched one of them.** 96 are
 still undiagnosed, from 754: the twenty rounds from the two-hundred-and-fifty-first took three
 populations at once and then worked the tail a page at a time. The verdict means "nobody's difference is large
 enough to call anybody wrong", which is the right thing for the *ratchet* to do and is not the
@@ -2676,3 +2676,4 @@ above rather than here.
 | 276 | §7.5.6's rule stated once for a file rather than once per entry: `Document::open` 41% off | 0180 |
 | 277 | A form says whether it has signature fields, and Table 225 says to ask: 1.681 ms to 0.017 | 0181 |
 | 278 | The five sweeps: a row that contradicted *itself*, a parent stale about three children, a `shall` no host asked | — |
+| 279 | Two off the ambiguous tail's head, and both were a *width*: 0.4 of a pixel, and one sentence on a stamp | — |

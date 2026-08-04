@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **98 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **96 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 651 diagnosed, 98 held by name
+Corpus: 787 ambiguous pages (749 on documents we call complete); 653 diagnosed, 96 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -281,6 +281,17 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**Two off the head in the two-hundred-and-seventy-ninth, and both were one shape apiece.**
+`issue7769.pdf` page 1 — 0.67 from the nearest and 0.97 from the furthest, the tightest ratio the
+tail had left, which step 1 reads as *we are alone* — is 24 commands setting one sentence on a
+153 × 63 page, so its mean is its glyph coverage: two ladders agree to **0.003 of 255** and ours
+climbs onto the limit from 0.5 below it (`AMBIGUOUS_GLYPH_SCAN_CONVERSION`). `issue11473.pdf`
+page 1 is four hatch swatches whose tiling cell is a **0.3985-unit stroke** — 0.4 of a device
+pixel — where `ghostscript` paints 60% more than the geometry, `poppler` 46% more and ours 10%
+less (`AMBIGUOUS_SUB_PIXEL_LINE_WORK`). **Neither was a defect and both were a width**: the tail's
+head is now populations of *scan conversion*, which is the same result the ranking reached one
+level up in the two-hundred-and-fifteenth.
 
 **The ranking is a different list now.** With the three populations gone the head is 0.76 and
 below, and the two-hundred-and-sixty-fourth session took four of it: `issue11913.pdf` page 1,

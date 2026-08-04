@@ -1902,8 +1902,44 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// falls above row zero and is lost with the raster. `doc/todo/11` holds it as the third
 /// member of its family: a loss the *rasteriser's own construction* causes rather than the
 /// display list.
-const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 4] = [
+///
+/// # `issue11473.pdf`, and it is the same width inside a §8.7.3 tiling cell
+///
+/// Four swatches of hatching — *crosshatch*, *north east lines*, *north west lines*, *grid* —
+/// each painted with a `/PatternType 1 /PaintType 2` tiling pattern whose whole cell is one or
+/// two strokes:
+///
+/// ```text
+/// q 0.3985 w 3.08846 0.0 m 0.0 3.08846 l 0.0 0.0 m 3.08846 3.08846 l S Q
+/// ```
+///
+/// **0.3985 user units**, which at the page's own scale is 0.4 of a device pixel — the same
+/// sub-pixel width as the rules above, repeated by `/XStep 2.98883` across four small squares.
+/// Off §3a's ranking in the two-hundred-and-seventy-ninth session at 0.68 from the nearest
+/// reference and 1.35 from the furthest.
+///
+/// ```text
+///                72 dpi   288 dpi   576 dpi
+/// poppler        1.1007   0.7769    0.7604
+/// mupdf          0.7674   0.7519    0.7543
+/// ours (1x/4x/8x) 0.6753  0.7507    0.7516
+/// hayro          0.7130      —         —
+/// ghostscript    1.2027      —         —
+/// ```
+///
+/// **Two ladders and ours agree on 0.752 to 0.760**, one descending and two ascending, so the
+/// geometry is about 0.752 of 255 and every renderer is measuring the same marks. At the page's
+/// own scale `ghostscript` paints **60% more** than that and `poppler` **46% more**, which is
+/// §10.7.4 as written on a 0.4-pixel stroke; ours is 10% under and `hayro` 5% under, which is
+/// the hairline smear this group's `vertical.pdf` paragraph measures. The spread is 0.53 of 255
+/// on a page whose whole ink is 0.75.
+///
+/// Not `AMBIGUOUS_TILED_STROKES`, though it is one document over: that group is about
+/// `poppler`'s ladder *drifting* on a tiling pattern rather than converging, and here its ladder
+/// converges perfectly well — it is only its first rung that is high.
+const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 5] = [
     "22060_A1_01_Plans.pdf page 1",
+    "issue11473.pdf page 1",
     "issue21068.pdf page 1",
     "vertical.pdf page 2",
     "vertical.pdf page 3",
@@ -3817,8 +3853,39 @@ const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 /// which is what small glyphs cost before the pixels shrink. The third is the same document's
 /// third page, where the references are 0.14 apart from each other and ours is 0.14 from the
 /// nearer — a page about the references' spread rather than about ours.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 6] = [
+///
+/// # And the ranking's head in the two-hundred-and-seventy-ninth, which is this shape again
+///
+/// `issue7769.pdf` is 153 × 63 and its whole content is **24 commands** setting one sentence —
+/// *Scan here to make a donation!* — over two lines. No image (`pdfimages -list` names none),
+/// no rules, nothing that is not a glyph, so like `issue4402_reduced.pdf` and
+/// `issue2884_reduced.pdf` its mean *is* its glyph coverage. It reached the head of the ranking
+/// at **0.67 from the nearest reference and 0.97 from the furthest** — a ratio of 1.45, which is
+/// `doc/todo/00`'s step 1 shape for *we are alone* and the tightest such ratio the tail had left.
+///
+/// ```text
+///                72 dpi   144 dpi   288 dpi   576 dpi   1152 dpi
+/// ours          16.5160   16.9669   16.9304   17.0152       —
+/// poppler       16.7065   16.8624   16.9656   17.0238       —
+/// mupdf         16.7431   16.8830   16.9722   17.0270   17.0452
+/// hayro         17.0665       —         —         —         —
+/// ghostscript   17.3083       —         —         —         —
+/// ```
+///
+/// **The two ladders agree to 0.003 of 255 at 576 dpi** — the tightest pair this group has
+/// measured — so there is a limit at about 17.03, and `mupdf`'s own 1152 says it is still
+/// creeping up towards 17.05. **Ours climbs onto it**: 16.516 at the page's own scale to 17.015
+/// at eight times, ending 0.01 under two references that are 0.01 and 0.00 under themselves.
+/// So the marks are the geometry's and the difference is where the coverage lands on a
+/// 153-pixel-wide raster.
+///
+/// At 72 dpi the five renderers spread by **0.79 of 255** with ours lowest and `ghostscript`
+/// highest, which on a page this small is a sixth of a level per glyph. §10.7.4's last sentence
+/// is the permission and it is quoted at the top of this group: scan conversion of character
+/// glyphs may be performed by a different algorithm.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 7] = [
     "issue11913.pdf page 1",
+    "issue7769.pdf page 1",
     "issue1350.pdf page 1",
     "issue1350.pdf page 3",
     "issue2884_reduced.pdf page 1",
