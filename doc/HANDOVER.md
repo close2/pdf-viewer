@@ -349,6 +349,16 @@ priority — `00`–`09` standing, `10`–`19` defects, `20`–`29` owed feature
 `30`–`39` capability, `40`–`49` measured performance, `50`–`59` blocked. `doc/todo/README.md` is
 the index, and `doc/todo/02-every-round.md` is what a round does around whatever it takes.
 
+**One item outranks the choosing and is not engineering.** [todo 09](todo/09-the-specifications-are-in-the-history.md):
+the fourteen ISO and PDF Association documents in `doc/` and their Markdown conversions under
+`doc/md/` are **tracked, and the project owner is not licensed to redistribute them** — they are
+free to obtain and that is not the same permission. A git repository carrying them is
+redistributing them, so this has to be true before this tree is published anywhere: the bootstrap
+written first (the download, and `docling` for the conversion), every gate made to skip and say so
+rather than fail, then `git filter-repo` over the whole history. It is also the largest single
+thing that could be done about clone time — 105 MB of a 64 MiB pack — and **the only item here
+whose cost rises with every commit.**
+
 What stays here is the *shape* of choosing, which is the part that has been wrong before.
 
 **Two tracks, and take from both in every round.** *Demand-driven* is what the corpus and the
