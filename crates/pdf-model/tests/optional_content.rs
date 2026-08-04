@@ -745,3 +745,42 @@ fn a_selected_alternate_whose_image_is_hidden_draws_nothing() {
     assert!(!drew(&raster), "the selected image's own /OC hides it");
     assert!(reports.is_empty(), "{reports:?}");
 }
+
+/// §8.11.4.3's Table 99 `/ListMode` `VisiblePages` needs one question answered about the file:
+///
+/// > Display only those groups in the Order array that are referenced by one or more visible
+/// > pages.
+///
+/// The clause does not say what *referenced by* means, so `groups_referenced_by` takes the three
+/// places §8.11 puts an `/OC` — the page's `/Resources /Properties`, which a `BDC /OC` names; an
+/// `XObject`'s own entry; and an annotation's — and every group a membership dictionary's
+/// `/OCGs` or `/VE` mentions. A group nothing on the page names is what the entry exists to
+/// hide, and that is the case with no witness in the corpus: `visibility_expressions.pdf` is the
+/// one document that states the entry, and its page reaches all three of its groups.
+#[test]
+fn a_page_names_the_groups_its_content_annotations_and_forms_reach() {
+    let bytes = pdf(
+        "/OCProperties << /OCGs [5 0 R 6 0 R 7 0 R 8 0 R 9 0 R] /D << >> >>",
+        "/Properties << /oc 5 0 R /ocmd 10 0 R >> /XObject << /Fx 11 0 R >>",
+        MARKED_SQUARE,
+        "/Annots [12 0 R]",
+        "5 0 obj\n<< /Type /OCG /Name (named by the page) >>\nendobj\n\
+         6 0 obj\n<< /Type /OCG /Name (named by a membership dictionary) >>\nendobj\n\
+         7 0 obj\n<< /Type /OCG /Name (named by a visibility expression) >>\nendobj\n\
+         8 0 obj\n<< /Type /OCG /Name (named by a form XObject) >>\nendobj\n\
+         9 0 obj\n<< /Type /OCG /Name (named by nothing on this page) >>\nendobj\n\
+         10 0 obj\n<< /Type /OCMD /OCGs [6 0 R] /VE [/Not 7 0 R] >>\nendobj\n\
+         11 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /OC 8 0 R \
+         /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         12 0 obj\n<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] /OC 6 0 R >>\nendobj\n",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let found = pdf_model::optional_content::groups_referenced_by(&document, &page);
+    let numbers: Vec<u32> = found.iter().map(|id| id.number).collect();
+    assert_eq!(
+        numbers,
+        vec![5, 6, 7, 8],
+        "every group the page reaches, and only those: 9 is in /OCGs and on no page"
+    );
+}

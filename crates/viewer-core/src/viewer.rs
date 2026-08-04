@@ -1,10 +1,10 @@
 //! The state machine itself.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use pdf_model::action::Trigger;
-use pdf_model::optional_content::{OptionalContent, Presented};
+use pdf_model::optional_content::{ListMode, OptionalContent, Presented};
 use pdf_model::view::Pointer;
 use pdf_render::{DisplayList, Point, Rect, TargetSpec, Transform};
 use pdf_syntax::{ObjectId, SyntaxError};
@@ -1300,31 +1300,75 @@ fn resolve(open: &Open, target: PageTarget) -> Option<usize> {
 }
 
 /// §8.11.4.3's `/Order`, turned into what a layer panel shows.
+///
+/// **Table 99's `/ListMode` is applied here and nowhere else**, because it is the one entry of
+/// that table whose answer depends on the window rather than on the file:
+///
+/// > A name specifying which optional content groups in the Order array shall be displayed to
+/// > the user. Valid values shall be: AllPages Display all groups in the Order array.
+/// > VisiblePages Display only those groups in the Order array that are referenced by one or
+/// > more visible pages.
+///
+/// This window shows one page at a time, so "one or more visible pages" is the page it is
+/// showing — the same derivation §12.6.3's `/PV` and `/PO` took in the two-hundred-and-fourth
+/// session, and the same one this row's stale reason denied for eighty-six: "which pages are
+/// visible is a question about a window this crate does not have". `pdf_model` supplies the half
+/// that is about the file, `groups_referenced_by`, and this supplies the half that is about the
+/// window. One corpus document states the entry (`visibility_expressions.pdf`, on a scan of every
+/// uncompressed `/ListMode` in all 974), and it states `VisiblePages`.
+///
+/// A collection whose children all disappear disappears with them: §8.11.4.3 makes a label
+/// "non-selectable" and a heading over nothing is not what the clause asked to be displayed.
 fn layers(open: &Open) -> Vec<Layer> {
     let Some(content) = open.view.optional_content() else {
         return Vec::new();
     };
-    build_layers(open, content, content.presentation())
+    let shown = match content.list_mode() {
+        ListMode::AllPages => None,
+        ListMode::VisiblePages => open
+            .shown_page()
+            .map(|page| pdf_model::optional_content::groups_referenced_by(&open.document, page)),
+    };
+    build_layers(open, content, content.presentation(), shown.as_ref())
 }
 
 /// One level of `/Order`, and its children.
-fn build_layers(open: &Open, content: &OptionalContent, entries: &[Presented]) -> Vec<Layer> {
+///
+/// `shown` is `None` where every group is displayed, and the set a page references where
+/// `/ListMode` is `VisiblePages`.
+fn build_layers(
+    open: &Open,
+    content: &OptionalContent,
+    entries: &[Presented],
+    shown: Option<&BTreeSet<ObjectId>>,
+) -> Vec<Layer> {
     entries
         .iter()
-        .map(|entry| match entry {
-            Presented::Group(group) => Layer::Group {
-                group: *group,
-                name: content.name(&open.document, *group),
-                // A group `/Order` names but `/OCGs` does not is not a group this document
-                // configured, and Table 99 does not say what it is. It reads as on, which is
-                // what content governed by no group is.
-                on: content.state(*group).unwrap_or(true),
-                locked: content.is_locked(*group),
-            },
-            Presented::Collection { label, children } => Layer::Collection {
-                label: label.clone(),
-                children: build_layers(open, content, children),
-            },
+        .filter_map(|entry| match entry {
+            Presented::Group(group) => {
+                if shown.is_some_and(|shown| !shown.contains(group)) {
+                    return None;
+                }
+                Some(Layer::Group {
+                    group: *group,
+                    name: content.name(&open.document, *group),
+                    // A group `/Order` names but `/OCGs` does not is not a group this document
+                    // configured, and Table 99 does not say what it is. It reads as on, which is
+                    // what content governed by no group is.
+                    on: content.state(*group).unwrap_or(true),
+                    locked: content.is_locked(*group),
+                })
+            }
+            Presented::Collection { label, children } => {
+                let children = build_layers(open, content, children, shown);
+                if shown.is_some() && children.is_empty() {
+                    return None;
+                }
+                Some(Layer::Collection {
+                    label: label.clone(),
+                    children,
+                })
+            }
         })
         .collect()
 }

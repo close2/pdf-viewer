@@ -861,6 +861,52 @@ fn a_field_is_typed_into_undone_and_redone() {
     assert!(quiet.is_empty(), "{quiet:?}");
 }
 
+/// §8.11.4.3's Table 99 `/ListMode`, which is the one entry of that table whose answer depends
+/// on the window rather than on the file.
+///
+/// > A name specifying which optional content groups in the Order array shall be displayed to
+/// > the user. Valid values shall be: AllPages Display all groups in the Order array.
+/// > VisiblePages Display only those groups in the Order array that are referenced by one or
+/// > more visible pages.
+///
+/// This window shows one page at a time, so "one or more visible pages" is the page it is
+/// showing — the same derivation §12.6.3's `/PV` and `/PO` took in the two-hundred-and-fourth
+/// session. The ledger's reason for leaving it unapplied was "which pages are visible is a
+/// question about a window this crate does not have", and a window arrived in the
+/// hundred-and-thirty-second session.
+///
+/// `visibility_expressions.pdf` is the only corpus document that states the entry, on a scan of
+/// every uncompressed `/ListMode` in all 974. It states `VisiblePages`, and its one page reaches
+/// all three of its groups through the `/VE` of five membership dictionaries — so what this
+/// pins is the direction that costs a person something: **a filter that is applied must not
+/// empty a panel the document meant to fill.**
+#[test]
+fn a_visible_pages_list_mode_keeps_the_groups_the_page_reaches() {
+    let Some(bytes) = corpus_bytes("visibility_expressions.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .for_each(drop);
+    let Answer::Layers(layers) = viewer.query(Query::Layers) else {
+        panic!("this document states an /Order");
+    };
+    let names: Vec<&str> = layers
+        .iter()
+        .filter_map(|layer| match layer {
+            viewer_core::Layer::Group { name, .. } => name.as_deref(),
+            viewer_core::Layer::Collection { .. } => None,
+        })
+        .collect();
+    assert_eq!(names, vec!["A", "B", "C"]);
+}
+
 /// §12.5.5's appearances belong to every annotation, not only to a link.
 ///
 /// > An annotation may define as many as three separate appearances:

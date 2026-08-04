@@ -56,6 +56,28 @@ it produced four more, all of them false for between forty and two hundred sessi
 **The ledger has a gate and the source does not**, which is why these lasted longer. One `grep`
 apiece.
 
+## A fifth sweep, from the other direction: **who calls it?**
+
+The three above ask what a *row* claims. The two-hundred-and-fifty-third and -fourth sessions
+found two clauses neither of them could see, and both were the same shape from opposite ends: a
+capability arrived, and nobody maintains the *callers* of the code it unblocks, because the code
+and the caller do not cite each other either.
+
+- **§12.5.6.19's `/H`** was `implemented`, argued in ADR 0123 and tested with pixels — and
+  `viewer-core` took the pressed annotation from `link_at`, so no host could press a widget for a
+  hundred and fifteen sessions (ADR 0177).
+- **§8.11.4.3's `/ListMode`** was read into `OptionalContent::list_mode` and asked by nothing,
+  with a layer panel on the screen (ADR 0178).
+
+The sweep is twenty lines: every `pub fn` in `pdf-model`, grepped against `viewer-core` and
+`viewer-ui`. 174 functions, 72 that neither names. Most are internal helpers that happen to be
+`pub`; read the ones whose name is a *clause's noun*. What it produced beside `list_mode`, unread
+so far: `logical_order` and `logical_text` (§14.8.2.5, which `doc/todo/33` owes), `beads_on_page`
+(§12.4.3's articles), `all_folders` and `folder_of` (§7.11.6's collection folders, with an
+attachments panel already drawn), `document_language`, `alternate_description` and `actual_text`
+(§14.9, waiting on `doc/todo/31`'s host), `print_field` and `user_properties` (§14.8.5's
+attributes), `widgets_by_field_name` and `clear_field` (§12.7).
+
 **The fourth sweep paid again in the two-hundred-and-thirty-eighth, on its own subject.** Run
 after five rounds that corrected rows, over the *mechanisms* those corrections named rather than
 over their exact words, it produced two:

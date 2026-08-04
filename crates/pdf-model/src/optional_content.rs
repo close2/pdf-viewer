@@ -546,10 +546,154 @@ pub enum ListMode {
     /// "Display only those groups in the Order array that are referenced by one or more
     /// visible pages."
     ///
-    /// Carried and not acted on: which pages are visible is a question about a window, and this
-    /// crate has none. A panel that has one answers it; one that does not shows every group,
-    /// which is `AllPages`.
+    /// Which pages are visible is a question about a window and this crate has none, so what it
+    /// supplies is the other half: [`groups_referenced_by`] answers *which groups one page
+    /// references*, and a host with a window intersects that with the pages it is showing. A
+    /// caller with no window shows every group, which is `AllPages`.
     VisiblePages,
+}
+
+/// Deepest nesting of form `XObject`s walked while gathering a page's groups.
+///
+/// A form may name a form, and the chain is the document's to state. The bound is generous
+/// against real files — a drawing three templates deep is unusual — and finite against a file
+/// whose forms name each other, which the visited set already stops but which would otherwise
+/// be bounded by nothing at all.
+const MAX_FORM_DEPTH: usize = 8;
+
+/// Every optional content group one page's content and annotations reference.
+///
+/// Table 99's `/ListMode` `VisiblePages` displays "only those groups in the Order array that are
+/// referenced by one or more visible pages", and the clause does not say what *referenced by*
+/// means. What is taken here is the three places §8.11 puts an `/OC`: the page's
+/// `/Resources /Properties`, which is what a `BDC /OC` names (§8.11.3.2); an `XObject`'s own
+/// `/OC` (§8.11.3.3); and an annotation's, Table 166's (§8.11.4.4). A membership dictionary
+/// contributes every group its `/OCGs` or its `/VE` names, because content governed by one is
+/// content whose visibility those groups decide.
+///
+/// **Resources are followed into nested forms**, since a group referenced by a template placed
+/// on the page is referenced by the page. Bounded by [`MAX_FORM_DEPTH`] and by a visited set,
+/// both because the nesting is a document's word.
+///
+/// This does *not* interpret the page: a `BDC /OC` naming a property this walk found is what
+/// makes the group reachable, and whether the operator is executed is a different question the
+/// panel is not asking. Over-listing a group whose `BDC` never runs is the direction that
+/// costs a person nothing; under-listing one hides a switch the document asked to show.
+#[must_use]
+pub fn groups_referenced_by(document: &Document, page: &crate::page::Page) -> BTreeSet<ObjectId> {
+    let mut found = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    gather_from_resources(document, &page.resources, &mut found, &mut visited, 0);
+    let annotations = document.get_key(&page.dict, "Annots");
+    if let Some(annotations) = annotations.as_array() {
+        for annotation in annotations {
+            let resolved = document.resolve(annotation);
+            if let Some(dict) = resolved.as_dict() {
+                let oc = dict.get("OC").cloned().unwrap_or(Object::Null);
+                gather_from_oc(document, &oc, &mut found);
+            }
+        }
+    }
+    found
+}
+
+/// Adds the groups a resource dictionary reaches: its `/Properties`, and its `/XObject`s.
+fn gather_from_resources(
+    document: &Document,
+    resources: &Dictionary,
+    found: &mut BTreeSet<ObjectId>,
+    visited: &mut BTreeSet<ObjectId>,
+    depth: usize,
+) {
+    let properties = document.get_key(resources, "Properties");
+    if let Some(properties) = properties.as_dict() {
+        for (_, value) in properties.iter() {
+            gather_from_oc(document, value, found);
+        }
+    }
+    let xobjects = document.get_key(resources, "XObject");
+    let Some(xobjects) = xobjects.as_dict() else {
+        return;
+    };
+    for (_, value) in xobjects.iter() {
+        if let Some(id) = reference(value)
+            && !visited.insert(id)
+        {
+            continue;
+        }
+        let resolved = document.resolve(value);
+        let Some(stream) = resolved.as_stream() else {
+            continue;
+        };
+        let oc = stream.dict.get("OC").cloned().unwrap_or(Object::Null);
+        gather_from_oc(document, &oc, found);
+        if depth >= MAX_FORM_DEPTH {
+            continue;
+        }
+        let nested = document.get_key(&stream.dict, "Resources");
+        if let Some(nested) = nested.as_dict() {
+            let nested = nested.clone();
+            gather_from_resources(document, &nested, found, visited, depth.saturating_add(1));
+        }
+    }
+}
+
+/// Adds the groups one `/OC` value names: a group itself, or every group a membership
+/// dictionary's `/OCGs` or `/VE` mentions.
+fn gather_from_oc(document: &Document, oc: &Object, found: &mut BTreeSet<ObjectId>) {
+    if let Some(id) = reference(oc) {
+        let resolved = document.get(id);
+        let is_membership = resolved.as_dict().is_some_and(|dict| {
+            document
+                .get_key(dict, "Type")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"OCMD")
+        });
+        if !is_membership {
+            found.insert(id);
+            return;
+        }
+    }
+    let resolved = document.resolve(oc);
+    let Some(dict) = resolved.as_dict() else {
+        return;
+    };
+    for id in listed(document, dict, "OCGs") {
+        found.insert(id);
+    }
+    if let Some(single) = dict.get("OCGs").and_then(reference) {
+        found.insert(single);
+    }
+    let expression = document.get_key(dict, "VE");
+    if let Some(array) = expression.as_array() {
+        gather_from_expression(document, array, found, 0);
+    }
+}
+
+/// Adds every group a `/VE` visibility expression names, at any nesting the bound allows.
+fn gather_from_expression(
+    document: &Document,
+    expression: &[Object],
+    found: &mut BTreeSet<ObjectId>,
+    depth: usize,
+) {
+    if depth >= MAX_EXPRESSION_DEPTH {
+        return;
+    }
+    for operand in expression {
+        if let Object::Array(nested) = operand {
+            gather_from_expression(document, nested, found, depth.saturating_add(1));
+        } else if let Some(id) = reference(operand) {
+            match document.get(id) {
+                Object::Array(nested) => {
+                    gather_from_expression(document, &nested, found, depth.saturating_add(1));
+                }
+                _ => {
+                    found.insert(id);
+                }
+            }
+        }
+    }
 }
 
 /// Deepest nesting of `/Order` that is read.

@@ -90,7 +90,7 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **985** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | everything above re-run in the **two-hundred-and-forty-ninth**: eight fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| tests | **987** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | everything above re-run in the **two-hundred-and-forty-ninth**: eight fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1680** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **257 of them diagnosed and 492 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
@@ -313,15 +313,18 @@ two-hundred-and-fourth found the same row family's other half, §12.6.3's four p
 events blocked on "a page-visibility model a one-page-at-a-time window does not have", which is
 what a window that turns pages is (ADR 0164).
 
-**And the two-hundred-and-fifty-third found the inverse, which no sweep was asking for: a
-capability that reached the crate implementing the clause and never reached the program.**
+**And the two-hundred-and-fifty-third and -fourth found the inverse, which no sweep was asking
+for: a capability that reached the crate implementing the clause and never reached the program.**
 §12.5.6.19's `/H` was `implemented`, argued in ADR 0123, tested with pixels — and `viewer-core`
 took the annotation under the pointer from `link_at`, which returns a `/Subtype /Link` and nothing
 else, so no host could press a widget for a hundred and fifteen sessions. **The question the
 sweeps do not ask is "the model implements this — who calls it?"** Widening the region then turned
 a latent default into a wrong pixel in the same sitting: §12.5.6.19's `/H` defaults to `I`, two
 tables define the entry and no others do, and a `Square` had been one caller away from inverting
-under the cursor. ADR 0177.
+under the cursor. ADR 0177. **The sweep that asks it is `doc/todo/01`'s fifth** — every `pub fn`
+in `pdf-model`, grepped against the two host-side crates — and it found §8.11.4.3's `/ListMode`
+on its first run, read into `OptionalContent::list_mode` and asked by nothing with a layer panel
+on the screen (ADR 0178).
 
 **And the two-hundred-and-fourteenth found a row that would have survived the capability arriving.**
 §14.9.3 said `/TU` "names a field in a user interface this program does not have" — false since
@@ -2565,3 +2568,4 @@ above rather than here.
 | 251 | A selection costs a compositor layer a quad: reproduced, measured to the byte, not fixed | — |
 | 252 | And it costs one now, whatever is selected: 268 quads in 16.5 ms, from a refusal at 63 | 0176 |
 | 253 | The pointer was on a *link*: §12.5.5's appearances and §12.5.6.19's `/H` reached no other subtype | 0177 |
+| 254 | The same sweep the other way — every `pub fn` nobody calls — and §8.11.4.3's `/ListMode` was one | 0178 |
