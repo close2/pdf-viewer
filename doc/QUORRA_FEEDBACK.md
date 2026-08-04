@@ -191,7 +191,7 @@ conformance checker was taught to say what is wrong when a project document's na
 
 ---
 
-## 7. A refused frame wedges the surface — **open, and this side's own defect is fixed**
+## 7. A refused frame wedged the surface — **answered**
 
 **The report, from a person using the viewer:** dragging a selection across a page made the window
 stop answering, and a resize sometimes recovered it.
@@ -226,10 +226,29 @@ than as a diagnosis it has instrumented:
   `Timeout`**, so nothing ever reconfigures the surface again. A host resize changes the
   configured size and reconfigures, which is exactly why a resize recovers the window.
 
-**What would settle it from this side of the boundary**: pricing the frame *before* binding the
-target, so a refusal costs no acquire at all. §5 already says count then allocate; the surface
-texture is the one allocation that happens first. Failing that, `Timeout` setting
-`needs_reconfigure` would at least make the wedge recoverable without a resize.
+**Answered on quorra's side at `4aab7e2`, in all three of the shapes this section asked for.**
+The budget is priced *before* `bind_target`, with the reason written into the comment there, so a
+refused surface frame costs no acquire at all; `Timeout` now sets `needs_reconfigure`, as `Lost`
+does; and `Device::invalidate_surface` gives a host somewhere to go when the device says no.
 
-**What this side owes**: a host that stays answering whatever the device says. That is
-`doc/todo/13`'s second item and it is not blocked on any of the above.
+**Measured against the original report, on the same recipe.** The per-quad selection was restored
+locally to reproduce it exactly, and the same drag over `issue14821.pdf` now gives:
+
+```text
+SELECTION quads 70   present -> failed: frame needs 454400000 scene-derived bytes,
+                               over the stated budget of 268435456 … in 6.4 ms
+SELECTION quads 56   present -> failed: … in 6.6 ms
+SELECTION quads 42   present -> failed: … in 6.3 ms
+```
+
+**Every refused present costs 6 ms instead of blocking for 1.008 s, no `Timeout` is reported at
+all, and the drag keeps updating throughout** — the quad count falls as the pointer moves, which
+is the window answering. A page the device refuses for the *other* reason draws through the CPU
+fallback and presents: `bug1721218_reduced.pdf` outgrows the 16384×16384 scratch image, comes back
+on the processor in 1.68 s, and zoom, scroll and the sidebar all work afterwards.
+
+**So `doc/todo/13` is closed and deleted**, both halves: the selection's cost by ADR 0176 and the
+refused frame's recovery by this. Nothing is owed on this side; the CPU fallback still re-presents
+the same overlay lists, so an over-budget *overlay* leaves the page not updating rather than the
+window dying — which is a visible consequence with a live window behind it, and no longer a defect
+worth a file.

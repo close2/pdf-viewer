@@ -198,7 +198,6 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
-| **A frame the device refuses leaves the window blocking a second a present** | — | [todo 13](todo/13-a-selection-costs-a-layer-a-quad.md) |
 | A substitute that cannot be addressed; **24 codes over 8 documents that reach no glyph in silence**; a per-character fallback, owed with no witness | 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 4 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
@@ -227,6 +226,17 @@ fallback rather than a reading.
 Two that *were* here and are closed by work: optional content's interactive half (session 167)
 and a page whose scene overflows Vello's buffers (banded in 143, and the page that motivated it
 stopped overflowing in 147 — ADRs 0127, 0132).
+
+**And a third, closed on the other side of a boundary.** A frame the graphics device refused left
+the window blocking a second a present, for ever, and the mechanism was in the rendering library:
+the swapchain texture was acquired *before* the frame budget was checked, and `Timeout` was the one
+swapchain state that did not ask for a reconfigure. Written up in `doc/QUORRA_FEEDBACK.md` §7 and
+**answered at `4aab7e2` in all three shapes it asked for**, including a `Device::invalidate_surface`
+for a host that needs to say so itself. Re-measured by restoring this tree's own defect locally and
+running the original report's recipe: a refused present costs **6 ms instead of 1.008 s**, nothing
+reports `Timeout`, and the drag keeps updating. A page the device refuses for the other reason —
+`bug1721218_reduced.pdf`, whose coverage outgrows a 16384 × 16384 scratch image — comes back on the
+processor in 1.68 s and the window zooms, scrolls and opens its sidebar afterwards.
 
 ### The twenty rounds from the two-hundred-and-fifty-first
 
@@ -2625,3 +2635,4 @@ above rather than here.
 | 269 | §12.3's parent rows, one round after their member landed; two more off the ambiguous tail | — |
 | 270 | The capability sweep over `crates/`: 89 matches, 87 of them true, and both false ones ten rounds old | — |
 | 271 | Twenty rounds' prose brought up to date, and the question the twenty had in common | — |
+| 272 | quorra took all three of §7's suggestions: a refused present is 6 ms, not 1.008 s | 0176 |

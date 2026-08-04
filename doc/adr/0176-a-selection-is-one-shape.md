@@ -57,15 +57,25 @@ The `--trace` line printing the quad count is now in the tree rather than in a t
 number every part of the diagnosis turned on, and the session that measured it had to add it by
 hand.
 
-## What this does not fix
+## What this did not fix, and what closed it
 
-**A refused frame still leaves the window blocking one second a present, for ever.** That is the
-second half of `doc/todo/13` and it is reachable without the first: any frame the device refuses
-gets there. Reading quorra's source names the mechanism, and it is written up in
-`doc/QUORRA_FEEDBACK.md` §7 — `bind_target` acquires the swapchain texture *before* the frame
-budget is checked, so a refused frame drops an acquired surface texture, and `SurfaceProblem::
-Timeout` is the one swapchain state that does not set `needs_reconfigure`. That is why a resize
-recovers the window and nothing else does.
+**A refused frame left the window blocking one second a present, for ever** — the second half of
+`doc/todo/13`, reachable without the first, since any frame the device refuses got there. Reading
+quorra's source named the mechanism: `bind_target` acquired the swapchain texture *before* the
+frame budget was checked, so a refused frame dropped an acquired surface texture, and
+`SurfaceProblem::Timeout` was the one swapchain state that did not set `needs_reconfigure` — which
+is why a resize recovered the window and nothing else did.
+
+**Answered in the library, at `4aab7e2`**, in all three shapes `doc/QUORRA_FEEDBACK.md` §7 asked
+for: the budget is priced before the target is bound, `Timeout` invalidates the surface, and
+`Device::invalidate_surface` exists for a host that needs to say so itself. Verified by restoring
+this ADR's own defect locally and running the original report's recipe against the new library:
+every refused present costs **6 ms instead of 1.008 s**, nothing reports `Timeout`, and the drag
+keeps updating throughout. `doc/todo/13` is deleted.
+
+**The order of the two repairs was the right way round and worth saying so.** Fixing only the cost
+would have hidden a wedge that any other over-budget frame could still reach; fixing only the
+wedge would have left a selection costing 1.9 ms a quad. Each was reported to whoever owned it.
 
 ## The lesson
 
