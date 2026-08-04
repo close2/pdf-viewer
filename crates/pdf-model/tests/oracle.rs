@@ -1987,7 +1987,28 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 ///
 /// The page is `ambiguous` rather than agreeing for trap 12's reason with three references on the
 /// far side rather than one.
-const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 7] = [
+/// # And the group's extreme, in the three-hundred-and-seventh
+///
+/// `issue7454.pdf` page 1 is a 384 × 111 table of insurance cover — hairline rules and
+/// six-point type — and it is where `poppler`'s first rung is highest of anywhere in this bucket:
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// poppler        22.3507   13.3415
+/// mupdf          13.9130   13.6931
+/// ours (1x, 8x)  13.7607   13.5387
+/// ```
+///
+/// **Nine of 255**, which is two thirds of the page's own ink, painted and then given back as the
+/// pixels shrink. `hayro` starts at 23.09 and `ghostscript` at 20.02, so three of the four
+/// references are up there with it while ours and `mupdf` start within 0.4 of the geometry — the
+/// same two clusters as `prefilled_f1040.pdf` and four times as far apart. Ours at eight times
+/// lands between the two limits.
+///
+/// This page is why the group's own caution is worth repeating: at the page's own scale the five
+/// renderers span **9.3 of 255** and none of them is wrong about anything.
+const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 8] = [
+    "issue7454.pdf page 1",
     "prefilled_f1040.pdf page 1",
     "prefilled_f1040.pdf page 2",
     "22060_A1_01_Plans.pdf page 1",
