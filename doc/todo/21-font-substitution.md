@@ -1,22 +1,44 @@
 # What is left of font substitution
 
-Status: reported at runtime; three distinct gaps, the third now measured.
+Status: reported at runtime; three distinct gaps, the first now **empty of witnesses** and the third measured.
 Priority: 21
-Corpus: 2 + 40 documents
+Corpus: 40 documents
 Clauses: §9.10.2, §9.7.4.2, §9.8.3
 Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-model/src/content.rs`
 
-## 1. A per-character fallback — 2 documents
+## 1. A per-character fallback — **0 documents, and this section was wrong about its own two**
 
 §9.10.2 gives a code a character and the face a family match found has no glyph for it. Since the
 hundred-and-eighty-third session a substitute is chosen by **coverage** — the widest-repertoire
 face on the machine that can draw a character of the collection's own script (ADR 0153) — and
-eight of the ten blank pages that named this now draw. The two left are `issue11555.pdf` and
-`issue2128r.pdf`, whose characters no single face on this machine has.
+eight of the ten blank pages that named this now draw.
 
-What is owed is a **per-character** fallback, which every real text stack has and which means
-`LoadedFont` carrying more than one face. Note that these two draw *most* of their text, so they
-no longer report — see gap 3.
+**All ten do.** This file said the two left were `issue11555.pdf` and `issue2128r.pdf`, "whose
+characters no single face on this machine has", and the two-hundred-and-fifty-sixth session opened
+the pictures: `issue2128r.pdf` draws every one of its Chinese characters and `issue11555.pdf`
+draws its whole vertical mixture of Latin and kana. Both report nothing, both are above the text
+gate's floor, and neither has a code reaching no glyph. The claim was a *prediction* about ADR
+0153's rule that nobody re-checked after the rule landed — the same shape as a ledger row whose
+"what IS done" half is wrong, one directory over, and `doc/todo/01`'s sweeps do not look here.
+
+**So the mechanism is owed with no witness at all.** It was built in that session and reverted in
+the same one, and what the attempt is worth is the two reasons it was not kept:
+
+- **A sample is a sample, so a chain chosen from one is the wrong shape.** The first design
+  extended `installed_covering` to return several faces covering `script_sample`'s characters
+  between them. It changed nothing on either document, because both were *already* covered by one
+  face — the characters that could go missing are the ones the sample does not contain, which is
+  the whole point. What the mechanism actually needs is a lookup at *draw* time, per character.
+- **The draw-time version has no machine-independent gate.** It works: the machine's widest faces,
+  ranked by `cmap` size, bounded at eight, asked in order when the primary face lacks a character.
+  But every assertion about it is an assertion about which faces this machine has, and ADR 0133
+  exists precisely because `substitute.rs` was the last machine-dependent code in the tree. A
+  feature whose only test says "on this machine, in August 2026" is not one this project ships.
+
+What would make it shippable is a witness — a document whose substituted composite font shows a
+character its chosen face lacks — or a face this binary carries that is addressable by character.
+§9.6.2.2's fourteen are not: they are name-keyed CFF, which §9.7.4.2 leaves unreachable for a
+composite font.
 
 ## 2. A substitute that cannot be addressed — 40 fonts
 
