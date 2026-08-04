@@ -732,6 +732,45 @@ fn a_drag_across_a_line_selects_what_it_crossed() {
         widest <= end.0 - start.0 + 1.0,
         "no wider than the drag: {widest}"
     );
+
+    // §14.8.2.5's other order, for the same selection. `Query::Selection` answers in the order
+    // the *stream* showed the glyphs, which is what the shapes above are in and the wrong answer
+    // to give a person pressing copy on a page whose producer wrote its columns out of order.
+    //
+    // The assertion is the invariant rather than a string: what comes back is a rearrangement of
+    // exactly the characters `Query::Selection` gave, and on this document — whose two orders
+    // coincide, which §14.8.2.5.1 says they *should* — it is the same string in the same order.
+    // A page where it is not is `pdf-model`'s `the_logical_order_reorders_what_the_stream_showed`,
+    // because five corpus pages disagree about order and none of them on purpose.
+    //
+    // Asserted rather than tolerated: this fixture *is* tagged and its tree does reach the drag,
+    // so an `Answer::None` here would be §14.7 having stopped being read rather than a document
+    // that states no order — and a match arm accepting both is where that regression would go to
+    // be ignored.
+    let Answer::LogicalSelection(logical) = viewer.query(Query::LogicalSelection) else {
+        panic!("this document is tagged and the tree reaches the whole drag");
+    };
+    let mut ours: Vec<char> = logical.chars().collect();
+    let mut theirs: Vec<char> = selection.text.chars().collect();
+    ours.sort_unstable();
+    theirs.sort_unstable();
+    assert_eq!(ours, theirs, "the same characters, whatever the order");
+}
+
+/// §14.8.2.5 answers nothing when there is nothing selected, on any document.
+#[test]
+fn the_logical_order_of_no_selection_is_no_answer() {
+    let (mut viewer, events) = opened(800, 1000);
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+    assert!(matches!(
+        viewer.query(Query::LogicalSelection),
+        Answer::None
+    ));
+
+    // And a viewer with no document at all, which is the answer every other query gives.
+    let empty = Viewer::new(800, 1000, 1.0);
+    assert!(matches!(empty.query(Query::LogicalSelection), Answer::None));
 }
 
 #[test]

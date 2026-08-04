@@ -94,6 +94,21 @@ pub enum Query<'a> {
     /// search cost this crate one function: the text layer built for selection is the same
     /// artefact, and §14.9's accessibility consumer will be the third.
     Find(&'a str),
+    /// §14.8.2.5's logical content order for what is selected, where the page states one.
+    ///
+    /// [`Query::Selection`] answers in *page content order*, which is the order the stream showed
+    /// the glyphs in and the order the shapes are in — so it is the right answer for drawing and
+    /// the wrong one for copying off a page whose producer wrote its columns out of order.
+    ///
+    /// **A second query rather than a second field on [`Selected`]**, and the reason is the
+    /// measurement in [`Query::Selection`]'s own note: a drag asks that one sixty times a second
+    /// and this one walks the structure tree. A host asks this when a person presses copy.
+    ///
+    /// [`Answer::None`] where the document has no structure tree, where nothing is selected, or
+    /// where the tree does not reach every byte of the selection — the last deliberately, because
+    /// a copy that silently dropped the part of a drag the tree missed would be worse than one
+    /// that hands back the order it already had. See `pdf_model::structure::Tree::logical_range`.
+    LogicalSelection,
     /// What is selected: the text, and the shapes to draw over it.
     ///
     /// Asked whenever a host repaints, which during a drag is every frame — so it is a query
@@ -181,6 +196,8 @@ pub enum Answer<'a> {
     Found(Vec<Vec<[f32; 8]>>),
     /// Whether anything has been edited.
     Dirty(bool),
+    /// §14.8.2.5's logical content order for the selection, a rearrangement of the same bytes.
+    LogicalSelection(String),
     /// §14.3.3's Table 349, and §14.3.2's metadata stream beside it.
     Properties {
         /// What the trailer's `/Info` says.

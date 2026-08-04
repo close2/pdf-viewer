@@ -146,6 +146,9 @@ impl Viewer {
             ),
             Query::Find(needle) => Answer::Found(self.found(open, needle)),
             Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),
+            Query::LogicalSelection => {
+                Self::logical_selection(open).map_or(Answer::None, Answer::LogicalSelection)
+            }
             Query::Frame => open.frame.as_ref().map_or(Answer::None, |frame| {
                 Answer::Frame(FrameView {
                     page: frame.page,
@@ -781,6 +784,31 @@ impl Viewer {
             text,
             quads: self.device_quads(open, (from, to)),
         })
+    }
+
+    /// The selection in §14.8.2.5's logical content order, where the page states one.
+    ///
+    /// Walks the structure tree, so it is deliberately not on the path a drag takes — see
+    /// [`Query::LogicalSelection`]. The page's object is needed because §14.7's tree is the
+    /// document's and its content items name the page they are on.
+    fn logical_selection(open: &Open) -> Option<String> {
+        let (anchor, focus) = open.selection?;
+        let interpreted = open.interpreted.as_ref()?;
+        let tree = pdf_model::structure::Tree::of(&open.document)?;
+        // As `accessibility` does, and for the same reason: Table 355's `/Pg` names a page
+        // *object* and what this crate holds is an index, so the page tree is inverted once.
+        let page = pdf_model::Pages::new(&open.document)
+            .indices()
+            .into_iter()
+            .find(|(_, index)| *index == interpreted.page)
+            .map(|(object, _)| object)?;
+        tree.logical_range(
+            &open.document,
+            page,
+            &interpreted.text,
+            &interpreted.marked,
+            anchor.min(focus)..anchor.max(focus),
+        )
     }
 
     /// §14.7's structure tree for the page being shown, with §14.9's entries applied.

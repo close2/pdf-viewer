@@ -10,6 +10,13 @@
 //! the only kind of check this clause admits — nothing here can decide that a producer's logical
 //! order is *wrong*, only that it is not the stream's.
 
+#![expect(
+    clippy::expect_used,
+    clippy::arithmetic_side_effects,
+    reason = "test code: a fixture that cannot be built must fail loudly rather than pass by \
+              doing nothing, and its byte offsets are computed from strings this file wrote"
+)]
+
 use std::path::{Path, PathBuf};
 
 use pdf_model::structure::Tree;
@@ -205,8 +212,7 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
 /// where it is not possible to make the order in which the text progresses match the logical
 /// content order". A fixture is the only way to check the reordering itself — five corpus pages
 /// disagree about order and none of them is a case anyone wrote on purpose.
-#[test]
-fn the_logical_order_reorders_what_the_stream_showed() {
+fn reversed_fixture() -> (Document, pdf_model::Interpretation, Tree, ObjectId) {
     use std::fmt::Write as _;
 
     let content = "BT /F1 12 Tf 10 50 Td /P << /MCID 0 >> BDC (second) Tj EMC \
@@ -244,9 +250,20 @@ fn the_logical_order_reorders_what_the_stream_showed() {
     );
 
     let document = Document::open(out.into_bytes()).expect("the fixture is a valid file");
-    let pages = pdf_model::Pages::new(&document);
-    let page = pages.get(0).expect("one page");
-    let interpretation = pdf_model::interpret(&document, &page);
+    let interpretation = {
+        let pages = pdf_model::Pages::new(&document);
+        let page = pages.get(0).expect("one page");
+        pdf_model::interpret(&document, &page)
+    };
+    let tree = Tree::of(&document).expect("a structure tree");
+    let id = first_page_id(&document).expect("a first page");
+    (document, interpretation, tree, id)
+}
+
+/// The two orders of the fixture above, whole.
+#[test]
+fn the_logical_order_reorders_what_the_stream_showed() {
+    let (document, interpretation, tree, id) = reversed_fixture();
     assert_eq!(
         interpretation.text.replace(['\n', ' '], ""),
         "secondfirst",
@@ -262,8 +279,6 @@ fn the_logical_order_reorders_what_the_stream_showed() {
         "one span per /MCID, in the order the sections closed"
     );
 
-    let tree = Tree::of(&document).expect("a structure tree");
-    let id = first_page_id(&document).expect("a first page");
     let logical = tree.logical_text(&document, id, &interpretation);
     assert_eq!(
         logical.replace(['\n', ' '], ""),
@@ -274,5 +289,91 @@ fn the_logical_order_reorders_what_the_stream_showed() {
         tree.logical_order(&document, id).len(),
         2,
         "two content items, no elements"
+    );
+}
+
+/// The same fixture, asked about a *range* of its readback rather than the whole page.
+///
+/// §14.8.2.5 is what a person pressing copy needs, and a person selects part of a page. The
+/// invariant the range form has and [`pdf_model::structure::Tree::logical_text`] does not is that
+/// what comes back is a rearrangement of exactly the bytes asked for — which is why it answers
+/// `None` rather than a shorter string where the structure tree misses part of the range.
+#[test]
+fn a_range_of_the_readback_reorders_or_refuses() {
+    let (document, interpretation, tree, id) = reversed_fixture();
+    // A *range* of the readback, which is what a person selects. The whole of it reorders the
+    // same way the whole page does, and a range covering only the second-shown word comes back as
+    // that word alone — the logical order of one item is that item.
+    let whole = 0..interpretation.text.len();
+    assert_eq!(
+        tree.logical_range(
+            &document,
+            id,
+            &interpretation.text,
+            &interpretation.marked,
+            whole.clone(),
+        )
+        .expect("the tree reaches every byte of this page")
+        .replace(['\n', ' '], ""),
+        "firstsecond"
+    );
+
+    // Every span the tree reaches, so `logical_range` over the whole page is a rearrangement of
+    // exactly the same characters — the invariant its `None` arm exists to protect.
+    let mut ours: Vec<char> = tree
+        .logical_range(
+            &document,
+            id,
+            &interpretation.text,
+            &interpretation.marked,
+            whole,
+        )
+        .expect("covered")
+        .chars()
+        .collect();
+    let mut theirs: Vec<char> = interpretation.text.chars().collect();
+    ours.sort_unstable();
+    theirs.sort_unstable();
+    assert_eq!(ours, theirs, "the same characters, in the other order");
+
+    // The word the stream showed *first* is `second`, and selecting only it gives only it.
+    let at = interpretation
+        .text
+        .find("second")
+        .expect("the stream showed it");
+    assert_eq!(
+        tree.logical_range(
+            &document,
+            id,
+            &interpretation.text,
+            &interpretation.marked,
+            at..at + "second".len(),
+        )
+        .as_deref(),
+        Some("second")
+    );
+
+    // An empty selection is not a rearrangement of anything, and a range beyond every span is
+    // the case the `None` arm exists for: a copy must not silently lose what the tree missed.
+    assert_eq!(
+        tree.logical_range(
+            &document,
+            id,
+            &interpretation.text,
+            &interpretation.marked,
+            0..0
+        ),
+        None
+    );
+    let past = interpretation.text.len();
+    assert_eq!(
+        tree.logical_range(
+            &document,
+            id,
+            &interpretation.text,
+            &interpretation.marked,
+            past..past.saturating_add(1),
+        ),
+        None
     );
 }

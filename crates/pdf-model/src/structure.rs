@@ -658,6 +658,78 @@ impl Tree {
         out
     }
 
+    /// A *range* of a page's readback, put into §14.8.2.5's logical content order.
+    ///
+    /// [`Self::logical_text`] answers this question for the whole page; this answers it for the
+    /// part of the page a person selected, which is the form a host needs when that person
+    /// presses copy. A page whose producer wrote its columns out of order gives its text in that
+    /// order, and §14.8.2.5 is where the other one is defined — a depth-first traversal of the
+    /// structure hierarchy, which is the order the document's author stated rather than the order
+    /// its producer emitted.
+    ///
+    /// # Why it may answer `None`, which is the whole design
+    ///
+    /// A marked-content sequence the structure tree does not reach is **not part of the logical
+    /// content order** — §14.8.2.5.1's own position, and what [`Self::logical_text`] acts on by
+    /// leaving such sequences out. Leaving text out of a *page's* logical reading is right;
+    /// leaving it out of what a person dragged over is not, because the result would be a copy
+    /// that silently lost a paragraph.
+    ///
+    /// So this answers `Some` only where the tree reaches **every byte** of the range, which
+    /// makes what comes back a rearrangement of exactly the same characters and nothing else — an
+    /// invariant a caller can rely on and a test can assert. Where it does not, the caller keeps
+    /// the content order it already has, which is a worse reading and a complete one.
+    ///
+    /// `None` also for a range no sequence covers at all, and for a page with no structure.
+    ///
+    /// Takes the readback and the spans rather than a whole [`crate::Interpretation`], because
+    /// the one caller that has a selection keeps those two and not the interpretation — the same
+    /// shape [`crate::accessibility::nodes`] takes and for the same reason.
+    #[must_use]
+    pub fn logical_range(
+        &self,
+        document: &Document,
+        page: ObjectId,
+        text: &str,
+        marked: &[crate::content::MarkedSpan],
+        range: std::ops::Range<usize>,
+    ) -> Option<String> {
+        if range.is_empty() {
+            return None;
+        }
+        // Which bytes of the range some sequence in the logical order covers. A `BDC` inside a
+        // `BDC` gives two spans over one byte, so this is a set rather than a running total:
+        // counting would report full coverage for a range half of which was covered twice.
+        let mut covered = vec![false; range.len()];
+        let mut out = String::new();
+        for item in self.logical_order(document, page) {
+            let Child::MarkedContent { mcid, .. } = item else {
+                continue;
+            };
+            for span in marked {
+                if span.mcid != mcid {
+                    continue;
+                }
+                let from = span.range.start.max(range.start);
+                let to = span.range.end.min(range.end);
+                if from >= to {
+                    continue;
+                }
+                let Some(covered_text) = text.get(from..to) else {
+                    continue;
+                };
+                out.push_str(covered_text);
+                for byte in covered
+                    .get_mut(from.saturating_sub(range.start)..to.saturating_sub(range.start))
+                    .unwrap_or_default()
+                {
+                    *byte = true;
+                }
+            }
+        }
+        covered.iter().all(|seen| *seen).then_some(out)
+    }
+
     /// One level of [`Self::walk`].
     fn descend(
         &self,

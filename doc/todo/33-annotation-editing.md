@@ -1,6 +1,6 @@
 # Annotation editing, a caret, and logical-order selection
 
-Status: the log, the writer and the constructions all exist; three things sit on top of them.
+Status: the log, the writer and the constructions all exist; **two** things sit on top of them — the third went in the two-hundred-and-ninety-sixth session.
 Priority: 33
 Clauses: §12.5.6.6, §12.5.6.10, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
@@ -32,14 +32,22 @@ hundred-and-thirty-sixth, and a host still sends **whole values**. Nothing lays 
 between two characters. The text layer has the geometry: `Interpretation::text_layer` is one
 `Placed` per character code with the quadrilateral its glyph occupies.
 
-## 3. §14.8.2.5's logical order
+## 3. ~~§14.8.2.5's logical order~~ — **done in the two-hundred-and-ninety-sixth session**
 
-A selection is taken in *content* order, so a page whose producer wrote its columns out of order
-gives its text in that order. `Interpretation::marked` carries the `/MCID` spans and
-`Tree::logical_text` produces the logical string; **what is missing is the map between the two
-orders' offsets.** The same map `31-accessibility-host.md` needs.
+`Tree::logical_range` is the map between the two orders' offsets and
+`viewer_core::Query::LogicalSelection` is what asks for it. Two decisions worth keeping:
+
+- **It refuses rather than shortens.** A marked-content sequence the structure tree does not
+  reach is not part of the logical content order, and leaving one out of a *page's* reading is
+  the clause's own position — but leaving one out of what a person dragged over would be a copy
+  that silently lost a paragraph. So the range form answers `Some` only where the tree reaches
+  every byte, which makes what comes back a rearrangement of exactly the same characters.
+- **A second query, not a second field.** `Query::Selection` is asked sixty times a second during
+  a drag and this walks the structure tree.
+
+`31-accessibility-host.md` needs the same map and now has it.
 
 ## Far, and deliberately so
 
-Editing the page's own *text* is out of scope until the three above exist: it means re-laying-out
+Editing the page's own *text* is out of scope until the two above exist: it means re-laying-out
 content streams whose producer's intent is recorded nowhere.

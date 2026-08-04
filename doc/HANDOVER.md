@@ -134,8 +134,8 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 
 | gate | number | where |
 |---|---|---|
-| tests | **1004** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run in the **two-hundred-and-ninety-fourth**, the round that read §14.3.2: `deny`, `fmt`, `clippy`, all **nine** fuzzers, and every one of the seven corpus gates plus the new §14.3.2 one |
-| — | **1004 was 996, and the eight are one round's: §14.3.2's reader, its corpus gate and the two consumers it broke.** Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
+| tests | **1007** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run in the **two-hundred-and-ninety-fourth**, the round that read §14.3.2: `deny`, `fmt`, `clippy`, all **nine** fuzzers, and every one of the seven corpus gates plus the new §14.3.2 one |
+| — | **1007 was 1004 was 996; the three are §14.8.2.5's range map and its two callers, and the eight before them were one round's: §14.3.2's reader, its corpus gate and the two consumers it broke.** Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **856 agree**, **68 contradicted**, 749 ambiguous — **657 of them diagnosed and 92 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 931 of 23 349), **36** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
@@ -463,7 +463,7 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
-  `Selection`, `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
+  `Selection`, **`LogicalSelection`** (§14.8.2.5), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
   **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
   `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
   and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
@@ -591,11 +591,13 @@ cost written down.
 
 **Search is the layer's third consumer** since the hundred-and-fortieth session: `Query::Find`
 answers with the same shapes `Query::Selection` does, case-insensitively, and cost one function
-because the geometry was already there. **What is still not built on it**: a caret, word and
-paragraph selection, and — the one with a clause behind it — §14.8.2.5's *logical* order. A selection is taken in content order, so a page
-whose producer wrote its columns out of order gives its text in that order.
-`Interpretation::marked` already carries the `/MCID` spans and `Tree::logical_text` already
-produces the logical string; what is missing is the map between the two orders' offsets.
+because the geometry was already there. **§14.8.2.5's *logical* order is the layer's fourth consumer** since the
+two-hundred-and-ninety-sixth session: a selection is taken in content order — which is what its
+shapes are in — so `Tree::logical_range` maps a *range* of the readback through the structure
+tree's order and `Query::LogicalSelection` is what a host asks when a person presses copy. It
+answers nothing where the tree does not reach every byte of the range, because a copy that
+silently dropped what the tree missed would be worse than one handing back content order.
+**What is still not built on it**: a caret, and word and paragraph selection.
 
 **An edit log — done in the hundred-and-thirty-fifth session (ADR 0120).** `Open::log` is what a
 person did, with a cursor; undo moves the cursor and the surviving prefix is *replayed* rather
@@ -635,8 +637,8 @@ Design with that in mind from the first line even if the sandbox lands much late
 #### Near, and far
 
 Form-field editing landed in the hundred-and-thirty-fifth session and saving in the
-hundred-and-thirty-sixth. What is left of *using* a document — markup and free-text annotations, a
-caret, and §14.8.2.5's logical order for a selection taken in content order — is one file:
+hundred-and-thirty-sixth. What is left of *using* a document — markup and free-text annotations and a
+caret, §14.8.2.5's logical order having gone in the two-hundred-and-ninety-sixth — is one file:
 [todo 33](todo/33-annotation-editing.md). Editing the page's own text is far and deliberately out
 of scope until those exist.
 
@@ -2707,3 +2709,4 @@ above rather than here.
 | 293 | Twenty rounds' prose brought up to date, and the sentence the twenty had in common | — |
 | 294 | §14.3.2's XMP, 319 documents' worth: an XML parser taken, fuzzed, and `dc:title` in the title bar at last | 0186 |
 | 295 | The sweep over the noun round 294 had just corrected — and §14.3.4, `inapplicable` on two capabilities that arrived a hundred and twenty sessions ago | — |
+| 296 | §14.8.2.5's logical order reaches a selection at last: the clause had a reader for 140 sessions and no caller | — |
