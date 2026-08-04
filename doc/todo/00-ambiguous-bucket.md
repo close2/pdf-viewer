@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 493 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 492 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 256 diagnosed, 493 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 257 diagnosed, 492 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -103,6 +103,37 @@ session is that the tree is far enough along for this to be the work.
    37.25, 37.20 across four scales and `mupdf` at 8× is 37.20, which is the answer.
    **Take a second renderer's ladder, or ours beside one**: a limit is only a limit if the thing
    taking it is converging, and one ladder cannot tell convergence from drift.
+
+## 7. Sweep the whole bucket for the one defect a distance cannot name
+
+Steps 1 to 6 take a page at a time off a ranking. **The ranking cannot see missing content**,
+because a page that draws less than everybody is not necessarily far from anybody: `issue19634.pdf`
+sat at 0.85 with a quarter of its marks absent. What sees it is one number over the artefacts
+already on disk — **our ink minus the lightest reference's** — and the sweep costs three minutes
+because nothing has to be rendered again:
+
+```python
+# for every name in ambiguous_undiagnosed.txt, over <target>/tmp/oracle/<stem>/p<n>/
+gap = ink(ours) - min(ink(poppler), ink(mupdf), ink(ghostscript), ink(hayro))
+```
+
+sorted ascending. A large negative gap is content we are not drawing; a large positive one is
+content nobody else is.
+
+**Run in the two-hundred-and-fortieth session over all 493 names it produced a negative result,
+and the negative result is the finding**: the whole bucket lies between **−0.84 and +0.42 of
+255** of every reference. After ADR 0173 and 0174 there is no ambiguous page left where this tree
+draws materially less than the lightest of four other renderers. That is the class of defect the
+bucket was most likely to be hiding — `issue19634.pdf` was −4.76 before ADR 0173 — and it has
+been swept for.
+
+What the sweep's own head is worth reading anyway, because a small gap can still be a clause:
+`jpx_smaskindata.pdf` at −0.84 (`AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE`), `issue16473.pdf` at
+−0.72, `issue7454.pdf` at −0.15 but with the *references* spread over 9.3, and `bug1308536.pdf`
+at +0.42.
+
+**Re-run it after any round that changes what gets drawn**, and expect it to stay empty; a name
+appearing at −1 or beyond is a regression no other gate would report as one.
 
 ## What a group must say
 

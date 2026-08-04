@@ -2643,6 +2643,38 @@ const AMBIGUOUS_RECOVERED_PAGE_TREE: [&str; 1] = ["issue21436.pdf page 1"];
 /// statement about them.
 const AMBIGUOUS_MASKED_BLUR: [&str; 1] = ["issue19634.pdf page 1"];
 
+/// Ambiguous, and Table 87 defines the premultiplication and nothing else.
+///
+/// `jpx_smaskindata.pdf` is 140 × 40 of grey with four 2 × 1 `JPXDecode` images blown up to
+/// 30 × 30. Three state `/SMaskInData 2` and one states 1; two of the three also state a
+/// `/Matte` — `[0 1 0]` and `[0 0 1]` — in the **image** dictionary.
+///
+/// §8.9.5.1 Table 87, of code 2:
+///
+/// > The image's data stream includes colour channels that have been premultiplied with an
+/// > opacity channel; the image data also includes the opacity channel.
+///
+/// Premultiplied with an *opacity channel*, and with nothing else: the inverse is one division
+/// per component, which `jpx_samples_to_rgba` does. **Table 87 has no `/Matte`.** That entry is
+/// Table 144's, in a *soft-mask image's* dictionary, "specifying the matte colour with which
+/// the image data in the parent image shall have been pre-blended" — and where the mask travels
+/// inside the codestream there is no soft-mask image dictionary to put it in. So this file
+/// states a pre-blend in a place the standard defines no meaning for, and the four renderers
+/// answer four ways:
+///
+/// ```text
+/// ours 127.38   ghostscript 128.22   mupdf 135.60   hayro 139.21   poppler 165.18
+/// ```
+///
+/// **Ours and `ghostscript` are the same picture** — 0.0033 of a channel apart over the whole
+/// page, which is two renderers agreeing rather than two renderers being close — while
+/// `ghostscript` against `poppler` is 0.248, a quarter of every channel. The reading behind that
+/// agreement is Table 87's sentence taken as the whole of what code 2 means.
+///
+/// The page stays `ambiguous` because three references disagree with us and with each other,
+/// which is what it looks like when a file states something the standard does not define.
+const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.pdf page 1"];
+
 /// Ambiguous, and three pages where every renderer paints more than the geometry.
 ///
 /// ```text
@@ -3132,6 +3164,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_RECOVERED_PAGE_TREE)
         .chain(&AMBIGUOUS_STANDARD_FOURTEEN_FACE)
         .chain(&AMBIGUOUS_MASKED_BLUR)
+        .chain(&AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
