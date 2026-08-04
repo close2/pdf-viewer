@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **87 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **84 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (749 on documents we call complete); 662 diagnosed, 87 held by name
+Corpus: 786 ambiguous pages (749 on documents we call complete); 665 diagnosed, 84 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -272,7 +272,16 @@ fourteen pages with an annotation added; `pdftotext` on page 9 gives the same md
 them. One measurement settled 154 names — and the number to report is *one finding*, not 154,
 which is why `AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE` says so in its first line. **Before taking a
 name off this list, check what else in it is the same file**: `pdftotext -f N -l N | md5sum`
-across the documents sharing a page count costs a second and can be worth a hundred names.
+across the documents sharing a page count costs a second and can be worth a hundred names. It was
+worth three more in the three-hundred-and-first — `issue15012.pdf` and `bug1885505.pdf` are the
+paper's first page under two more names and `issue7014.pdf` is it a third time with §12.5.6.10's
+markup over the abstract — which was **half the ranking's top six**.
+
+**And the method has one false positive, found in the same run.** `multiline.pdf` and
+`bug852992_reduced.pdf` matched each other on the md5 of *no text at all*: a page whose readback
+is empty matches every other page whose readback is empty. So the check is evidence only where the
+readback is non-empty, and a match on an empty one says the two documents have no text rather than
+that they have the same text.
 
 **Both books were taken as populations in the two-hundred-and-sixty-second session**, which is
 what took the undiagnosed list from 489 to 136 — and the method is the part worth keeping. Six

@@ -85,6 +85,14 @@ page-turn fix.
 
 ## 6. Write it down, then commit
 
+**Check the file, not the script's exit status.** Twice in the three hundredth and
+three-hundred-and-first rounds a Python edit put its `assert` *after* the replacements and
+*before* the write, so a failed assertion left the file untouched while every other file in the
+same commit moved — `doc/todo/00`'s own counts disagreed with the gate that had just printed them.
+`grep` the number back out of the file before committing it, which is the same rule as trap 1 one
+directory over: the instrument that says a change happened is not the change.
+
+
 - The ADR, if the round made a decision. The argument goes there, not in the handover.
 - `doc/HANDOVER.md`: the gate numbers if they moved, one row in "How the project got here".
 - The todo file: delete it if the item is done, correct it if the round changed what it owes.
