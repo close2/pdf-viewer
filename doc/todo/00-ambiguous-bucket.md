@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **94 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **92 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 787 ambiguous pages (749 on documents we call complete); 655 diagnosed, 94 held by name
+Corpus: 786 ambiguous pages (749 on documents we call complete); 657 diagnosed, 92 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -307,6 +307,35 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**The head went in the two-hundred-and-ninety-fifth, and it produced a mechanism this bucket had
+not named.** `issue19971.pdf` pages 5 and 6 are one document — a specimen of lists, headings,
+paragraphs and four scripts — and they came apart into two findings:
+
+- **Page 6** is 456 commands of text in four scripts and no image at all. Two ladders agree at 8×
+  to 0.0055 of 255, ours climbs onto the limit ending 0.025 short, and a four-by-four grid of tile
+  means says the residual is spread over every tile in proportion to its ink.
+  `AMBIGUOUS_GLYPH_SCAN_CONVERSION`, with no new argument needed.
+- **Page 5** is the same text plus one 2500 × 1750 `DCTDecode` photograph in an `ICCBased` space,
+  and it is a new group. The two ladders agree to **0.0008 of 255** — the tightest limit this
+  bucket has produced — and ours stops 0.155 short, of which the photograph is 57% on 12% of the
+  page.
+
+**And step 6's own assumption failed for the second time, in the direction that is a finding.**
+The step works because a renderer's departure from the geometry shrinks with the pixels. Rendering
+the same page at **16×**, where the image is enlarged rather than reduced, gave a per-channel
+difference identical to 8× to three decimal places — so it is neither scan conversion nor the
+reduction, and the only two places left are the decoder and the colour space. Decoding the
+extracted codestream twice ruled out the first (under 0.2 of 255, mixed in sign, against a uniform
+lift six times larger), which leaves `pdf_model::icc` and `lcms` evaluating one 296-byte
+matrix-shaper profile — §10.3.1's "beyond the scope of this document", one colour space over from
+`AMBIGUOUS_DEVICE_CMYK_CONVERSION`. `AMBIGUOUS_ICC_MATRIX_PROFILE`.
+
+**The lesson is about the ladder rather than the page**: a limit that a renderer does not approach
+*at all* is not a loose limit, it is a difference in a different quantity, and one more rung is
+what tells them apart. The two-hundred-and-sixteenth found the same step failing the other way, on
+a reference that drifted instead of converging.
+
 
 **Two off the head in the two-hundred-and-seventy-ninth, and both were one shape apiece.**
 `issue7769.pdf` page 1 — 0.67 from the nearest and 0.97 from the furthest, the tightest ratio the

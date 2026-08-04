@@ -137,7 +137,7 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 | tests | **1004** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run in the **two-hundred-and-ninety-fourth**, the round that read §14.3.2: `deny`, `fmt`, `clippy`, all **nine** fuzzers, and every one of the seven corpus gates plus the new §14.3.2 one |
 | — | **1004 was 996, and the eight are one round's: §14.3.2's reader, its corpus gate and the two consumers it broke.** Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **856 agree**, **68 contradicted**, 749 ambiguous — **655 of them diagnosed and 94 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **856 agree**, **68 contradicted**, 749 ambiguous — **657 of them diagnosed and 92 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 931 of 23 349), **36** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
@@ -768,8 +768,8 @@ for having hard fonts, which session 68 then measured on one.
 
 ### 3a. The ambiguous bucket — watched since the hundred-and-seventy-sixth, and being emptied
 
-**749 of the pages the oracle judges on documents we call complete come back `ambiguous` (787 of
-all 1794), and until the hundred-and-seventy-sixth session no gate watched one of them.** 94 are
+**749 of the pages the oracle judges on documents we call complete come back `ambiguous` (786 of
+all 1794), and until the hundred-and-seventy-sixth session no gate watched one of them.** 92 are
 still undiagnosed, from 754: the twenty rounds from the two-hundred-and-fifty-first took three
 populations at once and then worked the tail a page at a time. The verdict means "nobody's difference is large
 enough to call anybody wrong", which is the right thing for the *ratchet* to do and is not the
@@ -1256,8 +1256,9 @@ arrows scroll a page larger than the window, the wheel scrolls whatever is under
 the sidebar** — three tabs: §12.3.3's outline, where a click on a title goes there and a click on
 the triangle opens a subtree; §8.11.4.3's layers, where a click on a switch turns a layer on or
 off unless Table 99's `/Locked` forbids it; and §7.11.4's embedded files, where a click writes the
-file beside the document. The sidebar's fourth tab is §14.3.3's `/Info`, and it names §14.3.2's XMP where a
-document carries the stream this program does not read. **`?` puts `/NOTICE` over the page**,
+file beside the document. The sidebar's fourth tab is §14.3.3's `/Info`, with §14.3.2's XMP
+listed under it where the document carries a packet — both, rather than one, because §14.3.4
+leaves a disagreement between them "at the discretion of the PDF processor". **`?` puts `/NOTICE` over the page**,
 scrollable, which is the About panel and the visible half of what both vendored-font licences
 oblige a binary to carry. Escape quits. The title bar names how many things on
 the page could not be drawn and the things themselves are printed. A click follows §12.5.6.5's
@@ -2705,3 +2706,4 @@ above rather than here.
 | 292 | Everything re-verified after quorra's update — and the round-285 deletion `rm -f` reported had not happened | — |
 | 293 | Twenty rounds' prose brought up to date, and the sentence the twenty had in common | — |
 | 294 | §14.3.2's XMP, 319 documents' worth: an XML parser taken, fuzzed, and `dc:title` in the title bar at last | 0186 |
+| 295 | The sweep over the noun round 294 had just corrected — and §14.3.4, `inapplicable` on two capabilities that arrived a hundred and twenty sessions ago | — |

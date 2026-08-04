@@ -16,11 +16,20 @@
 //!
 //! Each of Table 349's seven text entries carries a NOTE naming its XMP counterpart —
 //! `dc:title`, `dc:creator`, `dc:description`, `pdf:Keywords`, `xmp:CreatorTool`,
-//! `pdf:Producer`, `pdf:Trapped`. **This module reads none of them**: §14.3.2's stream is XMP,
-//! which is RDF/XML, and reading it is an XML parser and therefore a dependency decision this
-//! tree has not taken. Where a document states both, the two can disagree and the standard says
-//! which wins for exactly nothing — so what this answers with is the dictionary, said to be the
-//! dictionary.
+//! `pdf:Producer`, `pdf:Trapped`. **This module reads none of them and [`crate::xmp`] reads all
+//! of them**, which is the boundary rather than a gap: this is Table 349, that is §14.3.2, and
+//! they are two tables a document may fill in inconsistently.
+//!
+//! §14.3.4 is the clause about the disagreement and it hands the question back: "it is at the
+//! discretion of the PDF processor how to use this data". So nothing here reconciles anything.
+//! What this answers with is the dictionary, said to be the dictionary; §12.2 is the one place
+//! the standard *ranks* the two, for the title alone, and `pdf-viewer.rs` obeys it there.
+//!
+//! **This paragraph said "reading it is an XML parser and therefore a dependency decision this
+//! tree has not taken" until the two-hundred-and-ninety-fourth session**, which took it. The
+//! sweep that found the sentence still standing is `doc/todo/01`'s fourth, run over the noun
+//! `XMP` in the same round that retired it — a correction leaves its neighbours lying even when
+//! the neighbour is one file away.
 
 use pdf_syntax::{Date, Dictionary, Document, Object};
 
@@ -141,13 +150,15 @@ impl Information {
     }
 }
 
-/// Whether the document carries §14.3.2's metadata stream, without reading it.
+/// Whether the document carries §14.3.2's metadata stream, without decoding it.
 ///
-/// The one question about XMP this tree can answer, and it is worth answering: §12.2's
-/// `/DisplayDocTitle` names `dc:title` specifically, so a document with a metadata stream is one
-/// whose title this program may be reading from the wrong place — and saying so is the
-/// difference between a gap and a silence. Measured: 319 of 964 corpus catalogs carry one, and
-/// 18 of the 22 that set `/DisplayDocTitle` do.
+/// The cheap half of the question [`crate::xmp::Xmp::document`] answers expensively: a caller
+/// listing what a document holds may want to know that a packet is there without inflating 78
+/// KiB to find out. Measured: 319 of 964 corpus catalogs carry one, and 18 of the 22 that set
+/// `/DisplayDocTitle` do.
+///
+/// **It is not the way to get a title.** §12.2 names `dc:title` and this answers `bool`, so a
+/// host that titles a window asks `viewer_core::Query::Properties` and reads the packet.
 #[must_use]
 pub fn has_metadata_stream(document: &Document) -> bool {
     document

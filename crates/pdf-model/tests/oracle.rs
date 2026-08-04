@@ -3783,6 +3783,82 @@ const AMBIGUOUS_OVERSIZED_BORDER: [&str; 1] = ["bug1552113.pdf page 1"];
 /// closed form. What keeps it `ambiguous` is that the four draw four slightly different borders.
 const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 
+/// Ambiguous, and the difference **does not shrink with the pixels**, which is what makes it a
+/// group of its own rather than `AMBIGUOUS_IMAGE_REDUCTION`'s page.
+///
+/// `issue19971.pdf` page 5 is a letter page of list items, a heading, two paragraphs, and one
+/// photograph: a 2500 × 1750 `DCTDecode` image in an `ICCBased` space, drawn at 504 ppi. It came
+/// off §3a's ranking in the two-hundred-and-ninety-fifth session at **0.69 from the nearest
+/// reference and 1.23 from the furthest** — the tightest ratio the tail had left, which
+/// `doc/todo/00`'s step 1 reads as *we are alone*.
+///
+/// # Step 6's two ladders, and they produce the tightest limit this bucket has measured
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// poppler        32.0810    32.0907
+/// mupdf          32.0583    32.0899
+/// ours (1x, 8x)  31.8793    31.9350
+/// ```
+///
+/// The two references agree at eight times the resolution to **0.0008 of 255**, so the geometry
+/// is 32.090 and there is no argument about where it is. Ours climbs towards it and stops
+/// **0.155 short**.
+///
+/// # Localising it, because a page-level number says nothing about where
+///
+/// A four-by-four grid of tile means at 8×, ours against `poppler`'s, is a **constant fraction**
+/// rather than a constant offset or a missing tile: every one of the fourteen tiles that carry
+/// ink is between 0.4% and 0.9% light, from the 3.18 tile to the 161.26 one. Nothing is absent.
+/// The two tiles holding the photograph are 161.256 / 161.977 and 157.043 / 157.743, which is
+/// **57% of the whole deficit** on 12% of the page.
+///
+/// # And then the assumption behind step 6 fails, in the direction that is a finding
+///
+/// Step 6 works because a renderer's departure from the geometry shrinks as the pixels shrink.
+/// At **16×**, where the image is *enlarged* rather than reduced, the photograph's per-channel
+/// difference is identical to 8× to three decimal places:
+///
+/// ```text
+///            R        G        B
+/// 8×    +0.882   +0.625   +0.936    (ours minus poppler, over the photograph's band)
+/// 16×   +0.882   +0.625   +0.936
+/// ```
+///
+/// A difference that does not move with resolution is not scan conversion and not the reduction.
+/// It is in the samples, and there are only two places it can be.
+///
+/// **It is not the JPEG decoder.** The codestream extracted with `pdfimages -j` and decoded twice
+/// gives `libjpeg` R 98.2522 G 97.7088 B 98.1845 against `zune-jpeg`'s R 98.4042 G 97.5980
+/// B 98.3734 — under 0.2 of 255 apiece and **mixed in sign**, which cannot produce a uniform lift
+/// six times larger.
+///
+/// **It is the colour management.** The space is `[/ICCBased 27 0 R]` with `/N 3`, and the
+/// profile is a 296-byte `mntrRGB` matrix-shaper — `rTRC`, `gTRC`, `bTRC` and an XYZ matrix,
+/// described as *Google/Skia/7C5FA21513974 74A0486BBCC83733D59*. `pdf_model::icc` evaluates that
+/// form itself (ADR 0009); `poppler` evaluates it through `lcms`. Two implementations of the same
+/// transform, differing by about 1.2 of 255 on a photograph.
+///
+/// # What the specification determines, which is `doc/todo/00`'s third shape
+///
+/// §8.6.5.5 defines the *source*: the profile is the space, and both renderers read the same one.
+/// The destination is where the standard stops, and it says so in one sentence — §10.3.1 puts
+/// "[t]he characteristics of the output device" beyond the scope of this document, and its NOTE
+/// names "assumptions made by the PDF processor software". Neither implementation is departing
+/// from a clause, because there is no clause left to depart from: what a matrix-shaper profile's
+/// XYZ becomes on a screen is each processor's own assumption about that screen.
+///
+/// So this page is `AMBIGUOUS_DEVICE_CMYK_CONVERSION`'s argument one colour space over, and the
+/// group is separate because the *evidence* is different: there the spread is between four
+/// conversions of a device space, here it is between two evaluations of one embedded profile,
+/// and only the resolution ladder could tell the second from a scan-conversion difference.
+///
+/// The remaining 43% of the page's deficit is its text, which is
+/// `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s subject and is measured alone on page **6** of the same
+/// document — 456 commands, no image at all, two ladders agreeing to 0.0055 of 255 and ours
+/// climbing onto the limit to within 0.025.
+const AMBIGUOUS_ICC_MATRIX_PROFILE: [&str; 1] = ["issue19971.pdf page 5"];
+
 /// Ambiguous, and §10.7.4's own last sentence is the answer.
 ///
 /// `issue4402_reduced.pdf` is a 215 × 28 crop box — `/CropBox [19.7223 787.097 234.535 815.348]`
@@ -3922,7 +3998,8 @@ const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 /// highest, which on a page this small is a sixth of a level per glyph. §10.7.4's last sentence
 /// is the permission and it is quoted at the top of this group: scan conversion of character
 /// glyphs may be performed by a different algorithm.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 7] = [
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 8] = [
+    "issue19971.pdf page 6",
     "issue11913.pdf page 1",
     "issue7769.pdf page 1",
     "issue1350.pdf page 1",
@@ -4067,6 +4144,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
         .chain(&AMBIGUOUS_GLYPH_SCAN_CONVERSION)
+        .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
         .copied()
         .collect()
 }

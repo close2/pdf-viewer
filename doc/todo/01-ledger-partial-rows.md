@@ -123,6 +123,23 @@ So the sweep is worth running over a *mechanism* and not only over a quoted stri
 `NoZoom`, `uncoloured`, `ColorTransform` — the noun the correction was about — and read every
 row that holds it.
 
+**And it paid a fourth time in the two-hundred-and-ninety-fifth, on the noun the round before had
+just given the tree**: `XMP`. Four rows and four source comments still said this program reads
+none — §7.7.3.3's page attributes, §8.9.5.1's image dictionary, §14.3's parent, `metadata.rs`'s
+own crate-level paragraph, `has_metadata_stream`'s doc comment and `chrome.rs`'s properties panel
+— and three of the six had been written *by the round that retired them*, one file away.
+**Running this sweep in the same round as the correction is the cheapest it will ever be**, and it
+is now what `02-every-round.md` step 4 means by "after a round that adds a verb".
+
+And it produced a fifth row nobody was looking for. **§14.3.4 was `inapplicable`** on the reason
+"a question for a program that *writes* or *displays* metadata, and this one does neither" —
+false twice, since the hundred-and-thirty-sixth session and the hundred-and-seventy-third
+respectively. Reading the clause then found one rule that binds and is met by construction
+(§7.5.6's update leaves both metadata sources byte for byte), one excluded by `CLAUDE.md`, one
+`may` declined with a reason, and **one `shall` that staying out of the way of is a decision**:
+writing a `/ModDate` on save would oblige this program to write `xmp:ModifyDate` too, so the cost
+of a date nobody asked for is an XMP *writer*.
+
 **And it paid a third time in the two-hundred-and-ninetieth**, on the nouns four rounds had just
 corrected — `notdef`, `Differences`, `SigFlags`. §12.7.4.3 still said "4 now draw their fields and
 2 keep the blank because Helvetica has no glyph for their characters", six sessions after §9.6.5.1

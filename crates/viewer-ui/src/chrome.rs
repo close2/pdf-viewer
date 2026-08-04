@@ -1025,10 +1025,11 @@ fn describe(file: &pdf_model::attachment::Attachment) -> Option<String> {
 /// document-properties panel would read it; this one has no panel" — which stopped being true in
 /// the hundred-and-sixty-sixth session.
 ///
-/// **The last row is the honest one.** §12.2's `/DisplayDocTitle` names XMP's `dc:title` and
-/// Table 349's every text entry carries a NOTE pointing at an XMP counterpart, so a document with
-/// a metadata stream may be saying something else about itself here — and this program reads no
-/// XMP. Saying so is the difference between a gap and a silence.
+/// **§14.3.2's own answers follow, under their own heading**, since the
+/// two-hundred-and-ninety-fourth session (ADR 0186). Table 349's every text entry carries a NOTE
+/// pointing at an XMP counterpart, so a document with a metadata stream may be saying something
+/// else about itself there — and §14.3.4 leaves the disagreement "at the discretion of the PDF
+/// processor", which for a panel means showing both rather than picking one.
 fn property_rows(content: Content<'_>, out: &mut Vec<Row>) {
     let information = content.information;
     let stated: [(&str, Option<String>); 9] = [

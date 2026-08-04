@@ -33,8 +33,8 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 
 | | item | corpus |
 |---|---|---|
-| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 94 pages |
-| [01](01-ledger-partial-rows.md) | Read the ledger's 236 `partial` rows against the code — and the five sweeps | — |
+| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 92 pages |
+| [01](01-ledger-partial-rows.md) | Read the ledger's 235 `partial` rows against the code — and the five sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [09](09-the-specifications-are-in-the-history.md) | **The ISO documents are tracked and must not be** — a history rewrite, and the bootstrap that has to exist first. Not standing; ranked here because it has to be true *before this repository is published* | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |

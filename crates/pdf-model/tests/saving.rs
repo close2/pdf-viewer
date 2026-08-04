@@ -140,3 +140,57 @@ fn nothing_is_owed_to_the_next_reader_when_every_stream_was_written() {
         "{flag:?} — every changed widget got a stream, so nothing is owed"
     );
 }
+
+/// §14.3.4's one requirement that binds a program which modifies an existing document.
+///
+/// The clause states four rules for a *writer* and the second is the only one this tree can
+/// break:
+///
+/// > When writing modifications to an existing PDF document, if the PDF document already contains
+/// > time and date of creation in both the document information dictionary and in the document's
+/// > metadata stream, and the two are not equivalent, a PDF processor should leave the
+/// > inconsistent values unchanged.
+///
+/// It is met by construction rather than by code, and that is worth a test rather than a
+/// sentence: §7.5.6's update *appends*, `carry_forward` repeats the trailer's `/Info` as the same
+/// indirect reference, and the catalog's `/Metadata` is never among the objects written. So both
+/// sources survive a save byte for byte, whatever they said and whether or not they agreed.
+///
+/// The other three rules are conditioned on writing a date, which this program does not do, and
+/// **that is the deliberate part**: adding a `/ModDate` on save would put the clause's fourth
+/// rule — a `shall` — into force, and satisfying it would mean writing `xmp:ModifyDate` into the
+/// document's metadata stream as well. Table 349 makes `/ModDate` optional except beside a
+/// `/PieceInfo` this program never adds, so the cost of the date is an XMP *writer* and the
+/// benefit is a field nobody asked for.
+#[test]
+fn saving_leaves_both_of_a_documents_metadata_sources_exactly_as_they_were() {
+    let Some(original) = corpus("160F-2019.pdf") else {
+        println!("the pdf.js submodule is not checked out; skipping");
+        return;
+    };
+    let before = Document::open(original).expect("the fixture opens");
+    let information = pdf_model::metadata::Information::read(&before);
+    assert!(
+        information.created.is_some() && information.modified.is_some(),
+        "the fixture states both of Table 349's dates, which is what the rule is about"
+    );
+    let packet = pdf_model::xmp::Xmp::document(&before)
+        .expect("the fixture carries §14.3.2's stream")
+        .expect("which reads");
+
+    let after = saved("160F-2019.pdf", "X.minus1", "Ada Lovelace")
+        .expect("the fixture is checked out and has that field");
+
+    assert_eq!(
+        pdf_model::metadata::Information::read(&after),
+        information,
+        "§14.3.3's dictionary is repeated by reference and not rewritten"
+    );
+    assert_eq!(
+        pdf_model::xmp::Xmp::document(&after)
+            .expect("the stream is still named")
+            .expect("and still reads"),
+        packet,
+        "§14.3.2's stream is not among the objects an update writes"
+    );
+}
