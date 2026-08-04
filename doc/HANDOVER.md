@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **two-hundred-and-thirteenth** is the last one in it. Read `/CLAUDE.md` first — the five
+session, and kept current since; the **two-hundred-and-fiftieth** is the last one in it. Read `/CLAUDE.md` first — the five
 principles, what *done* means, and the closed exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -222,35 +222,55 @@ Two that *were* here and are closed by work: optional content's interactive half
 and a page whose scene overflows Vello's buffers (banded in 143, and the page that motivated it
 stopped overflowing in 147 — ADRs 0127, 0132).
 
-### The seventeen rounds from the two-hundred-and-fourteenth
+### The twenty rounds from the two-hundred-and-thirty-first
 
-Two features a person can feel, three defects nobody could see, five documents' worth of stale
-prose, and nineteen pages off §3a's ranking. What they have in common is worth more than the
-list: **five of them were blocked on a sentence rather than on work.**
+**Four defects nobody could see, one the project owner could, one clause closed, a sixth fuzz
+target that found two more, and `CONTRADICTED_UNEXPLAINED` emptied.** The undiagnosed half of
+§3a's bucket went 684 → 492. What they have in common is the part worth keeping: **six of the
+seven findings came from an instrument rather than from a hunch**, and three of those instruments
+were built in the same twenty rounds.
 
-- **Ctrl + the wheel zooms about the pointer** (ADR 0166), and the interesting half was in the
-  core: a zoom anchored at the pointer has to hold a page point `Open::origin` knows about and
-  the scroll does not, because a page smaller than the viewport is *centred*.
-- **§12.5.3's `NoZoom` and `NoRotate`** (0168), refused for two hundred sessions by one sentence
-  that was two claims: `NoRotate` depends on `/Rotate`, which is in the *file*, and was never a
-  view-dependence at all. §12.5.6.4's "text annotations shall behave as if [both] were always
-  set" followed three sessions later, and `icon.rs`'s module comment had carried that blocker in
-  prose the whole time.
-- **A stencil through a tiling pattern** (0169) — and then the page was still blank, because
-  `span` measured every tile in the tree from the pattern space's origin rather than from the
-  cell's own `/BBox`. Wrong for two hundred sessions and invisible because `floor` and `ceil`
-  give a tile of slack at each end.
-- **A `glyf` rebuilt in glyph order** (0170), for a `loca` whose offsets descend: 36 of one
-  font's 71 glyphs refused, half a sentence missing, and nothing said. Six of the corpus's 623
-  embedded TrueType programs have such a table.
-- **A field has two names** (0167), because §14.9.3's `shall` needs the one that *identifies* a
-  field and the one a person is *shown*, and `Query::FieldAt` could carry only one.
+- **§8.7.4.5.4's greatest *admissible* root** (ADR 0171), diagnosed twenty-six sessions earlier
+  and unfixed because it looked like four intertwined changes. The evaluator is one quadratic;
+  `pdf_render::blend_parameter` takes the greatest root `/Extend` admits, `RadialRaster`
+  evaluates it per device pixel, and all three backends draw the same bytes as they already did
+  for a mesh. The cost is confined by a *derived* condition — the sign of `|Δc|² − Δr²`, which is
+  exactly when a point can lie on two blend circles — so nothing without a cone pays anything.
+- **A soft mask evaluated to zero inside a `d1` glyph** (0173). §8.6.8's uncoloured restriction
+  reached into the mask's own group, so its image met "all image painting operators shall be
+  ignored" and the mask erased the very marks the glyph existed to make. Every command present,
+  nothing reported, no gate able to see it.
+- **A space drawn as a bar** (0174). The `loca` repair of four rounds earlier read a glyph's
+  length from its own bytes even where the table said, in the standard's own spelling, that the
+  glyph was empty. **The session that landed that repair A/B'd it against this very document and
+  cleared it** — page ink 19.576 either way — because five narrow bars are a tenth of a level on
+  three words of bold text.
+- **Two crashers in a repair nobody had fuzzed** (0175): a table beginning inside the table
+  directory, and a tag naming two tables. Both are rewrites steered by untrusted structure, which
+  is a larger surface than a reader over the same bytes.
+- **A strike-out that no longer spanned its words** (0172), reported by the project owner. Two
+  `shall`s that cannot both hold at any magnification but 1, with no precedence stated — §12.5.3's
+  fixed screen size and §12.5.6.10's "in the text of a document" — so it is recorded as a choice.
+  Counted before it was made: 211 of the corpus's 511 markup annotations carry `NoZoom` and all
+  211 are strike-outs in one document at one flag value.
 
-And the instrument moved twice: **take two ladders, not one** (`issue2177.pdf`, where `poppler`
-on a tiling pattern drifts instead of converging), and **run `doc/todo/01`'s sweeps over the
-source, not only over the ledger** — which found `pdf-model`'s own crate documentation, the `d`
-operator's doc comment, and three of `requirements::unmet`'s arms all false for between forty and
-two hundred sessions.
+**And three instruments, each of which paid on its first run.**
+
+- **`pdftoppm` renders the `/MediaBox`** unless told `-cropbox`, where this tree, the oracle and
+  `mutool` render the `/CropBox`. On `freeculture.pdf` that is a factor of 1.378 and would have
+  manufactured a 34% defect on four pages that agree to 0.03 of 255. `-alpha off`'s twin, and now
+  beside it in `doc/todo/00`'s step 6.
+- **A sweep for the one defect a distance cannot name**: our ink minus the lightest reference's,
+  over every undiagnosed page, from artefacts already on disk. It produced a *negative* result and
+  that is the finding — the whole bucket lies between −0.84 and +0.42 of 255. `doc/todo/00` step 7.
+- **A count of the codes that reach no glyph**, which `doc/todo/21` had asked for and said needed
+  a mechanism it already had. 24 codes over 8 documents draw nothing and say nothing — and half
+  the first number was a *space* whose font reads it back as `#`.
+
+**The corpus can hold one document under a dozen names.** 154 of the ambiguous bucket's names
+were `tracemonkey.pdf` and eleven copies of it with annotations added; `pdftotext -f 9 -l 9 |
+md5sum` is identical across them. One measurement settled all 154 and the honest number to report
+is *one finding*.
 
 ---
 
@@ -2530,3 +2550,4 @@ above rather than here.
 | 247 | And the font named, which split it in two | — |
 | 248 | Both halves traced to the end of every route the standard states: the subsets do not hold the glyphs | — |
 | 249 | Everything re-verified after eighteen rounds: eight fuzzers, `deny`, the six gates and the window | — |
+| 250 | Twenty rounds' worth of prose brought up to date, and what the twenty had in common | — |

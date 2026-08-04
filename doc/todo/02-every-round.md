@@ -30,6 +30,11 @@ cargo test --release -p render-quorra  --test corpus          -- --ignored --noc
 cargo test -p conformance -- --nocapture
 ```
 
+**Eight fuzz targets, not five** — the handover's list had never included `object` and
+`document`, and `sfnt` arrived in the two-hundred-and-forty-first. A round that touches a parser
+runs the one that covers it; a round that touches `pdf-font`'s glyph-table repairs runs `sfnt`
+**with its corpus seeded**, because unseeded it never forms a table directory and tests nothing.
+
 `doc/HANDOVER.md`'s "Verify it" has the rest — `cargo deny`, the five fuzzers, the callgrind
 counters — and says which of them a change needs.
 
@@ -81,7 +86,7 @@ page-turn fix.
 - `doc/HANDOVER.md`: the gate numbers if they moved, one row in "How the project got here".
 - The todo file: delete it if the item is done, correct it if the round changed what it owes.
 
-## 7. Two habits these rounds added, which belong here rather than in a trap
+## 7. Three habits these rounds added, which belong here rather than in a trap
 
 - **A closed form taken from one renderer is not a limit.** `doc/todo/00`'s step 6 climbs a
   reference to eight times the resolution because its departure from the geometry shrinks with
@@ -92,3 +97,8 @@ page-turn fix.
   corpus's incomplete list from 80 to 78 and both documents were still wrong — one of them
   blank. Trap 1's oldest sentence, and the second finding was three steps beyond the first, in a
   function neither document was about.
+- **A round that changes what gets drawn re-runs `doc/todo/00`'s step 7.** Our ink minus the
+  lightest reference's, over every undiagnosed page, from artefacts already on disk: three
+  minutes, and it is the only instrument that sees content this tree is *not drawing*. It was
+  empty when it was built — the whole bucket inside −0.84 to +0.42 of 255 — so a name appearing
+  at −1 or beyond is a regression nothing else would report as one.

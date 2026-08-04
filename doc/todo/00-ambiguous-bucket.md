@@ -220,14 +220,18 @@ reason, and the reason is written down.
 ## The next names on the ranking
 
 `chrome-text-selection-markedContent.pdf` (0.98 from the nearest, 2.15 from the furthest),
-`bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf` (0.90 / 4.53),
-`issue9291.pdf` (0.87 / 1.49), `freeculture.pdf` pages 163, 165, 184, 172 and 156 (0.86 down to
-0.78), `issue5244.pdf` (0.79 / 1.78).
+`bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf` (0.90 / 4.53), and then
+**`freeculture.pdf` for seven of the next eight** — pages 163, 165, 184, 172, 156, 160 and 325,
+from 0.86 down to 0.77.
 
-**Every name above 0.85 now has a furthest at least 1.4× its nearest.** Step 1 says to prefer a
-page whose two numbers are *close*, because that is the shape that says we are alone — and there
-is no longer one on the ranking. That is a result about the list: the head of it is pages where
-the *references* disagree.
+**Every name above 0.75 has a furthest at least twice its nearest.** Step 1 says to prefer a page
+whose two numbers are *close*, because that is the shape that says we are alone, and there is no
+longer one on the ranking. That is a result about the list: its head is pages where the
+*references* disagree, and its tail is the long book, which
+`AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE` has already measured twice.
+
+**So step 7 is where the next defect is more likely to be than step 1.** The ranking has been
+worked down to a population; the sweep is what looks at all 492 at once.
 
 **And the two-hundred-and-thirty-fourth session took the two with the widest ratio, 8.01 and
 9.63, and both were exactly that.** `issue21436.pdf` is 450 bytes whose catalogue's `/Pages`
