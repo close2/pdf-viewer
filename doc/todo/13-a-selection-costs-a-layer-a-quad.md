@@ -1,7 +1,7 @@
 # A selection costs a compositor layer per quad, and the window stops answering
 
 Status: **reported by the project owner, two-hundred-and-fifty-first session; reproduced,
-measured, and the arithmetic is exact. Not fixed.**
+measured, the arithmetic is exact, and the design question is settled. Not fixed.**
 Priority: 13 — the only defect on this list a person meets by using the program normally
 Corpus: every document with text; reproduced on `issue14821.pdf` and `tracemonkey.pdf`
 Clauses: none. This is ours, in the host.
@@ -65,36 +65,56 @@ And the cost is visible long before the refusal: present time is about 35 ms of 
 **1.9 ms per quad** — 5 quads 42 ms, 19 quads 63 ms, 27 quads 80 ms, 37 quads 106 ms. Selection
 was meant to be the one thing that never waits on a render.
 
-## What has to be settled
+## The blend mode is load-bearing; the *per-quad* part of it is not
 
-1. **Whether overlapping selection quads must darken twice.** That is the only thing the
-   per-quad `Multiply` buys, and it is a choice this host made rather than anything a clause
-   asks for. If it goes, the whole selection is one fill of one path with many subpaths under one
-   blend — one layer, whatever the quad count.
-2. **If it stays, whether one layer can hold every quad.** `Multiply` over a transparent backdrop
-   composited once is not the same picture as each quad multiplying the one under it, so this is a
-   question about what a selection should *look* like where two quads overlap — and whether two
-   quads of one selection ever do. `Query::Selection` answers with one quad per run of text on a
-   line; two of them overlapping would itself be worth knowing about.
-3. **Whether `viewer-core` should coalesce.** The quads are the core's; a selection of a whole
-   paragraph is one rectangle per line and the core could say so. That is a change to what
-   `Answer::Selected` means and would need `headless.rs` to pin it.
-4. **What the host does when a frame is refused.** Today the refusal is followed by a surface in
-   `Timeout` and a one-second block per frame for ever. Whatever the fix above, a refused frame
-   should leave the window answering — that is a separate defect and the one the *report* is
-   actually about.
+The project owner asked the obvious question of the paragraph above — why would anyone want
+overlapping selection quads to darken twice, and is that not counter-intuitive? — and the answer
+is that nobody would, that it is, and that the comment claiming otherwise was an assertion nobody
+had checked.
+
+**Measured.** A selection of three lines of `tracemonkey.pdf` gives 19 quads and **two
+overlapping pairs out of 171**, overlapping by **0.28 and 0.17 device pixels** horizontally:
+sub-pixel slivers where two runs of one line abut, not anything a person would call an overlap.
+`Query::Selection` answers with one quad per run of text, and runs tile rather than overlap. So
+the behaviour the per-quad fill preserves does not arise, and where it does it is invisible — and
+if it *were* visible it would read as a defect, because no reader draws a darker patch inside one
+selection.
+
+**What `Multiply` is actually for is the text underneath**, and that is not negotiable. §11.3.5.2
+makes it the one blend mode whose "result colour is always at least as dark as either of the two
+constituent colours" — the standard's own guarantee that what is under the wash survives it. This
+tree already cites exactly that for §12.5.6.10's highlight annotations, in the ledger. A
+photograph of a live selection confirms it: every character stays legible through the blue.
+
+So the fix is neither "drop the blend" nor "keep a layer per quad". It is **one fill of one path
+with one subpath per quad, under one `Multiply` layer**: the text still shows through, the
+sub-pixel slivers stop darkening twice because a single path under the non-zero rule is one
+shape, and the compositor's cost stops depending on the quad count at all —
+`(1 + 1) × 2 × width × height × 4`, once, whatever is selected.
+
+## What is left to settle
+
+1. **Whether `viewer-core` should coalesce the quads as well.** One rectangle per selected line
+   rather than one per run would shrink the path too, and is a change to what `Answer::Selected`
+   means that `headless.rs` would have to pin. Not required by the fix above — the layer count is
+   what the budget turns on — so it is an optimisation with a measurement owed, not a repair.
+2. **What the host does when a frame is refused.** Today the refusal is followed by a surface in
+   `Timeout` and a one-second block per frame for ever. That is a separate defect and the one the
+   *report* is actually about: whatever the selection costs, a refused frame must leave the window
+   answering. It would still be reachable by a page the device cannot draw in one pass, which is
+   what `render-gpu`'s banding exists for (ADR 0127) and what quorra has no equivalent of.
 
 ## Why it is not fixed in the session that found it
 
-Item 4 is the unresponsiveness and items 1 to 3 are the cause, and they are different repairs:
-one is about what a selection looks like, the other about what a host does when the device says
-no. Fixing the second without the first would leave a selection that silently draws nothing past
-63 quads; fixing the first without the second would leave the next over-budget frame hanging the
-window again.
+The two items above are different repairs — one is what a selection *costs*, the other is what a
+host does when the device says no — and the second is reachable without the first. Fixing only
+the cost would leave the next over-budget frame hanging the window again.
 
-**What is *done* is the measurement**: the reproduction, the exact arithmetic, that it is neither
-document-specific nor backend-specific, and that the per-quad cost is already 1.9 ms of present
-time before anything is refused.
+**What is *done* is the measurement and the design decision**: the reproduction, the exact
+arithmetic, that it is neither document-specific nor backend-specific, that the per-quad cost is
+already 1.9 ms of present time before anything is refused, and — settled by the project owner in
+the session after the report — that the per-quad blend was preserving a behaviour nobody wants
+and which 169 of 171 quad pairs never exhibit.
 
 ## The one line that makes this visible again
 
