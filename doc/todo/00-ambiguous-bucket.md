@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **106 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **102 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 643 diagnosed, 106 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 647 diagnosed, 102 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -240,6 +240,17 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**The ranking is a different list now.** With the three populations gone the head is 0.76 and
+below, and the two-hundred-and-sixty-fourth session took four of it: `issue11913.pdf` page 1,
+where the two ladders and ours agree to **0.024 of 255** — the tightest three-way agreement the
+bucket has produced — `issue1350.pdf` pages 1 and 3, and `ZapfDingbats.pdf` page 1, whose eight
+fonts are all standard 14 with nothing embedded and whose 0.60 of 255 is Foxit's outlines against
+URW's. What is left below them: `issue12963.pdf` page 7 (0.76 / 1.92), `issue17065.pdf` page 1
+(0.73 / **14.86** — a ratio of twenty, which step 1 says is a page about the references),
+`issue16473.pdf` page 1 (0.72 / 2.77), `issue19971.pdf` page 6, `textfields.pdf` page 1 and
+`issue11473.pdf` page 1.
+
 
 **`chrome-text-selection-markedContent.pdf` left it in the two-hundred-and-fifty-ninth**, and it
 is the cleanest instance of shape 1 so far: the whole difference is **one level of green over a

@@ -3726,7 +3726,28 @@ const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 /// starts a third of a level above and climbs a little further.** The glyphs are the same glyphs
 /// in the same places — magnified eight times the two panels are indistinguishable — and the
 /// verdict is the text tolerance applied to a page that is nothing but ideographs.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 3] = [
+/// # Three more off the ranking's new head, in the two-hundred-and-sixty-fourth
+///
+/// With three populations diagnosed the bucket is its tail, and the tail's head is this:
+///
+/// ```text
+///                        ours 1x   ours 8x   poppler 72   poppler 576   mupdf 576
+/// issue11913.pdf p1      16.5021   16.6020     16.5224      16.6238      16.6199
+/// issue1350.pdf  p1      17.9281   16.8382     17.7382      16.8468      16.8635
+/// issue1350.pdf  p3      20.1250   20.2458     20.1743      20.3821      20.5221
+/// ```
+///
+/// The first is three weights of embedded Verdana and no images at all, and **the two ladders
+/// and ours agree to 0.024 of 255** — the tightest three-way agreement any page in this bucket
+/// has produced. The second is a voucher of five-point text: the two references' limits are 0.017
+/// apart and ours is between them, while at the page's own scale every renderer is a level high,
+/// which is what small glyphs cost before the pixels shrink. The third is the same document's
+/// third page, where the references are 0.14 apart from each other and ours is 0.14 from the
+/// nearer — a page about the references' spread rather than about ours.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 6] = [
+    "issue11913.pdf page 1",
+    "issue1350.pdf page 1",
+    "issue1350.pdf page 3",
     "issue2884_reduced.pdf page 1",
     "issue4402_reduced.pdf page 1",
     "pr12564.pdf page 1",
@@ -3771,7 +3792,18 @@ const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 3] = [
 /// **Not `AMBIGUOUS_SUBSTITUTED_FACE`**, which is §9.8.1's *other* route: a face nobody embedded
 /// and nobody standardised, ranked out of whatever this machine holds. Here the clause names the
 /// font and we have it; what differs is whose drawing of it.
-const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 14] = [
+/// # A fifteenth page, from a different document, in the two-hundred-and-sixty-fourth
+///
+/// `ZapfDingbats.pdf` sets eight fonts and **every one of them is a standard 14 with no program
+/// embedded** — Helvetica twice, Times three times, Courier-Bold and ZapfDingbats. So it is this
+/// sheet's subject arriving from a document that is not a specimen sheet, and the ladders say the
+/// same thing: `poppler` climbs onto 16.0883 and `mupdf` onto 16.0992 — 0.011 apart, so there is
+/// a limit — while ours is flat at 15.35 to 15.49, **0.60 of 255 below it**. That is 3.7% of the
+/// page's ink, and it is the difference between PDFium's Foxit outlines compiled into this binary
+/// and URW's read off this machine's disk. Neither is the clause's, because the clause states
+/// none.
+const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 15] = [
+    "ZapfDingbats.pdf page 1",
     "standard_fonts.pdf page 1",
     "standard_fonts.pdf page 10",
     "standard_fonts.pdf page 11",
