@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **two-hundred-and-seventieth** is the last one in it. Read `/CLAUDE.md` first — the five
+session, and kept current since; the **two-hundred-and-ninety-third** is the last one in it. Read `/CLAUDE.md` first — the five
 principles, what *done* means, and the closed exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -236,7 +236,7 @@ the 974 documents' first pages it affects.
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
 | A substitute that cannot be addressed; **24 codes over 8 documents that reach no glyph in silence**; a per-character fallback, owed with no witness | 40 | [todo 21](todo/21-font-substitution.md) |
-| A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 4 | [todo 22](todo/22-variable-text-edges.md) |
+| A `/DA` font `/DR` does not define **and cannot be spelled** (Arabic, one document); a composite `/DA`, a list box, `/DS`, `/RV` | 3 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
 | A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
 | `/FixedPrint`, which waits on a printing path | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
@@ -275,69 +275,62 @@ reports `Timeout`, and the drag keeps updating. A page the device refuses for th
 `bug1721218_reduced.pdf`, whose coverage outgrows a 16384 × 16384 scratch image — comes back on the
 processor in 1.68 s and the window zooms, scrolls and opens its sidebar afterwards.
 
-### The twenty rounds from the two-hundred-and-fifty-first
+### The twenty rounds from the two-hundred-and-seventy-fourth
 
-**A defect a person met by using the program, four clauses that were implemented and unreachable,
-a page this tree drew nothing on, three panels' worth of new surface, and §3a's undiagnosed bucket
-from 492 to 98.** What the twenty have in common is one question, asked in two directions:
+**A launch that had never been timed, four clauses found by a profiler, a `shall` nobody had
+read, and a rendering library that answered a request written as a measurement.** What the twenty
+have in common is one sentence:
 
-> **The model implements this — who calls it? The row explains itself by naming a capability —
-> has that capability arrived?**
+> **A number nobody has measured is a claim nobody has checked** — and where the number is on a
+> path, the thing at the end of it is usually a clause.
 
-`doc/todo/01`'s three sweeps had only ever asked the second. Asking the first is one `grep` — every
-`pub fn` in `pdf-model` against the two host-side crates, 174 functions and 72 nobody names — and
-it produced a clause on its first run.
+`CLAUDE.md` had said for a hundred sessions that "a 500-page document must open no slower than a
+5-page one". Nobody had instrumented it. It was **33 times** slower, and unpicking that produced,
+in order: 40% of `Document::open` spent re-deciding §7.5.6's "most recent copy" rule once per
+cross-reference entry (ADR 0180); §12.7.3's `/SigFlags`, whose ledger row called it "signature
+behaviour" while Table 225 exists precisely so a processor need not scan (ADR 0181); and the
+discovery that nothing the window needs has ever looked at a PDF (ADR 0182). The rule holds now,
+and by a route the todo file had not considered: **1023 pages and 5 pages cost the launch the same
+five milliseconds**, because the document is opened beside the window rather than in front of it.
 
-- **A selection cost a compositor layer a quad** (ADR 0176), the one defect on this project's list
-  that a person met by using the program normally. One `Multiply` fill per quad, 6.4 MB of frame
-  budget each, refused at 63 quads — one short paragraph. One fill of one path with one subpath
-  per quad draws the same pixels under two layers instead of sixty-four: 268 quads in 16.5 ms,
-  from a refusal. The blend mode was load-bearing (§11.3.5.2) and the *per-quad* part of it was
-  preserving a behaviour nobody wants, on the strength of a comment nobody had checked.
-- **The pointer was on a link** (0177). §12.5.5's three appearances and §12.5.6.19's `/H` — a
-  *widget's* entry — reached only `/Subtype /Link`, because `viewer-core` took the region from
-  `link_at`. Implemented, argued in an ADR, tested with pixels, and unreachable from the only host
-  in the tree for a hundred and fifteen sessions. Widening it then turned a latent default into a
-  wrong pixel in the same sitting, which is the second half of the lesson.
-- **§8.11.4.3's `/ListMode`** (0178), read into `OptionalContent::list_mode` and asked by nothing,
-  with a layer panel on the screen. **§12.6.3's `/Fo` and `/Bl`**, owed a "focus model in
-  `Command`" that was never needed: a press inside a widget's active area gives it the focus, and
-  all ten of Table 197's events are raised now. **§12.3.4's thumbnails**, decoded by `pdf-model`
-  and drawn by nobody — a fifth tab, and four of `/PageMode`'s six values name a panel that
-  exists.
-- **A page this tree drew nothing on** (§12.5.6.4). `rc_annotation.pdf` is one text annotation
-  with `/Rect [50 50 50 50]`, and the clause says a text annotation is "attached to a point" and
-  "shall appear as an icon". It sat at 0.73 from the nearest reference, because a nearly blank
-  page resembles a nearly blank page, and **no ranking would ever have produced it**: what did was
-  `doc/todo/00`'s step 7 sweep, at −1.783 of 255.
-- **`/Helv` is not an arbitrary name.** Five corpus documents' `/DA` named a font their `/DR` does
-  not define, and the fourteen four-letter abbreviations are a *bijection* with §9.6.2.2's
-  fourteen font programs. Drawing them from the binary took the corpus's incomplete list 78 → 76
-  and the oracle's agreements 852 → 854.
-- **Six icons a clause only recommends**, because §12.5.6.15's and §12.5.6.16's names name
-  *objects* and §12.5.6.12's name legends. The verb `should` was never the whole question.
+- **The launch is a timeline now, not a step** (0179). One `Instant` at `main`'s first statement,
+  one mark per milestone, printed when the first frame lands. It made a dependency visible that a
+  profile cannot: *why is this step after that one?* — which is the question that produced two of
+  the three fixes above. **145 ms → 99 to 119.**
+- **Two of the four costs were somebody else's, and both were written as measurements.**
+  `doc/QUORRA_FEEDBACK.md` §8 asked for a field split and an entry point and got both at `7d5dafb`
+  — bring-up 33–45 ms to 13–19 (ADR 0185) — *and* recorded a knob it did **not** ask for, with the
+  measurement that says why. That paragraph is the one the library's own ADR quotes back. §9 is
+  still open: a cold first frame costs ~12 ms more than the tenth on a real adapter, and a
+  one-second sleep before it changes nothing, so it is allocation rather than warmth.
+- **Three clauses arrived from the demand side and one from the profiler.** A `Tf` naming
+  `/Helvetica` with an empty resource dictionary (§7.8.3 broken by the file, §9.6.2.2 answering
+  anyway — ADR 0183); a value whose `ą` had no *code* rather than no glyph, given one by
+  §9.6.5.1's `/Differences` written from the AGL `read-fonts` already carries (0184); §9.6.5.2's
+  `.notdef`, implemented at the drawing step so that three missing-glyph instruments keep working,
+  and **not** for a space, because a subset omits `space` deliberately and a designer's `.notdef`
+  is a box.
+- **The text ratchet fired on an improvement for the second time.** `pdftotext` reads
+  `bug1865341.pdf` back as *Zacznik* and poppler draws it that way; we draw *Załącznik*. Held by
+  name with that argument — the only entry on that list whose readback is better than the
+  reference's.
 
-**And the bucket, which is now a tail.** 492 undiagnosed → **98**, and the method is worth more
-than the number: three populations — `freeculture.pdf`, `pdkids.pdf`, `TAMReview.pdf` — taken by
-sampling twelve pages with two ladders each *and then reading the whole population's own printed
-band*. The band caught the page the sample would have buried (`freeculture.pdf` page 171, a
-one-bit stencil `ghostscript` thresholds). **A population argument needs the population's own
-numbers and not only a sample's.**
+**And the sweeps kept paying, including a shape nobody had named.** A row that contradicts
+*itself*: §12.5.6.5 said `/H` "is still a response to a mouse this program does not draw" four
+sentences above saying it had been honoured since session 138. A row was corrected by *appending*
+and nobody re-read the paragraph above the correction — so **read a corrected note whole, not from
+the correction onwards** (`doc/todo/01`'s failure shape 6). Beside it: §7.9's parent stale about
+three of its four children, §8.11.4.5 owing a layer panel drawn 111 sessions earlier,
+§12.7.4.3 still explaining a refusal by a glyph one session after the reason was proved to be a
+code, and `Signature::must_cover_whole_file` — implemented, tested, and called by no host, so a
+file breaking Table 255's `shall` read as §12.8.1's ordinary incremental update.
 
-**The step-7 sweep was corrected three ways and is the instrument to keep.** Drop a reference that
-drew nothing before taking the minimum — a blank is not a lower bound, and four pages read +21 to
-+29 because of it. Run it over *every* ambiguous page rather than the undiagnosed list, or
-diagnosing a population removes it from the only instrument that sees missing content. Read the
-result beside the corpus's incomplete list: seventeen of the twenty names past −1 are pages this
-tree already reports.
-
-**Three claims decayed in prose while the code was right**, and none of the existing sweeps
-watches prose outside `ledger.toml`: `doc/todo/21` named two documents whose "characters no single
-face on this machine has" and both had drawn every character since ADR 0153, seventy-three
-sessions earlier; `outline.rs` opened "[a]n outline is a *panel* in a viewer that has none", false
-for a hundred; and ADR 0126's own reproduction recipe searched for a window by *file* name that
-§12.2's `/DisplayDocTitle` had renamed — a recipe that failed silently, which is its own lesson one
-line down from where it is written.
+**Two habits, both about instruments rather than about pages.** Measure each configuration in its
+own process: `bring_up`'s first version reported a 6× improvement that was entirely the driver
+loader being warm the second time. And **a command that reports nothing has not reported success**
+— the two-hundred-and-eighty-fifth session's commit says it deleted two stale fuzz crashers, and
+`rm -f` with the wrong working directory matched nothing and said nothing; they were still there
+seven rounds later.
 
 ---
 
@@ -2705,3 +2698,4 @@ above rather than here.
 | 290 | The sweeps over four rounds' nouns: §12.7.4.3 still said the reason was a glyph | — |
 | 291 | Step 7 over all 786 after three rounds of new pixels: four names past −0.7, all diagnosed | — |
 | 292 | Everything re-verified after quorra's update — and the round-285 deletion `rm -f` reported had not happened | — |
+| 293 | Twenty rounds' prose brought up to date, and the sentence the twenty had in common | — |
