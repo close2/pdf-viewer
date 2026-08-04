@@ -3229,7 +3229,27 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 /// `bug852992_reduced.pdf` also matched each other — on the md5 of *no text at all*. A page whose
 /// readback is empty matches every other page whose readback is empty, so the check is evidence
 /// only when the readback is non-empty, and `doc/todo/00`'s recipe now says so.
-const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 179] = [
+/// # And one that is not the paper at all, in the three-hundred-and-eighth
+///
+/// `issue6127.pdf` page 3 is a French social-security form — a whole A4 of five- and six-point
+/// type set in a red-orange, and nothing else. It is in this group because the group's *premise*
+/// is what it demonstrates rather than because it is the same document:
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// poppler        13.0523   12.7763
+/// mupdf          12.9968   12.0742
+/// ours (1x)      12.7522
+/// hayro          11.7778   ghostscript 17.0525
+/// ```
+///
+/// **The two ladders end 0.70 of 255 apart**, which every other page in this bucket has settled
+/// to within a hundredth — so on type this small there is no limit to be near, which is exactly
+/// what the 0.90 similarity tolerance was measured over 153 reference-against-reference pairs to
+/// express. Ours lands 0.024 from `poppler`'s end and 0.68 from `mupdf`'s, and `ghostscript` is
+/// 4.3 above every one of the four.
+const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 180] = [
+    "issue6127.pdf page 3",
     "issue7014.pdf page 1",
     "issue15012.pdf page 1",
     "bug1885505.pdf page 1",
