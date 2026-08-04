@@ -63,8 +63,9 @@ So the real silent population is **24 codes over 8 documents**, and ADR 0152's t
 comfortably: turning them into reports would cost the oracle eight judged pages to name
 twenty-four codes.
 
-**`issue14821.pdf` is the one worth opening**, and it is the whole of what is left worth opening:
-eight codes reading back as `1`, `2`, `3`, `7`, `e` and three `x`s, drawn as nothing. That is
-eight characters of a page's text absent in silence. The rest are ones and twos, two of them
-reading back as a replacement character or a CJK ideograph, which is a `/ToUnicode` question
-rather than a glyph one.
+**`issue14821.pdf` was the one worth opening** and it has its own file now:
+[todo 14](14-eight-characters-nobody-draws.md). Eight codes reading back as `1`, `2`, `3`, `7`,
+`e` and three `x`s, drawn as nothing, on a page that is `complete` by every gate — and four of
+its fonts state `/Encoding 26 0 R`, where object 26 is a **content stream**. The rest of the
+population is ones and twos, two of them reading back as a replacement character or a CJK
+ideograph, which is a `/ToUnicode` question rather than a glyph one.

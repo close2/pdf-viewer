@@ -193,6 +193,7 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
+| Eight characters of a page that is `complete` by every gate | 1 | [todo 14](todo/14-eight-characters-nobody-draws.md) |
 | A substitute with no glyph for a character; one that cannot be addressed; **24 codes over 8 documents that reach no glyph in silence** | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
@@ -2517,3 +2518,4 @@ above rather than here.
 | 243 | And the last one: `CONTRADICTED_UNEXPLAINED` is empty, from 42 | — |
 | 244 | Codes that reach no glyph, counted at last: 109 over 14 documents, two thirds in two | — |
 | 245 | And half of the count was a space the font reads back as `#`: the real silence is 24 codes | — |
+| 246 | The one document left in that silence, diagnosed to an `/Encoding` naming a content stream | — |
