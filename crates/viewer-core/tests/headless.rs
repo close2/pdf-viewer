@@ -436,6 +436,69 @@ fn a_page_that_could_not_be_drawn_whole_says_so() {
 }
 
 #[test]
+fn a_host_that_draws_its_own_frames_may_zoom_past_the_raster_budget() {
+    // `MAX_PIXELS` bounds a raster *this crate hands back*, and a tier-2 host is handed none:
+    // it draws the page onto its own surface at window size and keeps nothing of ours. Holding
+    // its render request to that budget refused pages that nothing was going to allocate, which
+    // is what a person zooming in saw — the viewer said "this page cannot be drawn at this
+    // size" about a size no raster of that page was ever going to have.
+    //
+    // A4 at 40× is 5.7 × 10⁸ pixels: well over the 2²⁸ budget, and 33 676 on its longest side,
+    // well under `pdf_render::MAX_EXTENT`. So the case separates the budget on an allocation
+    // from the bound on a dimension, and only the first should have moved.
+    let (mut viewer, events) = opened(800, 1000);
+    let token = request(&events).token;
+    viewer
+        .handle(Command::RenderReady {
+            token,
+            rendered: Rendered::Presented,
+        })
+        .for_each(drop);
+
+    let zoomed: Vec<_> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(40.0),
+            at: None,
+        })
+        .collect();
+    let asked = request(&zoomed);
+    assert!(
+        u64::from(asked.target.width) * u64::from(asked.target.height) > 1 << 28,
+        "the case has to be over the budget to be the case: {} x {}",
+        asked.target.width,
+        asked.target.height
+    );
+    assert!(
+        !zoomed
+            .iter()
+            .any(|event| matches!(event, Event::Reported { .. })),
+        "a host that allocates nothing is told nothing went wrong: {zoomed:?}"
+    );
+
+    // A host that takes the pixels is still held to it, because it is still the one allocating
+    // them — and is told, rather than handed a page drawn at a scale nobody chose.
+    let (mut holding, _) = opened(800, 1000);
+    let refused: Vec<_> = holding
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(40.0),
+            at: None,
+        })
+        .collect();
+    assert!(
+        refused
+            .iter()
+            .any(|event| matches!(event, Event::Reported { .. })),
+        "{refused:?}"
+    );
+    assert!(
+        !refused
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "and nothing is asked for that could not be handed back: {refused:?}"
+    );
+}
+
+#[test]
 fn closing_the_last_document_leaves_nothing_to_answer_with() {
     let (mut viewer, _) = opened(800, 1000);
     let events: Vec<_> = viewer.handle(Command::Close(DOCUMENT)).collect();

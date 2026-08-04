@@ -23,6 +23,17 @@ use crate::query::{Answer, FrameView, Layer, PageGeometry, Query, Selected};
 /// a bound: a page claiming absurd dimensions must fail to render rather than ask for all
 /// available memory. A page over the budget is *named* rather than quietly drawn smaller — a
 /// silent cap is a defect, not safety.
+///
+/// **It bounds an allocation, so it applies where one happens.** A tier-1 host takes a
+/// [`Rendered::Raster`] of the whole page and this is its size limit. A tier-2 host draws the
+/// page onto its own surface at *window* size and keeps no pixels of ours (`viewer-ui` does
+/// exactly that), so a raster of this size is never built for it — and refusing its render
+/// request against this number refused pages that nothing was going to allocate, which is what
+/// a person zooming in saw. `Viewer::holds_rasters` is which of the two is being talked to.
+///
+/// The bounds that are not about allocation stay unconditional, and `TargetSpec::for_page`
+/// applies them to every caller: a dimension over [`pdf_render::MAX_EXTENT`] is an `f32`
+/// precision limit, and a degenerate one is a target that cannot exist.
 const MAX_PIXELS: u64 = 1 << 28;
 
 /// A host's name for one open document.
@@ -61,6 +72,14 @@ pub struct Viewer {
     ///
     /// The bound on a cascade. See [`Self::page_events`].
     raising: bool,
+    /// Whether the host takes whole-page pixels from this crate — which is what [`MAX_PIXELS`]
+    /// bounds, and the only case in which it should be applied.
+    ///
+    /// True until a host answers [`Rendered::Presented`], because a viewer that has not been
+    /// told otherwise must assume it will be asked to hold a raster. A tier-2 host settles it
+    /// on its first frame, which it draws at an opening magnification where the budget is not
+    /// in question — so the conservative start costs nothing and the tier is never guessed.
+    holds_rasters: bool,
 }
 
 impl Viewer {
@@ -77,6 +96,7 @@ impl Viewer {
             scale: if scale > 0.0 { scale } else { 1.0 },
             next_token: 0,
             raising: false,
+            holds_rasters: true,
         }
     }
 
@@ -368,6 +388,10 @@ impl Viewer {
             Rendered::Presented => {
                 open.shown = Some((pending.page, pending.target, pending.revision));
                 open.frame = None;
+                // Said once and remembered: this host draws its own frames at its own size, so
+                // nothing here will hold a whole-page raster for it and `MAX_PIXELS` has
+                // nothing to bound.
+                self.holds_rasters = false;
             }
             // **A refusal is recorded as an answer**, and it has to be: the scheduler's question
             // is "is what is on the screen what should be", and a host that cannot draw this page
@@ -822,9 +846,9 @@ impl Viewer {
 
         let interpreted = open.interpreted.as_ref()?;
         let magnification = open.magnification(self.viewport, self.scale)?;
-        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
         let height = open.page_size(open.page_index).map(|size| size.height)?;
-        let origin = open.origin(self.viewport, (target.width, target.height));
+        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
+        let origin = open.origin(self.viewport, raster);
         let place = |x: f32, y: f32| {
             (
                 origin.0 + x * magnification,
@@ -978,13 +1002,11 @@ impl Viewer {
         let Some(magnification) = open.magnification(self.viewport, self.scale) else {
             return Vec::new();
         };
-        let Ok(target) = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS) else {
-            return Vec::new();
-        };
         let Some(height) = open.page_size(open.page_index).map(|size| size.height) else {
             return Vec::new();
         };
-        let origin = open.origin(self.viewport, (target.width, target.height));
+        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
+        let origin = open.origin(self.viewport, raster);
         crate::select::quads_for(&interpreted.placed, range)
             .into_iter()
             .map(|quad| {
@@ -1011,8 +1033,8 @@ impl Viewer {
             return None;
         }
         let interpreted = open.interpreted.as_ref()?;
-        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
-        let origin = open.origin(self.viewport, (target.width, target.height));
+        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
+        let origin = open.origin(self.viewport, raster);
         let height = open.page_size(open.page_index)?.height;
         Some((
             (at.0 - origin.0) / magnification,
@@ -1066,6 +1088,20 @@ impl Viewer {
         events.push(damage(viewport));
     }
 
+    /// The pixel budget a render request is held to, which is the host's tier and not a
+    /// property of the page.
+    ///
+    /// [`MAX_PIXELS`] bounds a raster this crate hands back, so it binds a host that takes one
+    /// and says nothing to a host that draws its own frames at its own size. What remains for
+    /// both is `TargetSpec::for_page`'s own refusal of a dimension `f32` cannot resolve.
+    const fn raster_budget(&self) -> u64 {
+        if self.holds_rasters {
+            MAX_PIXELS
+        } else {
+            u64::MAX
+        }
+    }
+
     /// Works out whether what is on the screen is what should be, and asks for a render if not.
     ///
     /// The one place a render is scheduled. Interpretation happens here too, which is what makes
@@ -1080,6 +1116,8 @@ impl Viewer {
         }
         let Some(id) = self.focused else { return };
         let token = RenderToken(self.next_token);
+        // Read before the document is borrowed: it is a fact about the host, not the page.
+        let budget = self.raster_budget();
         let Some(open) = self.documents.get_mut(&id) else {
             return;
         };
@@ -1156,7 +1194,7 @@ impl Viewer {
         let Some(magnification) = open.magnification(viewport, scale) else {
             return;
         };
-        let target = match TargetSpec::for_page(&list, magnification, MAX_PIXELS) {
+        let target = match TargetSpec::for_page(&list, magnification, budget) {
             Ok(target) => target,
             // Named rather than clamped, because a page silently drawn at a scale nobody chose
             // is a page a person has been told something false about.
@@ -1375,13 +1413,13 @@ impl Viewer {
         let page = open.page_size(index)?;
         let magnification = open.magnification(self.viewport, self.scale)?;
         let interpreted = open.interpreted.as_ref()?;
-        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
+        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
         Some(PageGeometry {
             page,
             scale: magnification,
-            width: target.width,
-            height: target.height,
-            origin: open.origin(self.viewport, (target.width, target.height)),
+            width: raster.0,
+            height: raster.1,
+            origin: open.origin(self.viewport, raster),
         })
     }
 }

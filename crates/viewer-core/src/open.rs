@@ -649,7 +649,11 @@ impl Open {
 ///
 /// The same rounding `TargetSpec::for_page` does — up, so the raster contains the page — stated
 /// here because `apply_view` clamps a scroll before there is a target to ask.
-fn raster_extent(size: Size, magnification: f32) -> (u32, u32) {
+///
+/// Shared with [`crate::viewer`] rather than copied into it: every caller that places page
+/// coordinates on the screen has to agree with the drawn frame to the pixel, and two copies of
+/// this rounding are two chances to disagree (ADR 0118).
+pub(crate) fn raster_extent(size: Size, magnification: f32) -> (u32, u32) {
     let extent = |value: f32| {
         #[expect(
             clippy::cast_possible_truncation,
