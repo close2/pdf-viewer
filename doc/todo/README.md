@@ -44,7 +44,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [23](23-transparency-departures.md) | §11.4, §11.5.3 and §11.6.6, each reported where it can change a pixel | 19 |
 | [24](24-image-sampling-intent.md) | Carry an image *and its sampling intent* to the backends | 3 |
 | [25](25-view-dependent-annotations.md) | `/FixedPrint`, which waits on a printing path | 15 |
-| [26](26-icons-a-clause-only-recommends.md) | `Stamp`, `FileAttachment` and `Sound` icons | 1 |
+| [26](26-icons-a-clause-only-recommends.md) | `Stamp`'s icon, whose standard names are legends rather than symbols | 1 |
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` | — |
 | [32](32-presentation-player.md) | Draw a transition's frames | — |

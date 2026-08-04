@@ -221,9 +221,17 @@ pub(crate) fn construct(
         }
         b"FreeText" => free_text(document, annotation, &mut stream),
         b"Text" => text_icon(document, annotation, &mut stream, rect),
-        b"FileAttachment" | b"Sound" | b"Stamp" => Err(Refusal::NotDerivable(
-            "its clause recommends rather than requires a predefined icon, and states no \
-             artwork for one",
+        b"FileAttachment" | b"Sound" => symbol_icon(document, annotation, &mut stream, subtype),
+        // §12.5.6.12's stamp is the one of the four icon clauses whose standard names are not
+        // *objects*. Table 186's list is `Approved`, `Experimental`, `NotApproved`, `AsIs`,
+        // `Expired`, `Draft` and the rest — legends rather than symbols, so drawing one means
+        // inventing typography and a border, and what a reader would then see is a word this
+        // program chose to set in a face this program chose. The clause says **should**, and a
+        // recommendation is not a licence to invent a different kind of thing from the one the
+        // name names. `doc/todo/26` holds the argument.
+        b"Stamp" => Err(Refusal::NotDerivable(
+            "its clause recommends rather than requires a predefined icon, and Table 186's \
+             standard names are legends rather than symbols",
         )),
         _ => Err(Refusal::NotDerivable("its clause states no geometry")),
     };
@@ -677,6 +685,45 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
 /// `/Open` is not read. §12.5.6.4 gives it a popup window "containing the text of the note",
 /// and [`crate::annotation`] draws no popup for any subtype, on the ground that a window is not
 /// part of the page.
+/// A clause's mapping from an icon's name to its artwork.
+type IconLookup = fn(&[u8]) -> Option<&'static [icon::Figure]>;
+
+/// §12.5.6.15's and §12.5.6.16's icons, on the same construction as §12.5.6.4's.
+///
+/// One function for two clauses because they ask the same thing in the same words — Table 187 and
+/// Table 188 both say a reader "should provide predefined icon appearances for at least" a list
+/// of names, and both name *objects*. The difference from [`text_icon`] is Table 166's `/C`: that
+/// entry is "[t]he background of the annotation's icon when closed" for a text annotation, and
+/// neither of these two clauses says anything of the kind, so nothing is filled behind them.
+///
+/// A `/Name` outside the clause's list is reported by name rather than drawn as the default, for
+/// [`icon::text_annotation`]'s reason: a default is what an *absent* entry means.
+fn symbol_icon(
+    document: &Document,
+    annotation: &Dictionary,
+    stream: &mut Stream,
+    subtype: &[u8],
+) -> Outcome {
+    let rect = rectangle(document, annotation)?;
+    let (default, lookup): (&[u8], IconLookup) = match subtype {
+        b"Sound" => (icon::DEFAULT_SOUND_NAME, icon::sound),
+        _ => (icon::DEFAULT_FILE_ATTACHMENT_NAME, icon::file_attachment),
+    };
+    let name = document
+        .get_key(annotation, "Name")
+        .as_name()
+        .map_or_else(|| default.to_vec(), |n| n.as_bytes().to_vec());
+    let Some(figures) = lookup(&name) else {
+        return Err(Refusal::NonStandardIcon(
+            String::from_utf8_lossy(&name).into_owned(),
+        ));
+    };
+    let box_ = largest_square_within(rect);
+    let side = box_[2] - box_[0];
+    draw_icon(stream, figures, box_, side);
+    Ok(Painted::DRAWN)
+}
+
 fn text_icon(
     document: &Document,
     annotation: &Dictionary,
@@ -707,8 +754,15 @@ fn text_icon(
         stream.paint(true, false);
     }
 
-    // Black, as the module comment argues: the only colour the annotation states is the
-    // background, and one invention is fewer than two.
+    draw_icon(stream, figures, box_, side);
+    Ok(Painted::DRAWN)
+}
+
+/// Writes an icon's figures into a square, in the colour the module comment argues for.
+///
+/// Black, because the only colour any of the four icon clauses states is Table 166's `/C`
+/// background: one invention is fewer than two, and `icon.rs`'s own comment names the cost.
+fn draw_icon(stream: &mut Stream, figures: &[icon::Figure], box_: [f32; 4], side: f32) {
     stream.set_colour(Colour::Components([0.0; 4], 1), false);
     stream.set_colour(Colour::Components([0.0; 4], 1), true);
     stream.set_stroke(side * icon::STROKE_WIDTH, &[]);
@@ -726,7 +780,6 @@ fn text_icon(
         }
         stream.paint(figure.filled, !figure.filled);
     }
-    Ok(Painted::DRAWN)
 }
 
 /// The largest square that fits inside a rectangle, centred in it.

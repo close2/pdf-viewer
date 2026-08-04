@@ -3690,14 +3690,18 @@ note = "A popup is 'a window ... containing text' belonging to a parent markup a
 [[clause]]
 clause = "12.5.6.15"
 title = "File attachment annotations"
-status = "reported"
-note = "A file attachment annotation displays 'an icon' from Table 187's /Name — Graph, PushPin, Paperclip, Tag — and the clause states none of them, so an appearance-less one is refused and named, as §12.5.6.12's icons are and as §12.5.6.4's no longer is: this table says a reader 'should provide predefined icon appearances', and that recommendation is the whole of the difference (see §12.5.6.4). /FS is the embedded file, which is not a rendering question. The corpus's one file attachment annotation carries an /AP."
+status = "implemented"
+code = ["crates/pdf-model/src/icon.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn"]
+note = "A file attachment annotation displays 'an icon' from Table 187's /Name — Graph, PushPin, Paperclip, Tag — and **all four are drawn since the two-hundred-and-sixty-sixth session**. The table's verb is `should` and not §12.5.6.4's `shall`, so this is a choice rather than an obligation met, and `doc/todo/26` set its own condition a hundred and nineteen sessions ago: worth doing only if the artwork can be argued from the clause's own descriptions. **It can, and that is the whole difference from §12.5.6.12's stamp**: a push pin, a paperclip, a tag and a graph are *objects*, and the clause names them — which is more than the mandatory seven of §12.5.6.4 get, where `NewParagraph` and `Insert` had to be invented out of a typographer's convention. The artwork is `icon.rs`'s, in the same unit square and the same black, and Table 166's /C is *not* filled behind it: that entry is the background of a **text** annotation's icon and this clause says nothing of the kind. A /Name outside the four is still reported, because a default is what an absent entry means. /FS is the embedded file, which is not a rendering question. The corpus's one file attachment annotation carries an /AP, so the fixtures are synthetic and say so."
 
 [[clause]]
 clause = "12.5.6.16"
 title = "Sound annotations"
-status = "reported"
-note = "A sound annotation, deprecated in PDF 2.0, is one that 'shall behave like a text annotation in most ways, with a different icon', whose /Name Table 188 gives as Speaker or Mic. The artwork is unstated and the obligation is a should — 'PDF readers should provide predefined icon appearances' — so unlike §12.5.6.4, whose shall the hundred-and-twentieth session performed, this stays refused and named. Playing the /Sound stream is a media question, and principle 5's exclusion of clause 13 covers the engine; the icon is not excluded, it is unstated. The corpus's one sound annotation carries an /AP."
+status = "implemented"
+code = ["crates/pdf-model/src/icon.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn"]
+note = "A sound annotation, deprecated in PDF 2.0, is one that 'shall behave like a text annotation in most ways, with a different icon', whose /Name Table 188 gives as Speaker or Mic. The artwork is unstated and the obligation is a should — 'PDF readers should provide predefined icon appearances' — and **both names are drawn since the two-hundred-and-sixty-sixth session**, on §12.5.6.15's argument and in one function with it: `Speaker` and `Mic` name objects, so the artwork is argued from the clause's own word rather than invented beside it. A choice under a recommendation, recorded as one. Playing the /Sound stream is a media question, and principle 5's exclusion of clause 13 covers the engine; the icon is not excluded, it is unstated. The corpus's one sound annotation carries an /AP."
 
 [[clause]]
 clause = "12.5.6.17"

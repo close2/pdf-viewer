@@ -31,7 +31,9 @@ claim rather than a description.
 It **draws** what a page says: geometry, colour, images, shadings, patterns, embedded text,
 transparency groups, soft masks, and annotations both from stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
-this processor's own because the clause requires one and draws none. Two backends (CPU and GPU)
+this processor's own because the clause requires one and draws none — and, since the
+two-hundred-and-sixty-sixth session, §12.5.6.15's four and §12.5.6.16's two, whose clauses only
+*recommend* one and whose names name objects. Two backends (CPU and GPU)
 that agree to the channel — over `test-scenes`' fixtures **and, since the hundred-and-forty-third
 session, over real pages at a real window's resolution**, which is where they did not (ADR 0127).
 The GPU backend **bands a target the device cannot draw in one pass**, because Vello's working
@@ -140,12 +142,12 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 374 | every normative requirement in the clause is executed |
+| `implemented` | 376 | every normative requirement in the clause is executed |
 | `partial` | 238 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 86 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
-| `reported` | 32 | not implemented, detected and named at runtime |
+| `reported` | 30 | not implemented, detected and named at runtime |
 | `writer-side` | 6 | addresses a PDF *generator* |
 
 **`silent` is zero** — there is no requirement in the eight technical clauses that this program
@@ -202,7 +204,7 @@ the 974 documents' first pages it affects.
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
 | A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
 | `/FixedPrint`, which waits on a printing path | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
-| Icons for `Stamp`, `FileAttachment`, `Sound` — their clauses say *should* | 1 | [todo 26](todo/26-icons-a-clause-only-recommends.md) |
+| An icon for `Stamp`, whose standard names are legends rather than symbols | 1 | [todo 26](todo/26-icons-a-clause-only-recommends.md) |
 | §14.3.2's XMP | 319 | [todo 50](todo/50-xmp.md) |
 | Signature *validation*, public-key handlers (§7.6.5), `/R` 5 | 1 | [todo 51](todo/51-signatures-and-public-keys.md) |
 | Sandboxing the interpreter and rasteriser | — | [todo 34](todo/34-sandbox-the-interpreter.md) |
@@ -2600,3 +2602,4 @@ above rather than here.
 | 264 | The tail's new head: four pages, the tightest three-way ink agreement the bucket has produced | — |
 | 265 | A page this tree drew nothing on, found by the sweep at −1.78: §12.5.6.4's point, not a rectangle | — |
 | 266 | The sweep corrected three ways and run over all 787: twenty names past −1, every one explained | — |
+| 267 | Six icons a clause only recommends, because their names name *objects*; `Stamp`'s do not | — |

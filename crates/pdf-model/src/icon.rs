@@ -110,6 +110,199 @@ pub(crate) fn text_annotation(name: &[u8]) -> Option<&'static [Figure]> {
 /// Table 175: "Default value: Note ."
 pub(crate) const DEFAULT_TEXT_NAME: &[u8] = b"Note";
 
+/// §12.5.6.15's four names, and the artwork this processor supplies for each.
+///
+/// Table 187 asks for them with a **should** rather than a shall:
+///
+/// > PDF writers should include this entry and PDF readers should provide predefined icon
+/// > appearances for at least the following standard names: Graph , PushPin , Paperclip , Tag
+///
+/// `doc/todo/26` weighed that verb for a hundred and nineteen sessions and its condition was
+/// "worth doing for the one corpus document only if the artwork can be argued from the clause's
+/// own descriptions". **It can, and that is the whole difference from `Stamp`**: a push pin, a
+/// paperclip, a tag and a graph are *objects*, and the clause names them. A name that names a
+/// thing is a great deal more than the standard gives §12.5.6.4's seven, where `NewParagraph`
+/// and `Insert` had to be invented out of a typographer's convention.
+pub(crate) fn file_attachment(name: &[u8]) -> Option<&'static [Figure]> {
+    match name {
+        b"PushPin" => Some(&PUSH_PIN),
+        b"Paperclip" => Some(&PAPERCLIP),
+        b"Graph" => Some(&GRAPH),
+        b"Tag" => Some(&TAG),
+        _ => None,
+    }
+}
+
+/// Table 187: "Default value: `PushPin` ."
+pub(crate) const DEFAULT_FILE_ATTACHMENT_NAME: &[u8] = b"PushPin";
+
+/// §12.5.6.16's two names, on the same reading as [`file_attachment`]'s four.
+///
+/// Table 188: "PDF writers should include this entry and PDF readers should provide predefined
+/// icon appearances for at least the standard names Speaker and Mic ."
+pub(crate) fn sound(name: &[u8]) -> Option<&'static [Figure]> {
+    match name {
+        b"Speaker" => Some(&SPEAKER),
+        b"Mic" => Some(&MIC),
+        _ => None,
+    }
+}
+
+/// Table 188: "Default value: Speaker ."
+pub(crate) const DEFAULT_SOUND_NAME: &[u8] = b"Speaker";
+
+/// `PushPin`, the default: a pin seen from the side — a head, a collar and a point.
+const PIN_HEAD: [Mark; 5] = bar(0.34, 0.70, 0.66, 0.86);
+const PIN_COLLAR: [Mark; 5] = bar(0.42, 0.40, 0.58, 0.70);
+const PIN_POINT: [Mark; 4] = triangle([0.42, 0.40], [0.58, 0.40], [0.50, 0.14]);
+const PUSH_PIN: [Figure; 3] = [
+    Figure {
+        filled: true,
+        marks: &PIN_HEAD,
+    },
+    Figure {
+        filled: true,
+        marks: &PIN_COLLAR,
+    },
+    Figure {
+        filled: true,
+        marks: &PIN_POINT,
+    },
+];
+
+/// `Paperclip`: two nested hairpins, the inner one open at the other end.
+const CLIP_OUTER: [Mark; 8] = [
+    Mark::Move([0.34, 0.14]),
+    Mark::Line([0.34, 0.72]),
+    Mark::Curve([0.34, 0.86], [0.66, 0.86], [0.66, 0.72]),
+    Mark::Line([0.66, 0.30]),
+    Mark::Curve([0.66, 0.20], [0.46, 0.20], [0.46, 0.30]),
+    Mark::Line([0.46, 0.66]),
+    Mark::Curve([0.46, 0.74], [0.56, 0.74], [0.56, 0.66]),
+    Mark::Line([0.56, 0.28]),
+];
+const PAPERCLIP: [Figure; 1] = [Figure {
+    filled: false,
+    marks: &CLIP_OUTER,
+}];
+
+/// `Graph`: two axes and three bars of rising height.
+const GRAPH_AXES: [Mark; 3] = [
+    Mark::Move([0.18, 0.86]),
+    Mark::Line([0.18, 0.16]),
+    Mark::Line([0.86, 0.16]),
+];
+const GRAPH_FIRST: [Mark; 5] = bar(0.28, 0.16, 0.42, 0.40);
+const GRAPH_SECOND: [Mark; 5] = bar(0.46, 0.16, 0.60, 0.60);
+const GRAPH_THIRD: [Mark; 5] = bar(0.64, 0.16, 0.78, 0.82);
+const GRAPH: [Figure; 4] = [
+    Figure {
+        filled: false,
+        marks: &GRAPH_AXES,
+    },
+    Figure {
+        filled: true,
+        marks: &GRAPH_FIRST,
+    },
+    Figure {
+        filled: true,
+        marks: &GRAPH_SECOND,
+    },
+    Figure {
+        filled: true,
+        marks: &GRAPH_THIRD,
+    },
+];
+
+/// `Tag`: a luggage label — a pentagon pointing left, with an eyelet.
+const TAG_BODY: [Mark; 7] = [
+    Mark::Move([0.12, 0.50]),
+    Mark::Line([0.34, 0.20]),
+    Mark::Line([0.86, 0.20]),
+    Mark::Line([0.86, 0.80]),
+    Mark::Line([0.34, 0.80]),
+    Mark::Close,
+    Mark::Close,
+];
+const TAG_EYELET: [Mark; 6] = disc([0.34, 0.50], 0.07);
+const TAG: [Figure; 2] = [
+    Figure {
+        filled: false,
+        marks: &TAG_BODY,
+    },
+    Figure {
+        filled: false,
+        marks: &TAG_EYELET,
+    },
+];
+
+/// `Speaker`, the default: a cone on a box, with two arcs of sound leaving it.
+const SPEAKER_BODY: [Mark; 7] = [
+    Mark::Move([0.14, 0.38]),
+    Mark::Line([0.28, 0.38]),
+    Mark::Line([0.48, 0.18]),
+    Mark::Line([0.48, 0.82]),
+    Mark::Line([0.28, 0.62]),
+    Mark::Line([0.14, 0.62]),
+    Mark::Close,
+];
+const SPEAKER_NEAR: [Mark; 2] = [
+    Mark::Move([0.60, 0.36]),
+    Mark::Curve([0.72, 0.44], [0.72, 0.56], [0.60, 0.64]),
+];
+const SPEAKER_FAR: [Mark; 2] = [
+    Mark::Move([0.72, 0.26]),
+    Mark::Curve([0.90, 0.40], [0.90, 0.60], [0.72, 0.74]),
+];
+const SPEAKER: [Figure; 3] = [
+    Figure {
+        filled: true,
+        marks: &SPEAKER_BODY,
+    },
+    Figure {
+        filled: false,
+        marks: &SPEAKER_NEAR,
+    },
+    Figure {
+        filled: false,
+        marks: &SPEAKER_FAR,
+    },
+];
+
+/// `Mic`: a capsule on a stand.
+const MIC_CAPSULE: [Mark; 6] = [
+    Mark::Move([0.38, 0.56]),
+    Mark::Line([0.38, 0.74]),
+    Mark::Curve([0.38, 0.88], [0.62, 0.88], [0.62, 0.74]),
+    Mark::Line([0.62, 0.56]),
+    Mark::Curve([0.62, 0.42], [0.38, 0.42], [0.38, 0.56]),
+    Mark::Close,
+];
+const MIC_CRADLE: [Mark; 2] = [
+    Mark::Move([0.26, 0.52]),
+    Mark::Curve([0.26, 0.24], [0.74, 0.24], [0.74, 0.52]),
+];
+const MIC_STEM: [Mark; 2] = segment([0.50, 0.30], [0.50, 0.14]);
+const MIC_FOOT: [Mark; 2] = segment([0.34, 0.14], [0.66, 0.14]);
+const MIC: [Figure; 4] = [
+    Figure {
+        filled: true,
+        marks: &MIC_CAPSULE,
+    },
+    Figure {
+        filled: false,
+        marks: &MIC_CRADLE,
+    },
+    Figure {
+        filled: false,
+        marks: &MIC_STEM,
+    },
+    Figure {
+        filled: false,
+        marks: &MIC_FOOT,
+    },
+];
+
 /// An axis-aligned rectangle, as four corners and a close.
 const fn bar(left: f32, bottom: f32, right: f32, top: f32) -> [Mark; 5] {
     [

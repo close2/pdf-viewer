@@ -357,43 +357,66 @@ fn an_appearance_state_is_selected_by_as() {
     );
 }
 
-/// An annotation whose clause states no appearance is reported rather than invented.
+/// A `Stamp`'s appearance is reported rather than invented, and the other two are drawn.
 ///
-/// A `Stamp`, a `FileAttachment` and a `Sound` display an *icon*, and §12.5.6.12, §12.5.6.15
-/// and §12.5.6.16 each name theirs — `/Approved`, `/Paperclip`, `/Speaker` — without stating
-/// one line of their artwork. Each says a reader "**should** provide predefined icon
-/// appearances", which is a recommendation: drawing a guess would put a mark on the page the
-/// document never described and no clause requires, so the report is the answer, and it is
-/// what keeps the corpus gate's counts meaningful.
+/// All three clauses say a reader "**should** provide predefined icon appearances", and the
+/// two-hundred-and-sixty-sixth session split them on what the *names* are. §12.5.6.15's `Graph`,
+/// `PushPin`, `Paperclip` and `Tag` and §12.5.6.16's `Speaker` and `Mic` name **objects**, which
+/// is more than §12.5.6.4's mandatory seven give — `NewParagraph` and `Insert` had to be invented
+/// out of a typographer's convention — so the artwork is argued from the clause's own word.
+/// §12.5.6.12's Table 186 names `Approved`, `Experimental`, `NotApproved`, `Draft` and the rest:
+/// **legends rather than symbols**, so drawing one means choosing typography and a border, and a
+/// reader would see a word this program picked in a face this program picked. A recommendation is
+/// not a licence to invent a different kind of thing from the one the name names.
 ///
-/// §12.5.6.4's text annotation is the one that left this list, in the hundred-and-twentieth
-/// session, and the word that moved it is *shall*. §12.5.6.10's four text markups left it in
-/// the thirty-fourth, and the reason is a different one worth the distinction: that clause
-/// states the *mark* — "shall appear as highlights, underlines, strikeouts … or jagged
-/// ('squiggly') underlines" — its region and its orientation, and leaves only a thickness.
+/// §12.5.6.4's text annotation left this list in the hundred-and-twentieth session and the word
+/// that moved it is *shall*. §12.5.6.10's four text markups left it in the thirty-fourth, for a
+/// different reason worth the distinction: that clause states the *mark* — "shall appear as
+/// highlights, underlines, strikeouts … or jagged ('squiggly') underlines" — its region and its
+/// orientation, and leaves only a thickness.
 #[test]
-fn an_annotation_whose_appearance_is_only_recommended_is_reported() {
-    for (subtype, name) in [
-        ("Stamp", "Approved"),
-        ("FileAttachment", "Paperclip"),
-        ("Sound", "Speaker"),
-    ] {
-        let interpretation = interpret(pdf_with(
+fn a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn() {
+    let interpret_icon = |subtype: &str, name: &str| {
+        interpret(pdf_with(
             &format!(
                 "<< /Type /Annot /Subtype /{subtype} /Rect [20 20 60 60] /F 4 /C [1 1 0] \
                  /Name /{name} >>"
             ),
             "/BBox [0 0 10 10]",
             "1 0 0 rg 0 0 10 10 re f",
-        ));
-        assert!(
-            interpretation.display_list.commands().is_empty(),
-            "{subtype}: nothing may be invented for it"
-        );
-        assert!(
-            !interpretation.is_complete(),
-            "{subtype}: and its absence must be reported"
-        );
+        ))
+    };
+
+    let stamp = interpret_icon("Stamp", "Approved");
+    assert!(
+        stamp.display_list.commands().is_empty(),
+        "a legend is not a symbol and nothing may be invented for it"
+    );
+    assert!(!stamp.is_complete(), "and its absence must be reported");
+
+    for (subtype, names) in [
+        (
+            "FileAttachment",
+            ["Graph", "PushPin", "Paperclip", "Tag"].as_slice(),
+        ),
+        ("Sound", ["Speaker", "Mic"].as_slice()),
+    ] {
+        for name in names {
+            let drawn = interpret_icon(subtype, name);
+            assert!(
+                !drawn.display_list.commands().is_empty(),
+                "{subtype} /{name}: the clause names an object and this one is drawn"
+            );
+            assert!(
+                drawn.is_complete(),
+                "{subtype} /{name}: and nothing is owed: {:?}",
+                drawn.unsupported
+            );
+        }
+        // A name outside the clause's list is still reported: a default is what an *absent*
+        // entry means, not what an unrecognised one means.
+        let odd = interpret_icon(subtype, "Rhubarb");
+        assert!(!odd.is_complete(), "{subtype} /Rhubarb must be reported");
     }
 }
 
@@ -1077,7 +1100,7 @@ fn toggle_no_view_inverts_no_view_under_the_pointer() {
 ///
 /// A `shall` about the icon, and a *point* rather than a rectangle — so a `/Rect` with no area is
 /// not this annotation saying it covers nothing, the way a `Square`'s would be. The same clause's
-/// next sentence gives the size: a text annotation behaves "as if the NoZoom and NoRotate
+/// next sentence gives the size: a text annotation behaves "as if the `NoZoom` and `NoRotate`
 /// annotation flags … were always set", and §12.5.3's `NoZoom` is "the annotation shall always
 /// maintain the same fixed size on the screen", which is by definition not `/Rect`'s.
 ///
