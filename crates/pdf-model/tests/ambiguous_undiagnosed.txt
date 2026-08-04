@@ -17,7 +17,6 @@ bug1308536.pdf page 1
 bug1868759.pdf page 1
 bug1872721.pdf page 1
 bug1889122.pdf page 1
-bug852992_reduced.pdf page 1
 bug886717.pdf page 1
 bug911034.pdf page 1
 bug920426.pdf page 1
@@ -75,7 +74,6 @@ issue9972-2.pdf page 1
 issue9972-3.pdf page 1
 jbig2_symbol_offset.pdf page 1
 knockout_groups_test.pdf page 1
-multiline.pdf page 1
 tensor-allflags-withfunction.pdf page 1
 tiling-pattern-box.pdf page 1
 transparency_group.pdf page 1

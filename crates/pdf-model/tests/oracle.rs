@@ -2300,7 +2300,28 @@ const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 1] =
 /// which are the same two outliers in the same two directions as `bug1863910.pdf`'s 28% and 22%.
 /// Ours is 6.5% under at 72 dpi and on the geometry by 288, which is a one-pixel stroke's
 /// coverage arriving as the pixels shrink.
-const AMBIGUOUS_WIDGET_BORDER: [&str; 2] = ["bug1863910.pdf page 1", "textfields.pdf page 1"];
+/// # A field with nothing in it at all, in the three-hundred-and-sixth
+///
+/// `multiline.pdf` page 1 is **one empty multiline text field's border and nothing else** — a
+/// rectangle on a blank page, which makes its mean its border's coverage exactly.
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// poppler        2.48928   2.49989
+/// mupdf          2.50244   2.50086
+/// ours (1x, 8x)  2.22286   2.46552
+/// ```
+///
+/// The two ladders agree to **0.001 of 255** and ours climbs onto the limit from below, ending
+/// 0.035 under. `ghostscript` is 3.17 at the page's own scale — 27% over the geometry — and
+/// `hayro` 2.15, 14% under: **the same two outliers in the same two directions** as
+/// `bug1863910.pdf`'s 28% and 22% and `textfields.pdf`'s, which is why this is that page's group
+/// rather than a new one.
+const AMBIGUOUS_WIDGET_BORDER: [&str; 3] = [
+    "multiline.pdf page 1",
+    "bug1863910.pdf page 1",
+    "textfields.pdf page 1",
+];
 
 /// Ambiguous, and it is the one construction in this file that no gradient implementation has.
 ///
@@ -3835,7 +3856,22 @@ const AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND: [&str; 2] =
 /// What is *not* quantisation is the remaining 18%: the glyph edges of the word and the rounded
 /// border, differing by up to 86 against `poppler` and 179 against `ghostscript`, which is
 /// `AMBIGUOUS_GLYPH_COVERAGE`'s subject on a page that also has a gradient.
-const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 1] = ["issue7821.pdf page 1"];
+/// # And a page that is nothing but two ramps, in the three-hundred-and-sixth
+///
+/// `bug852992_reduced.pdf` page 1 is a green-to-white gradient with an orange-to-red one over it
+/// inside a blue border, and the five renderings are indistinguishable to a person:
+///
+/// ```text
+/// ours 75.5062 │ ghostscript 75.2559 │ hayro 75.7016 │ poppler 75.8339 │ mupdf 75.9012
+/// ```
+///
+/// **Our ladder is flat** — 75.5062 at the page's own scale against 75.4903 at eight times — so
+/// whatever separates the five is not scan conversion; and the two reference ladders are 0.25
+/// apart from each other (`poppler` flat on 75.8307, `mupdf` climbing to 76.085), so there is no
+/// exact limit to be near. A page whose whole ink is two ramps, where nobody converges and the
+/// spread is 0.64 of 255, is the eight-bit ramp this group is about.
+const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
+    ["bug852992_reduced.pdf page 1", "issue7821.pdf page 1"];
 
 const AMBIGUOUS_GLYPH_COVERAGE: [&str; 3] = [
     "copy_paste_ligatures.pdf page 1",
