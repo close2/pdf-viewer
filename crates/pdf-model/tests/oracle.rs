@@ -3652,7 +3652,24 @@ const AMBIGUOUS_FOUR_ANSWERS: [&str; 2] = ["bug1844583.pdf page 1", "tagged_stam
 /// cannot tell convergence from drift, and two say when neither has converged. Ours sits in the
 /// middle of the five at 21.62 and nothing here can rank them. That is a page for a heatmap and
 /// a later session, and it is listed rather than explained.
-const AMBIGUOUS_NEAREST_THE_GEOMETRY: [&str; 3] = [
+/// # A fourth in the three-hundred-and-fifth, where ours lands *between* the two limits
+///
+/// `pdfjs_wikipedia.pdf` page 1 — a Wikipedia article printed to PDF, all text and rules:
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// poppler        20.8373   20.7291
+/// mupdf          20.6976   20.7084
+/// ours (1x, 8x)  20.6243   20.7117
+/// ```
+///
+/// The two ladders bracket the geometry within **0.021 of 255** and ours at eight times sits
+/// between them, 0.017 from one and 0.003 from the other — the tightest a renderer can be to a
+/// limit, which is inside it. `ghostscript` is **20.62 against 23.93**, 3.2 of 255 above all four
+/// of the others at the page's own scale, and it is the whole reason the verdict is `ambiguous`:
+/// trap 12's arithmetic with one reference far enough out to drag the consensus apart.
+const AMBIGUOUS_NEAREST_THE_GEOMETRY: [&str; 4] = [
+    "pdfjs_wikipedia.pdf page 1",
     "issue7339_reduced.pdf page 1",
     "issue21570.pdf page 1",
     "personwithdog.pdf page 1",
