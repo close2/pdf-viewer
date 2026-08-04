@@ -36,6 +36,22 @@ pub enum Query<'a> {
     Layers,
     /// §7.11.4's embedded files, listed rather than extracted.
     Attachments,
+    /// §12.4.2's page label for one page, where the document states one.
+    ///
+    /// [`Query::CurrentPage`] answers it for the page being shown, which is what a title bar
+    /// needs; a list of pages needs it for every row, and the clause is the reason a number will
+    /// not do: "[e]ach page in a PDF document shall be identified by an integer page index …
+    /// [i]t may also be identified by a page label", and a document that labels its front matter
+    /// in roman numerals has said its third page is called `iii`.
+    PageLabel(usize),
+    /// §12.3.4's thumbnail image for one page, decoded, where the page states one.
+    ///
+    /// **One page at a time and nothing cached here**, which is principle 2 rather than an
+    /// oversight: §12.3.4's NOTE says thumbnails "are not required, and can be included for some
+    /// pages and not for others", and a thousand-page document that carried one for every page
+    /// would decode a thousand images to draw eight. The panel knows which eight it is showing;
+    /// this crate does not, and a host that scrolls one keeps what it has already asked for.
+    Thumbnail(usize),
     /// Whether activating at this viewport point would follow a §12.5.6.5 link.
     ///
     /// What a host needs to choose a cursor, which it does on every pointer move — so this is a
@@ -129,6 +145,19 @@ pub enum Answer<'a> {
     Layers(Vec<Layer>),
     /// §7.11.4's embedded files.
     Attachments(Vec<pdf_model::attachment::Attachment>),
+    /// §12.4.2's label for the page asked about, or [`Answer::None`] where it states none.
+    Label(String),
+    /// §12.3.4's thumbnail for the page asked about, decoded.
+    ///
+    /// [`Answer::None`] for a page that states none, which is most pages in most documents and
+    /// is not a defect — and for one whose `/Thumb` this crate cannot decode, which is reported
+    /// through the same channel any other undecodable image is.
+    ///
+    /// The two flags on it are the clause's *producer-side* constraints, carried rather than
+    /// enforced: a `/ColorSpace` outside the three §12.3.4 permits, and a `/Subtype` that is
+    /// stated and is not `Image`. The image is drawn either way — the file is wrong and the
+    /// picture is still what the file says — and a host with somewhere to put a note can say so.
+    Thumbnail(pdf_model::thumbnail::Thumbnail),
     /// Whether a link is under the point asked about.
     Link(bool),
     /// What is selected.

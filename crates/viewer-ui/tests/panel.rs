@@ -57,6 +57,7 @@ fn only(outline: &Outline) -> Content<'_> {
         attachments: &[],
         information: &NOTHING,
         metadata_stream: false,
+        pages: &[],
     }
 }
 
@@ -114,6 +115,19 @@ fn ink_within(
 }
 
 /// The panel draws its heading and its rows, and a hidden panel draws nothing.
+/// The middle of one tab in the strip, in logical pixels.
+///
+/// `chrome`'s `PANEL_WIDTH` divided by the number of tabs, which is what `Sidebar::draw` does —
+/// written out here rather than exported, because a test that computed the position with the
+/// code under test would follow it into any mistake. **Update the divisor when a tab is added**:
+/// two tests failed the day §12.3.4's arrived, on a hard-coded 100.0 that had meant "the second
+/// of four" and came to mean "the second of five".
+fn tab(index: usize) -> f32 {
+    #[expect(clippy::cast_precision_loss, reason = "one of five tabs")]
+    let middle = (index as f32 + 0.5) / 5.0;
+    300.0 * middle
+}
+
 #[test]
 fn the_panel_puts_ink_on_the_rows_it_lists() {
     let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
@@ -153,7 +167,7 @@ fn a_click_lands_on_the_row_it_was_aimed_at() {
     // rather than passed on — a click falling through would start a text selection on a page
     // nobody can see.
     assert_eq!(
-        panel.click((40.0, 8.0), only(&outline), 1.0),
+        panel.click((tab(0), 8.0), only(&outline), 1.0),
         Some(Hit::Redraw)
     );
 
@@ -276,12 +290,13 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
         attachments: &[],
         information: &NOTHING,
         metadata_stream: false,
+        pages: &[],
     };
     let mut panel = Sidebar::default();
     panel.toggle();
-    // The second of three tabs.
+    // The Layers tab, third of five.
     assert_eq!(
-        panel.click((100.0, 8.0), content, 1.0),
+        panel.click((tab(2), 8.0), content, 1.0),
         Some(Hit::Redraw),
         "the Layers tab"
     );
@@ -327,11 +342,12 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         attachments: &[],
         information: &NOTHING,
         metadata_stream: false,
+        pages: &[],
     };
     let mut panel = Sidebar::default();
     panel.toggle();
     assert_eq!(
-        panel.click((170.0, 8.0), empty, 1.0),
+        panel.click((tab(3), 8.0), empty, 1.0),
         Some(Hit::Redraw),
         "the Files tab"
     );
@@ -355,6 +371,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         attachments: &files,
         information: &NOTHING,
         metadata_stream: false,
+        pages: &[],
     };
     assert!(ink(&panel.draw(&chrome, listed, HEIGHT, 1.0), 26..46) > 40);
     // The row's click is §7.11.4 from a person's side: the bytes are inside the document, and
@@ -440,12 +457,13 @@ fn the_document_tab_shows_table_349_and_names_the_xmp_it_does_not_read() {
         attachments: &[],
         information: &information,
         metadata_stream: false,
+        pages: &[],
     };
     let mut panel = Sidebar::default();
     panel.toggle();
     // The fourth of four tabs.
     assert_eq!(
-        panel.click((260.0, 8.0), stated, 1.0),
+        panel.click((tab(4), 8.0), stated, 1.0),
         Some(Hit::Redraw),
         "the About tab"
     );
@@ -464,6 +482,7 @@ fn the_document_tab_shows_table_349_and_names_the_xmp_it_does_not_read() {
 
     let with_xmp = Content {
         metadata_stream: true,
+        pages: &[],
         ..stated
     };
     assert!(
@@ -475,7 +494,77 @@ fn the_document_tab_shows_table_349_and_names_the_xmp_it_does_not_read() {
     let silent = Content {
         information: &NOTHING,
         metadata_stream: false,
+        pages: &[],
         ..stated
     };
     assert!(ink(&panel.draw(&chrome, silent, HEIGHT, 1.0), 26..46) > 40);
+}
+
+/// §12.3.4's tab draws the miniature the page states, and a click on it shows that page.
+///
+/// > A PDF document may contain thumbnail images representing the contents of its pages in
+/// > miniature form.
+///
+/// The clause states no size for one, no placement and no list — those are this program's, and
+/// what the assertion pins is that the *image* reaches the display list rather than only its
+/// label: the ink is counted inside the picture box, above the row's own line of text, and a
+/// page with no `/Thumb` is still a row because §12.3.4's NOTE says thumbnails "are not
+/// required, and can be included for some pages and not for others".
+#[test]
+fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let outline = Outline::default();
+    // A four-sample chequer stands in for a page's miniature: what is under test is that an
+    // image reaches the list at all, and a fixture whose samples are known makes the ink exact.
+    let image = pdf_render::Image {
+        width: 2,
+        height: 2,
+        data: std::sync::Arc::from(
+            [
+                0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 255,
+            ]
+            .as_slice(),
+        ),
+        interpolate: false,
+    };
+    let pages = [
+        viewer_ui::chrome::Page {
+            label: "i".to_owned(),
+            thumbnail: Some(image),
+        },
+        viewer_ui::chrome::Page {
+            label: "ii".to_owned(),
+            thumbnail: None,
+        },
+    ];
+    let content = Content {
+        outline: &outline,
+        layers: &[],
+        attachments: &[],
+        information: &NOTHING,
+        metadata_stream: false,
+        pages: &pages,
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    assert_eq!(
+        panel.click((tab(1), 8.0), content, 1.0),
+        Some(Hit::Redraw),
+        "the Pages tab"
+    );
+
+    // The first row is seven row heights tall — the picture, then its label on the last line —
+    // so the miniature is in the rows above that line and the second page's row is below it.
+    let drawn = panel.draw(&chrome, content, HEIGHT, 1.0);
+    assert!(
+        ink(&drawn, 30..130) > 200,
+        "the miniature is drawn, not only its label"
+    );
+
+    // A click on the first row shows the first page, and one on the second shows the second.
+    assert_eq!(panel.click((150.0, 60.0), content, 1.0), Some(Hit::GoTo(0)));
+    assert_eq!(
+        panel.click((150.0, 170.0), content, 1.0),
+        Some(Hit::GoTo(1))
+    );
 }

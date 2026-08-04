@@ -70,6 +70,13 @@ const INDENT: f32 = 14.0;
 /// item, and closed items are the ones with something to disclose.
 const MARKER: f32 = 14.0;
 
+/// How tall a row carrying §12.3.4's thumbnail is, in row heights.
+///
+/// A choice: seven row heights is about 140 logical pixels of picture, which shows a portrait
+/// page's miniature at roughly the size a producer writes one — Table 87's examples are a few
+/// score samples on a side — with a line of text under it for the page's label.
+const THUMBNAIL_UNITS: usize = 7;
+
 /// How tall the tab strip is, in logical pixels.
 const TABS: f32 = TEXT_SIZE * ROW_HEIGHT + 6.0;
 
@@ -345,6 +352,8 @@ enum Act {
     Activate(ObjectId),
     /// §7.11.4: take this embedded file's bytes out, by its `/EmbeddedFiles` key.
     Extract(String),
+    /// §12.3.4: show this page, by its zero-based index.
+    GoTo(usize),
 }
 
 /// One drawn line of a panel.
@@ -366,6 +375,15 @@ struct Row {
     act: Act,
     /// §8.11's group, where the marker is a switch.
     group: Option<ObjectId>,
+    /// How tall the row is, in row heights.
+    ///
+    /// One for every row of text, which is every row this panel drew before §12.3.4's thumbnails
+    /// arrived. A picture needs more than a line of text, and expressing that as a *multiple*
+    /// rather than as a pixel height keeps the scroll arithmetic integral: a list's extent is the
+    /// sum of its units, and the row under a point is found by walking them.
+    units: usize,
+    /// §12.3.4's thumbnail, drawn inside the row's box above the label.
+    image: Option<pdf_render::Image>,
 }
 
 impl Row {
@@ -380,6 +398,8 @@ impl Row {
             marker: Marker::None,
             act: Act::None,
             group: None,
+            units: 1,
+            image: None,
         }
     }
 }
@@ -390,6 +410,8 @@ pub enum Tab {
     /// §12.3.3's outline.
     #[default]
     Contents,
+    /// §12.3.4's thumbnail images, one row per page.
+    Pages,
     /// §8.11.4.3's `/Order`.
     Layers,
     /// §7.11.4's embedded files.
@@ -399,13 +421,20 @@ pub enum Tab {
 }
 
 impl Tab {
-    /// The four, in the order they are drawn.
-    const ALL: [Self; 4] = [Self::Contents, Self::Layers, Self::Files, Self::Document];
+    /// The five, in the order they are drawn.
+    const ALL: [Self; 5] = [
+        Self::Contents,
+        Self::Pages,
+        Self::Layers,
+        Self::Files,
+        Self::Document,
+    ];
 
     /// What the tab says.
     const fn label(self) -> &'static str {
         match self {
             Self::Contents => "Contents",
+            Self::Pages => "Pages",
             Self::Layers => "Layers",
             Self::Files => "Files",
             Self::Document => "About",
@@ -416,9 +445,10 @@ impl Tab {
     const fn index(self) -> usize {
         match self {
             Self::Contents => 0,
-            Self::Layers => 1,
-            Self::Files => 2,
-            Self::Document => 3,
+            Self::Pages => 1,
+            Self::Layers => 2,
+            Self::Files => 3,
+            Self::Document => 4,
         }
     }
 }
@@ -440,6 +470,21 @@ pub struct Content<'a> {
     pub information: &'a pdf_model::metadata::Information,
     /// Whether the catalog names §14.3.2's metadata stream, which nothing here reads.
     pub metadata_stream: bool,
+    /// One entry per page, for §12.3.4's tab: its label and its thumbnail where it has one.
+    ///
+    /// Built by the host rather than queried here, and **only while that tab is open**: a
+    /// thumbnail is a decoded image, `viewer_core::Query::Thumbnail` answers one page at a time,
+    /// and a thousand-page document would otherwise decode a thousand miniatures to draw eight.
+    pub pages: &'a [Page],
+}
+
+/// One page, as §12.3.4's tab shows it.
+#[derive(Debug, Clone)]
+pub struct Page {
+    /// What the row says: §12.4.2's label where the document states one, else the number.
+    pub label: String,
+    /// The decoded thumbnail, where the page states a `/Thumb` this program could read.
+    pub thumbnail: Option<pdf_render::Image>,
 }
 
 /// What a click on the sidebar asked for.
@@ -449,6 +494,12 @@ pub enum Hit {
     Activate(ObjectId),
     /// §7.11.4: take this embedded file's bytes out, by its `/EmbeddedFiles` key.
     Extract(String),
+    /// §12.3.4: show this page, by its zero-based index.
+    ///
+    /// A page index rather than an object, unlike the outline's [`Self::Activate`]: §12.3.4's
+    /// thumbnail "represent[s] the contents of its page", and the page is already numbered — so
+    /// there is no destination to resolve and nothing for the document to decide.
+    GoTo(usize),
     /// §8.11: switch an optional content group on or off.
     SetGroup {
         /// Which group.
@@ -477,7 +528,7 @@ pub struct Sidebar {
     /// and this records only what a person changed.
     toggled: std::collections::BTreeSet<usize>,
     /// How far each list is scrolled, in logical pixels, never negative.
-    scroll: [f32; 4],
+    scroll: [f32; 5],
     /// Which row the pointer is over, for the hover highlight.
     hovered: Option<usize>,
 }
@@ -502,6 +553,16 @@ impl Sidebar {
         }
     }
 
+    /// Whether §12.3.4's tab is the one showing.
+    ///
+    /// Asked by the host before it builds the page list, because that list means decoding every
+    /// thumbnail the document carries and a document opens at a page rather than at a contact
+    /// sheet.
+    #[must_use]
+    pub const fn shows_pages(&self) -> bool {
+        self.shown && matches!(self.tab, Tab::Pages)
+    }
+
     /// Shows or hides the sidebar.
     pub fn toggle(&mut self) {
         self.shown = !self.shown;
@@ -523,7 +584,10 @@ impl Sidebar {
             reason = "a row count and a window height, both thousands at most"
         )]
         let (rows, tall) = (
-            self.rows(content).len() as f32,
+            self.rows(content)
+                .iter()
+                .map(|row| row.units)
+                .sum::<usize>() as f32,
             height as f32 / scale.max(0.01),
         );
         let furthest = (rows * (TEXT_SIZE * ROW_HEIGHT) - (tall - TABS)).max(0.0);
@@ -596,6 +660,7 @@ impl Sidebar {
         Some(match row.act {
             Act::Activate(object) => Hit::Activate(object),
             Act::Extract(name) => Hit::Extract(name),
+            Act::GoTo(page) => Hit::GoTo(page),
             Act::None => Hit::Nothing,
         })
     }
@@ -610,16 +675,21 @@ impl Sidebar {
         if offset < 0.0 {
             return None;
         }
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "a row index derived from a non-negative pixel offset"
-        )]
-        let index = (offset / row_height) as usize;
-        self.rows(content)
-            .into_iter()
-            .nth(index)
-            .map(|row| (index, row))
+        // Walked rather than divided, because a row is as many row heights tall as its
+        // `units` says and §12.3.4's thumbnails are the reason there is more than one kind.
+        let mut top = 0.0_f32;
+        for (index, row) in self.rows(content).into_iter().enumerate() {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a row's height in row units, which is one or a handful"
+            )]
+            let bottom = top + row.units as f32 * row_height;
+            if offset < bottom {
+                return Some((index, row));
+            }
+            top = bottom;
+        }
+        None
     }
 
     /// Whether an outline item's children are shown.
@@ -662,6 +732,24 @@ impl Sidebar {
                 }
                 if out.is_empty() {
                     out.push(nothing("This document embeds no files."));
+                }
+            }
+            Tab::Pages => {
+                for (index, page) in content.pages.iter().enumerate() {
+                    let mut row = Row::plain(0, page.label.clone());
+                    row.act = Act::GoTo(index);
+                    // A page with no thumbnail is still a row: §12.3.4's NOTE says they "are not
+                    // required, and can be included for some pages and not for others", so a
+                    // panel that listed only the pages that have one would be a list of the
+                    // document's *thumbnails* rather than of its pages.
+                    if let Some(image) = page.thumbnail.clone() {
+                        row.units = THUMBNAIL_UNITS;
+                        row.image = Some(image);
+                    }
+                    out.push(row);
+                }
+                if out.is_empty() {
+                    out.push(nothing("This document has no pages."));
                 }
             }
             Tab::Document => property_rows(content, &mut out),
@@ -710,6 +798,8 @@ impl Sidebar {
                 // is a URI and silently drop the second.
                 act: Act::Activate(item.id),
                 group: None,
+                units: 1,
+                image: None,
             });
             if item.children.is_empty() {
                 continue;
@@ -755,17 +845,32 @@ impl Sidebar {
         let size = TEXT_SIZE * scale;
         let strip = TABS * scale;
         let row_height = TEXT_SIZE * ROW_HEIGHT * scale;
+        let mut next = strip - self.scrolled() * scale;
         for (index, row) in self.rows(content).into_iter().enumerate() {
+            let top = next;
             #[expect(
                 clippy::cast_precision_loss,
-                reason = "a row index, bounded by the list's own length"
+                reason = "a row's height in row units, which is one or a handful"
             )]
-            let top = strip + index as f32 * row_height - self.scrolled() * scale;
-            if top + row_height < strip || top > tall {
+            let tall_row = row.units as f32 * row_height;
+            next = top + tall_row;
+            if top + tall_row < strip || top > tall {
                 continue;
             }
             if self.hovered == Some(index) {
-                rectangle(&mut list, (0.0, top, width - scale, row_height), HOVER);
+                rectangle(&mut list, (0.0, top, width - scale, tall_row), HOVER);
+            }
+            // §12.3.4's miniature, above its own label and inside the row's box. Scaled to fit
+            // the width the panel has, never magnified: the entry is "a small image … of the
+            // page's appearance", and a thumbnail blown up past its own grid is a blur claiming
+            // to be a page.
+            if let Some(image) = row.image {
+                draw_thumbnail(
+                    &mut list,
+                    &image,
+                    (0.0, top, width, tall_row - row_height),
+                    scale,
+                );
             }
             #[expect(
                 clippy::cast_precision_loss,
@@ -775,13 +880,16 @@ impl Sidebar {
             draw_marker(
                 &mut list,
                 row.marker,
-                (indent - MARKER * 0.5 * scale, top + row_height * 0.5),
+                (
+                    indent - MARKER * 0.5 * scale,
+                    top + tall_row - row_height * 0.5,
+                ),
                 scale,
             );
             // Clipped by measurement rather than by a clip path: the label is truncated to what
             // fits and an ellipsis says so, which is what a list of sentences needs. A clip would
             // cut a letter in half and say nothing.
-            let baseline = top + row_height * 0.7;
+            let baseline = top + tall_row - row_height * 0.3;
             let room = width - indent - 8.0 * scale;
             let label = elide(chrome, &row.label, size, row.style, room);
             let after = chrome.text(
@@ -815,22 +923,38 @@ impl Sidebar {
         // The tab strip is drawn *last*, over its own background: a scrolled row's top half would
         // otherwise appear above the separator, which is what the first run of this panel did.
         // A clip would do the same job and would cut the letters in half rather than hide them.
-        rectangle(&mut list, (0.0, 0.0, width, strip - scale), BACKGROUND);
+        self.draw_tabs(&mut list, chrome, width, size, scale);
+        rectangle(&mut list, (0.0, strip - scale, width, scale), EDGE);
+        rectangle(&mut list, (width - scale, 0.0, scale, tall), EDGE);
+        list
+    }
+
+    /// The strip of tab labels across the top, with the current one lit.
+    fn draw_tabs(
+        &self,
+        list: &mut DisplayList,
+        chrome: &Chrome,
+        width: f32,
+        size: f32,
+        scale: f32,
+    ) {
+        let strip = TABS * scale;
+        rectangle(list, (0.0, 0.0, width, strip - scale), BACKGROUND);
         #[expect(
             clippy::cast_precision_loss,
-            reason = "the number of tabs, which is four"
+            reason = "the number of tabs, which is five"
         )]
         let each = width / Tab::ALL.len() as f32;
         for (index, tab) in Tab::ALL.into_iter().enumerate() {
-            #[expect(clippy::cast_precision_loss, reason = "one of three tabs")]
+            #[expect(clippy::cast_precision_loss, reason = "one of five tabs")]
             let left = index as f32 * each;
             if tab == self.tab {
-                rectangle(&mut list, (left, 0.0, each, strip - scale), HOVER);
+                rectangle(list, (left, 0.0, each, strip - scale), HOVER);
             }
             let label = tab.label();
             let centred = left + (each - chrome.width(label, size, Style::default())) * 0.5;
             chrome.text(
-                &mut list,
+                list,
                 label,
                 (centred, strip - 10.0 * scale),
                 size,
@@ -841,9 +965,6 @@ impl Sidebar {
                 Color::BLACK,
             );
         }
-        rectangle(&mut list, (0.0, strip - scale, width, scale), EDGE);
-        rectangle(&mut list, (width - scale, 0.0, scale, tall), EDGE);
-        list
     }
 }
 
@@ -851,7 +972,7 @@ impl Sidebar {
 fn tab_at(x: f32, scale: f32) -> Tab {
     #[expect(
         clippy::cast_precision_loss,
-        reason = "the number of tabs, which is four"
+        reason = "the number of tabs, which is five"
     )]
     let each = (PANEL_WIDTH * scale) / Tab::ALL.len() as f32;
     #[expect(
@@ -1016,6 +1137,66 @@ fn layer_rows(layers: &[Layer], depth: usize, out: &mut Vec<Row>) {
 }
 
 /// A row's left-edge marker.
+/// Draws §12.3.4's thumbnail inside a row's picture box, fitted and centred.
+///
+/// > A PDF document may contain thumbnail images representing the contents of its pages in
+/// > miniature form.
+///
+/// The clause states no size for one and no rule for placing it, so both are this program's: the
+/// miniature is fitted to the box, kept to its own aspect ratio, and centred.
+///
+/// **Fitted rather than drawn at its own sample size**, which is a choice and was made the other
+/// way first. A thumbnail is typically a few score samples on a side and this box is a hundred
+/// and twenty logical pixels tall: at 1:1 the panel shows a stamp in the middle of a lot of
+/// background, which tells a person less about the page than the row's label already does. What
+/// it costs is a magnification of about two, and §8.9.5.3 is where the file gets a say in how
+/// that looks — `/Interpolate` is "an attempt to produce a smooth transition between adjacent
+/// sample values when rendering an image whose resolution is significantly lower than that of
+/// the output device", which is exactly this, and the backends already honour it.
+fn draw_thumbnail(
+    list: &mut DisplayList,
+    image: &pdf_render::Image,
+    box_of: (f32, f32, f32, f32),
+    scale: f32,
+) {
+    let (left, top, width, height) = box_of;
+    if image.width == 0 || image.height == 0 || width <= 0.0 || height <= 0.0 {
+        return;
+    }
+    let margin = 6.0 * scale;
+    let (room_x, room_y) = (width - margin * 2.0, height - margin);
+    if room_x <= 0.0 || room_y <= 0.0 {
+        return;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a thumbnail's sample count, which §12.3.4 makes miniature"
+    )]
+    let (w, h) = (image.width as f32, image.height as f32);
+    let factor = (room_x / w).min(room_y / h);
+    let (drawn_w, drawn_h) = (w * factor, h * factor);
+    let x = left + (width - drawn_w) * 0.5;
+    let y = top + margin + (room_y - drawn_h) * 0.5;
+    // The unit square carries an image with its top row at unit y = 1 (§8.9.5), so placing the
+    // top row at the box's own top takes a flip — the same composition `render-quorra`'s
+    // presenter makes for a CPU raster.
+    list.push(Command::Image {
+        image: image.clone(),
+        transform: Transform {
+            a: drawn_w,
+            b: 0.0,
+            c: 0.0,
+            d: -drawn_h,
+            e: x,
+            f: y + drawn_h,
+        },
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: pdf_render::BlendMode::Normal,
+    });
+}
+
 fn draw_marker(list: &mut DisplayList, marker: Marker, centre: (f32, f32), scale: f32) {
     let (cx, cy) = centre;
     match marker {

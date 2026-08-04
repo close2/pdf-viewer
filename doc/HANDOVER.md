@@ -59,8 +59,10 @@ compiled-in Helvetica and a `pdf-render` display list so that both backends draw
 outline, where a click **activates the item** and the document decides whether that is a jump or
 a URI; §8.11.4.3's layers, where a switch turns one on unless Table 99's `/Locked` forbids it;
 §7.11.4's embedded files, where a click writes the file beside the document; and §14.3.3's
-`/Info`. `?` puts `/NOTICE` over the page in Courier. **The document chooses what opens**: Table
-29's `/PageMode` names a panel and three of its six values now name one that exists, and §12.2's
+`/Info`. **A fifth tab arrived in the two-hundred-and-sixty-first**: §12.3.4's thumbnails, one row
+per page with the miniature fitted above §12.4.2's label, where a click shows that page. `?` puts
+`/NOTICE` over the page in Courier. **The document chooses what opens**: Table
+29's `/PageMode` names a panel and four of its six values now name one that exists, and §12.2's
 `/DisplayDocTitle` puts the document's own title in the title bar. §12.6.3's trigger events are
 raised by the pointer at last. Four clauses closed on it — §12.3.3, §7.11.4, §7.11.4.1 and
 §14.3.3 — and three of the four had a ledger row whose reason was "this program has no ___".
@@ -75,7 +77,8 @@ them, with no type from a windowing or graphics library anywhere in its API. Two
 quadrilaterals they cover (ADR 0134); what is left is a host that hands them to AccessKit. It
 *advances* a slide show since the hundred-and-fiftieth (`Command::Tick`, ADR 0135) and does not
 *animate* one: the transition is named and a host with a clock draws its frames. **It draws a
-sidebar since the hundred-and-sixty-sixth and -seventh** — §12.3.3's outline, §8.11.4.3's layers
+sidebar since the hundred-and-sixty-sixth and -seventh** — §12.3.3's outline, §12.3.4's
+thumbnails, §8.11.4.3's layers
 with their switches, and §7.11.4's embedded files, in `viewer-ui`'s own chrome, with `pdf-font`'s
 compiled-in Helvetica and a `pdf-render` display list, so both backends draw it. A click on an
 outline title sends `Command::Activate` and the *document* decides what that means — a jump, a
@@ -83,14 +86,14 @@ URI, a layer, whatever §12.6.2's chain says; a click on a layer's switch sends
 `Command::SetGroup` and the page redraws, which is §8.11's interactive half working for the first
 time; and a click on an embedded file sends `Command::Extract`, so the bytes come out decoded
 with Table 45's checksum checked against them (§7.11.4, ADR 0145). **The document chooses which
-tab is open**: Table 29's `/PageMode` names a panel, and three of its six values now name one
-that exists (ADR 0146).
+tab is open**: Table 29's `/PageMode` names a panel, and four of its six values now name one
+that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-first).
 
 ### The six gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **991** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | everything above re-run in the **two-hundred-and-forty-ninth**: eight fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| tests | **992** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | everything above re-run in the **two-hundred-and-forty-ninth**: eight fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **883 draw with nothing reported**, **76 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **854 agree**, **68 contradicted**, 749 ambiguous — **260 of them diagnosed and 489 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
@@ -2591,3 +2594,4 @@ above rather than here.
 | 258 | `/Helv` is not an arbitrary name: fourteen `/DA` abbreviations, and a no-break space | — |
 | 259 | The ambiguous ranking's head: one level of green over a third of a page, and ours is the arithmetic | — |
 | 260 | The next two off the ranking: an image reduced by four, and one line of ideographs | — |
+| 261 | §12.3.4's thumbnail panel: a fifth tab, and `/PageMode /UseThumbs` names something at last | — |

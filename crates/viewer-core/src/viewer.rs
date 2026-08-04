@@ -114,6 +114,12 @@ impl Viewer {
             Query::Attachments => {
                 Answer::Attachments(pdf_model::attachment::attachments(&open.document))
             }
+            Query::PageLabel(index) => label(open, index).map_or(Answer::None, Answer::Label),
+            Query::Thumbnail(index) => pdf_model::Pages::new(&open.document)
+                .get(index)
+                .and_then(|page| pdf_model::thumbnail::read(&open.document, &page.dict))
+                .and_then(Result::ok)
+                .map_or(Answer::None, Answer::Thumbnail),
             Query::LinkAt(at) => Answer::Link(
                 self.user_space(open, at)
                     .and_then(|(x, y)| interact::link_at(open, x, y))

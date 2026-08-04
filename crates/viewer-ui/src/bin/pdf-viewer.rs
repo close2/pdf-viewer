@@ -193,6 +193,7 @@ fn main() {
         about: About::default(),
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
+        pages: Vec::new(),
         information: pdf_model::metadata::Information::default(),
         metadata_stream: false,
         state: None,
@@ -335,6 +336,15 @@ struct App {
     information: pdf_model::metadata::Information,
     /// Whether the catalog names a `/Metadata` stream.
     metadata_stream: bool,
+    /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
+    ///
+    /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:
+    /// §12.3.4's NOTE says thumbnails "are not required, and can be included for some pages and
+    /// not for others", so building this list means decoding every miniature a document carries,
+    /// and a document opens at a page rather than at a contact sheet. Filled once and kept,
+    /// because a thumbnail is a property of an immutable document — the same argument the
+    /// outline and the attachments are cached under, and exactly not the layers'.
+    pages: Vec<viewer_ui::chrome::Page>,
     state: Option<State>,
 }
 
@@ -492,10 +502,7 @@ impl App {
             PageMode::UseOutlines => self.panel.show(Tab::Contents),
             PageMode::UseOptionalContent => self.panel.show(Tab::Layers),
             PageMode::UseAttachments => self.panel.show(Tab::Files),
-            PageMode::UseThumbs => println!(
-                "note: this document asks for §12.3.4's thumbnail panel, which this program \
-                 does not draw"
-            ),
+            PageMode::UseThumbs => self.panel.show(Tab::Pages),
             PageMode::FullScreen => println!(
                 "note: this document asks to open full screen (§7.7.2), which is chrome this \
                  program does not have"
@@ -540,7 +547,35 @@ impl App {
             attachments: &self.attachments,
             information: &self.information,
             metadata_stream: self.metadata_stream,
+            pages: &self.pages,
         }
+    }
+
+    /// Builds §12.3.4's page list, once, the first time its tab is shown.
+    ///
+    /// Called from `present`, which is the one place that runs before the panel is drawn and
+    /// holds `&mut self`. A document with no thumbnails at all still gets a list — the rows are
+    /// its pages, and §12.3.4's NOTE is why a page without one is still a page.
+    fn ensure_pages(&mut self) {
+        if !self.panel.shows_pages() || !self.pages.is_empty() {
+            return;
+        }
+        let Answer::Count(count) = self.viewer.query(Query::PageCount) else {
+            return;
+        };
+        self.pages = (0..count)
+            .map(|index| {
+                let label = match self.viewer.query(Query::PageLabel(index)) {
+                    Answer::Label(label) => label,
+                    _ => format!("Page {}", index.saturating_add(1)),
+                };
+                let thumbnail = match self.viewer.query(Query::Thumbnail(index)) {
+                    Answer::Thumbnail(thumbnail) => Some(thumbnail.image),
+                    _ => None,
+                };
+                viewer_ui::chrome::Page { label, thumbnail }
+            })
+            .collect();
     }
 
     /// What the pointer moving does: the panel's highlight, or the page's §12.5.5 appearance.
@@ -564,6 +599,7 @@ impl App {
                 attachments: &self.attachments,
                 information: &self.information,
                 metadata_stream: self.metadata_stream,
+                pages: &self.pages,
             },
             scale,
         );
@@ -636,6 +672,7 @@ impl App {
                 attachments: &self.attachments,
                 information: &self.information,
                 metadata_stream: self.metadata_stream,
+                pages: &self.pages,
             },
             scale,
         );
@@ -646,6 +683,9 @@ impl App {
             // §8.11.2.2: switching a group re-decides what the page draws, so this goes to the
             // core and comes back as a render rather than as a repaint of the panel.
             Some(Hit::SetGroup { group, on }) => self.dispatch(Command::SetGroup { group, on }),
+            // §12.3.4: a click on a page's miniature shows that page. A page index rather than
+            // a destination — the thumbnail *is* the page, so there is nothing to resolve.
+            Some(Hit::GoTo(page)) => self.dispatch(Command::GoTo(PageTarget::Index(page))),
             Some(Hit::Redraw) => self.redraw(),
             Some(Hit::Nothing) | None => {}
         }
@@ -724,6 +764,7 @@ impl App {
                     attachments: &self.attachments,
                     information: &self.information,
                     metadata_stream: self.metadata_stream,
+                    pages: &self.pages,
                 },
                 height,
                 scale,
@@ -1020,6 +1061,9 @@ impl App {
     }
 
     fn present(&mut self) -> Option<Rendered> {
+        // §12.3.4's list is built here and nowhere else: this is the one place that holds
+        // `&mut self` and runs before the panel is drawn.
+        self.ensure_pages();
         let request = self.request.clone()?;
         // Where the page sits in the window: the core centres it and scrolls it, and the host
         // draws it there by composing that offset into the target's own transform.
