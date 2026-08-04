@@ -36,15 +36,18 @@ Whether *this* tree can defer that is a question about `xref.rs`'s `Option<Locat
 0100), and the answer changes what `was_recovered` and the writer can promise — so it is a design
 question, not a micro-optimisation.
 
-### 2. `Outline::read` — 6.716 ms for **38 items**
+### 2. `Outline::read` — 3.35 to 6.61 ms for **988 items**
 
-0.18 ms per outline item, on a document whose whole page tree walks in 0.486 ms. The cost is
-therefore not the reading; something inside resolving an item is doing work proportional to the
-document. **The suspect is the destination**: §12.3.3's item carries a `/Dest` or an `/A`, and
-turning either into a page *index* means finding that page in the tree — per item.
+**This entry said "6.716 ms for 38 items" when it was written, and 38 is `items.len()`** — the top
+level, which for a book is its chapters. 988 items at 3.4 to 6.7 µs apiece is one indirect object
+fetch and a text-string decode each, which is proportionate; the example prints both counts now.
 
-This is the cheapest of the four to take and the one with a clause behind it (§12.3.3, §12.3.2.2's
-named destinations, §7.9.6's name trees).
+So this is not a defect and the item is **eagerness** rather than cost: 3 to 7 ms of a launch is
+spent reading a panel nobody has opened. §12.3.4's thumbnails are already deferred to the first
+time their tab is shown, with the argument written down; the outline is not, and the reason it is
+not is a real one — `Open::around` needs it for the title bar's section (`Outline::section_at`)
+before the first frame. **The question to settle is whether the section is worth 3 to 7 ms at
+launch**, or whether it should arrive on the frame after the page.
 
 ### 3. `signature::signatures` — 1.681 ms on a document with **no signatures**
 
@@ -60,10 +63,14 @@ work sitting in front of the window that the device waits for. Hoisting `wgpu::I
 a thread started at `main`'s first line would hide up to ~20 ms of it.
 
 **That needs quorra's agreement**, because `Device::for_surface` creates the instance itself:
-either an `Options::instance` or a `Device::for_surface_with(instance, …)`. It belongs in
-`doc/QUORRA_FEEDBACK.md` with a measurement, and the measurement is the one in ADR 0179's second
-table — including the part that says *`request_adapter` cannot be hoisted*, because it takes the
-surface, so the honest claim is "up to the instance's share" and not "up to the bring-up's".
+either an `Options::instance` or a `Device::for_surface_with(instance, …)`. **Asked for, with the
+measurement, in `doc/QUORRA_FEEDBACK.md` §8.2** — `bring_up overlap` puts it at 44.4–50.0 ms one
+after the other against 22.9–28.9 both at once — along with §8.1's field split, because the one
+number quorra reports as `adapter_enumeration` is three steps with different causes. What is
+*not* asked for is a backend knob: §8.3 records having measured it and found the total invariant.
+
+`request_adapter` cannot be hoisted either way — it takes the surface — so the honest claim is
+"up to the instance's share" and not "up to the bring-up's".
 
 ## What is deliberately not here
 

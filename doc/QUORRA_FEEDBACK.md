@@ -9,6 +9,11 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
+**§8 is open**, added in the two-hundred-and-seventy-fourth session: it is a request rather than a
+defect, and it exists because the project owner's decision that page one goes to the graphics
+device put your bring-up on this viewer's critical path. Two entry points and one field split;
+there is also a knob it explicitly does *not* ask for, with the measurement that says why.
+
 **Where it stands, at the page's own scale:**
 
 | | first run | now |
@@ -252,3 +257,84 @@ refused frame's recovery by this. Nothing is owed on this side; the CPU fallback
 the same overlay lists, so an over-budget *overlay* leaves the page not updating rather than the
 window dying — which is a visible consequence with a live window behind it, and no longer a defect
 worth a file.
+
+---
+
+## 8. Bring-up is on the critical path now, and a host cannot see into it or start it early
+
+**New in this viewer's two-hundred-and-seventy-fourth session, and it is a request rather than a
+defect.** The project owner decided one session earlier that **page one goes to the graphics
+device**: no CPU first frame, no probe, no `wait_until_warm`. `CLAUDE.md` records what follows as
+an obligation — "creating the device and compiling the pipelines is now part of time-to-first-page,
+so it is a number to measure and to keep small" — and this side now measures the whole launch as a
+timeline (ADR 0179). On this machine, under `Xvfb` with `lavapipe`:
+
+```text
+trace: launch path, process start to first present:
+trace:   document read             8.079 ms  (+8.065)
+trace:   chrome fonts              9.457 ms  (+1.378)
+trace:   document open            37.225 ms  (+27.768)
+trace:   event loop               45.236 ms  (+8.011)
+trace:   window                   45.392 ms  (+0.156)
+trace:   graphics device          90.519 ms  (+45.127)
+trace:   first present           144.609 ms  (+54.090)
+```
+
+**Bring-up is 31% of it**, and `StartupTimings` is what this side has to reason with. Two things
+would help, and one thing that looks like it would does not.
+
+### 8.1 `adapter_enumeration` names one step and measures three
+
+`Device::build` takes `started` from *before* `wgpu::Instance::new` in both constructors, so the
+figure a host reads as `adapter_enumeration` is instance creation **plus** surface creation
+**plus** `select_adapter`. Measured with `wgpu` directly, one measurement per process — three
+processes each, on this machine's three adapters (RADV, `llvmpipe`, `radeonsi`):
+
+| backends | `Instance::new` | `request_adapter` | `request_device` | total |
+|---|---|---|---|---|
+| all | 21–32 ms | 34–36 ms | 1.7 ms | 57–70 ms |
+| Vulkan only | 9–16 ms | 39–43 ms | 1.7–2.8 ms | 55–57 ms |
+
+So the one number quorra reports is split roughly two-to-three between two steps with completely
+different causes — one is the driver loader, the other is physical-device enumeration — and a host
+watching it for a regression cannot say which moved. **The ask is three fields where there is one**
+(`instance_creation`, `surface_creation`, `adapter_selection`), or, at minimum, starting the clock
+after `Instance::new` so that the name is true.
+
+`crates/render-quorra/examples/bring_up.rs` in this tree is the measurement, and it is offered as
+much for its own first version's mistake as for its numbers: it created two instances in one
+process and reported 26.0 ms against 4.4 ms for the same work in the other order, which is entirely
+the driver loader being warm the second time. **One configuration per process.**
+
+### 8.2 An instance needs no window, and a host cannot supply one
+
+`Device::for_surface` creates the instance itself. That is the right default and it costs this
+side the one lever the numbers above actually offer: **instance creation needs no surface, no
+window and no event loop**, so it can be done on a thread started at `main`'s first line, while the
+document is being read and the window created. Today it happens after both, because it happens
+inside the constructor that takes the window.
+
+Measured, same recipe, four processes (`bring_up overlap`): opening ISO 32000-2 — 13 MB, 1023
+pages, 101 318 objects, `Document::open` + `Pages::new` + `Outline::read` — and creating a wgpu
+instance, one after the other against both at once:
+
+| | |
+|---|---|
+| document then instance | 44.4 / 46.1 / 49.7 / 50.0 ms |
+| both at once | 22.9 / 27.0 / 28.9 / 28.9 ms |
+
+**About 20 ms of a 145 ms launch, and it needs one entry point.** Either `Options::instance:
+Option<wgpu::Instance>`, or a `Device::for_surface_with(instance, window, options)` beside the
+existing one. `wgpu::Instance` is `Send + Sync`, so the thread that made it can hand it over.
+
+What *cannot* be hoisted, and this side is not asking for: `request_adapter` takes
+`compatible_surface`, so it is genuinely downstream of the window. The honest claim is "the
+instance's share", not "bring-up's".
+
+### 8.3 What is **not** a finding: the backend set
+
+The obvious first guess — `Backends::all()` loads the GL backend for nothing on a Vulkan machine —
+is wrong here, and the table in 8.1 is why: restricting the instance to Vulkan halves
+`Instance::new` and gives every millisecond of it back in `request_adapter`. The total is the
+invariant. **So this side is not asking for a backend knob in `Options`**, and would rather record
+having measured it than have the knob added on the strength of a plausible argument.

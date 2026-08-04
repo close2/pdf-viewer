@@ -24,6 +24,17 @@ fn ms(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1e3
 }
 
+/// Every outline item at every level, not `Outline::items.len()`.
+///
+/// The top level of a book's table of contents is its chapters, and the cost is per *item*:
+/// reporting the first as the second is how this example's own first run said "6.7 ms for 38
+/// items" about 988 of them.
+fn outline_items(level: &[pdf_model::outline::Item]) -> usize {
+    level.iter().fold(level.len(), |total, item| {
+        total.saturating_add(outline_items(&item.children))
+    })
+}
+
 fn main() {
     let path = std::env::args()
         .nth(1)
@@ -60,8 +71,9 @@ fn main() {
     let started = Instant::now();
     let outline = pdf_model::outline::Outline::read(&document, &pages);
     println!(
-        "{:8.3} ms  Outline::read   (§12.3.3, {} items)",
+        "{:8.3} ms  Outline::read   (§12.3.3, {} items over {} at the top)",
         ms(started),
+        outline_items(&outline.items),
         outline.items.len()
     );
 

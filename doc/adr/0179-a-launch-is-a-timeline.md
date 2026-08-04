@@ -66,12 +66,21 @@ Under `Xvfb` with `lavapipe`, release, this machine (ADR 0126's recipe):
 
 | step | ISO 32000-2 | 5-page |
 |---|---|---|
-| `Document::open` (§7.5) | **22.235 ms** | 0.202 ms |
-| `Pages::new` (§7.7.3) | 0.486 | 0.031 |
-| `PageLabels::read` (§12.4.2) | 0.338 | 0.018 |
-| `Outline::read` (§12.3.3) | **6.716 ms, for 38 items** | 0.112 |
-| `signature::signatures` (§12.8) | **1.681 ms, for none** | 0.146 |
+| `Document::open` (§7.5) | **12.5 to 22.6 ms** | 0.202 ms |
+| `Pages::new` (§7.7.3) | 0.23 to 0.47 | 0.031 |
+| `PageLabels::read` (§12.4.2) | 0.17 to 0.34 | 0.018 |
+| `Outline::read` (§12.3.3) | **3.35 to 6.61 ms**, 988 items | 0.112, 5 items |
+| `signature::signatures` (§12.8) | **1.55 to 3.70 ms, for none** | 0.146 |
 | everything else | under 0.02 each | under 0.01 |
+
+**Five runs, and the spread is a fact about the machine rather than about the code**: every column
+moves by up to a factor of two together, so a single run is a ranking and not a measurement. The
+ranking is stable across all five.
+
+**And the first version of this table said "6.716 ms for 38 items"**, which is `items.len()` — the
+top level of a book's table of contents, its chapters. There are 988, at 3.4 to 6.7 µs each, and
+the example prints both now. A per-item cost divided by the wrong count is how a proportionate
+number becomes a scandal.
 
 **`CLAUDE.md`'s "a 500-page document must open no slower than a 5-page one" is false today, by a
 factor of thirty-three**, and it was stated as a rule rather than measured as one. The three costs
@@ -93,6 +102,15 @@ and gives all of it back in `request_adapter`: the cost is enumerating the physi
 querying their properties, and it is paid wherever it is first asked for. (The GL row is not an
 option — it is a different renderer's device, and it is here because a row that only shows two
 configurations cannot show that the *total* is the invariant.)
+
+**What is a lever is overlap, and it is not this tree's to pull.** An instance needs no window, so
+it can be created on a thread started at `main`'s first line while the document is read and the
+window made. `bring_up overlap` measures exactly that, four processes: opening ISO 32000-2 and
+creating an instance one after the other costs 44.4 to 50.0 ms, and both at once 22.9 to 28.9 —
+**about 20 ms of a 145 ms launch**. quorra's `Device::for_surface` creates the instance itself, so
+this needs an entry point that takes one, which is `doc/QUORRA_FEEDBACK.md` §8.2 along with the
+field split §8.1 asks for. Told to the team rather than worked around: a host that made its own
+instance and handed it to a library that ignores it would be measuring nothing.
 
 ## Two lessons, both about the instrument
 

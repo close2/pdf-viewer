@@ -27,7 +27,7 @@ something plausible instead).
 | | |
 |---|---|
 | `pdf-render` | The neutral display list and the `Rasterizer` trait. **This is the contract**, and it does not change for you. |
-| `render-cpu` | `tiny-skia`. Our **correctness oracle** and our **startup path**. Not going away. |
+| `render-cpu` | `tiny-skia`. Our **correctness oracle**, and what draws a frame the device refuses. Not going away. (It was our startup path too until the two-hundred-and-seventy-third session, where the project owner decided page one goes to the graphics device; §7 is what that changed.) |
 | `render-gpu` | Vello on wgpu. What a new library would replace. |
 
 **Every number below was measured in this tree**, on an AMD Radeon 890M (RADV, Vulkan) with a
@@ -124,10 +124,12 @@ impl Device {
 }
 ```
 
-**`Device` must be constructible on a background thread and must not need one.** Page one of a
-document renders on the CPU backend while the GPU initialises, which is `CLAUDE.md`'s startup
-rule; a `Device::headless` that blocks a main thread for 200 ms is a design we cannot use even if
-every frame afterwards is free. See §7.
+**`Device` must be constructible on a background thread and must not need one**, and it must
+return before it is warm. **Page one goes to the graphics device** — the project owner decided
+that in the two-hundred-and-seventy-third session — so bring-up is on the critical path by choice
+and a `Device::headless` that blocks for 200 ms delays the first page by 200 ms. This is a
+*stronger* requirement than the one this paragraph used to state, not a weaker one: when the CPU
+drew page one, a slow device was hidden. See §7.
 
 ### 2.2 Resources: uploaded once, referenced many times
 
@@ -554,9 +556,12 @@ cheap, this is nearly free; if either is not, it is impossible.
 
 ## 7. Startup
 
-`CLAUDE.md` makes launch latency a first-class requirement, and it is the reason this project has
-two backends at all: **page one renders on the CPU while the GPU initialises on another thread**,
-and the GPU takes over once ready.
+`CLAUDE.md` makes launch latency a first-class requirement. **This section was rewritten in the
+two-hundred-and-seventy-fourth session and the change matters to you**: it used to say "page one
+renders on the CPU while the GPU initialises on another thread, and the GPU takes over once
+ready". The project owner decided otherwise one session earlier — **page one goes to the graphics
+device** — so nothing hides your bring-up any more. It is measured instead: on this machine, of a
+145 ms launch, 45 ms is `Device::for_surface` (ADR 0179, `doc/QUORRA_FEEDBACK.md` §8).
 
 What we ask of you:
 
@@ -570,7 +575,14 @@ What we ask of you:
   and hand it back next launch, and tell us when it was rejected.
 - **Tell us what startup cost.** `Timings` (§8) for device creation, split into adapter
   enumeration, device creation and pipeline compilation. We will put a number on it in CI and gate
-  regressions, because that is what we do with the numbers we have.
+  regressions, because that is what we do with the numbers we have. **quorra did this and the
+  split is off by one step**: its `adapter_enumeration` is measured from before
+  `wgpu::Instance::new`, so it holds instance creation, surface creation and the adapter request
+  in one figure — two thirds of which is the driver loader rather than anything about adapters.
+  `doc/QUORRA_FEEDBACK.md` §8.1.
+- **Let a host supply the instance.** It needs no window, so it can be created on a thread started
+  before the window exists; a constructor that makes its own denies that. Measured at ~20 ms of a
+  145 ms launch. §8.2.
 
 ---
 
