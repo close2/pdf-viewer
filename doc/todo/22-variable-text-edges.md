@@ -48,3 +48,34 @@ The rest of the clause's edges, none of them reached by any corpus document:
 - §12.7.5.4 states which items of a **list box** are selected and nothing whatever about how that
   looks;
 - `/DS` and `/RV` are XFA, which `CLAUDE.md` excludes.
+
+## Table 231 bit 24's `DoNotScroll`, which is a `shall` and is not implemented
+
+Found by `doc/todo/01`'s second sweep in the three-hundred-and-fourth session, in §12.7.5.3's own
+"Not read:" list, where it had been sitting behind the reason *"constrains typing"* — true when
+written and false since the hundred-and-thirty-fifth session, which is when this program learned
+to fill a field. **A flag that constrains typing binds a program that types.**
+
+> If set, the field shall not scroll (horizontally for single-line fields, vertically for
+> multiple-line fields) to accommodate more text than fits within its annotation rectangle. Once
+> the field is full, no further text shall be accepted for interactive form filling; for
+> non-interactive form filling, the filler should take care not to add more character than will
+> visibly fit in the defined area.
+
+Two sentences, and only the second binds a reader: a `shall` about *accepting* text. This program
+accepts whatever `Edit::SetField` hands it.
+
+**What it costs is a measurement rather than a flag.** `variable_text::lay_out` returns a content
+stream and an `Owed`; it says nothing about how much of the value it placed, so there is no way to
+ask "does this fit" without it reporting where it stopped. That is the change — `LaidOut` gaining
+the byte offset the layout reached — and everything else follows from it: `ViewState::set_field`
+lays the candidate value out for each of the field's widgets and keeps the longest prefix that
+fits, which is what "no further text shall be accepted" means for a host that sends whole values
+rather than keystrokes.
+
+**And it is worth doing after `33`'s caret rather than before**, because a caret is what turns this
+from a truncation into the behaviour the clause describes: a person typing into a full field sees
+nothing happen, which is the point.
+
+Corpus: unmeasured. The count of widgets setting bit 24 is one sweep and belongs in the round that
+takes it.
