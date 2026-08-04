@@ -123,6 +123,19 @@ So the sweep is worth running over a *mechanism* and not only over a quoted stri
 `NoZoom`, `uncoloured`, `ColorTransform` — the noun the correction was about — and read every
 row that holds it.
 
+**And it paid a third time in the two-hundred-and-ninetieth**, on the nouns four rounds had just
+corrected — `notdef`, `Differences`, `SigFlags`. §12.7.4.3 still said "4 now draw their fields and
+2 keep the blank because Helvetica has no glyph for their characters", six sessions after §9.6.5.1
+gained the `/Differences` that draws one of the two and one session after this project established
+that the reason was never a glyph. **Two rows, one mechanism, and the one that was corrected is not
+the one that was wrong** — which is this sweep's whole subject, and the third time it has been the
+*font* rows.
+
+The same run over `crates/` was clean: 64 capability matches, every one a true statement about a
+boundary a crate deliberately keeps — no clock, no filesystem, no toolkit, no window — down from 89
+in the two-hundred-and-sixty-ninth because rounds since have retired the false ones. A clean run is
+a result: it says the population has not drifted, which is the only way it is watched at all.
+
 **The fourth sweep is new in the two-hundred-and-sixteenth session and it is the cheapest of the
 four.** Whenever a row is corrected, the note says so in the row that was corrected — "this
 sentence said X" — and X is a string. Grep the *whole* ledger for X's distinctive words: two
