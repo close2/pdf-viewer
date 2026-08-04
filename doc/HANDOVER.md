@@ -2605,3 +2605,4 @@ above rather than here.
 | 267 | Six icons a clause only recommends, because their names name *objects*; `Stamp`'s do not | — |
 | 268 | Everything re-verified after sixteen rounds — and ADR 0126's own recipe had decayed | 0126 |
 | 269 | §12.3's parent rows, one round after their member landed; two more off the ambiguous tail | — |
+| 270 | The capability sweep over `crates/`: 89 matches, 87 of them true, and both false ones ten rounds old | — |

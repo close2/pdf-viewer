@@ -485,9 +485,11 @@ impl App {
     ///
     /// §7.7.2's `/PageMode` is "how the document shall be displayed when opened", and until the
     /// hundred-and-seventieth session this program had no panel for any of its answers to name.
-    /// Three of the six it can now obey. The other three name chrome that does not exist here,
-    /// and each is said once rather than ignored: a document asking for something and getting
-    /// silence is trap 5 in an interface.
+    /// **Four of the six it can now obey** — `UseThumbs` joined the other three in the
+    /// two-hundred-and-sixty-sixth session, when §12.3.4's panel arrived — and what is left is
+    /// `UseNone`, which asks for nothing, and `FullScreen`, which names chrome that does not
+    /// exist here and is said once rather than ignored: a document asking for something and
+    /// getting silence is trap 5 in an interface.
     ///
     /// `/PageLayout` likewise. This window shows one page at a time, which is Table 29's own
     /// default, so a document stating `SinglePage` — 24 of the corpus's 43 — is answered exactly

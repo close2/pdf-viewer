@@ -21,9 +21,11 @@
 //!
 //! # What is here and what is not
 //!
-//! An outline is a *panel* in a viewer that has none, so this module answers the question a
-//! viewer without a panel can still ask: **which item covers the page being shown**.
-//! [`Outline::section_at`] is that, and it is the whole of what `viewer-ui` uses.
+//! An outline is a *panel*, and this sentence read "in a viewer that has none" for a hundred
+//! sessions after `viewer_ui::chrome` drew one (session 166). What the module answers is the
+//! whole hierarchy — the panel reads it through `viewer_core::Query::Outline` — plus the question
+//! a viewer *without* a panel can still ask: **which item covers the page being shown**, which is
+//! [`Outline::section_at`], and which is what the title bar uses.
 
 use std::collections::BTreeMap;
 

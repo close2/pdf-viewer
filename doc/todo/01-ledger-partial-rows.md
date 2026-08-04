@@ -56,6 +56,15 @@ it produced four more, all of them false for between forty and two hundred sessi
 **The ledger has a gate and the source does not**, which is why these lasted longer. One `grep`
 apiece.
 
+**Run again in the two-hundred-and-sixty-ninth over `crates/`**, after ten rounds that added
+panels and verbs: 89 matches, 87 of them true statements about what a *crate* deliberately does
+not own — no clock, no filesystem, no toolkit — which is the shape this sweep produces most and
+which is worth knowing it produces. The two that were false had both expired in the ten rounds
+themselves: `outline.rs` opened "[a]n outline is a *panel* in a viewer that has none", false since
+session 166, and `pdf-viewer.rs` said `/PageMode` had "[t]hree of the six it can now obey", false
+since the session before. **A comment about a sibling crate's capability decays at that crate's
+pace and not at its own.**
+
 ## A fifth sweep, from the other direction: **who calls it?**
 
 The three above ask what a *row* claims. The two-hundred-and-fifty-third and -fourth sessions
