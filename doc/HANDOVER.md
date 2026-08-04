@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **two-hundred-and-ninety-third** is the last one in it. Read `/CLAUDE.md` first — the five
+session, and kept current since; the **three-hundred-and-tenth** is the last one in it. Read `/CLAUDE.md` first — the five
 principles, what *done* means, and the closed exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -286,62 +286,59 @@ reports `Timeout`, and the drag keeps updating. A page the device refuses for th
 `bug1721218_reduced.pdf`, whose coverage outgrows a 16384 × 16384 scratch image — comes back on the
 processor in 1.68 s and the window zooms, scrolls and opens its sidebar afterwards.
 
-### The twenty rounds from the two-hundred-and-seventy-fourth
+### The twenty rounds from the two-hundred-and-ninety-fourth
 
-**A launch that had never been timed, four clauses found by a profiler, a `shall` nobody had
-read, and a rendering library that answered a request written as a measurement.** What the twenty
-have in common is one sentence:
+**A hundred-session refusal that turned out to be a question nobody had asked, two clauses whose
+callers nobody maintained, and a sweep that is arithmetic.** What the twenty have in common is one
+sentence:
 
-> **A number nobody has measured is a claim nobody has checked** — and where the number is on a
-> path, the thing at the end of it is usually a clause.
+> **A reason that names a decision expires the moment somebody takes it, and nothing announces
+> that either** — which is the capability shape one level up, with the project itself in the
+> place the capability used to be.
 
-`CLAUDE.md` had said for a hundred sessions that "a 500-page document must open no slower than a
-5-page one". Nobody had instrumented it. It was **33 times** slower, and unpicking that produced,
-in order: 40% of `Document::open` spent re-deciding §7.5.6's "most recent copy" rule once per
-cross-reference entry (ADR 0180); §12.7.3's `/SigFlags`, whose ledger row called it "signature
-behaviour" while Table 225 exists precisely so a processor need not scan (ADR 0181); and the
-discovery that nothing the window needs has ever looked at a PDF (ADR 0182). The rule holds now,
-and by a route the todo file had not considered: **1023 pages and 5 pages cost the launch the same
-five milliseconds**, because the document is opened beside the window rather than in front of it.
+`doc/todo/50` had said for a hundred sessions that §14.3.2's XMP was blocked on "a dependency
+decision this tree has not taken", with **319 corpus witnesses** behind it and, in the same file,
+the four questions that would settle it: which crate, what its attack surface is, what it does on
+malformed input, what the fuzz target looks like. Answering them took one round (ADR 0186).
 
-- **The launch is a timeline now, not a step** (0179). One `Instant` at `main`'s first statement,
-  one mark per milestone, printed when the first frame lands. It made a dependency visible that a
-  profile cannot: *why is this step after that one?* — which is the question that produced two of
-  the three fixes above. **145 ms → 99 to 119.**
-- **Two of the four costs were somebody else's, and both were written as measurements.**
-  `doc/QUORRA_FEEDBACK.md` §8 asked for a field split and an entry point and got both at `7d5dafb`
-  — bring-up 33–45 ms to 13–19 (ADR 0185) — *and* recorded a knob it did **not** ask for, with the
-  measurement that says why. That paragraph is the one the library's own ADR quotes back. §9 is
-  still open: a cold first frame costs ~12 ms more than the tenth on a real adapter, and a
-  one-second sleep before it changes nothing, so it is allocation rather than warmth.
-- **Three clauses arrived from the demand side and one from the profiler.** A `Tf` naming
-  `/Helvetica` with an empty resource dictionary (§7.8.3 broken by the file, §9.6.2.2 answering
-  anyway — ADR 0183); a value whose `ą` had no *code* rather than no glyph, given one by
-  §9.6.5.1's `/Differences` written from the AGL `read-fonts` already carries (0184); §9.6.5.2's
-  `.notdef`, implemented at the drawing step so that three missing-glyph instruments keep working,
-  and **not** for a space, because a subset omits `space` deliberately and a designer's `.notdef`
-  is a box.
-- **The text ratchet fired on an improvement for the second time.** `pdftotext` reads
-  `bug1865341.pdf` back as *Zacznik* and poppler draws it that way; we draw *Załącznik*. Held by
-  name with that argument — the only entry on that list whose readback is better than the
-  reference's.
+- **§14.3.2 is read** — `xmlparser`, 2148 lines, no dependencies, `#![forbid(unsafe_code)]`, a pull
+  tokenizer that resolves no entity and opens no file, so the billion-laughs expansion and the
+  external entity are structurally absent rather than defended against. 318 of 319 packets read,
+  3191 properties, a ninth fuzz target seeded with all of them and clean at 1 000 000 runs. §12.2's
+  `/DisplayDocTitle` is a *reading* now rather than a documented departure, and the census answered
+  the question the departure had been carrying: 93 documents state a title in both places and one
+  disagrees.
+- **Two clauses had a reader and no caller**, which is `doc/todo/01`'s fifth sweep from both ends.
+  §14.8.2.5's logical order had been implemented since session 156 and a selection was still taken
+  in content order; `Tree::logical_range` is the map between the two orders' *offsets* and it
+  refuses rather than shortens, because a copy that silently dropped what the structure tree missed
+  would be worse than one in the wrong order. And §12.5.1's `/Tabs` was owed to "a keyboard this
+  program has no key for" — all five of Table 31's orders now, with `Command::Focused`, the key the
+  clause itself names, and `Query::Focus` so the ring can be drawn round what it lands on.
+- **A sixth sweep, and it is arithmetic rather than a grep**: print every ledger row that owes more
+  than all of its own children. Five hits, four wrong, three of them in a shape no grep can see —
+  **the note corrected and the status left behind**. §7.6.3 was `partial` above a note opening
+  "both algorithms are implemented in both directions".
+- **And the ambiguous bucket went 94 → 76**, on eleven pages and four documents, with two results
+  about the *instrument* rather than about any page: step 6's assumption fails in the direction
+  that is a finding — a difference identical at 8× and 16× is neither scan conversion nor the
+  reduction, which is what found `AMBIGUOUS_ICC_MATRIX_PROFILE` — and a gap between two *clusters*
+  is still a question for the ladder, on `prefilled_f1040.pdf` where the clusters were 2.4 of 255
+  apart and neither was a defect.
 
-**And the sweeps kept paying, including a shape nobody had named.** A row that contradicts
-*itself*: §12.5.6.5 said `/H` "is still a response to a mouse this program does not draw" four
-sentences above saying it had been honoured since session 138. A row was corrected by *appending*
-and nobody re-read the paragraph above the correction — so **read a corrected note whole, not from
-the correction onwards** (`doc/todo/01`'s failure shape 6). Beside it: §7.9's parent stale about
-three of its four children, §8.11.4.5 owing a layer panel drawn 111 sessions earlier,
-§12.7.4.3 still explaining a refusal by a glyph one session after the reason was proved to be a
-code, and `Signature::must_cover_whole_file` — implemented, tested, and called by no host, so a
-file breaking Table 255's `shall` read as §12.8.1's ordinary incremental update.
+**Three failures of this project's own process, all in the same place.** A correction recorded in
+`doc/todo/01` and never made to the row it named (§7.9, seventeen rounds later). A count written by
+a script whose `assert` sat before its write, so two rounds' commit messages reported numbers the
+handover never received. And a habit written into `02-every-round.md` one round after the first
+occurrence and one round before the second. **A habit recorded and not performed is the same
+failure as a correction recorded in a todo file** — grep the number back out of the file.
 
-**Two habits, both about instruments rather than about pages.** Measure each configuration in its
-own process: `bring_up`'s first version reported a 6× improvement that was entirely the driver
-loader being warm the second time. And **a command that reports nothing has not reported success**
-— the two-hundred-and-eighty-fifth session's commit says it deleted two stale fuzz crashers, and
-`rm -f` with the wrong working directory matched nothing and said nothing; they were still there
-seven rounds later.
+**And one refusal taken and written down as a refusal.** Table 231's `DoNotScroll` is a `shall`
+that has bound this program since the hundred-and-thirty-fifth session, found in §12.7.5.3's own
+"Not read:" list behind the reason *"constrains typing"*: **a flag that constrains typing binds a
+program that types.** It is owed rather than half-done, because what it costs is a measurement —
+`variable_text::lay_out` reporting where it stopped — and because truncation without a caret is
+half the behaviour the clause describes.
 
 ---
 
