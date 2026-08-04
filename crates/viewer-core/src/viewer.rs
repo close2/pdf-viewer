@@ -449,6 +449,20 @@ impl Viewer {
                 // `/D`: "a mouse button is pressed inside the annotation's active area".
                 raised.extend(over.map(|annotation| (annotation, Trigger::Down)));
                 open.pressed = under;
+                // Table 197's `/Bl` and `/Fo`, in the clause's own order, which is `/X` and
+                // `/E`'s: one thing loses the focus before the next receives it.
+                //
+                // **How focus is acquired is not in the standard**, which says only what
+                // happens when an annotation "receives the input focus" — so a press inside a
+                // widget's active area giving it the focus is a choice, and it is the one every
+                // pointing interface makes. Widgets only, because Table 197 says so of both
+                // entries; a press on a link or a stamp therefore *blurs* whatever held it.
+                let wants_focus = over.filter(|annotation| is_widget(&open.document, *annotation));
+                if open.focus != wants_focus {
+                    raised.extend(open.focus.map(|left| (left, Trigger::Blur)));
+                    raised.extend(wants_focus.map(|got| (got, Trigger::Focus)));
+                    open.focus = wants_focus;
+                }
                 // A press starts an empty selection where it landed, so that the first drag
                 // has an anchor. An empty selection highlights nothing and is not a selection
                 // a person can see.
@@ -1154,6 +1168,15 @@ impl Viewer {
         let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
         let mut closed = None;
         let mut opened = None;
+        // A page turned takes the focus with it: the widget that held it is not on the screen
+        // any more, so §12.6.3's `/Bl` is due before the page's own events. Raised here rather
+        // than in `pointer` because this is where a page stops being shown, whatever caused it.
+        if let Some(open) = self.focused_mut()
+            && left.is_some_and(|index| index != open.page_index)
+            && let Some(lost) = open.focus.take()
+        {
+            raised.push((lost, Trigger::Blur));
+        }
         if let Some(open) = self.focused() {
             let pages = pdf_model::Pages::new(&open.document);
             if let Some(index) = left.filter(|index| *index != open.page_index) {
@@ -1296,6 +1319,22 @@ fn resolve(open: &Open, target: PageTarget) -> Option<usize> {
         PageTarget::Next => current.saturating_add(1).min(last),
         PageTarget::Previous => current.saturating_sub(1),
         PageTarget::Relative(delta) => current.saturating_add_signed(delta).min(last),
+    })
+}
+
+/// Whether an annotation is a widget, which is what §12.6.3's Table 197 makes `/Fo` and `/Bl`
+/// about — both entries are
+///
+/// > (Optional; PDF 1.2; widget annotations only)
+///
+/// and nothing else in the table carries that restriction.
+fn is_widget(document: &pdf_syntax::Document, annotation: ObjectId) -> bool {
+    let object = document.get(annotation);
+    object.as_dict().is_some_and(|dict| {
+        document
+            .get_key(dict, "Subtype")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"Widget")
     })
 }
 

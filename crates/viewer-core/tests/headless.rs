@@ -1938,6 +1938,116 @@ fn the_pointer_raises_table_197s_events() {
     );
 }
 
+/// §12.6.3's `/Fo` and `/Bl`, the last two of Table 197's ten this program did not raise.
+///
+/// Both entries are
+///
+/// > (Optional; PDF 1.2; widget annotations only)
+///
+/// and the standard says what happens when an annotation "receives the input focus" and nothing
+/// whatever about how it comes to. So **a press inside a widget's active area gives it the
+/// focus, and a press anywhere else takes it away** — a choice, and the one every pointing
+/// interface makes, recorded the same way "a press dragged off a link does not activate it" is.
+///
+/// `doc/todo/25` recorded these two as wanting "keyboard focus, which `viewer-core` does not
+/// have — there is no focus model in `Command` at all", which reads as a vocabulary problem and
+/// is not one: focus arrives through the pointer this program already has, and what a keyboard
+/// would add is Table 31's `/Tabs` *order*, which is a different clause.
+///
+/// The fixture is two annotations — a widget whose `/Fo` switches a layer on and whose `/Bl`
+/// switches it off, and a link beside it that is not a widget — so the assertion is the page.
+#[test]
+fn a_press_gives_a_widget_the_focus_and_a_press_elsewhere_takes_it_away() {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    let opened: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_focus_triggers(),
+            password: None,
+        })
+        .collect();
+    assert_eq!(marks(&opened), Some(0), "the layer opens off");
+
+    let widget = device_point(&viewer, [10.0, 10.0, 30.0, 30.0], 100.0);
+    let link = device_point(&viewer, [60.0, 60.0, 90.0, 90.0], 100.0);
+    let press = |viewer: &mut Viewer, at| {
+        let events: Vec<Event> = viewer
+            .handle(Command::Pointer {
+                at,
+                action: PointerAction::Pressed,
+            })
+            .collect();
+        marks(&events)
+    };
+
+    assert_eq!(press(&mut viewer, widget), Some(1), "`/Fo` switched it on");
+    assert_eq!(
+        press(&mut viewer, widget),
+        None,
+        "the widget already has the focus, so nothing is received again"
+    );
+    assert_eq!(
+        press(&mut viewer, link),
+        Some(0),
+        "a press on something that is not a widget blurs it, and `/Bl` switched it off"
+    );
+
+    // And a page turned takes the focus with it, wherever the pointer is.
+    assert_eq!(press(&mut viewer, widget), Some(1), "focused again");
+    let turned: Vec<Event> = viewer.handle(Command::GoTo(PageTarget::Next)).collect();
+    assert!(
+        turned
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { index: 1, .. })),
+        "{turned:?}"
+    );
+    let back: Vec<Event> = viewer.handle(Command::GoTo(PageTarget::Previous)).collect();
+    assert_eq!(
+        marks(&back),
+        Some(0),
+        "the widget lost the focus when its page did, so `/Bl` switched the layer off"
+    );
+}
+
+/// Two pages; the first holds a widget stating §12.6.3's `/Fo` and `/Bl`, and a link beside it.
+fn with_focus_triggers() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let content = "/OC /L1 BDC 20 20 10 10 re f EMC";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R \
+         /OCProperties << /OCGs [6 0 R] /D << /OFF [6 0 R] >> >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Count 2 /Kids [3 0 R 9 0 R] >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R \
+         /Annots [5 0 R 10 0 R] /Resources << /Properties << /L1 6 0 R >> >> >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 50 50] /F 4 \
+         /AA << /Fo 7 0 R /Bl 8 0 R >> >>\nendobj\n\
+         6 0 obj\n<< /Type /OCG /Name (layer) >>\nendobj\n\
+         7 0 obj\n<< /S /SetOCGState /State [/ON 6 0 R] >>\nendobj\n\
+         8 0 obj\n<< /S /SetOCGState /State [/OFF 6 0 R] >>\nendobj\n\
+         9 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>\nendobj\n\
+         10 0 obj\n<< /Type /Annot /Subtype /Link /Rect [55 55 95 95] /F 4 >>\nendobj\n",
+        content.len().saturating_add(1),
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
 /// How many commands the render these events asked for holds, if they asked for one.
 ///
 /// The *page* is the assertion — a layer's state decides what is drawn — rather than anything

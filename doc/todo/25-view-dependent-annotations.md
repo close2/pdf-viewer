@@ -1,20 +1,29 @@
 # Annotations and events that depend on the view
 
-Status: `NoZoom` and `NoRotate` done (ADR 0168); `/Fo` and `/Bl` want a focus model; `/FixedPrint` waits on printing.
+Status: `NoZoom` and `NoRotate` done (ADR 0168); all ten of Table 197's events raised; `/FixedPrint` waits on printing.
 Priority: 25
 Corpus: 15 documents write an `/AA`; 124 annotations in 51 documents set `NoZoom`
 Clauses: §12.6.3 Table 197, §12.5.3 Table 167
 Code: `crates/pdf-model/src/annotation.rs`, `crates/viewer-core/src/interact.rs`
 
-## Two of Table 197's ten trigger events — and both want a focus model
+## Table 197's ten trigger events — **all ten are raised**
 
 `/E`, `/X`, `/D` and `/U` are raised by the pointer since session 174; `/PO`, `/PC`, `/PV` and
-`/PI` since the two-hundred-and-fourth, together with both of Table 198's (ADR 0164). What is
-left:
+`/PI` since the two-hundred-and-fourth, together with both of Table 198's (ADR 0164); and `/Fo`
+and `/Bl` since the two-hundred-and-fifty-seventh.
 
-- `/Fo` and `/Bl` want **keyboard focus**, which `viewer-core` does not have — there is no focus
-  model in `Command` at all, and adding one is a vocabulary change rather than a clause. It is
-  the same shape as the panels: a clause blocked on an *interface* rather than on a reading.
+**The last two were recorded here as wanting "keyboard focus, which `viewer-core` does not have —
+there is no focus model in `Command` at all, and adding one is a vocabulary change rather than a
+clause", and no message was needed.** Both entries are "(Optional; PDF 1.2; widget annotations
+only)"; the clause says what happens when an annotation "receives the input focus" and nothing
+about how it comes to. So a press inside a widget's active area gives it the focus and a press
+anywhere else takes it away — a choice, and the one every pointing interface makes, recorded as
+one. A page turned raises `/Bl` too, wherever the pointer is.
+
+What a *keyboard* would add is Table 31's `/Tabs` order — which annotation comes next — and that
+is a different clause (§12.5.1's row says so). **A blocker that names a vocabulary is the fourth
+shape of stale reason this project has found**, after one that names a capability, one that names
+an architecture, and one that names what a program would have to *have* rather than *say*.
 
 **The four that left this list did so because the reason was stale, not because anything got
 harder.** They were recorded as wanting "a page-visibility model, which a one-page-at-a-time

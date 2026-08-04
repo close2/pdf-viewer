@@ -132,6 +132,18 @@ pub(crate) struct Open {
     /// crossing an activation region and say nothing about appearances, so an annotation with
     /// one `/AP` and an `/AA /E` still raises the event.
     pub(crate) inside: Option<ObjectId>,
+    /// Which widget holds the input focus, for §12.6.3's `/Fo` and `/Bl`.
+    ///
+    /// **A press inside a widget's active area gives it the focus, and a press anywhere else
+    /// takes it away.** §12.6.3 says what happens *when* an annotation "receives the input
+    /// focus" and nothing whatever about how it comes to; that is an interface's business, and
+    /// this is the choice every pointing interface makes — the same shape as "a press dragged
+    /// off a link does not activate it", which this crate already decides for itself and says so.
+    ///
+    /// Widgets only, because Table 197 says so of both entries. What is *not* decided here is a
+    /// keyboard tab order: Table 31's `/Tabs` gives a page one and this program has no key that
+    /// moves between fields, so focus moves by pointer alone and §12.5.1's row says the rest.
+    pub(crate) focus: Option<ObjectId>,
     /// §12.7.6.4's import, waiting for the host to supply the file.
     pub(crate) importing: Option<ImportData>,
     /// Everything a person has changed, in the order they changed it.
@@ -278,6 +290,7 @@ impl Open {
             pointer: None,
             pressed: None,
             inside: None,
+            focus: None,
             importing: None,
             log: Vec::new(),
             cursor: 0,

@@ -90,7 +90,7 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **988** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | everything above re-run in the **two-hundred-and-forty-ninth**: eight fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| tests | **989** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | everything above re-run in the **two-hundred-and-forty-ninth**: eight fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1680** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **257 of them diagnosed and 492 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
@@ -198,7 +198,7 @@ the 974 documents' first pages it affects.
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
 | A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
-| Two of Table 197's ten trigger events; `/FixedPrint`, which waits on printing | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
+| `/FixedPrint`, which waits on a printing path | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
 | Icons for `Stamp`, `FileAttachment`, `Sound` — their clauses say *should* | 1 | [todo 26](todo/26-icons-a-clause-only-recommends.md) |
 | §14.3.2's XMP | 319 | [todo 50](todo/50-xmp.md) |
 | Signature *validation*, public-key handlers (§7.6.5), `/R` 5 | 1 | [todo 51](todo/51-signatures-and-public-keys.md) |
@@ -289,6 +289,15 @@ oracle name; *spec-driven* is the ledger's `reported` rows and the notes on its 
 project running only the first finishes when the corpus goes quiet, which can happen with much of
 the standard unimplemented and nothing able to say which parts; one running only the second ships
 features no file exercises. This is a principle-5 rule, not a suggestion.
+
+**A reason that names a vocabulary is the fourth of these shapes**, found in the
+two-hundred-and-fifty-seventh: §12.6.3's `/Fo` and `/Bl` were owed "keyboard focus, which
+`viewer-core` does not have — there is no focus model in `Command` at all, and adding one is a
+vocabulary change rather than a clause". No message was needed. The clause says what happens when
+an annotation receives the input focus and nothing about how it comes to, so a press inside a
+widget's active area gives it — a choice, and the one every pointing interface makes. All ten of
+Table 197's events are raised now. **Ask what the program already receives before adding a way to
+receive it.**
 
 **A reason that names an architecture is two reasons wearing one coat**, which the
 two-hundred-and-seventeenth session found: §12.5.3's `NoZoom` and `NoRotate` were both refused
@@ -2578,3 +2587,4 @@ above rather than here.
 | 254 | The same sweep the other way — every `pub fn` nobody calls — and §8.11.4.3's `/ListMode` was one | 0178 |
 | 255 | A thread followed to the *bead*: Table 163's `/R` composes Table 149's `/FitR` | — |
 | 256 | A todo file's own claim was stale: both witnesses of the per-character fallback already draw | — |
+| 257 | All ten of Table 197's events raised: `/Fo` and `/Bl` wanted a *press*, not a vocabulary | — |
