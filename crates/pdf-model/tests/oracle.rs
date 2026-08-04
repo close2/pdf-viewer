@@ -2080,6 +2080,64 @@ const AMBIGUOUS_IRREVERSIBLE_JPEG_2000: [&str; 2] = ["S2.pdf page 1", "issue5475
 /// paragraph above rather than with a reference's pixels.
 const AMBIGUOUS_COLOUR_OPERANDS: [&str; 1] = ["issue18894.pdf page 1"];
 
+/// Ambiguous by a *third of one level of one channel*, and the closed form says which of five
+/// renderers is on it.
+///
+/// `chrome-text-selection-markedContent.pdf` is a 960 × 540 financial page of dense small text
+/// with a lavender panel down its right third. It sat at the head of §3a's undiagnosed ranking —
+/// 0.98 from the nearest reference, 2.15 from the furthest — and the two-ladder measurement
+/// (`doc/todo/00` step 6) shows the difference is not scan conversion at all:
+///
+/// ```text
+///              72 dpi   288 dpi   576 dpi
+/// poppler      27.1499  27.1878   27.2107
+/// mupdf        27.0757  27.1903   27.2193
+/// ours (1x, 4x, 8x)  26.9460  26.9286  26.9767
+/// ```
+///
+/// Both reference ladders climb onto **27.21**; ours is *flat* at 26.95, which is what a
+/// renderer whose coverage is proportional to area looks like — and 0.25 of 255 below them.
+/// A flat ladder that does not move toward the others is the shape that says the difference is
+/// in the *marks* rather than in the pixels.
+///
+/// # Where it is, and it is not spread over the page
+///
+/// A three-by-six grid of per-tile ink differences against `mupdf` at 8× puts the whole of it in
+/// the two rightmost columns — −0.67 to −0.81 in all three rows, against ±0.04 everywhere else —
+/// and a per-channel mean over that third names the channel: red differs by 0.06, blue by 0.03,
+/// **green by 0.985**. One level of green, over a third of the page, is 0.23 of 255 of the page's
+/// ink, which is the whole difference.
+///
+/// # The closed form, and it is §11.3.6's
+///
+/// The panel is one fill, and the file states every number in it: `0.851 0.847 1 rg` under an
+/// `/ExtGState` whose `/ca` is `0.49804`, over white. §11.3.6 gives the result for a group whose
+/// backdrop is opaque, and with the backdrop white it is one line per channel:
+///
+/// ```text
+/// red    0.49804 × 0.851 + 0.50196 × 1 = 0.925790 → × 255 = 236.076 → 236
+/// green  0.49804 × 0.847 + 0.50196 × 1 = 0.923800 → × 255 = 235.569 → 236
+/// ```
+///
+/// | | panel | the page's other colour, `0.247 0.243 1 rg` at `ca 1` |
+/// |---|---|---|
+/// | exact | (236.08, 235.57, 255) | (62.99, 61.97, 255) |
+/// | ours | **(236, 236, 255)** | **(63, 62, 255)** |
+/// | `poppler` | (236, 235, 255) | (63, 62, 255) |
+/// | `mupdf` | (236, 235, 255) | (62, 61, 255) |
+///
+/// **Ours is the arithmetic, on both colours and every channel.** The references lose the 0.57
+/// of a level that a composite in eight-bit premultiplied storage cannot carry, and `mupdf` loses
+/// another by truncating rather than rounding a plain fill. Nothing here is a defect of ours, and
+/// the reason to say so at this length is that the *sign* invites the opposite conclusion: we
+/// draw less ink than everybody, which is the shape `doc/todo/00`'s step 7 exists to catch, and
+/// on this page it is one channel rounding the right way.
+///
+/// This is §3a's first shape — the clause determines it and we can be checked against it — and
+/// the check needs no reference at all: the file's own numbers give 235.569, and 235.569 is 236.
+const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 1] =
+    ["chrome-text-selection-markedContent.pdf page 1"];
+
 /// Ambiguous, and it is a page of nothing but widget borders at their own geometry.
 ///
 /// `bug1863910.pdf` is 353×59 with two commands: two text fields whose appearance streams each
@@ -3196,6 +3254,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_SUBSTITUTED_FACE)
         .chain(&AMBIGUOUS_IRREVERSIBLE_JPEG_2000)
         .chain(&AMBIGUOUS_COLOUR_OPERANDS)
+        .chain(&AMBIGUOUS_EIGHT_BIT_COMPOSITING)
         .chain(&AMBIGUOUS_WIDGET_BORDER)
         .chain(&AMBIGUOUS_RADIAL_CONE)
         .chain(&AMBIGUOUS_LINK_BORDER)

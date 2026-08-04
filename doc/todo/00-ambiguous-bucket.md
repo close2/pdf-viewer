@@ -1,6 +1,6 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 492 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 491 pages left.
 Priority: 00 — the last large population where a defect can live without a name
 Corpus: 788 ambiguous pages (749 on documents we call complete); 257 diagnosed, 492 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -219,7 +219,16 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`chrome-text-selection-markedContent.pdf` (0.98 from the nearest, 2.15 from the furthest),
+**`chrome-text-selection-markedContent.pdf` left it in the two-hundred-and-fifty-ninth**, and it
+is the cleanest instance of shape 1 so far: the whole difference is **one level of green over a
+third of the page**, the file states every number in the fill that produces it, and §11.3.6's
+arithmetic on those numbers gives 235.569 — which is 236, which is ours. Both references give 235.
+`AMBIGUOUS_EIGHT_BIT_COMPOSITING`, and the way in was step 6's two ladders saying *not scan
+conversion* (ours flat at 26.95 while both references climbed onto 27.21) followed by a
+three-by-six grid of per-tile differences, which put the whole of it in two columns, followed by a
+per-channel mean, which named the channel. **Localise before explaining**: a page-level number
+said "0.25 low everywhere" and the truth was "one level low on one third".
+
 `bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf` (0.90 / 4.53), and then
 **`freeculture.pdf` for seven of the next eight** — pages 163, 165, 184, 172, 156, 160 and 325,
 from 0.86 down to 0.77.
