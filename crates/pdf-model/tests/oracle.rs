@@ -903,7 +903,30 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
 /// is the measurement above. A suspiciously clean number is a reason to check the instrument,
 /// and the tell here was that the two renderers agreeing with us were the two whose output
 /// format matched ours.
-const CONTRADICTED_GLYPH_EDGES: [&str; 20] = [
+///
+/// # A twenty-first, from `CONTRADICTED_UNEXPLAINED`, and the closed form is what moved it
+///
+/// **`freeculture.pdf` page 313** is one page of the book whose other three hundred are
+/// `ambiguous` under `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`. It sat unexplained because nothing had
+/// been measured on it; the two-hundred-and-forty-second session measured it, and the two
+/// ladders answer it outright:
+///
+/// ```text
+///            1x       8x
+/// ours     5.9139   6.0729
+/// poppler  6.0271   6.0658
+/// mupdf    6.0725   6.0819
+/// ```
+///
+/// **Ours at eight times the resolution is 6.0729 against a two-ladder limit of 6.0658 and
+/// 6.0819** — inside the references' own spread, which is this group's diagnosis exactly: the
+/// marks are the right marks and the difference is glyph coverage at the page's own scale, 0.16
+/// of 255 of it. Every printed metric is *inside* the class bound — mean 2.56 against 5.00,
+/// worst tile 12.54 against 40.00, ssim 0.9445 against 0.9000 — and the page is contradicted
+/// only because `poppler` and `mupdf` agree so closely that twice their spread is a tighter
+/// bound than the floor. Trap 12, on the eleven pages above's own subject.
+const CONTRADICTED_GLYPH_EDGES: [&str; 21] = [
+    "freeculture.pdf page 313",
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
@@ -1190,8 +1213,7 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 20] = [
 /// any printed metric. That is trap 12's shape rather than a defect: the bound is 6.04 because
 /// two references agree very closely, and no reading of a clause chooses between five
 /// resamplings of one image.
-const CONTRADICTED_UNEXPLAINED: [&str; 2] =
-    ["freeculture.pdf page 313", "issue7891_bc1.pdf page 1"];
+const CONTRADICTED_UNEXPLAINED: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 
 /// Documents where our page geometry differs from the references' by more than the one
 /// pixel a fractional page size can round to.
