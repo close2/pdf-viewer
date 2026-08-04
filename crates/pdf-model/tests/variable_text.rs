@@ -404,6 +404,68 @@ fn a_font_the_default_resources_lack_is_stood_in_for_and_named() {
     );
 }
 
+/// A `/DA` naming one of the fourteen conventional abbreviations is not a stand-in.
+///
+/// The same malformation as the test above — §12.7.4.3's "[t]he specified font value shall match
+/// a resource name in the Font entry of the default resource dictionary", broken — and a
+/// different answer, because `/Helv` is not an arbitrary resource name. The fourteen four-letter
+/// abbreviations are a bijection with §9.6.2.2's fourteen font programs, and this binary carries
+/// all fourteen (ADR 0133). So the value is drawn in the face the name means, from the binary,
+/// and nothing is owed: five corpus documents name `/Helv` and none of them defines it.
+///
+/// **What it buys is stated in ADR 0133's terms**: those pages reproduce on a machine with no
+/// fonts installed, where a stand-in chosen by family match would draw them in whatever sans
+/// face the machine happened to offer.
+#[test]
+fn a_da_naming_a_standard_fourteen_abbreviation_is_drawn_from_the_binary() {
+    let (reports, raster) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V (Hi) /DA (/Helv 12 Tf 0 g) >>",
+    ));
+    assert!(reports.is_empty(), "nothing is owed: {reports:?}");
+    assert!(!inked_columns(&raster).is_empty(), "and it is on the page");
+
+    // And the narrowness is the point: a name that is not one of the fourteen still stands in
+    // and still says so.
+    let (reports, _) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V (Hi) /DA (/Helvetical 12 Tf 0 g) >>",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+}
+
+/// A no-break space is written as a space, because the encoding gives it no code of its own.
+///
+/// Annex D's note 6 — under §9.6.5.2's Latin character set — says the space U+0020 is *also*
+/// encoded at 240 octal in `WinAnsiEncoding`, that Windows Code Page 1252 associates that code
+/// with the non-breaking space U+00A0, and that a producer meaning the second must say so with a
+/// `/Differences` array naming `nonbreakingspace`.
+///
+/// So a `/V` holding U+00A0 — `bug1871353.pdf`'s does, nine of them between two letters — has a
+/// character §12.7.4.3 must write and the encoding cannot spell. The two characters differ only
+/// in where a line may break, and this module breaks on the value's own white space before any
+/// code exists; what the alternative costs is the whole field, because a font this program
+/// inferred may not fall short.
+#[test]
+fn a_no_break_space_is_drawn_as_a_space() {
+    let (reports, raster) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V <FEFF004100A000A00042> /DA (/Helv 12 Tf 0 g) >>",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+    let columns = inked_columns(&raster);
+    assert!(!columns.is_empty(), "A and B are drawn");
+    // Two no-break spaces between the letters, so the gap is wider than one glyph.
+    let (first, last) = ink_span(&raster);
+    assert!(
+        last.saturating_sub(first) > 20,
+        "the spaces take room: {first}..{last}"
+    );
+}
+
 /// A stand-in that cannot draw the value declines instead of drawing part of it.
 ///
 /// The asymmetry is the finding, and `freetext_no_appearance.pdf` is where it came from: its

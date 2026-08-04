@@ -172,16 +172,101 @@ pub(crate) struct LaidOut {
 /// A name `/DR` does not define is the document breaking §12.7.4.3's own `shall`, and
 /// [`substituted_font`] is why that is answered with a stand-in and a report rather than with a
 /// blank field.
-fn resolve_font(document: &Document, resources: &Dictionary, name: &str) -> (Dictionary, bool) {
+fn resolve_font(
+    document: &Document,
+    resources: &Dictionary,
+    name: &str,
+) -> (Dictionary, Resolution) {
     let fonts = document.get_key(resources, "Font");
     let entry = fonts
         .as_dict()
         .and_then(|fonts| fonts.get(name))
         .map(|font| document.resolve(font));
     match entry.as_ref().and_then(|font| font.as_dict()) {
-        Some(dict) => (dict.clone(), false),
-        None => (substituted_font(name), true),
+        Some(dict) => (dict.clone(), Resolution::Named),
+        // A name that *conventionally* denotes one of §9.6.2.2's fourteen is not a stand-in
+        // for reporting purposes: this binary carries that font program, so the value is drawn
+        // in the face the name means. See [`STANDARD_ABBREVIATIONS`].
+        None => match standard_abbreviation(name) {
+            Some(standard) => (substituted_font(standard), Resolution::Abbreviated),
+            None => (substituted_font(name), Resolution::StoodIn),
+        },
     }
+}
+
+/// Where a `/DA`'s font came from, which decides two different things.
+///
+/// **Two questions, and they have different answers for the middle case**, which is why this is
+/// three states rather than a flag:
+///
+/// - *Is anything owed?* Only [`Self::StoodIn`] owes a report. A font `/DR` defines is the
+///   document's own, and one the name conventionally denotes is the one the name means.
+/// - *May it fall short?* [`Self::Named`] may: a code the document's own font lacks is the
+///   document's choice, reported and the rest drawn. The other two may **not**, and ADR 0112
+///   is why — `freetext_no_appearance.pdf`'s value is a paragraph of Arabic under `/DA (/Helv 10
+///   Tf)`, and a Latin face draws its spaces and full stops and nothing else, which is trap 1's
+///   archetype and worse than the blank a refusal leaves. That the name *denotes* Helvetica does
+///   not change whose inference it is: `/DR` defines nothing, so reading `/Helv` is this
+///   program's reading and an inference may not fall short.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resolution {
+    /// Table 224's `/DR` defines a font under this name, as §12.7.4.3 requires.
+    Named,
+    /// `/DR` defines nothing, and the name is one of [`STANDARD_ABBREVIATIONS`].
+    Abbreviated,
+    /// `/DR` defines nothing and the name denotes nothing this program knows.
+    StoodIn,
+}
+
+/// The fourteen `/DA` resource names that denote §9.6.2.2's fourteen font programs.
+///
+/// **A documented choice about a malformed file, not a reading of the clause.** §12.7.4.3 says
+/// "[t]he specified font value shall match a resource name in the Font entry of the default
+/// resource dictionary", and a file whose `/DA` names something `/DR` does not define has broken
+/// that `shall`. The standard says nothing about what to do next, so something has to be chosen,
+/// and what is chosen decides whether five corpus documents draw their free text in Helvetica or
+/// in whatever sans-serif face the machine running the program happens to offer.
+///
+/// **The argument for the table is that it is a bijection with the clause's own list.** These are
+/// not fourteen names picked out of the corpus: each is the four-letter abbreviation of exactly
+/// one of the standard 14, and there is no fifteenth. That is what separates it from
+/// [`substituted_font`]'s hint, where a resource name is arbitrary and passing `/F1` to a family
+/// match costs nothing precisely because it means nothing.
+///
+/// **And what it buys is stated in the same terms ADR 0133 used**: the value is drawn from the
+/// binary rather than from this machine, so those pages reproduce where no fonts are installed.
+/// A page drawn from a face the document did not name and the machine happened to have is the
+/// last machine-dependent thing left in a form's appearance.
+///
+/// The corpus's other two names — `/Rufscript` and `/F1` — are not on this list and still stand
+/// in and report, which is the case the list is deliberately narrow enough to leave alone.
+const STANDARD_ABBREVIATIONS: [(&str, &str); 14] = [
+    ("Helv", "Helvetica"),
+    ("HeBo", "Helvetica-Bold"),
+    ("HeOb", "Helvetica-Oblique"),
+    ("HeBO", "Helvetica-BoldOblique"),
+    ("Cour", "Courier"),
+    ("CoBo", "Courier-Bold"),
+    ("CoOb", "Courier-Oblique"),
+    ("CoBO", "Courier-BoldOblique"),
+    ("TiRo", "Times-Roman"),
+    ("TiBo", "Times-Bold"),
+    ("TiIt", "Times-Italic"),
+    ("TiBI", "Times-BoldItalic"),
+    ("Symb", "Symbol"),
+    ("ZaDb", "ZapfDingbats"),
+];
+
+/// The standard font a `/DA` resource name denotes, where it denotes one.
+///
+/// Case-sensitive, because a PDF name is a sequence of bytes and these fourteen are written one
+/// way; a reader that folded them would start matching `/helv` and `/HELV`, which no producer
+/// writes and which would widen a deliberately narrow table.
+fn standard_abbreviation(name: &str) -> Option<&'static str> {
+    STANDARD_ABBREVIATIONS
+        .iter()
+        .find(|(abbreviation, _)| *abbreviation == name)
+        .map(|(_, standard)| *standard)
 }
 
 /// A font dictionary standing in for one Table 224's `/DR` does not define.
@@ -281,7 +366,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         return Err(Owed::NoFont);
     };
 
-    let (dict, stood_in) = resolve_font(document, request.resources, &font_name);
+    let (dict, resolution) = resolve_font(document, request.resources, &font_name);
     let font = pdf_font::LoadedFont::load(document, &dict, &font_name)
         .map_err(|error| Owed::FontUnusable(error.to_string()))?;
 
@@ -297,7 +382,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
 
     let metrics = Metrics::read(document, &dict);
     let runs = encode(&font, request.text);
-    if stood_in && !runs.missing.is_empty() {
+    if resolution != Resolution::Named && !runs.missing.is_empty() {
         // **A font this crate invented may not fall short.** `freetext_no_appearance.pdf` is
         // the reason the rule is asymmetric: its value is a paragraph of Arabic, and a Latin
         // stand-in draws its spaces and full stops and nothing else — a scatter of dots on an
@@ -307,7 +392,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         // is ours, and the only honest thing an invention can do is decline.
         return Err(Owed::FontNotInResources(font_name));
     }
-    let mut owed = if stood_in {
+    let mut owed = if resolution == Resolution::StoodIn {
         // Named ahead of the two below: a value laid out in a font the document did not name
         // is a different statement from one whose length fell short, and it is the one that
         // explains the other when it follows from it.
@@ -391,7 +476,12 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     Ok(LaidOut {
         content: stream,
         owed,
-        font: stood_in.then(|| (pdf_syntax::Name::new(font_name.into_bytes()), dict)),
+        // The invented dictionary has to reach the appearance's `/Resources` under the name
+        // the `/DA` used, whichever of the two ways this crate arrived at it — the stream says
+        // `/{name} {size} Tf` either way, and a resource the interpreter cannot find is a
+        // stream that names nothing.
+        font: (resolution != Resolution::Named)
+            .then(|| (pdf_syntax::Name::new(font_name.into_bytes()), dict)),
     })
 }
 
@@ -471,7 +561,10 @@ fn encode(font: &pdf_font::LoadedFont, text: &str) -> Encoded {
             codes.push(BREAK);
             continue;
         }
-        match font.code_for(character) {
+        match font
+            .code_for(character)
+            .or_else(|| substitutable(character, font))
+        {
             Some(code) => codes.push(code),
             None if missing.contains(character) => {}
             None => missing.push(character),
@@ -482,6 +575,35 @@ fn encode(font: &pdf_font::LoadedFont, text: &str) -> Encoded {
         missing,
         truncated,
     }
+}
+
+/// A code for a character the font's encoding has no code for, where the standard names one.
+///
+/// One character so far, and the standard states the whole of the argument. Annex D's note 6 —
+/// the notes under §9.6.5.2's Latin character set — says that the space U+0020 is *also* encoded
+/// at 240 octal in `WinAnsiEncoding` and 312 octal in `MacRomanEncoding`, that Windows Code Page
+/// 1252 associates that code with the non-breaking space U+00A0, and that a producer meaning the
+/// second has to say so with a `/Differences` array naming `nonbreakingspace`. (Prose rather than
+/// a blockquote: the sentence lives in an annex, and this tree's quotations are checked against
+/// the numbered clause cited beside them.)
+///
+/// So `WinAnsiEncoding` gives U+00A0 no code of its own, and a field whose value holds one — as
+/// `bug1871353.pdf`'s does, nine of them between two letters — has a character §12.7.4.3 must
+/// write and the encoding cannot spell.
+///
+/// **A no-break space is a space, and drawing it as one loses nothing a display can show.** The
+/// only difference between the two is where a line may break, and this module has already
+/// decided that: [`wrap`] breaks on the value's own white space, and it sees the character
+/// rather than the code. What the alternative costs is measured — the field is reported and
+/// **nothing at all is drawn**, because a font this program inferred may not fall short.
+///
+/// Deliberately not a table of near-equivalents. The soft hyphen the same note names is *not*
+/// here: it is a character a layout engine shows only where it breaks a line, and drawing it
+/// always or never are both decisions about hyphenation rather than about encoding.
+fn substitutable(character: char, font: &pdf_font::LoadedFont) -> Option<pdf_font::Code> {
+    (character == '\u{a0}')
+        .then(|| font.code_for(' '))
+        .flatten()
 }
 
 /// The code standing for a line break, which is never shown.
