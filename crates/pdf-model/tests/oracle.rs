@@ -3859,6 +3859,39 @@ const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 /// climbing onto the limit to within 0.025.
 const AMBIGUOUS_ICC_MATRIX_PROFILE: [&str; 1] = ["issue19971.pdf page 5"];
 
+/// Ambiguous, and **the picture is the whole finding**: one reference decoded the image wrongly.
+///
+/// `issue19326.pdf` page 1 is a 132 × 81 crop holding one `JPXDecode` image — 551 × 337, sixteen
+/// bits per component, with a `JPXDecode` soft mask beside it — that reads *JPX* in a sans-serif
+/// face. It came off §3a's ranking at **0.65 from the nearest reference and 11.06 from the
+/// furthest**, a ratio of seventeen, which `doc/todo/00`'s step 1 reads as a page about the
+/// references rather than about us.
+///
+/// ```text
+/// ours 46.2472 │ poppler 46.4277 │ hayro 46.4416 │ mupdf 46.4549 │ ghostscript 47.6433
+/// ```
+///
+/// **The ink is the least informative number on this page**, and that is worth saying out loud:
+/// `ghostscript` is 1.2 of 255 above the other four, which on a page of black letterforms looks
+/// like an edge difference — and its panel is not letterforms at all. Ours, `poppler`, `mupdf`
+/// and `hayro` draw *JPX*; `ghostscript` draws a band of scrambled blocks with about the same
+/// coverage. A picture is one `Read` away and no metric on this page would have said so.
+///
+/// # What the specification determines
+///
+/// ISO/IEC 15444-1 defines the decoding exactly, which makes this `doc/todo/00`'s first shape —
+/// the clause determines it and we can be checked against it. `tests/jpeg2000.rs` is that check,
+/// and on *this* codestream it declines to run: `opj_decompress` writes a Netpbm whose maximum is
+/// the codestream's own precision, so a sixteen-bit image comes back at 65535 against this tree's
+/// eight-bit pipeline. So the evidence here is the weaker kind — four independent decoders
+/// producing the same legible glyphs — and it is recorded as the weaker kind rather than dressed
+/// up. What would make it the strong kind is the question that test's own comment already names:
+/// how a decoder scales sixteen bits to eight, which §7.4.9 leaves to it.
+///
+/// The verdict is `ambiguous` for trap 12's arithmetic reason: one reference far enough out drags
+/// the consensus apart, and the four that agree do so to **0.21 of 255**.
+const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pdf page 1"];
+
 /// Ambiguous, and §10.7.4's own last sentence is the answer.
 ///
 /// `issue4402_reduced.pdf` is a 215 × 28 crop box — `/CropBox [19.7223 787.097 234.535 815.348]`
@@ -4145,6 +4178,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
         .chain(&AMBIGUOUS_GLYPH_SCAN_CONVERSION)
         .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
+        .chain(&AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG)
         .copied()
         .collect()
 }
