@@ -44,7 +44,6 @@ issue12963.pdf page 2
 issue12963.pdf page 3
 issue12963.pdf page 4
 issue12963.pdf page 5
-issue12963.pdf page 7
 issue13343.pdf page 1
 issue13193.pdf page 1
 issue13201.pdf page 1
@@ -55,7 +54,6 @@ issue14953.pdf page 1
 issue14999_reduced.pdf page 1
 issue15012.pdf page 1
 issue15150.pdf page 1
-issue16473.pdf page 1
 issue16742.pdf page 1
 issue18072.pdf page 1
 issue1905.pdf page 1

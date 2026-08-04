@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **100 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **98 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 649 diagnosed, 100 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 651 diagnosed, 98 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat

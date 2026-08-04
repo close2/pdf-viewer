@@ -3398,7 +3398,15 @@ const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.p
 /// enough that every renderer paints one to seven levels more than their area is §10.7.4 as
 /// written on five implementations at once, and ADR 0025's departure is why ours is the
 /// smallest of the five overshoots rather than the largest.
-const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 3] = [
+/// # A fourth, in the two-hundred-and-sixty-eighth, and the tightest limit the bucket has
+///
+/// `issue12963.pdf` page 7 is page 8's neighbour and says the same thing more exactly: `poppler`
+/// descends onto **9.5574** and `mupdf` onto **9.5584** — one thousandth of a level apart, which
+/// is two independent programs agreeing about a geometry rather than two programs being close —
+/// and ours at 8× is 9.5344, 0.023 under. At the page's own scale ours is 9.510 and `poppler`
+/// 9.888, a third of a level *over* its own limit. Same document, same finding, four figures.
+const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 4] = [
+    "issue12963.pdf page 7",
     "issue12963.pdf page 8",
     "two_pages.pdf page 2",
     "issue12295.pdf page 1",
@@ -3867,8 +3875,28 @@ const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 6] = [
 /// page's ink, and it is the difference between PDFium's Foxit outlines compiled into this binary
 /// and URW's read off this machine's disk. Neither is the clause's, because the clause states
 /// none.
-const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 15] = [
+/// # A sixteenth, and it is eleven characters on a page the size of a postage stamp
+///
+/// `issue16473.pdf` is 176 × 40 device pixels: one widget, a `0.5 0.5 149 21 re s` border and
+/// `(Hello ) Tj (World) Tj` at `/Helv 12 Tf`, with Helvetica **not embedded**. So the page's mean
+/// is eleven glyphs and a rectangle, and whose Helvetica draws them is most of it.
+///
+/// ```text
+///                1x       2x       4x       8x       16x
+/// ours         14.9153  18.1384  18.2702  18.3156  18.2232
+/// poppler      18.0950                    18.5724 (576 dpi)
+/// mupdf                                   18.6207 (576 dpi)
+/// ```
+///
+/// The whole of our climb is between 1× and 2× — eleven glyphs on a forty-pixel page is where
+/// scan conversion costs most — and from there ours is flat at 18.2 to 18.3 against a limit the
+/// two references put at 18.57 and 18.62. **0.3 of 255 under, at every resolution**, which is a
+/// systematic difference in the outlines rather than in the pixels: this is the sheet's subject
+/// arriving through a widget's appearance stream. `ghostscript` draws 22.05 and `hayro` 15.72 at
+/// the page's own scale, a spread of 6.3 on eleven characters.
+const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 16] = [
     "ZapfDingbats.pdf page 1",
+    "issue16473.pdf page 1",
     "standard_fonts.pdf page 1",
     "standard_fonts.pdf page 10",
     "standard_fonts.pdf page 11",
