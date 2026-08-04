@@ -193,7 +193,7 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
-| A substitute with no glyph for a character; one that cannot be addressed | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
+| A substitute with no glyph for a character; one that cannot be addressed; **109 codes over 14 documents that reach no glyph and say nothing** | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
 | A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
@@ -2509,3 +2509,4 @@ above rather than here.
 | 241 | A sixth fuzz target, over the two glyph-table repairs, and two crashers in its first minute | 0175 |
 | 242 | The contradicted list's older unexplained page, settled by two ladders rather than a debugger | — |
 | 243 | And the last one: `CONTRADICTED_UNEXPLAINED` is empty, from 42 | — |
+| 244 | Codes that reach no glyph, counted at last: 109 over 14 documents, two thirds in two | — |

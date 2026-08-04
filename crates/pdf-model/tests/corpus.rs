@@ -585,6 +585,14 @@ const KNOWN_SLOW: [&str; 0] = [];
 /// What happened to one document.
 #[derive(Debug, Default)]
 struct Tally {
+    /// Every code shown on a page one that reached no glyph, and the documents they sit in.
+    ///
+    /// A measurement rather than a gate — nothing here fails on it. `doc/todo/21` asks whether
+    /// ADR 0152's trade still holds: the tree reports a font that drew *nothing* and stays quiet
+    /// about one that drew most of its codes, because naming every uncovered code named 13
+    /// documents that mostly draw fine and each report costs the oracle a judged page (trap 11).
+    /// The input to that question is a count, and this is where it is counted.
+    codes_without_a_glyph: Vec<(String, usize)>,
     unopenable: Vec<String>,
     locked: Vec<String>,
     unreadable_encryption: Vec<String>,
@@ -672,6 +680,11 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
     };
 
     let interpretation = pdf_model::interpret(&document, &page);
+    if interpretation.codes_without_a_glyph > 0 {
+        let missed = interpretation.codes_without_a_glyph;
+        let named = name.clone();
+        record(tally, |t| t.codes_without_a_glyph.push((named, missed)));
+    }
     if !interpretation.is_complete() {
         let reported = format!("{:?}", interpretation.unsupported);
         record(tally, |t| t.incomplete.push((name.clone(), reported)));
@@ -748,6 +761,21 @@ fn the_corpus_opens_interprets_and_rasterises() {
         tally.incomplete.len(),
         tally.slow.len()
     );
+    let missed: usize = tally
+        .codes_without_a_glyph
+        .iter()
+        .map(|(_, count)| *count)
+        .sum();
+    println!(
+        "  codes reaching no glyph: {missed} over {} documents (measurement, not a gate; \
+         doc/todo/21)",
+        tally.codes_without_a_glyph.len()
+    );
+    let mut worst = tally.codes_without_a_glyph.clone();
+    worst.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    for (name, count) in worst.iter().take(10) {
+        println!("    {count:6} {name}");
+    }
     for (name, reported) in &tally.incomplete {
         println!("  incomplete: {name}: {reported}");
     }

@@ -224,6 +224,21 @@ pub struct Interpretation {
     /// does a glyph on a hidden optional-content layer. It is a count rather than a flag
     /// because "a page with three glyphs on it" and "a page of text" are different pages.
     pub glyphs: usize,
+    /// Codes this page showed that reached no glyph at all, over every font it used.
+    ///
+    /// The complement of [`Self::glyphs`] for a `Font::Program`: a code whose font resolved it
+    /// to nothing, excluding the two cases that are not marks missed — a code that reads back
+    /// as whitespace, which is *meant* to have no outline, and a code §9.10.2 gave a character
+    /// that the substitute face lacks, which `Unsupported::Font` names on its own.
+    ///
+    /// **A count rather than a report, and that is the whole point of it.** ADR 0152 measured
+    /// the alternative: naming every uncovered code named 13 documents that mostly draw fine,
+    /// and every report costs the oracle a judged page (trap 11), so the tree reports a font
+    /// that drew *nothing* and stays quiet about one that drew most of its codes.
+    /// `doc/todo/21-font-substitution.md` asks whether that trade still holds, and the input to
+    /// that question is a number rather than an opinion — which is this field, summed over the
+    /// corpus by `pdf-model/tests/corpus.rs`.
+    pub codes_without_a_glyph: usize,
     /// ISO 32000-2 §14.9's accessibility spans over [`Self::text`], in the order they closed.
     ///
     /// One entry per marked-content sequence stating an `/Alt`, an `/E` or a `/Lang`, in
@@ -1144,6 +1159,7 @@ pub fn interpret_with(
         text_operations: 0,
         glyph_coverage: BTreeMap::new(),
         glyphs: 0,
+        codes_without_a_glyph: 0,
         operations: 0,
         fonts: BTreeMap::new(),
         text: String::new(),
@@ -1260,6 +1276,7 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         unsupported,
         text: interpreter.text,
         glyphs: interpreter.glyphs,
+        codes_without_a_glyph: interpreter.codes_without_a_glyph,
         described: interpreter.described,
         artifacts: interpreter.artifacts,
         marked: interpreter.marked,
@@ -1438,6 +1455,8 @@ struct Interpreter<'a> {
     glyph_coverage: BTreeMap<String, Coverage>,
     /// Glyphs that marked the page; see [`Interpretation::glyphs`].
     glyphs: usize,
+    /// Codes shown that reached no glyph; see `Interpretation::codes_without_a_glyph`.
+    codes_without_a_glyph: usize,
     operations: usize,
     /// Fonts already loaded, keyed by resource name.
     ///
@@ -4522,6 +4541,8 @@ impl Interpreter<'_> {
                             // codes comes back empty has drawn nothing the document asked
                             // for, which is the condition the report below applies.
                             coverage.empty = coverage.empty.saturating_add(1);
+                            self.codes_without_a_glyph =
+                                self.codes_without_a_glyph.saturating_add(1);
                         }
                     }
                     Font::Type3(type3) => {
