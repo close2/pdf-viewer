@@ -62,7 +62,7 @@ than a cost to hide. **Since the two-hundred-and-seventy-fourth session `--trace
 launch as a timeline** — one `Instant` taken at `main`'s first statement, one mark per milestone,
 printed when the first frame lands. It was **145 ms from process start to the first frame** on this
 machine's software adapter under `Xvfb`, for a 5-page document *and* for ISO 32000-2's 1023 pages,
-and is **110 to 119** after two rounds of taking things off it. Nothing the window needs has ever
+and is **98.8 to 119** after two rounds of taking things off it. Nothing the window needs has ever
 looked at a PDF, so the document opens on a thread of its own (ADR 0182); and a `wgpu::Instance`
 needs no window either, so **it is made on a second thread** and handed to quorra, which added the
 entry point for it after `doc/QUORRA_FEEDBACK.md` §8 asked with a measurement (ADR 0185). Of what
@@ -132,7 +132,7 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 
 | gate | number | where |
 |---|---|---|
-| tests | **996** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | re-run in the **two-hundred-and-eighty-fifth**: `deny`, `fmt`, `clippy`, all **eight** fuzzers, the seven gates and the window |
+| tests | **996** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | re-run in the **two-hundred-and-ninety-second**, after quorra's update and three rounds of font work: `deny`, `fmt`, `clippy`, all **eight** fuzzers, the seven gates and the window |
 | — | **996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate.** Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **856 agree**, **68 contradicted**, 749 ambiguous — **655 of them diagnosed and 94 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
@@ -141,7 +141,7 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **50.1 ms**, and five arrow keys turn to page 6 presenting in **9.8 to 18.8 ms** with nothing refused — re-run in the two-hundred-and-eighty-fifth, where the whole launch is 110 to 146 ms (ADR 0179's timeline), on `lavapipe` through quorra and so not comparable with a real adapter, where `examples/first_frame` puts the first frame at 18.2 ms and the tenth at 4.1; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **22.4 ms**, and five arrow keys turn to page 6 presenting in **9.5 to 15.9 ms** with nothing refused — re-run in the two-hundred-and-ninety-second, where the whole launch is **98.8 ms** (ADR 0179's timeline, ADR 0185's threads), on `lavapipe` through quorra and so not comparable with a real adapter, where `examples/first_frame` puts the first frame at 18.2 ms and the tenth at 4.1; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
 | conformance | **406 quotations**, all verbatim, 3939 citations, 190 distinct tables cited by the tree, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
@@ -2704,3 +2704,4 @@ above rather than here.
 | 289 | A 1023-page document and a 5-page one now cost the launch the same: 5 ms of join | — |
 | 290 | The sweeps over four rounds' nouns: §12.7.4.3 still said the reason was a glyph | — |
 | 291 | Step 7 over all 786 after three rounds of new pixels: four names past −0.7, all diagnosed | — |
+| 292 | Everything re-verified after quorra's update — and the round-285 deletion `rm -f` reported had not happened | — |
