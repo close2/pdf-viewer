@@ -47,21 +47,47 @@ number.
 can disagree about eight codes very easily: a subset keeps the glyphs its document uses and a
 `cmap` that may or may not address them by the codes the content stream shows.
 
+## Which fonts, and it is **two** failures rather than one
+
+The trace names the font since the two-hundred-and-forty-seventh session:
+
+```text
+MISSING font=/F5 code=91 read="x"   code=26 read="7"   code=21 read="2"   code=22 read="3"
+MISSING font=/F7 code=101 read="e"  code=120 read="x"  code=49 read="1"
+```
+
+- **`/F5` is object 40**: `/ABCDEE+Arial`, `/Subtype /Type0`, `/Encoding /Identity-H`, with a
+  `/ToUnicode`. Under `Identity-H` with `/CIDToGIDMap /Identity` the code **is** the glyph index,
+  so codes 21, 22, 26 and 91 name glyphs 21, 22, 26 and 91 of an embedded **subset**. The
+  `/Encoding 26 0 R` malformation does not touch this font at all.
+- **`/F7` is object 41**: `/ABCDEE+Segoe#20UI,Bold`, a simple `TrueType` with `/Flags 32`
+  (nonsymbolic) and an embedded `FontFile2`, whose codes are plain ASCII — `e`, `x`, `1`. This is
+  the font that states `/Encoding 26 0 R`.
+
+**So the `/Encoding` pointing at a content stream explains at most three of the eight**, and the
+other five are a composite font resolving a CID to a glyph its subset should contain. Two
+mechanisms, one page — which is why the first thing to settle is no longer "which font".
+
 ## What has to be settled
 
-1. **Which font shows the eight codes.** The trace prints the readback and not the font; adding
-   the name to it is one line and is the first thing the next session should do.
-2. **What §9.6.5 determines for an `/Encoding` that is neither a name nor a dictionary.** The
-   clause says what the entry *is*, not what to do when it is something else, so this is the
-   robustness question rather than the coverage one — and the answer has to be argued from what
-   the other entries still determine, not from what another reader does.
+1. **`/F5`: does glyph 91 exist in the subset?** `maxp`'s `numGlyphs` against the four codes is
+   one reading of the font program and settles whether this is a producer error every reader
+   shares — in which case `poppler` drawing something means it draws a `.notdef` — or a lookup of
+   ours that fails where §9.7.4.2's identity mapping says it should not.
+2. **`/F7`: what §9.6.5 determines for an `/Encoding` that is neither a name nor a dictionary.**
+   The clause says what the entry *is*, not what to do when it is something else, so this is the
+   robustness question rather than the coverage one. Note that a stream object answers `as_dict`
+   with its *stream dictionary* in this tree, so the current behaviour is "an encoding dictionary
+   with no `/BaseEncoding` and no `/Differences`" rather than "no encoding at all" — and §9.6.6.2
+   makes those two different things. **Check which one is being read before choosing between
+   them.**
 3. **Whether the page should report.** Eight codes out of a page is exactly the case ADR 0152
-   decided *not* to report, so if the reading in 2 leaves them undrawable, the honest outcome is
-   a diagnosis here and a page that stays quiet — not a report bolted on for one file.
+   decided *not* to report, so if 1 and 2 leave them undrawable, the honest outcome is a diagnosis
+   here and a page that stays quiet — not a report bolted on for one file.
 
-## Why it is not fixed in the session that found it
+## Why it is not fixed in the sessions that found it
 
-Item 1 is a measurement and items 2 and 3 are a reading; doing 3 before 2 would put a fallback in
-the code with no clause behind it. What is *done* is the finding: a page that is complete by
-every gate and is missing eight characters, the malformation that explains it, and the three
-routes §9.6.5 leaves open.
+Items 1 and 2 are two readings of two different clauses, and item 3 is a decision that depends on
+both. What is *done* is the finding — a page complete by every gate and missing eight characters
+— and the narrowing: **the malformation everyone would blame explains three of the eight, and the
+other five are somewhere else entirely.**

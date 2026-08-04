@@ -4551,7 +4551,12 @@ impl Interpreter<'_> {
                             // `pdftotext` reads that page as `1101#Strayer#Drive`, so the code
                             // is the document's space and having no outline is correct.
                             if std::env::var_os("PDFVIEWER_TRACE_MISSING_GLYPH").is_some() {
-                                eprintln!("MISSING read={:?}", self.text.get(start..));
+                                eprintln!(
+                                    "MISSING font=/{} code={} read={:?}",
+                                    state.text.font_name,
+                                    code.value(),
+                                    self.text.get(start..)
+                                );
                             }
                         }
                     }
