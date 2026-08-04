@@ -4209,7 +4209,26 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 /// highest, which on a page this small is a sixth of a level per glyph. §10.7.4's last sentence
 /// is the permission and it is quoted at the top of this group: scan conversion of character
 /// glyphs may be performed by a different algorithm.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 8] = [
+/// # And the tightest *ratio* the tail has produced, in the three-hundred-and-tenth
+///
+/// `issue14999_reduced.pdf` page 1 is a 370 × 60 crop of **55 commands** — a line of text and
+/// nothing else — and it came off §3a's ranking at **0.55 from the nearest reference and 0.76
+/// from the furthest**, a ratio of 1.38 where step 1 says a ratio near one means *we are alone*.
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// poppler        16.8574   16.9759
+/// mupdf          16.6496   16.8506
+/// ours (1x, 8x)  16.8074   16.8609
+/// ```
+///
+/// Alone, and inside them: all three climb, the two references end **0.125 of 255 apart** and
+/// ours lands between them. `ghostscript` is 17.2736 at the page's own scale, 0.4 above all four.
+/// So the shape step 1 reads as *we are alone* is here the shape of a page where nobody has a
+/// limit tight enough to be alone from — which is what §10.7.4's last sentence permits and this
+/// group quotes.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 9] = [
+    "issue14999_reduced.pdf page 1",
     "issue19971.pdf page 6",
     "issue11913.pdf page 1",
     "issue7769.pdf page 1",

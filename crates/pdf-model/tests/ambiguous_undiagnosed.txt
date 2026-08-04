@@ -44,7 +44,6 @@ issue13242.pdf page 1
 issue13343.pdf page 2
 issue1350.pdf page 2
 issue14953.pdf page 1
-issue14999_reduced.pdf page 1
 issue15150.pdf page 1
 issue16742.pdf page 1
 issue18072.pdf page 1
