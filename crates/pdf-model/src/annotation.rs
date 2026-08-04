@@ -110,12 +110,58 @@ pub(crate) enum Decision {
 
 /// Whether a press changes what this annotation looks like; see
 /// [`crate::view::press_changes_appearance`].
-pub(crate) fn press_changes(document: &Document, annotation: &Dictionary) -> bool {
+pub(crate) fn press_changes(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> bool {
     let down = has_down(document, annotation);
-    down || !matches!(
-        highlight(document, annotation, down),
-        Highlight::None | Highlight::Push
-    )
+    down || toggles_no_view(document, annotation, view)
+        || !matches!(
+            highlight(document, annotation, down),
+            Highlight::None | Highlight::Push
+        )
+}
+
+/// Whether the cursor arriving changes what this annotation looks like; see
+/// [`crate::view::hover_changes_appearance`].
+///
+/// Two entries, one from each of the two clauses that make a picture depend on the pointer:
+/// Table 170's `/R`, which §12.5.5 shows "when the user moves the cursor into the annotation's
+/// active area without pressing the mouse button", and Table 167's `ToggleNoView`, which changes
+/// whether the annotation is drawn at all.
+pub(crate) fn hover_changes(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> bool {
+    let appearances = document.get_key(annotation, "AP");
+    let rollover = appearances
+        .as_dict()
+        .is_some_and(|appearances| !document.get_key(appearances, "R").is_null());
+    rollover || toggles_no_view(document, annotation, view)
+}
+
+/// Whether §12.5.3's `ToggleNoView` reaches this annotation, through §12.7.8's `/F` if an FDF
+/// file said anything about it.
+///
+/// The same two lines as [`decided`]'s, and for the same reason: Table 249's imported `/F`
+/// "shall replace that of the F entry in the form's corresponding annotation dictionary", so a
+/// flag an FDF set is a flag the picture depends on — and this function's whole job is to say
+/// whether the picture depends on the pointer.
+fn toggles_no_view(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> bool {
+    let stated = document
+        .get_key(annotation, "F")
+        .as_integer()
+        .unwrap_or_default();
+    let flags = view
+        .flags
+        .map_or(stated, |change| change.applied_to(stated));
+    flags & FLAG_TOGGLE_NO_VIEW != 0
 }
 
 /// Whether the annotation states Table 170's `/D`, which is the appearance `/H /P` displays.
@@ -211,6 +257,21 @@ pub(crate) enum Highlight {
 /// and the down appearance is not used. The corpus cannot decide between the two readings —
 /// every one of the four annotations stating both states `/H P` — so the argument has to.
 pub(crate) fn highlight(document: &Document, annotation: &Dictionary, has_down: bool) -> Highlight {
+    // **Two tables define `/H` and no others do**: Table 176's, on a link annotation (§12.5.6.5),
+    // and Table 192's, on a widget (§12.5.6.19). Both give it the default `I`, and a default
+    // belongs to the entry rather than to annotations in general — so a subtype whose clause
+    // states no `/H` has no highlighting mode to default, and a press on it draws no mark.
+    //
+    // Reachable only from the two-hundred-and-fifty-third session, and that is the whole reason
+    // it was not caught: `viewer-core` took the pressed annotation from the *link* one, so the
+    // default could only ever land on a subtype that does define the entry. Widening the region
+    // to every annotation is what made a `Square` invert under the cursor, in a test written for
+    // a different flag.
+    let subtype = document.get_key(annotation, "Subtype");
+    let subtype = subtype.as_name().map(pdf_syntax::Name::as_bytes);
+    if !matches!(subtype, Some(b"Link" | b"Widget")) {
+        return Highlight::None;
+    }
     let stated = document.get_key(annotation, "H");
     let Some(name) = stated.as_name() else {
         return if has_down {
@@ -278,6 +339,36 @@ const FLAG_READ_ONLY: i64 = 1 << 6;
 const FLAG_NO_ZOOM: i64 = 1 << 3;
 /// `/F` bit 5: keep the annotation's orientation whatever §7.7.3.3's `/Rotate` says.
 const FLAG_NO_ROTATE: i64 = 1 << 4;
+/// `/F` bit 9: read [`FLAG_NO_VIEW`] the other way round while the pointer is on this annotation.
+const FLAG_TOGGLE_NO_VIEW: i64 = 1 << 8;
+
+/// Whether §12.5.3's `NoView` applies to this annotation *right now*.
+///
+/// Table 167, bit 9:
+///
+/// > If set, invert the interpretation of the NoView flag for annotation selection and mouse
+/// > hovering, causing the annotation to be visible when the mouse pointer hovers over the
+/// > annotation or when the annotation is selected.
+///
+/// So the flag is not a second suppression but a *pointer-dependent reading* of the first, and
+/// the exclusive-or is the sentence: `NoView` alone hides, `NoView` and `ToggleNoView` together
+/// hide until the cursor arrives, and `ToggleNoView` alone hides only while it is there.
+///
+/// Table 170's appearance is what "hovering" and "selected" are here. §12.5.5 defines the
+/// rollover as "when the user moves the cursor into the annotation's active area without
+/// pressing the mouse button" and the down appearance as the button held inside it, so anything
+/// but [`Appearance::Normal`] is the cursor being on this annotation — which is the condition
+/// this clause states in prose and that one states in a table.
+///
+/// **Unreachable before the two-hundred-and-fifty-third session**, and not because of this
+/// clause: `viewer-core` took the annotation under the pointer from the *link* one, so no
+/// annotation that was not a link ever left [`Appearance::Normal`].
+fn no_view(flags: i64, appearance: crate::view::Appearance) -> bool {
+    let stated = flags & FLAG_NO_VIEW != 0;
+    let inverted =
+        flags & FLAG_TOGGLE_NO_VIEW != 0 && appearance != crate::view::Appearance::Normal;
+    stated != inverted
+}
 
 /// What §12.5.3's `NoZoom` and `NoRotate` need to know about the view they are drawn into.
 ///
@@ -443,7 +534,14 @@ pub(crate) fn interacts(
     if flags & FLAG_HIDDEN != 0 && view.hidden_by_action != Some(false) {
         return false;
     }
-    if flags & FLAG_NO_VIEW != 0 {
+    // **`NoView` and `ToggleNoView` together do not suppress interaction**, and that is a
+    // derivation rather than a reading of a second sentence. Table 167 states the pair's effect
+    // as "causing the annotation to be visible when the mouse pointer hovers over the
+    // annotation" — an effect conditioned on the hover being *noticed*. An annotation the
+    // pointer cannot land on never leaves `Appearance::Normal`, so `NoView` would never be
+    // inverted and bit 9 could not mean anything at all. What the pair asks for is an annotation
+    // that appears under the cursor, which is exactly an annotation whose region is live.
+    if flags & FLAG_NO_VIEW != 0 && flags & FLAG_TOGGLE_NO_VIEW == 0 {
         return false;
     }
     let widget = document
@@ -563,7 +661,7 @@ fn decided(
         .flags
         .map_or(stated, |change| change.applied_to(stated));
     if (flags & FLAG_HIDDEN != 0 && view.hidden_by_action != Some(false))
-        || flags & FLAG_NO_VIEW != 0
+        || no_view(flags, view.appearance)
     {
         return Decision::Nothing;
     }

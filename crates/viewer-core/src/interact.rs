@@ -62,20 +62,17 @@ pub(crate) fn link_at(open: &Open, x: f32, y: f32) -> Option<ObjectId> {
 ///
 /// **The two ends of a press are two different questions.** A hover shows Table 170's `/R`,
 /// which most annotations do not state. A press shows `/D` *or* draws §12.5.6.19's `/H` mark,
-/// whose default is `I` — so an annotation stating neither entry still changes under a press,
-/// and `pdf_model` owns that question because it is two clauses rather than one lookup.
-pub(crate) fn has_appearance(document: &Document, annotation: ObjectId, pointer: Pointer) -> bool {
+/// whose default is `I` — so an annotation stating neither entry still changes under a press.
+/// Both are `pdf_model`'s to answer: each is several clauses rather than one lookup, and this
+/// crate reading an `/AP` for itself is how the hovering half missed §12.5.3's `ToggleNoView`.
+pub(crate) fn has_appearance(open: &Open, annotation: ObjectId, pointer: Pointer) -> bool {
+    let view = open.view.annotation(annotation);
     match pointer {
-        Pointer::Down => pdf_model::view::press_changes_appearance(document, annotation),
+        Pointer::Down => {
+            pdf_model::view::press_changes_appearance(&open.document, annotation, view)
+        }
         Pointer::Over => {
-            let object = document.get(annotation);
-            let Some(dict) = object.as_dict() else {
-                return false;
-            };
-            let appearances = document.get_key(dict, "AP");
-            appearances
-                .as_dict()
-                .is_some_and(|appearances| !document.get_key(appearances, "R").is_null())
+            pdf_model::view::hover_changes_appearance(&open.document, annotation, view)
         }
     }
 }

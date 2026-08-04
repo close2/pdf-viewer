@@ -861,6 +861,90 @@ fn a_field_is_typed_into_undone_and_redone() {
     assert!(quiet.is_empty(), "{quiet:?}");
 }
 
+/// §12.5.5's appearances belong to every annotation, not only to a link.
+///
+/// > An annotation may define as many as three separate appearances:
+/// >
+/// > - The normal appearance shall be used when the annotation is not interacting with the user.
+/// >   This appearance is also used for printing the annotation.
+/// > - The rollover appearance shall be used when the user moves the cursor into the annotation's
+/// >   active area without pressing the mouse button.
+/// > - The down appearance shall be used when the mouse button is pressed or held down within the
+/// >   annotation's active area.
+///
+/// `pdf_model` has answered that for every subtype since the hundred-and-thirty-eighth session,
+/// including §12.5.6.19's `/H` highlighting mode whose default is `I` — and until the
+/// two-hundred-and-fifty-third this crate took the annotation under the pointer from
+/// `link::at`, which returns a `/Subtype /Link` and nothing else. So the one entry that is a
+/// *widget's* could not be reached by any host, and neither could a rollover on anything else.
+///
+/// The observable is the display list: an appearance that changed is a page interpreted again.
+#[test]
+fn a_press_on_a_widget_draws_the_page_again() {
+    let Some(bytes) = corpus_bytes("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<_> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .collect();
+    let first = request(&events).clone();
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page has a geometry");
+    };
+    // This form's first widget, `[48.54, 727.93, 198.54, 749.93]` in default user space — the
+    // same one `a_click_finds_the_field_it_landed_on` addresses, and no link is anywhere near it.
+    let on_widget = (
+        geometry.origin.0 + 120.0 * geometry.scale,
+        geometry.origin.1 + (geometry.page.height - 738.0) * geometry.scale,
+    );
+    assert!(
+        matches!(viewer.query(Query::LinkAt(on_widget)), Answer::Link(false)),
+        "the point is a widget and not a link, which is the whole of the case"
+    );
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: on_widget,
+            action: PointerAction::Pressed,
+        })
+        .collect();
+    let pressed = request(&events).clone();
+    assert!(
+        !std::sync::Arc::ptr_eq(&first.list, &pressed.list),
+        "a press inside a widget's active area shows Table 170's down appearance"
+    );
+
+    // And a release puts it back: the button is up, so §12.5.5's rollover applies, and this
+    // widget states no `/R` — so the picture is the normal one again.
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: on_widget,
+            action: PointerAction::Released,
+        })
+        .collect();
+    let released = request(&events).clone();
+    assert!(!std::sync::Arc::ptr_eq(&pressed.list, &released.list));
+
+    // Nothing is under the corner of the page, and a pointer over nothing draws nothing again.
+    let quiet: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: (2.0, 2.0),
+            action: PointerAction::Moved,
+        })
+        .collect();
+    assert!(
+        !quiet
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "{quiet:?}"
+    );
+}
+
 #[test]
 fn a_click_finds_the_field_it_landed_on() {
     // What a host asks before it can send an edit: §12.5.2 puts a widget's rectangle in default

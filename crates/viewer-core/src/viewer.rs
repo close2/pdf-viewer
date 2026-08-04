@@ -377,6 +377,19 @@ impl Viewer {
     /// question, because changing it invalidates the page's display list: a cursor crossing a
     /// link whose only appearance stream is `/N` would otherwise re-interpret the page — 2 000 M
     /// instructions — for a picture that cannot differ.
+    ///
+    /// **Which annotation the pointer is on is `annotation_at`'s answer and not `link_at`'s**,
+    /// since the two-hundred-and-fifty-third session. §12.5.5 is written about an annotation —
+    /// "[a]n annotation may define as many as three separate appearances" — and §12.5.6.19's
+    /// `/H` is an entry of a *widget*; taking the region from the link one meant that neither
+    /// reached anything but a link, and `pdf_model` had implemented both for every annotation
+    /// (ADR 0123). `over` is also the region §12.6.3's events already use, so this is one
+    /// question asked once rather than two answers that disagreed.
+    ///
+    /// It is `annotation_at` for a second reason, which is a clause rather than a tidy-up: that
+    /// function filters by `annotation::interacts`, and §12.5.3's `ReadOnly` says an annotation
+    /// "should not respond to mouse clicks or change its appearance in response to mouse
+    /// motions". Reading the region through it is what makes that sentence true here.
     fn pointer(&mut self, at: (f32, f32), action: PointerAction, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
         let viewport = self.viewport;
@@ -385,10 +398,13 @@ impl Viewer {
         let Some(open) = self.focused_mut() else {
             return;
         };
+        // What a *click* activates is the link one, and only that: §12.5.6.5's activation region
+        // is a link's, and `open.pressed` below decides whether a release follows one.
         let under = point.and_then(|(x, y)| interact::link_at(open, x, y));
-        // §12.6.3's events belong to *any* annotation, so the region they are about is not the
-        // link one. Asked once per pointer message, which is what a `/Rect` test over a page's
-        // annotation array costs — the same shape `Query::FieldAt` already pays at pointer speed.
+        // §12.6.3's events belong to *any* annotation, and so — since the two-hundred-and-fifty-
+        // third session — does §12.5.5's appearance. Asked once per pointer message, which is
+        // what a `/Rect` test over a page's annotation array costs: the same shape
+        // `Query::FieldAt` already pays at pointer speed.
         let over = point.and_then(|(x, y)| {
             let page = open.shown_page()?;
             let (x, y) = pdf_model::content::user_space_at(page, x, y)?;
@@ -399,20 +415,19 @@ impl Viewer {
             // A drag is a person choosing text, not looking at an annotation, so it leaves
             // §12.5.5's appearance where the press put it.
             PointerAction::Moved | PointerAction::Dragged => {
-                under.map(|annotation| (annotation, Pointer::Over))
+                over.map(|annotation| (annotation, Pointer::Over))
             }
-            PointerAction::Pressed => under.map(|annotation| (annotation, Pointer::Down)),
+            PointerAction::Pressed => over.map(|annotation| (annotation, Pointer::Down)),
             // Back to hovering: the button is up and the cursor is still where it was.
-            PointerAction::Released => under.map(|annotation| (annotation, Pointer::Over)),
+            PointerAction::Released => over.map(|annotation| (annotation, Pointer::Over)),
         };
         let wanted = if action == PointerAction::Dragged {
             open.pointer
         } else {
             wanted
         };
-        let wanted = wanted.filter(|(annotation, pointer)| {
-            interact::has_appearance(&open.document, *annotation, *pointer)
-        });
+        let wanted = wanted
+            .filter(|(annotation, pointer)| interact::has_appearance(open, *annotation, *pointer));
         if open.pointer != wanted {
             open.pointer = wanted;
             open.view.set_pointer(wanted);

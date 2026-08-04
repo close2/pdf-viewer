@@ -993,6 +993,83 @@ fn the_pointer_chooses_between_an_annotations_appearances() {
     );
 }
 
+/// §12.5.3's `ToggleNoView`, Table 167 bit 9:
+///
+/// > If set, invert the interpretation of the NoView flag for annotation selection and mouse
+/// > hovering, causing the annotation to be visible when the mouse pointer hovers over the
+/// > annotation or when the annotation is selected.
+///
+/// So the flag is a pointer-dependent *reading* of `NoView` rather than a second suppression,
+/// and the exclusive-or is the sentence. Both directions are checked here, because the clause
+/// states an inversion and not a reveal: `NoView` with the toggle appears under the cursor, and
+/// the toggle alone disappears under it.
+///
+/// **No corpus document states bit 9**, on a scan of every uncompressed `/F` in all 974, so this
+/// is a hand-built fixture and says so. What made the flag unreachable was never the corpus: a
+/// `NoView` annotation could not be hovered, because `annotation_at` filters by
+/// `annotation::interacts` and that returned `false` for it — a flag whose whole effect is
+/// conditioned on a hover it prevented.
+#[test]
+fn toggle_no_view_inverts_no_view_under_the_pointer() {
+    let annotation = pdf_syntax::ObjectId {
+        number: 5,
+        generation: 0,
+    };
+    // Bit 6 is NoView (32) and bit 9 is ToggleNoView (256); bit 3, Print (4), is set on every
+    // case so that the flag words differ in nothing else.
+    let drawn = |flags: u32, pointer: Option<pdf_model::view::Pointer>| {
+        let bytes = pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Square /Rect [10 10 90 90] /F {flags} \
+                 /AP << /N 6 0 R >> >>"
+            ),
+            "/BBox [0 0 80 80]",
+            "1 0 0 rg 0 0 80 80 re f",
+        );
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let mut state = pdf_model::view::ViewState::of(&document);
+        state.set_pointer(pointer.map(|pointer| (annotation, pointer)));
+        let list = pdf_model::content::interpret_with(&document, &page, &state).display_list;
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("target");
+        let raster = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let at = ((50 * raster.width) + 50) as usize * 4;
+        (raster.data[at], raster.data[at + 1], raster.data[at + 2])
+    };
+    let red = (255, 0, 0);
+    let blank = drawn(4 | 32, None);
+    assert_ne!(
+        blank, red,
+        "NoView draws nothing: the flag this one inverts"
+    );
+
+    // NoView alone: nothing, wherever the pointer is.
+    assert_eq!(drawn(4 | 32, Some(pdf_model::view::Pointer::Over)), blank);
+
+    // NoView and ToggleNoView: nothing until the cursor arrives, which is the clause's own
+    // "typical use" and the only half a reader is likely to meet.
+    assert_eq!(drawn(4 | 32 | 256, None), blank);
+    assert_eq!(
+        drawn(4 | 32 | 256, Some(pdf_model::view::Pointer::Over)),
+        red
+    );
+    assert_eq!(
+        drawn(4 | 32 | 256, Some(pdf_model::view::Pointer::Down)),
+        red
+    );
+
+    // ToggleNoView alone: the inversion the other way, which the sentence states and no producer
+    // is likely to write. Drawn normally, and *not* while the cursor is on it.
+    assert_eq!(drawn(4 | 256, None), red);
+    assert_eq!(drawn(4 | 256, Some(pdf_model::view::Pointer::Over)), blank);
+
+    // And a plain annotation is drawn whatever the pointer does.
+    assert_eq!(drawn(4, None), red);
+    assert_eq!(drawn(4, Some(pdf_model::view::Pointer::Over)), red);
+}
+
 /// Appends object 7, a blue appearance stream, to a fixture built by [`pdf_with`].
 ///
 /// Written as a rebuild rather than a splice because the cross-reference table's offsets are
@@ -1253,6 +1330,19 @@ fn a_press_inverts_a_widget_whose_highlighting_mode_says_to() {
         colour_of(unstated, Some(pdf_model::view::Pointer::Down)),
         (0, 255, 255),
         "Table 192: default value I"
+    );
+
+    // **And the default belongs to the entry, not to annotations in general.** Two tables
+    // define `/H` — Table 176's link and Table 192's widget — so a subtype whose clause states
+    // no such entry has no mode to default and a press draws no mark on it. Unreachable until
+    // the two-hundred-and-fifty-third session took the pressed annotation from the whole page
+    // rather than from its links, which is exactly when a latent default becomes a wrong pixel.
+    let square = "<< /Type /Annot /Subtype /Square /Rect [10 10 90 90] /F 4 \
+                  /AP << /N 6 0 R >> >>";
+    assert_eq!(
+        colour_of(square, Some(pdf_model::view::Pointer::Down)),
+        (255, 0, 0),
+        "a Square states no /H, so Table 192's default is not its default"
     );
 }
 

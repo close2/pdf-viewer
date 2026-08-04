@@ -917,13 +917,41 @@ fn qualified_name(document: &Document, dict: &Dictionary, prefix: &str) -> Strin
 /// for an `/AP` `/D` and stopping there, which is what `viewer-core` did until the
 /// hundred-and-thirty-eighth session and which left §12.5.6.19 unreachable from the one program
 /// that has a mouse.
+///
+/// **A third clause joined them in the two-hundred-and-fifty-third session**: §12.5.3's
+/// `ToggleNoView` decides whether the annotation is drawn *at all* while the pointer is on it,
+/// which is the largest change a press can make to a picture.
 #[must_use]
-pub fn press_changes_appearance(document: &Document, annotation: ObjectId) -> bool {
+pub fn press_changes_appearance(
+    document: &Document,
+    annotation: ObjectId,
+    view: AnnotationView<'_>,
+) -> bool {
     let object = document.get(annotation);
     let Some(dict) = object.as_dict() else {
         return false;
     };
-    crate::annotation::press_changes(document, dict)
+    crate::annotation::press_changes(document, dict, view)
+}
+
+/// Whether the cursor arriving on this annotation changes what is drawn.
+///
+/// The hovering half of [`press_changes_appearance`], and it exists for the same reason: the
+/// pointer state invalidates the page's display list, so it is only changed where the picture can
+/// differ. Table 170's `/R` is the appearance §12.5.5 shows "when the user moves the cursor into
+/// the annotation's active area without pressing the mouse button", and §12.5.3's `ToggleNoView`
+/// decides whether the annotation is drawn at all while it is there.
+#[must_use]
+pub fn hover_changes_appearance(
+    document: &Document,
+    annotation: ObjectId,
+    view: AnnotationView<'_>,
+) -> bool {
+    let object = document.get(annotation);
+    let Some(dict) = object.as_dict() else {
+        return false;
+    };
+    crate::annotation::hover_changes(document, dict, view)
 }
 
 /// The objects one save writes, and the object numbers it is allowed to invent.
