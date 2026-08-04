@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 496 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 495 pages left.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 253 diagnosed, 496 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 254 diagnosed, 495 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -188,11 +188,10 @@ reason, and the reason is written down.
 
 ## The next names on the ranking
 
-`pr12564.pdf` (0.99 from the nearest, 2.30 from the furthest),
-`chrome-text-selection-markedContent.pdf` (0.98 / 2.15), `standard_fonts.pdf` pages 8 and 7
-(0.96 / 1.42), `bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf`
-(0.90 / 4.53), `issue9291.pdf` (0.87 / 1.49), `freeculture.pdf` page 163 (0.86 / 2.09),
-`issue19634.pdf` (0.85 / **5.96**).
+`chrome-text-selection-markedContent.pdf` (0.98 from the nearest, 2.15 from the furthest),
+`bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf` (0.90 / 4.53),
+`issue9291.pdf` (0.87 / 1.49), `freeculture.pdf` pages 163, 165, 184, 172 and 156 (0.86 down to
+0.78), `issue5244.pdf` (0.79 / 1.78).
 
 **Every name above 0.85 now has a furthest at least 1.4× its nearest.** Step 1 says to prefer a
 page whose two numbers are *close*, because that is the shape that says we are alone — and there
@@ -208,6 +207,15 @@ over its geometry, and ours is 4.5836 at 1× against 4.5900 at 8× — the geome
 page's ink, and the other four read the codestream. **Both are a clause read correctly by the
 renderer that is alone**, which is the shape a wide ratio is *for* — and both produced a
 correction to a ledger row rather than a change to any pixel.
+
+**And the two-hundred-and-thirty-seventh took the next one down and it was ours.**
+`issue19634.pdf` sat at 0.85 / 5.96 — Skia's own `blurSmallRadii`, five renderers giving five
+answers between 2.87 and 47.98 — and the picture said what no number could: **we drew none of
+the red text**. §8.6.8's uncoloured restriction was still in force inside the soft mask's own
+group, so a `d1` glyph procedure that set a `/Luminosity` mask had its mask evaluated to zero.
+Ink 2.87 → 8.03 against `mupdf`'s 7.63 and `hayro`'s 8.11. ADR 0173. **A five-way spread is
+never scan conversion**, which is the reading to take from the ratio rather than "the references
+disagree, so it is not ours".
 
 **Four `freeculture.pdf` pages and one paper under twelve names left it in the
 two-hundred-and-thirty-third**, which is 158 of them, and the shape of that result is in the

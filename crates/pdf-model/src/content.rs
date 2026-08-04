@@ -2784,7 +2784,28 @@ impl Interpreter<'_> {
 
         let mark = self.list.command_count();
         self.soft_mask_depth = self.soft_mask_depth.saturating_add(1);
+        // §8.6.8's restriction does **not** reach in here, and until the
+        // two-hundred-and-thirty-seventh session it did. The clause applies "[i]n any glyph
+        // description that uses the d1 operator … and to all other content streams invoked
+        // from within the same glyph description", and it says why in the sentence before:
+        // "when defining graphical figures whose colours shall be specified separately each
+        // time they are used". A soft mask is not such a figure. It carries no colour to the
+        // page at all — §11.6.5.2 turns the group's result into a luminosity and uses it as
+        // *alpha* — so NOTE 1's own reason for exempting a stencil applies verbatim: it "does
+        // not specify colours; instead, it designates places where the current colour is
+        // painted". Worse, the restriction is actively destructive here: a `/Luminosity`
+        // mask's values *are* the group's colours, so ignoring `rg` inside it changes the
+        // mask, and ignoring the group's images leaves a mask of zero that erases the very
+        // marks the glyph exists to make.
+        //
+        // `issue19634.pdf` is the witness — a Skia blur test whose red text is a Type 3 font
+        // whose glyph procedure is `d1`, a `gs` naming a `/Luminosity` mask, and one `re f`.
+        // The mask group draws a blurred greyscale image; with the flag leaking in, the image
+        // was skipped by §8.6.8's image rule, the mask came out zero and the text vanished.
+        // Ink 2.87 against `mupdf`'s 7.63 and `hayro`'s 8.11 (ADR 0173).
+        let saved_uncoloured = std::mem::replace(&mut self.uncoloured, false);
         self.run(&content, &resources, &inner, 0);
+        self.uncoloured = saved_uncoloured;
         self.soft_mask_depth = self.soft_mask_depth.saturating_sub(1);
         let commands = self.list.split_off_commands(mark);
 

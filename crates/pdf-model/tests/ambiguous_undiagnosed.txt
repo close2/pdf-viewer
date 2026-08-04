@@ -411,7 +411,6 @@ issue18072.pdf page 1
 issue1905.pdf page 1
 issue19083.pdf page 1
 issue19326.pdf page 1
-issue19634.pdf page 1
 issue19971.pdf page 5
 issue19971.pdf page 6
 issue269_1.pdf page 1

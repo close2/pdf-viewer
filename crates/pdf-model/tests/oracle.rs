@@ -2584,6 +2584,38 @@ const AMBIGUOUS_JPEG_COMPONENT_IDS: [&str; 1] = ["issue11931.pdf page 1"];
 /// other way.
 const AMBIGUOUS_RECOVERED_PAGE_TREE: [&str; 1] = ["issue21436.pdf page 1"];
 
+/// Ambiguous, and it is a **blur test** where five renderers give five answers to one clause.
+///
+/// `issue19634.pdf` is Skia's own `blurSmallRadii`: a 100 × 100 page drawing *guest* five times,
+/// each a red blurred copy under a green sharp one, the radius growing down the page. The red
+/// is a Type 3 font whose glyph procedure is `d1`, a `gs` naming an `/SMask << /S /Luminosity >>`
+/// and one `re f` — so the blur is a *mask* and the glyph is a rectangle poured through it.
+///
+/// ```text
+/// ours 8.03    hayro 8.11    mupdf 7.63    poppler 16.64    ghostscript 47.98
+/// ```
+///
+/// **Ours was 2.87 until the two-hundred-and-thirty-seventh session**, drawing no red at all:
+/// §8.6.8's uncoloured restriction was still in force inside the mask's own group, so the
+/// group's image was skipped, the mask came out zero and every glyph the font drew was masked
+/// away — with all 51 of the page's commands present and nothing reported. ADR 0173 has the
+/// reading; we now sit between the two references that draw the same picture.
+///
+/// # What the clause determines about the two that do not
+///
+/// `ghostscript` paints solid red blocks — the mask ignored entirely — which is §8.6.8's
+/// `/ExtGState` list read as though `/SMask` were on it. It is not: the list is `TR`, `TR2`,
+/// `HT`, `BG`, `BG2`, `UCR`, `UCR2` and `UseBlackPtComp`, and every one of them describes a
+/// marking device. `poppler` at 16.64 is between the two, which is a mask applied at some other
+/// strength.
+///
+/// What is left between ours, `mupdf` and `hayro` is half a level of 255 on a blur, and it is
+/// §11.6.5.2's own arithmetic on a `DCTDecode` greyscale image — the three of us differ by less
+/// than the eight-bit quantisation of the mask at its brightest, which this image reaches at
+/// 110 of 255. The page stays `ambiguous` because two renderers are 2× and 6× away, which is a
+/// statement about them.
+const AMBIGUOUS_MASKED_BLUR: [&str; 1] = ["issue19634.pdf page 1"];
+
 /// Ambiguous, and three pages where every renderer paints more than the geometry.
 ///
 /// ```text
@@ -3056,6 +3088,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_JPEG_COMPONENT_IDS)
         .chain(&AMBIGUOUS_RECOVERED_PAGE_TREE)
         .chain(&AMBIGUOUS_STANDARD_FOURTEEN_FACE)
+        .chain(&AMBIGUOUS_MASKED_BLUR)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)

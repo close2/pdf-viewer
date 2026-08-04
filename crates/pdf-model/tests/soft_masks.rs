@@ -290,3 +290,63 @@ fn the_masks_coordinate_system_is_the_one_in_force_at_the_gs() {
         "and the black backdrop still masks the other half away",
     );
 }
+
+/// §8.6.8's uncoloured restriction does not reach inside a soft mask's group.
+///
+/// The clause restricts colour operators "[i]n any glyph description that uses the d1
+/// operator … and to all other content streams invoked from within the same glyph
+/// description", and says why one sentence earlier: the restriction is for "graphical figures
+/// whose colours shall be specified separately each time they are used". A soft mask is not
+/// one. It carries no colour to the page — §11.6.5.2 turns the group's result into a
+/// luminosity and uses it as *alpha* — so NOTE 1's reason for exempting a stencil applies
+/// word for word, and the restriction is destructive rather than neutral here: a
+/// `/Luminosity` mask's values **are** its group's colours.
+///
+/// The fixture is the shape `issue19634.pdf` uses: a `d1` glyph description whose whole body
+/// is a `gs` naming a luminosity mask and one filled rectangle. The mask's group is stated in
+/// *glyph* space, because §11.6.5.1 fixes the mask's coordinate system at the `gs` and the
+/// `gs` is inside the glyph; it paints mid grey, so the glyph's black must come out about
+/// half strength. With the flag leaking in,
+/// the group's `0.5 g` was ignored, the group painted its initial black, and the mask came
+/// out **zero** — the glyph vanished, in silence.
+#[test]
+fn a_soft_mask_group_is_not_bound_by_an_uncoloured_glyphs_restriction() {
+    let objects = vec![
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Resources << /Font << /FT3 7 0 R >> >> /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", b"BT /FT3 40 Tf 0 0 0 rg 0 10 Td (a) Tj ET"),
+        b"5 0 obj\n<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 6 0 R >> \
+          >>\nendobj\n"
+            .to_vec(),
+        stream_object(
+            6,
+            "/Type /XObject /Subtype /Form /BBox [0 0 1000 1000] \
+             /Group << /Type /Group /S /Transparency /CS /DeviceGray >>",
+            b"0.5 g 0 0 1000 1000 re f",
+        ),
+        b"7 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] \
+          /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 9 0 R /Encoding 8 0 R \
+          /FirstChar 97 /LastChar 97 /Widths [1000] \
+          /Resources << /ExtGState << /GS 5 0 R >> >> >>\nendobj\n"
+            .to_vec(),
+        b"8 0 obj\n<< /Type /Encoding /Differences [97 /box] >>\nendobj\n".to_vec(),
+        b"9 0 obj\n<< /box 10 0 R >>\nendobj\n".to_vec(),
+        stream_object(
+            10,
+            "",
+            b"1000 0 0 0 1000 1000 d1\n/GS gs\n0 0 1000 1000 re f",
+        ),
+    ];
+    let raster = render(assemble(&objects));
+
+    // Black through a mask of 0.5 over white is 128. Before the fix this pixel was 255: the
+    // mask group's fill was ignored, so the mask was zero and the glyph painted nothing.
+    near(
+        level(&raster, 20, 30),
+        128,
+        "the glyph is painted at the mask's own value",
+    );
+}
