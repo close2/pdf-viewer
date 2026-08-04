@@ -43,6 +43,14 @@ being popups this tree draws nothing for. **No corpus document has a `NoRotate` 
 tree draws on a page with a non-zero `/Rotate`**, so that half is checked by a hand-built fixture
 whose numbers are one composition of two matrices.
 
+**And neither flag reaches §12.5.6.10's four text-markup subtypes since the
+two-hundred-and-thirty-sixth session** (ADR 0172), which is a choice under a conflict rather than
+a derivation: §12.5.3's "shall always maintain the same fixed size on the screen" and
+§12.5.6.10's "shall appear ... in the text of a document" cannot both hold at a magnification
+other than 1, and the standard states no precedence. Counted first: 511 text markup annotations
+across 34 documents, 211 of them carrying `NoZoom`, and all 211 are strike-outs in
+`ISO_32000-2_sponsored_EC3.pdf` at one flag value.
+
 ## `/FixedPrint` — still owed, and it is a printing decision
 
 Table 193's entry on a §12.5.6.22 watermark annotation states "graphics that are to be printed at

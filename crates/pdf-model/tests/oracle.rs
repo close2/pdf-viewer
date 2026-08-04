@@ -1213,7 +1213,38 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 21] = [
 /// any printed metric. That is trap 12's shape rather than a defect: the bound is 6.04 because
 /// two references agree very closely, and no reading of a clause chooses between five
 /// resamplings of one image.
-const CONTRADICTED_UNEXPLAINED: [&str; 1] = ["issue7891_bc1.pdf page 1"];
+const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
+
+/// Contradicted because two references agree with each other more closely than anybody is right.
+///
+/// **`issue7891_bc1.pdf` was the last page of `CONTRADICTED_UNEXPLAINED`, and it left in the
+/// two-hundred-and-forty-third session — the list is empty.** It was measured in the sixty-first
+/// without being fixed: the difference is one word inside a luminosity soft mask whose group
+/// draws a 676 × 436 greyscale image reduced 2.8-fold, the five renderers' column centroids span
+/// 0.76 of a pixel, and switching our own reduction between area averaging and point sampling
+/// moved the raster without moving any printed metric. What was missing was the instrument, and
+/// the two-ladder closed form arrived sixteen sessions ago.
+///
+/// ```text
+///                1x        8x
+/// ours        15.6380   15.6472
+/// poppler     15.5410   15.6332
+/// mupdf       15.5502   15.6346
+/// ghostscript 15.6083
+/// hayro       15.6228
+/// ```
+///
+/// The two ladders agree to **0.0014 of 255**, which is the tightest limit this file has
+/// recorded, and **ours at the page's own scale is 0.004 from it — the nearest of all five.**
+/// `poppler` and `mupdf` are 0.09 under, together, which is why they vote: the corpus gate's
+/// bound is *twice the consensus pair's own spread* (trap 12), and two renderers that agree to
+/// 0.009 produce a bound tighter than any tolerance the file states.
+///
+/// **So the verdict is a statement about the pair, not about the page.** Every printed metric is
+/// inside the class bound, and the one number derived from no reference at all puts us closest
+/// to the geometry. That is the shape trap 12 describes, and this page is now its named witness
+/// rather than a page nobody had measured.
+const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 
 /// Documents where our page geometry differs from the references' by more than the one
 /// pixel a fractional page size can round to.
@@ -3999,6 +4030,7 @@ fn check_the_ratchets(results: &[Examined]) {
         .chain(&CONTRADICTED_SYMBOLIC_FONT_FLAGS)
         .chain(&CONTRADICTED_SUBSTITUTED_FONT)
         .chain(&CONTRADICTED_UNEXPLAINED)
+        .chain(&CONTRADICTED_TIGHT_CONSENSUS)
         .copied()
         .collect();
     assert_ratchet(

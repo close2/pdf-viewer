@@ -32,8 +32,14 @@ Honest refusals. The `-UCS2` `CMap`s closed the rest of this population in sessi
 alternative — reporting every uncovered code named 13 documents that mostly draw fine, and each
 report costs the oracle a judged page (trap 11) — and chose "drew none" deliberately.
 
-The general case needs a report where a glyph is *shown*, which needs `LoadedFont` to distinguish
-"this code has no glyph" from "this code's glyph is blank", which a space legitimately is. The
-whitespace-readback test added in ADR 0157 is half of that distinction already.
+The general case needs a report where a glyph is *shown*. **The distinction it was said to need
+already exists** and this file was wrong about that: `LoadedFont::glyph_index` is public and
+answers "which glyph does this code reach, if any", so "no glyph" is `None` from it while "blank
+glyph" is `Some(g)` with an empty outline — `LoadedFont::outline` collapses the two and
+`glyph_index` does not. The whitespace-readback test added in ADR 0157 is the other half.
 
-Not hard; not done; measure the volume first.
+So what is owed is **the measurement, not the mechanism**: how many codes, on how many corpus
+pages, reach no glyph at all. ADR 0152 measured the *report* — naming every uncovered code hit 13
+documents that mostly draw fine, and each report costs the oracle a judged page (trap 11) — and
+chose "drew none" deliberately. A count is what says whether that trade still holds; it needs a
+walk over page one's shown codes with the loaded font in hand, which no example does yet.

@@ -610,17 +610,26 @@ where each group carries its own diagnosis and its measurement: 4 page rounding,
 anti-aliasing at a shape's edge, **21 glyph edges** whose ink matches the consensus to a fraction
 of a level, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel image, 1 a
 `CalRGB` alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK` conversion**, 2 a reference that
-drew nothing, 1 a CID width, 1 a negative line width, **21 substituted fonts**, **1 unexplained**.
+drew nothing, 1 a CID width, 1 a negative line width, **21 substituted fonts**, **1 a tight consensus**, **0 unexplained**.
 
-**The unexplained list is 1**, down from 14 and neither of the sessions that emptied it opened a
-debugger — the method is in [todo 00](todo/00-ambiguous-bucket.md), which is the same method the
-ambiguous work uses. `freeculture.pdf` page 313 left it in the two-hundred-and-forty-second, to
-`CONTRADICTED_GLYPH_EDGES`, and the closed form is what moved it: ours at 8× is **6.0729** against
-a two-ladder limit of 6.0658 and 6.0819, so the marks are right and the difference is 0.16 of 255
-of glyph coverage at the page's own scale. **Every printed metric on it is inside the class
-bound**; it is contradicted only because the two voting references agree so closely that twice
-their spread is tighter than the floor, which is trap 12. What is left is `issue7891_bc1.pdf`,
-measured in session 61 and trap 12's shape as well.
+**The unexplained list is empty**, from 14 four sessions ago and from 42 at the start, and no
+session that emptied it opened a debugger — the method is in
+[todo 00](todo/00-ambiguous-bucket.md), which is the same method the ambiguous work uses. The
+last two went to the two-hundred-and-forty-second and -third, both on the two-ladder closed form:
+
+- `freeculture.pdf` page 313 → `CONTRADICTED_GLYPH_EDGES`. Ours at 8× is **6.0729** against a
+  limit of 6.0658 and 6.0819, so the marks are right and the difference is 0.16 of 255 of glyph
+  coverage at the page's own scale.
+- `issue7891_bc1.pdf` → `CONTRADICTED_TIGHT_CONSENSUS`, the new name for what trap 12 describes.
+  The two ladders agree to **0.0014 of 255** — the tightest limit in this file — and **ours at
+  the page's own scale is 0.004 from it, the nearest of all five**, while `poppler` and `mupdf`
+  are both 0.09 under. They vote because the bound is twice *their* spread, and they agree to
+  0.009.
+
+**Every printed metric on both pages is inside the class bound.** A verdict of contradicted can
+be a statement about the consensus pair rather than about the page, and both of the last two were
+that — which is the argument for the closed form: it is the one number derived from no reference
+at all.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
 the one its group names — seven for seven, so far, on the group being wrong — and "make it match
@@ -2499,3 +2508,4 @@ above rather than here.
 | 240 | The whole bucket swept for missing content, and it is empty: −0.84 to +0.42 of 255 | — |
 | 241 | A sixth fuzz target, over the two glyph-table repairs, and two crashers in its first minute | 0175 |
 | 242 | The contradicted list's older unexplained page, settled by two ladders rather than a debugger | — |
+| 243 | And the last one: `CONTRADICTED_UNEXPLAINED` is empty, from 42 | — |
