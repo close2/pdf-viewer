@@ -3133,7 +3133,31 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 /// references' limits on the fourth, where the references are 0.31 apart — which is this group's
 /// own finding restated: five glyph rasterisers cannot agree more closely than the tolerance
 /// allows, and the tolerance is what makes the page ambiguous rather than anything on it.
-const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 176] = [
+/// # Three more of the same paper, in the three-hundred-and-first
+///
+/// `doc/todo/00`'s step 2 again, and it produced three of the ranking's top six.
+/// `issue15012.pdf` and `bug1885505.pdf` give the **same md5** for page 1's readback as
+/// `tracemonkey.pdf`, so they are the paper's first page under two more names; `issue7014.pdf`
+/// is it a third time with §12.5.6.10's markup over the abstract — a highlight, a squiggly
+/// underline and a strike-out — which ours and `poppler` draw indistinguishably, same colour,
+/// same extent, and which costs 0.1 of 255.
+///
+/// ```text
+/// issue7014 p1     ours 15.2915  poppler 15.2197  mupdf 15.1241  hayro 15.0175  gs 15.4563
+/// issue15012 p1    ours 14.9054  poppler 14.7852  mupdf 14.6921  hayro 14.6292  gs 14.9939
+/// bug1885505 p1    ours 15.8159  poppler 15.8634  mupdf 15.6451  hayro 15.6507  gs 16.1317
+/// ```
+///
+/// A band 0.44 to 0.50 of 255 wide with ours inside it on all three, which is this group's own.
+///
+/// **And the md5 method has a false positive worth naming.** `multiline.pdf` and
+/// `bug852992_reduced.pdf` also matched each other — on the md5 of *no text at all*. A page whose
+/// readback is empty matches every other page whose readback is empty, so the check is evidence
+/// only when the readback is non-empty, and `doc/todo/00`'s recipe now says so.
+const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 179] = [
+    "issue7014.pdf page 1",
+    "issue15012.pdf page 1",
+    "bug1885505.pdf page 1",
     "bug1992868.pdf page 1",
     "bug1992868.pdf page 2",
     "bug1992868.pdf page 3",

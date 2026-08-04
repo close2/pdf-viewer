@@ -16,7 +16,6 @@ blendmode.pdf page 1
 bug1308536.pdf page 1
 bug1868759.pdf page 1
 bug1872721.pdf page 1
-bug1885505.pdf page 1
 bug1889122.pdf page 1
 bug852992_reduced.pdf page 1
 bug886717.pdf page 1
@@ -47,7 +46,6 @@ issue13343.pdf page 2
 issue1350.pdf page 2
 issue14953.pdf page 1
 issue14999_reduced.pdf page 1
-issue15012.pdf page 1
 issue15150.pdf page 1
 issue16742.pdf page 1
 issue18072.pdf page 1
@@ -66,7 +64,6 @@ issue6127.pdf page 3
 issue6132.pdf page 1
 issue6769_no_matrix.pdf page 1
 issue6931_reduced.pdf page 1
-issue7014.pdf page 1
 issue7406.pdf page 1
 issue7454.pdf page 1
 issue8187.pdf page 1
