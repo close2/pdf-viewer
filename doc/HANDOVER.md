@@ -70,7 +70,11 @@ against 0.20 on a small file, where the rule is "a 500-page document must open n
 5-page one" — **41% of that is gone in the two-hundred-and-seventy-sixth session**, because 40% of
 it was §7.5.6's "most recent copy" rule being re-decided once per cross-reference entry instead of
 once per file (ADR 0180, 130.7 M instructions to 76.6 M) — and `Outline::read` costs 3 to 7 ms for
-988 items, which is proportionate per item and eager for a panel nobody opened. **Adapter selection is the largest part of bring-up and the backend set is not the
+988 items, which is proportionate per item and eager for a panel nobody opened. **A third cost on
+that path turned out to be a clause nobody had read**: §12.8's signature walk spent 1.681 ms
+finding nothing on a document whose form could have said so in one integer, and §12.7.3's Table
+225 exists precisely so that a processor need not scan — 0.017 ms now, with the ledger row that
+called the entry "signature behaviour" corrected (ADR 0181). **Adapter selection is the largest part of bring-up and the backend set is not the
 lever**: `examples/bring_up` shows Vulkan-only moving the cost out of instance creation and into
 `request_adapter` with the total unchanged (ADR 0179). The CPU backend keeps its other two jobs:
 the correctness oracle, and the frame the device refuses.
@@ -2670,3 +2674,4 @@ above rather than here.
 | 274 | A launch is a timeline: **145 ms** to the first frame, and a 1023-page document opens 33× slower than a 5-page one | 0179 |
 | 275 | Bring-up is on quorra's critical path now, and the brief still told it otherwise in three places | — |
 | 276 | §7.5.6's rule stated once for a file rather than once per entry: `Document::open` 41% off | 0180 |
+| 277 | A form says whether it has signature fields, and Table 225 says to ask: 1.681 ms to 0.017 | 0181 |

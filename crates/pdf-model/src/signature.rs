@@ -312,6 +312,33 @@ pub enum Modification {
 /// §12.8.1 puts them there — a certification or approval signature "shall be the value of a
 /// signature field" — so this walks `/AcroForm /Fields` rather than the whole object graph, and
 /// a signature reachable no other way is one no field claims.
+///
+/// # The walk is skipped where the form says there is nothing to find
+///
+/// §12.7.3's Table 225 bit 1 is the form's own answer to the question this function asks, and the
+/// clause states reading it here as the flag's purpose:
+///
+/// > If set, the document contains at least one signature field. This flag allows an interactive
+/// > PDF processor to enable user interface items (such as menu items or push-buttons) related to
+/// > signature processing without having to scan the entire document for the presence of
+/// > signature fields.
+///
+/// Table 224 gives `/SigFlags` a default of 0, so an absent entry is a statement rather than a
+/// silence: this form declares no signature fields. **This is a reading of the standard and it
+/// was counted before it was trusted** — of the 974 corpus documents, 163 have an `/AcroForm`,
+/// nine state `/SigFlags`, six of those set bit 1, and *exactly those six* have a signature field
+/// in their tree; none of the 154 that omit the entry has one. Nothing disagrees in either
+/// direction.
+///
+/// It is worth doing because the walk is not free and is on the launch path: `viewer_core::notes`
+/// asks this the moment a document opens, and ISO 32000-2's own PDF — 28 form fields, no
+/// signature — spent **1.9 ms** proving it (ADR 0181). The fields live in object streams page one
+/// never touches, so it is not work the first frame pays for anyway; that was measured too.
+///
+/// **What this does not gate**: §12.8.6's permissions dictionary. `ViewState::save` reaches
+/// §12.8.2.2's `/DocMDP` and §12.8.2.3's `/UR3` through [`permissions`], which reads the
+/// catalog's own `/Perms` and never comes through here — so the `shall` in §12.8.2.2.1 about
+/// preventing changes does not depend on a flag a file writes about itself.
 #[must_use]
 pub fn signatures(document: &Document) -> Vec<Signature> {
     let Ok(catalog) = document.catalog() else {
@@ -321,6 +348,9 @@ pub fn signatures(document: &Document) -> Vec<Signature> {
     let Some(form) = form.as_dict() else {
         return Vec::new();
     };
+    if !signature_fields_declared(document, form) {
+        return Vec::new();
+    }
     let fields = document.get_key(form, "Fields");
     let Some(fields) = fields.as_array().map(<[Object]>::to_vec) else {
         return Vec::new();
@@ -331,6 +361,26 @@ pub fn signatures(document: &Document) -> Vec<Signature> {
         collect(document, field, &mut out, &mut seen, 0);
     }
     out
+}
+
+/// Table 225 bit 1, `SignaturesExist`: does this form say it has a signature field?
+///
+/// Bit 1 is the value of `/SigFlags` and 1 in the table's numbering is the low-order bit —
+/// §12.7.5.5 says the positions "shall be numbered from 1 (low-order) to 32 (high-order)", which
+/// is the same convention Table 152's outline flags use and the reason this is `& 1` rather than
+/// `& 2`. An entry that is not an integer is not the flag word the clause describes; it is read
+/// as absent, which is the value Table 224 gives it by default.
+///
+/// **Bit 2, `AppendOnly`, needs nothing from this program and that is not an omission.** It asks a
+/// processor to warn a person "requesting a full save that signatures will be invalidated" — a
+/// *may*, and one this program cannot reach: `pdf_syntax::write` performs §7.5.6's incremental
+/// update and nothing else, so every save this viewer makes is the append the flag exists to
+/// steer a person towards (ADR 0121).
+fn signature_fields_declared(document: &Document, form: &Dictionary) -> bool {
+    document
+        .get_key(form, "SigFlags")
+        .as_integer()
+        .is_some_and(|flags| flags & 1 != 0)
 }
 
 /// One level of the field walk, gathering the `/V` of every signature field.
@@ -819,7 +869,8 @@ mod tests {
     #[test]
     fn a_certification_signature_states_what_may_change_after_it() {
         let doc = document(&[
-            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> /Perms << /DocMDP 5 0 R >> >>",
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> \
+             /Perms << /DocMDP 5 0 R >> >>",
             "<< /Type /Pages /Count 0 /Kids [] >>",
             "<< /Unused true >>",
             "<< /FT /Sig /T (Signature1) /V 5 0 R /Subtype /Widget >>",
@@ -881,7 +932,7 @@ mod tests {
     #[test]
     fn an_unsigned_signature_field_holds_no_signature() {
         let doc = document(&[
-            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] >> >>",
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] /SigFlags 3 >> >>",
             "<< /Type /Pages /Count 0 /Kids [] >>",
             "<< /Unused true >>",
             "<< /FT /Sig /T (Empty) /Subtype /Widget >>",
@@ -890,11 +941,45 @@ mod tests {
         assert!(signatures(&doc).is_empty());
     }
 
+    /// A form that declares no signature fields is taken at its word and not walked.
+    ///
+    /// **The deliberate reading**, and the one thing this module believes a file about: Table 225
+    /// bit 1 exists so that a processor need not "scan the entire document for the presence of
+    /// signature fields", and Table 224 defaults `/SigFlags` to 0. So the same objects that
+    /// `a_certification_signature_states_what_may_change_after_it` reads a whole signature out of
+    /// yield nothing when the flag is taken away — a difference in the *form's own declaration*,
+    /// not in what it holds. The standard's own worked example in §12.8.5 writes `/SigFlags 3`
+    /// beside its one signature field, and of the 974 corpus documents none that omits the entry
+    /// has a signature field. ADR 0181.
+    #[test]
+    fn a_form_declaring_no_signature_fields_is_not_walked() {
+        let objects: [&str; 6] = [
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> \
+             /Perms << /DocMDP 5 0 R >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /FT /Sig /T (Signature1) /V 5 0 R /Subtype /Widget >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /ByteRange [0 840 960 240] /Name (A. Author) /Contents <00> /Reference [6 0 R] >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP \
+             /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >>",
+        ];
+        assert!(signatures(&document(&objects)).is_empty());
+
+        // And §12.8.6's permissions come from the catalog's own `/Perms`, so they are still
+        // read — which is what keeps §12.8.2.2.1's `shall` about preventing changes off this
+        // flag entirely.
+        assert_eq!(
+            permissions(&document(&objects)).doc_mdp,
+            Some(Modification::FormFilling)
+        );
+    }
+
     /// A range that does not start at the beginning of the file has not signed the header.
     #[test]
     fn a_range_that_starts_late_is_malformed() {
         let doc = document(&[
-            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>",
             "<< /Type /Pages /Count 0 /Kids [] >>",
             "<< /Unused true >>",
             "<< /FT /Sig /T (S) /V << /ByteRange [8 100] /Contents <00> \

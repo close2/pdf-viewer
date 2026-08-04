@@ -52,10 +52,14 @@ not is a real one — `Open::around` needs it for the title bar's section (`Outl
 before the first frame. **The question to settle is whether the section is worth 3 to 7 ms at
 launch**, or whether it should arrive on the frame after the page.
 
-### 3. `signature::signatures` — 1.681 ms on a document with **no signatures**
+### 3. `signature::signatures` — **taken in the two-hundred-and-seventy-seventh session**
 
-§12.8's walk finds nothing and charges for it, on every launch of every document. Whatever it
-walks — the AcroForm's field tree, most likely — the empty answer should be reachable without it.
+§12.8's field walk found nothing and charged 1.681 ms for it, on every launch of every document
+with a form. The empty answer was reachable without it and the *standard says so*: §12.7.3's
+Table 225 bit 1 exists so that a processor need not "scan the entire document for the presence of
+signature fields", and Table 224 defaults the entry to 0. **1.681 ms → 0.017 ms**, counted over
+the corpus before it was trusted, and it corrected a ledger row that had called the entry
+"signature behaviour". ADR 0181.
 
 ### 4. The graphics device — 40 to 46 ms, and the backend set is not the lever
 
