@@ -90,7 +90,7 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **979** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **six fuzz targets clean, the newest at 1 000 000 runs** | everything above re-run in the **two-hundred-and-thirtieth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| tests | **983** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | everything above re-run in the **two-hundred-and-forty-ninth**: eight fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1680** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **257 of them diagnosed and 492 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
@@ -99,8 +99,8 @@ that exists (ADR 0146).
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **69.7 ms**, and five arrow keys turn to page 6 presenting in **12.0 to 24.7 ms** with nothing refused — re-run in the two-hundred-and-thirtieth, on `lavapipe` through Vello and so not comparable with the hundred-and-ninety-fifth's 44.6 ms through **quorra**; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
-| conformance | **378 quotations**, all verbatim, 3704 citations, 229 distinct tables named by the ledger's own prose, **823 ledger rows** | `-p conformance` |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **72.0 ms**, and five arrow keys turn to page 6 presenting in **11.7 to 24.6 ms** with nothing refused — re-run in the two-hundred-and-forty-ninth, on `lavapipe` through Vello and so not comparable with the hundred-and-ninety-fifth's 44.6 ms through **quorra**; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
+| conformance | **387 quotations**, all verbatim, 3768 citations, 187 distinct tables cited by the tree, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -1191,6 +1191,8 @@ cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap
 cd fuzz && cargo +nightly fuzz run crypt         -- -runs=50000   # §7.6's algorithms
 cd fuzz && cargo +nightly fuzz run variable_text -- -runs=50000   # §12.7.4.3's /DA and layout
 cd fuzz && cargo +nightly fuzz run forms_data    -- -runs=50000   # §12.7.8's FDF, §7.9.4's dates
+cd fuzz && cargo +nightly fuzz run object        -- -runs=50000   # §7.3's object grammar
+cd fuzz && cargo +nightly fuzz run document      -- -runs=50000   # §7.5's file structure
 cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's two glyph-table repairs
   # **seed its corpus with real fonts** — 60 `/FontFile2` streams out of `doc/pdf.js/test/pdfs/`
   # into `fuzz/corpus/sfnt/`. Unseeded it never forms a table directory and tests nothing; seeded
@@ -2527,3 +2529,4 @@ above rather than here.
 | 246 | The one document left in that silence, diagnosed to an `/Encoding` naming a content stream | — |
 | 247 | And the font named, which split it in two | — |
 | 248 | Both halves traced to the end of every route the standard states: the subsets do not hold the glyphs | — |
+| 249 | Everything re-verified after eighteen rounds: eight fuzzers, `deny`, the six gates and the window | — |
