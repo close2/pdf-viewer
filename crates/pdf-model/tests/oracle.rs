@@ -3480,7 +3480,34 @@ const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.p
 /// is two independent programs agreeing about a geometry rather than two programs being close —
 /// and ours at 8× is 9.5344, 0.023 under. At the page's own scale ours is 9.510 and `poppler`
 /// 9.888, a third of a level *over* its own limit. Same document, same finding, four figures.
-const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 4] = [
+/// # And the other four pages of that document, in the three-hundredth, which finish it
+///
+/// `doc/todo/00`'s own instruction is to check what else on the list is the same file before
+/// taking a name off it, and here it was worth four: pages 2, 3, 4 and 5 are the same Russian tax
+/// form as 7 and 8, and they say the same thing to the same number of figures.
+///
+/// ```text
+///          poppler 72   poppler 576   mupdf 576    apart     ours 1x   ours - limit
+/// page 2     10.9983      10.7058      10.7062    0.0004     10.647      -0.059
+/// page 3     11.9148      11.5641      11.5645    0.0004     11.5037     -0.061
+/// page 4      9.6651       9.3382       9.3375    0.0007      9.2901     -0.048
+/// page 5     10.9246      10.6455      10.6461    0.0006     10.6236     -0.022
+/// ```
+///
+/// **Two independent programs agreeing about a geometry to 0.0004 of 255 is the tightest limit
+/// this bucket has measured**, four figures better than page 7's thousandth, and it is measured
+/// four times over on one document. At the page's own scale `poppler` is 0.28 to 0.35 *over* its
+/// own limit and ours is 0.02 to 0.06 under it — a form of five-point type and comb cells is
+/// thin marks all the way down, which is this group's standing subject.
+///
+/// The verdict is `ambiguous` rather than agreeing because `ghostscript` draws the same form a
+/// fifth of a level lighter still and its comb cells come out dotted; the picture is five
+/// renderings of one page that a person would call identical.
+const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 8] = [
+    "issue12963.pdf page 2",
+    "issue12963.pdf page 3",
+    "issue12963.pdf page 4",
+    "issue12963.pdf page 5",
     "issue12963.pdf page 7",
     "issue12963.pdf page 8",
     "two_pages.pdf page 2",

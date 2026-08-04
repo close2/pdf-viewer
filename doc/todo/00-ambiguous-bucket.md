@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **91 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **87 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (749 on documents we call complete); 658 diagnosed, 91 held by name
+Corpus: 786 ambiguous pages (749 on documents we call complete); 662 diagnosed, 87 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -342,6 +342,13 @@ side-by-side did in one look. `AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG`, w
 caveat written into it: `tests/jpeg2000.rs` declines this codestream because it is sixteen-bit, so
 the evidence is four decoders agreeing rather than ISO/IEC 15444-5's reference software, and it is
 recorded as the weaker kind.
+
+**And four in the three-hundredth, off one document, by this file's own instruction.**
+`issue12963.pdf` had four pages on the undiagnosed list and two more already inside
+`AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY` — so step 1's ranking was pointing at page 5 while the
+answer was already written down two pages over. **Check what else on the list is the same file**
+paid four names for one measurement: the two ladders agree to **0.0004 of 255**, the tightest
+limit this bucket has produced, on each of the four independently.
 
 **The lesson is about the ladder rather than the page**: a limit that a renderer does not approach
 *at all* is not a loose limit, it is a difference in a different quantity, and one more rung is

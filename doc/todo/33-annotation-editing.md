@@ -25,6 +25,19 @@ markups) and `pdf_syntax::write` puts an object into a file. What is new:
 The number to start from is the larger of `/Size` and the highest the cross-reference table
 holds, because 68 corpus documents understate the first.
 
+**And one thing the three-hundredth session found by scoping the work rather than doing it**: a
+new annotation has to be attached to a *page*, and nothing on the interpretation path knows which
+page it is looking at. `interpret(&document, &page)` takes a `Page`, which carries `dict`,
+`resources` and five boundaries and **no `ObjectId`** — so `ViewState` has no key to file an added
+annotation under and `draw_annotations` has nothing to look it up by. `Pages::indices` inverts the
+tree for exactly this question in two other places already (`viewer_core`'s accessibility tree and
+its logical selection), and doing it a third time inside the interpreter would put a page-tree
+walk on the render path.
+
+So the first commit of this item is `Page` gaining its own identity, set by `Pages::get`, and it
+is written here rather than done because a field with no consumer is speculative infrastructure —
+the round that adds the `Edit` variant is the round that adds the field.
+
 ## 2. A caret
 
 Form-field editing landed in the hundred-and-thirty-fifth session and saving in the

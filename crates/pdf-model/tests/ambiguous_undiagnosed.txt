@@ -39,10 +39,6 @@ images_1bit_grayscale.pdf page 1
 issue10339_reduced.pdf page 1
 issue12705.pdf page 1
 issue12841_reduced.pdf page 1
-issue12963.pdf page 2
-issue12963.pdf page 3
-issue12963.pdf page 4
-issue12963.pdf page 5
 issue13343.pdf page 1
 issue13193.pdf page 1
 issue13201.pdf page 1
