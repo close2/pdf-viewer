@@ -206,6 +206,7 @@ pub(crate) fn construct(
     annotation: &Dictionary,
     subtype: &[u8],
     value: FieldValue<'_>,
+    rect: [f32; 4],
 ) -> Constructed {
     let mut stream = Stream::new();
     let outcome = match subtype {
@@ -219,7 +220,7 @@ pub(crate) fn construct(
             text_markup(document, annotation, &mut stream, subtype)
         }
         b"FreeText" => free_text(document, annotation, &mut stream),
-        b"Text" => text_icon(document, annotation, &mut stream),
+        b"Text" => text_icon(document, annotation, &mut stream, rect),
         b"FileAttachment" | b"Sound" | b"Stamp" => Err(Refusal::NotDerivable(
             "its clause recommends rather than requires a predefined icon, and states no \
              artwork for one",
@@ -607,7 +608,10 @@ pub(crate) fn for_saving(
     // and the field's value — and `crate::annotation::construct` says why its `/BBox` is the
     // annotation's `/Rect`: the marks are written in the page's own default user space, so
     // §12.5.5's algorithm reduces to the identity.
-    let constructed = construct(document, annotation, b"Widget", value);
+    // A widget's rectangle is the file's: §12.5.6.4's fixed-size icon is the only case where a
+    // constructed appearance's box is not `/Rect`, and a widget is not it.
+    let rect = rectangle(document, annotation).unwrap_or([0.0; 4]);
+    let constructed = construct(document, annotation, b"Widget", value, rect);
     let Some(content) = constructed.content else {
         // A field with no value, no background and no border draws nothing, and there is no
         // stream to *replace* here — so adding an object that draws nothing would grow the file
@@ -673,8 +677,16 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
 /// `/Open` is not read. §12.5.6.4 gives it a popup window "containing the text of the note",
 /// and [`crate::annotation`] draws no popup for any subtype, on the ground that a window is not
 /// part of the page.
-fn text_icon(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
-    let rect = rectangle(document, annotation)?;
+fn text_icon(
+    document: &Document,
+    annotation: &Dictionary,
+    stream: &mut Stream,
+    rect: [f32; 4],
+) -> Outcome {
+    // **The caller's rectangle and not the file's**, which is the one place the two differ:
+    // §12.5.6.4 attaches a text annotation to a *point* and gives its icon a fixed size, so a
+    // `/Rect` with no area gets `annotation::anchored_icon`'s square and this is what has to
+    // draw into it.
     let name = document.get_key(annotation, "Name").as_name().map_or_else(
         || icon::DEFAULT_TEXT_NAME.to_vec(),
         |n| n.as_bytes().to_vec(),

@@ -1070,6 +1070,77 @@ fn toggle_no_view_inverts_no_view_under_the_pointer() {
     assert_eq!(drawn(4, Some(pdf_model::view::Pointer::Over)), red);
 }
 
+/// §12.5.6.4's icon is drawn where the `/Rect` has no area, because the clause states a point.
+///
+/// > A text annotation represents a "sticky note" attached to a point in the PDF document. When
+/// > closed, the annotation shall appear as an icon
+///
+/// A `shall` about the icon, and a *point* rather than a rectangle — so a `/Rect` with no area is
+/// not this annotation saying it covers nothing, the way a `Square`'s would be. The same clause's
+/// next sentence gives the size: a text annotation behaves "as if the NoZoom and NoRotate
+/// annotation flags … were always set", and §12.5.3's `NoZoom` is "the annotation shall always
+/// maintain the same fixed size on the screen", which is by definition not `/Rect`'s.
+///
+/// **How big is a choice**, like the artwork itself, and it is twenty units. What is *not* a
+/// choice is that something is drawn: `rc_annotation.pdf` is one corpus witness with
+/// `/Rect [50 50 50 50]`, and this tree drew nothing for it inside an `ambiguous` verdict until
+/// `doc/todo/00`'s step 7 sweep put it at −1.783 of 255 — two of four references draw an icon.
+#[test]
+fn a_text_annotation_with_no_area_still_draws_its_icon() {
+    let ink = |rect: &str| {
+        let bytes = pdf_with(
+            &format!("<< /Type /Annot /Subtype /Text /Name /Note /Rect {rect} /F 4 >>"),
+            "/BBox [0 0 80 80]",
+            "",
+        );
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let interpretation = pdf_model::interpret(&document, &page);
+        assert!(
+            interpretation.is_complete(),
+            "{:?}",
+            interpretation.unsupported
+        );
+        let list = interpretation.display_list;
+        let target = TargetSpec::for_page(&list, 4.0, 1 << 22).expect("target");
+        let raster = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        raster
+            .data
+            .chunks_exact(4)
+            .filter(|pixel| pixel[0] < 128)
+            .count()
+    };
+
+    // The corpus witness's shape: a point, with the icon hanging below and right of it.
+    let point = ink("[50 50 50 50]");
+    assert!(point > 0, "a text annotation attached to a point draws");
+
+    // And a rectangle the file *does* state is used as it stands, so a larger one draws more.
+    let stated = ink("[10 10 90 90]");
+    assert!(
+        stated > point * 4,
+        "a stated rectangle is still the icon's box: {stated} against {point}"
+    );
+
+    // A subtype whose clause states no fixed size keeps the general rule — no area, no marks.
+    let square = pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [50 50 50 50] /F 4 /IC [1 0 0] >>",
+        "/BBox [0 0 80 80]",
+        "",
+    );
+    let document = Document::open(square).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    assert!(
+        pdf_model::interpret(&document, &page)
+            .display_list
+            .commands()
+            .is_empty(),
+        "a Square covering no area draws nothing, which is Table 166's own excuse"
+    );
+}
+
 /// Appends object 7, a blue appearance stream, to a fixture built by [`pdf_with`].
 ///
 /// Written as a rebuild rather than a splice because the cross-reference table's offsets are

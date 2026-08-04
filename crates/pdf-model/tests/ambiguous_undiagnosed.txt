@@ -57,7 +57,6 @@ issue15012.pdf page 1
 issue15150.pdf page 1
 issue16473.pdf page 1
 issue16742.pdf page 1
-issue17065.pdf page 1
 issue18072.pdf page 1
 issue1905.pdf page 1
 issue19083.pdf page 1
@@ -94,7 +93,6 @@ multiline.pdf page 1
 pdfjs_wikipedia.pdf page 1
 prefilled_f1040.pdf page 1
 prefilled_f1040.pdf page 2
-rc_annotation.pdf page 1
 tensor-allflags-withfunction.pdf page 1
 textfields.pdf page 1
 tiling-pattern-box.pdf page 1

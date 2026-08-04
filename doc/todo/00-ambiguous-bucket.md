@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **102 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **100 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 647 diagnosed, 102 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 649 diagnosed, 100 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -119,6 +119,20 @@ gap = ink(ours) - min(ink(poppler), ink(mupdf), ink(ghostscript), ink(hayro))
 
 sorted ascending. A large negative gap is content we are not drawing; a large positive one is
 content nobody else is.
+
+**Re-run in the two-hundred-and-sixty-fifth over the tail, and it produced a defect** —
+`rc_annotation.pdf` page 1 at **−1.783 of 255**, past the −1 this file names as the alarm. The
+page is one text annotation with `/Rect [50 50 50 50]`, this tree drew **nothing** for it, and
+§12.5.6.4 says a text annotation is "attached to a point" and "shall appear as an icon". It sat at
+0.73 from the nearest reference — a nearly blank page resembles a nearly blank page — so no
+ranking would ever have produced it. **This is the instrument's first positive result and the
+reason it exists.**
+
+**And the sweep itself had a defect the same run exposed**: `min` over the references includes a
+reference that drew *nothing*, and a blank is not a lower bound on the geometry. Four pages came
+back at +21 to +29 of 255 — `mupdf` draws nothing on `colorspace_sin.pdf`, `_cos` and `_atan`, and
+`hayro` nothing on `issue2840.pdf`. Drop a zero-ink reference before taking the minimum; what the
+positive side is *good* for is finding a reference that failed.
 
 **Run in the two-hundred-and-fortieth session over all 493 names it produced a negative result,
 and the negative result is the finding**: the whole bucket lies between **−0.84 and +0.42 of

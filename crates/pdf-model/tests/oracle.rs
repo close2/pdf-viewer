@@ -2319,6 +2319,36 @@ const AMBIGUOUS_LINK_BORDER: [&str; 2] = ["bug766086.pdf page 1", "issue18030.pd
 /// middle of them.
 const AMBIGUOUS_MARKUP_ARTWORK: [&str; 1] = ["bug1538111.pdf page 1"];
 
+/// Ambiguous, and §12.5.6.4 requires an icon and draws none — the sentence ADR 0109 is about.
+///
+/// `rc_annotation.pdf` is a 100 × 100 page whose whole content is one text annotation:
+/// `/Subtype /Text /Name /Note /Rect [50 50 50 50]`. A degenerate rectangle, and the clause makes
+/// that not a refusal:
+///
+/// > A text annotation represents a "sticky note" attached to a point in the PDF document. When
+/// > closed, the annotation shall appear as an icon
+///
+/// **Attached to a point**, and a `shall` — so the size comes from the next sentence, which makes
+/// a text annotation behave "as if the NoZoom and NoRotate annotation flags … were always set",
+/// and §12.5.3's `NoZoom` is a fixed size on the screen. `annotation::anchored_icon` gives it
+/// twenty units hanging from §12.5.3's own upper-left corner.
+///
+/// # This page's number got worse and the page got right, which is trap 1 in reverse
+///
+/// This tree drew **nothing** here — zero commands, `is_complete`, and 0.73 from the nearest
+/// reference, because a nearly blank page resembles a nearly blank page. `doc/todo/00`'s step 7
+/// sweep is what saw it: ours minus the lightest reference's ink, **−1.783 of 255**, past the
+/// −1 the file names as the alarm. `ghostscript` and `hayro` draw nothing either; `poppler` draws
+/// 1.78 and `mupdf` 2.35.
+///
+/// With the icon drawn, ours is 2.38 — beside `mupdf` — and the page moved *up* the ranking to
+/// 4.93, because three renderers now draw three different pictures in the same place. That is
+/// §12.5.6.4's silence and not a defect: the clause requires "predefined icon appearances for at
+/// least the following standard names" and states not one line of their artwork, which is why
+/// `icon.rs` is the one module in the tree that is pure invention and says so. Ours is a page
+/// glyph with a folded corner, `poppler`'s a pinned note, `mupdf`'s a lined box.
+const AMBIGUOUS_ICON_ARTWORK: [&str; 1] = ["rc_annotation.pdf page 1"];
+
 /// Ambiguous, and it is the glyph-rasterisation floor with the geometry to settle it.
 ///
 /// `copy_paste_ligatures.pdf` is 143×15 device pixels: one line of text with ligatures, and
@@ -2930,6 +2960,41 @@ const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 370] = [
 /// own 14.9441 at 576 — 5% over its geometry where every other page has it 1% under. That is
 /// §10.7.4 as written on marks a fraction of a pixel wide, one page over from where
 /// `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY` found it, and it is not ours.
+/// Ambiguous because one reference is alone by eighteen levels, and it is not this one.
+///
+/// `issue17065.pdf` is one axial shading — `/ShadingType 2`, `/Extend [true true]` — painted
+/// through a pattern into an arrow-shaped clip, and its colour space is the interesting part:
+///
+/// ```text
+/// /ColorSpace [/DeviceN [/L /A /B] [/CalRGB << /WhitePoint [0.9505 1 1.0888] /Gamma [1 1 1]
+///              /Matrix [0.4124 0.2126 0.0193 …] >>] 8 0 R << /Subtype /DeviceN >>]
+/// ```
+///
+/// §8.6.6.5's `DeviceN` with three colourants *named* `L`, `A` and `B`, a tint transform into a
+/// `CalRGB` alternate whose white point is D65 and whose matrix is the sRGB primaries. The names
+/// are a producer's labels and §8.6.6.5 is explicit that they are: a `DeviceN` space's components
+/// mean whatever its tint transform says they mean, and the alternate is where the colour is.
+///
+/// # The ranking sent this page here, and the ratio is what did it
+///
+/// 0.73 from the nearest reference and **14.86 from the furthest** — a ratio of twenty, which
+/// `doc/todo/00`'s step 1 reads as a page about the references rather than about us. The ink
+/// says which reference:
+///
+/// ```text
+/// ours 43.5058 │ hayro 43.469 │ poppler 43.7916 │ ghostscript 44.836 │ mupdf 62.0301
+/// ```
+///
+/// and the ladder settles it: `poppler` descends from 43.7916 at 72 dpi onto **43.4975** at 576,
+/// and ours is flat at 43.4945 — **0.003 of 255 apart**, which is the closest this bucket has
+/// come to two renderers producing the same number. `mupdf` is 18 of 255 above everybody and its
+/// panel is a dark teal where the other four draw a green-to-magenta ramp: it is not drawing the
+/// same colours at all.
+///
+/// Nothing here is a defect of ours, and the page is `ambiguous` rather than agreeing for the
+/// arithmetic reason trap 12 describes — one reference far enough out drags the consensus apart.
+const AMBIGUOUS_DEVICE_N_ALTERNATE: [&str; 1] = ["issue17065.pdf page 1"];
+
 /// Ambiguous, and the clause puts the answer beyond itself and says where.
 ///
 /// `calrgb.pdf` is a test sheet: seventeen pages of `CalRGB` patches, each page stating its own
@@ -3839,11 +3904,13 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_IRREVERSIBLE_JPEG_2000)
         .chain(&AMBIGUOUS_COLOUR_OPERANDS)
         .chain(&AMBIGUOUS_CALRGB_TO_SCREEN)
+        .chain(&AMBIGUOUS_DEVICE_N_ALTERNATE)
         .chain(&AMBIGUOUS_EIGHT_BIT_COMPOSITING)
         .chain(&AMBIGUOUS_WIDGET_BORDER)
         .chain(&AMBIGUOUS_RADIAL_CONE)
         .chain(&AMBIGUOUS_LINK_BORDER)
         .chain(&AMBIGUOUS_MARKUP_ARTWORK)
+        .chain(&AMBIGUOUS_ICON_ARTWORK)
         .chain(&AMBIGUOUS_GLYPH_COVERAGE)
         .chain(&AMBIGUOUS_GRADIENT_QUANTISATION)
         .chain(&AMBIGUOUS_OUTLINED_TEXT)

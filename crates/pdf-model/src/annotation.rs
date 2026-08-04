@@ -342,6 +342,48 @@ const FLAG_NO_ROTATE: i64 = 1 << 4;
 /// `/F` bit 9: read [`FLAG_NO_VIEW`] the other way round while the pointer is on this annotation.
 const FLAG_TOGGLE_NO_VIEW: i64 = 1 << 8;
 
+/// How large a text annotation's icon is where the file states no size, in default user space.
+///
+/// **A choice, and one this module is the right place for**, since `crate::icon` is already the
+/// one piece of pure invention in the tree: §12.5.6.4 requires "predefined icon appearances" for
+/// seven standard names and draws none of them, and this is the same silence one question along
+/// — how big. Twenty units is about the height of two lines of ten-point text, which is the size
+/// at which a note's icon is legible beside the text it annotates and small enough not to cover
+/// it.
+const ICON_SIZE: f32 = 20.0;
+
+/// A square for a text annotation whose `/Rect` states no area, or `None` for anything else.
+///
+/// §12.5.6.4 opens with the sentence that decides this:
+///
+/// > A text annotation represents a "sticky note" attached to a point in the PDF document. When
+/// > closed, the annotation shall appear as an icon
+///
+/// **Attached to a point**, and a `shall` about the icon appearing — so a `/Rect` with no area is
+/// not this annotation stating that it covers nothing, the way a `Square`'s or a `Highlight`'s
+/// would be. The same clause's next sentence gives the size: text annotations "shall behave as if
+/// the `NoZoom` and `NoRotate` annotation flags … were always set", and §12.5.3's `NoZoom` is "the
+/// annotation shall always maintain the same fixed size on the screen" — a fixed size, which is
+/// by definition not `/Rect`'s.
+///
+/// The corner is §12.5.3's: "the annotation's position is defined by the coordinates of the
+/// upper-left corner of its annotation rectangle", so the square hangs down and to the right of
+/// it.
+///
+/// `rc_annotation.pdf` is the one corpus witness — `/Subtype /Text /Name /Note /Rect
+/// [50 50 50 50]` — and it drew nothing here for as long as anybody looked, inside an `ambiguous`
+/// verdict, with `poppler` and `mupdf` drawing an icon and `ghostscript` and `hayro` drawing
+/// nothing. Found by `doc/todo/00`'s step 7 sweep at −1.783 of 255, which is the only instrument
+/// that sees a page this tree is not drawing.
+fn anchored_icon(subtype: &[u8], rect: [f32; 4]) -> Option<[f32; 4]> {
+    if subtype != b"Text" || !is_empty(rect) {
+        return None;
+    }
+    let left = rect[0].min(rect[2]);
+    let top = rect[1].max(rect[3]);
+    Some([left, top - ICON_SIZE, left + ICON_SIZE, top])
+}
+
 /// Whether §12.5.3's `NoView` applies to this annotation *right now*.
 ///
 /// Table 167, bit 9:
@@ -688,9 +730,11 @@ fn decided(
             let Some(rect) = stated_rect else {
                 return Decision::Unsupported(format!("{name}: no usable /Rect"));
             };
-            if is_empty(rect) {
-                return Decision::Nothing;
-            }
+            let rect = match anchored_icon(&subtype, rect) {
+                Some(square) => square,
+                None if is_empty(rect) => return Decision::Nothing,
+                None => rect,
+            };
             return construct(document, annotation, &subtype, &name, rect, view);
         }
         Normal::StateNotDefined => return Decision::Nothing,
@@ -815,7 +859,7 @@ fn construct(
         return Decision::Nothing;
     }
 
-    let constructed = crate::appearance::construct(document, annotation, subtype, value);
+    let constructed = crate::appearance::construct(document, annotation, subtype, value, rect);
     let owed = constructed.report.map(|detail| format!("{name}: {detail}"));
     let Some(content) = constructed.content else {
         return match owed {
