@@ -56,6 +56,23 @@ it produced four more, all of them false for between forty and two hundred sessi
 **The ledger has a gate and the source does not**, which is why these lasted longer. One `grep`
 apiece.
 
+**The fourth sweep paid again in the two-hundred-and-thirty-eighth, on its own subject.** Run
+after five rounds that corrected rows, over the *mechanisms* those corrections named rather than
+over their exact words, it produced two:
+
+- **§12.5.5** still ended "Not implemented: the NoZoom and NoRotate scaling this clause defers
+  to §12.5.3" — twenty sessions after ADR 0168 applied it. The clause that *defers* is where
+  the stale sentence lives, which is the shape exactly: correcting §12.5.3 left its neighbour
+  lying.
+- **§12.5.6.22**'s `/FixedPrint` was still explained by "a resolution-independent display list
+  cannot express a size that depends on the view" — the *refusal* ADR 0168 dismantled. The claim
+  it supports is still true (`/FixedPrint` waits on printing) and its reason was not, which is a
+  fifth way for a row to be wrong: **right conclusion, expired argument.**
+
+So the sweep is worth running over a *mechanism* and not only over a quoted string: grep for
+`NoZoom`, `uncoloured`, `ColorTransform` — the noun the correction was about — and read every
+row that holds it.
+
 **The fourth sweep is new in the two-hundred-and-sixteenth session and it is the cheapest of the
 four.** Whenever a row is corrected, the note says so in the row that was corrected — "this
 sentence said X" — and X is a string. Grep the *whole* ledger for X's distinctive words: two

@@ -1924,10 +1924,37 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 4] = [
 /// a missing face from a *built-in* rather than from this machine. Trap 9's second shape, seen
 /// from outside — ask what data a renderer reads from the machine before crediting its
 /// agreement, and ask the same before crediting its disagreement.
-const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 3] = [
+/// # Two more, and the first of them states its own answer
+///
+/// `issue9291.pdf` is 500 × 50 and its one line of text reads **"Non-embedded LucidaSans-Demi,
+/// should be bold."** That is a corpus document acting as a conformance test, which outranks
+/// every renderer here, and §9.8.1's Table 122 says where the answer comes from: the descriptor
+/// gives `/FontWeight 700` and `/StemV 144`, with `/Flags 32` — nonsymbolic, and **no**
+/// ForceBold bit, so the weight is the whole of the evidence and it is unambiguous.
+///
+/// ```text
+/// ours 23.47   hayro 24.30   poppler 24.14   mupdf 17.76   ghostscript 15.67
+/// ```
+///
+/// Ours, `poppler` and `hayro` draw it bold; `mupdf` and `ghostscript` draw it regular, and
+/// their ink is a quarter lower for exactly that reason. **Two references failing a test the
+/// document writes out in words is not a spread to sit inside**, which is why this page is here
+/// with a verdict rather than on the undiagnosed list.
+///
+/// `issue5244.pdf` is 200 × 50 of Polish diacritics in a *non-embedded* `TimesNewRoman,Bold`
+/// under `Identity-H`, so §9.7.4.2 leaves the codes reachable only through `/ToUnicode` — which
+/// this file has. Ink: ours 15.50, `poppler` 15.60, `ghostscript` 13.17, `mupdf` 19.43 and
+/// `hayro` **2.80**, which is `hayro` drawing two of the eleven characters. Every pair in the
+/// matrix is 0.021 to 0.069 apart and the smallest of the ten is ours against `poppler`.
+///
+/// Both pages are this group's standing subject with the numbers to say so: the clause hands the
+/// face to the processor, and five processors reach five faces.
+const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 5] = [
     "issue8697.pdf page 1",
     "non-embedded-NuptialScript.pdf page 1",
     "bug1671312_ArialNarrow.pdf page 1",
+    "issue5244.pdf page 1",
+    "issue9291.pdf page 1",
 ];
 
 /// Ambiguous, and the reason is a JPEG 2000 decoder that is measurably wrong.
