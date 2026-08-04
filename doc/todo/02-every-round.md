@@ -25,13 +25,14 @@ cargo test --release -p pdf-model      --test corpus          -- --ignored --noc
 cargo test --release -p pdf-model      --test oracle          -- --ignored --nocapture
 cargo test --release -p pdf-model      --test text_extraction -- --ignored --nocapture
 cargo test --release -p pdf-model      --test dates           -- --ignored --nocapture
+cargo test --release -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test --release -p pdf-model      --test jpeg2000        -- --nocapture
 cargo test --release -p render-quorra  --test corpus          -- --ignored --nocapture
 cargo test -p conformance -- --nocapture
 ```
 
-**Eight fuzz targets, not five** — the handover's list had never included `object` and
-`document`, and `sfnt` arrived in the two-hundred-and-forty-first. A round that touches a parser
+**Nine fuzz targets, not five** — the handover's list had never included `object` and
+`document`, `sfnt` arrived in the two-hundred-and-forty-first and `xmp` in the two-hundred-and-ninety-fourth. A round that touches a parser
 runs the one that covers it; a round that touches `pdf-font`'s glyph-table repairs runs `sfnt`
 **with its corpus seeded**, because unseeded it never forms a table directory and tests nothing.
 

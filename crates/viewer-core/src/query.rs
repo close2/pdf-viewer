@@ -66,11 +66,15 @@ pub enum Query<'a> {
     FieldAt((f32, f32)),
     /// Whether anything has been edited since the document opened.
     Dirty,
-    /// §14.3.3's document information dictionary, and whether §14.3.2's stream exists.
+    /// §14.3.3's document information dictionary, and §14.3.2's metadata stream beside it.
     ///
     /// What a document-properties panel shows. The second half is not decoration: §12.2's
-    /// `/DisplayDocTitle` names XMP's `dc:title` and this crate reads no XMP, so a host that
-    /// takes a title from `/Info` needs to know when it may be taking it from the wrong place.
+    /// `/DisplayDocTitle` names XMP's `dc:title` and nothing else, so a host that titles a window
+    /// from a document asks this and not [`Query::Preferences`] alone.
+    ///
+    /// **Decodes and parses the stream, so it is not free** — 78 KiB at the corpus's worst. A
+    /// host asks it when a document opens and when a properties panel is drawn, which is what it
+    /// is for; it is deliberately not on the render path.
     Properties,
     /// Table 29's `/PageMode` and `/PageLayout`: what the *catalog* asks of the window opening it.
     ///
@@ -177,12 +181,22 @@ pub enum Answer<'a> {
     Found(Vec<Vec<[f32; 8]>>),
     /// Whether anything has been edited.
     Dirty(bool),
-    /// §14.3.3's Table 349, and whether §14.3.2's metadata stream is there.
+    /// §14.3.3's Table 349, and §14.3.2's metadata stream beside it.
     Properties {
         /// What the trailer's `/Info` says.
         information: pdf_model::metadata::Information,
-        /// Whether the catalog names a `/Metadata` stream, which this crate does not read.
-        metadata_stream: bool,
+        /// The catalog's `/Metadata`, read — `None` where the document names none.
+        ///
+        /// Three states rather than two, deliberately: no stream, a stream this reader refused,
+        /// and a stream it read. A host wording a properties panel needs the middle one, because
+        /// "this document states no metadata" and "this document states metadata I could not
+        /// read" are different sentences and only the second is about us.
+        ///
+        /// **Was `metadata_stream: bool` until the two-hundred-and-ninety-fourth session**, when
+        /// `pdf_model::xmp` gave the crate something to put here. Nothing in this vocabulary is
+        /// `#[non_exhaustive]` exactly so that a change of this shape breaks every consumer's
+        /// build rather than being ignored in one of them.
+        metadata: Option<Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
     },
     /// Table 29's two display entries.
     Opening(pdf_model::viewer_preferences::Opening),

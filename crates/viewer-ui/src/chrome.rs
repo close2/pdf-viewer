@@ -468,8 +468,8 @@ pub struct Content<'a> {
     pub attachments: &'a [pdf_model::attachment::Attachment],
     /// §14.3.3's Table 349, from [`viewer_core::Query::Properties`].
     pub information: &'a pdf_model::metadata::Information,
-    /// Whether the catalog names §14.3.2's metadata stream, which nothing here reads.
-    pub metadata_stream: bool,
+    /// §14.3.2's metadata stream, read — `None` where the catalog names none.
+    pub metadata: Option<&'a Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
     /// One entry per page, for §12.3.4's tab: its label and its thumbnail where it has one.
     ///
     /// Built by the host rather than queried here, and **only while that tab is open**: a
@@ -1069,10 +1069,56 @@ fn property_rows(content: Content<'_>, out: &mut Vec<Row>) {
     if out.is_empty() {
         out.push(nothing("This document states no §14.3.3 information."));
     }
-    if content.metadata_stream {
-        out.push(nothing(
-            "It also carries §14.3.2's XMP, which is not read here.",
-        ));
+    metadata_rows(&content, out);
+}
+
+/// §14.3.2's stream, under §14.3.3's dictionary and marked as the other place.
+///
+/// The two tables state the same seven facts and Table 349's NOTEs pair them up, so a panel that
+/// merged them would be hiding a disagreement rather than resolving one — §12.2 ranks `dc:title`
+/// above `/Title` and nothing ranks the rest. What is shown is therefore the *stream's* answer,
+/// labelled, for the four properties a person recognises, and a count for everything else.
+fn metadata_rows(content: &Content<'_>, out: &mut Vec<Row>) {
+    let Some(metadata) = content.metadata else {
+        return;
+    };
+    let xmp = match metadata {
+        Ok(xmp) => xmp,
+        Err(error) => {
+            out.push(nothing(&format!(
+                "§14.3.2's metadata stream could not be read: {error}"
+            )));
+            return;
+        }
+    };
+
+    let stated: Vec<(&str, Option<String>)> = vec![
+        ("dc:title", xmp.title().map(str::to_owned)),
+        (
+            "dc:creator",
+            xmp.authors().map(|authors| authors.join(", ")),
+        ),
+        ("dc:description", xmp.description().map(str::to_owned)),
+        ("pdf:Producer", xmp.producer().map(str::to_owned)),
+        ("xmp:CreatorTool", xmp.creator_tool().map(str::to_owned)),
+        ("xmp:CreateDate", xmp.created().map(str::to_owned)),
+        ("xmp:ModifyDate", xmp.modified().map(str::to_owned)),
+    ];
+    let shown = stated.iter().filter(|(_, value)| value.is_some()).count();
+    out.push(nothing("§14.3.2 (XMP):"));
+    for (label, value) in stated {
+        let Some(value) = value else { continue };
+        let mut row = Row::plain(0, format!("{label}:"));
+        row.style = Style {
+            bold: true,
+            italic: false,
+        };
+        row.detail = Some(value);
+        out.push(row);
+    }
+    let rest = xmp.properties().len().saturating_sub(shown);
+    if rest > 0 {
+        out.push(nothing(&format!("and {rest} other propert(ies).")));
     }
 }
 

@@ -56,7 +56,7 @@ fn only(outline: &Outline) -> Content<'_> {
         layers: &[],
         attachments: &[],
         information: &NOTHING,
-        metadata_stream: false,
+        metadata: None,
         pages: &[],
     }
 }
@@ -289,7 +289,7 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
         layers: &layers,
         attachments: &[],
         information: &NOTHING,
-        metadata_stream: false,
+        metadata: None,
         pages: &[],
     };
     let mut panel = Sidebar::default();
@@ -341,7 +341,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         layers: &[],
         attachments: &[],
         information: &NOTHING,
-        metadata_stream: false,
+        metadata: None,
         pages: &[],
     };
     let mut panel = Sidebar::default();
@@ -370,7 +370,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         layers: &[],
         attachments: &files,
         information: &NOTHING,
-        metadata_stream: false,
+        metadata: None,
         pages: &[],
     };
     assert!(ink(&panel.draw(&chrome, listed, HEIGHT, 1.0), 26..46) > 40);
@@ -435,14 +435,16 @@ fn the_about_card_shows_the_notice_and_scrolls_it() {
     );
 }
 
-/// §14.3.3's tab shows what the document says about itself, and what it does not read.
+/// §14.3.3's tab shows what the document says about itself, in both places it says it.
 ///
-/// The last assertion is the honest one: §12.2's `/DisplayDocTitle` names XMP's `dc:title` and
-/// Table 349's every text entry carries a NOTE pointing at an XMP counterpart, so a document with
-/// a metadata stream may be saying something else about itself than the dictionary does. This
-/// program reads no XMP, and the panel says so rather than presenting `/Info` as the whole truth.
+/// Table 349's every text entry carries a NOTE pointing at an XMP counterpart and §12.2's
+/// `/DisplayDocTitle` names `dc:title` outright, so a document with a metadata stream may be
+/// saying something else about itself than the dictionary does. **Since the
+/// two-hundred-and-ninety-fourth session the panel shows both rather than naming the second**
+/// (ADR 0186), and the two are kept apart on the screen for the reason the standard keeps them
+/// apart: nothing ranks them except §12.2, and only for the title.
 #[test]
-fn the_document_tab_shows_table_349_and_names_the_xmp_it_does_not_read() {
+fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
     let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
     let outline = Outline::default();
     let information = pdf_model::metadata::Information {
@@ -456,7 +458,7 @@ fn the_document_tab_shows_table_349_and_names_the_xmp_it_does_not_read() {
         layers: &[],
         attachments: &[],
         information: &information,
-        metadata_stream: false,
+        metadata: None,
         pages: &[],
     };
     let mut panel = Sidebar::default();
@@ -480,20 +482,39 @@ fn the_document_tab_shows_table_349_and_names_the_xmp_it_does_not_read() {
         "a fourth row with nothing to say"
     );
 
+    let packet = pdf_model::xmp::Xmp::parse(
+        br#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+              <rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+                               pdf:Producer="Another exporter"/></rdf:RDF>"#,
+    );
     let with_xmp = Content {
-        metadata_stream: true,
+        metadata: Some(&packet),
         pages: &[],
         ..stated
     };
     assert!(
-        ink(&panel.draw(&chrome, with_xmp, HEIGHT, 1.0), 86..106) > 40,
-        "a document carrying XMP must be told about it"
+        ink(&panel.draw(&chrome, with_xmp, HEIGHT, 1.0), 86..126) > 40,
+        "a document carrying XMP must have it shown, under its own heading"
+    );
+
+    // A stream this reader refused is a different sentence, and it is about us rather than
+    // about the document — so it is drawn where a document that stated nothing draws nothing.
+    let refused: Result<pdf_model::xmp::Xmp, _> = pdf_model::xmp::Xmp::parse(b"<a></b>");
+    assert!(refused.is_err(), "the fixture is unbalanced XML");
+    let broken = Content {
+        metadata: Some(&refused),
+        pages: &[],
+        ..stated
+    };
+    assert!(
+        ink(&panel.draw(&chrome, broken, HEIGHT, 1.0), 86..106) > 40,
+        "a stream that would not read must say so"
     );
 
     // A document that states nothing says so, rather than showing an empty list.
     let silent = Content {
         information: &NOTHING,
-        metadata_stream: false,
+        metadata: None,
         pages: &[],
         ..stated
     };
@@ -542,7 +563,7 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
         layers: &[],
         attachments: &[],
         information: &NOTHING,
-        metadata_stream: false,
+        metadata: None,
         pages: &pages,
     };
     let mut panel = Sidebar::default();

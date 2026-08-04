@@ -109,6 +109,25 @@ skrifa = "0.45.1"
 # build rather than compiling two copies. Keep them in step when upgrading skrifa.
 read-fonts = { version = "0.42.1", features = ["agl"] }
 
+# §14.3.2's metadata streams are XMP, which is RDF/XML (ISO 16684-1), so reading one is an
+# XML parser over untrusted bytes — 319 of the 974 corpus documents carry a stream. ADR 0186
+# has the argument; the short form is that this is the smallest thing that can do the job:
+# 2148 lines, `#![forbid(unsafe_code)]`, **no dependencies at all**, and a pull tokenizer that
+# borrows from the input rather than building a tree.
+#
+# The security properties are the reason it is this crate and not a larger one. It resolves
+# no entity — a `<!ENTITY>` declaration arrives as a token and is never substituted, so the
+# billion-laughs expansion has nothing to expand; it opens no file and no socket, so an
+# external entity or a DTD `SYSTEM` identifier is inert; and it is an iterator over a state
+# machine rather than a recursive descent, so nesting costs no stack. What is left for
+# `pdf_model::xmp` to bound is its own stack, which it does explicitly.
+#
+# The cost, written down: no unescaping is done for us, so the five predefined entities and
+# numeric character references are expanded in `xmp.rs` and an undefined reference is kept
+# verbatim; and the tokenizer takes `&str`, so ISO 16684-1's other two permitted encodings
+# are decoded to UTF-8 before it sees them.
+xmlparser = "0.13.6"
+
 # Image codecs, pure Rust.
 zune-jpeg = "0.5.15"
 zune-png = "0.5.2"

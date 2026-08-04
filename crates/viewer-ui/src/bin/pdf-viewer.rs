@@ -340,7 +340,7 @@ fn main() {
         attachments: Vec::new(),
         pages: Vec::new(),
         information: pdf_model::metadata::Information::default(),
-        metadata_stream: false,
+        metadata: None,
         state: None,
         opening: Some(opening),
         instancing: Some(instancing),
@@ -473,10 +473,15 @@ struct App {
     outline: pdf_model::outline::Outline,
     /// §7.11.4's embedded files, likewise.
     attachments: Vec<pdf_model::attachment::Attachment>,
-    /// §14.3.3's Table 349 and whether §14.3.2's stream exists, likewise.
+    /// §14.3.3's Table 349, likewise.
     information: pdf_model::metadata::Information,
-    /// Whether the catalog names a `/Metadata` stream.
-    metadata_stream: bool,
+    /// §14.3.2's metadata stream, read — `None` where the catalog names none.
+    ///
+    /// **Was `metadata_stream: bool` until the two-hundred-and-ninety-fourth session**, when
+    /// `pdf_model::xmp` gave `viewer-core` something to answer with. The three states matter to a
+    /// host and only to a host: a document that states no metadata and one whose metadata this
+    /// program could not read get two different sentences in the properties tab.
+    metadata: Option<Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
     /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
     ///
     /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:
@@ -581,21 +586,25 @@ impl App {
         }
         if let Answer::Properties {
             information,
-            metadata_stream,
+            metadata,
         } = self.viewer.query(Query::Properties)
         {
             self.information = information;
-            self.metadata_stream = metadata_stream;
+            self.metadata = metadata;
         }
-        // §12.2 names XMP's `dc:title` and this program reads none; see `named`. Said once,
-        // and only where it could matter — a document that asks for its title and carries the
-        // stream the clause points at.
-        if self.metadata_stream && self.display_doc_title() {
-            println!(
-                "note: this document asks for its title in the title bar (§12.2's \
-                 /DisplayDocTitle), which names XMP's dc:title; this program reads no XMP and \
-                 shows §14.3.3's /Info /Title instead"
-            );
+        // §12.2 names XMP's `dc:title` and this program now reads it; see `named`. What is left
+        // to say out loud is the case where it *could not* — a document that asks for its title
+        // and whose metadata stream this reader refused, which is the one situation where the
+        // fallback to §14.3.3's `/Info /Title` is still a substitution rather than the clause.
+        if let Some(Err(error)) = self.metadata.as_ref() {
+            println!("note: this document's §14.3.2 metadata stream could not be read: {error}");
+            if self.display_doc_title() {
+                println!(
+                    "note: it also asks for its title in the title bar (§12.2's \
+                     /DisplayDocTitle), which names XMP's dc:title; §14.3.3's /Info /Title is \
+                     shown instead"
+                );
+            }
         }
         self.retitle();
         self.obey_page_mode();
@@ -699,7 +708,7 @@ impl App {
             layers,
             attachments: &self.attachments,
             information: &self.information,
-            metadata_stream: self.metadata_stream,
+            metadata: self.metadata.as_ref(),
             pages: &self.pages,
         }
     }
@@ -751,7 +760,7 @@ impl App {
                 layers: &layers,
                 attachments: &self.attachments,
                 information: &self.information,
-                metadata_stream: self.metadata_stream,
+                metadata: self.metadata.as_ref(),
                 pages: &self.pages,
             },
             scale,
@@ -824,7 +833,7 @@ impl App {
                 layers: &layers,
                 attachments: &self.attachments,
                 information: &self.information,
-                metadata_stream: self.metadata_stream,
+                metadata: self.metadata.as_ref(),
                 pages: &self.pages,
             },
             scale,
@@ -916,7 +925,7 @@ impl App {
                     layers: &layers,
                     attachments: &self.attachments,
                     information: &self.information,
-                    metadata_stream: self.metadata_stream,
+                    metadata: self.metadata.as_ref(),
                     pages: &self.pages,
                 },
                 height,
@@ -1156,23 +1165,30 @@ impl App {
     /// document title taken from the `dc:title` entry of the XMP metadata stream … If false, the
     /// title bar should instead display the name of the PDF file containing the document."
     ///
-    /// **A documented departure, measured.** The entry names XMP and this program reads none, so
-    /// where a document asks for its title it gets §14.3.3's `/Info /Title` instead — which is
-    /// the same fact in the place PDF kept it before PDF 2.0, and Table 349's own NOTE 1 says as
-    /// much: "[t]he `dc:title` entry in the document's metadata stream **can be used to
-    /// represent** the document's title." The two can disagree and the standard ranks them
-    /// nowhere, so the substitution is a choice and is said out loud once per document that
-    /// carries both. Of the 22 corpus documents setting the flag, 8 state an `/Info /Title` and
-    /// 18 carry a metadata stream.
+    /// **The clause is obeyed as written since the two-hundred-and-ninety-fourth session.** It
+    /// names `dc:title` and nothing else, and `pdf_model::xmp` reads it, so that is what a
+    /// document asking for its title gets. §14.3.3's `/Info /Title` is the *fallback* now rather
+    /// than the substitution: it is used where the document states no metadata stream, where the
+    /// stream states no `dc:title`, or where the stream could not be read — and the last of those
+    /// three is printed, because it is the only one where this program failed at something.
+    ///
+    /// Table 349's NOTE 1 is why the fallback is a reading rather than a guess: "[t]he `dc:title`
+    /// entry in the document's metadata stream **can be used to represent** the document's
+    /// title." Measured over the corpus, 93 documents state a title in both places and one
+    /// disagrees, so the ranking is what decides a single file (ADR 0186).
     fn named(&self) -> &str {
-        let Some(title) = self.information.title.as_deref().filter(|t| !t.is_empty()) else {
+        if !self.display_doc_title() {
             return &self.title;
-        };
-        if self.display_doc_title() {
-            title
-        } else {
-            &self.title
         }
+        let stated = self
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.as_ref().ok())
+            .and_then(pdf_model::xmp::Xmp::title)
+            .or(self.information.title.as_deref());
+        stated
+            .filter(|title| !title.is_empty())
+            .unwrap_or(&self.title)
     }
 
     /// Table 147's `/DisplayDocTitle`, **default false**.

@@ -77,3 +77,10 @@ bench = false
 name = "sfnt"
 path = "fuzz_targets/sfnt.rs"
 test = false
+
+[[bin]]
+name = "xmp"
+path = "fuzz_targets/xmp.rs"
+test = false
+doc = false
+bench = false

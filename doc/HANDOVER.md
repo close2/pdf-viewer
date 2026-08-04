@@ -45,7 +45,9 @@ and method §7.6 states, and since the hundred-and-forty-fourth session in both 
 §12.4.4's whole presentation read for a caller that has one to play, and everything a document
 says *about itself*: §14.7's logical structure, §14.8's tagged-PDF vocabulary, §7.11.4's embedded
 files, §14.13's associated files, §12.2's viewer preferences, §12.11's requirements, §7.12's
-extensions.
+extensions, and since the **two-hundred-and-ninety-fourth session §14.3.2's XMP** — the last
+large population this tree read nothing of, 319 documents, closed by a dependency decision
+nobody had been asked for (ADR 0186).
 
 It is **used**, which is what the nine sessions from the hundred-and-thirty-first added. A
 locked document asks for its password (§7.6.4.1, owed since the twenty-second session); the page
@@ -128,21 +130,22 @@ with Table 45's checksum checked against them (§7.11.4, ADR 0145). **The docume
 tab is open**: Table 29's `/PageMode` names a panel, and four of its six values now name one
 that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-first).
 
-### The six gates, today
+### The gates, today
 
 | gate | number | where |
 |---|---|---|
-| tests | **996** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **eight fuzz targets clean at 50 000 runs**, the newest also at 1 000 000 | re-run in the **two-hundred-and-ninety-second**, after quorra's update and three rounds of font work: `deny`, `fmt`, `clippy`, all **eight** fuzzers, the seven gates and the window |
-| — | **996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate.** Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
+| tests | **1004** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run in the **two-hundred-and-ninety-fourth**, the round that read §14.3.2: `deny`, `fmt`, `clippy`, all **nine** fuzzers, and every one of the seven corpus gates plus the new §14.3.2 one |
+| — | **1004 was 996, and the eight are one round's: §14.3.2's reader, its corpus gate and the two consumers it broke.** Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **856 agree**, **68 contradicted**, 749 ambiguous — **655 of them diagnosed and 94 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 931 of 23 349), **36** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
 | — | **and it had been failing for ten sessions**: session 156 lifted six documents to 100% and left them in `TEXT_BELOW_FLOOR`, so the ratchet fired *on the improvement*. Pruned in the hundred-and-sixty-sixth; the percentages never moved | see that constant's own comment |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | **913 agree, 43 differ, 1 refused**, 17 not comparable — 28 of the 43 are the two rasterisers' glyph antialiasing and not a defect list (ADR 0156) | `render-quorra/tests/corpus.rs`, **27 s** |
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
+| **§14.3.2's XMP** (same 974) | 319 documents carry a metadata stream: **318 read, 1 refused**, 3191 properties between them, 106 stating `dc:title` — the refusal is a fuzzed file whose stream does not decode at all. New in the two-hundred-and-ninety-fourth (ADR 0186) | `tests/xmp.rs`, ~0.3 s |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **22.4 ms**, and five arrow keys turn to page 6 presenting in **9.5 to 15.9 ms** with nothing refused — re-run in the two-hundred-and-ninety-second, where the whole launch is **98.8 ms** (ADR 0179's timeline, ADR 0185's threads), on `lavapipe` through quorra and so not comparable with a real adapter, where `examples/first_frame` puts the first frame at 18.2 ms and the tenth at 4.1; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` | ADR 0126's recipe, session 175 |
-| conformance | **406 quotations**, all verbatim, 3939 citations, 190 distinct tables cited by the tree, **823 ledger rows** | `-p conformance` |
+| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **22.4 ms**, and five arrow keys turn to page 6 presenting in **9.5 to 15.9 ms** with nothing refused — re-run in the two-hundred-and-ninety-second, where the whole launch is **98.8 ms** (ADR 0179's timeline, ADR 0185's threads), on `lavapipe` through quorra and so not comparable with a real adapter, where `examples/first_frame` puts the first frame at 18.2 ms and the tenth at 4.1; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` — and since the two-hundred-and-ninety-fourth that string comes from the `dc:title` Table 147 actually names rather than from `/Info /Title`, which on this document happens to say the same thing | ADR 0126's recipe, session 175 |
+| conformance | **410 quotations**, all verbatim, 3972 citations, 193 distinct tables cited by the tree, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -179,8 +182,8 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 378 | every normative requirement in the clause is executed |
-| `partial` | 236 | some are; the note says which are not |
+| `implemented` | 379 | every normative requirement in the clause is executed |
+| `partial` | 235 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 86 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -188,7 +191,7 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 | `writer-side` | 6 | addresses a PDF *generator* |
 
 **`silent` is zero** — there is no requirement in the eight technical clauses that this program
-fails without saying so. That is a narrow claim: `partial` and `reported` are 272 rows between
+fails without saying so. That is a narrow claim: `partial` and `reported` are 265 rows between
 them and each names what it owes.
 
 **And a sixth was found in the two-hundred-and-sixteenth, by a sweep that is one `grep`:** a
@@ -241,7 +244,6 @@ the 974 documents' first pages it affects.
 | A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
 | `/FixedPrint`, which waits on a printing path | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
 | An icon for `Stamp`, whose standard names are legends rather than symbols | 1 | [todo 26](todo/26-icons-a-clause-only-recommends.md) |
-| §14.3.2's XMP | 319 | [todo 50](todo/50-xmp.md) |
 | Signature *validation*, public-key handlers (§7.6.5), `/R` 5 | 1 | [todo 51](todo/51-signatures-and-public-keys.md) |
 | Sandboxing the interpreter and rasteriser | — | [todo 34](todo/34-sandbox-the-interpreter.md) |
 
@@ -1273,7 +1275,7 @@ documents, and it prints what it gave up.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
-cargo test -p conformance -- --nocapture   # 3637 citations, 368 quotations, 185 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 3972 citations, 410 quotations, 193 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's (trap 10).
@@ -1282,6 +1284,7 @@ cargo test --release -p pdf-model --test corpus          -- --ignored --nocaptur
 cargo test --release -p pdf-model --test oracle          -- --ignored --nocapture  # 1794 pages, ~32 s
 cargo test --release -p pdf-model --test text_extraction -- --ignored --nocapture  # ~30 s
 cargo test --release -p pdf-model --test dates           -- --ignored --nocapture  # 1545 dates
+cargo test --release -p pdf-model --test xmp             -- --ignored --nocapture  # 319 packets
 cargo test --release -p pdf-model --test jpeg2000        -- --nocapture            # 30 codestreams
   # against ISO/IEC 15444-5's reference software; needs `opj_decompress` and says so when absent
 cargo deny check                           # from the workspace root: fuzz/ is its own workspace
@@ -1318,6 +1321,8 @@ cd fuzz && cargo +nightly fuzz run variable_text -- -runs=50000   # §12.7.4.3's
 cd fuzz && cargo +nightly fuzz run forms_data    -- -runs=50000   # §12.7.8's FDF, §7.9.4's dates
 cd fuzz && cargo +nightly fuzz run object        -- -runs=50000   # §7.3's object grammar
 cd fuzz && cargo +nightly fuzz run document      -- -runs=50000   # §7.5's file structure
+cd fuzz && cargo +nightly fuzz run xmp           -- -runs=50000   # §14.3.2's XMP, the tree's
+  # only XML. Its corpus is seeded with all 318 packets the pdf.js documents decode to
 cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's two glyph-table repairs
   # **seed its corpus with real fonts** — 60 `/FontFile2` streams out of `doc/pdf.js/test/pdfs/`
   # into `fuzz/corpus/sfnt/`. Unseeded it never forms a table directory and tests nothing; seeded
@@ -1363,7 +1368,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 |---|---|---|
 | `pdf-spec` | Object-model validation tables | Generated from Arlington by `build.rs` |
 | `pdf-syntax` | Lexer, objects, xref, filters, `Document`, decryption, §7.5.6's writer | Touches untrusted bytes first. `crypt.rs` is §7.6's standard security handler, every algorithm against its own subclause; `document.rs` decides *what* is decrypted, because that is where an object's identity is known (ADR 0031). `xref.rs` is §7.5 whole, and the thing to know is that an entry is an `Option<Location>`: a free entry and an unknown entry type both *record* that the number names nothing, because §7.5.6 makes a deletion the most recent copy of an object (ADR 0100). `tree.rs` is §7.9.6's name trees and §7.9.7's number trees in one module, because the second clause defines itself as the first with integer keys (ADR 0053). `text_string.rs` is §7.9.2.2 and Annex D's Table D.3, which is *not* ISO Latin 1. `date.rs` is §7.9.4, beside it because NOTE 1 makes a date a text string that happens to spell one (ADR 0092). `write.rs` is the *only* writing in the tree: clause 7's syntax on the way out and §7.5.6's incremental update, which appends and never rewrites (ADRs 0121, 0129) — and `Document::encrypt_for_update` beside `decrypt_object` is §7.6.2 in the other direction, so an encrypted document can be saved. `filter.rs` is §7.4's ten filters — four decoded here, one a pass-through for §7.6.6, four image codecs deliberately `None` so a *content* stream naming one is visibly unsupported |
-| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` constructs what a subtype's clause states, splices under `/NeedAppearances`, and argues the refusals (ADRs 0030, 0032); `icon.rs` beside it is the one module that is pure invention and says so (ADR 0109). `view.rs` is the `ViewState` §12.6.4's actions change — **the precedent the edit log will follow**. `variable_text.rs` is §12.7.4.3 and the one place this tree *writes* a content stream. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused, its `Decode` one table per component and its `Conversion` an *exact* per-image memo (ADRs 0034, 0035). `page.rs` is §7.7.3 and §14.11.2's five boundaries. `accessibility.rs`, `uri.rs` and `file_spec.rs` hold no PDF at all. Then one module per clause family: `action.rs`, `forms_data.rs`, `named_page.rs`, `structure.rs`, `article.rs`, `collection.rs`, `measurement.rs`, `thumbnail.rs`, `signature.rs`, `attachment.rs`, `page_label.rs`, `navigation.rs`, `requirements.rs`, `document_part.rs`, `viewer_preferences.rs` |
+| `pdf-model` | Page tree, content interpreter, annotations, optional content, Type 3, image decode | Where PDF semantics live. `annotation.rs` is selection and placement (§12.5.5) and knows no subtype; `appearance.rs` constructs what a subtype's clause states, splices under `/NeedAppearances`, and argues the refusals (ADRs 0030, 0032); `icon.rs` beside it is the one module that is pure invention and says so (ADR 0109). `view.rs` is the `ViewState` §12.6.4's actions change — **the precedent the edit log will follow**. `variable_text.rs` is §12.7.4.3 and the one place this tree *writes* a content stream. `image.rs` owns §8.9.6's and §11.6.5.2's masking, with `combine_on_the_finer_grid` the one place two rasters of different sizes are combined rather than refused, its `Decode` one table per component and its `Conversion` an *exact* per-image memo (ADRs 0034, 0035). `page.rs` is §7.7.3 and §14.11.2's five boundaries. `xmp.rs` is §14.3.2's metadata stream and the one module in the tree that parses XML — over `xmlparser`, with four stated budgets, and it is the reason §12.2's `/DisplayDocTitle` is a reading rather than a substitution (ADR 0186). `accessibility.rs`, `uri.rs` and `file_spec.rs` hold no PDF at all. Then one module per clause family: `action.rs`, `forms_data.rs`, `named_page.rs`, `structure.rs`, `article.rs`, `collection.rs`, `measurement.rs`, `thumbnail.rs`, `signature.rs`, `attachment.rs`, `page_label.rs`, `navigation.rs`, `requirements.rs`, `document_part.rs`, `viewer_preferences.rs` |
 | `pdf-font` | Glyph outlines via `skrifa`, §9.6.2.2's fourteen and §9.7.5.2's `CMap`s compiled in | Owns both simple-font encoding algorithms (§9.6.5.2, §9.6.5.4 — ADR 0015). `name_keyed.rs` is what a name-keyed program offers a code, and `cff.rs` and `type1.rs` each produce one because §9.6.2.1's NOTE 1 makes them one format's two spellings (ADR 0040). `type1.rs` is the one program kept *parsed*, measured: re-parsing per glyph put 11 ms on `tracemonkey.pdf`. `cmap.rs` is §9.7, where `Code` carries a value *and* a length. `predefined.rs` is §9.7.5.2's 239 registered `CMap`s, deflated one at a time by `build.rs` and inflated on demand, and it is where §9.10.2's third method reads a collection's `-UCS2` table (ADR 0140). `standard.rs` is §9.6.2.2's fourteen font programs as `static` bytes, and it is what stopped `substitute.rs` being the only machine-dependent code in the tree (ADR 0133): the fourteen come from the binary, everything else from the machine with the binary behind it. `collection.rs` is a `ttcf` container in a `/FontFile2` — malformed by Table 127, written by two corpus documents — with the face chosen by the descriptor's own `/FontName` (ADR 0141). `substitute.rs` ranks three sources of a request with an argument — the name, then §9.8.3.2's PANOSE, then Table 121's flags, which producers set carelessly (ADR 0086) |
 | `pdf-render` | Display list + `Rasterizer` trait | No PDF semantics, no rasteriser. Four device decisions live here so the two backends cannot differ: `Image::is_smoothed`, `Image::area_averaged` (a departure from §10.7.4, ADR 0025), `Stroke::device_width` (§8.4.3.2 with §10.7.5, ADR 0028) and `collapsed::split_collapsed_fill` (§10.7.4's "no shape ever disappears", ADR 0154) — the last two ask `thinnest_line` for the same width, which is the point of its being a function. `Command::Group` is the one nested command; `MeshRaster` is §8.7.4.5.5 shared by both backends because neither rasteriser has the primitive and a second copy would drift (ADR 0051). `Transform::max_stretch` is *not* `determinant().abs().sqrt()`: a shear separates the singular values without changing the determinant |
 | `render-cpu` | `tiny-skia` backend | Correctness oracle **and** the fallback for a frame the graphics device refuses — no longer the startup path, since page one goes to the device (`CLAUDE.md`, session 273). `blend.rs` is §11.3.5.3's four non-separable modes written here rather than shared, on purpose: sharing them would make the cross-backend scene compare one implementation with itself (ADR 0047). Draws a page on every core since session 155 (ADR 0139) — `encode_in_strips` cuts the target only at rows `pdf_render::unsplittable_rows` permits, so **the picture does not depend on how it was divided**, which is the property `with_strips` exists to let a test check and the reason the oracle's verdicts did not move |
@@ -2699,3 +2704,4 @@ above rather than here.
 | 291 | Step 7 over all 786 after three rounds of new pixels: four names past −0.7, all diagnosed | — |
 | 292 | Everything re-verified after quorra's update — and the round-285 deletion `rm -f` reported had not happened | — |
 | 293 | Twenty rounds' prose brought up to date, and the sentence the twenty had in common | — |
+| 294 | §14.3.2's XMP, 319 documents' worth: an XML parser taken, fuzzed, and `dc:title` in the title bar at last | 0186 |

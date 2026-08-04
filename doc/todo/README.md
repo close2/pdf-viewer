@@ -10,7 +10,7 @@ The number prefix **is** the priority, and `ls` sorts by it:
 
 | band | means |
 |---|---|
-| `00`–`09` | **standing** — take some of this every round, whatever else is on |
+| `00`–`09` | **standing** — take some of this every round, whatever else is on. One exception, and it is numbered last in the band so that it reads as one: [09](09-the-specifications-are-in-the-history.md) is a one-off that outranks everything below it |
 | `10`–`19` | **defects**: wrong pixels or wrong output, with a diagnosis and usually a fix already argued |
 | `20`–`29` | **owed features with corpus demand** — a real document asks and we refuse |
 | `30`–`39` | **capability** — things the program cannot do at all, mostly hosts and interfaces |
@@ -36,6 +36,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 94 pages |
 | [01](01-ledger-partial-rows.md) | Read the ledger's 236 `partial` rows against the code — and the five sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
+| [09](09-the-specifications-are-in-the-history.md) | **The ISO documents are tracked and must not be** — a history rewrite, and the bootstrap that has to exist first. Not standing; ranked here because it has to be true *before this repository is published* | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; a tiling cell's two halves; a hairline at the raster's edge | 4 |
 | [21](21-font-substitution.md) | `Identity` orderings; a font reported as a whole; per-character fallback, with no witness left | 40 |
@@ -52,7 +53,6 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect | 1 |
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
 | [42](42-the-launch-path.md) | The launch path: 145 ms to 110, four of five items closed, the fifth is quorra's | all |
-| [50](50-xmp.md) | §14.3.2's XMP: an XML parser over untrusted bytes | 319 |
 | [51](51-signatures-and-public-keys.md) | Validation, public-key handlers, `/R` 5 | 1 |
 | — | [`_scan-conversion.md`](_scan-conversion.md) | shared: §10.7.4, what this tree departs from and why |
 

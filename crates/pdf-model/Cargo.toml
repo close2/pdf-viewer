@@ -20,6 +20,9 @@ pdf-syntax.workspace = true
 # `image::rows_per_band` for the measurement that decided the threshold.
 rayon.workspace = true
 thiserror.workspace = true
+# §14.3.2's metadata stream, read by `xmp.rs`. See the workspace manifest for why this
+# tokenizer and doc/adr/0186 for the decision.
+xmlparser.workspace = true
 zune-jpeg.workspace = true
 
 [dev-dependencies]

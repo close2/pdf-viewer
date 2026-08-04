@@ -68,6 +68,7 @@ pub mod uri;
 mod variable_text;
 pub mod view;
 pub mod viewer_preferences;
+pub mod xmp;
 
 pub use content::{Interpretation, Unsupported, interpret};
 pub use page::{Page, Pages};

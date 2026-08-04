@@ -1812,18 +1812,21 @@ fn the_catalog_says_which_panel_a_host_should_open() {
     assert!(matches!(empty.query(Query::Opening), Answer::None));
 }
 
-/// §14.3.3's `/Info` reaches a host, and so does the fact that §14.3.2's XMP does not.
+/// §14.3.3's `/Info` reaches a host, and since the two-hundred-and-ninety-fourth so does
+/// §14.3.2's XMP.
 ///
 /// The second half is the point. Table 349's every text entry carries a NOTE naming an XMP
-/// counterpart and §12.2's `/DisplayDocTitle` names `dc:title` outright, so a host taking a title
-/// from `/Info` needs to know when it may be taking it from the wrong place — and this crate
-/// reads no XMP, which is a dependency decision rather than a clause gap.
+/// counterpart and §12.2's `/DisplayDocTitle` names `dc:title` outright, so a host titling a
+/// window needs the *stream's* answer and not the dictionary's — which is what this query now
+/// carries. **The variant changed shape rather than gaining a message** (`metadata_stream: bool`
+/// became the packet itself), and nothing in this vocabulary being `#[non_exhaustive]` is what
+/// made every consumer fail to compile until it was read. ADR 0186.
 #[test]
 fn a_document_hands_over_what_it_says_about_itself() {
     let (viewer, _) = opened(800, 1000);
     let Answer::Properties {
         information,
-        metadata_stream,
+        metadata,
     } = viewer.query(Query::Properties)
     else {
         panic!("a document is open");
@@ -1838,9 +1841,17 @@ fn a_document_hands_over_what_it_says_about_itself() {
         Some(2018),
         "§7.9.4's date parses out of what the file wrote"
     );
+    let xmp = metadata
+        .expect("this document carries §14.3.2's stream")
+        .expect("and it is well-formed XMP");
+    assert_eq!(
+        xmp.producer(),
+        information.producer.as_deref(),
+        "Table 349's NOTE pairs /Producer with pdf:Producer, and this file states both"
+    );
     assert!(
-        metadata_stream,
-        "this document carries §14.3.2's stream, and the host is told"
+        xmp.title().is_some(),
+        "and a dc:title, which is what §12.2's /DisplayDocTitle names"
     );
 
     // A document that states nothing says nothing, which is 454 of the 964 corpus documents that
@@ -1855,13 +1866,16 @@ fn a_document_hands_over_what_it_says_about_itself() {
         .for_each(drop);
     let Answer::Properties {
         information,
-        metadata_stream,
+        metadata,
     } = plain.query(Query::Properties)
     else {
         panic!("a document is open");
     };
     assert!(information.is_empty());
-    assert!(!metadata_stream);
+    assert!(
+        metadata.is_none(),
+        "no /Metadata is `None`, which is not the same answer as a stream that would not read"
+    );
 }
 
 /// §12.6.3: the pointer raises Table 197's events, which is the half this crate could not do.
