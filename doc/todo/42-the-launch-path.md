@@ -1,7 +1,7 @@
-# The launch path: 109 to 135 ms to the first frame, and what is left on it
+# The launch path: 110 to 119 ms to the first frame, and what is left on it
 
-Status: **open**, measured in the two-hundred-and-seventy-fourth session; three of its five items
-taken since, in the two-hundred-and-seventy-sixth, -seventh and -eighty-first.
+Status: **open**, measured in the two-hundred-and-seventy-fourth session; four of its five items
+are closed and the fifth is quorra's (§9 of `doc/QUORRA_FEEDBACK.md`).
 Priority: 42 — performance, measured and priced, not yet taken
 Corpus: every document; the two costs that scale do so with the *document*, not with page one
 Code: `crates/viewer-ui/src/bin/pdf-viewer.rs` (`Launch`), `crates/pdf-model/examples/open_cost.rs`,
@@ -17,9 +17,27 @@ Code: `crates/viewer-ui/src/bin/pdf-viewer.rs` (`Launch`), `crates/pdf-model/exa
 > **Incremental parsing.** Opening a document reads the trailer and the objects page one needs —
 > not the whole file. **A 500-page document must open no slower than a 5-page one.**
 
-Measured: **27.8 ms against 0.84 ms**, on 1023 pages against 5 — 41% of it gone in ADR 0180 and
-the rest moved off the critical path in ADR 0182. The rule was written down and never instrumented, which is the same shape as every claim this project has found stale — with the
-difference that this one is about a number, so the instrument settles it.
+Measured when this file was written: **27.8 ms against 0.84 ms**, on 1023 pages against 5. The
+rule had been written down and never instrumented, which is the same shape as every claim this
+project has found stale — with the difference that this one is about a number, so the instrument
+settles it.
+
+**And the instrument now says the rule holds, by a route nobody had considered.** 41% of the open
+went in ADR 0180; what was left went *beside* the window in ADR 0182 and is joined after a device
+bring-up that costs 13 to 19 ms. Measured in the two-hundred-and-eighty-ninth session, three runs
+each:
+
+```text
+                         ISO 32000-2, 1023 pages    PDF20_AN001-BPC, 5 pages
+document joined            +5.2 to +5.6 ms            +2.6 to +5.4 ms
+process start → frame      110 to 119 ms              105 to 124 ms
+```
+
+**The two documents cost the launch the same**, and what the join measures is the handshake rather
+than the file. That is the rule satisfied where a person can see it. What is *not* satisfied is the
+rule read as a statement about `Document::open` itself — 10 to 13 ms against 0.2 — and item 1 below
+keeps that question open, now correctly labelled as a question about the function rather than about
+the launch.
 
 ## The five items, in the order the timeline ranked them
 
@@ -52,7 +70,19 @@ that thread and moved back, single-threaded throughout.
 **So items 1, 3 and 5's second bullet are the only launch costs still on this list that are ours**,
 and item 1's is the design question rather than a number.
 
-### 2. `Outline::read` — 3.35 to 6.61 ms for **988 items**
+### 2. `Outline::read` — **closed by ADR 0182's structure, in the two-hundred-and-eighty-ninth**
+
+The item was *eagerness*: 3 to 7 ms of a launch spent reading a panel nobody had opened, on a
+document tree whose §12.3.4 thumbnails are deferred with an argument and whose outline is not.
+**It costs the launch nothing now** — it happens on the thread that opens the document, which
+finishes while the main thread is still bringing the graphics device up, and the join costs 5 ms
+whether the outline has 988 items or 5. Deferring it would now buy zero milliseconds and cost the
+title bar its §12.3.3 section on the first frame.
+
+What is recorded rather than removed: the reason it is *allowed* to be eager is that something
+slower runs beside it. If the device ever became free, this would be back.
+
+### 2a. What the item said before, and it was wrong twice
 
 **This entry said "6.716 ms for 38 items" when it was written, and 38 is `items.len()`** — the top
 level, which for a book is its chapters. 988 items at 3.4 to 6.7 µs apiece is one indirect object

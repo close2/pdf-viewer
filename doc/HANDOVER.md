@@ -68,13 +68,16 @@ needs no window either, so **it is made on a second thread** and handed to quorr
 entry point for it after `doc/QUORRA_FEEDBACK.md` §8 asked with a measurement (ADR 0185). Of what
 is left: `EventLoop::new` 20 to 45 ms, the first present 48 to 53, the device **13 to 19**, the
 instance 0.006 to 2.6 and the document's join 5.
-**Two things on it broke a rule `CLAUDE.md` states**, both named and priced in
+**Two things on it broke a rule `CLAUDE.md` states and both are closed**, in
 [todo 42](todo/42-the-launch-path.md): `Document::open` cost 12 to 22 ms on 101 318 objects
 against 0.20 on a small file, where the rule is "a 500-page document must open no slower than a
-5-page one" — **41% of that is gone in the two-hundred-and-seventy-sixth session**, because 40% of
-it was §7.5.6's "most recent copy" rule being re-decided once per cross-reference entry instead of
-once per file (ADR 0180, 130.7 M instructions to 76.6 M) — and `Outline::read` costs 3 to 7 ms for
-988 items, which is proportionate per item and eager for a panel nobody opened. **A third cost on
+5-page one", and `Outline::read` 3 to 7 ms for a panel nobody had opened. **41% of the first went
+in the two-hundred-and-seventy-sixth** — 40% of it was §7.5.6's "most recent copy" rule being
+re-decided once per cross-reference entry instead of once per file (ADR 0180, 130.7 M instructions
+to 76.6 M) — and the rest of both went *beside* the window rather than in front of it. Measured in
+the two-hundred-and-eighty-ninth: **1023 pages and 5 pages now cost the launch the same**, 5 ms of
+join either way. The rule read as a statement about `Document::open` itself is still 10 to 13 ms
+against 0.2, and todo 42 keeps that question open as a question about the function. **A third cost on
 that path turned out to be a clause nobody had read**: §12.8's signature walk spent 1.681 ms
 finding nothing on a document whose form could have said so in one integer, and §12.7.3's Table
 225 exists precisely so that a processor need not scan — 0.017 ms now, with the ledger row that
@@ -2698,3 +2701,4 @@ above rather than here.
 | 286 | Two more off the ambiguous tail, both into groups that already existed: an image and a border | — |
 | 287 | §9.6.5.2's last sentence: `.notdef` substituted where an encoding names a glyph the program lacks | — |
 | 288 | quorra took both of §8's asks and refused §8.3's knob: bring-up 33–45 ms to 13–19 | 0185 |
+| 289 | A 1023-page document and a 5-page one now cost the launch the same: 5 ms of join | — |
