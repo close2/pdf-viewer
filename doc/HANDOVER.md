@@ -76,7 +76,13 @@ finding nothing on a document whose form could have said so in one integer, and 
 225 exists precisely so that a processor need not scan — 0.017 ms now, with the ledger row that
 called the entry "signature behaviour" corrected (ADR 0181). **Adapter selection is the largest part of bring-up and the backend set is not the
 lever**: `examples/bring_up` shows Vulkan-only moving the cost out of instance creation and into
-`request_adapter` with the total unchanged (ADR 0179). The CPU backend keeps its other two jobs:
+`request_adapter` with the total unchanged (ADR 0179). **On the machine's real adapter, headless,
+the first frame costs 18.2 ms and the tenth 4.1** — and a one-second sleep before it changes
+nothing, so the ~12 ms difference is first-use allocation rather than warmth. `CLAUDE.md`'s ban on
+waiting for warmth therefore costs nothing measurable here; `examples/first_frame` is the
+instrument and `doc/QUORRA_FEEDBACK.md` §9 is the ask. The same arithmetic puts a launch on the
+real GPU at **75 to 90 ms** against `lavapipe`'s 145, and nobody has run that — the window half of
+it is the user's to measure. The CPU backend keeps its other two jobs:
 the correctness oracle, and the frame the device refuses.
 
 **And it has chrome, which is what the ten sessions from the hundred-and-sixty-sixth added and
@@ -2677,3 +2683,4 @@ above rather than here.
 | 277 | A form says whether it has signature fields, and Table 225 says to ask: 1.681 ms to 0.017 | 0181 |
 | 278 | The five sweeps: a row that contradicted *itself*, a parent stale about three children, a `shall` no host asked | — |
 | 279 | Two off the ambiguous tail's head, and both were a *width*: 0.4 of a pixel, and one sentence on a stamp | — |
+| 280 | The first frame pays 12 ms the tenth does not, and a 1 s sleep proves it is not the shaders | — |

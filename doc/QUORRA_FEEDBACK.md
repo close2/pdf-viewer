@@ -9,10 +9,10 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
-**§8 is open**, added in the two-hundred-and-seventy-fifth session: it is a request rather than a
+**§8 and §9 are open**, added in the two-hundred-and-seventy-fifth and -eightieth sessions: it is a request rather than a
 defect, and it exists because the project owner's decision that page one goes to the graphics
 device put your bring-up on this viewer's critical path. Two entry points and one field split;
-there is also a knob it explicitly does *not* ask for, with the measurement that says why.
+there is also a knob §8 explicitly does *not* ask for, with the measurement that says why. §9 is one more, from the other end of the same launch: the first frame allocates ~12 ms that every frame after it reuses, and it is provably not the shaders.
 
 **Where it stands, at the page's own scale:**
 
@@ -338,3 +338,54 @@ is wrong here, and the table in 8.1 is why: restricting the instance to Vulkan h
 `Instance::new` and gives every millisecond of it back in `request_adapter`. The total is the
 invariant. **So this side is not asking for a backend knob in `Options`**, and would rather record
 having measured it than have the knob added on the strength of a plausible argument.
+
+---
+
+## 9. The first frame pays ~12 ms that every frame after it does not, and it is not the shaders
+
+**Measured in this viewer's two-hundred-and-eightieth session**, on the machine's real adapter —
+AMD Radeon 890M, RADV, Vulkan — headless, page 7 of ISO 32000-2, ten renders of the same display
+list to the same target, nothing waited for:
+
+```text
+bring-up   33.6 ms
+frame 1    18.17 ms
+frame 2     4.86 ms
+frames 3–10 3.7 … 5.1 ms
+```
+
+The same shape at other scales, so it is a fixed cost rather than a proportional one:
+
+| target | frame 1 | steady | difference |
+|---|---|---|---|
+| 596 × 842 | 18.17 ms | 4.86 | **13.3** |
+| 1191 × 1684 | 24.11 | 9.79 | **14.3** |
+| 2382 × 3368 | 57.24 | 39.15 | **18.1** |
+
+**It is not pipeline compilation, and the experiment that says so is one argument.**
+`crates/render-quorra/examples/first_frame.rs` takes a settle time and sleeps for it between
+bring-up and the first render, which is more than enough for `spawn_warm_up`'s background thread
+to finish (`StartupTimings::pipeline_compilation` reports 5.3–5.7 ms):
+
+```text
+settle    0 ms → frame 1  16.05 ms
+settle  300 ms → frame 1  15.26 ms
+settle 1000 ms → frame 1  16.65 ms
+```
+
+Unchanged. So what the first frame is paying for is **first-use resource creation** — buffers,
+bind groups, the atlas texture, whatever a `Device` makes once and reuses — and it is paid at
+exactly the moment `CLAUDE.md` cares about, because page one goes to the device and nothing on the
+launch path is allowed to wait for warmth.
+
+**The ask, and it is the same shape as the warm-up you already have**: warm the *allocations* as
+well as the shaders. `spawn_warm_up` already runs a background thread whose whole purpose is to
+have things ready before a frame asks; if the per-device resources a first frame creates could be
+created there too, ~12 ms comes off every cold launch of every host, and nothing about the API
+changes.
+
+**This is a good-news finding as much as a request.** The rule this project holds you to — return
+a usable device before it is warm, never block on warmth — costs *nothing measurable* on this
+adapter: the shaders are ready before anything asks for them, three times over. The
+`wait_until_warm` that a nervous host might reach for would buy zero milliseconds and hide the 12
+that matter.

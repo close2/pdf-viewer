@@ -79,9 +79,31 @@ number quorra reports as `adapter_enumeration` is three steps with different cau
 `request_adapter` cannot be hoisted either way — it takes the surface — so the honest claim is
 "up to the instance's share" and not "up to the bring-up's".
 
+### 5. The first frame pays ~12 ms of first-use allocation, and it is **not** the shaders
+
+Measured in the two-hundred-and-eightieth session on the machine's real adapter, headless
+(`crates/render-quorra/examples/first_frame.rs`): frame 1 costs 18.2 ms and frames 2 to 10 cost
+3.7 to 5.1, and the difference is roughly fixed across scales — 13.3 ms at 1×, 14.3 at 2×, 18.1
+at 4×.
+
+**Sleeping between bring-up and the first render changes nothing** (16.05 / 15.26 / 16.65 ms after
+0, 300 and 1000 ms), and the background thread reports its pipelines compiled in 5.3 to 5.7 ms —
+so what the first frame pays for is device resource creation, not warmth. Two consequences:
+
+- `CLAUDE.md`'s "nothing on the launch path waits for warmth" **costs nothing here**, and a
+  `wait_until_warm` would buy zero milliseconds while hiding the twelve that matter.
+- The ask is in `doc/QUORRA_FEEDBACK.md` §9: warm the *allocations* on the same background thread
+  that already warms the shaders. Nothing about the API changes and ~12 ms comes off every cold
+  launch of every host.
+
+**And it re-scales the whole timeline.** ADR 0179's 145 ms is `lavapipe` under `Xvfb`, where the
+first present is 54 to 68 ms because llvmpipe is drawing the page on the processor. On the real
+adapter the same steps are bring-up 33 to 43, interpretation ~5 and a first frame of ~18, so a
+launch on this machine's own GPU should be **75 to 90 ms**. Nobody has run it — `AI` has no X
+authority cookie for the user's display, so the window half of that number is the user's to
+measure (ADR 0126).
+
 ## What is deliberately not here
 
-**The first present (54 to 68 ms) is not on this list yet**, because nothing has taken it apart.
-It contains the first frame's pipeline waits, the first buffer allocations and the page's own
-rasterisation, and `render-quorra/examples/frame_race.rs` measures the last of those in isolation
-at a fraction of it. A number nobody has split is not an item; it is the next measurement.
+**Nothing, since item 5.** This section used to say the first present was not yet an item because
+nobody had split it; it is split now, and the half that is ours is item 5's second bullet.
