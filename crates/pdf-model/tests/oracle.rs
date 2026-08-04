@@ -2930,7 +2930,70 @@ const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 370] = [
 /// own 14.9441 at 576 — 5% over its geometry where every other page has it 1% under. That is
 /// §10.7.4 as written on marks a fraction of a pixel wide, one page over from where
 /// `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY` found it, and it is not ours.
-const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 154] = [
+/// Ambiguous, and the clause puts the answer beyond itself and says where.
+///
+/// `calrgb.pdf` is a test sheet: seventeen pages of `CalRGB` patches, each page stating its own
+/// `/WhitePoint`, `/BlackPoint`, `/Gamma` and `/Matrix` in a header and then a grid of swatches
+/// labelled with the `A, B, C` that produced them. Five renderers produce five sheets, and eight
+/// of the pages reach §3a's bucket with a shape nothing else in it has: similarity 0.9319 to
+/// 0.9932 — the same shapes in the same places — with worst tiles up to **76.5**, which is a
+/// large difference in *colour* over a small part of the page.
+///
+/// # What the clause determines, and it is all of the first half
+///
+/// §8.6.5.3 defines the conversion from a `CalRGB`'s components to CIE XYZ exactly: the three
+/// components are raised to `/Gamma` and multiplied by `/Matrix`. The first page's space is
+/// `/WhitePoint [1 1 1]`, `/BlackPoint [0 0 0]`, `/Gamma [1 1 1]` and an identity `/Matrix`, so
+/// on that page the arithmetic is the identity and the file is stating XYZ values directly — and
+/// among them are triples like `(1.00, 0.00, 0.00)`, which is not a colour any display can show
+/// and, with the later pages' `/WhitePoint [2.0000 1.0000 1.7000]`, not a plausible illuminant
+/// either. **The sheet is asking every processor what it does outside the gamut.**
+///
+/// # What it does not determine, and §10.3.1 says so in a sentence
+///
+/// > The specific method by which the CIE-based destination colour space is established is
+/// > beyond the scope of this document, but may include the use of Output Intents
+///
+/// So the second half of the journey — an XYZ to a pixel — is each processor's, and this sheet
+/// is built to make that visible. Ours is one route and it is written down rather than tuned:
+/// Bradford adaptation to D50 and then the sRGB matrix and transfer, in `colour::xyz_d50_to_srgb`,
+/// which is the *only* place in the tree where an XYZ becomes a pixel (ADR 0012) — `Lab`,
+/// `CalGray`, `CalRGB` and every ICC profile arrive there, so the four cannot drift apart.
+///
+/// This is §3a's third shape, and the sharpest instance of it the bucket holds: the clause is
+/// closed about the part it defines, open about the part it does not, and names the clause that
+/// says so.
+const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
+    "calrgb.pdf page 3",
+    "calrgb.pdf page 6",
+    "calrgb.pdf page 8",
+    "calrgb.pdf page 9",
+    "calrgb.pdf page 10",
+    "calrgb.pdf page 15",
+    "calrgb.pdf page 16",
+    "calrgb.pdf page 17",
+];
+
+/// # And a second document, on the same instrument, in the two-hundred-and-sixty-third
+///
+/// `TAMReview.pdf` is 23 pages of a technical review at paper size — dense text, tables, the same
+/// nine-point band — and 22 of them are in this bucket. Read as a population the way both books
+/// were: mean 4.05 to 9.96, worst tile 11.59 to 33.63, similarity 0.7722 to 0.9214, one band and
+/// no page outside it. Four pages spread through it, with two ladders each:
+///
+/// ```text
+///           ours 1x   ours 8x   poppler 72   poppler 576   mupdf 576
+/// page 1    10.0004   10.0181     10.0398      10.0396      10.0184
+/// page 8    11.0257   10.9948     10.8604      11.0049      11.0154
+/// page 16    7.4774    7.5113      7.7494       7.5645       7.5272
+/// page 23   11.6485   11.7169     11.8844      11.9601      11.6462
+/// ```
+///
+/// Ours at 8× is within 0.05 of `poppler`'s limit on three of the four and between the two
+/// references' limits on the fourth, where the references are 0.31 apart — which is this group's
+/// own finding restated: five glyph rasterisers cannot agree more closely than the tolerance
+/// allows, and the tolerance is what makes the page ambiguous rather than anything on it.
+const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 176] = [
     "bug1992868.pdf page 1",
     "bug1992868.pdf page 2",
     "bug1992868.pdf page 3",
@@ -3085,6 +3148,28 @@ const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 154] = [
     "tracemonkey_with_editable_annotations.pdf page 12",
     "tracemonkey_with_editable_annotations.pdf page 13",
     "tracemonkey_with_editable_annotations.pdf page 14",
+    "TAMReview.pdf page 1",
+    "TAMReview.pdf page 2",
+    "TAMReview.pdf page 3",
+    "TAMReview.pdf page 4",
+    "TAMReview.pdf page 5",
+    "TAMReview.pdf page 6",
+    "TAMReview.pdf page 7",
+    "TAMReview.pdf page 8",
+    "TAMReview.pdf page 9",
+    "TAMReview.pdf page 10",
+    "TAMReview.pdf page 11",
+    "TAMReview.pdf page 12",
+    "TAMReview.pdf page 13",
+    "TAMReview.pdf page 14",
+    "TAMReview.pdf page 15",
+    "TAMReview.pdf page 16",
+    "TAMReview.pdf page 17",
+    "TAMReview.pdf page 18",
+    "TAMReview.pdf page 19",
+    "TAMReview.pdf page 20",
+    "TAMReview.pdf page 22",
+    "TAMReview.pdf page 23",
 ];
 
 /// Ambiguous, and the reference is the one departing — from a rule PDF states for *encoders*.
@@ -3721,6 +3806,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_SUBSTITUTED_FACE)
         .chain(&AMBIGUOUS_IRREVERSIBLE_JPEG_2000)
         .chain(&AMBIGUOUS_COLOUR_OPERANDS)
+        .chain(&AMBIGUOUS_CALRGB_TO_SCREEN)
         .chain(&AMBIGUOUS_EIGHT_BIT_COMPOSITING)
         .chain(&AMBIGUOUS_WIDGET_BORDER)
         .chain(&AMBIGUOUS_RADIAL_CONE)

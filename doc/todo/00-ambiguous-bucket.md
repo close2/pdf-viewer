@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **136 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **106 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 613 diagnosed, 136 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 643 diagnosed, 106 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -214,6 +214,14 @@ stopped being "what is wrong with page 329" and became "is this book one finding
 hundred". Twelve more pages spread through both books, with two ladders each, put ours within
 0.012 of `poppler`'s own limit every time; then the *whole* population's printed metrics were read
 as a band, and it is one band with no gaps.
+
+**The two-hundred-and-sixty-third took the next two populations the same way**:
+`TAMReview.pdf`'s 22 pages, which are one band (mean 4.05 to 9.96, similarity 0.7722 to 0.9214)
+and four ladders inside `AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE`'s own finding; and `calrgb.pdf`'s
+eight, which are the bucket's sharpest instance of shape 3 — §8.6.5.3 defines the components-to-XYZ
+arithmetic exactly, the sheet's first page states an identity so the file is naming XYZ values
+directly, several of them are outside any gamut, and §10.3.1 says in one sentence that how a
+processor gets from there to a pixel "is beyond the scope of this document".
 
 **The band caught the page the sample would have buried.** `freeculture.pdf` page 171 has a worst
 tile of 81.57 where nothing else in the book exceeds 29.09: its cartoon is a one-bit stencil that
