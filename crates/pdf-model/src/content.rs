@@ -1307,6 +1307,58 @@ enum FontKey {
     Referenced(pdf_syntax::ObjectId),
 }
 
+/// The font a `Tf` names when the resource dictionary defines nothing under that name.
+///
+/// **A documented choice about a malformed file, and a narrow one.** §7.8.3 requires the writer
+/// to supply the resources a stream uses — "a PDF writer shall include a Resources entry in the
+/// stream's dictionary specifying the resource dictionary which contains all the resources used
+/// by that content stream" — and a file that names `/F1` with nothing behind it has broken that
+/// `shall`; nothing here invents a font for it, and the report stands.
+///
+/// The exception is the fourteen names §9.6.2.2 lists, because for those the standard states what
+/// the name means and states that this program has it:
+///
+/// > These fonts, or their font metrics and suitable substitution fonts, shall be available to
+/// > the PDF processor.
+///
+/// So a stream whose `Tf` says `/Helvetica` with an empty resource dictionary has named something
+/// a conforming processor is required to have, and drawing it from the compiled-in fourteen
+/// (ADR 0133) is a better reading of that stream than drawing nothing. `issue17492.pdf` is the
+/// witness: a text widget's stored appearance stream carries `/Resources <<>>` and sets its text
+/// in `/Helvetica 12 Tf`, `mupdf` and `ghostscript` draw the three lines, `poppler` refuses with
+/// *Unknown font tag 'Helvetica'*, and this tree drew nothing and said so.
+///
+/// **The same argument `variable_text`'s `STANDARD_ABBREVIATIONS` makes**, one clause over and
+/// with a stronger premise: there the name is a four-letter convention for one of the fourteen,
+/// here it *is* one of the fourteen. `pdf_font::standard::is_standard_name` is deliberately exact
+/// — no case folding, no families — so `/F1`, `/Arial` and `/helvetica` still name nothing and
+/// still report. Two corpus documents naming `/F1` are unaffected, which is the narrowness
+/// visible in the gate rather than argued in a comment.
+fn standard_font_named(name: &str) -> Option<Object> {
+    if !pdf_font::standard::is_standard_name(name) {
+        return None;
+    }
+    let entry = |key: &str, value: &str| {
+        (
+            Name::new(key.as_bytes().to_vec()),
+            Object::Name(Name::new(value.as_bytes().to_vec())),
+        )
+    };
+    let mut dict = Dictionary::new();
+    // The dictionary §9.6.2.2 allows for one of the fourteen: no `/FirstChar`, `/LastChar`,
+    // `/Widths` or `/FontDescriptor`, which the same clause makes optional for these and only
+    // these, so `pdf-font` reads the metrics from `standard_metrics` and the program from
+    // `standard`.
+    for (key, value) in [
+        entry("Type", "Font"),
+        entry("Subtype", "Type1"),
+        entry("BaseFont", name),
+    ] {
+        dict.insert(key, value);
+    }
+    Some(Object::Dictionary(dict))
+}
+
 /// A glyph's box, mapped by §9.4.4's text rendering matrix.
 ///
 /// The corners in glyph space are (0, descent), (advance, descent), (advance, ascent) and
@@ -4298,7 +4350,9 @@ impl Interpreter<'_> {
         // first's glyphs with nothing reported. That is trap 1's archetype, and it is what this
         // cache did for thirty-one sessions. `shading::Cache` had the same question and the
         // same answer (see `resource_entry`, whose whole reason for existing is this one).
-        let entry = self.resource_entry(resources, "Font", name);
+        let entry = self
+            .resource_entry(resources, "Font", name)
+            .or_else(|| standard_font_named(name));
         let key = entry
             .as_ref()
             .and_then(Object::as_reference)

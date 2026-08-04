@@ -125,9 +125,89 @@ pub fn face(request: Request) -> Face {
     }
 }
 
+/// §9.6.2.2's fourteen names, exactly as the clause spells them.
+///
+/// > The PostScript language names of 14 Type 1 fonts, known as the standard 14 fonts, are as
+/// > follows: Times-Roman, Helvetica, Courier, Symbol, Times-Bold, Helvetica-Bold, Courier-Bold,
+/// > `ZapfDingbats`, Times-Italic, Helvetica-Oblique, Courier-Oblique, Times-BoldItalic,
+/// > Helvetica-BoldOblique, `CourierBoldOblique`.
+///
+/// **This is a different question from [`crate::substitute`]'s**, and the difference is what
+/// makes the narrowness necessary. That module asks whether a `/BaseFont` — a *typeface's* name,
+/// written by whoever made the font — is one of the fourteen, so it folds case, matches on the
+/// family and accepts the metric-compatible clones a producer means by `Arial`. This asks
+/// whether a **resource name** is one of the fourteen, and a resource name is arbitrary: a file
+/// may call its resource `/Arial` and mean anything at all. Only the clause's own fourteen
+/// strings are a name whose meaning the standard states rather than a producer's.
+///
+/// `Courier-BoldOblique` is accepted beside the clause's unhyphenated `CourierBoldOblique`: the
+/// list spells thirteen of the fourteen with a hyphen and this one without, which reads as the
+/// standard's own typography rather than as a distinct name, and producers write the hyphen.
+const STANDARD_NAMES: [&str; 15] = [
+    "Times-Roman",
+    "Times-Bold",
+    "Times-Italic",
+    "Times-BoldItalic",
+    "Helvetica",
+    "Helvetica-Bold",
+    "Helvetica-Oblique",
+    "Helvetica-BoldOblique",
+    "Courier",
+    "Courier-Bold",
+    "Courier-Oblique",
+    "CourierBoldOblique",
+    "Courier-BoldOblique",
+    "Symbol",
+    "ZapfDingbats",
+];
+
+/// Whether `name` is one of §9.6.2.2's fourteen, spelled exactly as the clause spells it.
+///
+/// Case-sensitive and whole-string, for the reason [`STANDARD_NAMES`] gives: this is asked of a
+/// *resource* name, where anything looser would start claiming that a file's `/helvetica` or
+/// `/Helvetica2` resource means the standard font.
+#[must_use]
+pub fn is_standard_name(name: &str) -> bool {
+    STANDARD_NAMES.contains(&name)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{DINGBATS, FIXED, SANS, SERIF, SYMBOL, face};
+    use super::{DINGBATS, FIXED, SANS, SERIF, SYMBOL, face, is_standard_name};
+
+    /// The fourteen are matched exactly, and nothing near them is.
+    ///
+    /// The negative half is the point: `/Arial` is a resource name a file may use for anything,
+    /// and §9.6.2.2 does not name it. `crate::substitute` *does* accept it, one question over,
+    /// because there it is a typeface's own name rather than a label in a resource dictionary.
+    #[test]
+    fn only_the_clauses_own_fourteen_names_are_standard() {
+        for name in [
+            "Helvetica",
+            "Helvetica-BoldOblique",
+            "Times-Roman",
+            "Courier",
+            "Courier-BoldOblique",
+            "CourierBoldOblique",
+            "Symbol",
+            "ZapfDingbats",
+        ] {
+            assert!(is_standard_name(name), "{name} is one of the fourteen");
+        }
+        for name in [
+            "helvetica",
+            "HELVETICA",
+            "Arial",
+            "Helvetica2",
+            "F1",
+            "Helv",
+            "TimesNewRoman",
+            "",
+        ] {
+            assert!(!is_standard_name(name), "{name} is not one of the fourteen");
+        }
+    }
+
     use crate::substitute::{Family, Format, Request};
 
     /// Every compiled-in face is present, non-empty and in the format claimed for it.
