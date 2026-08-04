@@ -1229,12 +1229,25 @@ impl ApplicationHandler for App {
         );
 
         let size = window.inner_size();
-        // ~30 ms to a usable device on this machine, shaders compiling on a
-        // background thread — the presenter reports uncaptured device errors
-        // itself, for the same silent-window reason the Vello host did.
+        // Shaders compile on a background thread and nothing here waits for them —
+        // `CLAUDE.md`'s rule, since page one goes to the graphics device: what bringing the
+        // device up costs is part of time-to-first-page, so it is measured rather than
+        // assumed. The presenter reports uncaptured device errors itself, for the same
+        // silent-window reason the Vello host did.
+        let began = std::time::Instant::now();
         let presenter = QuorraPresenter::new(window.clone()).expect("presenter creation");
+        let brought_up = began.elapsed();
         if self.trace {
+            let startup = presenter.startup();
             println!("trace: rendering with {}", presenter.adapter_description());
+            println!(
+                "trace: device up in {brought_up:?} — adapter {:?}, device {:?}, pipelines {}",
+                startup.adapter_enumeration,
+                startup.device_creation,
+                startup
+                    .pipeline_compilation
+                    .map_or_else(|| "still compiling".to_owned(), |d| format!("{d:?}"))
+            );
         }
 
         #[expect(

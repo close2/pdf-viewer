@@ -50,11 +50,31 @@ it is the easiest thing to lose gradually to unnoticed initialisation. Rules:
   follows the same rule.
 - **Incremental parsing.** Opening a document reads the trailer and the objects page one
   needs — not the whole file. A 500-page document must open no slower than a 5-page one.
-- **GPU initialisation stays off the critical path.** Creating a wgpu device and
-  compiling pipelines costs tens to hundreds of milliseconds, largely in the driver.
-  Page one therefore renders on the CPU backend while the GPU initialises on another
-  thread, and the GPU takes over once ready. This is a second, independent reason the
-  CPU backend exists — it is not only the correctness oracle, it is the startup path.
+- **Page one goes to the GPU, and GPU bring-up is therefore on the critical path by
+  choice.** Stated by the project owner: drawing the first page on the graphics device is
+  what is wanted, so the alternative — showing page one from the processor while the
+  device initialises on another thread — is *not* the rule here. What follows from that
+  choice is an obligation rather than a licence: **creating the device and compiling the
+  pipelines is now part of time-to-first-page, so it is a number to measure and to keep
+  small.** Tens to hundreds of milliseconds of it are the driver's, which is exactly why
+  it may not be left unmeasured.
+
+  Three things follow, and they are requirements:
+
+  - **The graphics library must return a usable device before it is warm.** Shaders
+    compile in the background and the first frames go through whatever is ready; a
+    library that blocks until every pipeline exists has put the driver's worst case in
+    front of the first page.
+  - **Nothing on the launch path waits for warmth.** No `wait_until_warm` before the
+    first present, no probe frame, no pipeline pre-compilation "to be safe".
+  - **Cold bring-up is its own gate**, separate from time-to-first-page, so that a
+    regression in the driver, the adapter selection or the shader set is legible as
+    itself rather than as a slower page.
+
+  **The CPU backend keeps its other two jobs and loses this one.** It is still the
+  correctness oracle — the whole cross-backend comparison rests on it — and it is still
+  what draws a frame the graphics device refuses (a coverage or budget refusal, not a
+  swapchain state), reported out loud. What it is no longer is the startup path.
 - **No heavy runtime.** No async runtime unless something genuinely requires one; a
   thread pool for rasterisation is not a reason to pull in one.
 - Cold-start and time-to-first-page are CI gates with numbers attached, measured with a
@@ -252,7 +272,7 @@ hot paths, and the choice is written down.
 | Area | Choice |
 |---|---|
 | Language | Rust |
-| Rasterizer | `tiny-skia` first (oracle + startup path), `vello` on wgpu second — behind one trait |
+| Rasterizer | GPU first, for page one and every page after it; `tiny-skia` as the correctness oracle and as the fallback for a frame the device refuses — behind one trait |
 | Fonts | `skrifa` (+ Type1/Type3 handled in-tree) |
 | Windowing | `winit` |
 | Dialogs | `ashpd` (XDG desktop portal — native KDE dialogs, any toolkit) |

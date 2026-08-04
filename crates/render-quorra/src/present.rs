@@ -79,6 +79,18 @@ impl QuorraPresenter {
         self.device.description()
     }
 
+    /// What bringing the device up cost, in the three parts quorra measures it in.
+    ///
+    /// **`CLAUDE.md` makes this a first-class number**, since the project owner's decision that
+    /// page one goes to the graphics device: with GPU bring-up on the critical path by choice,
+    /// what it costs is part of time-to-first-page and may not be left unmeasured. Pipeline
+    /// compilation is `None` while the background thread is still at it, which is the normal
+    /// answer on the launch path and is itself the point — nothing here waits for warmth.
+    #[must_use]
+    pub fn startup(&self) -> quorra_gpu::StartupTimings {
+        self.device.startup()
+    }
+
     /// Draws one frame and presents it.
     ///
     /// # Errors
