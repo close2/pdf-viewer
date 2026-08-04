@@ -653,15 +653,24 @@ impl Open {
 /// Shared with [`crate::viewer`] rather than copied into it: every caller that places page
 /// coordinates on the screen has to agree with the drawn frame to the pixel, and two copies of
 /// this rounding are two chances to disagree (ADR 0118).
+///
+/// **The product is taken in `f64`, as [`TargetSpec::for_page`] takes it.** Agreeing on the
+/// rounding is not enough if the multiplication that precedes it differs: `595.276 × 40` is a
+/// number `f32` cannot hold, and one of the two arithmetics can land above an integer while the
+/// other lands below it, after which `ceil` puts the chrome one pixel off the frame it is drawn
+/// over. The inputs are `f32` and the caller's; the *product* is where the precision has to
+/// match, and this is the only place that can make it.
 pub(crate) fn raster_extent(size: Size, magnification: f32) -> (u32, u32) {
     let extent = |value: f32| {
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
-            reason = "a page extent times a magnification, both finite and bounded by the \
-                      pixel budget the target spec applies immediately afterwards"
+            reason = "a float-to-integer cast saturates in Rust, and an extent that saturated \
+                      is refused by `pixel_extent` wherever a target is actually built"
         )]
-        let pixels = (value * magnification).ceil().max(1.0) as u32;
+        let pixels = (f64::from(value) * f64::from(magnification))
+            .ceil()
+            .max(1.0) as u32;
         pixels
     };
     (extent(size.width), extent(size.height))
@@ -707,4 +716,50 @@ pub(crate) fn interpret(open: &Open, index: usize) -> Option<(Interpretation, Ve
         .map(crate::report::describe)
         .collect();
     Some((interpretation, reports, page))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::raster_extent;
+    use pdf_render::{DisplayList, Size, TargetSpec};
+
+    /// The extent this crate computes and the extent a frame is drawn at must be the
+    /// same number, at every magnification — not merely rounded the same way.
+    ///
+    /// They are two arithmetics over the same inputs: `TargetSpec::for_page` multiplies in
+    /// `f64` and `ceil`s, and so, now, does [`raster_extent`]. The sweep includes the
+    /// magnifications where an `f32` product would land on the wrong side of an integer —
+    /// A4's 595.276 is not representable, and 40× of it is where the two used to part —
+    /// because everything this crate places over a frame (the focus ring, selection quads,
+    /// the scroll clamp) is positioned from the first and drawn over the second. ADR 0118 is
+    /// the session that cost.
+    #[test]
+    fn the_page_extent_agrees_with_the_target_a_frame_is_drawn_at() {
+        let a4 = Size {
+            width: 595.276,
+            height: 841.89,
+        };
+        let list = DisplayList::new(a4);
+        for magnification in [
+            0.02,
+            0.333_333_3,
+            1.0,
+            1.000_000_1,
+            1.9008,
+            4.0,
+            7.3,
+            23.15,
+            40.0,
+            63.999,
+            64.0,
+        ] {
+            let target = TargetSpec::for_page(&list, magnification, u64::MAX)
+                .expect("every magnification here is inside MAX_EXTENT");
+            assert_eq!(
+                raster_extent(a4, magnification),
+                (target.width, target.height),
+                "at {magnification}x the two arithmetics have to land on one integer"
+            );
+        }
+    }
 }
