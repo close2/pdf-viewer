@@ -58,12 +58,20 @@ appended, which is the one kind of writing `CLAUDE.md` permits.
 **Page one goes to the graphics device**, decided by the project owner in the
 two-hundred-and-seventy-third session and written into `CLAUDE.md`'s startup rules. GPU bring-up
 is therefore *on* the critical path by choice, which makes what it costs a number to keep rather
-than a cost to hide: `--trace` prints it. On this machine's software adapter under `Xvfb`,
-**43.5 ms to a usable device** — 32.2 of it adapter enumeration, 10.8 device creation, 5.3
-pipelines already compiled on the background thread by the time anything asked — and the first
-present 49.3 ms after that. **Adapter selection is the largest part and nothing has looked at
-it.** The CPU backend keeps its other two jobs: the correctness oracle, and the frame the device
-refuses.
+than a cost to hide. **Since the two-hundred-and-seventy-fourth session `--trace` prints the whole
+launch as a timeline** — one `Instant` taken at `main`'s first statement, one mark per milestone,
+printed when the first frame lands — and the number a person judges the program by is
+**145 ms from process start to the first frame**, on this machine's software adapter under `Xvfb`,
+for a 5-page document *and* for ISO 32000-2's 1023 pages. Of it: the device 40 to 46 ms, the first
+present 54 to 68, `EventLoop::new` 8 to 37, and the document 0.84 or 27.8 depending on which one.
+**Two things on it break a rule `CLAUDE.md` states**, both named and priced in
+[todo 42](todo/42-the-launch-path.md) and neither fixed in the session that measured them:
+`Document::open` costs 22.2 ms on 101 318 objects against 0.20 on a small file, where the rule is
+"a 500-page document must open no slower than a 5-page one", and `Outline::read` costs 6.7 ms for
+**38 items**. **Adapter selection is the largest part of bring-up and the backend set is not the
+lever**: `examples/bring_up` shows Vulkan-only moving the cost out of instance creation and into
+`request_adapter` with the total unchanged (ADR 0179). The CPU backend keeps its other two jobs:
+the correctness oracle, and the frame the device refuses.
 
 **And it has chrome, which is what the ten sessions from the hundred-and-sixty-sixth added and
 what this project owed for thirty before that.** A sidebar of four tabs, drawn with `pdf-font`'s
@@ -1276,6 +1284,12 @@ cargo run --release -p pdf-model --example render_at -- [file.pdf] [page] [scale
 cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [scale]
   # where a GPU frame's time goes: encoding, the whole frame, and the same target drawn from a
   # list of one rectangle. doc/RENDER_LIBRARY.md §6.1
+cargo run --release -p pdf-model     --example open_cost -- [file.pdf]
+  # where the *launch path's* document half goes: §7.5's xref, the page tree, §12.3.3's outline,
+  # §12.8's signatures, each on its own. ADR 0179, doc/todo/42
+cargo run --release -p render-quorra --example bring_up  -- [all|vulkan|gl]
+  # and where its device half goes: instance, adapter, device — one measurement per process,
+  # because a second instance in one process is measured with the loader already warm
 cargo build --release -p hayro-compare --bins && \
   cargo run --release -p hayro-compare --bin hayro-speed -- doc/pdf.js/test/pdfs/*.pdf   # ~45 min
 cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # one line per file,
@@ -2648,3 +2662,4 @@ above rather than here.
 | 271 | Twenty rounds' prose brought up to date, and the question the twenty had in common | — |
 | 272 | quorra took all three of §7's suggestions: a refused present is 6 ms, not 1.008 s | 0176 |
 | 273 | Page one goes to the GPU by decision, so bring-up is measured: 43.5 ms, 32.2 of it adapter choice | — |
+| 274 | A launch is a timeline: **145 ms** to the first frame, and a 1023-page document opens 33× slower than a 5-page one | 0179 |

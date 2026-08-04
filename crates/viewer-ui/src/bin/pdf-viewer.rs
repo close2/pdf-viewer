@@ -95,9 +95,83 @@ const DOCUMENT: DocumentId = DocumentId(0);
 /// same number of steps per gesture as the wheel does per flick.
 const WHEEL_ZOOM_PIXELS: f32 = 50.0;
 
-fn main() {
-    // Parsed before anything opens a document, because it decides where that document's images
-    // are decoded and a policy applied halfway through is not a policy.
+/// When each milestone on the launch path was reached, from this process's own first instruction.
+///
+/// **`CLAUDE.md` makes this a first-class number.** Page one goes to the graphics device by the
+/// project owner's decision, so creating that device and compiling its pipelines is *part of*
+/// time-to-first-page — "a number to measure and to keep small". The per-step durations `--trace`
+/// already printed cannot say that: each says what one step cost, and a launch is the sum of the
+/// steps plus everything nobody thought to time. One `Instant`, taken before the arguments are
+/// parsed, and one mark per step, so the difference between two marks is a step nobody named.
+struct Launch {
+    /// Taken as the first statement of `main`, so nothing before it is invisible.
+    began: std::time::Instant,
+    /// Each milestone and how long after `began` it was reached.
+    marks: Vec<(&'static str, std::time::Duration)>,
+    /// Whether the timeline has been printed, which happens once, at the first present.
+    reported: bool,
+}
+
+impl Launch {
+    /// Starts the clock. The first statement of `main`.
+    fn new() -> Self {
+        Self {
+            began: std::time::Instant::now(),
+            marks: Vec::new(),
+            reported: false,
+        }
+    }
+
+    /// Records that `step` has just finished.
+    fn mark(&mut self, step: &'static str) {
+        self.marks.push((step, self.began.elapsed()));
+    }
+
+    /// The first frame has reached the window: closes the timeline and, under `--trace`, prints it.
+    ///
+    /// Two columns because two questions are asked of a launch: *when did this step finish*,
+    /// which is what a person waiting sees, and *what did it cost*, which is what a regression
+    /// shows up in. Neither is derivable from the other once steps are added or reordered.
+    fn arrived(&mut self, trace: bool) {
+        if self.reported {
+            return;
+        }
+        self.reported = true;
+        self.marks.push(("first present", self.began.elapsed()));
+        if !trace {
+            return;
+        }
+        println!("trace: launch path, process start to first present:");
+        let mut previous = std::time::Duration::ZERO;
+        for (step, at) in &self.marks {
+            println!(
+                "trace:   {step:<22} {:8.3} ms  (+{:.3})",
+                at.as_secs_f64() * 1e3,
+                at.saturating_sub(previous).as_secs_f64() * 1e3
+            );
+            previous = *at;
+        }
+    }
+}
+
+/// What the command line asked for.
+struct Arguments {
+    /// The document to open.
+    path: PathBuf,
+    /// Whether to say what is happening, from `--trace`.
+    trace: bool,
+    /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
+    processor: bool,
+    /// The page `--page` named, counting from one.
+    opens_at: Option<usize>,
+}
+
+/// Reads the command line, applies the two settings that must be applied before anything opens a
+/// document, and exits where it cannot.
+///
+/// Separate from `main` because the sandbox decision is one of them: it decides *where* this
+/// document's images are decoded, and a policy applied halfway through is not a policy.
+fn arguments() -> Arguments {
     let mut path = None;
     let mut sandbox = true;
     let mut trace = false;
@@ -107,7 +181,7 @@ fn main() {
     while let Some(argument) = arguments.next() {
         if argument == "--licences" || argument == "--licenses" {
             print!("{NOTICE}");
-            return;
+            std::process::exit(0);
         } else if argument == "--no-sandbox" {
             sandbox = false;
         } else if argument == "--trace" {
@@ -129,7 +203,7 @@ fn main() {
                 std::process::exit(2);
             }
         } else if path.is_none() {
-            path = Some(argument);
+            path = Some(PathBuf::from(argument));
         } else {
             eprintln!("unexpected argument: {}", argument.to_string_lossy());
             std::process::exit(2);
@@ -151,6 +225,24 @@ fn main() {
         );
     }
 
+    Arguments {
+        path,
+        trace,
+        processor,
+        opens_at,
+    }
+}
+
+fn main() {
+    let mut launch = Launch::new();
+    let Arguments {
+        path,
+        trace,
+        processor,
+        opens_at,
+    } = arguments();
+    launch.mark("arguments");
+
     // Rule 2: the host owns the filesystem, and this is the only place a path becomes bytes.
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
@@ -159,6 +251,16 @@ fn main() {
             std::process::exit(1);
         }
     };
+    launch.mark("document read");
+
+    let chrome = match Chrome::new() {
+        Ok(chrome) => Some(chrome),
+        Err(problem) => {
+            eprintln!("note: no panel: {problem}");
+            None
+        }
+    };
+    launch.mark("chrome fonts");
 
     let mut app = App {
         // No viewport until the window exists. The core renders nothing into one with no
@@ -182,13 +284,7 @@ fn main() {
         pinch: 0.0,
         dirty: false,
         attempts: 0,
-        chrome: match Chrome::new() {
-            Ok(chrome) => Some(chrome),
-            Err(problem) => {
-                eprintln!("note: no panel: {problem}");
-                None
-            }
-        },
+        chrome,
         panel: Sidebar::default(),
         about: About::default(),
         outline: pdf_model::outline::Outline::default(),
@@ -197,6 +293,7 @@ fn main() {
         information: pdf_model::metadata::Information::default(),
         metadata_stream: false,
         state: None,
+        launch,
     };
     app.dispatch(Command::Open {
         id: DOCUMENT,
@@ -206,8 +303,10 @@ fn main() {
     if let Some(page) = opens_at {
         app.dispatch(Command::GoTo(PageTarget::Index(page.saturating_sub(1))));
     }
+    app.launch.mark("document open");
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");
+    app.launch.mark("event loop");
     // Redraw on request rather than continuously: a document viewer is idle almost all the time,
     // and a spinning loop would drain a battery for nothing.
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -346,6 +445,8 @@ struct App {
     /// outline and the attachments are cached under, and exactly not the layers'.
     pages: Vec<viewer_ui::chrome::Page>,
     state: Option<State>,
+    /// The launch path's milestones, printed once under `--trace` when the first frame lands.
+    launch: Launch,
 }
 
 /// The window, and the presenter that owns its surface.
@@ -1137,10 +1238,12 @@ impl App {
             }
         };
         if let Err(problem) = drawn {
-            // **The CPU backend draws it instead**, and this is what `CLAUDE.md` keeps that
-            // backend for: it is the correctness oracle *and* the startup path, so a page the
-            // GPU refuses is a page this program can still show — more slowly, which is a cost
-            // a person can see past, where a page that never appears is not. The raster is
+            // **The CPU backend draws it instead**, and this is one of the two jobs `CLAUDE.md`
+            // keeps that backend for: the correctness oracle, and the frame the device refuses.
+            // (It was three until the two-hundred-and-seventy-third session, where the project
+            // owner decided page one goes to the graphics device.) So a page the GPU refuses is
+            // a page this program can still show — more slowly, which is a cost a person can see
+            // past, where a page that never appears is not. The raster is
             // presented through the same quorra surface as one image, so a working window is
             // the only path pixels take to the screen.
             //
@@ -1189,6 +1292,9 @@ impl App {
             );
         }
         let outcome = self.present();
+        if matches!(outcome, Some(Rendered::Presented | Rendered::Raster(_))) {
+            self.launch.arrived(self.trace);
+        }
         if self.trace {
             println!(
                 "trace: present -> {} in {:?}",
@@ -1228,6 +1334,8 @@ impl ApplicationHandler for App {
                 .expect("window creation"),
         );
 
+        self.launch.mark("window");
+
         let size = window.inner_size();
         // Shaders compile on a background thread and nothing here waits for them —
         // `CLAUDE.md`'s rule, since page one goes to the graphics device: what bringing the
@@ -1237,6 +1345,7 @@ impl ApplicationHandler for App {
         let began = std::time::Instant::now();
         let presenter = QuorraPresenter::new(window.clone()).expect("presenter creation");
         let brought_up = began.elapsed();
+        self.launch.mark("graphics device");
         if self.trace {
             let startup = presenter.startup();
             println!("trace: rendering with {}", presenter.adapter_description());

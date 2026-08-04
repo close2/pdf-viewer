@@ -2531,6 +2531,7 @@ dependencies = [
  "pdf-render",
  "pdf-syntax",
  "png",
+ "pollster",
  "quorra-gpu",
  "quorra-scene",
  "raster-compare",

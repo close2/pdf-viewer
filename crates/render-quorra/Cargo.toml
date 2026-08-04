@@ -15,6 +15,7 @@ quorra-scene.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+pollster.workspace = true
 raster-compare.workspace = true
 render-cpu.workspace = true
 render-gpu.workspace = true
