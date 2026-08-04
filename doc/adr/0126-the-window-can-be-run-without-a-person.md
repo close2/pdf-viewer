@@ -18,7 +18,14 @@ photographed.
 ```sh
 Xvfb :77 -screen 0 900x1100x24 &
 DISPLAY=:77 pdf-viewer --trace doc/ISO_32000-2_sponsored_EC3.pdf &
-DISPLAY=:77 xdotool windowfocus --sync $(DISPLAY=:77 xdotool search --name ISO_32000 | tail -1)
+DISPLAY=:77 xdotool windowfocus --sync \
+  $(DISPLAY=:77 xdotool search --name "ISO 32000-2:2020" | tail -1)
+# ^ **not** `--name ISO_32000`, which is the *file* name and stopped matching in the
+#   hundred-and-sixty-eighth session: §12.2's /DisplayDocTitle puts the document's own
+#   title in the title bar, and this document sets it. Re-checked in the
+#   two-hundred-and-sixty-seventh, where the old form silently focused nothing and the
+#   five key presses went to the root window — a recipe that fails *quietly* is worse
+#   than one that fails, so the line is written out here with the reason.
 DISPLAY=:77 xdotool key --delay 300 Right Right Right Right Right
 DISPLAY=:77 xwd -root -silent -out screen.xwd && magick xwd:screen.xwd screen.png
 # ^ the pipe form this line used to give — `xwd -root -silent | magick - screen.png` —
