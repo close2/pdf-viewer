@@ -1408,6 +1408,114 @@ fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
     );
 }
 
+/// §12.4.3's article thread, followed to a bead rather than to the page a bead is on.
+///
+/// Table 163's `/R` is
+///
+/// > A rectangle specifying the location of this bead on the page in default user space
+///
+/// and §12.4.3 says why a reader would want it: the beads "are connected in sequence" so that a
+/// reader "can follow a thread from one bead to the next". A jump that turned to the bead's page
+/// and stopped there has not followed anything — a bead is a column of a magazine layout, and the
+/// page it sits on may hold four of them.
+///
+/// So the jump composes Table 149's `/FitR`, which states the same thing about a window:
+/// "[d]isplay the page … with its contents magnified just enough to fit the rectangle specified
+/// by the coordinates left, bottom, right, and top entirely within the window". The ledger's
+/// reason for leaving this undone was "`viewer-ui` fits whole pages", which stopped being true in
+/// the hundred-and-thirty-second session and stopped being true of destinations in the
+/// two-hundred-and-first (ADR 0162).
+///
+/// **No corpus document states an article** — `pdf-model/tests/articles.rs` is a ratchet on that
+/// number — so the fixture is built from the clause, and the assertion is the magnification a
+/// 100-unit-wide bead earns in an 800-pixel window rather than a page number nothing distinguishes.
+#[test]
+fn a_thread_action_shows_the_bead_and_not_merely_its_page() {
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_thread(),
+            password: None,
+        })
+        .for_each(drop);
+    let Answer::Geometry(before) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("page one has a geometry");
+    };
+    // A 400 x 500 page in an 800 x 1000 window fits at 2.0, which is where a document with no
+    // destination starts.
+    assert!((before.scale - 2.0).abs() < 0.01, "{before:?}");
+
+    // The link on page one, whose action is `/S /Thread`. Its `/Rect` is [10 10 90 90].
+    let on_link = device_point(&viewer, [10.0, 10.0, 90.0, 90.0], 500.0);
+    viewer
+        .handle(Command::Pointer {
+            at: on_link,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: on_link,
+            action: PointerAction::Released,
+        })
+        .collect();
+    let changed = events.iter().find_map(|event| match event {
+        Event::PageChanged { index, .. } => Some(*index),
+        _ => None,
+    });
+    assert_eq!(changed, Some(1), "the thread's first bead is on page two");
+
+    // And the window is on the bead: `/R [100 100 200 300]` is 100 x 200 units, which fits an
+    // 800 x 1000 window at 5.0 rather than at the page's own 2.0.
+    let Answer::Geometry(after) = viewer.query(Query::PageGeometry(1)) else {
+        panic!("page two has a geometry");
+    };
+    assert!(
+        (after.scale - 5.0).abs() < 0.01,
+        "the bead is magnified to fit, not the page: {after:?}"
+    );
+}
+
+/// Two pages, one thread of one bead on the second, and a link on the first that jumps to it.
+///
+/// Built from §12.4.3 and Table 209, because the corpus states no article at all. The thread's
+/// `/F` and the bead's `/N` are the same object: "[i]n the last bead … shall refer to the first
+/// bead", and a thread of one bead is its own successor.
+fn with_a_thread() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Threads [6 0 R] >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 500] /Annots [5 0 R] \
+         >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 500] /B [7 0 R] >>\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Link /Rect [10 10 90 90] /F 4 \
+         /A << /S /Thread /D 6 0 R >> >>\nendobj\n\
+         6 0 obj\n<< /Type /Thread /F 7 0 R /I << /Title (one column) >> >>\nendobj\n\
+         7 0 obj\n<< /Type /Bead /T 6 0 R /N 7 0 R /V 7 0 R /P 4 0 R \
+         /R [100 100 200 300] >>\nendobj\n"
+        .to_owned();
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
 /// A three-page document whose every page states §12.4.4.1's `/Dur 1`.
 fn with_durations() -> Vec<u8> {
     use std::fmt::Write as _;

@@ -281,11 +281,32 @@ fn perform(
                 // article is a list nothing else consults, and principle 2's "nothing eager"
                 // applies to the two documents in a thousand that would pay for it at launch.
                 let articles = pdf_model::article::Articles::read(&open.document);
-                jump.page = jump.page.or_else(|| {
-                    thread
-                        .bead_in(&articles)
-                        .and_then(|bead| bead.page_index(&pages))
-                });
+                let bead = thread.bead_in(&articles);
+                // **Table 163's `/R` is where the window goes**, and until the
+                // two-hundred-and-fifty-fifth session this jumped to the bead's *page* and
+                // stopped there. The entry is "[a] rectangle specifying the location of this
+                // bead on the page in default user space", which is the same kind of statement
+                // Table 149's `/FitR` makes — "[d]isplay the page … with its contents magnified
+                // just enough to fit the rectangle specified by the coordinates left, bottom,
+                // right, and top entirely within the window" — so a thread followed to a bead
+                // shows the bead, not the page it happens to sit on. §12.4.3's own sentence is
+                // what makes this the point of an article at all: the beads "are connected in
+                // sequence" so that a reader "can follow a thread from one bead to the next".
+                //
+                // The ledger's reason for leaving it was "`viewer-ui` fits whole pages", which
+                // stopped being true in the hundred-and-thirty-second session and stopped being
+                // true of *destinations* in the two-hundred-and-first (ADR 0162), where
+                // `Open::apply_view` learned all eight of Table 149's forms. This composes one
+                // of them rather than adding a ninth.
+                if let Some(bead) = bead
+                    && let Some(rect) = bead.rect
+                    && jump.view.is_none()
+                {
+                    jump.view = Some(pdf_model::destination::View::FitR { rect });
+                }
+                jump.page = jump
+                    .page
+                    .or_else(|| bead.and_then(|bead| bead.page_index(&pages)));
             }
         }
     }
