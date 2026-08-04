@@ -451,10 +451,10 @@ note = "All four exceptions. The trailer's /ID is read before the handler exists
 [[clause]]
 clause = "7.6.3"
 title = "General encryption algorithm"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-syntax/src/crypt.rs"]
 test = ["crates/pdf-syntax/tests/encryption.rs::each_revision_and_method_decrypts_to_a_readable_content_stream", "crates/pdf-syntax/tests/incremental_update.rs::a_string_written_into_an_encrypted_document_comes_back_out_of_it"]
-note = "Aggregate of the three below. Both algorithms are implemented in both directions: decrypting is what a reader needs, and encrypting is what §7.5.6's incremental update needs on the way out, which this tree has written since the hundred-and-thirty-sixth session and encrypted since the hundred-and-forty-fourth. §7.6.3.1 makes the first direction nearly free for RC4 — \"the same algorithm shall be used for both encryption and decryption\" — and the AES half differs only in adding RFC 8018's pad rather than removing it and generating the initialisation vector rather than reading it. ADR 0129."
+note = "Aggregate of the three below, all three `implemented`, and **this row was `partial` while its own note said everything was done** — corrected in the two-hundred-and-ninety-eighth. Both algorithms are implemented in both directions: decrypting is what a reader needs, and encrypting is what §7.5.6's incremental update needs on the way out, which this tree has written since the hundred-and-thirty-sixth session and encrypted since the hundred-and-forty-fourth. §7.6.3.1 makes the first direction nearly free for RC4 — \"the same algorithm shall be used for both encryption and decryption\" — and the AES half differs only in adding RFC 8018's pad rather than removing it and generating the initialisation vector rather than reading it. ADR 0129."
 
 [[clause]]
 clause = "7.6.3.1"
@@ -792,9 +792,9 @@ note = "All four of the clause's ways a resource dictionary reaches a content st
 clause = "7.9"
 title = "Common data structures"
 status = "partial"
-code = ["crates/pdf-syntax/src/text_string.rs", "crates/pdf-model/src/annotation.rs"]
-test = ["crates/pdf-syntax/src/text_string.rs::a_surrogate_pair_is_one_character"]
-note = "The two of the clause's structures a rendered page needs: §7.9.2's string object types and §7.9.5's rectangles. Dates, text streams, name trees and number trees belong to features this tree does not have yet; see their rows."
+code = ["crates/pdf-syntax/src/text_string.rs", "crates/pdf-syntax/src/date.rs", "crates/pdf-syntax/src/tree.rs", "crates/pdf-model/src/annotation.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::a_surrogate_pair_is_one_character", "crates/pdf-model/tests/dates.rs::every_date_string_in_the_corpus_is_measured_against_the_clause"]
+note = "The clause's own aggregate, and **six of its seven structures are implemented**: §7.9.2's string object types, §7.9.4's dates — with a gate over 1545 corpus date strings — §7.9.5's rectangles, §7.9.6's name trees and §7.9.7's number trees, which `tree.rs` reads as one module because the second clause defines itself as the first with integer keys (ADR 0053). `partial` is §7.9.3's text streams alone, which is `reported`. **This note said \"[d]ates, text streams, name trees and number trees belong to features this tree does not have yet\" until the two-hundred-and-ninety-eighth session**, which was false of three of the four; `doc/todo/01`'s fifth failure shape found it in the two-hundred-and-seventy-eighth and the row was not changed, which is the shape's own shape one level up — **a correction recorded in a todo file is not a correction.**"
 
 [[clause]]
 clause = "7.9.1"
@@ -2504,10 +2504,10 @@ note = "Four of the clause's five constraints are honoured. a) a usecmap referen
 [[clause]]
 clause = "9.7.6"
 title = "Type 0 font dictionaries"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/cmap.rs"]
 test = ["crates/pdf-model/tests/composite_fonts.rs::a_one_byte_codespace_range_makes_one_byte_one_code"]
-note = "Aggregate of the three below. Table 119's entries are read; the decoding algorithm and its undefined-character rules are implemented; what is missing is the predefined CMap data §9.7.5.2 owns."
+note = "Aggregate of the three below, all three `implemented`. Table 119's entries are read; the decoding algorithm and its undefined-character rules are implemented; and **the predefined `CMap` data this row was waiting on shipped in the hundred-and-fifty-sixth session** — all 239 of Adobe's, deflated into the binary by `build.rs` and inflated only when a document names one (ADR 0140). §9.7.5.2's own row has read `implemented` ever since and this one went on naming it as the gap for a hundred and forty-two sessions; `doc/todo/01`'s fifth shape, found by asking which parents are `partial` while every child is settled."
 
 [[clause]]
 clause = "9.7.6.1"
@@ -2616,10 +2616,10 @@ note = "The subset tag is what a `/BaseFont` means to a substitution request, an
 [[clause]]
 clause = "9.10"
 title = "Extraction of text content"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/tounicode.rs"]
-test = ["crates/pdf-model/tests/text_extraction.rs"]
-note = "Text extraction, done here as a *readback of what was drawn*: `Interpretation::text` is accumulated by the same loop that places the glyphs, so it cannot describe a code the page did not show, and `text_extraction.rs` holds it to 100% of the words `pdftotext` finds over the fourteen specification PDFs. All three of §9.10.2's methods are implemented since the hundred-and-fifty-sixth session, the third having waited on Table 116's registered `CMap` data."
+test = ["crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor", "crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor_across_the_pdfjs_corpus"]
+note = "Text extraction, done here as a *readback of what was drawn*: `Interpretation::text` is accumulated by the same loop that places the glyphs, so it cannot describe a code the page did not show, and `text_extraction.rs` holds it to 100% of the words `pdftotext` finds over the fourteen specification PDFs. All three of §9.10.2's methods are implemented since the hundred-and-fifty-sixth session, the third having waited on Table 116's registered `CMap` data — and **this row stayed `partial` for a hundred and forty-two sessions after the sentence saying so was written into it**, which is the two-hundred-and-ninety-eighth session's finding rather than a new capability."
 
 [[clause]]
 clause = "9.10.1"
@@ -5167,10 +5167,10 @@ note = "Procedure sets, deprecated since PDF 1.4 and stated here only to say wha
 [[clause]]
 clause = "14.3"
 title = "Metadata"
-status = "partial"
-code = ["crates/pdf-model/src/metadata.rs", "crates/pdf-syntax/src/document.rs"]
-test = ["crates/pdf-model/src/metadata.rs::table_349_is_read_and_its_two_prose_rules_hold"]
-note = "Metadata: information about the document as against its content. Nothing here reaches a page, and all three of the subclauses that were `inapplicable` for it have stopped being so: §14.3.3's information dictionary is read and shown since the hundred-and-seventy-third session, because the properties panel this row said did not exist now does. §14.3.2's XMP is read since the two-hundred-and-ninety-fourth, when the dependency decision its row had been naming for a hundred sessions was taken (ADR 0186), and §14.3.4 stopped being `inapplicable` in the same round — its reason was two expired capability claims and the sweep over this round's own noun is what found it. The one place metadata was never inapplicable is §14.3.2's `/EncryptMetadata`, which is Table 21's and belongs to §7.6."
+status = "implemented"
+code = ["crates/pdf-model/src/metadata.rs", "crates/pdf-model/src/xmp.rs", "crates/pdf-syntax/src/document.rs"]
+test = ["crates/pdf-model/src/metadata.rs::table_349_is_read_and_its_two_prose_rules_hold", "crates/pdf-model/tests/xmp.rs::every_metadata_stream_in_the_corpus_is_read"]
+note = "Metadata: information about the document as against its content. Nothing here reaches a page, and all three of the subclauses that were `inapplicable` for it have stopped being so: §14.3.3's information dictionary is read and shown since the hundred-and-seventy-third session, because the properties panel this row said did not exist now does. §14.3.2's XMP is read since the two-hundred-and-ninety-fourth, when the dependency decision its row had been naming for a hundred sessions was taken (ADR 0186), and §14.3.4 stopped being `inapplicable` in the same round — its reason was two expired capability claims and the sweep over this round's own noun is what found it. The one place metadata was never inapplicable is §14.3.2's `/EncryptMetadata`, which is Table 21's and belongs to §7.6. So all four children are settled and this row is too — it was `partial` for four rounds after the last of them closed, which is the shape the two-hundred-and-ninety-eighth session went looking for."
 
 [[clause]]
 clause = "14.3.1"

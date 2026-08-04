@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~180 of the 236 rows have not been re-read.
+Status: **standing task.** ~175 of the 231 rows have not been re-read.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -33,6 +33,42 @@ those live. Five failure shapes, in the order they were found:
    sentence and nobody re-read the paragraph above it. This is the cheapest shape to find and the
    only one whose evidence is entirely inside the row: read a corrected note **whole**, not from
    the correction onwards.
+
+## A sixth sweep, and it is arithmetic rather than a grep: **which parents are behind their children?**
+
+Twenty lines of Python over `ledger.toml` alone, no source and no clause text: build the map of
+clause → status, and print every row that is `partial`, `reported` or `unreviewed` while **every
+one of its direct children** is `implemented`, `inapplicable`, `out-of-scope` or `writer-side`. A
+parent cannot owe less than its children and it can easily owe more, so a hit is not automatically
+wrong — but it is always a row nobody has re-read since the last child closed.
+
+**Its first run, in the two-hundred-and-ninety-eighth, produced five and four of them were wrong.**
+Three in a shape this file had not named:
+
+- **§7.6.3** was `partial` and its own note opened "[b]oth algorithms are implemented in both
+  directions".
+- **§9.10** was `partial` and its note said "[a]ll three of §9.10.2's methods are implemented since
+  the hundred-and-fifty-sixth session" — a hundred and forty-two sessions earlier.
+- **§14.3** was `partial` and its note, corrected four rounds before, said every subclause was
+  read.
+
+So the sixth failure shape is **the note was corrected and the status was not**. It is the exact
+inverse of shape 1 and it is invisible to every grep in this file, because the note a sweep reads
+is the half that is *right*.
+
+The fourth was the ordinary fifth shape with a long fuse: **§9.7.6** said "what is missing is the
+predefined `CMap` data §9.7.5.2 owns", which shipped in the hundred-and-fifty-sixth session
+(ADR 0140, all 239 of them) — and §9.7.5.2's own row has read `implemented` ever since.
+
+The fifth, **§7.9.2**, was read and kept: its `partial` is the object model carrying one string
+type where §7.9.2.1 names three, which is a true statement about this tree.
+
+**And the run found one more thing, which is about this file rather than about the ledger.**
+§7.9's parent row still said "[d]ates, text streams, name trees and number trees belong to
+features this tree does not have yet" — false of three of the four, with a 1545-string gate over
+one of them. `doc/todo/01` records that the two-hundred-and-seventy-eighth session's run *found*
+exactly this row, and the row was never changed. **A correction recorded in a todo file is not a
+correction**, and the only defence is to make the change in the same commit that finds it.
 
 ## The three sweeps
 

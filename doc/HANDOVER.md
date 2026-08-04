@@ -182,16 +182,16 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 379 | every normative requirement in the clause is executed |
-| `partial` | 235 | some are; the note says which are not |
+| `implemented` | 384 | every normative requirement in the clause is executed |
+| `partial` | 231 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
-| `inapplicable` | 86 | a marking device, a layout engine, a production workflow |
+| `inapplicable` | 85 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 30 | not implemented, detected and named at runtime |
 | `writer-side` | 6 | addresses a PDF *generator* |
 
 **`silent` is zero** — there is no requirement in the eight technical clauses that this program
-fails without saying so. That is a narrow claim: `partial` and `reported` are 265 rows between
+fails without saying so. That is a narrow claim: `partial` and `reported` are 261 rows between
 them and each names what it owes.
 
 **And a sixth was found in the two-hundred-and-sixteenth, by a sweep that is one `grep`:** a
@@ -200,6 +200,15 @@ mechanism. §11.6.4.3 recorded in the two-hundred-and-first that the graphics st
 applied and had been since the eighteenth session; §8.9.6.1 went on saying it was "reported rather
 than applied on 28 corpus documents" for fourteen more. **A correction is a string, and the string
 is greppable** — `doc/todo/01`'s fourth sweep.
+
+**A sixth way was found in the two-hundred-and-ninety-eighth, and it is the inverse of the first:
+the note was corrected and the *status* was not.** §7.6.3 was `partial` above a note opening "both
+algorithms are implemented in both directions"; §9.10 was `partial` above one saying all three of
+§9.10.2's methods had been implemented a hundred and forty-two sessions earlier; §14.3 was
+`partial` four rounds after the last of its four children closed. No grep in `doc/todo/01` can see
+this, because the half a sweep reads is the half that is right. **The instrument is arithmetic**:
+print every row that owes more than all of its own children, which is twenty lines over
+`ledger.toml` and nothing else, and is `doc/todo/01`'s sixth sweep.
 
 **And a fifth way for a row to be wrong was found in the hundred-and-seventieth to
 -seventy-fourth**: not overstating, not understating, but *stale about its neighbour*. §7.7.2
@@ -2711,3 +2720,4 @@ above rather than here.
 | 295 | The sweep over the noun round 294 had just corrected — and §14.3.4, `inapplicable` on two capabilities that arrived a hundred and twenty sessions ago | — |
 | 296 | §14.8.2.5's logical order reaches a selection at last: the clause had a reader for 140 sessions and no caller | — |
 | 297 | Table 31's `/Tabs`: all five navigation orders, and the key §12.5.1 names bound to them | — |
+| 298 | The sixth sweep, which is arithmetic: five parents owing more than their own children, four of them wrong | — |

@@ -47,14 +47,16 @@ how this project has been wrong four times.
 
 ## 4. Sweep, after a round that adds a verb
 
-**Four** greps now, twenty lines of Python apiece, each of which has paid on its first run: a
+**Four** greps and one piece of arithmetic now, twenty lines of Python apiece, each of which has paid on its first run: a
 note whose stated blocker has expired ("while §X does not exist", "needs §Y"), a note claiming an
 entry is unread where the tree reads it, a note whose reason is a *capability* — "this program
 has no ___", "no panel", "which this is not" — and the string a correction retired, grepped over
 every *other* row. The third found a `shall` binding for fifty-six sessions; the fourth found
 §8.9.6.1 still carrying a sentence §11.6.4.3 had retired fourteen sessions earlier.
 
-**And run all four over `crates/` as well as over `ledger.toml`.** The ledger has a gate and the
+**The arithmetic one needs no round to justify it**: print every ledger row that is `partial`, `reported` or `unreviewed` while every one of its direct children is settled. Its first run found five and four were wrong, three of them in a shape no grep can see — the note corrected and the status left behind.
+
+**And run all four greps over `crates/` as well as over `ledger.toml`.** The ledger has a gate and the
 source does not, which is why the two-hundred-and-twenty-first session found four claims in the
 code false for between forty and two hundred sessions — including `pdf-model`'s own crate
 documentation and a doc comment that had *predicted* its own expiry. See
