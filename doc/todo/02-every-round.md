@@ -98,7 +98,11 @@ page-turn fix.
   blank. Trap 1's oldest sentence, and the second finding was three steps beyond the first, in a
   function neither document was about.
 - **A round that changes what gets drawn re-runs `doc/todo/00`'s step 7.** Our ink minus the
-  lightest reference's, over every undiagnosed page, from artefacts already on disk: three
-  minutes, and it is the only instrument that sees content this tree is *not drawing*. It was
-  empty when it was built — the whole bucket inside −0.84 to +0.42 of 255 — so a name appearing
-  at −1 or beyond is a regression nothing else would report as one.
+  lightest reference's, over **every ambiguous page** — the gate's own output, not
+  `ambiguous_undiagnosed.txt`, or diagnosing a population would take its pages off the one
+  instrument that sees content this tree is *not drawing*. Three minutes, from artefacts already
+  on disk. Drop a reference whose ink is zero first, and read the result beside the corpus's
+  incomplete list: a page this tree reports is expected to be light. It found its first defect in
+  the two-hundred-and-sixty-fifth session — a text annotation attached to a point, drawn as
+  nothing — at −1.783, on a page the ranking rated 0.73 because a nearly blank page resembles a
+  nearly blank page.

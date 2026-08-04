@@ -2599,3 +2599,4 @@ above rather than here.
 | 263 | `TAMReview.pdf` as a third population, and `calrgb.pdf` as §10.3.1's own sentence | — |
 | 264 | The tail's new head: four pages, the tightest three-way ink agreement the bucket has produced | — |
 | 265 | A page this tree drew nothing on, found by the sweep at −1.78: §12.5.6.4's point, not a rectangle | — |
+| 266 | The sweep corrected three ways and run over all 787: twenty names past −1, every one explained | — |

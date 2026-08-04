@@ -113,12 +113,39 @@ already on disk — **our ink minus the lightest reference's** — and the sweep
 because nothing has to be rendered again:
 
 ```python
-# for every name in ambiguous_undiagnosed.txt, over <target>/tmp/oracle/<stem>/p<n>/
-gap = ink(ours) - min(ink(poppler), ink(mupdf), ink(ghostscript), ink(hayro))
+# for every ambiguous page, over <target>/tmp/oracle/<stem>/p<n>/
+live = [ink(r) for r in (poppler, mupdf, ghostscript, hayro) if ink(r) > 0]
+gap  = ink(ours) - min(live)
 ```
 
 sorted ascending. A large negative gap is content we are not drawing; a large positive one is
 content nobody else is.
+
+**Three corrections to that loop, all from the two-hundred-and-sixty-fifth and -sixth sessions,
+and each of them changed what the sweep found:**
+
+1. **Drop a reference that drew nothing before taking the minimum.** A blank is not a lower bound
+   on the geometry, and leaving it in turns another program's failure into our surplus: four pages
+   came back at +21 to +29 of 255 because `mupdf` draws nothing on `colorspace_sin.pdf`, `_cos`
+   and `_atan`, and `hayro` nothing on `issue2840.pdf`. What the *positive* side is good for is
+   exactly that — finding a reference that failed. Thirty-five such pairs across the bucket, most
+   of them `ghostscript` on the JBIG2 fixtures.
+2. **Run it over every ambiguous page and not only the undiagnosed ones.** Diagnosing a population
+   takes its pages off `ambiguous_undiagnosed.txt`, and if the sweep reads that file then
+   diagnosing 364 pages in one session removes 364 pages from the only instrument that sees
+   content this tree is not drawing. The list of names to sweep is the gate's own output — every
+   line it prints as `ambiguous` — which is 787 rather than 100.
+3. **Read the result beside the corpus's incomplete list.** A page this tree *reports* is expected
+   to be light: drawing less ink is what the report says, made visible.
+
+**The full run, over all 787: twenty names at or past −1, seventeen of them documents this tree
+already calls incomplete**, and the other three diagnosed and consistent with their diagnoses —
+`issue16038.pdf` at −6.70 (`AMBIGUOUS_TILING_CELL_CLIP`, whose own note measures the interior
+coverage 13% short), `issue12295.pdf` at −1.71 (`AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY`, where
+every renderer paints more than the geometry and ours least, so a negative gap is the finding
+rather than a defect) and `issue7821.pdf` at −1.00 (`AMBIGUOUS_GRADIENT_QUANTISATION`). **Nothing
+unexplained anywhere in the bucket**, which is also the check the two long books' population
+argument needed.
 
 **Re-run in the two-hundred-and-sixty-fifth over the tail, and it produced a defect** —
 `rc_annotation.pdf` page 1 at **−1.783 of 255**, past the −1 this file names as the alarm. The
