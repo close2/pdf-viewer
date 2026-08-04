@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 489 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **136 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 788 ambiguous pages (749 on documents we call complete); 257 diagnosed, 492 held by name
+Corpus: 788 ambiguous pages (749 on documents we call complete); 613 diagnosed, 136 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -206,6 +206,20 @@ them. One measurement settled 154 names — and the number to report is *one fin
 which is why `AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE` says so in its first line. **Before taking a
 name off this list, check what else in it is the same file**: `pdftotext -f N -l N | md5sum`
 across the documents sharing a page count costs a second and can be worth a hundred names.
+
+**Both books were taken as populations in the two-hundred-and-sixty-second session**, which is
+what took the undiagnosed list from 489 to 136 — and the method is the part worth keeping. Six
+pages had been measured one at a time over three sessions, all the same way, so the question
+stopped being "what is wrong with page 329" and became "is this book one finding or three
+hundred". Twelve more pages spread through both books, with two ladders each, put ours within
+0.012 of `poppler`'s own limit every time; then the *whole* population's printed metrics were read
+as a band, and it is one band with no gaps.
+
+**The band caught the page the sample would have buried.** `freeculture.pdf` page 171 has a worst
+tile of 81.57 where nothing else in the book exceeds 29.09: its cartoon is a one-bit stencil that
+`ghostscript` thresholds to a black blob, and it belongs to `AMBIGUOUS_IMAGE_REDUCTION`. **A
+population argument needs the population's own numbers and not only a sample's** — read the band,
+then look at whatever sits outside it.
 
 Two books and a long tail of single pages. **The books are not what this file said they were.**
 It read "set in fonts nobody embedded, so each renderer substitutes differently", and `pdffonts`
