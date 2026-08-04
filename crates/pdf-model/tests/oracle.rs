@@ -2755,29 +2755,45 @@ const AMBIGUOUS_NEAREST_THE_GEOMETRY: [&str; 3] = [
     "personwithdog.pdf page 1",
 ];
 
-/// Ambiguous, and the word spaces are drawn as marks.
+/// Ambiguous, and the word spaces **were** drawn as marks — fixed in the two-hundred-and-
+/// thirty-ninth session.
 ///
 /// `issue7074_reduced.pdf` reads *Our 2015 Graduates* in an embedded `CIDFontType2` subset of
-/// Arial Bold under `Identity-H`. Three references and `hayro` draw it with spaces between the
-/// words; we draw `Ourl2015!Graduates` — a narrow mark where each space belongs.
+/// Arial Bold under `Identity-H`. Three references and `hayro` drew it with spaces between the
+/// words; we drew `Our|2015|Graduates` — a narrow mark where each space belongs.
+///
+/// # What it was, and it is one clause past ADR 0170
+///
+/// This font is one of the six in the corpus whose `loca` offsets do not ascend, and the
+/// two-hundred-and-twenty-third session's repair rebuilds such a `glyf` in glyph order by
+/// reading each entry's length *from its own bytes*. Its table begins
 ///
 /// ```text
-/// ink   ours 20.83   hayro 19.52   mupdf 19.15   poppler 19.09   ghostscript 18.06
+/// 0  108  0  108  108  282  0  282  962 …
 /// ```
 ///
-/// and the two-ladder limit is `poppler` 19.751 and `mupdf` 19.755 at 576 dpi, so **ours is
-/// 1.08 of 255 over the geometry and the only one above it**. Extra ink where a space belongs is
-/// exactly that shape.
+/// and glyph 3 — the space — has start 108 with a successor of 108. The glyph table's own
+/// standard writes a glyph with **no outline** by repeating the offset, and that statement is
+/// self-consistent whatever the rest of the table does; the repair read the entry at 108
+/// instead, which is glyph 4. So the space was given a real glyph, by the very code that exists
+/// to give a glyph back its own bytes.
 ///
-/// **Not the two-hundred-and-twenty-third session's `loca` repair**, which was the obvious
-/// suspect because this font is one of the six in the corpus whose offsets do not ascend (7 of
-/// 1674 glyphs). Checked rather than assumed: with the repair switched off the page's ink is
-/// 19.576 at 2×, and with it on it is 19.576. The repair does not reach this document's marks.
+/// **The `loca` repair was checked against this document in the session that landed it and
+/// cleared**: `AMBIGUOUS_SPACE_DRAWN_AS_A_MARK` recorded that switching the repair off left the
+/// page's ink at 19.576 either way. That measurement was right and the conclusion drawn from it
+/// was not — the page's ink is dominated by three words of bold text, and five narrow bars are
+/// under a tenth of a level of it. **A page-level number cannot clear a mechanism of a defect
+/// that is five glyphs wide.**
 ///
-/// What is left is a code that should select a blank glyph and does not, which is a question
-/// about `Identity-H` and `/CIDToGIDMap` rather than about the outlines — and the instrument for
-/// it is the one the handover has owed for some time: a report where a *glyph* is shown, which
-/// needs `LoadedFont` to tell "this code has no glyph" from "this code's glyph is blank".
+/// ```text
+///              ours before   ours after   hayro   mupdf   poppler   ghostscript   limit
+/// at 72 dpi       20.83        19.59      19.52   19.15    19.09       18.06     19.751/19.755
+/// ```
+///
+/// Ours at 8× is **19.749**, which is the two-ladder limit to three figures; before the fix we
+/// were the only renderer above it. The page stays `ambiguous` because five rasterisers still
+/// disagree about bold glyph coverage at nine points, which is
+/// `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s subject and §10.7.4's last sentence.
 const AMBIGUOUS_SPACE_DRAWN_AS_A_MARK: [&str; 1] = ["issue7074_reduced.pdf page 1"];
 
 /// Ambiguous, and **we were the ones who were wrong**: half the sentence was missing.

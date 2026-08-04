@@ -2880,8 +2880,22 @@ fn repaired_loca_order(data: &[u8]) -> Option<Vec<u8>> {
     let glyf = data.get(glyf_at..glyf_at.checked_add(glyf_length)?)?;
     let mut rebuilt: Vec<u8> = Vec::with_capacity(glyf_length);
     let mut offsets: Vec<u32> = Vec::with_capacity(entries);
-    for start in starts.get(..glyphs)? {
+    for (index, start) in starts.get(..glyphs)?.iter().enumerate() {
         offsets.push(u32::try_from(rebuilt.len()).ok()?);
+        // **An empty glyph stays empty.** The glyph table's own standard says a glyph with no
+        // outline is written by giving it and its successor the same offset, and that statement
+        // is self-consistent whatever the rest of the table does — unlike a *descending* pair,
+        // which is what this repair exists to overrule. Reading such a glyph's length from its
+        // own bytes hands it whichever entry happens to begin there, which is a real glyph.
+        //
+        // `issue7074_reduced.pdf` is the witness and it is `issue11131_reduced.pdf`'s font one
+        // defect over: `loca` runs 0, 108, 0, 108, 108, 282, … so glyph 3 — the space, under
+        // `Identity-H` — has start 108 and successor 108, and the entry at 108 is glyph 4. The
+        // page drew `Our|2015|Graduates`, a narrow mark where each space belongs, while three
+        // references drew the spaces.
+        if starts.get(index.checked_add(1)?) == Some(start) {
+            continue;
+        }
         // An offset past the table is what a well-formed file uses for an empty glyph, and so is
         // a length of zero; both arrive here as nothing appended.
         let Some(length) = glyph_length(glyf, *start) else {
@@ -3620,6 +3634,58 @@ mod truetype_encoding_tests {
             let at = glyf_at + index * 10 + 3;
             assert_eq!(repaired[at], mark, "glyph {index} keeps its own bytes");
         }
+    }
+
+    /// An empty glyph stays empty, even where the table around it is scrambled.
+    ///
+    /// The glyph table's own standard writes a glyph with no outline by giving it and its
+    /// successor the same offset, and that statement is self-consistent whatever the rest of
+    /// the table does — unlike a *descending* pair, which is what the repair exists to overrule.
+    /// Reading such a glyph's length from its own bytes hands it whichever entry happens to
+    /// begin there, which is a real glyph and was a real defect: `issue7074_reduced.pdf` drew
+    /// `Our|2015|Graduates`, a narrow mark where each space belongs, because its `loca` runs
+    /// 0, 108, 0, 108, 108, … and the entry at 108 is glyph 4.
+    #[test]
+    fn a_glyph_whose_offset_repeats_is_empty_and_stays_empty() {
+        let glyph = |mark: u8| {
+            let mut bytes = vec![0u8; 10];
+            bytes[3] = mark;
+            bytes
+        };
+        let mut glyf = Vec::new();
+        glyf.extend_from_slice(&glyph(1));
+        glyf.extend_from_slice(&glyph(0));
+        // Glyph 0 is at 10; glyph 1 is *empty*, stated by repeating glyph 2's offset; glyph 2 is
+        // at 0. The pair (10, 0) is what makes the table descend and the repair run at all.
+        let mut loca = Vec::new();
+        for at in [10u32, 0, 0, 20] {
+            loca.extend_from_slice(&at.to_be_bytes());
+        }
+        let mut head = vec![0u8; 54];
+        head.splice(50..52, 1_u16.to_be_bytes());
+        let mut maxp = vec![0u8; 6];
+        maxp.splice(4..6, 3_u16.to_be_bytes());
+        let repaired = repaired_loca_order(&sfnt(&[
+            (*b"head", head),
+            (*b"maxp", maxp),
+            (*b"loca", loca),
+            (*b"glyf", glyf),
+        ]))
+        .expect("the offsets descend");
+
+        let tables = sfnt_tables(&repaired).expect("a directory");
+        let (loca_at, _) = tables[b"loca".as_slice()];
+        let (glyf_at, _) = tables[b"glyf".as_slice()];
+        let offsets: Vec<u32> = (0..4)
+            .map(|index| be32(&repaired, loca_at + index * 4).expect("in range"))
+            .collect();
+        assert_eq!(
+            offsets,
+            vec![0, 10, 10, 20],
+            "glyph 1 keeps a length of zero rather than taking the entry at its offset"
+        );
+        assert_eq!(repaired[glyf_at + 3], 0, "glyph 0 keeps its own bytes");
+        assert_eq!(repaired[glyf_at + 10 + 3], 1, "and so does glyph 2");
     }
 
     /// A composite glyph's length is its component loop, not a fixed size.

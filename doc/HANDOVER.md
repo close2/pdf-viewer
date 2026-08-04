@@ -645,7 +645,7 @@ a defect can live without a name, and **the task, the instrument, the method and
 are [todo 00](todo/00-ambiguous-bucket.md)**.
 
 **What it has produced, because that is the argument for keeping at it.** Thirty-two sessions,
-**twelve defects found and eleven of them fixed** — a page one that was page two (ADR 0148), a
+**thirteen defects found and twelve of them fixed** — a page one that was page two (ADR 0148), a
 photograph rendered black (0149), a shading painted as a square (0150), a stencil that drew
 nothing (0151), a whole grid that disappeared (0154), a sentence drawn as one Greek letter
 because the font's name ends in the word "Symbol" (0158), a stamp's gradient painted flat
@@ -654,10 +654,12 @@ separators losing theirs to a miter bound (0165), a `loca` whose offsets descend
 one font's 71 glyphs were refused in silence (0170), **§8.7.4.5.4's greatest *admissible*
 root** — found in the two-hundred-and-sixth session, fixed in the two-hundred-and-thirty-second
 on all three backends at once (0171), and the longest-standing of them because every gradient
-library gets it wrong the same way — and **a blurred word nobody drew** (0173): §8.6.8's
+library gets it wrong the same way — **a blurred word nobody drew** (0173): §8.6.8's
 uncoloured restriction was still in force inside a soft mask's own group, so a `d1` glyph
 procedure that set a `/Luminosity` mask had its mask evaluated to zero and painted nothing, with
-every command present and nothing reported.
+every command present and nothing reported — and **a space that was a bar** (0174), where the
+`loca` repair of sixteen sessions earlier read a glyph's length from its own bytes even where
+the table said, in the standard's own spelling, that the glyph was empty.
 
 Beside them: a pattern cell's clip worth 15% of a page's ink (0155), ten documents whose
 substituted font drew none of its characters in silence (0152), the coverage rule that made
@@ -1619,6 +1621,13 @@ anchor that makes it checkable.
   `-alpha off`, which returns exactly half the ink on a panel that carries an alpha channel;
   **both are a wrong measurement that looks like a finding**, and both now sit in
   `doc/todo/00`'s step 6 where a session reaches for the command.
+- **A page-level number cannot clear a mechanism of a defect that is five glyphs wide.** ADR
+  0170's session A/B'd its `loca` repair against `issue7074_reduced.pdf` — ink 19.576 with the
+  repair on and 19.576 with it off — and concluded the repair did not reach the page. The
+  measurement was right and the inference was not: the page is three words of bold nine-point
+  text and the defect was five narrow bars, under a tenth of a level. **Point the A/B at the
+  quantity the hypothesis is about** — here, which glyph the space's code resolves to — which is
+  one assertion rather than one render. ADR 0174.
 - **A corpus can hold one document under a dozen names, and the bucket's shape lies until you
   check.** 154 of the ambiguous bucket's 678 were `tracemonkey.pdf` and eleven copies of it with
   annotations added — `pdftotext -f 9 -l 9 | md5sum` is identical across them. One measurement
@@ -2469,3 +2478,4 @@ above rather than here.
 | 236 | Two `shall`s that cannot both hold: a strike-out follows the text it strikes out | 0172 |
 | 237 | A blurred word nobody drew: §8.6.8's restriction reached inside a soft mask's group | 0173 |
 | 238 | A page that states its own answer, and two rows whose neighbour's correction never reached them | — |
+| 239 | An empty glyph stays empty — the `loca` repair had been handing the space a real glyph | 0174 |
