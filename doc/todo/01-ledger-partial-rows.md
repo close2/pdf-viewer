@@ -22,7 +22,17 @@ those live. Five failure shapes, in the order they were found:
 5. A note that is *stale about its neighbour*: §7.7.2 listed eighteen catalog entries as unread
    that were read, most of them by the session that built their clause. **A family's parent row
    is not maintained by the sessions that implement its members**, because the clauses do not
-   cite each other. Three instances so far (§12.3's parent, §14.8.5.1's, §7.7.2's).
+   cite each other. Four instances so far (§12.3's parent, §14.8.5.1's, §7.7.2's, and §7.9's in
+   the two-hundred-and-seventy-eighth — it called dates, name trees and number trees "features
+   this tree does not have yet" while all three of its own child rows read `implemented`, one of
+   them with a gate over 1545 corpus date strings).
+6. **A note that contradicts itself**, found in the two-hundred-and-seventy-eighth. §12.5.6.5 said
+   "`/H`'s highlighting mode is still a response to a mouse this program does not draw" and, four
+   sentences later in the same note, that Table 176's `/H` "is honoured since the
+   hundred-and-thirty-eighth session … (ADR 0123)". The row was corrected by *appending* the new
+   sentence and nobody re-read the paragraph above it. This is the cheapest shape to find and the
+   only one whose evidence is entirely inside the row: read a corrected note **whole**, not from
+   the correction onwards.
 
 ## The three sweeps
 
@@ -77,6 +87,15 @@ and the caller do not cite each other either.
   hundred and fifteen sessions (ADR 0177).
 - **§8.11.4.3's `/ListMode`** was read into `OptionalContent::list_mode` and asked by nothing,
   with a layer panel on the screen (ADR 0178).
+
+**Run again in the two-hundred-and-seventy-eighth, and it produced a clause on its second run
+too**: 175 functions now, 69 that neither host names, and `Signature::must_cover_whole_file` among
+them. Table 255 makes the byte range's coverage a `shall` for two of §12.8.1's sub-filters and a
+`should` for the rest; `viewer_core::notes` worded an uncovered tail identically for all of them,
+so a file breaking that `shall` read as §12.8.1's NOTE 1 ordinary incremental update. The model
+had the distinction, tested; the only host ignored it. **Nothing in the corpus exercises it** —
+all six of the 974's signatures are `adbe.pkcs7.*` — which is why it could not have been found
+from the demand side at all (trap 8).
 
 The sweep is twenty lines: every `pub fn` in `pdf-model`, grepped against `viewer-core` and
 `viewer-ui`. 174 functions, 72 that neither names. Most are internal helpers that happen to be

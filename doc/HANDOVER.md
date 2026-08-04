@@ -2675,3 +2675,4 @@ above rather than here.
 | 275 | Bring-up is on quorra's critical path now, and the brief still told it otherwise in three places | — |
 | 276 | §7.5.6's rule stated once for a file rather than once per entry: `Document::open` 41% off | 0180 |
 | 277 | A form says whether it has signature fields, and Table 225 says to ask: 1.681 ms to 0.017 | 0181 |
+| 278 | The five sweeps: a row that contradicted *itself*, a parent stale about three children, a `shall` no host asked | — |

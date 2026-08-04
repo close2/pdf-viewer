@@ -101,9 +101,30 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
         ));
         match signature.coverage(length) {
             pdf_model::signature::Coverage::WholeFile => {}
-            pdf_model::signature::Coverage::Unsigned { tail } => notes.push(format!(
-                "{tail} bytes were appended after that signature and are not covered by it"
-            )),
+            // **Two different things wear one shape here, and Table 255 separates them.**
+            // §12.8.1's NOTE 1 makes an uncovered tail the ordinary mechanism — an incremental
+            // update appended after signing, which is how a signature stays meaningful while a
+            // document goes on being used. But for `ETSI.CAdES.detached` and `ETSI.RFC3161` the
+            // table says the range "shall cover the entire PDF file", so for those two the same
+            // tail is a file breaking a `shall`. `Signature::must_cover_whole_file` has drawn
+            // that distinction since it was written and nothing asked it until the
+            // two-hundred-and-seventy-eighth session — `doc/todo/01`'s fifth sweep, which asks
+            // what the model implements that no host calls. It is still not a verdict on the
+            // signature: this program has no trust store and says what the file states.
+            pdf_model::signature::Coverage::Unsigned { tail } => {
+                if signature.must_cover_whole_file() {
+                    notes.push(format!(
+                        "{tail} bytes were appended after that signature and are not covered by \
+                         it — and its /SubFilter {} requires the signed range to cover the whole \
+                         file (Table 255), so this file breaks that requirement",
+                        signature.sub_filter.as_deref().unwrap_or("")
+                    ));
+                } else {
+                    notes.push(format!(
+                        "{tail} bytes were appended after that signature and are not covered by it"
+                    ));
+                }
+            }
             pdf_model::signature::Coverage::Malformed => {
                 notes.push("that signature's /ByteRange does not describe this file".to_owned());
             }
@@ -164,4 +185,86 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
          signature claims and never whether it is valid"
             .to_owned(),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::about;
+    use pdf_syntax::Document;
+
+    /// Builds a document from object bodies numbered from 1, as `pdf_model::signature`'s tests do.
+    fn document(objects: &[&str]) -> Document {
+        use std::fmt::Write as _;
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let _ = write!(
+            out,
+            "xref\n0 {}\n0000000000 65535 f \n",
+            objects.len().saturating_add(1)
+        );
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+            objects.len().saturating_add(1)
+        );
+        Document::open(out.into_bytes()).expect("a valid file")
+    }
+
+    /// An uncovered tail is ordinary under one sub-filter and a broken `shall` under another.
+    ///
+    /// §12.8.1's NOTE 1 makes bytes appended after signing the *mechanism* by which a signed
+    /// document goes on being used, so the plain note says what happened and judges nothing.
+    /// Table 255 says that for `ETSI.CAdES.detached` and `ETSI.RFC3161` the range "shall cover
+    /// the entire PDF file", and then the same tail is the file breaking a requirement — which
+    /// is worth saying to somebody deciding whether to trust what they are looking at.
+    ///
+    /// **No corpus document exercises this**: all six signatures in the 974 are `adbe.pkcs7.*`.
+    /// That is trap 8 exactly — a corpus finds what documents contain, not what the standard
+    /// says — and it is why the two files here are built rather than found. They differ in one
+    /// name and in nothing else.
+    #[test]
+    fn a_sub_filter_can_turn_an_uncovered_tail_into_a_broken_requirement() {
+        let objects = |sub_filter: &str| {
+            vec![
+                "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>"
+                    .to_owned(),
+                "<< /Type /Pages /Count 0 /Kids [] >>".to_owned(),
+                "<< /Unused true >>".to_owned(),
+                "<< /FT /Sig /T (S) /V 5 0 R >>".to_owned(),
+                format!(
+                    "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /{sub_filter} \
+                     /ByteRange [0 100 200 100] /Name (A. Author) /Contents <00> >>"
+                ),
+            ]
+        };
+        let said = |sub_filter: &str| {
+            let bodies = objects(sub_filter);
+            let borrowed: Vec<&str> = bodies.iter().map(String::as_str).collect();
+            about(&document(&borrowed)).join("\n")
+        };
+
+        let ordinary = said("adbe.pkcs7.detached");
+        assert!(
+            ordinary.contains("are not covered by it"),
+            "the tail is still reported: {ordinary}"
+        );
+        assert!(
+            !ordinary.contains("Table 255"),
+            "§12.8.1's should stays a should: {ordinary}"
+        );
+
+        let required = said("ETSI.CAdES.detached");
+        assert!(
+            required.contains("requires the signed range to cover the whole file (Table 255)"),
+            "Table 255 turns the same tail into a broken requirement: {required}"
+        );
+    }
 }
