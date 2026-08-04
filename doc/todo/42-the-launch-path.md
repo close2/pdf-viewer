@@ -74,23 +74,29 @@ signature fields", and Table 224 defaults the entry to 0. **1.681 ms → 0.017 m
 the corpus before it was trusted, and it corrected a ledger row that had called the entry
 "signature behaviour". ADR 0181.
 
-### 4. The graphics device — 40 to 46 ms, and the backend set is not the lever
+### 4. The graphics device — **taken in the two-hundred-and-eighty-eighth session, 30 ms off**
 
-ADR 0179's table: restricting the wgpu instance to Vulkan moves the cost from instance creation
-into `request_adapter` and the total does not move. What is left to try is **overlap**: instance
-creation needs no window, and the launch path has 9 ms of document work and 8 ms of event-loop
-work sitting in front of the window that the device waits for. Hoisting `wgpu::Instance::new` onto
-a thread started at `main`'s first line would hide up to ~20 ms of it.
+ADR 0179's table said restricting the wgpu instance to Vulkan moves the cost from instance
+creation into `request_adapter` and the total does not move, and that what was left to try was
+**overlap** — an instance needs no window. That needed quorra's agreement, because
+`Device::for_surface` created the instance itself.
 
-**That needs quorra's agreement**, because `Device::for_surface` creates the instance itself:
-either an `Options::instance` or a `Device::for_surface_with(instance, …)`. **Asked for, with the
-measurement, in `doc/QUORRA_FEEDBACK.md` §8.2** — `bring_up overlap` puts it at 44.4–50.0 ms one
-after the other against 22.9–28.9 both at once — along with §8.1's field split, because the one
-number quorra reports as `adapter_enumeration` is three steps with different causes. What is
-*not* asked for is a backend knob: §8.3 records having measured it and found the total invariant.
+**It agreed** (`doc/QUORRA_FEEDBACK.md` §8, answered at `7d5dafb`, their ADR 0014): five startup
+fields where there were three, and `create_instance` + `for_surface_with_instance` so a host can
+make the instance early. `main` now spawns *two* threads at its first line — one for the document,
+one for the instance — and `resumed` joins the instance before building the presenter and the
+document after it, because the device needs the first and not the second.
 
-`request_adapter` cannot be hoisted either way — it takes the surface — so the honest claim is
-"up to the instance's share" and not "up to the bring-up's".
+```text
+graphics instance   +0.006 to +2.6 ms   (hidden behind EventLoop::new)
+graphics device     +13.2 to +19.2 ms   (was 33.4 to 45.1)
+start → first frame   110 to 119 ms     (was 145 to 152)
+```
+
+**What is left of this item is not ours**: `surface 0.03 ms, adapter 5.3, device 8.4` is what
+bring-up now blocks for, and quorra's own headless numbers are 3.2–4.4 for adapter selection
+against our 5.3–6.8 with a `compatible_surface` — the difference is the surface, and it is the
+reason §8.1 asked for the field split.
 
 ### 5. The first frame pays ~12 ms of first-use allocation, and it is **not** the shaders
 

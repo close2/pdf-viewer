@@ -9,10 +9,12 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
-**§8 and §9 are open**, added in the two-hundred-and-seventy-fifth and -eightieth sessions: it is a request rather than a
-defect, and it exists because the project owner's decision that page one goes to the graphics
-device put your bring-up on this viewer's critical path. Two entry points and one field split;
-there is also a knob §8 explicitly does *not* ask for, with the measurement that says why. §9 is one more, from the other end of the same launch: the first frame allocates ~12 ms that every frame after it reuses, and it is provably not the shaders.
+**§8 was answered at `7d5dafb` and §9 is open.** Both were requests rather than defects, and both
+exist because the project owner's decision that page one goes to the graphics device put your
+bring-up on this viewer's critical path. §8 asked for a field split and an entry point and got
+both, plus a refusal of the knob it said not to add; §9 is from the other end of the same launch —
+the first frame allocates ~12 ms that every frame after it reuses, and it is provably not the
+shaders.
 
 **Where it stands, at the page's own scale:**
 
@@ -260,7 +262,7 @@ worth a file.
 
 ---
 
-## 8. Bring-up is on the critical path now, and a host cannot see into it or start it early
+## 8. Bring-up is on the critical path now, and a host cannot see into it or start it early — **answered**
 
 **New in this viewer's two-hundred-and-seventy-fifth session, and it is a request rather than a
 defect.** The project owner decided one session earlier that **page one goes to the graphics
@@ -283,7 +285,7 @@ trace:   first present           144.609 ms  (+54.090)
 **Bring-up is 31% of it**, and `StartupTimings` is what this side has to reason with. Two things
 would help, and one thing that looks like it would does not.
 
-### 8.1 `adapter_enumeration` names one step and measures three
+### 8.1 `adapter_enumeration` names one step and measures three — **answered**
 
 `Device::build` takes `started` from *before* `wgpu::Instance::new` in both constructors, so the
 figure a host reads as `adapter_enumeration` is instance creation **plus** surface creation
@@ -306,7 +308,7 @@ much for its own first version's mistake as for its numbers: it created two inst
 process and reported 26.0 ms against 4.4 ms for the same work in the other order, which is entirely
 the driver loader being warm the second time. **One configuration per process.**
 
-### 8.2 An instance needs no window, and a host cannot supply one
+### 8.2 An instance needs no window, and a host cannot supply one — **answered**
 
 `Device::for_surface` creates the instance itself. That is the right default and it costs this
 side the one lever the numbers above actually offer: **instance creation needs no surface, no
@@ -331,7 +333,7 @@ What *cannot* be hoisted, and this side is not asking for: `request_adapter` tak
 `compatible_surface`, so it is genuinely downstream of the window. The honest claim is "the
 instance's share", not "bring-up's".
 
-### 8.3 What is **not** a finding: the backend set
+### 8.3 What is **not** a finding: the backend set — **and the knob was not added**
 
 The obvious first guess — `Backends::all()` loads the GL backend for nothing on a Vulkan machine —
 is wrong here, and the table in 8.1 is why: restricting the instance to Vulkan halves
@@ -389,3 +391,37 @@ a usable device before it is warm, never block on warmth — costs *nothing meas
 adapter: the shaders are ready before anything asks for them, three times over. The
 `wait_until_warm` that a nervous host might reach for would buy zero milliseconds and hide the 12
 that matter.
+
+### 8.4 What came back, and what it is worth here
+
+**Answered at `7d5dafb`, in both shapes §8 asked for and with §8.3's silence kept deliberately.**
+quorra's ADR 0014 is the argument; what this side can add is the measurement from the other end
+of the same launch.
+
+- **`StartupTimings` is five fields where it was three.** `instance_creation` (an `Option`, `None`
+  when the host supplied the instance — "reporting zero for work someone else timed would be a
+  number that lies about what it measured"), `surface_creation`, `adapter_selection`,
+  `device_creation`, `pipeline_compilation`, and a `blocking_total` that excludes the last because
+  nothing waits for it. `adapter_enumeration` is **gone rather than deprecated**, which is the
+  right call: keeping a name known to misdescribe its contents preserves the defect.
+- **`create_instance`, `headless_with_instance` and `for_surface_with_instance`.** The instance is
+  quorra's own — the descriptor has to match, and a host that guessed it would find out at
+  `create_surface` — so `render-quorra` re-exports it as `QuorraPresenter::instance` and the
+  viewer's `main` spawns a thread for it at its first line.
+- **No backend knob**, with §8.3's measurement quoted in the ADR as the reason the silence is
+  deliberate.
+
+**What it is worth, measured here** (ADR 0185): `pdf-viewer --trace` on ISO 32000-2, under `Xvfb`
+with `lavapipe`, three runs each.
+
+| step | before | after |
+|---|---|---|
+| graphics instance | *inside* bring-up | +0.006 to +2.6 ms, hidden behind `EventLoop::new` |
+| graphics device | +33.4 to +45.1 ms | **+13.2 to +19.2 ms** |
+| process start → first frame | 145 to 152 ms | **110 to 119 ms** |
+
+And the split does what §8.1 asked: `instance None, surface 0.03 ms, adapter 5.3, device 8.4` is a
+line a host can read a regression out of. **Your headless measurement and ours disagree about the
+share and both are right** — you measured 3.2–4.4 ms of adapter selection headless, we measure
+5.3–6.8 with a `compatible_surface` under a virtual X server. That is the argument for the split,
+made by the field.

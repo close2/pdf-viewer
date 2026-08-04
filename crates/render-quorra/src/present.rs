@@ -45,6 +45,42 @@ pub struct QuorraPresenter {
 }
 
 impl QuorraPresenter {
+    /// The instance a presenter would make for itself, made early.
+    ///
+    /// **The launch path's one lever that crosses this boundary.** A `wgpu::Instance` is the
+    /// driver loader, it needs no window, no surface and no event loop — and on this machine it
+    /// is roughly 80% of what bringing a device up blocks for (quorra's ADR 0014). So a host
+    /// creates it on a thread started before the window exists and hands it to
+    /// [`Self::with_instance`]; `wgpu::Instance` is `Send + Sync`, so the thread that made it can
+    /// give it away.
+    ///
+    /// It must be *this* function rather than a `wgpu::Instance::new` of the host's own: the
+    /// descriptor has to match the one quorra's own constructors use, and a host that guessed it
+    /// would find out at `create_surface`.
+    #[must_use]
+    pub fn instance() -> quorra_gpu::wgpu::Instance {
+        quorra_gpu::create_instance()
+    }
+
+    /// A presenter owning a surface on `window`, on an instance the caller made earlier.
+    ///
+    /// See [`Self::instance`] for why a host would. Everything else is [`Self::new`]'s.
+    ///
+    /// # Errors
+    ///
+    /// [`QuorraRasterError::Device`] when no adapter can present to the window.
+    pub fn with_instance(
+        instance: &quorra_gpu::wgpu::Instance,
+        window: impl Into<quorra_gpu::wgpu::SurfaceTarget<'static>>,
+    ) -> Result<Self, QuorraRasterError> {
+        let device = quorra_gpu::Device::for_surface_with_instance(
+            instance,
+            window,
+            &quorra_gpu::Options::default(),
+        )?;
+        Ok(Self::around(device))
+    }
+
     /// A presenter owning a surface on `window` — anything convertible to the
     /// re-exported [`quorra_gpu::wgpu::SurfaceTarget`], which a winit window is.
     ///
@@ -57,6 +93,11 @@ impl QuorraPresenter {
         window: impl Into<quorra_gpu::wgpu::SurfaceTarget<'static>>,
     ) -> Result<Self, QuorraRasterError> {
         let device = quorra_gpu::Device::for_surface(window, &quorra_gpu::Options::default())?;
+        Ok(Self::around(device))
+    }
+
+    /// The presenter around a device, however that device was brought up.
+    fn around(device: quorra_gpu::Device) -> Self {
         // wgpu reports validation failures and lost devices to a handler whose
         // default is silence — the one way this window could stop updating
         // without a word. Same lesson, same sentence as the Vello host had.
@@ -66,11 +107,11 @@ impl QuorraPresenter {
             .on_uncaptured_error(Arc::new(|error: quorra_gpu::wgpu::Error| {
                 eprintln!("note: the graphics device reported: {error}");
             }));
-        Ok(Self {
+        Self {
             device,
             background: Color::WHITE,
             caches: crate::cache::ResourceCaches::new(),
-        })
+        }
     }
 
     /// The adapter quorra selected, for reports.

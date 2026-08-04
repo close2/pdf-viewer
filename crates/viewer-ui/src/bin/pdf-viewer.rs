@@ -293,6 +293,15 @@ fn main() {
         move || open_document(&path, opens_at)
     });
 
+    // **And the graphics instance on a second thread**, since the two-hundred-and-eighty-eighth:
+    // a `wgpu::Instance` is the driver loader, it needs no window either, and quorra measured it
+    // at roughly 80% of what bringing a device up blocks for (their ADR 0014, answering
+    // `doc/QUORRA_FEEDBACK.md` §8.2). Its own thread rather than the document's, and the
+    // difference is not style: the device *needs* the instance and does not need the document, so
+    // the instance is joined before the presenter is built and the document after it — one thread
+    // for both would make the first join wait for the second's work.
+    let instancing = std::thread::spawn(QuorraPresenter::instance);
+
     let chrome = match Chrome::new() {
         Ok(chrome) => Some(chrome),
         Err(problem) => {
@@ -334,6 +343,7 @@ fn main() {
         metadata_stream: false,
         state: None,
         opening: Some(opening),
+        instancing: Some(instancing),
         launch,
     };
 
@@ -483,6 +493,8 @@ struct App {
     /// presenter exists — so every later event, command and query sees an ordinary `Viewer` and
     /// nothing else in this file knows a thread was involved.
     opening: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
+    /// The thread creating the graphics instance, which is 80% of what bring-up blocks for.
+    instancing: Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>>,
     /// The launch path's milestones, printed once under `--trace` when the first frame lands.
     launch: Launch,
 }
@@ -1407,16 +1419,28 @@ impl ApplicationHandler for App {
         // device up costs is part of time-to-first-page, so it is measured rather than
         // assumed. The presenter reports uncaptured device errors itself, for the same
         // silent-window reason the Vello host did.
+        let instance = self
+            .instancing
+            .take()
+            .map(|thread| thread.join().expect("the thread creating the instance"));
+        self.launch.mark("graphics instance");
         let began = std::time::Instant::now();
-        let presenter = QuorraPresenter::new(window.clone()).expect("presenter creation");
+        let presenter = match instance.as_ref() {
+            Some(instance) => QuorraPresenter::with_instance(instance, window.clone()),
+            None => QuorraPresenter::new(window.clone()),
+        }
+        .expect("presenter creation");
         let brought_up = began.elapsed();
         self.launch.mark("graphics device");
         if self.trace {
             let startup = presenter.startup();
             println!("trace: rendering with {}", presenter.adapter_description());
             println!(
-                "trace: device up in {brought_up:?} — adapter {:?}, device {:?}, pipelines {}",
-                startup.adapter_enumeration,
+                "trace: device up in {brought_up:?} — instance {:?}, surface {:?}, adapter {:?}, \
+                 device {:?}, pipelines {}",
+                startup.instance_creation,
+                startup.surface_creation,
+                startup.adapter_selection,
                 startup.device_creation,
                 startup
                     .pipeline_compilation
@@ -1436,11 +1460,12 @@ impl ApplicationHandler for App {
         });
 
         // **The document's thread is joined here and not a line earlier.** Everything above this
-        // — the event loop, the window, the device — is what it was running beside; joining after
-        // the presenter exists is what makes the two costs the *longer* of the pair rather than
-        // the sum. If the mark below reads a few hundred microseconds after `graphics device`,
-        // the document was ready and waiting; if it reads milliseconds later, this thread waited,
-        // which is a document large enough for the overlap to have been worth more than it took.
+        // — the event loop, the window, the instance, the device — is what it was running beside,
+        // and joining after the presenter exists is what makes the two costs the *longer* of the
+        // pair rather than the sum. If the mark below reads a few hundred microseconds after
+        // `graphics device`, the document was ready and waiting; if it reads milliseconds later,
+        // this thread waited, which is a document large enough for the overlap to have been worth
+        // more than it took.
         if let Some(opening) = self.opening.take() {
             let (viewer, events) = opening.join().expect("the thread opening the document");
             self.viewer = viewer;

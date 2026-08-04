@@ -575,14 +575,18 @@ What we ask of you:
   and hand it back next launch, and tell us when it was rejected.
 - **Tell us what startup cost.** `Timings` (§8) for device creation, split into adapter
   enumeration, device creation and pipeline compilation. We will put a number on it in CI and gate
-  regressions, because that is what we do with the numbers we have. **quorra did this and the
-  split is off by one step**: its `adapter_enumeration` is measured from before
-  `wgpu::Instance::new`, so it holds instance creation, surface creation and the adapter request
-  in one figure — two thirds of which is the driver loader rather than anything about adapters.
-  `doc/QUORRA_FEEDBACK.md` §8.1.
+  regressions, because that is what we do with the numbers we have. **quorra did this, the split
+  was off by one step, and it is fixed**: `adapter_enumeration` measured from before
+  `wgpu::Instance::new` and so held three steps in one figure. It is five fields now — instance,
+  surface, adapter, device, pipelines — with the first an `Option` because a host may have made it
+  (`doc/QUORRA_FEEDBACK.md` §8.1, quorra's ADR 0014).
 - **Let a host supply the instance.** It needs no window, so it can be created on a thread started
-  before the window exists; a constructor that makes its own denies that. Measured at ~20 ms of a
-  145 ms launch. §8.2.
+  before the window exists; a constructor that makes its own denies that. **Delivered**, and it is
+  the largest single thing anybody has taken off this viewer's launch path: bring-up 33–45 ms to
+  13–19, the whole launch 145 to 110–119 (§8.2, ADR 0185).
+- **Warm the allocations, not only the shaders.** The one still open. A cold first frame costs
+  ~12 ms more than the tenth on a real adapter, and a one-second sleep before it changes nothing,
+  so it is first-use resource creation rather than warmth. §9.
 
 ---
 

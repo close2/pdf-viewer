@@ -62,10 +62,12 @@ than a cost to hide. **Since the two-hundred-and-seventy-fourth session `--trace
 launch as a timeline** — one `Instant` taken at `main`'s first statement, one mark per milestone,
 printed when the first frame lands. It was **145 ms from process start to the first frame** on this
 machine's software adapter under `Xvfb`, for a 5-page document *and* for ISO 32000-2's 1023 pages,
-and is **109 to 135** since the two-hundred-and-eighty-first: nothing the window needs has ever
-looked at a PDF, so the document opens on a thread of its own and is joined after the device exists
-(ADR 0182). Of what is left: the device 33 to 46 ms, the first present 49 to 60, `EventLoop::new`
-14 to 43, and the document's *join* 3 to 6.
+and is **110 to 119** after two rounds of taking things off it. Nothing the window needs has ever
+looked at a PDF, so the document opens on a thread of its own (ADR 0182); and a `wgpu::Instance`
+needs no window either, so **it is made on a second thread** and handed to quorra, which added the
+entry point for it after `doc/QUORRA_FEEDBACK.md` §8 asked with a measurement (ADR 0185). Of what
+is left: `EventLoop::new` 20 to 45 ms, the first present 48 to 53, the device **13 to 19**, the
+instance 0.006 to 2.6 and the document's join 5.
 **Two things on it broke a rule `CLAUDE.md` states**, both named and priced in
 [todo 42](todo/42-the-launch-path.md): `Document::open` cost 12 to 22 ms on 101 318 objects
 against 0.20 on a small file, where the rule is "a 500-page document must open no slower than a
@@ -2695,3 +2697,4 @@ above rather than here.
 | 285 | Everything re-verified after eleven rounds: eight fuzzers, `deny`, the seven gates, the window | — |
 | 286 | Two more off the ambiguous tail, both into groups that already existed: an image and a border | — |
 | 287 | §9.6.5.2's last sentence: `.notdef` substituted where an encoding names a glyph the program lacks | — |
+| 288 | quorra took both of §8's asks and refused §8.3's knob: bring-up 33–45 ms to 13–19 | 0185 |
