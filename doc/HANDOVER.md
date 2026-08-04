@@ -90,7 +90,7 @@ that exists (ADR 0146).
 
 | gate | number | where |
 |---|---|---|
-| tests | **979** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **five fuzz targets clean at 50 000 runs** | everything above re-run in the **two-hundred-and-thirtieth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
+| tests | **979** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **six fuzz targets clean, the newest at 1 000 000 runs** | everything above re-run in the **two-hundred-and-thirtieth**: five fuzzers, `deny`, `fmt`, `clippy`, the **six** gates and the window |
 | — | **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **881 draw with nothing reported**, **78 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1680** we call complete: **852 agree**, **68 contradicted**, 749 ambiguous — **257 of them diagnosed and 492 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
@@ -1170,6 +1170,10 @@ cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap
 cd fuzz && cargo +nightly fuzz run crypt         -- -runs=50000   # §7.6's algorithms
 cd fuzz && cargo +nightly fuzz run variable_text -- -runs=50000   # §12.7.4.3's /DA and layout
 cd fuzz && cargo +nightly fuzz run forms_data    -- -runs=50000   # §12.7.8's FDF, §7.9.4's dates
+cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's two glyph-table repairs
+  # **seed its corpus with real fonts** — 60 `/FontFile2` streams out of `doc/pdf.js/test/pdfs/`
+  # into `fuzz/corpus/sfnt/`. Unseeded it never forms a table directory and tests nothing; seeded
+  # it produced two crashers in its first minute (ADR 0175)
 ```
 
 **Incomplete pages are compared and printed by the oracle but cannot fail it** — a page we
@@ -1621,6 +1625,14 @@ anchor that makes it checkable.
   `-alpha off`, which returns exactly half the ink on a panel that carries an alpha channel;
   **both are a wrong measurement that looks like a finding**, and both now sit in
   `doc/todo/00`'s step 6 where a session reaches for the command.
+- **Before trusting a clean fuzz run, ask what fraction of it got past the first branch.** The
+  sfnt target ran 50 000 unseeded inputs in under a second and tested nothing: random bytes do
+  not form a table directory, so every run left on the first `?`. Seeded with sixty real
+  `/FontFile2` streams it produced two crashers inside a minute. A format with a magic number, a
+  count and a directory needs a corpus; a content stream or a date does not. ADR 0175.
+- **A rewrite driven by untrusted structure is a larger surface than a reader over the same
+  bytes.** Both glyph-table repairs had been reviewed and never fuzzed, and both wrote at an
+  offset a document supplied. ADR 0175.
 - **A page-level number cannot clear a mechanism of a defect that is five glyphs wide.** ADR
   0170's session A/B'd its `loca` repair against `issue7074_reduced.pdf` — ink 19.576 with the
   repair on and 19.576 with it off — and concluded the repair did not reach the page. The
@@ -2480,3 +2492,4 @@ above rather than here.
 | 238 | A page that states its own answer, and two rows whose neighbour's correction never reached them | — |
 | 239 | An empty glyph stays empty — the `loca` repair had been handing the space a real glyph | 0174 |
 | 240 | The whole bucket swept for missing content, and it is empty: −0.84 to +0.42 of 255 | — |
+| 241 | A sixth fuzz target, over the two glyph-table repairs, and two crashers in its first minute | 0175 |

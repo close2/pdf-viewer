@@ -72,3 +72,8 @@ path = "fuzz_targets/forms_data.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "sfnt"
+path = "fuzz_targets/sfnt.rs"
+test = false

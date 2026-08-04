@@ -2537,8 +2537,10 @@ fn embedded_program(
         };
 
         let data = if program == Program::Sfnt {
-            let data = repaired_loca_format(&data).map_or(data, Arc::from);
-            repaired_loca_order(&data).map_or(data, Arc::from)
+            match repaired_font_program(&data) {
+                Cow::Borrowed(_) => data,
+                Cow::Owned(repaired) => Arc::from(repaired),
+            }
         } else {
             data
         };
@@ -2691,16 +2693,35 @@ fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
     };
 
     let count = be16(4)?;
+    let directory = 12usize.checked_add(usize::from(count).checked_mul(16)?)?;
     let mut tables = BTreeMap::new();
     for index in 0..usize::from(count) {
         let entry = 12usize.checked_add(index.checked_mul(16)?)?;
         let tag = data.get(entry..entry.checked_add(4)?)?.to_vec();
         let offset = usize::try_from(be32(entry.checked_add(8)?)?).ok()?;
         let length = usize::try_from(be32(entry.checked_add(12)?)?).ok()?;
-        tables.insert(tag, (offset, length));
+        // No table begins inside the table directory; see [`sfnt_tables`] for what a font
+        // that says otherwise did to this function.
+        if offset < directory {
+            return None;
+        }
+        // One tag, one table; see [`sfnt_tables`].
+        if tables.insert(tag, (offset, length)).is_some() {
+            return None;
+        }
     }
 
-    let (head, _) = *tables.get(b"head".as_slice())?;
+    let (head, head_length) = *tables.get(b"head".as_slice())?;
+    // **The field must lie inside the table that owns it.** A directory is bytes a document
+    // supplied, so nothing stops one naming a `head` that overlaps the directory itself — and
+    // the patch below writes two bytes at a computed offset. `fuzz/fuzz_targets/sfnt.rs` found
+    // exactly that: a `head` pointing into the table directory, where correcting
+    // `indexToLocFormat` scribbled over a table's *tag* and handed the caller a font whose
+    // directory this repair had damaged. Confining the write to `head`'s own stated extent is
+    // the condition that makes "this rewrites two tables" true rather than intended.
+    if head_length < INDEX_TO_LOC.checked_add(2)? {
+        return None;
+    }
     let stated = be16(head.checked_add(INDEX_TO_LOC)?)?;
     if stated <= 1 {
         return None;
@@ -2757,13 +2778,31 @@ fn be32(data: &[u8], at: usize) -> Option<u32> {
 /// An sfnt's table directory: tag to offset and length.
 fn sfnt_tables(data: &[u8]) -> Option<BTreeMap<Vec<u8>, (usize, usize)>> {
     let count = be16(data, 4)?;
+    let directory = 12usize.checked_add(usize::from(count).checked_mul(16)?)?;
     let mut tables = BTreeMap::new();
     for index in 0..usize::from(count) {
         let entry = 12usize.checked_add(index.checked_mul(16)?)?;
         let tag = data.get(entry..entry.checked_add(4)?)?.to_vec();
         let offset = usize::try_from(be32(data, entry.checked_add(8)?)?).ok()?;
         let length = usize::try_from(be32(data, entry.checked_add(12)?)?).ok()?;
-        tables.insert(tag, (offset, length));
+        // **No table begins inside the table directory.** The directory is bytes a document
+        // supplied and the two repairs *write* at offsets computed from it, so a `head`
+        // pointing at the directory turns "correct `indexToLocFormat`" into "scribble on a
+        // table's tag" — which `fuzz/fuzz_targets/sfnt.rs` produced within a minute of being
+        // seeded with real fonts. Refusing the whole directory rather than the one entry is
+        // deliberate: a font that overlaps itself is not one this can reason about, and
+        // `skrifa`'s own answer for it stands.
+        if offset < directory {
+            return None;
+        }
+        // **A tag names one table.** A directory that repeats one leaves this map holding the
+        // *last* entry while [`rewritten_sfnt`] patches the *first*, so the repair would write
+        // one entry and read another — and `repaired_font_program` would find work to do on
+        // its own output, for ever. The fuzz target's idempotence assertion is what caught it;
+        // refusing the font is the same answer as the overlap above, and for the same reason.
+        if tables.insert(tag, (offset, length)).is_some() {
+            return None;
+        }
     }
     Some(tables)
 }
@@ -2808,6 +2847,31 @@ fn rewritten_sfnt(
     Some(out)
 }
 
+/// Applies both of the sfnt repairs to a font program, returning the bytes to load.
+///
+/// The two are [`repaired_loca_format`] — a byte-swapped `indexToLocFormat` — and
+/// [`repaired_loca_order`] — a `loca` whose offsets do not ascend — and they compose in that
+/// order because the second reads the format the first corrects. Returns the input unchanged
+/// where neither applies, which is every well-formed font.
+///
+/// # Why this is public when `LoadedFont::load` is the only caller in the tree
+///
+/// **A font program is untrusted input and this is a parser over it**, which `CLAUDE.md`
+/// principle 3 says gets fuzzed from its first commit. Both repairs walk a table directory, a
+/// `loca` and a `glyf` taken from bytes a document supplied, and both *rewrite* an sfnt — so the
+/// door they need is one a fuzz target can knock on, and `fuzz/fuzz_targets/sfnt.rs` is what
+/// knocks. The alternative, fuzzing through `LoadedFont::load`, would need a whole `Document`
+/// around every input and would spend nearly all its budget in the parser it already has a
+/// target for.
+#[must_use]
+pub fn repaired_font_program(data: &[u8]) -> Cow<'_, [u8]> {
+    let formatted = repaired_loca_format(data).map_or(Cow::Borrowed(data), Cow::Owned);
+    match repaired_loca_order(&formatted) {
+        Some(ordered) => Cow::Owned(ordered),
+        None => formatted,
+    }
+}
+
 /// Rebuilds a `glyf` and `loca` pair whose offsets do not ascend, returning the corrected bytes.
 ///
 /// # Why a rebuild rather than [`repaired_loca_format`]'s two bytes
@@ -2849,7 +2913,7 @@ fn rewritten_sfnt(
 /// `skrifa`'s own answer stands.
 fn repaired_loca_order(data: &[u8]) -> Option<Vec<u8>> {
     let tables = sfnt_tables(data)?;
-    let (head, _) = *tables.get(b"head".as_slice())?;
+    let (head, head_length) = *tables.get(b"head".as_slice())?;
     let (maxp, _) = *tables.get(b"maxp".as_slice())?;
     let (loca_at, loca_length) = *tables.get(b"loca".as_slice())?;
     let (glyf_at, glyf_length) = *tables.get(b"glyf".as_slice())?;
@@ -2915,6 +2979,11 @@ fn repaired_loca_order(data: &[u8]) -> Option<Vec<u8>> {
         loca.extend_from_slice(&value.to_be_bytes());
     }
     let mut repaired = rewritten_sfnt(data, &tables, &[(b"glyf", rebuilt), (b"loca", loca)])?;
+    // `indexToLocFormat` must lie inside `head`, for `repaired_loca_format`'s reason: the
+    // directory is untrusted and this writes at a computed offset.
+    if head_length < 52 {
+        return None;
+    }
     // The rebuilt `loca` is long whatever the original was, and `head` has to say so.
     let slot = repaired.get_mut(head.checked_add(50)?..head.checked_add(52)?)?;
     slot.copy_from_slice(&1u16.to_be_bytes());
@@ -3686,6 +3755,65 @@ mod truetype_encoding_tests {
         );
         assert_eq!(repaired[glyf_at + 3], 0, "glyph 0 keeps its own bytes");
         assert_eq!(repaired[glyf_at + 10 + 3], 1, "and so does glyph 2");
+    }
+
+    /// A font whose directory overlaps itself is refused rather than repaired.
+    ///
+    /// Both crashers `fuzz/fuzz_targets/sfnt.rs` produced in its first minute, as the smallest
+    /// fonts that reach them. A table directory is bytes a document supplied and both repairs
+    /// *write* at offsets computed from it, so the two structural rules they rely on have to be
+    /// checked rather than assumed: no table begins inside the directory, and no tag is named
+    /// twice.
+    ///
+    /// The first: a `head` pointing at the directory turned "correct `indexToLocFormat`" into
+    /// two bytes written over another table's *tag*. The second: with a tag repeated,
+    /// `sfnt_tables` keeps the last entry and `rewritten_sfnt` patches the first, so the repair
+    /// wrote one and read the other — and `repaired_font_program` found work to do on its own
+    /// output, without end.
+    #[test]
+    fn a_directory_that_overlaps_or_repeats_itself_is_refused() {
+        let sound = || {
+            let mut head = vec![0u8; 54];
+            head.splice(50..52, 1_u16.to_be_bytes());
+            let mut maxp = vec![0u8; 6];
+            maxp.splice(4..6, 2_u16.to_be_bytes());
+            let mut loca = Vec::new();
+            for at in [10u32, 0, 20] {
+                loca.extend_from_slice(&at.to_be_bytes());
+            }
+            let glyf = vec![0u8; 20];
+            vec![
+                (*b"head", head),
+                (*b"maxp", maxp),
+                (*b"loca", loca),
+                (*b"glyf", glyf),
+            ]
+        };
+        // The fixture as built is repairable, which is what makes the two refusals below mean
+        // something rather than pass for want of a repair to make.
+        assert!(repaired_loca_order(&sfnt(&sound())).is_some());
+
+        // `head` moved on top of the directory: 12 + 4 x 16 = 76 bytes of it, and 8 is inside.
+        let mut overlapping = sfnt(&sound());
+        let entry = (0..4)
+            .map(|index| 12 + index * 16)
+            .find(|at| &overlapping[*at..*at + 4] == b"head")
+            .expect("the fixture names head");
+        overlapping[entry + 8..entry + 12].copy_from_slice(&8_u32.to_be_bytes());
+        assert_eq!(
+            repaired_loca_order(&overlapping),
+            None,
+            "a table inside the directory is a font this cannot reason about"
+        );
+
+        // A second `glyf` entry, which is the shape that made the repair non-idempotent.
+        let mut repeated = sound();
+        repeated.push((*b"glyf", vec![0u8; 20]));
+        assert_eq!(
+            repaired_loca_order(&sfnt(&repeated)),
+            None,
+            "one tag names one table"
+        );
     }
 
     /// A composite glyph's length is its component loop, not a fixed size.
