@@ -346,6 +346,19 @@ pub struct LoadedFont {
     /// a character through the Adobe Glyph List, and it is what actually selected the
     /// glyph, so it describes what was drawn rather than what the producer claimed.
     glyph_names: Option<GlyphNames>,
+    /// §9.6.5.2's substitute: the glyph this program itself calls `.notdef`.
+    ///
+    /// > If an encoding maps to a character name that does not exist in the Type 1 font program,
+    /// > the .notdef glyph shall be substituted.
+    ///
+    /// The clause requires every Type 1 program to contain a glyph of that name, and leaves what
+    /// showing it looks like to the font's designer — usually nothing, sometimes a box.
+    ///
+    /// Kept as the program's *own* answer rather than as glyph 0, because the sentence is about
+    /// a glyph with a name and this crate's readers number glyphs themselves. `None` for a
+    /// program that has none, which the NOTE under that sentence leaves implementation
+    /// dependent and which this crate answers by drawing nothing — the picture it drew before.
+    notdef: Option<u16>,
     /// Cached outlines: a page reuses the same few dozen glyphs constantly, and
     /// re-extracting each one would dominate the render.
     outlines: RefCell<BTreeMap<u16, Option<Arc<Path>>>>,
@@ -472,7 +485,6 @@ impl LoadedFont {
         // A descriptor is required of every font except the standard 14, which is exactly
         // the case that most often needs substituting, so its absence is not an error yet.
         let descriptor = descriptor_object.as_dict();
-
         let embedded = match descriptor {
             Some(descriptor) => embedded_program(document, descriptor, name),
             None => Err(FontError::NotEmbedded {
@@ -493,17 +505,12 @@ impl LoadedFont {
             Err(other) => return Err(other),
         };
         let type1 = parsed_type1(program, &data, name)?;
-        let units_per_em = match &type1 {
-            Some(parsed) => parsed.units_per_em().map_err(|e| FontError::Malformed {
-                name: name.to_owned(),
-                detail: e.to_string(),
-            })?,
-            None => units_per_em(&data, program, name)?,
-        };
+        let units_per_em = simple_units_per_em(type1.as_ref(), &data, program, name)?;
 
         // Kept for text extraction: a glyph name is what a code means when a font carries
         // no `/ToUnicode`, which is common in older documents.
         let names;
+        let mut notdef = None; // §9.6.5.2's substitute; only a name-keyed program has one
         let mapping = match (program, substituted) {
             // A substitute shares no glyph order with the font the document meant, so its
             // glyphs are reached by what each code *means* rather than by index.
@@ -535,7 +542,7 @@ impl LoadedFont {
                     });
                 };
                 let (table, resolved) = simple_code_table(document, dict, &keyed, name)?;
-                names = Some(resolved);
+                (names, notdef) = (Some(resolved), keyed.by_name.get(".notdef").copied());
                 CodeMapping::Named(Box::new(table))
             }
             (Program::Type1, None) => {
@@ -550,7 +557,7 @@ impl LoadedFont {
                         detail: e.to_string(),
                     })?;
                 let (table, resolved) = simple_code_table(document, dict, &keyed, name)?;
-                names = Some(resolved);
+                (names, notdef) = (Some(resolved), keyed.by_name.get(".notdef").copied());
                 CodeMapping::Named(Box::new(table))
             }
         };
@@ -580,6 +587,7 @@ impl LoadedFont {
             to_unicode: to_unicode(document, dict),
             collection: None,
             glyph_names: names,
+            notdef,
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
             agl_by_code: OnceCell::new(),
@@ -651,13 +659,7 @@ impl LoadedFont {
         // and read for its scale the same way: a Type 1 program states it in a `/FontMatrix`
         // rather than in an `sfnt` header, so `FontRef` cannot be asked.
         let type1 = parsed_type1(program, &data, name)?;
-        let units_per_em = match &type1 {
-            Some(parsed) => parsed.units_per_em().map_err(|e| FontError::Malformed {
-                name: name.to_owned(),
-                detail: e.to_string(),
-            })?,
-            None => units_per_em(&data, program, name)?,
-        };
+        let units_per_em = simple_units_per_em(type1.as_ref(), &data, program, name)?;
 
         let mapping = if substituted {
             // A CID is meaningless outside the font that defined it — it is an index into
@@ -715,6 +717,8 @@ impl LoadedFont {
                 _ => None,
             },
             glyph_names: None,
+            // A composite font's substitute is §9.7.6.3's CID 0, applied in `glyph_for`.
+            notdef: None,
             widths: composite_widths(document, &descendant),
             default_width,
             extent: vertical_extent(document, descriptor),
@@ -966,9 +970,29 @@ impl LoadedFont {
     ///
     /// Returns `None` when the code has no glyph, which includes the ordinary case of a
     /// space in a font with no space outline.
+    ///
+    /// # §9.6.5.2's `.notdef`, and why it is applied here rather than in the code table
+    ///
+    /// > If an encoding maps to a character name that does not exist in the Type 1 font program,
+    /// > the .notdef glyph shall be substituted.
+    ///
+    /// The condition is exactly what it says: the *encoding named a glyph* and the program does
+    /// not have it. A code the encoding says nothing about is not this sentence's subject and
+    /// still reaches nothing.
+    ///
+    /// It is applied at the drawing step and deliberately not written into the code table,
+    /// because the table is what [`Self::glyph_index`] answers with and three of this project's
+    /// instruments read that answer: `codes_without_a_glyph` counts the codes a page showed that
+    /// reached none (ADR 0152), `simple_code_table` refuses a font whose every code resolved to
+    /// nothing, and the whitespace check tells a blank glyph from an absent one. Substituting in
+    /// the table would tell all three that every unresolved code had been drawn — a `shall`
+    /// obeyed by blinding the gates that watch it.
     #[must_use]
     pub fn outline(&self, code: Code) -> Option<Arc<Path>> {
-        let glyph = self.glyph_for(code)?;
+        let glyph = match self.glyph_for(code) {
+            Some(glyph) => glyph,
+            None => self.notdef.filter(|_| self.substitutes_notdef(code))?,
+        };
 
         if let Some(cached) = self.outlines.borrow().get(&glyph) {
             return cached.clone();
@@ -976,6 +1000,41 @@ impl LoadedFont {
         let built = self.build_outline(glyph);
         self.outlines.borrow_mut().insert(glyph, built.clone());
         built
+    }
+
+    /// Whether §9.6.5.2's substitution applies to `code`.
+    ///
+    /// Two conditions, and the second is a documented departure.
+    ///
+    /// **The clause's own**: the encoding "maps to a character name" — so a code no encoding
+    /// names is not this sentence's subject and still reaches nothing.
+    ///
+    /// **And not for a space.** A subset font routinely omits `space` because it has no marks,
+    /// and a designer's `.notdef` is routinely a box: `PDF-Declarations.pdf`'s bare CFF fonts
+    /// have one of 27 path commands. Obeying the sentence for a code that *means whitespace*
+    /// would put a box where every reader expects a gap, which is trap 1's shape — a confident
+    /// wrong mark rather than an honest absence — and it is the same distinction ADR 0157 drew
+    /// when it exempted a whitespace readback from the missing-glyph count. The clause's
+    /// permission is about a designer choosing what a *missing character* looks like; nobody
+    /// designs the appearance of an absent space.
+    ///
+    /// **Measured before it was written**: over the 974 corpus documents' first pages and the 14
+    /// specification PDFs, applying the substitution changes not one pixel — the oracle's 1794
+    /// verdicts, the corpus's report list and the text gate are all unmoved. So this is a clause
+    /// implemented for the documents that will arrive rather than for the ones already here.
+    fn substitutes_notdef(&self, code: Code) -> bool {
+        let Some(names) = self.glyph_names.as_ref() else {
+            return false;
+        };
+        let encoded = usize::try_from(code.value())
+            .ok()
+            .and_then(|code| names.get(code))
+            .is_some_and(|name| !name.is_empty());
+        let mut meaning = String::new();
+        let whitespace = self.text(code, &mut meaning)
+            && !meaning.is_empty()
+            && meaning.chars().all(char::is_whitespace);
+        encoded && !whitespace
     }
 
     /// The character selector a code resolves to, which for a composite font is a CID.
@@ -3093,6 +3152,30 @@ fn is_bare_cff(data: &[u8]) -> bool {
 /// Done once at load rather than in `build_outline`, because the units per em, the code
 /// mapping and every outline come out of the same parse and that parse is the expensive
 /// one; see [`type1::Program`].
+/// The em square of a simple font's program, from whichever reader parsed it.
+///
+/// A parsed Type 1 program answers from its own `/FontMatrix` and everything else from the
+/// program's header; the two cannot be asked the same way, which is the whole of why this exists
+/// as a function rather than as two lines inside [`LoadedFont::load_simple`].
+///
+/// # Errors
+///
+/// [`FontError::Malformed`] where the program states an em square that cannot be read.
+fn simple_units_per_em(
+    type1: Option<&type1::Program>,
+    data: &[u8],
+    program: Program,
+    name: &str,
+) -> Result<f32, FontError> {
+    match type1 {
+        Some(parsed) => parsed.units_per_em().map_err(|e| FontError::Malformed {
+            name: name.to_owned(),
+            detail: e.to_string(),
+        }),
+        None => units_per_em(data, program, name),
+    }
+}
+
 fn parsed_type1(
     program: Program,
     data: &[u8],
@@ -3467,13 +3550,21 @@ mod tests {
         );
     }
 
-    /// A code the encoding does not cover must have no glyph at all.
+    /// A code the encoding does not cover must reach no glyph, and draw at most `.notdef`.
     ///
     /// This is the regression test for the defect that motivated the work: a CFF font
     /// whose lookup falls through to treating the character code as a glyph index loads
     /// cleanly, reports nothing unsupported, and draws whatever glyph happens to sit at
     /// that index. Every subset font in the corpus has far fewer glyphs than codes, so a
     /// fall-through would show up here as a glyph where there should be none.
+    ///
+    /// **The assertion moved from `outline` to `glyph_index` in the two-hundred-and-eighty-seventh
+    /// session**, when §9.6.5.2's last sentence was implemented: an uncovered code may now draw
+    /// the program's own `.notdef`, so the property that catches the fall-through is the one
+    /// about the *table* — which is also the answer all three of this project's missing-glyph
+    /// instruments read. The second assertion is what keeps that from becoming a hole: every
+    /// outline an uncovered code produces must be the **same** outline, because there is one
+    /// `.notdef` per program and a fall-through would produce a different glyph per code.
     #[test]
     fn an_uncovered_code_has_no_glyph_rather_than_a_guessed_one() {
         let mut fonts_with_gaps = 0usize;
@@ -3488,16 +3579,34 @@ mod tests {
             }
             fonts_with_gaps += 1;
 
+            // Every outline an uncovered code produces, by identity — `outline` caches per
+            // glyph, so one `.notdef` is one pointer however many codes reach it.
+            let mut drawn_by_uncovered: Vec<*const pdf_render::Path> = Vec::new();
             for (code, slot) in table.iter().enumerate() {
                 let Ok(byte) = u8::try_from(code) else {
                     continue;
                 };
+                if slot.is_some() {
+                    continue;
+                }
+                let selector = Code::single_byte(byte);
                 assert!(
-                    slot.is_some() || font.outline(Code::single_byte(byte)).is_none(),
-                    "{file} /{name}: code {code} has no glyph in the encoding but still \
-                     produced an outline"
+                    font.glyph_index(selector).is_none(),
+                    "{file} /{name}: code {code} has no glyph in the encoding but reaches one"
                 );
+                if let Some(drawn) = font.outline(selector) {
+                    let identity = std::sync::Arc::as_ptr(&drawn);
+                    if !drawn_by_uncovered.contains(&identity) {
+                        drawn_by_uncovered.push(identity);
+                    }
+                }
             }
+            assert!(
+                drawn_by_uncovered.len() <= 1,
+                "{file} /{name}: uncovered codes draw {} different glyphs, so this is a \
+                 fall-through rather than one .notdef",
+                drawn_by_uncovered.len()
+            );
         }
 
         assert!(

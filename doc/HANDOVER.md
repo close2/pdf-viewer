@@ -174,8 +174,8 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 377 | every normative requirement in the clause is executed |
-| `partial` | 237 | some are; the note says which are not |
+| `implemented` | 378 | every normative requirement in the clause is executed |
+| `partial` | 236 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
 | `inapplicable` | 86 | a marking device, a layout engine, a production workflow |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
@@ -2694,3 +2694,4 @@ above rather than here.
 | 284 | So the invented font names the glyph: `/Differences [1 /aogonek]`, and poppler reads back *Zacznik* | 0184 |
 | 285 | Everything re-verified after eleven rounds: eight fuzzers, `deny`, the seven gates, the window | — |
 | 286 | Two more off the ambiguous tail, both into groups that already existed: an image and a border | — |
+| 287 | §9.6.5.2's last sentence: `.notdef` substituted where an encoding names a glyph the program lacks | — |
