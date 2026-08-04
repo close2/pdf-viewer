@@ -188,3 +188,48 @@ tree's rule is that a bare `§` means one document, and the brief never said so.
 Settled from both ends: the citations now read `RENDER_LIBRARY.md section 4.5`, and the
 conformance checker was taught to say what is wrong when a project document's name precedes a
 `§` — so the next person to write one is told rather than left to guess.
+
+---
+
+## 7. A refused frame wedges the surface — **open, and this side's own defect is fixed**
+
+**The report, from a person using the viewer:** dragging a selection across a page made the window
+stop answering, and a resize sometimes recovered it.
+
+**Half of it was ours** and is fixed (ADR 0176): the host drew one `Multiply` fill per selection
+quad, quorra gives every non-`Over` blend its own compositor layer, and
+`compose::internal_texture_bytes` prices them all before allocating any. The refusal's arithmetic
+is exact —
+
+```text
+(63 + 1) × 2 × 800 × 1000 × 4 = 409 600 000     the number the refusal printed
+```
+
+— so a selection quad cost 6.4 MB of frame budget and 63 of them, one short paragraph of text,
+spent the 256 MiB. One fill of one path with one subpath per quad draws the same pixels for two
+layers instead of sixty-four. **No complaint about the pricing**: counting before allocating is
+§5, the message named both numbers, and this side was asking for something absurd.
+
+**The other half is not ours, and it is the one the report was about.** After the refusal, every
+subsequent present blocked for **exactly one second** and returned `SurfaceProblem::Timeout`, for
+ever. The process sits at 4% CPU, so it is blocked rather than spinning.
+
+Reading `quorra-gpu` at `3f45555` names a mechanism, and this side offers it as a reading rather
+than as a diagnosis it has instrumented:
+
+- `Device::render` calls `bind_target` — which for `Target::Surface` **acquires the swapchain
+  texture** — and only then prices the compositor's internal textures and returns
+  `RenderError::FrameBudgetExceeded`. So a refused frame drops a `wgpu::SurfaceTexture` that was
+  never presented. `wgpu` discards it on drop, but the acquire semaphore was never waited on by
+  any submission, which is the shape that exhausts a Vulkan swapchain.
+- `Surface::acquire` sets `needs_reconfigure` for `Suboptimal` and `Outdated` and **not for
+  `Timeout`**, so nothing ever reconfigures the surface again. A host resize changes the
+  configured size and reconfigures, which is exactly why a resize recovers the window.
+
+**What would settle it from this side of the boundary**: pricing the frame *before* binding the
+target, so a refusal costs no acquire at all. §5 already says count then allocate; the surface
+texture is the one allocation that happens first. Failing that, `Timeout` setting
+`needs_reconfigure` would at least make the wedge recoverable without a resize.
+
+**What this side owes**: a host that stays answering whatever the device says. That is
+`doc/todo/13`'s second item and it is not blocked on any of the above.

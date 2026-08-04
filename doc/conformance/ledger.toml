@@ -2973,7 +2973,7 @@ title = "Separable blend modes"
 status = "implemented"
 code = ["crates/pdf-render/src/lib.rs", "crates/render-cpu/src/lib.rs"]
 test = ["crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows"]
-note = "Table 134's twelve separable modes, each a function `B(cb, cs)` applied per component. One of them is load-bearing outside transparency: §12.5.6.10's highlight is a wash that must leave the text under it readable, and `Multiply` is the mode whose \"result colour is always at least as dark as either of the two constituent colours\" — the standard's own guarantee that what was under the wash survives it (ADR 0043)."
+note = "Table 134's twelve separable modes, each a function `B(cb, cs)` applied per component. One of them is load-bearing outside transparency, in two places: §12.5.6.10's highlight is a wash that must leave the text under it readable, and `Multiply` is the mode whose \"result colour is always at least as dark as either of the two constituent colours\" — the standard's own guarantee that what was under the wash survives it (ADR 0043). **The host's own selection wash is the second** and is not a clause at all: `viewer-ui` draws `Query::Selection`'s quads under the same mode for the same reason, and since the two-hundred-and-fifty-second session under *one* layer, because a backend that gives every non-`Over` blend its own compositor layer prices a fill per quad at 6.4 MB of frame budget each (ADR 0176)."
 
 [[clause]]
 clause = "11.3.5.3"

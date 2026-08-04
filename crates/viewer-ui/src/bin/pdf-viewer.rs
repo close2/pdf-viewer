@@ -987,6 +987,38 @@ impl App {
     /// recorded the page as shown, never asked again, and the window kept the previous page under
     /// a title bar naming the new one. A person looking at the window saw a page that would not
     /// change and no reason why. Trap 5, on a path a person reaches with an arrow key.
+    /// The selection's shapes, in the window's own pixels, or `None` when nothing is selected.
+    ///
+    /// Interactive chrome crosses as geometry, not pixels: the core hands over the shapes and this
+    /// host draws them in its own colour. A native one would use macOS's selection colour, KDE's
+    /// accent or the Windows highlight brush; this one has no theme to ask, so it picks a blue and
+    /// says so.
+    fn selection_list(
+        &self,
+        edge: f32,
+        width: u32,
+        height: u32,
+    ) -> Option<pdf_render::DisplayList> {
+        let mut quads = match self.viewer.query(Query::Selection) {
+            Answer::Selected(selection) => selection.quads,
+            _ => Vec::new(),
+        };
+        // The quads are device pixels of the *page's* viewport, which begins where the panel
+        // ends. One addition here rather than a second coordinate space in the core.
+        for quad in &mut quads {
+            for x in quad.iter_mut().step_by(2) {
+                *x += edge;
+            }
+        }
+        if self.trace {
+            // The number every part of `doc/todo/13` turned on: the frame the compositor refused
+            // was 63 quads, and a present cost 1.9 ms a quad before it. Kept in the tree so that
+            // a selection's cost stays visible rather than being rediscovered.
+            eprintln!("trace: SELECTION quads {}", quads.len());
+        }
+        highlight_list(&quads, width, height)
+    }
+
     fn present(&mut self) -> Option<Rendered> {
         let request = self.request.clone()?;
         // Where the page sits in the window: the core centres it and scrolls it, and the host
@@ -1013,26 +1045,11 @@ impl App {
                 .then(Transform::translate(origin.0 + edge, origin.1)),
         };
 
-        // Interactive chrome crosses as geometry, not pixels: the core hands over the shapes and
-        // this host draws them in its own colour. A native one would use macOS's selection
-        // colour, KDE's accent or the Windows highlight brush; this one has no theme to ask, so
-        // it picks a blue and says so.
-        let mut highlight = match self.viewer.query(Query::Selection) {
-            Answer::Selected(selection) => selection.quads,
-            _ => Vec::new(),
-        };
-        // The quads are device pixels of the *page's* viewport, which begins where the panel
-        // ends. One addition here rather than a second coordinate space in the core.
-        for quad in &mut highlight {
-            for x in quad.iter_mut().step_by(2) {
-                *x += edge;
-            }
-        }
         let chrome = Overlays {
             panel: self.panel_list(height),
             about: self.about_list(width, height),
         };
-        let selection = highlight_list(&highlight, width, height);
+        let selection = self.selection_list(edge, width, height);
         // Selection first (it belongs to the page), then the sidebar, then the
         // modal card on top — the same order the Vello host drew them in.
         let mut overlays: Vec<&pdf_render::DisplayList> = Vec::new();
@@ -1492,9 +1509,20 @@ fn at(cursor: (f64, f64)) -> (f32, f32) {
 /// The quadrilaterals arrive from `viewer-core` in device pixels of this window, so nothing here
 /// composes a transform: that is the whole point of chrome crossing as geometry rather than as
 /// pixels. Drawn with `Multiply`, which darkens what is under it and leaves the glyphs readable —
-/// the behaviour a person expects of a highlighter and the one a plain alpha blend does not give.
-/// A native host asks its platform for the colour; this one has nobody to ask, and a hard-coded
-/// blue that says so is better than one that pretends.
+/// §11.3.5.2 makes it the one mode whose "result colour is always at least as dark as either of
+/// the two constituent colours", so the text under the wash survives it. A native host asks its
+/// platform for the colour; this one has nobody to ask, and a hard-coded blue that says so is
+/// better than one that pretends.
+///
+/// **One fill, one subpath per quad**, and the count matters rather than the shape: a compositor
+/// gives every non-`Over` blend its own layer and prices its internal textures before allocating
+/// them, so a fill per quad made a selection cost `(quads + 1) × 2 × width × height × 4` bytes of
+/// frame budget — 6.4 MB a quad at 800 × 1000, spending a 256 MiB budget at 63 quads, which is one
+/// short paragraph. Under one layer the cost stops depending on what is selected at all. The
+/// per-quad blend it replaces was preserving something nobody wants: `Query::Selection` answers
+/// one quad per *run*, runs tile rather than overlap, and the two overlapping pairs out of 171
+/// measured on three lines of `tracemonkey.pdf` overlap by 0.28 and 0.17 of a device pixel. Under
+/// the non-zero rule one path is one shape, so those slivers stop darkening twice as well.
 fn highlight_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_render::DisplayList> {
     if quads.is_empty() {
         return None;
@@ -1505,8 +1533,8 @@ fn highlight_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_ren
     )]
     let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
     let colour = Color::rgb(140.0 / 255.0, 180.0 / 255.0, 1.0);
+    let mut path = Path::new();
     for quad in quads {
-        let mut path = Path::new();
         for (index, corner) in quad.chunks_exact(2).enumerate() {
             let point = Point::new(corner[0], corner[1]);
             path.push(if index == 0 {
@@ -1516,18 +1544,16 @@ fn highlight_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_ren
             });
         }
         path.push(PathCommand::Close);
-        // One fill per quad, as the Vello host drew them: overlapping quads
-        // darken twice, which is what overlapping selections look like.
-        list.push(DrawCommand::Fill {
-            path: Arc::new(path),
-            transform: Transform::IDENTITY,
-            fill_rule: FillRule::NonZero,
-            paint: Paint::Solid(colour),
-            clip: None,
-            mask: None,
-            blend: BlendMode::Multiply,
-        });
     }
+    list.push(DrawCommand::Fill {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(colour),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Multiply,
+    });
     Some(list)
 }
 

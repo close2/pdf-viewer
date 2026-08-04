@@ -193,7 +193,7 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
-| **A selection past 63 quads is refused and the window then blocks a second a frame** | every document with text | [todo 13](todo/13-a-selection-costs-a-layer-a-quad.md) |
+| **A frame the device refuses leaves the window blocking a second a present** | — | [todo 13](todo/13-a-selection-costs-a-layer-a-quad.md) |
 | A substitute with no glyph for a character; one that cannot be addressed; **24 codes over 8 documents that reach no glyph in silence** | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
@@ -2553,3 +2553,4 @@ above rather than here.
 | 249 | Everything re-verified after eighteen rounds: eight fuzzers, `deny`, the six gates and the window | — |
 | 250 | Twenty rounds' worth of prose brought up to date, and what the twenty had in common | — |
 | 251 | A selection costs a compositor layer a quad: reproduced, measured to the byte, not fixed | — |
+| 252 | And it costs one now, whatever is selected: 268 quads in 16.5 ms, from a refusal at 63 | 0176 |
