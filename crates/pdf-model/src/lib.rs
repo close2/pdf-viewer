@@ -62,6 +62,7 @@ pub mod shading;
 pub mod signature;
 mod soft_mask;
 pub mod structure;
+pub mod tab_order;
 pub mod thumbnail;
 pub mod type3;
 pub mod uri;

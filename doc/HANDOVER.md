@@ -134,8 +134,8 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 
 | gate | number | where |
 |---|---|---|
-| tests | **1007** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run in the **two-hundred-and-ninety-fourth**, the round that read §14.3.2: `deny`, `fmt`, `clippy`, all **nine** fuzzers, and every one of the seven corpus gates plus the new §14.3.2 one |
-| — | **1007 was 1004 was 996; the three are §14.8.2.5's range map and its two callers, and the eight before them were one round's: §14.3.2's reader, its corpus gate and the two consumers it broke.** Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
+| tests | **1011** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run in the **two-hundred-and-ninety-fourth**, the round that read §14.3.2: `deny`, `fmt`, `clippy`, all **nine** fuzzers, and every one of the seven corpus gates plus the new §14.3.2 one |
+| — | **1011 was 1007 was 1004 was 996; the three are §14.8.2.5's range map and its two callers, and the eight before them were one round's: §14.3.2's reader, its corpus gate and the two consumers it broke.** Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **885 draw with nothing reported**, **74 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1682** we call complete: **856 agree**, **68 contradicted**, 749 ambiguous — **657 of them diagnosed and 92 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 931 of 23 349), **36** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
@@ -454,7 +454,7 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   trip**, which is why the second channel is not a command.
 - `Command`: `Open { id, bytes, password }`, `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
-  `Select`, `Edit(Edit)`, `Undo`, `Redo`, `Save`, **`Extract { name }`**,
+  `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)`, `Undo`, `Redo`, `Save`, **`Extract { name }`**,
   `Supply { purpose, bytes }`, `Tick { millis }`, `RenderReady { token, rendered }`. **`Activate` is what a panel row sends** — the object, not a
   payload, so the *document* decides what activating it means (ADR 0144).
 - `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
@@ -1252,7 +1252,7 @@ binaries. The hundred-and-forty-second session was reported as "still lags" agai
 hours and six commits old, one of which was the 40× page-turn fix. A stale executable is a
 measurement of the past.
 
-Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom, the up and down
+Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom, **Tab and shift-Tab walk the page's annotations in the order Table 31's `/Tabs` states** (§12.5.1, all five values), the up and down
 arrows scroll a page larger than the window, the wheel scrolls whatever is under it and
 **Ctrl + the wheel magnifies the page about the pointer** (ADR 0166), **`o` shows
 the sidebar** — three tabs: §12.3.3's outline, where a click on a title goes there and a click on
@@ -2710,3 +2710,4 @@ above rather than here.
 | 294 | §14.3.2's XMP, 319 documents' worth: an XML parser taken, fuzzed, and `dc:title` in the title bar at last | 0186 |
 | 295 | The sweep over the noun round 294 had just corrected — and §14.3.4, `inapplicable` on two capabilities that arrived a hundred and twenty sessions ago | — |
 | 296 | §14.8.2.5's logical order reaches a selection at last: the clause had a reader for 140 sessions and no caller | — |
+| 297 | Table 31's `/Tabs`: all five navigation orders, and the key §12.5.1 names bound to them | — |

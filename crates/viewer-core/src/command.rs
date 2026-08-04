@@ -137,6 +137,26 @@ pub enum Command {
     ///
     /// A drag is [`Self::Pointer`]'s business; this is what a menu item or a keystroke asks for.
     Select(Selection),
+    /// §12.5.1: move the input focus to the next or previous annotation on the page.
+    ///
+    /// > Interactive PDF processors may permit the user to navigate through the annotations on a
+    /// > page by using the keyboard (in particular, the tab key).
+    ///
+    /// The *order* is the document's — Table 31's `/Tabs`, all five values, in
+    /// `pdf_model::tab_order` — and the *key* is the host's, because the clause names a key and
+    /// this crate has no keyboard. What crosses is the direction, which is the only part of it
+    /// that is neither.
+    ///
+    /// Raises §12.6.3's `/Bl` on whatever held the focus and `/Fo` on whatever receives it, which
+    /// is the same pair a press raises and in the same order — Table 197 states one thing losing
+    /// the focus before the next receives it.
+    ///
+    /// **Widgets are not the only annotations this visits**, unlike a press. §12.5.1 says "the
+    /// annotations on a page" without qualification and Table 31's `W` exists precisely to name
+    /// the *narrower* order, so a tab that skipped a link would be reading a rule the clause does
+    /// not state. Table 197's `/Fo` and `/Bl` still fire only for widgets, because that table
+    /// says so.
+    Focused(FocusMove),
     /// Activate an object the host is showing outside the page — §12.3.3's outline item.
     ///
     /// The clause: "[c]licking the text of any visible item activates the item, causing the
@@ -266,6 +286,17 @@ pub enum Selection {
     /// Everything the page reads back as.
     All,
     /// Nothing.
+    None,
+}
+
+/// Which way [`Command::Focused`] moves through §12.5.1's order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusMove {
+    /// The next annotation, wrapping to the first at the end. What the tab key means.
+    Next,
+    /// The previous one, wrapping to the last. What shift-tab means.
+    Previous,
+    /// Nothing focused, which is what a click outside every annotation already does.
     None,
 }
 

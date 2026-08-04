@@ -58,8 +58,8 @@ use pdf_render::{
 use render_cpu::CpuRasterizer;
 use render_quorra::{PresentFrame, QuorraPresenter};
 use viewer_core::{
-    Answer, Command, DocumentId, Event, PageTarget, PointerAction, Purpose, Query, RenderRequest,
-    Rendered, Selection, Viewer, Zoom,
+    Answer, Command, DocumentId, Event, FocusMove, PageTarget, PointerAction, Purpose, Query,
+    RenderRequest, Rendered, Selection, Viewer, Zoom,
 };
 use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar, Tab};
 use winit::application::ApplicationHandler;
@@ -330,6 +330,7 @@ fn main() {
         cursor: (0.0, 0.0),
         dragging: false,
         control: false,
+        shift: false,
         pinch: 0.0,
         dirty: false,
         attempts: 0,
@@ -443,6 +444,9 @@ struct App {
     /// host that wants to know has to remember. Ctrl + wheel is a convention rather than a
     /// clause, and it is the one every desktop viewer has converged on. ADR 0166.
     control: bool,
+    /// Whether shift is held, which is the only thing that distinguishes §12.5.1's tab from
+    /// its shift-tab: winit reports one key for both.
+    shift: bool,
     /// A touchpad's accumulated pixels, spent one zoom step at a time.
     ///
     /// A wheel notch arrives as a line and a touchpad's pinch as a stream of pixels; sixteen
@@ -1545,7 +1549,7 @@ impl ApplicationHandler for App {
                 if self.about.shown {
                     return;
                 }
-                let Some(command) = key_command(&logical_key.as_ref()) else {
+                let Some(command) = key_command(&logical_key.as_ref(), self.shift) else {
                     return;
                 };
                 self.dispatch(command);
@@ -1609,6 +1613,7 @@ impl ApplicationHandler for App {
             // the wheel's own event.
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.control = modifiers.state().control_key();
+                self.shift = modifiers.state().shift_key();
             }
 
             WindowEvent::RedrawRequested => self.redraw_requested(),
@@ -1622,8 +1627,17 @@ impl ApplicationHandler for App {
 ///
 /// One place rather than an arm apiece inside the event handler, because this is the whole of
 /// this program's key bindings and a reader looking for them should find them together.
-fn key_command(key: &Key<&str>) -> Option<Command> {
+fn key_command(key: &Key<&str>, shift: bool) -> Option<Command> {
     Some(match *key {
+        // §12.5.1 names this key: "[i]nteractive PDF processors may permit the user to navigate
+        // through the annotations on a page by using the keyboard (in particular, the tab key)".
+        // The *order* is the document's, in `pdf_model::tab_order`; shift is the only thing that
+        // separates the two directions, because winit reports one key for both.
+        Key::Named(NamedKey::Tab) => Command::Focused(if shift {
+            FocusMove::Previous
+        } else {
+            FocusMove::Next
+        }),
         Key::Named(NamedKey::ArrowRight | NamedKey::PageDown | NamedKey::Space) => {
             Command::GoTo(PageTarget::Next)
         }
@@ -1735,6 +1749,7 @@ fn describe_command(command: &Command) -> String {
         Command::Extract { name } => format!("extract {name:?}"),
         Command::Pointer { at, action } => format!("pointer {action:?} at {at:?}"),
         Command::Select(what) => format!("select {what:?}"),
+        Command::Focused(move_to) => format!("focus {move_to:?} annotation"),
         Command::Edit(edit) => format!("edit {edit:?}"),
         Command::Undo => "undo".to_owned(),
         Command::Redo => "redo".to_owned(),

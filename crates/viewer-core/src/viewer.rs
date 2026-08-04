@@ -267,6 +267,7 @@ impl Viewer {
                 };
                 events.push(damage(viewport));
             }
+            Command::Focused(move_to) => self.move_focus(move_to, events),
             Command::SetGroup { group, on } => {
                 let Some(open) = self.focused_mut() else {
                     return;
@@ -784,6 +785,66 @@ impl Viewer {
             text,
             quads: self.device_quads(open, (from, to)),
         })
+    }
+
+    /// §12.5.1's tab order, applied: the focus moves to the next or previous annotation.
+    ///
+    /// The order is `pdf_model::tab_order::order`, which is Table 31's `/Tabs` and all five of
+    /// its values; what is decided *here* is the two things the clause leaves to an interface —
+    /// that the move wraps, and that §12.6.3's `/Bl` and `/Fo` are raised in Table 197's own
+    /// order, one thing losing the focus before the next receives it, exactly as a press does.
+    ///
+    /// **`/Fo` and `/Bl` still fire for widgets only**, because Table 197 says so of both, while
+    /// the *focus itself* moves through every annotation the page has, because §12.5.1 says "the
+    /// annotations on a page" without qualification and Table 31's `W` exists to name the
+    /// narrower order.
+    fn move_focus(&mut self, move_to: crate::command::FocusMove, events: &mut Vec<Event>) {
+        let (Some(id), Some(open)) = (self.focused, self.focused_mut()) else {
+            return;
+        };
+        let wants = match move_to {
+            crate::command::FocusMove::None => None,
+            direction => {
+                let Some(page) = open.shown_page() else {
+                    return;
+                };
+                let Some(page_id) = pdf_model::Pages::new(&open.document)
+                    .indices()
+                    .into_iter()
+                    .find(|(_, index)| *index == open.page_index)
+                    .map(|(object, _)| object)
+                else {
+                    return;
+                };
+                let order = pdf_model::tab_order::order(&open.document, page, page_id);
+                match direction {
+                    crate::command::FocusMove::Previous => {
+                        pdf_model::tab_order::previous(&order, open.focus)
+                    }
+                    _ => pdf_model::tab_order::next(&order, open.focus),
+                }
+            }
+        };
+        if open.focus == wants {
+            return;
+        }
+        let mut raised = Vec::new();
+        raised.extend(
+            open.focus
+                .filter(|left| is_widget(&open.document, *left))
+                .map(|left| (left, Trigger::Blur)),
+        );
+        raised.extend(
+            wants
+                .filter(|got| is_widget(&open.document, *got))
+                .map(|got| (got, Trigger::Focus)),
+        );
+        open.focus = wants;
+        let viewport = self.viewport;
+        self.raise(id, raised, events);
+        // A focus ring is chrome the host draws, so what changed is the viewport rather than the
+        // page — the same statement a selection makes, and for the same reason.
+        events.push(damage(viewport));
     }
 
     /// The selection in §14.8.2.5's logical content order, where the page states one.

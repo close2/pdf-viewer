@@ -140,9 +140,14 @@ pub(crate) struct Open {
     /// this is the choice every pointing interface makes — the same shape as "a press dragged
     /// off a link does not activate it", which this crate already decides for itself and says so.
     ///
-    /// Widgets only, because Table 197 says so of both entries. What is *not* decided here is a
-    /// keyboard tab order: Table 31's `/Tabs` gives a page one and this program has no key that
-    /// moves between fields, so focus moves by pointer alone and §12.5.1's row says the rest.
+    /// Widgets only *for the events*, because Table 197 says so of both entries. The focus itself
+    /// moves through every annotation the page has, because §12.5.1 says "the annotations on a
+    /// page" without qualification.
+    ///
+    /// **And it moves by keyboard as well since the two-hundred-and-ninety-seventh session.**
+    /// This comment said "this program has no key that moves between fields, so focus moves by
+    /// pointer alone"; `Command::Focused` is that key's message and `pdf_model::tab_order` is
+    /// Table 31's `/Tabs`, all five values.
     pub(crate) focus: Option<ObjectId>,
     /// §12.7.6.4's import, waiting for the host to supply the file.
     pub(crate) importing: Option<ImportData>,

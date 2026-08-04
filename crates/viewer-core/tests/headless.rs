@@ -21,8 +21,8 @@ use std::path::{Path, PathBuf};
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, PageTarget, PointerAction, Query, Rendered,
-    Selection, Viewer, Zoom,
+    Answer, Command, DocumentId, Edit, Event, FocusMove, PageTarget, PointerAction, Query,
+    Rendered, Selection, Viewer, Zoom,
 };
 
 /// A document committed in `doc/`, which every checkout has.
@@ -755,6 +755,78 @@ fn a_drag_across_a_line_selects_what_it_crossed() {
     ours.sort_unstable();
     theirs.sort_unstable();
     assert_eq!(ours, theirs, "the same characters, whatever the order");
+}
+
+/// §12.5.1's tab key: the focus walks the page's annotations and wraps.
+///
+/// > Interactive PDF processors may permit the user to navigate through the annotations on a page
+/// > by using the keyboard (in particular, the tab key).
+///
+/// The clause names a key this crate does not have, so what crosses is the *direction*; the order
+/// is the document's (Table 31's `/Tabs`, `pdf_model::tab_order`) and the wrap is this crate's
+/// choice. What is asserted here is the part `pdf-model`'s own fixture cannot see: that the focus
+/// is state the viewer keeps, that moving it is a change to the *viewport* and not to the page —
+/// a focus ring is chrome the host draws — and that a document with no annotations is unmoved.
+#[test]
+fn the_tab_key_walks_the_pages_annotations() {
+    let Some(bytes) = corpus_bytes("160F-2019.pdf") else {
+        println!("the pdf.js submodule is not checked out; skipping");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<_> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    // A tab with nothing focused takes the first annotation, and it is a viewport change rather
+    // than a render: nothing about the page's own marks moved.
+    let events: Vec<_> = viewer.handle(Command::Focused(FocusMove::Next)).collect();
+    assert!(
+        events.iter().any(|event| matches!(event, Event::Damage(_))),
+        "a focus ring is chrome, so the viewport changed: {events:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "and the page did not have to be drawn again: {events:?}"
+    );
+
+    // Walking forward and back returns to where it started, whatever the order is — the property
+    // that holds for all five of Table 31's values and needs none of them named.
+    let steps = 5;
+    for _ in 0..steps {
+        viewer
+            .handle(Command::Focused(FocusMove::Next))
+            .for_each(drop);
+    }
+    for _ in 0..steps {
+        viewer
+            .handle(Command::Focused(FocusMove::Previous))
+            .for_each(drop);
+    }
+    let after = viewer.handle(Command::Focused(FocusMove::Next)).count();
+    assert!(
+        after > 0,
+        "the walk came back to a position the next tab can move off"
+    );
+
+    // And clearing it is a move like any other, which a press outside every annotation already
+    // does — so a host binding Escape to it needs no second message.
+    viewer
+        .handle(Command::Focused(FocusMove::None))
+        .for_each(drop);
+    assert_eq!(
+        viewer.handle(Command::Focused(FocusMove::None)).count(),
+        0,
+        "clearing a cleared focus changed nothing, so it said nothing"
+    );
 }
 
 /// §14.8.2.5 answers nothing when there is nothing selected, on any document.
