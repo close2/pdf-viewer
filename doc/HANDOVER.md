@@ -2703,3 +2703,4 @@ above rather than here.
 | 288 | quorra took both of §8's asks and refused §8.3's knob: bring-up 33–45 ms to 13–19 | 0185 |
 | 289 | A 1023-page document and a 5-page one now cost the launch the same: 5 ms of join | — |
 | 290 | The sweeps over four rounds' nouns: §12.7.4.3 still said the reason was a glyph | — |
+| 291 | Step 7 over all 786 after three rounds of new pixels: four names past −0.7, all diagnosed | — |

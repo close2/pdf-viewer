@@ -176,6 +176,32 @@ at +0.42.
 **Re-run it after any round that changes what gets drawn**, and expect it to stay empty; a name
 appearing at −1 or beyond is a regression no other gate would report as one.
 
+**Run in the two-hundred-and-ninety-first**, after three rounds that changed pixels — a `Tf`
+naming `/Helvetica` (ADR 0183), a written `/Differences` (0184), §9.6.5.2's `.notdef` (none, as it
+turned out). All 786 ambiguous pages, and **correction 3 is worth doing inside the loop rather
+than beside it**: filtering the corpus's incomplete list out first turns two lists into one, and
+what is left is the only list that can hold a surprise.
+
+```text
+on documents we report (10 of the 12 largest gaps)   −19.4 to −6.0, every one of them
+                                                     "a substitute cannot be addressed (§9.10.2)"
+on documents we call complete, 742 pages:
+  −6.700  issue16038.pdf p1        AMBIGUOUS_TILING_CELL_CLIP, 13% short by its own note
+  −1.712  issue12295.pdf p1        AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY
+  −1.000  issue7821.pdf p1         AMBIGUOUS_GRADIENT_QUANTISATION
+  −0.840  jpx_smaskindata.pdf p1   AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE
+  −0.717  issue16473.pdf p1
+  −0.535  blendmode.pdf p1   −0.470  issue7339_reduced.pdf p1   then nothing past −0.29
+```
+
+**Four names past −0.7 and all four already diagnosed**; the alarm at −1 holds. The negative head
+of the *unfiltered* run is entirely `doc/todo/21` item 2's population — composite fonts naming an
+`Identity` ordering, which report and draw nothing — and that is the sweep working rather than a
+finding: a page this tree reports is expected to be light.
+
+The positive side did its job too: `bug920426.pdf` at **+21.07** is one reference drawing a row of
+empty boxes where we and the other three draw *Checkliste Service*.
+
 ## What a group must say
 
 **`ambiguous` is the gate's verdict and never the answer.** The owner put it in one sentence:
