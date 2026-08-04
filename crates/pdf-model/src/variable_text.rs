@@ -110,6 +110,14 @@ pub(crate) enum Owed {
     FontNotInResources(String),
     /// The named font could not be loaded, or is one this crate cannot address by character.
     FontUnusable(String),
+    /// `/DR` defines no font under the `/DA`'s name, **and** the one stood in for it cannot
+    /// encode the value. Both halves, because either alone misnames what happened.
+    InventedFontFellShort {
+        /// The `/DA`'s font name, which `/DR` does not define.
+        name: String,
+        /// The characters the stand-in states no code for.
+        characters: String,
+    },
     /// The value contains characters the font states no code for, so they cannot be shown.
     CharactersNotInFont(String),
     /// The value is longer than [`MAX_CODES`] and the rest is not laid out.
@@ -136,6 +144,11 @@ impl Owed {
                  does not define"
             ),
             Self::FontUnusable(detail) => format!("its /DA's font is unusable: {detail}"),
+            Self::InventedFontFellShort { name, characters } => format!(
+                "its /DA names the font /{name}, which the interactive form dictionary's /DR \
+                 does not define, and the standard font stood in for it states no code for \
+                 {characters} — so the value is not drawn at all rather than in part"
+            ),
             Self::CharactersNotInFont(characters) => {
                 format!("its value contains {characters}, for which its /DA's font states no code")
             }
@@ -187,6 +200,12 @@ fn resolve_font(
         // A name that *conventionally* denotes one of §9.6.2.2's fourteen is not a stand-in
         // for reporting purposes: this binary carries that font program, so the value is drawn
         // in the face the name means. See [`STANDARD_ABBREVIATIONS`].
+        // A name that is *itself* one of §9.6.2.2's fourteen is the same case a fortiori, and
+        // §7.8.3's route into it is ADR 0183 — a `Tf` in a stream whose resources define nothing.
+        // The two questions are one question and this is where they meet.
+        None if pdf_font::standard::is_standard_name(name) => {
+            (substituted_font(name), Resolution::Abbreviated)
+        }
         None => match standard_abbreviation(name) {
             Some(standard) => (substituted_font(standard), Resolution::Abbreviated),
             None => (substituted_font(name), Resolution::StoodIn),
@@ -390,7 +409,19 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         // refusal leaves. Where the *document* names the font, a code it lacks is reported and
         // the rest is drawn, because there the shortfall is the document's own choice; here it
         // is ours, and the only honest thing an invention can do is decline.
-        return Err(Owed::FontNotInResources(font_name));
+        //
+        // **What it declines with names both halves**, since the two-hundred-and-eighty-third
+        // session. `FontNotInResources` alone said the document had not defined the name — true,
+        // and by itself misleading twice over: since the two-hundred-and-fifty-eighth a `/Helv`
+        // *is* drawn from the binary, so the undefined name is no longer what stops the value;
+        // and `bug1865341.pdf`'s value is *Załącznik*, whose `ł` and `ą` are in Liberation Sans
+        // and in neither §9.6.5.2 encoding a simple font may use. The reason is the **encoding**
+        // rather than the face, and a report that does not say so sends the next session looking
+        // in the wrong place. `doc/todo/22` holds what closing it would take.
+        return Err(Owed::InventedFontFellShort {
+            name: font_name,
+            characters: runs.missing,
+        });
     }
     let mut owed = if resolution == Resolution::StoodIn {
         // Named ahead of the two below: a value laid out in a font the document did not name

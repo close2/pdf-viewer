@@ -2690,3 +2690,4 @@ above rather than here.
 | 280 | The first frame pays 12 ms the tenth does not, and a 1 s sleep proves it is not the shaders | — |
 | 281 | The document opens *beside* the window: nothing the window needs has ever looked at a PDF | 0182 |
 | 282 | A `Tf` naming `/Helvetica` with an empty resource dictionary: the standard says the name means something | 0183 |
+| 283 | A refused value's report named the wrong half: `Załącznik` is missing a *code*, not a glyph | — |
