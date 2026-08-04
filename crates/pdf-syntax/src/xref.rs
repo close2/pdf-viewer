@@ -100,18 +100,29 @@ impl XrefTable {
         self.recovered_by_scan
     }
 
-    /// Adds an entry if the object number is not already known.
+    /// Files every section's entries at once, the first writer of each number winning.
     ///
-    /// First writer wins, which is what makes the layered read order correct: the newest
-    /// cross-reference section is read first, and older sections must not overwrite it.
+    /// **The read order carries §7.5.6's rule and this preserves it.** Sections are read newest
+    /// first, so for one object number the entry that appears earliest in `entries` is the most
+    /// recent copy — which is what "the most recent copy of each object shall be the one accessed
+    /// from the PDF file" means for a reader. A stable sort keeps that order among equal numbers
+    /// and `dedup_by_key` keeps the first of each run, so the rule is stated once for a whole
+    /// file rather than once per entry. A `None` is a *free* entry and is kept rather than
+    /// dropped, which is the point rather than an artefact: an update that **deletes** an object
+    /// writes a free entry over an in-use one, so a table that dropped free entries would let the
+    /// older section's offset win and resurrect the object.
     ///
-    /// `location` is `None` for a free entry, and recording that is the point rather than an
-    /// artefact of the signature. §7.5.6 says "the most recent copy of each object shall be the
-    /// one accessed from the PDF file"; an update that *deletes* an object writes a free entry
-    /// over an in-use one, so dropping free entries here would let the older section's offset
-    /// win and resurrect the object.
-    fn add(&mut self, number: u32, location: Option<Location>) {
-        self.entries.entry(number).or_insert(location);
+    /// **Measured, and it is why this is not an `insert` per entry.** ISO 32000-2 has 101 318 of
+    /// them, and one searched insert apiece was **40% of `Document::open`** — 523 M of 1307 M
+    /// instructions, in `btree/search.rs` and `cmp.rs`. The inputs are already ascending runs (a
+    /// section's entries are, and this file has two sections), which is the case Rust's stable
+    /// sort merges in one pass, and `BTreeMap`'s `FromIterator` bulk-builds from sorted input
+    /// rather than searching for each key. **130.7 M instructions per open before, 76.6 M
+    /// after — 41%.** ADR 0180, `cargo run -p pdf-syntax --example callgrind_open`.
+    fn fill(&mut self, mut entries: Vec<(u32, Option<Location>)>) {
+        entries.sort_by_key(|(number, _)| *number);
+        entries.dedup_by_key(|(number, _)| *number);
+        self.entries = entries.into_iter().collect();
     }
 
     /// Merges trailer keys that are not already present.
@@ -255,6 +266,10 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
     let mut next = find_startxref(input)?.saturating_add(base);
     let mut table = XrefTable::default();
     let mut visited = std::collections::BTreeSet::new();
+    // Every section's entries in read order — newest first, and a hybrid file's `/XRefStm`
+    // between its own section and the older one it precedes. `XrefTable::fill` turns that order
+    // into §7.5.6's precedence in one pass at the end.
+    let mut entries: Vec<(u32, Option<Location>)> = Vec::new();
 
     for _ in 0..MAX_XREF_SECTIONS {
         // A cycle in the `/Prev` chain would otherwise loop until the section cap, doing
@@ -269,9 +284,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
         let Some(section) = read_section(input, next, base, limits) else {
             break;
         };
-        for (number, location) in section.entries {
-            table.add(number, location);
-        }
+        entries.extend(section.entries);
         table.merge_trailer(&section.trailer);
 
         // A cross-reference stream may also carry `/XRefStm`, a hybrid-reference file's
@@ -284,9 +297,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
             .and_then(|value| usize::try_from(value).ok())
             && let Some(extra) = read_section(input, hybrid.saturating_add(base), base, limits)
         {
-            for (number, location) in extra.entries {
-                table.add(number, location);
-            }
+            entries.extend(extra.entries);
         }
 
         match section
@@ -300,6 +311,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
         }
     }
 
+    table.fill(entries);
     Some(table)
 }
 
@@ -582,7 +594,12 @@ fn read_xref_stream(
         return None;
     }
 
-    let mut entries = Vec::new();
+    // One allocation rather than the seventeen a doubling `Vec` takes to reach 101 318 entries.
+    // The capacity comes from the *decoded data's* own length rather than from `/Size` or
+    // `/Index`, because the data has been materialised already and its length is therefore a
+    // bound a malformed file cannot inflate. Worth 0.4% of `Document::open` on ISO 32000-2 —
+    // small, and kept because a length that is known is a length worth stating.
+    let mut entries = Vec::with_capacity(data.len().checked_div(row).unwrap_or(0));
     let mut cursor = 0usize;
 
     for pair in index.chunks(2) {

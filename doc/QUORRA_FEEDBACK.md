@@ -9,7 +9,7 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
-**§8 is open**, added in the two-hundred-and-seventy-fourth session: it is a request rather than a
+**§8 is open**, added in the two-hundred-and-seventy-fifth session: it is a request rather than a
 defect, and it exists because the project owner's decision that page one goes to the graphics
 device put your bring-up on this viewer's critical path. Two entry points and one field split;
 there is also a knob it explicitly does *not* ask for, with the measurement that says why.
@@ -262,7 +262,7 @@ worth a file.
 
 ## 8. Bring-up is on the critical path now, and a host cannot see into it or start it early
 
-**New in this viewer's two-hundred-and-seventy-fourth session, and it is a request rather than a
+**New in this viewer's two-hundred-and-seventy-fifth session, and it is a request rather than a
 defect.** The project owner decided one session earlier that **page one goes to the graphics
 device**: no CPU first frame, no probe, no `wait_until_warm`. `CLAUDE.md` records what follows as
 an obligation — "creating the device and compiling the pipelines is now part of time-to-first-page,

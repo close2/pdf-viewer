@@ -107,13 +107,25 @@ pub fn apply_predictor(
 
     let stride = row_len.saturating_add(1);
     let mut out: Vec<u8> = Vec::with_capacity(data.len());
+    // **Two row buffers, swapped rather than allocated per row.** A PNG image has a few
+    // thousand wide rows and would not care; a cross-reference stream has one *six-byte* row
+    // per object, and ISO 32000-2 has 101 318 of them — so a `vec![0u8; row_len]` inside this
+    // loop was one allocation per object, on the launch path. Measured with callgrind over ten
+    // opens of that file (`cargo run -p pdf-syntax --example callgrind_open`): **138.3 M
+    // instructions per `Document::open` before, 131.3 M after — 5.1%** — and every millisecond
+    // of it in `calloc` and `free` rather than in this loop, which is why the loop is unchanged.
+    // ADR 0180.
     let mut previous = vec![0u8; row_len];
+    let mut current = vec![0u8; row_len];
 
     for chunk in data.chunks(stride) {
         let (&tag, row) = chunk.split_first()?;
-        let mut current = vec![0u8; row_len];
         let copy = row.len().min(row_len);
         current.get_mut(..copy)?.copy_from_slice(row.get(..copy)?);
+        // Only a final short row can leave anything behind — `chunks` yields a short chunk
+        // last or never — but the buffer is reused, so what the old code got from allocating
+        // a zeroed row is written rather than assumed.
+        current.get_mut(copy..)?.fill(0);
 
         for index in 0..copy {
             let left = if index >= bpp {
@@ -145,7 +157,7 @@ pub fn apply_predictor(
         }
 
         out.extend_from_slice(current.get(..copy)?);
-        previous = current;
+        std::mem::swap(&mut previous, &mut current);
     }
 
     Some(Arc::from(out.as_slice()))

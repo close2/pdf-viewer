@@ -22,19 +22,22 @@ difference that this one is about a number, so the instrument settles it.
 
 ## The four items, in the order the timeline ranks them
 
-### 1. `Document::open` — 22.2 ms on ISO 32000-2, 0.20 ms on a 5-page document
+### 1. `Document::open` — **taken in the two-hundred-and-seventy-sixth session, 41% off**
 
-§7.5's trailer and cross-reference table, for 101 318 objects. Reading the trailer is O(1); what
-costs is everything done to the xref sections after finding them. **Not yet localised** — the
-next step is `callgrind_interpret`'s sibling: a `callgrind` run stopping at `Document::open`, which
-says whether the cost is inflating the xref *streams*, building the entry map, or the recovery
-scan deciding it is not needed.
+§7.5's trailer and cross-reference table, for 101 318 objects. Localised with
+`crates/pdf-syntax/examples/callgrind_open.rs` and fixed the same round: **40% of it was one
+searched `BTreeMap` insert per entry**, re-deciding §7.5.6's "most recent copy" rule 101 318 times
+for a rule that is a property of the whole file. One stable sort and one bulk build instead —
+130.7 M instructions per open to 76.6 M, and the launch timeline's `document open` step from
++27.8 ms to +21.0. ADR 0180, with two allocation fixes beside it.
 
-The clause leaves room: §7.5.8's cross-reference streams are a compressed table, and a processor
-that wants object 12 must find its entry, which does not require materialising the other 101 317.
-Whether *this* tree can defer that is a question about `xref.rs`'s `Option<Location>` map (ADR
-0100), and the answer changes what `was_recovered` and the writer can promise — so it is a design
-question, not a micro-optimisation.
+**What is left of this item is the design question, and it is still open.** §7.5.8's
+cross-reference streams are a compressed table, and a processor that wants object 12 must find its
+entry — which does not require materialising the other 101 317. Whether this tree can defer that is
+a question about `xref.rs`'s `Option<Location>` map (ADR 0100), and the answer changes what
+`was_recovered` and the writer can promise. The measured floor now: 76.6 M instructions, of which
+inflating the two cross-reference streams is 18 M and nothing can remove it, so the remaining
+ceiling on this route is roughly a further 40%.
 
 ### 2. `Outline::read` — 3.35 to 6.61 ms for **988 items**
 

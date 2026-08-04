@@ -557,7 +557,7 @@ cheap, this is nearly free; if either is not, it is impossible.
 ## 7. Startup
 
 `CLAUDE.md` makes launch latency a first-class requirement. **This section was rewritten in the
-two-hundred-and-seventy-fourth session and the change matters to you**: it used to say "page one
+two-hundred-and-seventy-fifth session and the change matters to you**: it used to say "page one
 renders on the CPU while the GPU initialises on another thread, and the GPU takes over once
 ready". The project owner decided otherwise one session earlier — **page one goes to the graphics
 device** — so nothing hides your bring-up any more. It is measured instead: on this machine, of a

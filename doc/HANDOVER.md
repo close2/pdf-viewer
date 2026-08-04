@@ -64,11 +64,13 @@ printed when the first frame lands — and the number a person judges the progra
 **145 ms from process start to the first frame**, on this machine's software adapter under `Xvfb`,
 for a 5-page document *and* for ISO 32000-2's 1023 pages. Of it: the device 40 to 46 ms, the first
 present 54 to 68, `EventLoop::new` 8 to 37, and the document 0.84 or 27.8 depending on which one.
-**Two things on it break a rule `CLAUDE.md` states**, both named and priced in
-[todo 42](todo/42-the-launch-path.md) and neither fixed in the session that measured them:
-`Document::open` costs 22.2 ms on 101 318 objects against 0.20 on a small file, where the rule is
-"a 500-page document must open no slower than a 5-page one", and `Outline::read` costs 6.7 ms for
-**38 items**. **Adapter selection is the largest part of bring-up and the backend set is not the
+**Two things on it broke a rule `CLAUDE.md` states**, both named and priced in
+[todo 42](todo/42-the-launch-path.md): `Document::open` cost 12 to 22 ms on 101 318 objects
+against 0.20 on a small file, where the rule is "a 500-page document must open no slower than a
+5-page one" — **41% of that is gone in the two-hundred-and-seventy-sixth session**, because 40% of
+it was §7.5.6's "most recent copy" rule being re-decided once per cross-reference entry instead of
+once per file (ADR 0180, 130.7 M instructions to 76.6 M) — and `Outline::read` costs 3 to 7 ms for
+988 items, which is proportionate per item and eager for a panel nobody opened. **Adapter selection is the largest part of bring-up and the backend set is not the
 lever**: `examples/bring_up` shows Vulkan-only moving the cost out of instance creation and into
 `request_adapter` with the total unchanged (ADR 0179). The CPU backend keeps its other two jobs:
 the correctness oracle, and the frame the device refuses.
@@ -1284,6 +1286,9 @@ cargo run --release -p pdf-model --example render_at -- [file.pdf] [page] [scale
 cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [scale]
   # where a GPU frame's time goes: encoding, the whole frame, and the same target drawn from a
   # list of one rectangle. doc/RENDER_LIBRARY.md §6.1
+valgrind --tool=callgrind --callgrind-out-file=/dev/null \
+  target/release/examples/callgrind_open [file.pdf]  # §7.5's xref alone, in instructions rather
+  # than in a wall clock that moves by 2× between runs of the same binary. ADR 0180
 cargo run --release -p pdf-model     --example open_cost -- [file.pdf]
   # where the *launch path's* document half goes: §7.5's xref, the page tree, §12.3.3's outline,
   # §12.8's signatures, each on its own. ADR 0179, doc/todo/42
@@ -2663,3 +2668,5 @@ above rather than here.
 | 272 | quorra took all three of §7's suggestions: a refused present is 6 ms, not 1.008 s | 0176 |
 | 273 | Page one goes to the GPU by decision, so bring-up is measured: 43.5 ms, 32.2 of it adapter choice | — |
 | 274 | A launch is a timeline: **145 ms** to the first frame, and a 1023-page document opens 33× slower than a 5-page one | 0179 |
+| 275 | Bring-up is on quorra's critical path now, and the brief still told it otherwise in three places | — |
+| 276 | §7.5.6's rule stated once for a file rather than once per entry: `Document::open` 41% off | 0180 |
