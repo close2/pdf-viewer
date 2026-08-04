@@ -1,6 +1,6 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. 491 pages left.
+Status: **standing task**, since the hundred-and-seventy-sixth session. 489 pages left.
 Priority: 00 — the last large population where a defect can live without a name
 Corpus: 788 ambiguous pages (749 on documents we call complete); 257 diagnosed, 492 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -229,8 +229,16 @@ three-by-six grid of per-tile differences, which put the whole of it in two colu
 per-channel mean, which named the channel. **Localise before explaining**: a page-level number
 said "0.25 low everywhere" and the truth was "one level low on one third".
 
-`bug1703683_page2_reduced.pdf` (0.91 / 2.02), `issue2884_reduced.pdf` (0.90 / 4.53), and then
-**`freeculture.pdf` for seven of the next eight** — pages 163, 165, 184, 172, 156, 160 and 325,
+**`bug1703683_page2_reduced.pdf` and `issue2884_reduced.pdf` went in the two-hundred-and-sixtieth**,
+both to existing groups and both by the same instrument: two reference ladders, and ours beside
+them. The first is one indexed image with a JPEG soft mask reduced by four, where `poppler`
+descends onto 5.3695 and ours is flat at 5.364 — **0.006 of 255 apart, the tightest agreement
+`AMBIGUOUS_IMAGE_REDUCTION` has produced** — while `mupdf` is flat 0.14 below both and is the
+reference the page is about. The second is a 169 × 19 crop box holding one line of Japanese, whose
+mean *is* its glyph coverage: the ladders agree to 0.018, ours climbs onto the limit from below,
+and at eight times the two panels are indistinguishable. `AMBIGUOUS_GLYPH_SCAN_CONVERSION`.
+
+Then **`freeculture.pdf` for seven of the next eight** — pages 163, 165, 184, 172, 156, 160 and 325,
 from 0.86 down to 0.77.
 
 **Every name above 0.75 has a furthest at least twice its nearest.** Step 1 says to prefer a page

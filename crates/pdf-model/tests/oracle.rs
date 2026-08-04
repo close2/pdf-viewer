@@ -1492,7 +1492,32 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// That is worth recording as a shape rather than as a page: **the ink instrument answers "how
 /// much" and is silent on "where"**, and a page whose ink everybody agrees on is one to open the
 /// heatmap for rather than the ink table.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 11] = [
+/// **`bug1703683_page2_reduced.pdf` page 1 is the twelfth**, taken off §3a's ranking in the
+/// two-hundred-and-sixtieth session at 0.91 from the nearest reference and 2.02 from the
+/// furthest. A product diagram: one 322 × 333 indexed image with an 8-bit JPEG soft mask at
+/// 300 ppi on a 612 × 792 page, so it is reduced by about four, beside 328 commands of vector
+/// artwork.
+///
+/// The two ladders put ours on the geometry and name the outlier:
+///
+/// ```text
+///                72 dpi   288 dpi   576 dpi
+/// poppler        5.4291   5.3723    5.3695
+/// mupdf          5.2215   5.2234    5.2258
+/// ours (1x/4x/8x) 5.3636  5.3652    5.3638
+/// ```
+///
+/// `poppler` descends onto **5.3695** and ours is flat at 5.364 — **0.006 of 255 apart**, which
+/// is the tightest agreement any member of this group has produced. `mupdf` is flat 0.14 *below*
+/// both, so it is drawing different marks rather than the same marks differently, and it is the
+/// reference the page is about.
+///
+/// A four-by-four grid of per-tile differences against `poppler` spreads the remaining 0.065
+/// over both content regions, largest 0.469 where the photograph and its red labels are — which
+/// is `stamps.pdf`'s lesson one page along: the quantity is settled and what is left is where
+/// each filter puts an edge.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 12] = [
+    "bug1703683_page2_reduced.pdf page 1",
     "bug1799927.pdf page 1",
     // Arrived in the judged set in the two-hundred-and-eighteenth session, when the stencil it
     // is made of stopped being refused: a 421x320 one-bit CCITT scan drawn into 252x191 points
@@ -3177,8 +3202,32 @@ const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 /// 0.16 and ahead of `poppler` by two thirds of a level and `ghostscript` by one and a half.
 /// Everybody draws the same newsletter; the spread is 2.3 of 255 of glyph coverage, which is the
 /// permission quoted above spread over four thousand marks instead of twenty-four.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 2] =
-    ["issue4402_reduced.pdf page 1", "pr12564.pdf page 1"];
+/// # And the same finding on glyphs nobody would call small
+///
+/// `issue2884_reduced.pdf` is a 169 × 19 crop box holding one line of Japanese — sixteen
+/// commands, an embedded `Identity-H` `CIDFontType2` subset, and nothing else — so like
+/// `issue4402_reduced.pdf` its mean *is* its glyph coverage. Taken off §3a's ranking in the
+/// two-hundred-and-sixtieth session at 0.90 from the nearest reference and 4.53 from the
+/// furthest.
+///
+/// ```text
+///                72 dpi   288 dpi   576 dpi
+/// poppler        33.2516  33.7927   33.8111
+/// mupdf          33.3049      —     33.7929
+/// ours (1x, 8x)  33.6799      —     33.7511
+/// ```
+///
+/// The two ladders agree to **0.018 of 255**, so there is a limit at 33.80, and ours climbs onto
+/// it from 33.68 to 33.75 — ending 0.05 under, which is 0.15% of the page's ink. **Both
+/// references start half a level *below* their own limit at the page's own scale and climb; ours
+/// starts a third of a level above and climbs a little further.** The glyphs are the same glyphs
+/// in the same places — magnified eight times the two panels are indistinguishable — and the
+/// verdict is the text tolerance applied to a page that is nothing but ideographs.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 3] = [
+    "issue2884_reduced.pdf page 1",
+    "issue4402_reduced.pdf page 1",
+    "pr12564.pdf page 1",
+];
 
 /// Ambiguous, and §9.6.2.2 states fourteen *names* and not one outline.
 ///
