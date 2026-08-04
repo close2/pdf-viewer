@@ -1956,7 +1956,40 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// Not `AMBIGUOUS_TILED_STROKES`, though it is one document over: that group is about
 /// `poppler`'s ladder *drifting* on a tiling pattern rather than converging, and here its ladder
 /// converges perfectly well — it is only its first rung that is high.
-const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 5] = [
+/// # A whole tax form of it, in the three-hundred-and-third, and the two clusters are the finding
+///
+/// `prefilled_f1040.pdf` pages 1 and 2 split the five renderers into two groups **2.4 of 255
+/// apart** at the page's own scale, which is enormous for a page whose ink is rules and
+/// eight-point type:
+///
+/// ```text
+///           ours     mupdf    poppler  ghostscript  hayro
+/// page 1   16.9357  16.9049   19.3762    19.3823   19.2577
+/// page 2   16.7671  16.6750   18.7574    19.1025   19.2713
+/// ```
+///
+/// Two clusters is the shape that looks like a defect and is not, and only the ladder says which:
+///
+/// ```text
+///            72 dpi    288      576        ours 1x   ours 8x
+/// page 1 pop 19.3762  16.6787  16.5338     16.9357   16.6059
+///        mu  16.9049  16.6454  16.6316
+/// page 2 pop      —        —   16.2016     16.7671   16.2726
+///        mu       —        —   16.2843
+/// ```
+///
+/// **`poppler` descends 2.84 of 255 onto its own limit** and `ghostscript` and `hayro` start where
+/// it does, while ours and `mupdf` are within 0.33 of the geometry at the page's own scale
+/// already and land between the two limits at eight times. So the two clusters are not two
+/// readings of the file: they are three renderers painting a hairline at a whole pixel of full
+/// ink and two painting it at a pixel of partial ink, which is `Stroke::device_width` and ADR
+/// 0028 on this side.
+///
+/// The page is `ambiguous` rather than agreeing for trap 12's reason with three references on the
+/// far side rather than one.
+const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 7] = [
+    "prefilled_f1040.pdf page 1",
+    "prefilled_f1040.pdf page 2",
     "22060_A1_01_Plans.pdf page 1",
     "issue11473.pdf page 1",
     "issue21068.pdf page 1",

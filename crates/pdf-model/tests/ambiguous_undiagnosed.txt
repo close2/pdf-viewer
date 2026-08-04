@@ -77,8 +77,6 @@ jbig2_symbol_offset.pdf page 1
 knockout_groups_test.pdf page 1
 multiline.pdf page 1
 pdfjs_wikipedia.pdf page 1
-prefilled_f1040.pdf page 1
-prefilled_f1040.pdf page 2
 tensor-allflags-withfunction.pdf page 1
 tiling-pattern-box.pdf page 1
 transparency_group.pdf page 1
