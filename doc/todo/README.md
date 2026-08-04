@@ -38,7 +38,6 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; a tiling cell's two halves; a hairline at the raster's edge | 4 |
-| [14](14-eight-characters-nobody-draws.md) | Eight characters `issue14821.pdf` states and nobody draws | 1 |
 | [21](21-font-substitution.md) | Per-character fallback; `Identity` orderings; a font reported as a whole | 42 |
 | [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: a `/DA` font `/DR` lacks, a list box | 7 |
 | [23](23-transparency-departures.md) | §11.4, §11.5.3 and §11.6.6, each reported where it can change a pixel | 19 |

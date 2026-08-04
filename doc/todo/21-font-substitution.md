@@ -63,9 +63,14 @@ So the real silent population is **24 codes over 8 documents**, and ADR 0152's t
 comfortably: turning them into reports would cost the oracle eight judged pages to name
 twenty-four codes.
 
-**`issue14821.pdf` was the one worth opening** and it has its own file now:
-[todo 14](14-eight-characters-nobody-draws.md). Eight codes reading back as `1`, `2`, `3`, `7`,
-`e` and three `x`s, drawn as nothing, on a page that is `complete` by every gate — and four of
-its fonts state `/Encoding 26 0 R`, where object 26 is a **content stream**. The rest of the
-population is ones and twos, two of them reading back as a replacement character or a CJK
-ideograph, which is a `/ToUnicode` question rather than a glyph one.
+**`issue14821.pdf` was the one worth opening, and it is answered**: the document asks for glyphs
+its own embedded subsets do not contain. Five of its eight are `Identity-H` CIDs — 21, 22, 26,
+91 — whose `loca` entries are empty by the glyph table's own statement and which the descendant's
+`/W` does not list either; the other three are ASCII codes in a nonsymbolic `TrueType` subset
+whose `/Encoding` names a content stream, whose `(3,1)` `cmap` maps all three to glyph 0, and
+whose `post` is version 3.0 with no glyph names at all. Every route §9.6.5.4 and §9.7.4.2 state
+ends at nothing. The evidence is in those two ledger rows and the refusal is on the handover's
+closed-by-decision list; `poppler` draws them from a face this machine has.
+
+The rest of the population is ones and twos, two of them reading back as a replacement character
+or a CJK ideograph, which is a `/ToUnicode` question rather than a glyph one.

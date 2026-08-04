@@ -193,7 +193,6 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
-| Eight characters of a page that is `complete` by every gate | 1 | [todo 14](todo/14-eight-characters-nobody-draws.md) |
 | A substitute with no glyph for a character; one that cannot be addressed; **24 codes over 8 documents that reach no glyph in silence** | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
@@ -209,8 +208,15 @@ the 974 documents' first pages it affects.
 is in an external file (§7.3.8.1 — the renderer has no filesystem, principle 3), §12.7.6.2's
 submit and §12.6.4's remote, launch, sound and movie actions, a filled degenerate subpath's device
 pixel (§8.5.3.3.1, which the clause itself calls "device-dependent and not generally useful"),
-grid-fitting a stroke's coordinates under `/SA`, and rendering intents beyond
-`AbsoluteColorimetric` (read and recorded; `A2B0` not yet selected for `Perceptual`).
+grid-fitting a stroke's coordinates under `/SA`, rendering intents beyond
+`AbsoluteColorimetric` (read and recorded; `A2B0` not yet selected for `Perceptual`), and
+**a glyph a document's own embedded subset does not contain**, which the
+two-hundred-and-forty-eighth session traced to the end of every route the standard states:
+`issue14821.pdf`'s eight are four `Identity-H` CIDs whose `loca` entries are empty by the table's
+own statement and whose `/W` does not list them, plus three ASCII codes in a subset whose `(3,1)`
+`cmap` maps them to glyph 0 and whose `post` is version 3.0 with no names at all. §9.7.4.2's and
+§9.6.5.4's rows carry the evidence; `poppler` draws them from a face this machine has, which is a
+fallback rather than a reading.
 
 Two that *were* here and are closed by work: optional content's interactive half (session 167)
 and a page whose scene overflows Vello's buffers (banded in 143, and the page that motivated it
@@ -2519,3 +2525,5 @@ above rather than here.
 | 244 | Codes that reach no glyph, counted at last: 109 over 14 documents, two thirds in two | — |
 | 245 | And half of the count was a space the font reads back as `#`: the real silence is 24 codes | — |
 | 246 | The one document left in that silence, diagnosed to an `/Encoding` naming a content stream | — |
+| 247 | And the font named, which split it in two | — |
+| 248 | Both halves traced to the end of every route the standard states: the subsets do not hold the glyphs | — |
