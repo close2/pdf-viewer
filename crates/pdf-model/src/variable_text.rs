@@ -288,6 +288,118 @@ fn standard_abbreviation(name: &str) -> Option<&'static str> {
         .map(|(_, standard)| *standard)
 }
 
+/// The font the `/DA` names, the value encoded through it, and the dictionary that produced both.
+///
+/// Split out of [`lay_out`] because it is three steps with one shape — resolve, load, encode —
+/// and the third can send the first two round again.
+///
+/// # Errors
+///
+/// [`Owed::FontUnusable`] where the font will not load, or is composite: every route into this
+/// crate's text drawing needs a code, and a composite font's codes cannot be produced from a
+/// character without inverting a `CMap`'s codespace ranges (§9.7.6.2). Named rather than guessed
+/// at.
+fn set_in(
+    document: &Document,
+    request: &Request,
+    font_name: &str,
+) -> Result<(Dictionary, pdf_font::LoadedFont, Encoded, Resolution), Owed> {
+    let (dict, resolution) = resolve_font(document, request.resources, font_name);
+    let font = pdf_font::LoadedFont::load(document, &dict, font_name)
+        .map_err(|error| Owed::FontUnusable(error.to_string()))?;
+    if !font.addresses_characters() {
+        return Err(Owed::FontUnusable(format!(
+            "/{font_name} is a composite font, and this crate cannot yet address one by \
+             character"
+        )));
+    }
+
+    let runs = encode(&font, request.text);
+    // **A character the base encoding has no code for, given one.** §9.6.5.1 lets an encoding
+    // dictionary name glyphs directly — "the value of the Differences entry [is] an array of
+    // character codes and glyph names" — and a font *this module invented* is one whose encoding
+    // it may state. `bug1865341.pdf` is the witness and its arithmetic is the argument: the value
+    // is *Załącznik*, every Helvetica has an `aogonek`, and the one character that would not draw
+    // was missing a **code** rather than a glyph — neither §9.6.5.2 encoding has an ogonek, while
+    // `StandardEncoding` happens to include `lslash`, which is why `ł` was never on the list.
+    //
+    // Only for an invented font, never for the document's own: a `/DR` font's encoding is what
+    // the document says its field is set in, and rewriting it would be answering a different
+    // question from the one the file asked. And the codes go at the bottom of the range, which
+    // both of §9.6.5.2's encodings leave unmapped.
+    if resolution != Resolution::Named
+        && !runs.missing.is_empty()
+        && let Some((named, reloaded, again)) =
+            named_glyphs_reach_more(document, &dict, font_name, request.text, &runs)
+    {
+        return Ok((named, reloaded, again, resolution));
+    }
+    Ok((dict, font, runs, resolution))
+}
+
+/// The same value re-encoded through an invented font whose `/Differences` names what it missed.
+///
+/// `None` unless the second attempt reaches strictly more characters than the first, which is
+/// what keeps a face without the glyph — `freetext_no_appearance.pdf`'s Arabic, which no
+/// Helvetica carries — refused exactly as it was rather than traded for a different refusal.
+fn named_glyphs_reach_more(
+    document: &Document,
+    dict: &Dictionary,
+    font_name: &str,
+    text: &str,
+    runs: &Encoded,
+) -> Option<(Dictionary, pdf_font::LoadedFont, Encoded)> {
+    let named = with_differences(dict, &runs.missing)?;
+    let reloaded = pdf_font::LoadedFont::load(document, &named, font_name).ok()?;
+    let again = encode(&reloaded, text);
+    (again.missing.len() < runs.missing.len()).then_some((named, reloaded, again))
+}
+
+/// The lowest code a `/Differences` array may use here.
+///
+/// §9.6.5.2's two Latin encodings both begin at 32 — Annex D's tables state nothing below it —
+/// so the codes under it are free for an invented encoding to name glyphs at. Zero is left out
+/// because a glyph at code 0 is `.notdef` by every font format's convention.
+const FIRST_DIFFERENCE_CODE: u8 = 1;
+
+/// The same font dictionary with an `/Encoding` naming the glyphs for `missing`.
+///
+/// §9.6.5.1's `/Differences` is "an array of character codes and glyph names", and the names come
+/// from the Adobe Glyph List through [`pdf_font::encoding::glyph_name`] — the same table
+/// §9.10.2's third method reads in the other direction, so nothing is vendored for this.
+///
+/// `None` where there is no room (more distinct characters than the 31 free codes) or where the
+/// AGL states no name for one of them, because a partial array would draw some of the value and
+/// leave the rest silently absent — and `Owed::InventedFontFellShort` says more than that would.
+fn with_differences(dict: &Dictionary, missing: &str) -> Option<Dictionary> {
+    let mut differences = Vec::new();
+    let mut code = FIRST_DIFFERENCE_CODE;
+    for character in missing.chars() {
+        let name = pdf_font::encoding::glyph_name(character)?;
+        // One `code name` pair each rather than one run: §9.6.5.1 reads a number as the code the
+        // names after it start at, so consecutive pairs are equivalent and this is the form that
+        // stays right if a name is ever dropped from the middle.
+        differences.push(Object::Integer(i64::from(code)));
+        differences.push(Object::Name(pdf_syntax::Name::new(name.into_bytes())));
+        code = code.checked_add(1).filter(|next| *next < 32)?;
+    }
+    let mut encoding = Dictionary::new();
+    encoding.insert(
+        pdf_syntax::Name::new(b"Type".to_vec()),
+        Object::Name(pdf_syntax::Name::new(b"Encoding".to_vec())),
+    );
+    encoding.insert(
+        pdf_syntax::Name::new(b"Differences".to_vec()),
+        Object::Array(differences),
+    );
+    let mut out = dict.clone();
+    out.insert(
+        pdf_syntax::Name::new(b"Encoding".to_vec()),
+        Object::Dictionary(encoding),
+    );
+    Some(out)
+}
+
 /// A font dictionary standing in for one Table 224's `/DR` does not define.
 ///
 /// §12.7.4.3 requires the document to define it — "[t]he specified font value shall match a
@@ -385,22 +497,9 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         return Err(Owed::NoFont);
     };
 
-    let (dict, resolution) = resolve_font(document, request.resources, &font_name);
-    let font = pdf_font::LoadedFont::load(document, &dict, &font_name)
-        .map_err(|error| Owed::FontUnusable(error.to_string()))?;
-
-    if !font.addresses_characters() {
-        // Every route into this crate's text drawing needs a code, and a composite font's
-        // codes cannot be produced from a character without inverting a `CMap`'s codespace
-        // ranges (§9.7.6.2). Named rather than guessed at.
-        return Err(Owed::FontUnusable(format!(
-            "/{font_name} is a composite font, and this crate cannot yet address one by \
-             character"
-        )));
-    }
+    let (dict, font, runs, resolution) = set_in(document, request, &font_name)?;
 
     let metrics = Metrics::read(document, &dict);
-    let runs = encode(&font, request.text);
     if resolution != Resolution::Named && !runs.missing.is_empty() {
         // **A font this crate invented may not fall short.** `freetext_no_appearance.pdf` is
         // the reason the rule is asymmetric: its value is a paragraph of Arabic, and a Latin

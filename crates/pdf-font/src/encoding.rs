@@ -223,6 +223,25 @@ static MAC_ROMAN: [&str; 256] = [
 
 /// Returns the Mac OS Roman code a glyph name occupies, if it occupies one.
 ///
+/// The glyph name a `/Differences` array would use for a character.
+///
+/// §9.6.5.1 makes an encoding dictionary's `/Differences` an array of "glyph names", and Annex D's
+/// tables are written in the same names — so a program that wants a character a base encoding has
+/// no code for has to say which glyph it means, by name. This is that step, and it is the only
+/// direction §9.6.5 does not state a table for: the annexes go from code to name.
+///
+/// The Adobe Glyph List answers it, and it is already in this tree — `read-fonts` carries the
+/// generated table and [`crate::LoadedFont::text`]'s last resort uses it in the other direction
+/// (`name_to_char`, §9.10.2's third method). Nothing is vendored for this.
+///
+/// A `String` rather than a borrow because the AGL's own API writes into a caller's buffer: the
+/// names it computes for characters outside its table are `uniXXXX` forms built on the spot.
+#[must_use]
+pub fn glyph_name(character: char) -> Option<String> {
+    let mut buffer = [0u8; 32];
+    read_fonts::ps::agl::char_to_name(character, &mut buffer).map(str::to_owned)
+}
+
 /// This is the reverse of the encoding §9.6.5.4 calls "the standard Roman encoding that is
 /// used on Mac OS", which it needs in exactly one place: a `TrueType` font with a (1, 0)
 /// `cmap` subtable is addressed by *code*, so a glyph name has to be turned back into one.

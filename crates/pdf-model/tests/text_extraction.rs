@@ -429,8 +429,22 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// success fails the build in a message that reads like a regression, and a session that reads
 /// only the summary line will believe the summary. `doc/HANDOVER.md`'s own "36 below the floor"
 /// was right about the *measurement* and wrong about the list the whole time.
-const TEXT_BELOW_FLOOR: [&str; 35] = [
+/// # One joined in the two-hundred-and-eighty-fourth, and **the reference is the one that is wrong**
+///
+/// `bug1865341.pdf` is a free text annotation whose value is *Załącznik* and whose `/DA` names a
+/// font `/DR` does not define. `pdftotext` reads back **`Zacznik`** — poppler draws it that way
+/// too, with both diacritics silently dropped, which the side-by-side in ADR 0184 shows. This
+/// tree draws and reads back all nine characters, so the comparison scores **0 of 1 words** and
+/// the ratchet fires on an improvement for the second time in this file's history.
+///
+/// The clause settles it rather than the vote: §9.6.5.1's `/Differences` is how a glyph the base
+/// encoding has no code for is named, the value's `ą` is `aogonek` in the Adobe Glyph List, and
+/// every Helvetica has that glyph. Held by name because a reference that drops characters cannot
+/// be the numerator, and this is the one entry on this list whose readback is *better* than
+/// `pdftotext`'s rather than worse.
+const TEXT_BELOW_FLOOR: [&str; 36] = [
     "ArabicCIDTrueType.pdf",
+    "bug1865341.pdf",
     "PDFJS-7562-reduced.pdf",
     "Type3WordSpacing.pdf",
     "bug1001080.pdf",

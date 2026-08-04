@@ -2,11 +2,11 @@
 
 Status: partly reported, partly unreached.
 Priority: 22
-Corpus: 4 documents
+Corpus: 3 documents
 Clauses: §12.7.4.3, §12.7.5.4, §9.6.5.2, §9.7.6.2
 Code: `crates/pdf-model/src/variable_text.rs`
 
-## A `/DA` font `/DR` does not define — **4 documents, from 7**
+## A `/DA` font `/DR` does not define — **3 documents, from 7**
 
 A malformed file rather than a clause gap: §12.7.4.3 requires the name to match a `/DR` entry.
 Since ADR 0112 the value is laid out in a stand-in **where the stand-in can draw all of it**, and
@@ -22,28 +22,19 @@ therefore names a font this binary carries, and the value is drawn in the face t
 documented choice about a malformed file, and one that buys ADR 0133's own argument — those pages
 reproduce where no fonts are installed.
 
-Still owed, and the four are what is left:
+Still owed, and the three are what is left:
 
-- `bug1865341.pdf` (`/Helv`, value *Załącznik*) and `freetext_no_appearance.pdf` (`/Helv`, a
-  paragraph of Arabic) decline, and an inference may not fall short. **The reason was written down
-  wrong here and in the report, and the two-hundred-and-eighty-third session corrected both**: it
-  is not that "Helvetica has no glyph for their characters". For `bug1865341.pdf` the missing set
-  is **one character, `ą`** — Liberation Sans has `aogonek` and so does every Helvetica clone, and
-  `ł` is not missing at all because Adobe's `StandardEncoding` happens to include `lslash`. What
-  is missing is a **code**: a simple font reaches a glyph only through §9.6.5.2's encodings, and
-  neither `StandardEncoding` nor `WinAnsiEncoding` has a Polish *ogonek*. The report says so now,
-  naming both halves.
+- **`bug1865341.pdf` is closed** (two-hundred-and-eighty-fourth session, ADR 0184). Its value is
+  *Załącznik* and its missing set was **one character**, `ą` — not a glyph any Helvetica lacks but
+  a **code** neither §9.6.5.2 encoding has. A font this module invents may state its own encoding,
+  so it does: `/Encoding << /Differences [1 /aogonek] >>`, with the name from the Adobe Glyph List
+  that `read-fonts` already carries. Kept only when it reaches strictly more characters, which is
+  what leaves the next entry refused.
+- `freetext_no_appearance.pdf` (`/Helv`, a paragraph of Arabic) still declines, and the
+  `/Differences` route cannot help it: the AGL names those characters `afii…` and no Helvetica has
+  the glyphs. **That one is `doc/todo/21`'s per-character fallback**, where it is the only witness
+  left.
 
-  So closing this one needs a way to address a compiled-in face by *character* rather than by
-  code, and the standard states exactly two: a `/Differences` array naming `aogonek`, which needs
-  a character-to-glyph-name table this tree does not have and whose obvious source is GPL
-  (`doc/HANDOVER.md` §1's trap), or an invented `/Type0` font with `/Encoding /Identity-H` and a
-  `CIDFontType2` descendant, where the code *is* the glyph — which `resolve_font` would have to
-  build and which the guard at `addresses_characters` currently refuses. The second needs no
-  vendored data and is the one to take.
-
-  `freetext_no_appearance.pdf` is **not** closed by either: no Helvetica has Arabic, so that one
-  is `doc/todo/21`'s per-character fallback and stays refused.
 - `poppler-395-0-fuzzed.pdf` names `/Rufscript` and `issue19389.pdf` names `/F1`: neither denotes
   anything, so both stand in and both say so, which is the case the table is narrow enough to
   leave alone.
