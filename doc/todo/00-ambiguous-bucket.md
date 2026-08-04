@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **92 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **91 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (749 on documents we call complete); 657 diagnosed, 92 held by name
+Corpus: 786 ambiguous pages (749 on documents we call complete); 658 diagnosed, 91 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -330,6 +330,18 @@ extracted codestream twice ruled out the first (under 0.2 of 255, mixed in sign,
 lift six times larger), which leaves `pdf_model::icc` and `lcms` evaluating one 296-byte
 matrix-shaper profile — §10.3.1's "beyond the scope of this document", one colour space over from
 `AMBIGUOUS_DEVICE_CMYK_CONVERSION`. `AMBIGUOUS_ICC_MATRIX_PROFILE`.
+
+**And the next name down, in the two-hundred-and-ninety-ninth, is the shape a wide ratio is for
+and the reason step 3 exists.** `issue19326.pdf` page 1 sat at 0.65 from the nearest reference and
+**11.06 from the furthest**. The ink says almost nothing — ours 46.25 against `ghostscript`'s
+47.64, which on a page of black letterforms reads as an edge difference — and the picture says
+everything: ours, `poppler`, `mupdf` and `hayro` draw the letters *JPX*, and `ghostscript` draws a
+band of scrambled blocks with about the same coverage. **A reference that decoded an image wrongly
+can have the right amount of ink**, so no metric on that page would have produced it and the
+side-by-side did in one look. `AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG`, with the honest
+caveat written into it: `tests/jpeg2000.rs` declines this codestream because it is sixteen-bit, so
+the evidence is four decoders agreeing rather than ISO/IEC 15444-5's reference software, and it is
+recorded as the weaker kind.
 
 **The lesson is about the ladder rather than the page**: a limit that a renderer does not approach
 *at all* is not a loose limit, it is a difference in a different quantity, and one more rung is
