@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~182 of the 238 rows have not been re-read.
+Status: **standing task.** ~180 of the 237 rows have not been re-read.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -187,8 +187,8 @@ because a reader only ever *reads* one (ADR 0129).
   all four corpus documents carrying a `/UR3` grant what this program does, so no file here can
   trip it. What is still owed under §12.8.2.3 is §12.8.2.2.2's comparison of two revisions, which
   needs the digest.
-- **~185 `partial` rows** not yet re-read against the code.
-- **The 33 `reported` rows are worked out** — all read in the hundred-and-twenty-first and
+- **~180 `partial` rows** not yet re-read against the code.
+- **The 30 `reported` rows are worked out** — all read in the hundred-and-twenty-first and
   -second, and none is of the two known failure classes (a true observation about the wrong half
   of a sentence, ADR 0109; a clause with two populations where the row names one, ADR 0110). 17
   are cryptographic validation needing a trust store, 5 need a second file or a network, 3 are

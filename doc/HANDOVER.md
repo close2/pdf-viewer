@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **two-hundred-and-fiftieth** is the last one in it. Read `/CLAUDE.md` first — the five
+session, and kept current since; the **two-hundred-and-seventieth** is the last one in it. Read `/CLAUDE.md` first — the five
 principles, what *done* means, and the closed exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -228,55 +228,69 @@ Two that *were* here and are closed by work: optional content's interactive half
 and a page whose scene overflows Vello's buffers (banded in 143, and the page that motivated it
 stopped overflowing in 147 — ADRs 0127, 0132).
 
-### The twenty rounds from the two-hundred-and-thirty-first
+### The twenty rounds from the two-hundred-and-fifty-first
 
-**Four defects nobody could see, one the project owner could, one clause closed, a sixth fuzz
-target that found two more, and `CONTRADICTED_UNEXPLAINED` emptied.** The undiagnosed half of
-§3a's bucket went 684 → 492. What they have in common is the part worth keeping: **six of the
-seven findings came from an instrument rather than from a hunch**, and three of those instruments
-were built in the same twenty rounds.
+**A defect a person met by using the program, four clauses that were implemented and unreachable,
+a page this tree drew nothing on, three panels' worth of new surface, and §3a's undiagnosed bucket
+from 492 to 98.** What the twenty have in common is one question, asked in two directions:
 
-- **§8.7.4.5.4's greatest *admissible* root** (ADR 0171), diagnosed twenty-six sessions earlier
-  and unfixed because it looked like four intertwined changes. The evaluator is one quadratic;
-  `pdf_render::blend_parameter` takes the greatest root `/Extend` admits, `RadialRaster`
-  evaluates it per device pixel, and all three backends draw the same bytes as they already did
-  for a mesh. The cost is confined by a *derived* condition — the sign of `|Δc|² − Δr²`, which is
-  exactly when a point can lie on two blend circles — so nothing without a cone pays anything.
-- **A soft mask evaluated to zero inside a `d1` glyph** (0173). §8.6.8's uncoloured restriction
-  reached into the mask's own group, so its image met "all image painting operators shall be
-  ignored" and the mask erased the very marks the glyph existed to make. Every command present,
-  nothing reported, no gate able to see it.
-- **A space drawn as a bar** (0174). The `loca` repair of four rounds earlier read a glyph's
-  length from its own bytes even where the table said, in the standard's own spelling, that the
-  glyph was empty. **The session that landed that repair A/B'd it against this very document and
-  cleared it** — page ink 19.576 either way — because five narrow bars are a tenth of a level on
-  three words of bold text.
-- **Two crashers in a repair nobody had fuzzed** (0175): a table beginning inside the table
-  directory, and a tag naming two tables. Both are rewrites steered by untrusted structure, which
-  is a larger surface than a reader over the same bytes.
-- **A strike-out that no longer spanned its words** (0172), reported by the project owner. Two
-  `shall`s that cannot both hold at any magnification but 1, with no precedence stated — §12.5.3's
-  fixed screen size and §12.5.6.10's "in the text of a document" — so it is recorded as a choice.
-  Counted before it was made: 211 of the corpus's 511 markup annotations carry `NoZoom` and all
-  211 are strike-outs in one document at one flag value.
+> **The model implements this — who calls it? The row explains itself by naming a capability —
+> has that capability arrived?**
 
-**And three instruments, each of which paid on its first run.**
+`doc/todo/01`'s three sweeps had only ever asked the second. Asking the first is one `grep` — every
+`pub fn` in `pdf-model` against the two host-side crates, 174 functions and 72 nobody names — and
+it produced a clause on its first run.
 
-- **`pdftoppm` renders the `/MediaBox`** unless told `-cropbox`, where this tree, the oracle and
-  `mutool` render the `/CropBox`. On `freeculture.pdf` that is a factor of 1.378 and would have
-  manufactured a 34% defect on four pages that agree to 0.03 of 255. `-alpha off`'s twin, and now
-  beside it in `doc/todo/00`'s step 6.
-- **A sweep for the one defect a distance cannot name**: our ink minus the lightest reference's,
-  over every undiagnosed page, from artefacts already on disk. It produced a *negative* result and
-  that is the finding — the whole bucket lies between −0.84 and +0.42 of 255. `doc/todo/00` step 7.
-- **A count of the codes that reach no glyph**, which `doc/todo/21` had asked for and said needed
-  a mechanism it already had. 24 codes over 8 documents draw nothing and say nothing — and half
-  the first number was a *space* whose font reads it back as `#`.
+- **A selection cost a compositor layer a quad** (ADR 0176), the one defect on this project's list
+  that a person met by using the program normally. One `Multiply` fill per quad, 6.4 MB of frame
+  budget each, refused at 63 quads — one short paragraph. One fill of one path with one subpath
+  per quad draws the same pixels under two layers instead of sixty-four: 268 quads in 16.5 ms,
+  from a refusal. The blend mode was load-bearing (§11.3.5.2) and the *per-quad* part of it was
+  preserving a behaviour nobody wants, on the strength of a comment nobody had checked.
+- **The pointer was on a link** (0177). §12.5.5's three appearances and §12.5.6.19's `/H` — a
+  *widget's* entry — reached only `/Subtype /Link`, because `viewer-core` took the region from
+  `link_at`. Implemented, argued in an ADR, tested with pixels, and unreachable from the only host
+  in the tree for a hundred and fifteen sessions. Widening it then turned a latent default into a
+  wrong pixel in the same sitting, which is the second half of the lesson.
+- **§8.11.4.3's `/ListMode`** (0178), read into `OptionalContent::list_mode` and asked by nothing,
+  with a layer panel on the screen. **§12.6.3's `/Fo` and `/Bl`**, owed a "focus model in
+  `Command`" that was never needed: a press inside a widget's active area gives it the focus, and
+  all ten of Table 197's events are raised now. **§12.3.4's thumbnails**, decoded by `pdf-model`
+  and drawn by nobody — a fifth tab, and four of `/PageMode`'s six values name a panel that
+  exists.
+- **A page this tree drew nothing on** (§12.5.6.4). `rc_annotation.pdf` is one text annotation
+  with `/Rect [50 50 50 50]`, and the clause says a text annotation is "attached to a point" and
+  "shall appear as an icon". It sat at 0.73 from the nearest reference, because a nearly blank
+  page resembles a nearly blank page, and **no ranking would ever have produced it**: what did was
+  `doc/todo/00`'s step 7 sweep, at −1.783 of 255.
+- **`/Helv` is not an arbitrary name.** Five corpus documents' `/DA` named a font their `/DR` does
+  not define, and the fourteen four-letter abbreviations are a *bijection* with §9.6.2.2's
+  fourteen font programs. Drawing them from the binary took the corpus's incomplete list 78 → 76
+  and the oracle's agreements 852 → 854.
+- **Six icons a clause only recommends**, because §12.5.6.15's and §12.5.6.16's names name
+  *objects* and §12.5.6.12's name legends. The verb `should` was never the whole question.
 
-**The corpus can hold one document under a dozen names.** 154 of the ambiguous bucket's names
-were `tracemonkey.pdf` and eleven copies of it with annotations added; `pdftotext -f 9 -l 9 |
-md5sum` is identical across them. One measurement settled all 154 and the honest number to report
-is *one finding*.
+**And the bucket, which is now a tail.** 492 undiagnosed → **98**, and the method is worth more
+than the number: three populations — `freeculture.pdf`, `pdkids.pdf`, `TAMReview.pdf` — taken by
+sampling twelve pages with two ladders each *and then reading the whole population's own printed
+band*. The band caught the page the sample would have buried (`freeculture.pdf` page 171, a
+one-bit stencil `ghostscript` thresholds). **A population argument needs the population's own
+numbers and not only a sample's.**
+
+**The step-7 sweep was corrected three ways and is the instrument to keep.** Drop a reference that
+drew nothing before taking the minimum — a blank is not a lower bound, and four pages read +21 to
++29 because of it. Run it over *every* ambiguous page rather than the undiagnosed list, or
+diagnosing a population removes it from the only instrument that sees missing content. Read the
+result beside the corpus's incomplete list: seventeen of the twenty names past −1 are pages this
+tree already reports.
+
+**Three claims decayed in prose while the code was right**, and none of the existing sweeps
+watches prose outside `ledger.toml`: `doc/todo/21` named two documents whose "characters no single
+face on this machine has" and both had drawn every character since ADR 0153, seventy-three
+sessions earlier; `outline.rs` opened "[a]n outline is a *panel* in a viewer that has none", false
+for a hundred; and ADR 0126's own reproduction recipe searched for a window by *file* name that
+§12.2's `/DisplayDocTitle` had renamed — a recipe that failed silently, which is its own lesson one
+line down from where it is written.
 
 ---
 
@@ -709,8 +723,10 @@ for having hard fonts, which session 68 then measured on one.
 
 ### 3a. The ambiguous bucket — watched since the hundred-and-seventy-sixth, and being emptied
 
-**749 of the pages the oracle judges on documents we call complete come back `ambiguous` (788 of
-all 1794), and until the hundred-and-seventy-sixth session no gate watched one of them.** The verdict means "nobody's difference is large
+**749 of the pages the oracle judges on documents we call complete come back `ambiguous` (787 of
+all 1794), and until the hundred-and-seventy-sixth session no gate watched one of them.** 98 are
+still undiagnosed, from 754: the twenty rounds from the two-hundred-and-fifty-first took three
+populations at once and then worked the tail a page at a time. The verdict means "nobody's difference is large
 enough to call anybody wrong", which is the right thing for the *ratchet* to do and is not the
 same as "right". `issue7406.pdf` drew a JPEG cyan-on-black inside an `ambiguous` verdict for as
 long as anybody looked, and it is correct now, and **nothing announced either event**.
@@ -720,8 +736,10 @@ enough along for this to be the work rather than a caveat. It is the last large 
 a defect can live without a name, and **the task, the instrument, the method and the next names
 are [todo 00](todo/00-ambiguous-bucket.md)**.
 
-**What it has produced, because that is the argument for keeping at it.** Thirty-two sessions,
-**thirteen defects found and twelve of them fixed** — a page one that was page two (ADR 0148), a
+**What it has produced, because that is the argument for keeping at it.** Forty-five sessions,
+**fourteen defects found and thirteen of them fixed** — the newest being a page this tree drew
+*nothing* on, which the ranking rated 0.73 and the step-7 sweep found at −1.783 (§12.5.6.4's text
+annotation attached to a point) — — a page one that was page two (ADR 0148), a
 photograph rendered black (0149), a shading painted as a square (0150), a stencil that drew
 nothing (0151), a whole grid that disappeared (0154), a sentence drawn as one Greek letter
 because the font's name ends in the word "Symbol" (0158), a stamp's gradient painted flat
@@ -2606,3 +2624,4 @@ above rather than here.
 | 268 | Everything re-verified after sixteen rounds — and ADR 0126's own recipe had decayed | 0126 |
 | 269 | §12.3's parent rows, one round after their member landed; two more off the ambiguous tail | — |
 | 270 | The capability sweep over `crates/`: 89 matches, 87 of them true, and both false ones ten rounds old | — |
+| 271 | Twenty rounds' prose brought up to date, and the question the twenty had in common | — |

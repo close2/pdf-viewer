@@ -33,8 +33,8 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 
 | | item | corpus |
 |---|---|---|
-| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 492 pages |
-| [01](01-ledger-partial-rows.md) | Read the ledger's 238 `partial` rows against the code | — |
+| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 98 pages |
+| [01](01-ledger-partial-rows.md) | Read the ledger's 237 `partial` rows against the code — and the five sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; a tiling cell's two halves; a hairline at the raster's edge | 4 |
