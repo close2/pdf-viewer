@@ -4543,6 +4543,16 @@ impl Interpreter<'_> {
                             coverage.empty = coverage.empty.saturating_add(1);
                             self.codes_without_a_glyph =
                                 self.codes_without_a_glyph.saturating_add(1);
+                            // `PDFVIEWER_TRACE_MISSING_GLYPH=1` names each one on stderr, the
+                            // same idiom `tests/corpus.rs` uses for a document that never
+                            // returns. The count alone cannot tell a mark that is missing from
+                            // a *space* whose font reads it back as something else, and on
+                            // `pr12564.pdf` — 26 of the corpus's 50 — every one is the second:
+                            // `pdftotext` reads that page as `1101#Strayer#Drive`, so the code
+                            // is the document's space and having no outline is correct.
+                            if std::env::var_os("PDFVIEWER_TRACE_MISSING_GLYPH").is_some() {
+                                eprintln!("MISSING read={:?}", self.text.get(start..));
+                            }
                         }
                     }
                     Font::Type3(type3) => {

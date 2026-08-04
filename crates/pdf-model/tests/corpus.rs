@@ -585,7 +585,7 @@ const KNOWN_SLOW: [&str; 0] = [];
 /// What happened to one document.
 #[derive(Debug, Default)]
 struct Tally {
-    /// Every code shown on a page one that reached no glyph, and the documents they sit in.
+    /// Every code shown on a page one that reached no glyph **without the page reporting**.
     ///
     /// A measurement rather than a gate — nothing here fails on it. `doc/todo/21` asks whether
     /// ADR 0152's trade still holds: the tree reports a font that drew *nothing* and stays quiet
@@ -680,7 +680,10 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
     };
 
     let interpretation = pdf_model::interpret(&document, &page);
-    if interpretation.codes_without_a_glyph > 0 {
+    // Counted only where the page reports nothing, because that is the population the
+    // question is about: a document whose font already says "no outline for any of the codes
+    // this page shows" is not silent about it, and is on the incomplete list below.
+    if interpretation.codes_without_a_glyph > 0 && interpretation.is_complete() {
         let missed = interpretation.codes_without_a_glyph;
         let named = name.clone();
         record(tally, |t| t.codes_without_a_glyph.push((named, missed)));
@@ -767,8 +770,8 @@ fn the_corpus_opens_interprets_and_rasterises() {
         .map(|(_, count)| *count)
         .sum();
     println!(
-        "  codes reaching no glyph: {missed} over {} documents (measurement, not a gate; \
-         doc/todo/21)",
+        "  codes reaching no glyph *in silence*: {missed} over {} documents (measurement, \
+         not a gate; doc/todo/21)",
         tally.codes_without_a_glyph.len()
     );
     let mut worst = tally.codes_without_a_glyph.clone();

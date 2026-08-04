@@ -193,7 +193,7 @@ the 974 documents' first pages it affects.
 |---|---|---|
 | A §10.7.4 mark that moves with sub-pixel placement | 1 | [todo 10](todo/10-hairline-mark-snapping.md) |
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's top edge | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
-| A substitute with no glyph for a character; one that cannot be addressed; **109 codes over 14 documents that reach no glyph and say nothing** | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
+| A substitute with no glyph for a character; one that cannot be addressed; **24 codes over 8 documents that reach no glyph in silence** | 2 + 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define; a composite `/DA`, a list box, `/DS`, `/RV` | 7 | [todo 22](todo/22-variable-text-edges.md) |
 | Transparency departures (§11.4, §11.5.3, §11.6.6) | 19 | [todo 23](todo/23-transparency-departures.md) |
 | A mask at a grid the bound refuses; JPEG 2000 at reduced resolution; sampled shadings on the GPU | 3 | [todo 24](todo/24-image-sampling-intent.md) |
@@ -1647,6 +1647,12 @@ anchor that makes it checkable.
 - **A rewrite driven by untrusted structure is a larger surface than a reader over the same
   bytes.** Both glyph-table repairs had been reviewed and never fuzzed, and both wrote at an
   offset a document supplied. ADR 0175.
+- **A count of "marks missed" is a count of something else until you look at what they read
+  back as.** 50 codes over 9 documents drew nothing and said nothing; 26 of them were one code
+  of `pr12564.pdf`, and `pdftotext` reads that page as `1101#Strayer#Drive` — the code is the
+  document's *space*, and having no outline is correct. The exemption that catches an ordinary
+  space is "reads back as whitespace", which is blind to a font that reads a space back as `#`.
+  `PDFVIEWER_TRACE_MISSING_GLYPH=1` is the trace that settled it in one run.
 - **A page-level number cannot clear a mechanism of a defect that is five glyphs wide.** ADR
   0170's session A/B'd its `loca` repair against `issue7074_reduced.pdf` — ink 19.576 with the
   repair on and 19.576 with it off — and concluded the repair did not reach the page. The
@@ -2510,3 +2516,4 @@ above rather than here.
 | 242 | The contradicted list's older unexplained page, settled by two ladders rather than a debugger | — |
 | 243 | And the last one: `CONTRADICTED_UNEXPLAINED` is empty, from 42 | — |
 | 244 | Codes that reach no glyph, counted at last: 109 over 14 documents, two thirds in two | — |
+| 245 | And half of the count was a space the font reads back as `#`: the real silence is 24 codes | — |

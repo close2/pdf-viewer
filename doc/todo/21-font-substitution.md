@@ -39,25 +39,32 @@ glyph" is `Some(g)` with an empty outline — `LoadedFont::outline` collapses th
 `glyph_index` does not. The whitespace-readback test added in ADR 0157 is the other half.
 
 So what was owed was **the measurement, not the mechanism**, and the two-hundred-and-forty-fourth
-session took it. `Interpretation::codes_without_a_glyph` counts the codes a page showed that
-reached no glyph — excluding the two cases that are not marks missed, a code that reads back as
-whitespace and a code §9.10.2 gave a character the substitute lacks — and `tests/corpus.rs`
-prints the sum over page one of all 974 documents:
+and -fifth sessions took it. `Interpretation::codes_without_a_glyph` counts the codes a page
+showed that reached no glyph — excluding the two cases that are not marks missed, a code that
+reads back as whitespace and a code §9.10.2 gave a character the substitute lacks — and
+`tests/corpus.rs` prints the sum over page one of all 974 documents, **counting only pages that
+report nothing**, because a document whose font already says "no outline for any of the codes
+this page shows" is not silent about it:
 
 ```text
-codes reaching no glyph: 109 over 14 documents
-    39 issue12963.pdf          8 issue14821.pdf         4 issue6127.pdf
-    26 pr12564.pdf             6 bug1151216.pdf         3 bug1392647.pdf
-    10 recursiveCompositGlyf.pdf   5 issue13316_reduced.pdf   2 issue2884_reduced.pdf …
+codes reaching no glyph *in silence*: 50 over 9 documents
+    26 pr12564.pdf        3 bug1392647.pdf         1 issue2017r.pdf
+     8 issue14821.pdf     2 issue2884_reduced.pdf  1 issue4398.pdf
+     6 bug1151216.pdf     2 issue4650.pdf          1 issue7020.pdf
 ```
 
-**ADR 0152's trade still holds**: the population is 14 documents, where that ADR measured 13, so
-turning every one of these into a report would still cost the oracle fourteen judged pages to
-name 109 codes. The measurement is not a gate and nothing fails on it.
+**And then the largest contributor turned out not to be a missing mark at all.**
+`PDFVIEWER_TRACE_MISSING_GLYPH=1` names each code's readback, and all 26 of `pr12564.pdf`'s are
+one code that reads back as `#` — `pdftotext` renders that page as `1101#Strayer#Drive#*#San#Jose`,
+so the code **is** the document's space and having no outline is correct. The whitespace exemption
+is right in principle and blind to a font that reads a space back as something else.
 
-**What is new is the shape of the population, and it is two documents.** `issue12963.pdf` (39)
-and `pr12564.pdf` (26) are two thirds of the whole count, and the second is a page this project
-has already looked at twice — `AMBIGUOUS_GLYPH_SCAN_CONVERSION` diagnosed it as glyph coverage
-without noticing that 26 of its codes draw nothing at all. Those two are worth opening before any
-decision about reporting: a per-code report is a poor trade against 109 codes spread thinly and a
-good one against 65 concentrated in two files.
+So the real silent population is **24 codes over 8 documents**, and ADR 0152's trade holds
+comfortably: turning them into reports would cost the oracle eight judged pages to name
+twenty-four codes.
+
+**`issue14821.pdf` is the one worth opening**, and it is the whole of what is left worth opening:
+eight codes reading back as `1`, `2`, `3`, `7`, `e` and three `x`s, drawn as nothing. That is
+eight characters of a page's text absent in silence. The rest are ones and twos, two of them
+reading back as a replacement character or a CJK ideograph, which is a `/ToUnicode` question
+rather than a glyph one.
