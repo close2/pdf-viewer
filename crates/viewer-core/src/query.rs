@@ -109,6 +109,17 @@ pub enum Query<'a> {
     /// a copy that silently dropped the part of a drag the tree missed would be worse than one
     /// that hands back the order it already had. See `pdf_model::structure::Tree::logical_range`.
     LogicalSelection,
+    /// Which annotation holds the input focus, and where it is on the screen.
+    ///
+    /// The other half of [`crate::Command::Focused`]: §12.5.1 says a processor may let a person
+    /// walk the annotations with the tab key and says nothing whatever about showing which one
+    /// they are on — so the *ring* is a host's, drawn in its platform's focus colour, and this is
+    /// the geometry it needs. Device pixels of the viewport, like every other shape this crate
+    /// answers with.
+    ///
+    /// [`Answer::None`] where nothing is focused, or where the focused annotation states no
+    /// usable `/Rect`.
+    Focus,
     /// What is selected: the text, and the shapes to draw over it.
     ///
     /// Asked whenever a host repaints, which during a drag is every frame — so it is a query
@@ -196,6 +207,13 @@ pub enum Answer<'a> {
     Found(Vec<Vec<[f32; 8]>>),
     /// Whether anything has been edited.
     Dirty(bool),
+    /// The focused annotation and the quadrilateral covering it, in device pixels.
+    Focus {
+        /// The annotation itself, which is what §12.6.3's `/Fo` was raised against.
+        object: ObjectId,
+        /// Its `/Rect` on the screen, `[x0, y0, … x3, y3]`, y downwards.
+        quad: [f32; 8],
+    },
     /// §14.8.2.5's logical content order for the selection, a rearrangement of the same bytes.
     LogicalSelection(String),
     /// §14.3.3's Table 349, and §14.3.2's metadata stream beside it.

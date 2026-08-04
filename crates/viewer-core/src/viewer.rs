@@ -145,6 +145,12 @@ impl Viewer {
                 pdf_model::viewer_preferences::ViewerPreferences::read(&open.document),
             ),
             Query::Find(needle) => Answer::Found(self.found(open, needle)),
+            Query::Focus => self
+                .focus_quad(open)
+                .map_or(Answer::None, |(object, quad)| Answer::Focus {
+                    object,
+                    quad,
+                }),
             Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),
             Query::LogicalSelection => {
                 Self::logical_selection(open).map_or(Answer::None, Answer::LogicalSelection)
@@ -785,6 +791,50 @@ impl Viewer {
             text,
             quads: self.device_quads(open, (from, to)),
         })
+    }
+
+    /// The focused annotation's `/Rect` on the screen, for a host that draws a focus ring.
+    ///
+    /// The same mapping [`Self::device_quads`] uses and deliberately not a second copy of it in a
+    /// host: the origin, the magnification and the y flip are exactly the arithmetic that was
+    /// wrong for seventy-five sessions (ADR 0118), and a ring drawn from a host's own guess at it
+    /// would be that defect again one crate over.
+    fn focus_quad(&self, open: &Open) -> Option<(ObjectId, [f32; 8])> {
+        let object = open.focus?;
+        let resolved = open.document.get(object);
+        let dict = resolved.as_dict()?;
+        let rect = open.document.get_key(dict, "Rect");
+        let array = rect.as_array()?;
+        let mut values = [0.0_f32; 4];
+        for (slot, entry) in values.iter_mut().zip(array.iter()) {
+            // A rectangle whose numbers are not numbers is not a rectangle, and a page
+            // coordinate that does not fit an `f32` is a page nothing can draw.
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "see the comment above: the display list is f32 throughout"
+            )]
+            {
+                *slot = open.document.resolve(entry).as_number()? as f32;
+            }
+        }
+        let (x0, x1) = (values[0].min(values[2]), values[0].max(values[2]));
+        let (y0, y1) = (values[1].min(values[3]), values[1].max(values[3]));
+
+        let interpreted = open.interpreted.as_ref()?;
+        let magnification = open.magnification(self.viewport, self.scale)?;
+        let target = TargetSpec::for_page(&interpreted.list, magnification, MAX_PIXELS).ok()?;
+        let height = open.page_size(open.page_index).map(|size| size.height)?;
+        let origin = open.origin(self.viewport, (target.width, target.height));
+        let place = |x: f32, y: f32| {
+            (
+                origin.0 + x * magnification,
+                origin.1 + (height - y) * magnification,
+            )
+        };
+        // Clockwise from the top-left as it appears on the screen, which is the order
+        // `Selected::quads` uses and the order a host strokes a ring in.
+        let (a, b, c, d) = (place(x0, y1), place(x1, y1), place(x1, y0), place(x0, y0));
+        Some((object, [a.0, a.1, b.0, b.1, c.0, c.1, d.0, d.1]))
     }
 
     /// §12.5.1's tab order, applied: the focus moves to the next or previous annotation.

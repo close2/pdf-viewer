@@ -144,7 +144,7 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | **§14.3.2's XMP** (same 974) | 319 documents carry a metadata stream: **318 read, 1 refused**, 3191 properties between them, 106 stating `dc:title` — the refusal is a fuzzed file whose stream does not decode at all. New in the two-hundred-and-ninety-fourth (ADR 0186) | `tests/xmp.rs`, ~0.3 s |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable** — and the 13 are `hayro-jpeg2000`'s irreversible path, written up in `doc/JPEG2000_FEEDBACK.md` and held by name so an upstream fix fails the build (ADR 0161) | `tests/jpeg2000.rs`, ~9 s |
-| the window | page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **22.4 ms**, and five arrow keys turn to page 6 presenting in **9.5 to 15.9 ms** with nothing refused — re-run in the two-hundred-and-ninety-second, where the whole launch is **98.8 ms** (ADR 0179's timeline, ADR 0185's threads), on `lavapipe` through quorra and so not comparable with a real adapter, where `examples/first_frame` puts the first frame at 18.2 ms and the tenth at 4.1; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` — and since the two-hundred-and-ninety-fourth that string comes from the `dc:title` Table 147 actually names rather than from `/Info /Title`, which on this document happens to say the same thing | ADR 0126's recipe, session 175 |
+| the window | **Tab draws a focus ring** — `160F-2019.pdf` under `Xvfb`, two presses, the ring round its first widget, captured with `xwd` (ADR 0126's recipe, and `xdotool windowfocus` before `key --window` is what makes the press arrive). page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **22.4 ms**, and five arrow keys turn to page 6 presenting in **9.5 to 15.9 ms** with nothing refused — re-run in the two-hundred-and-ninety-second, where the whole launch is **98.8 ms** (ADR 0179's timeline, ADR 0185's threads), on `lavapipe` through quorra and so not comparable with a real adapter, where `examples/first_frame` puts the first frame at 18.2 ms and the tenth at 4.1; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` — and since the two-hundred-and-ninety-fourth that string comes from the `dc:title` Table 147 actually names rather than from `/Info /Title`, which on this document happens to say the same thing | ADR 0126's recipe, session 175 |
 | conformance | **410 quotations**, all verbatim, 3972 citations, 193 distinct tables cited by the tree, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
@@ -472,7 +472,7 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
-  `Selection`, **`LogicalSelection`** (§14.8.2.5), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
+  `Selection`, **`LogicalSelection`** (§14.8.2.5), **`Focus`** (§12.5.1's ring), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
   **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
   `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
   and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
@@ -1261,7 +1261,7 @@ binaries. The hundred-and-forty-second session was reported as "still lags" agai
 hours and six commits old, one of which was the 40× page-turn fix. A stale executable is a
 measurement of the past.
 
-Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom, **Tab and shift-Tab walk the page's annotations in the order Table 31's `/Tabs` states** (§12.5.1, all five values), the up and down
+Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom, **Tab and shift-Tab walk the page's annotations in the order Table 31's `/Tabs` states** (§12.5.1, all five values), **with a ring drawn round whichever one holds the focus** — the clause says nothing about showing one, so the ring is this host's colour and a native host would use its platform's, the up and down
 arrows scroll a page larger than the window, the wheel scrolls whatever is under it and
 **Ctrl + the wheel magnifies the page about the pointer** (ADR 0166), **`o` shows
 the sidebar** — three tabs: §12.3.3's outline, where a click on a title goes there and a click on
@@ -2723,3 +2723,4 @@ above rather than here.
 | 298 | The sixth sweep, which is arithmetic: five parents owing more than their own children, four of them wrong | — |
 | 299 | A reference that decoded an image wrongly and had the right amount of ink — the picture, not the metric | — |
 | 300 | Four names for one measurement: the ranking pointed at a page whose answer was already written two pages over | — |
+| 302 | The other half of §12.5.1: where the focus *is*, so a host can draw a ring round it — and one does | — |

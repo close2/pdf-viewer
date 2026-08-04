@@ -1260,6 +1260,51 @@ impl App {
         highlight_list(&quads, width, height)
     }
 
+    /// §12.5.1's focus ring: a stroked box round whatever the tab key last landed on.
+    ///
+    /// The clause lets a processor walk the annotations with the tab key and says nothing about
+    /// showing which one a person is on — so the ring is entirely this host's, in this host's own
+    /// colour, and a native one would use its platform's focus ring instead. What it is *not* is
+    /// this host's arithmetic: `Query::Focus` answers with the quadrilateral in the viewport's
+    /// own pixels, for the same reason `Query::Selection` does.
+    fn focus_list(&self, edge: f32, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let Answer::Focus { quad, .. } = self.viewer.query(Query::Focus) else {
+            return None;
+        };
+        let mut quad = quad;
+        for x in quad.iter_mut().step_by(2) {
+            *x += edge;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
+        let mut path = Path::new();
+        for (index, corner) in quad.chunks_exact(2).enumerate() {
+            let point = Point::new(corner[0], corner[1]);
+            path.push(if index == 0 {
+                PathCommand::MoveTo(point)
+            } else {
+                PathCommand::LineTo(point)
+            });
+        }
+        path.push(PathCommand::Close);
+        list.push(DrawCommand::Stroke {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            stroke: pdf_render::Stroke {
+                width: FOCUS_RING_WIDTH,
+                ..pdf_render::Stroke::default()
+            },
+            paint: Paint::Solid(FOCUS_RING),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        Some(list)
+    }
+
     fn present(&mut self) -> Option<Rendered> {
         // §12.3.4's list is built here and nowhere else: this is the one place that holds
         // `&mut self` and runs before the panel is drawn.
@@ -1294,10 +1339,12 @@ impl App {
             about: self.about_list(width, height),
         };
         let selection = self.selection_list(edge, width, height);
+        let focus = self.focus_list(edge, width, height);
         // Selection first (it belongs to the page), then the sidebar, then the
         // modal card on top — the same order the Vello host drew them in.
         let mut overlays: Vec<&pdf_render::DisplayList> = Vec::new();
         overlays.extend(selection.as_ref());
+        overlays.extend(focus.as_ref());
         overlays.extend(chrome.panel.as_ref());
         overlays.extend(chrome.about.as_ref());
 
@@ -1858,6 +1905,20 @@ fn highlight_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_ren
     });
     Some(list)
 }
+
+/// The colour §12.5.1's focus ring is drawn in.
+///
+/// A choice, and the only one available: the clause says nothing about showing a focus and this
+/// host has no theme to ask. A native host uses its platform's ring and never sees this constant.
+const FOCUS_RING: Color = Color {
+    r: 0.10,
+    g: 0.42,
+    b: 0.85,
+    a: 1.0,
+};
+
+/// How wide that ring is, in device pixels.
+const FOCUS_RING_WIDTH: f32 = 2.0;
 
 /// The chrome drawn over a page, as display lists in the window's own pixels.
 ///

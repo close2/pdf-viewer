@@ -817,6 +817,21 @@ fn the_tab_key_walks_the_pages_annotations() {
         "the walk came back to a position the next tab can move off"
     );
 
+    // And where it is on the screen, which is what a host draws a ring from. Device pixels of
+    // the viewport, like every other shape this crate answers with — a host that computed them
+    // from a `/Rect` itself would be re-deriving the origin, the magnification and the y flip,
+    // which is the arithmetic ADR 0118 found wrong for seventy-five sessions.
+    let Answer::Focus { quad, .. } = viewer.query(Query::Focus) else {
+        panic!("something is focused, and it has a /Rect");
+    };
+    for corner in quad.chunks_exact(2) {
+        assert!(
+            (0.0..=800.0).contains(&corner[0]) && (0.0..=1000.0).contains(&corner[1]),
+            "{quad:?} is off an 800x1000 viewport"
+        );
+    }
+    assert!(quad[1] < quad[7], "y grows downward on a screen: {quad:?}");
+
     // And clearing it is a move like any other, which a press outside every annotation already
     // does — so a host binding Escape to it needs no second message.
     viewer
@@ -826,6 +841,10 @@ fn the_tab_key_walks_the_pages_annotations() {
         viewer.handle(Command::Focused(FocusMove::None)).count(),
         0,
         "clearing a cleared focus changed nothing, so it said nothing"
+    );
+    assert!(
+        matches!(viewer.query(Query::Focus), Answer::None),
+        "and nothing focused is nothing to draw a ring round"
     );
 }
 
