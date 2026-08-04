@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **96 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **94 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 787 ambiguous pages (749 on documents we call complete); 653 diagnosed, 96 held by name
+Corpus: 787 ambiguous pages (749 on documents we call complete); 655 diagnosed, 94 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -292,6 +292,16 @@ pixel — where `ghostscript` paints 60% more than the geometry, `poppler` 46% m
 less (`AMBIGUOUS_SUB_PIXEL_LINE_WORK`). **Neither was a defect and both were a width**: the tail's
 head is now populations of *scan conversion*, which is the same result the ranking reached one
 level up in the two-hundred-and-fifteenth.
+
+**Two more in the two-hundred-and-eighty-sixth, and both joined an existing group with no new
+argument needed.** `two_pages.pdf` page 1 is **one command** — step 4's "one command has meant one
+image" for the fourth time — a 512 × 543 JPEG with a JPEG soft mask reduced by a third, where ours
+is flat to four decimal places and two ladders land 0.011 of 255 around it
+(`AMBIGUOUS_IMAGE_REDUCTION`). `textfields.pdf` page 1 is six empty fields on a letter page whose
+whole ink is one-point borders and comb cells: the two ladders agree to **0.0025 of 255**, and at
+the page's own scale `ghostscript` is 27% over the geometry and `hayro` 19% under — the same two
+outliers in the same two directions as `bug1863910.pdf`'s 28% and 22%, which is why it is that
+page's group rather than a new one (`AMBIGUOUS_WIDGET_BORDER`).
 
 **The ranking is a different list now.** With the three populations gone the head is 0.76 and
 below, and the two-hundred-and-sixty-fourth session took four of it: `issue11913.pdf` page 1,

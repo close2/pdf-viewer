@@ -1516,8 +1516,27 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// over both content regions, largest 0.469 where the photograph and its red labels are — which
 /// is `stamps.pdf`'s lesson one page along: the quantity is settled and what is left is where
 /// each filter puts an edge.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 13] = [
+/// **`two_pages.pdf` page 1 is the fourteenth**, off §3a's ranking in the two-hundred-and-eighty-sixth
+/// session at 0.68 from the nearest reference and 1.38 from the furthest. It is the group's
+/// simplest instance and the reason it is worth adding: **one command**, which `open_one` prints
+/// and which `doc/todo/00`'s step 4 says has meant one image every time — a 512 × 543 JPEG with a
+/// 512 × 543 JPEG soft mask, at 96 ppi on a 612 × 792 page, so it is reduced by about a third.
+///
+/// ```text
+///                 72 dpi   288 dpi   576 dpi
+/// poppler        33.5714   33.6059   33.4836
+/// mupdf          33.5528   33.4645   33.4944
+/// ours (1x/4x/8x) 33.4937  33.4917   33.4917
+/// ```
+///
+/// **Ours is flat to four decimal places** and the two ladders land 0.011 of 255 apart around it,
+/// so the quantity is not in question — 0.03% of the page's own ink separates three renderers at
+/// eight times the resolution. What the oracle sees at the page's own scale is a worst tile of
+/// 6.88 with a mean of 0.55, which is `stamps.pdf`'s sentence again: the ink instrument answers
+/// *how much* and is silent on *where*, and where is what a resampling filter decides.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 14] = [
     "bug1703683_page2_reduced.pdf page 1",
+    "two_pages.pdf page 1",
     // Taken out of the book beside it in the two-hundred-and-sixty-second session, by the band
     // rather than by the ranking: its worst tile is 81.57 where nothing else in `freeculture.pdf`
     // exceeds 29.09. The cartoon is a one-bit stencil, `ghostscript` thresholds it to a black
@@ -2228,7 +2247,27 @@ const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 1] =
 /// shape" applied to a stroke a pixel wide — and `hayro` is 22% under, which is where we were.
 /// The verdict is `ambiguous` at 0.79 because four renderers draw four one-pixel borders in four
 /// slightly different places on a page that is 59 rows tall.
-const AMBIGUOUS_WIDGET_BORDER: [&str; 1] = ["bug1863910.pdf page 1"];
+/// # `textfields.pdf` is the same page at letter size, and the fingerprint is the same five numbers
+///
+/// Off §3a's ranking in the two-hundred-and-eighty-sixth session at 0.69 from the nearest
+/// reference and 2.97 from the furthest. Six empty fields on a 612 × 792 page — a one-point
+/// border apiece and two comb rows of eleven cells — and nothing else at all, so like the page
+/// above its ink *is* its line work.
+///
+/// ```text
+///                 72 dpi   288 dpi   576 dpi
+/// poppler        2.80579   2.85672   2.86581
+/// mupdf          2.87486   2.86953   2.86834
+/// ours (1x/4x/8x) 2.6789   2.85402   2.85492
+/// ```
+///
+/// The two ladders agree to **0.0025 of 255** and ours climbs onto 2.8549, 0.4% under them —
+/// so all three are drawing the same rectangles. At the page's own scale the five renderers
+/// spread by 1.33 of 255: `ghostscript` **27% over** the geometry and `hayro` **19% under**,
+/// which are the same two outliers in the same two directions as `bug1863910.pdf`'s 28% and 22%.
+/// Ours is 6.5% under at 72 dpi and on the geometry by 288, which is a one-pixel stroke's
+/// coverage arriving as the pixels shrink.
+const AMBIGUOUS_WIDGET_BORDER: [&str; 2] = ["bug1863910.pdf page 1", "textfields.pdf page 1"];
 
 /// Ambiguous, and it is the one construction in this file that no gradient implementation has.
 ///

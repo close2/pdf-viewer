@@ -90,7 +90,5 @@ pdfjs_wikipedia.pdf page 1
 prefilled_f1040.pdf page 1
 prefilled_f1040.pdf page 2
 tensor-allflags-withfunction.pdf page 1
-textfields.pdf page 1
 tiling-pattern-box.pdf page 1
 transparency_group.pdf page 1
-two_pages.pdf page 1
