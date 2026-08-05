@@ -54,6 +54,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
 | [42](42-the-launch-path.md) | The launch path: 145 ms to 110, four of five items closed, the fifth is quorra's | all |
 | [51](51-signatures-and-public-keys.md) | Validation, public-key handlers, `/R` 5 | 1 |
+| [52](52-zlib-rs-deallocates-through-the-wrong-pointer.md) | `zlib-rs` fails both of Miri's aliasing models — an upstream report to write | — |
 | — | [`_scan-conversion.md`](_scan-conversion.md) | shared: §10.7.4, what this tree departs from and why |
 
 **Closed by decision rather than by work** — recorded in `doc/conformance/ledger.toml` and not

@@ -1303,6 +1303,19 @@ licences covering the compiled-in standard 14 fonts oblige a binary to carry. `-
 decodes JBIG2 and JPEG 2000 in-process — faster by a spawn and a pipe round trip, appropriate for trusted
 documents, and it prints what it gave up.
 
+**The pipeline is a gate this project had stopped reading, and both its failures were real** (ADR
+0189). It had been red since 2026-08-02. `render-gpu`'s bounded wait was one second rather than the
+sixty its constant and comment claimed, because `wgpu::PollError::Timeout` from the *slice* was
+returned as a failure instead of looping — invisible on this machine and fatal on a CI runner's
+`lavapipe`. And Miri's deliberate float non-determinism failed four `pdf-render` tests on the
+runner and a different three here, all of them tracing to `f32::hypot`, which libm does not
+promise to round correctly and which this crate used to decide **whether an image is magnified,
+how far its grid reduces, whether a miter passed §8.4.3.5's limit and whether a dash has no
+length**. `geom::length` is `(dx * dx + dy * dy).sqrt()` — IEEE operations only — so those four
+decisions are now the same on every platform, which the two-backend comparison had assumed and
+which was not true. Nothing moved: 856 agree, 68 contradicted, 749 ambiguous, to the number.
+**No gate in this tree could have found it**, because all of them run on one machine with one libm.
+
 **And since the three-hundred-and-eleventh session a person can get it without a toolchain.** Every
 push to `main` that passes `check` and `test` retags a rolling `snapshot` pre-release carrying
 `pdf-viewer` and `pdf-sandbox-worker`, x86_64 Linux, with `LICENSE` and `NOTICE` beside them
@@ -2768,4 +2781,4 @@ above rather than here.
 | 308 | Two ladders ending 0.70 apart, which is the text tolerance's own premise demonstrated | — |
 | 309 | The tightest *ratio* the tail has produced, and it was a page with no limit tight enough to be alone from | — |
 | 310 | quorra's coverage lane chosen per frame from the magnification; the page extent taken once, in f64 | — |
-| 311 | The fourteen specification documents out of the tree and back in encrypted; a snapshot release, and the two platforms it refuses to ship | 0187, 0188 |
+| 311 | The fourteen specification documents out of the tree and back in encrypted; a snapshot release, and the two platforms it refuses to ship; the pipeline read for the first time in three days, and both its failures were this tree's | 0187, 0188, 0189 |

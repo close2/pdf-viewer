@@ -144,7 +144,7 @@ fn join_extent(
     };
     let unit = |a: Point, b: Point| {
         let (dx, dy) = (b.x - a.x, b.y - a.y);
-        let length = dx.hypot(dy);
+        let length = crate::geom::length(dx, dy);
         (length > 0.0).then(|| (dx / length, dy / length))
     };
     let (Some(into), Some(out)) = (unit(from, vertex), unit(vertex, to)) else {
@@ -166,7 +166,7 @@ fn join_extent(
     }
     let scale = 2.0 * half / square_length;
     let (dx, dy) = (sx * scale, sy * scale);
-    if dx.hypot(dy) > limit {
+    if crate::geom::length(dx, dy) > limit {
         return square(half);
     }
     Rect::from_corners(
@@ -309,7 +309,7 @@ fn hull(path: &Path, stroke: &Stroke, half: f32) -> Option<Rect> {
 /// paint at most.
 fn segment(a: Point, b: Point, half: f32) -> Rect {
     let (dx, dy) = (b.x - a.x, b.y - a.y);
-    let length = dx.hypot(dy);
+    let length = crate::geom::length(dx, dy);
     let (gx, gy) = if length > 0.0 {
         (half * dy.abs() / length, half * dx.abs() / length)
     } else {

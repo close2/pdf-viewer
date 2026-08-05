@@ -6,6 +6,35 @@
 //! relative to `f64` — which matters because a text-heavy page produces tens of
 //! thousands of commands.
 
+/// The length of the vector `(dx, dy)`, computed so that every platform agrees on it.
+///
+/// **Not `f32::hypot`, and the difference decides pixels.** `hypot` is a libm function, and
+/// Rust promises only that it *approximates* the Euclidean distance: an implementation may be
+/// out in the last places, and two machines' libms may be out differently. Multiplication,
+/// addition and `sqrt` are IEEE 754 operations, each correctly rounded, so this expression is
+/// the same number everywhere.
+///
+/// That distinction is idle in arithmetic and load-bearing here, because this crate turns
+/// lengths into **decisions taken at a threshold**: whether an image is magnified
+/// ([`crate::paint::Image::is_smoothed`]), how far its grid is reduced, whether a miter has
+/// passed §8.4.3.5's limit, whether a dash has no length at all under §8.5.3.2. A comparison
+/// against an exact boundary flips on the last place, and `render-cpu` is `render-gpu`'s
+/// oracle — so a threshold that answered differently on a different machine would be a
+/// disagreement about every image drawn at exactly 1:1, on a page nobody had changed.
+///
+/// **Found by Miri**, whose deliberate non-determinism for imprecise floating-point operations
+/// failed four of this crate's tests on the CI runner and a different three on the machine that
+/// wrote them (ADR 0189).
+///
+/// The cost is `hypot`'s one real advantage: `dx * dx` overflows above about 1.8e19 and
+/// underflows to zero below about 1e-19, where `hypot` scales to avoid both. Page geometry is
+/// bounded by the format at 14 400 units and every caller here already guards a zero or
+/// non-finite length, so neither end is reachable from a document.
+#[must_use]
+pub(crate) fn length(dx: f32, dy: f32) -> f32 {
+    (dx * dx + dy * dy).sqrt()
+}
+
 /// A point in a 2D coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {

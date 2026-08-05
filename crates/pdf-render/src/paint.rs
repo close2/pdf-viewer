@@ -390,8 +390,8 @@ impl Image {
         if self.interpolate {
             return true;
         }
-        let across = placement.a.hypot(placement.b);
-        let down = placement.c.hypot(placement.d);
+        let across = crate::geom::length(placement.a, placement.b);
+        let down = crate::geom::length(placement.c, placement.d);
         #[expect(
             clippy::cast_precision_loss,
             reason = "an image's dimensions are bounded well below f32's exact integer range \
@@ -404,9 +404,10 @@ impl Image {
 
     /// How many whole source samples share one device pixel along each image axis.
     ///
-    /// `placement` maps the unit square onto the device, so `hypot` of each column is the
-    /// device length of that edge of the image — which holds under rotation and skew as well
-    /// as under a plain scale, and is the same quantity [`Image::is_smoothed`] measures.
+    /// `placement` maps the unit square onto the device, so [`crate::geom::length`] of each
+    /// column is the device length of that edge of the image — which holds under rotation and
+    /// skew as well as under a plain scale, and is the same quantity [`Image::is_smoothed`]
+    /// measures, by the same function for the reason that function gives.
     ///
     /// A factor is the *floor* of the ratio, so dividing the grid by it leaves between one
     /// and two source samples per device pixel: enough for a four-tap filter to see all of
@@ -435,8 +436,8 @@ impl Image {
         }
 
         (
-            factor(self.width, placement.a.hypot(placement.b)),
-            factor(self.height, placement.c.hypot(placement.d)),
+            factor(self.width, crate::geom::length(placement.a, placement.b)),
+            factor(self.height, crate::geom::length(placement.c, placement.d)),
         )
     }
 

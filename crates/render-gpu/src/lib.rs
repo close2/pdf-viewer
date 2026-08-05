@@ -457,6 +457,14 @@ fn keep_the_line_soup_non_empty(scene: &mut vello::Scene) {
 /// So this is the executor that future needs and no more: poll the future, and where it is not
 /// ready, poll the device. The wait is bounded for [`read_pixels`]'s reason — a wedged driver
 /// must surface as an error rather than hang the viewer.
+///
+/// **The device is polled in slices, and a slice expiring is not a failure.** Each `poll` waits
+/// up to [`POLL_SLICE`] so that the deadline above can be checked between waits;
+/// [`wgpu::PollError::Timeout`] from one of them means "still working", and the only thing that
+/// gives up is [`GPU_WAIT_TIMEOUT_SECS`]. Treating the slice's expiry as an error instead made
+/// the effective bound one second rather than sixty, which is a bound no software rasteriser
+/// meets on a large page: CI failed here on `lavapipe` with the timeout's own words, in a test
+/// the machine that wrote it passes, and the sixty-second constant had never once applied.
 fn drive<F: Future>(device: &wgpu::Device, future: F) -> Result<F::Output, GpuRasterError> {
     let mut future = std::pin::pin!(future);
     let mut context = std::task::Context::from_waker(std::task::Waker::noop());
@@ -467,18 +475,25 @@ fn drive<F: Future>(device: &wgpu::Device, future: F) -> Result<F::Output, GpuRa
             return Ok(value);
         }
         if deadline.is_some_and(|deadline| std::time::Instant::now() > deadline) {
-            return Err(GpuRasterError::Readback(
-                "the device did not finish within the timeout".to_owned(),
-            ));
+            return Err(GpuRasterError::Readback(format!(
+                "the device did not finish within {GPU_WAIT_TIMEOUT_SECS} s"
+            )));
         }
-        device
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(std::time::Duration::from_secs(1)),
-            })
-            .map_err(|error| GpuRasterError::Readback(error.to_string()))?;
+        match device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(POLL_SLICE),
+        }) {
+            Ok(_) | Err(wgpu::PollError::Timeout) => {}
+            Err(error) => return Err(GpuRasterError::Readback(error.to_string())),
+        }
     }
 }
+
+/// How long one `poll` waits before the loop above looks at its deadline again.
+///
+/// Short enough that a wedged device is noticed promptly and long enough that the loop is not
+/// a spin. Nothing about it bounds the render: [`GPU_WAIT_TIMEOUT_SECS`] does.
+const POLL_SLICE: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How long to wait for the GPU before giving up on a readback.
 ///

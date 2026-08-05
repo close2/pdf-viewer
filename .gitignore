@@ -2,6 +2,8 @@
 **/*.rs.bk
 *.profraw
 
+github-token.txt
+
 # Fuzzing: the corpus and crash artefacts are large and machine-generated. Crashers
 # that matter are promoted into `tests/regression/` as committed fixtures instead,
 # so a reproducer never lives only in an ignored directory.

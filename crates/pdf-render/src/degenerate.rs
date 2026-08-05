@@ -192,7 +192,7 @@ pub fn split_dash_marks(dashed: &Path, cap: LineCap, width: f32) -> DegenerateSt
         // dash cannot move one across the boundary. The shortest positive dash entry in the
         // whole 974-document corpus is 0.02, ten times this; a dash truncated by the end of
         // the path could be shorter, and drawing its cap is what §8.5.3.2 asks for there too.
-        if span.x.hypot(span.y) <= ZERO_DASH * 2.0 {
+        if crate::geom::length(span.x, span.y) <= ZERO_DASH * 2.0 {
             dash_mark(&mut dots, subpath.start, width, cap, span);
         } else {
             stroked.extend(&dashed.commands()[subpath.range()]);
@@ -220,7 +220,7 @@ pub fn split_dash_marks(dashed: &Path, cap: LineCap, width: f32) -> DegenerateSt
 /// shape that is the same under every orientation the square could have had, so the choice
 /// does not depend on which of them a reader guesses.
 pub fn dash_mark(into: &mut Path, centre: Point, width: f32, cap: LineCap, direction: Point) {
-    let length = direction.x.hypot(direction.y);
+    let length = crate::geom::length(direction.x, direction.y);
     // With no direction to face, a square cap falls through to the circle: see the note
     // above on §8.4.3.4, which makes that case implementation-dependent.
     let oriented_square = cap == LineCap::Square && length > 0.0;
