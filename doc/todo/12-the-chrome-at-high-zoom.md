@@ -1,4 +1,4 @@
-# The chrome disappears at high zoom, on the graphics device only
+# Two things break at high zoom: the chrome, and the glyphs
 
 Status: **reproduced and measured, not diagnosed.** Found in the three-hundred-and-thirty-sixth
 session, by zooming a page in steps until something broke — which is what the project owner asked
@@ -23,12 +23,28 @@ and every press is ×1.25.
 | 16 | 4 640% | 22 205 × 31 405 | background only, shifted ~40 px |
 | 20 | 6 400% (the clamp) | 38 093 × 53 876 | background only, shifted ~85 px |
 
-**The page itself is drawn correctly throughout** — the glyphs at 6 400% are the same shapes the
-CPU backend draws, and they are not the thing that breaks.
+**The page's glyphs break too, and separately** — that is the section below, and it is quorra's
+rather than this host's.
 
 **And the CPU backend does not break.** The same document at the same 16 presses under `--cpu`
 draws the sidebar whole: rows, tab strip, disclosure triangles. So this is the graphics path, not
 the panel's own display list and not the host's arithmetic.
+
+## And the characters, which is the second defect and is **quorra's** — `doc/QUORRA_FEEDBACK.md` §11
+
+The owner reported it as "zoom in and it looks fine, then it starts being wrong, and zooming out
+again keeps having broken fonts", with a screenshot where `extensive` reads `extens:ve`. That is
+now **reproduced offscreen in two frames** and written up for the rendering library's team:
+
+- it is the **GPU coverage lane**, which `viewer-ui` switches to above 10× magnification
+  (`GPU_COVERAGE_MAGNIFICATION`), and the same ladder on the CPU lane is clean at every rung;
+- it is **state, not magnification**: a fresh device whose first frame is 6400% is clean
+  (mean 0.0134), and the same frame after one 3200% frame on the same device is wrong (7.63);
+- the damage **reaches backwards**: 1600% is wrong afterwards and was right on the way up.
+
+What is left on *this* side is the mitigation, and it is deliberately not taken yet: not switching
+lanes would cost the ten-fold frame time the switch was measured to buy
+(`doc/quorra-gpu-coverage.md`). It waits on their answer.
 
 ## What is measured, so that "the characters go wrong" has a number
 
@@ -45,11 +61,11 @@ rung. On this machine (`lavapipe` under `Xvfb`), page 3 of the note:
     6400%  38092 × 53875     0.0301      1.71   0.99985
 ```
 
-**The two backends agree better as the page grows**, which is what glyph edges do when the pixels
-shrink. So on *this* adapter the page's characters are right at every reachable magnification, and
-the report that they are wrong at some zoom is still open on the **real GPU** — RADV on this
-machine's AMD 890M, which the agent cannot reach (`CLAUDE.md`'s environment note: a run on the real
-adapter is the owner's to make). The ladder is the instrument to run there.
+**Those numbers are the *CPU* coverage lane**, which is what a ladder gets by default — and that
+is exactly why the first run of this instrument said the characters were fine. Switching the lane
+at 10× the way the viewer does is what produced §11's reproduction above. **A ladder that does not
+switch lanes is not measuring what a person sees past 1000%**, and this file said the opposite for
+one round.
 
 ## The hypothesis to check first
 

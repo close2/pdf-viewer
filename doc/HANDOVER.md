@@ -256,7 +256,7 @@ the 974 documents' first pages it affects.
 | A character of the *document's own text in this host's chrome* — an outline title, a layer name, an `/Info` value — that §9.6.2.2's fourteen have no code for. Drawn as a box since the three-hundred-and-sixteenth session, and what a box cannot say is which character | **74** documents, 9 strings that used to draw as nothing | [todo 27](todo/27-the-interfaces-own-font.md) |
 | Signature *validation*, public-key handlers (§7.6.5), `/R` 5 | 1 | [todo 51](todo/51-signatures-and-public-keys.md) |
 | A **four-component YCCK JPEG** (Adobe APP14 transform 2): the decoder hands three components where the codestream states four, so the image is refused — and on the document that found it, that image *is* the page | 0 in the corpus; **92 blank pages** in a catalogue the owner opened | [todo 28](todo/28-a-catalogue-that-draws-nothing.md) |
-| The sidebar above ~2000% magnification, on the graphics device only: its background survives and its rows do not, and the page beside it is drawn correctly | — | [todo 12](todo/12-the-chrome-at-high-zoom.md) |
+| Two things at high magnification, on the graphics device only: the sidebar above ~2000%, and — **quorra's, reported as `doc/QUORRA_FEEDBACK.md` §11** — the **wrong glyph** drawn by its GPU coverage lane after a frame at a larger magnification, which reproduces offscreen in two frames and stays wrong on the way back down | — | [todo 12](todo/12-the-chrome-at-high-zoom.md) |
 | Sandboxing the interpreter and rasteriser | — | [todo 34](todo/34-sandbox-the-interpreter.md) |
 
 **Closed by decision rather than by work**, recorded in the ledger and not owed to anybody:

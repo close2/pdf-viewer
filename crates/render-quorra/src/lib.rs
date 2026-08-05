@@ -124,6 +124,18 @@ impl QuorraRasterizer {
         self
     }
 
+    /// Which lane draws coverage from now on, as [`QuorraPresenter::set_coverage`] does it.
+    ///
+    /// Here as well as on the presenter because the *offscreen* path is where a lane can be
+    /// compared against the CPU oracle: `viewer-ui` switches lanes at a magnification
+    /// (`GPU_COVERAGE_MAGNIFICATION`), so a headless ladder that never switches is not
+    /// measuring what a person sees past 1000%. `examples/zoom_ladder` is the caller.
+    ///
+    /// [`QuorraPresenter::set_coverage`]: crate::present::QuorraPresenter::set_coverage
+    pub fn set_coverage(&mut self, coverage: quorra_gpu::Coverage) {
+        self.device.set_coverage(coverage);
+    }
+
     /// The adapter quorra selected, for reports and golden-file metadata.
     #[must_use]
     pub fn adapter_description(&self) -> &str {

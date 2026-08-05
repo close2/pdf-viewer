@@ -14,7 +14,7 @@ day it was reported** — one unconditional line priced a texture the default co
 allocates, five real pages were refused on it, and the fix went in one level deeper than the one
 proposed.
 
-**§8 was answered at `7d5dafb` and §9 is open.** Both were requests rather than defects, and both
+**§11 is the newest and is open**: the GPU coverage lane draws the *wrong glyph* — a lowercase `t` as a capital `T` — after a frame at a larger magnification, and a magnification that was right on the way up is wrong on the way down. It reproduces offscreen on the software adapter in **two frames**, and the recipe is one command. **§8 was answered at `7d5dafb` and §9 is open.** Both were requests rather than defects, and both
 exist because the project owner's decision that page one goes to the graphics device put your
 bring-up on this viewer's critical path. §8 asked for a field split and an entry point and got
 both, plus a refusal of the knob it said not to add; §9 is from the other end of the same launch —
@@ -538,3 +538,91 @@ disagreed because the condition was written twice. Guarding the charge would hav
 
 913 / 43 / 1 / 17 — this gate's exact state from before the coverage lane, restored, with the one
 remaining refusal the coverage-extent one that has been argued since §0's first run.
+
+## 11. The GPU coverage lane draws the **wrong glyph** after a larger frame — and it stays wrong
+
+**New, 2026-08-05, and it is a defect rather than a request.** The project owner reported it from
+the window: *"I do not get the same output at the same zoom level. When I zoom in, the output looks
+fine, but then it starts being wrong, and zooming out again keeps having broken fonts."* The
+screenshot shows a page of text where some letters are missing and at least one is a different
+letter — `extensive` comes back as `extens:ve`.
+
+It reproduces **offscreen, on the software adapter, in two frames**, with no window, no surface and
+no chrome involved.
+
+### The recipe
+
+`crates/render-quorra/examples/zoom_ladder.rs` in this tree walks a page up a ladder of
+magnifications and back down it, through **one** `QuorraRasterizer`, switching to
+`Coverage::Gpu` at 10× exactly as `viewer-ui` does — and compares every rung against
+`render-cpu`, which is this project's correctness oracle.
+
+```sh
+cargo run --release -p render-quorra --example zoom_ladder -- doc/PDF20_AN001-BPC.pdf 3
+```
+
+```text
+ leg      zoom        target       mean     worst      ssim
+  up      800%   4761 × 6734      0.1175      1.51   0.99950
+  up     1600%   9523 × 13468     0.0347      1.50   0.99978
+  up     3200%  19046 × 26937     0.0166      0.48   0.99991
+  up     6400%  38092 × 53875     7.6295    191.25   0.94068     ← wrong
+down     3200%  19046 × 26937     0.0166      0.48   0.99991
+down     1600%   9523 × 13468     7.1524    173.98   0.91892     ← wrong, and it was right on the way up
+down      800%   4761 × 6734      0.1175      1.51   0.99950
+```
+
+The `-- <file> <page> <out-dir>` form writes both backends' rasters per rung. At 6400% the page
+reads `ort` on the CPU and **`orT`** on the GPU lane: a lowercase *t* drawn as a capital *T*, at
+the right position and the right size. That is the owner's `extens:ve` — a glyph replaced by
+another glyph, not a glyph lost.
+
+### It is state, not magnification
+
+| what is asked | result |
+|---|---|
+| a **fresh** device whose first frame is 6400% | **clean**: mean 0.0134, ssim 0.99993 |
+| a device that drew one 3200% frame, then 6400% | **wrong**: mean 7.6295, worst tile 191.25 |
+| the same device afterwards at 1600% | **wrong**: mean 7.1524 — and 1600% was 0.0347 on the way up |
+| the same device afterwards at 3200% and 800% | clean |
+
+So the minimal reproduction is **two frames on one device**, and the damage **reaches backwards**
+to a magnification that was correct on that same device minutes earlier. Nothing in the display
+list changes between the two: it is the same `Arc<DisplayList>`, the same commands, the same
+`Arc<Path>` glyph outlines, and only `TargetSpec::transform` differs.
+
+### What it is not
+
+- **Not the driver.** This is `lavapipe` under `Xvfb` — a software adapter. The owner sees it on
+  RADV, so it is common to both.
+- **Not the surface or the presenter.** `QuorraRasterizer::rasterize` with `Target::Readback`,
+  no swapchain.
+- **Not the coverage lane's *quality*.** With `Coverage::Cpu` at every rung the same ladder is
+  clean at every rung, up and down — 0.0166 at 3200%, 0.0301 at 6400%. The lane switch is what
+  admits the defect.
+- **Not this project's chrome or its transform arithmetic.** The comparison is against
+  `render-cpu` on the *same* target spec, and the CPU raster is right at every rung.
+- **Not the atlas budget**, as far as this side can tell: squeezing `Options::atlas_budget` from
+  the default 8 MiB down to 4 KiB changes nothing at 2× (`examples/atlas_squeeze`).
+
+### Where this side would look first
+
+Your ADR 0016 is quoted in this tree's own constant: a glyph's rasterised coverage is kept in an
+atlas **until the glyph exceeds 128 device pixels**, past which it is rasterised again every
+frame. Every broken rung is past that threshold and so are two of the clean ones, so the threshold
+is not the whole story — but a cache whose key is a *size bucket* and whose slots are shared with
+the large-glyph path would produce exactly this shape: a much larger glyph rasterised into, or
+invalidating, a slot another bucket still answers from, so a later frame at the smaller size draws
+whatever is in the slot now.
+
+The selectivity is the clue worth having: after the 6400% frame, **1600% is wrong while 3200% and
+800% are right**. Whatever is overwritten is not "everything smaller".
+
+### What it costs this viewer
+
+`viewer-ui` switches to the GPU lane above 10× magnification because the two lanes' cost curves
+cross there (`doc/quorra-gpu-coverage.md`: 0.44 ms a frame at 8× against 4.4 ms at 12×). Until
+this is fixed, a person who zooms past 1000% and comes back sees a page of wrong letters and has
+no way to clear it except reopening the document. The obvious mitigation on this side — stop
+switching lanes — costs the ten-fold frame time the switch was measured to buy, so it is being
+held until you have looked.

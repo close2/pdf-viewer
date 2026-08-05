@@ -46,18 +46,57 @@ fn main() {
     let size = list.page_size;
 
     let mut cpu = CpuRasterizer::new();
-    let mut gpu = QuorraRasterizer::new_headless().expect("an adapter");
+    // **The lane the viewer would use for this rung**, which is the whole point: `pdf-viewer.rs`
+    // switches quorra to the GPU coverage lane above 10× magnification, so a ladder drawn with
+    // the default lane never exercises what a person sees past 1000%.
+    let lane = |zoom: f32| {
+        if zoom >= 10.0 {
+            quorra_gpu::Coverage::Gpu
+        } else {
+            quorra_gpu::Coverage::Cpu
+        }
+    };
+    let mut gpu = QuorraRasterizer::with_options(&quorra_gpu::Options {
+        coverage: quorra_gpu::Coverage::Cpu,
+        ..quorra_gpu::Options::default()
+    })
+    .expect("an adapter");
 
     println!("{path} — page size {:.1} × {:.1}", size.width, size.height);
     println!(
-        "{:>9}  {:>12}  {:>9} {:>9} {:>9}",
-        "zoom", "target", "mean", "worst", "ssim"
+        "{:>4} {:>9}  {:>12}  {:>9} {:>9} {:>9}",
+        "leg", "zoom", "target", "mean", "worst", "ssim"
     );
-    let mut zoom = 1.0_f32;
+    // Up the ladder and back down it, through **one** rasteriser: the owner's report is that the
+    // page is right on the way up, goes wrong, and stays wrong on the way down — which is a
+    // statement about state that survives a frame, and the only way to see it is to keep the
+    // device rather than make a new one per rung.
+    // `ZOOM_LADDER_FROM` starts the ladder part-way up, which is how "is the first frame at this
+    // magnification already wrong, or does it take a bigger one to break it" is asked.
+    let from: f32 = std::env::var("ZOOM_LADDER_FROM")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1.0);
+    let mut rungs: Vec<f32> = Vec::new();
+    let mut zoom = from;
     while zoom <= 64.0 {
+        rungs.push(zoom);
+        zoom *= 2.0;
+    }
+    let descent: Vec<f32> = rungs.iter().rev().skip(1).copied().collect();
+    for (leg, zoom) in rungs
+        .iter()
+        .map(|zoom| ("up", *zoom))
+        .chain(descent.iter().map(|zoom| ("down", *zoom)))
+    {
+        let zoom: f32 = zoom;
         // The middle of the page, held in the middle of the window — which is what the keyboard
         // zoom does: no anchor, so the core keeps the viewport's centre.
         let (w, h) = (WINDOW.0 as f32, WINDOW.1 as f32);
+        // The page's own transform at this magnification — `for_page` composes §7.7.3.3's
+        // rotation and the y flip, which a hand-written scale would get wrong — and then the
+        // translation that holds the page's middle in the window's middle.
+        let page = TargetSpec::for_page(&list, zoom, u64::MAX).expect("a page has an extent");
         let centre = Transform::translate(
             w.mul_add(0.5, -(size.width * zoom * 0.5)),
             h.mul_add(0.5, -(size.height * zoom * 0.5)),
@@ -65,14 +104,15 @@ fn main() {
         let target = TargetSpec {
             width: WINDOW.0,
             height: WINDOW.1,
-            transform: Transform::scale(zoom, zoom).then(centre),
+            transform: page.transform.then(centre),
         };
+        gpu.set_coverage(lane(zoom));
         let ours = cpu.rasterize(&list, target).expect("the CPU draws it");
         match gpu.rasterize(&list, target) {
             Ok(theirs) => {
                 let c = raster_compare::compare(&ours, &theirs).unwrap();
                 println!(
-                    "{:>8.0}%  {:>5} × {:<5}  {:>9.4} {:>9.2} {:>9.5}",
+                    "{leg:>4} {:>8.0}%  {:>5} × {:<5}  {:>9.4} {:>9.2} {:>9.5}",
                     zoom * 100.0,
                     (size.width * zoom) as u32,
                     (size.height * zoom) as u32,
@@ -81,14 +121,13 @@ fn main() {
                     c.structural_similarity
                 );
                 if let Some(dir) = out.as_ref() {
-                    let stem = format!("{dir}/zoom{:05.0}", zoom * 100.0);
+                    let stem = format!("{dir}/{leg}-zoom{:05.0}", zoom * 100.0);
                     write(&format!("{stem}-cpu.png"), &ours);
                     write(&format!("{stem}-gpu.png"), &theirs);
                 }
             }
             Err(error) => println!("{:>8.0}%  refused: {error}", zoom * 100.0),
         }
-        zoom *= 2.0;
     }
 }
 
