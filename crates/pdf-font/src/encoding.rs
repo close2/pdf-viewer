@@ -242,6 +242,19 @@ pub fn glyph_name(character: char) -> Option<String> {
     read_fonts::ps::agl::char_to_name(character, &mut buffer).map(str::to_owned)
 }
 
+/// The character a glyph name stands for, by the Adobe Glyph List.
+///
+/// §9.10.2's second method in one call: "that name can be looked up in the Adobe Glyph List and
+/// Adobe Glyph List for New Fonts to obtain the corresponding Unicode value". `read-fonts` holds
+/// both tables and the `uniXXXX` and `uXXXX` forms with them, so nothing is vendored here.
+///
+/// Public because §9.6.5's simple fonts are not the only place a name is selected by a code:
+/// §9.6.4's Type 3 glyph selection is a name too, and its module has no `LoadedFont` to ask.
+#[must_use]
+pub fn character_for(name: &str) -> Option<char> {
+    read_fonts::ps::agl::name_to_char(name)
+}
+
 /// This is the reverse of the encoding §9.6.5.4 calls "the standard Roman encoding that is
 /// used on Mac OS", which it needs in exactly one place: a `TrueType` font with a (1, 0)
 /// `cmap` subtable is addressed by *code*, so a glyph name has to be turned back into one.

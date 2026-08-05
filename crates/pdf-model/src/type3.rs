@@ -88,11 +88,14 @@ pub struct Type3Font {
     first_char: i64,
     /// The font's own `/Resources`, if it has any.
     resources: Option<Dictionary>,
-    /// `/ToUnicode`, which is the only thing that can say what a code *means*.
+    /// `/ToUnicode`, the first of §9.10.2's methods and the producer's own statement.
     ///
-    /// A glyph name in a Type 3 font names a procedure, so — unlike every other simple font
-    /// — the name is no evidence at all about the character. Without this entry, text
-    /// extraction has nothing to work from and says so by producing nothing.
+    /// **This comment used to say a Type 3 glyph name "names a procedure, so — unlike every
+    /// other simple font — the name is no evidence at all about the character".** It names a
+    /// procedure *and* a character: §9.6.4's step b) is "[g]et the glyph name from the Encoding
+    /// entry", which is the glyph selection algorithm §9.10.2's second method asks about, and a
+    /// producer that calls its procedure `/colon` has said which character it draws. See
+    /// [`Type3Font::text`] for the two methods that follow this one.
     to_unicode: pdf_font::tounicode::ToUnicode,
 }
 
@@ -214,7 +217,65 @@ impl Type3Font {
     /// Only `/ToUnicode` can answer: see the field's own comment for why the glyph name
     /// cannot.
     pub fn text(&self, code: u32, out: &mut String) -> bool {
-        self.to_unicode.append(code, out)
+        if self.to_unicode.append(code, out) {
+            return true;
+        }
+        // §9.10.2's **second** method, which applies here and which this module refused for
+        // three hundred sessions: "[i]f the font is a simple font and the glyph selection
+        // algorithm (see 9.6.5, "Character encoding") uses a glyph name, that name can be looked
+        // up in the Adobe Glyph List … to obtain the corresponding Unicode value". A Type 3 font
+        // is a simple font, and §9.6.4's own step b) is a name: "[g]et the glyph name from the
+        // Encoding entry"; §9.6.5.3 makes `/Differences` "the complete character encoding for
+        // this font". So a name *is* used, and where it is a name the Adobe Glyph List knows,
+        // the clause says what it means.
+        //
+        // What the field comment beside `to_unicode` used to say — that a Type 3 glyph name
+        // "names a procedure, so … the name is no evidence at all about the character" — is
+        // true of the procedure and not of the name: a producer that calls its procedure
+        // `/colon` has said which character it draws, in the same table the clause sends every
+        // other simple font to. `pr4922.pdf`'s Type 3 font names its twenty glyphs `/P`, `/a`,
+        // `/colon`, `/five`, `/hyphen`, `/slash` and so on, and nothing in it is invented.
+        if let Some(character) = self
+            .encoding
+            .get(&u8::try_from(code).unwrap_or(0))
+            .and_then(|name| pdf_font::encoding::character_for(name))
+        {
+            out.push(character);
+            return true;
+        }
+        Self::text_from_the_code(code, out)
+    }
+
+    /// §9.10.2's last resort, where the name is one the Adobe Glyph List does not know.
+    ///
+    /// **A choice and not a reading**, and the clause states the licence in the same sentence
+    /// that states the outcome:
+    ///
+    /// > If these methods fail to produce a Unicode value, there is no way to determine what the
+    /// > character code represents in which case a PDF processor may choose a character code of
+    /// > their choosing.
+    ///
+    /// The choice is the **code itself**, and only where it is a printable ASCII byte. What
+    /// makes it worth taking is a population the corpus names: `dvips` writes a Type 3 font
+    /// whose `/Differences` calls every glyph `aNN` after its own code — a name the Adobe Glyph
+    /// List cannot resolve — so a whole page of English read back as nothing at all.
+    /// `issue918.pdf` is 193 words of it.
+    ///
+    /// **The bound is what keeps this from being the fallback-that-fills-the-page this project
+    /// forbids.** 0x21 to 0x7E is the range in which a byte and a Unicode code point mean the
+    /// same character under every encoding §9.6.5 states — `Standard`, `WinAnsi`, `MacRoman`
+    /// and `PDFDoc` agree there and differ everywhere else — so a code outside it is one this declines
+    /// rather than guesses at. Space is excluded because a readback of whitespace is what
+    /// `Interpretation` uses to tell a missing mark from a blank one.
+    fn text_from_the_code(code: u32, out: &mut String) -> bool {
+        let Ok(byte) = u8::try_from(code) else {
+            return false;
+        };
+        if !(0x21..=0x7E).contains(&byte) {
+            return false;
+        }
+        out.push(char::from(byte));
+        true
     }
 }
 

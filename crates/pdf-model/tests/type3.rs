@@ -318,3 +318,110 @@ fn a_glyph_that_shows_itself_reaches_a_bound_and_stops() {
         interpretation.unsupported
     );
 }
+
+/// §9.10.2's second method reaches a Type 3 font, and its last resort reaches the rest.
+///
+/// > If the font is a simple font and the glyph selection algorithm (see 9.6.5, "Character
+/// > encoding") uses a glyph name, that name can be looked up in the Adobe Glyph List and Adobe
+/// > Glyph List for New Fonts to obtain the corresponding Unicode value.
+///
+/// A Type 3 font is a simple font and §9.6.4's step b) is a name — "[g]et the glyph name from
+/// the Encoding entry" — so the method applies, and this module refused it for three hundred
+/// sessions on the argument that the name "names a procedure". It names a procedure *and* a
+/// character, and a producer calling one `/colon` has said which.
+#[test]
+fn a_glyph_name_the_adobe_glyph_list_knows_is_what_the_code_means() {
+    let named = Fixture {
+        // The two glyphs keep their shapes and take names the list knows.
+        content: "BT /FT3 10 Tf 0 0 Td (ab) Tj ET",
+        ..Fixture::default()
+    };
+    let mut bytes = String::from_utf8(named.build()).expect("the fixture is ASCII");
+    bytes = bytes.replace(
+        "/Differences [97 /square /triangle]",
+        "/Differences [97 /A /colon]",
+    );
+    let document = Document::open(rebuilt(&bytes)).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    assert_eq!(pdf_model::interpret(&document, &page).text, "A:");
+}
+
+/// And where the name is not in the list, the clause's own permission takes the code.
+///
+/// > If these methods fail to produce a Unicode value, there is no way to determine what the
+/// > character code represents in which case a PDF processor may choose a character code of
+/// > their choosing.
+///
+/// `dvips` names every glyph `aNN` after its own code, which the Adobe Glyph List cannot
+/// resolve — `issue918.pdf` is 193 words of English that read back as nothing before this.
+#[test]
+fn a_name_the_list_does_not_know_leaves_the_code_itself() {
+    let bytes = String::from_utf8(Fixture::default().build()).expect("the fixture is ASCII");
+    let bytes = bytes.replace(
+        "/Differences [97 /square /triangle]",
+        "/Differences [97 /a97 /a98]",
+    );
+    let document = Document::open(rebuilt(&bytes)).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    assert_eq!(
+        pdf_model::interpret(&document, &page).text,
+        "ab",
+        "the codes are 97 and 98, which are the printable bytes the choice is bounded to"
+    );
+}
+
+/// Text a glyph description shows is the glyph, not text of the page.
+///
+/// §9.6.4 makes a description "a content stream that contains the operators that paint the
+/// glyph", so a `Tj` inside one is how the glyph is drawn. `pr4922.pdf` draws its Type 3 glyphs
+/// by showing a character of another font, and reading both said every character twice.
+#[test]
+fn text_shown_inside_a_glyph_description_is_not_read_back() {
+    let bytes = String::from_utf8(
+        Fixture {
+            // The square's description shows a character of the page's own font instead of
+            // painting a rectangle, which is `pr4922.pdf`'s shape in four operators.
+            square: "1000 0 0 0 750 750 d1\nBT /FT3 10 Tf (b) Tj ET",
+            ..Fixture::default()
+        }
+        .build(),
+    )
+    .expect("the fixture is ASCII");
+    let bytes = bytes.replace(
+        "/Differences [97 /square /triangle]",
+        "/Differences [97 /A /colon]",
+    );
+    let document = Document::open(rebuilt(&bytes)).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    assert_eq!(
+        pdf_model::interpret(&document, &page).text,
+        "A:",
+        "the description's own show operator is the glyph being painted"
+    );
+}
+
+/// Rebuilds a fixture's cross-reference table after a string replacement changed its offsets.
+fn rebuilt(source: &str) -> Vec<u8> {
+    let body: String = source
+        .split_inclusive("endobj\n")
+        .filter(|part| part.contains(" 0 obj"))
+        .collect();
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len() + 1;
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}

@@ -4744,6 +4744,20 @@ impl Interpreter<'_> {
     /// the show string operator" — one code may map to several, and a ligature's `/ToUnicode`
     /// saying `fi` would come back as `if` from a reversal that worked on characters.
     fn read_back(&mut self, font: &Font, code: Code, reversed: Option<&mut Vec<String>>) {
+        // **Not from inside a Type 3 glyph description.** §9.6.4 makes a glyph description a
+        // way of *painting* one glyph — "a glyph in a Type 3 font shall be defined by a
+        // content stream that contains the operators that paint the glyph" — so the text
+        // operators inside it are the glyph's implementation and not text of the page. What
+        // the page showed is the code that invoked it, and §9.10.2 is what says what *that*
+        // means.
+        //
+        // `pr4922.pdf` is the case, and it is why this is here: its Type 3 glyphs are drawn
+        // by showing a character of another font, so before this line the page read back
+        // "pp2200--4400::" — every character twice, once from the outer code and once from
+        // the description that draws it.
+        if self.glyph_depth > 0 {
+            return;
+        }
         match reversed {
             Some(pieces) => {
                 let mut piece = String::new();
