@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **53 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **52 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **733 diagnosed, 53 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **734 diagnosed, 52 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -318,6 +318,21 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**And one in the three-hundred-and-twenty-fifth, where the page was small enough to read row by
+row.** `issue19083.pdf` is 149 × 68 device pixels: one choice field with an auto-sized `/DA`
+reading *Hello World* inside a one-unit border, twelve commands. `poppler` sits at its own limit
+from 72 dpi and ours climbs 1.44 of 255 to reach the same place — and the difference is not the
+auto-size, because at 8× the ink's bounding box is 126 × 21 at (15, 26) in **both**, to the pixel.
+
+**The row means say which mark it is.** The field's two horizontal borders are one raster row each
+for `poppler`, carrying 213.93; ours spreads 176.08 and 174.52 across two rows apiece, which is a
+one-unit line at a fractional device position drawn as its own area. Those two marks are **77.3 of
+the 99.2** of row-mean separating the whole page. `AMBIGUOUS_WIDGET_BORDER`.
+
+**The step this adds**: when a page is small, the per-row mean is a free heatmap. Twenty rows of
+two numbers said in one look what the ink table could only say the size of.
+
 
 **And two in the three-hundred-and-twenty-third, off one document, with two different answers.**
 `issue840.pdf` is a festival timetable and both its pages were on the list. Page 1 is 4 328

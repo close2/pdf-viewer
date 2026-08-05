@@ -2494,7 +2494,47 @@ const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 2] = [
 /// `hayro` 2.15, 14% under: **the same two outliers in the same two directions** as
 /// `bug1863910.pdf`'s 28% and 22% and `textfields.pdf`'s, which is why this is that page's group
 /// rather than a new one.
-const AMBIGUOUS_WIDGET_BORDER: [&str; 3] = [
+/// # A fourth, and its rows say which mark the difference is
+///
+/// `issue19083.pdf` page 1 came off §3a's ranking in the three-hundred-and-twenty-fifth session at
+/// 0.43 from the nearest reference and 1.67 from the furthest. It is **149 × 68 device pixels**:
+/// one §12.7.5.4 choice field with `/DA (/Helv 0 Tf 0 g)` — auto-sized — reading *Hello World*
+/// inside a one-unit border, twelve commands in all.
+///
+/// ```text
+///          72 dpi   144   216   288   432   576 dpi
+/// poppler  11.3319  11.3687  11.4359  11.4715  11.4743  11.4912
+/// ours     9.8814   10.3898  10.8367  11.3052  —        11.3176   (1x, 2x, 3x, 4x, 8x)
+/// ```
+///
+/// `poppler` is at its own limit from 72 dpi; ours climbs 1.44 of 255 to reach the same place,
+/// and the two limits are 0.17 apart. **The auto-size is not the difference**: thresholded at 8×,
+/// the ink's bounding box is 126 × 21 at (15, 26) in *both*, to the pixel — so §12.7.4.3's
+/// computed size, the face's metrics and the placement all agree, and what is left is scan
+/// conversion.
+///
+/// **And the page is small enough to read row by row, which says which mark it is.** The mean per
+/// raster row, ours against `poppler`, over the rows that carry anything:
+///
+/// ```text
+///  y     ours   poppler          y     ours   poppler
+/// 26   120.03    213.93         34    38.23     47.12
+/// 27    56.05      3.42         …
+/// 45   161.09    213.93         46    13.43      0.00
+/// ```
+///
+/// The field's horizontal borders are rows 26 and 45. `poppler` puts **213.93** into one row of
+/// each; ours spreads **176.08** and **174.52** across two, which is a one-unit line at a
+/// fractional device position drawn as its own area. Those two marks are **77.3 of the 99.2** of
+/// row-mean separating the whole page — 78% of it — and the rest is the vertical borders and the
+/// glyph edges, where the text rows differ by ±5 in both directions.
+///
+/// So this is §10.7.4 twice over: "paint any pixel whose half-open square region intersects the
+/// shape, no matter how small the intersection is" is what puts 214 where the geometry has 176,
+/// and ADR 0025's departure is what puts ours on the area. `poppler` is 1.5% over its *own* limit
+/// at 576 dpi, which is the same sentence at the other end of the ladder.
+const AMBIGUOUS_WIDGET_BORDER: [&str; 4] = [
+    "issue19083.pdf page 1",
     "multiline.pdf page 1",
     "bug1863910.pdf page 1",
     "textfields.pdf page 1",
