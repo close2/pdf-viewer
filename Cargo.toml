@@ -144,7 +144,16 @@ zune-png = "0.5.2"
 # rather than a defect to fix. Against that, they are 19 400 lines of the most error-prone
 # code in the format, already validated against corpora far larger than this one.
 hayro-jbig2 = { version = "0.3.0", default-features = false, features = ["std"] }
-hayro-jpeg2000 = { version = "0.4.0", default-features = false, features = ["std"] }
+# **Pinned to a git revision, and that is a departure with an expiry date.** 0.4.0 decodes
+# ISO/IEC 15444-1 Annex E.1.1.2's reconstruction bias not at all — `Coefficient::get` returns
+# the truncated magnitude — so every coefficient whose lower bit-planes were not coded lands
+# at the edge of its quantisation interval instead of the middle. `doc/JPEG2000_FEEDBACK.md`
+# reported the symptom in the two-hundredth session and offered that as a hypothesis;
+# `9cce046b` is upstream implementing it, and it is not in any published version. What it is
+# worth, measured by `tests/jpeg2000.rs` against ISO/IEC 15444-5's reference software: the
+# worst sample error over the corpus falls from **87 levels to 3**. Revert to a crates.io
+# version the moment one contains `9cce046b`; `deny.toml` names this source and says the same.
+hayro-jpeg2000 = { git = "https://github.com/LaurenzV/hayro", rev = "cc9c402486c298f6986620d512372e72754697a1", version = "0.4.0", default-features = false, features = ["std"] }
 
 # Cryptography, for ISO 32000-2 §7.6's standard security handler. Five primitives, all
 # from RustCrypto, all named by the clause that needs them: RC4 and AES for §7.6.3.2's

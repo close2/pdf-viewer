@@ -2174,9 +2174,14 @@ const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 5] = [
 /// toward the image's own mean two to one, which is the signature of an inverse quantisation
 /// that reconstructs at the edge of the interval rather than at its middle.
 ///
-/// The defect is `hayro-jpeg2000`'s — a crates.io dependency this tree only hands bytes to — and
-/// is written up for its author in `doc/JPEG2000_FEEDBACK.md`. These pages stay here until an
-/// upstream release closes it, at which point `jpeg2000.rs`'s own list fails first. ADR 0161.
+/// The defect was `hayro-jpeg2000`'s, is written up for its author in
+/// `doc/JPEG2000_FEEDBACK.md`, and **is mostly fixed**: 0.4.0 implemented none of ISO/IEC
+/// 15444-1 E.1.1.2's reconstruction bias, upstream `9cce046b` does, and this tree pins that
+/// revision. The worst sample error over the corpus fell from 87 levels to 3 and **these two
+/// pages stayed ambiguous**, which is worth knowing rather than assuming: the residual is 1 to 5
+/// levels over a large share of each plate's samples, and whether it is a second defect or the
+/// last place of two `f32` pipelines is not established. `jpeg2000.rs`'s own list is where that
+/// question is written down, and it fails first if either end of it moves. ADR 0161, ADR 0190.
 const AMBIGUOUS_IRREVERSIBLE_JPEG_2000: [&str; 2] = ["S2.pdf page 1", "issue5475.pdf page 1"];
 
 /// Ambiguous, and the file has broken the one rule Table 73 states about `scn`.

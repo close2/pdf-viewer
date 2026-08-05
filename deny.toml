@@ -74,4 +74,11 @@ unknown-registry = "deny"
 unknown-git = "deny"
 # The one git dependency: the commissioned document renderer (see the workspace
 # manifest), first-party and pinned through Cargo.lock.
-allow-git = ["https://github.com/close2/quorra"]
+allow-git = [
+    "https://github.com/close2/quorra",
+    # The second, third-party, and temporary. `hayro-jpeg2000` 0.4.0 implements none of
+    # ISO/IEC 15444-1 E.1.1.2's reconstruction bias; upstream `9cce046b` does and no published
+    # version carries it. Worst sample error against the reference software: 87 levels to 3.
+    # Pinned by revision in Cargo.lock, and it goes back to crates.io on the next release.
+    "https://github.com/LaurenzV/hayro",
+]

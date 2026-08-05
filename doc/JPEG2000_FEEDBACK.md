@@ -1,9 +1,16 @@
-# `hayro-jpeg2000`: the irreversible path does not agree with the reference software
+# `hayro-jpeg2000`: the irreversible path did not agree with the reference software — **answered**
 
 Written 2026-08-03, in the two-hundredth session of this project, against **`hayro-jpeg2000`
 0.4.0**. It is the same kind of document as `doc/QUORRA_FEEDBACK.md`: a finding, the measurement
 behind it, and the command that reproduces each line — written for whoever maintains the crate,
 not as a complaint.
+
+**Answered in the three-hundred-and-eleventh session, and the hypothesis this document offered
+was the cause.** §7 is what came back and what it is worth; everything above it is the report as
+it was written, kept because it is the evidence. The short version: 0.4.0 implemented *none* of
+ISO/IEC 15444-1 E.1.1.2's reconstruction bias, upstream commit `9cce046b` implements it, and the
+worst sample error over the corpus falls from **87 levels to 3**. No published version carries it
+yet, so this tree pins the revision.
 
 This project uses `hayro-jpeg2000` for ISO 32000-2 §7.4.9's `JPXDecode` filter, inside a
 seccomp-BPF + Landlock confined worker. It has been in the tree since the seventh session and
@@ -119,3 +126,90 @@ opj_decompress -i /tmp/s2-000.jp2 -o /tmp/reference.ppm
 ```
 
 and decode the same bytes through `hayro-jpeg2000` 0.4.0 with default settings.
+
+---
+
+## 7. What came back — `9cce046b`, and what it is worth
+
+**The hypothesis in "Which way the samples move" was the cause, and it was not a partial
+implementation — there was none.** `hayro-jpeg2000` 0.4.0's `Coefficient::get` returns the
+truncated magnitude and nothing adds E.1.1.2's term:
+
+```rust
+pub(crate) fn get(&self) -> i32 {
+    let mut magnitude = (self.0 & !0x80000000) as i32;
+    magnitude *= 1 - 2 * (self.sign() as i32);
+    magnitude          // ← and that is all of it
+}
+```
+
+Upstream `9cce046b`, *hayro-jpeg2000: Apply reconstruction mid-point to truncated coefficients*
+(#1284, 2026-07-18), gives each coefficient state five bits for the position of its least
+significant decoded magnitude bit, sets that position wherever a coefficient becomes significant
+or is refined, and reconstructs:
+
+```rust
+let bit_position = state.decoded_bit_position();
+if magnitude != 0 && bit_position != 0 {
+    let offset = 1 << (bit_position - 1);
+    magnitude += if magnitude > 0 { offset } else { -offset };
+}
+```
+
+which is r = ½ in E-6.
+
+### Measured, by the instrument in §0 with nothing else changed
+
+| codestream | 0.4.0 | `cc9c4024` |
+|---|---|---|
+| `S2.pdf` object 17 | 298 229 differ, worst by 52 | **53 286, worst by 3** |
+| `S2.pdf` object 18 | 318 081, worst by 55 | **47 864, worst by 3** |
+| `S2.pdf` object 19 | 299 422, worst by 58 | **34 908, worst by 3** |
+| `S2.pdf` object 20 | 318 228, worst by 50 | **36 580, worst by 3** |
+| `S2.pdf` object 21 | 320 422, worst by 59 | **8 758, worst by 2** |
+| `S2.pdf` object 22 | 312 995, worst by 65 | **35 853, worst by 1** |
+| `S2.pdf` object 32 | 104 334, worst by 48 | **56, worst by 1** |
+| `S2.pdf` object 33 | 102 139, worst by 87 | **63, worst by 1** |
+| `S2.pdf` object 34 | 105 963, worst by 60 | **45, worst by 1** |
+| `issue5475.pdf` object 8 | 91 144, worst by 2 | 91 144, worst by 2 |
+| `issue5481.pdf` object 5 | 1 076 388, worst by 4 | 1 076 388, worst by 4 |
+| `issue5481.pdf` object 43 | 1 076 388, worst by 4 | 1 076 388, worst by 4 |
+| `issue5549.pdf` object 11 | 965 165, worst by 5 | 965 165, worst by 5 |
+
+The single-component plates are the clearest: `S2.pdf` object 33 goes from 102 139 samples wrong
+by up to 87 levels to **63 wrong by one**. The prediction in "Which way the samples move" — that
+the error scales with how coarsely the image was quantised — is what this table is: the coarse
+plates improve by more than an order of magnitude and the finely quantised ones do not move.
+
+### What is left, stated as a question rather than a finding
+
+**Not one codestream became byte-identical.** The list of thirteen is the same thirteen; what
+changed is the size of the error, not the population. Two things about the residual, and neither
+is a conclusion:
+
+- **`issue5475.pdf` and the two `issue5481.pdf` plates did not move at all**, and they were at 2
+  to 4 levels before the fix. The bias term cannot explain an error it does not change, so if
+  there is a second defect it is visible there and nowhere else. That is where we would look next.
+- **1 to 5 levels over 45% of an image's samples is not obviously rounding**, but it is not
+  obviously *not* rounding either: both decoders carry the irreversible path in `f32`, and
+  `doc/todo/_scan-conversion.md`'s habit applies — a difference that shrinks with precision is
+  arithmetic, and one that does not is a defect. Nobody has run that ladder here.
+- **One cause is ruled out, and cheaply.** The final `f32` → 8-bit conversion is `f32::round`,
+  half away from zero, where `opj_decompress` reaches the integer through `lrintf` under the
+  default rounding mode, half to even — an obvious candidate for a residual of ±1 on samples
+  landing on a half. Making `round_f32` round half to even moves nothing in the right direction
+  and two things in the wrong one: `S2.pdf` object 33 goes 63 → 64 and `issue5549.pdf` object 11
+  goes 965 165 → 965 171, with `issue5475.pdf` unchanged at 91 144. **It is not the rounding
+  mode.**
+
+### What this tree did
+
+Pinned `hayro-jpeg2000` to `cc9c402486c298f6986620d512372e72754697a1` — the workspace manifest
+carries the argument, `deny.toml` names the source as the second and temporary git dependency, and
+both say to go back to crates.io the moment a release contains `9cce046b`. `9cce046b` is
+2026-07-18 and 0.4.0 was published 2026-06-14, so the wait is a release rather than a fix.
+
+**One more fix comes with the revision, unrelated and worth naming**: `c2df2014`, *Fix LAB color
+conversion* (#1313), corrects `let rb = lab.ra.unwrap_or(200)` to `lab.rb` — a JP2 `Lab` colour
+specification's `b` range read from its `a` field. No corpus document exercises it, which is why
+this tree never saw it.
