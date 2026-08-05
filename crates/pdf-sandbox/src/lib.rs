@@ -161,13 +161,28 @@ pub fn decode(request: &Request<'_>) -> Result<Decoded, SandboxError> {
     }
 }
 
-/// The name of the worker program.
+/// The name of the worker program, **without the platform's executable suffix**.
 ///
 /// It is a separate executable rather than this one re-invoked with a flag. Both work; this
 /// way round means the decoding path cannot be reached in-process by accident, because the
 /// only code that calls it lives in a program whose whole `main` is to confine itself
 /// first.
+///
+/// Windows spells the same program `pdf-sandbox-worker.exe`, which is [`worker_file_name`]'s
+/// subject: this is the name Cargo is given, and the file on disk is that name plus
+/// `std::env::consts::EXE_SUFFIX`.
 pub const WORKER_PROGRAM: &str = "pdf-sandbox-worker";
+
+/// The worker's file name on this platform: [`WORKER_PROGRAM`] plus the executable suffix.
+///
+/// **A separate function because the search below tests `is_file`**, and a path missing the
+/// `.exe` a Windows filesystem requires is not a file — so a viewer looking beside itself would
+/// have concluded the worker was absent and refused every JBIG2 and JPEG 2000 image, which is a
+/// quietly reduced program of exactly the kind the release notes warn about.
+#[must_use]
+pub fn worker_file_name() -> String {
+    format!("{WORKER_PROGRAM}{}", std::env::consts::EXE_SUFFIX)
+}
 
 /// Environment variable naming the worker program explicitly.
 ///
@@ -657,12 +672,13 @@ fn worker_program() -> Result<PathBuf, SandboxError> {
 
     let executable = std::env::current_exe().map_err(SandboxError::Spawn)?;
     let directory = executable.parent().unwrap_or(&executable);
-    let beside = directory.join(WORKER_PROGRAM);
+    let name = worker_file_name();
+    let beside = directory.join(&name);
     if beside.is_file() {
         return Ok(beside);
     }
     if let Some(parent) = directory.parent() {
-        let above = parent.join(WORKER_PROGRAM);
+        let above = parent.join(&name);
         if above.is_file() {
             return Ok(above);
         }

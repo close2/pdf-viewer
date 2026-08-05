@@ -85,3 +85,21 @@ what stopped compiling for Windows.
   macOS, so what was verified locally is `cargo check` and `cargo clippy` for both targets across
   the workspace's binaries. Linking, running and drawing a page on either platform is what the new
   jobs will say — and a build that fails there fails a push to `main` rather than a release.
+
+## What the first run found, and what it says about the check
+
+Both new jobs **built** and then failed their test step, on two things this machine had not been
+asked:
+
+- **`RUSTFLAGS: -D warnings` is CI's and was not the cross-check's.** Three constants in
+  `tests/confinement.rs` — the probe's environment variable and its two exit codes — belong to the
+  four tests that are now `cfg(target_os = "linux")`, so off Linux they are dead code, so they are
+  *errors* under the workspace's own lint policy as CI applies it. A local `cargo check --target`
+  says nothing about that. **A cross-target check that does not set `RUSTFLAGS` is checking a
+  different build from the one CI runs**, and the handover's "Verify it" now spells the command out.
+- **`is_file` on a path with no `.exe` is false.** `worker_program()` searches beside the running
+  executable for `WORKER_PROGRAM`, and Windows spells that file `pdf-sandbox-worker.exe` — so the
+  search would have found nothing, and the viewer would have refused every JBIG2 and JPEG 2000
+  image while reporting a missing worker. `worker_file_name()` appends `std::env::consts::EXE_SUFFIX`,
+  and the constant now documents that it is the name *without* it. The compiler could not have
+  found this one; the Windows runner's test step would have, one failure later.

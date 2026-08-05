@@ -62,11 +62,14 @@ const WIDTH: u32 = 52;
 const HEIGHT: u32 = 66;
 
 /// Names the probe a re-executed test binary should run.
+#[cfg(target_os = "linux")]
 const PROBE_VARIABLE: &str = "PDF_SANDBOX_TEST_PROBE";
 
 /// Exit code from a probe whose forbidden operation was refused.
+#[cfg(target_os = "linux")]
 const REFUSED: i32 = 17;
 /// Exit code from a probe whose forbidden operation *succeeded*, which is the failure.
+#[cfg(target_os = "linux")]
 const ALLOWED: i32 = 18;
 
 fn request() -> Request<'static> {

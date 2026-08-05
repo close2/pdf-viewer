@@ -1356,6 +1356,17 @@ cargo test --release -p pdf-model --test xmp             -- --ignored --nocaptur
 cargo test --release -p pdf-model --test jpeg2000        -- --nocapture            # 30 codestreams
   # against ISO/IEC 15444-5's reference software; needs `opj_decompress` and says so when absent
 cargo deny check                           # from the workspace root: fuzz/ is its own workspace
+# The two platforms without a confinement, checked the way CI checks them. **`RUSTFLAGS` is not
+# optional**: the workspace's lints are `warn` so that a local build stays usable and CI turns them
+# into errors, so a cross-target check without it is a different build from the one that gates a
+# push. Three dead constants off Linux got through exactly that gap (ADR 0194).
+RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p pdf-sandbox -p pdf-render --all-targets
+RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p pdf-sandbox -p pdf-render --all-targets
+RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ui --bins
+  # `--workspace --all-targets` does *not* cross-compile here: `criterion` pulls `alloca`, whose
+  # build script needs a C toolchain for the target and this machine has neither MSVC nor macOS's.
+  # The CI runners do, which is why the `platforms` job builds the binaries and these two check
+  # what a benchmark does not reach.
 cargo bench -p pdf-model
 valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_interpret            # stops at the display list
