@@ -886,8 +886,34 @@ impl LoadedFont {
                 out.push(character);
                 true
             }
-            None => false,
+            None => Self::text_from_the_code(code, out),
         }
+    }
+
+    /// §9.10.2's last resort, once the program has been asked and has said nothing.
+    ///
+    /// The clause states the outcome and the licence in one sentence — see
+    /// [`LoadedFont::text_from_program`], which quotes it — and this is the second thing that
+    /// sentence permits: the **code itself**, where it is a printable ASCII byte.
+    ///
+    /// 0x21 to 0x7E is the range in which a byte and a Unicode code point mean the same character
+    /// under every encoding §9.6.5 states, so a code outside it is one this declines rather than
+    /// guesses at. Space is excluded because a readback of whitespace is what `Interpretation` uses
+    /// to tell a missing mark from a blank one.
+    ///
+    /// `issue2017r.pdf` is the witness: a symbolic `TrueType` subset with no `/Encoding` at all,
+    /// whose `post` table names nothing and whose `cmap` is a (3, 0) symbolic subtable — inverting
+    /// that gives *codes* rather than Unicode, so every method above correctly declines and a page
+    /// reading `ABCDEFGHIJKLMNOPQRSTUVWYZ` read back as nothing.
+    fn text_from_the_code(code: Code, out: &mut String) -> bool {
+        let Ok(byte) = u8::try_from(code.value()) else {
+            return false;
+        };
+        if !(0x21..=0x7E).contains(&byte) {
+            return false;
+        }
+        out.push(char::from(byte));
+        true
     }
 
     /// Splits a PDF string into character codes.
