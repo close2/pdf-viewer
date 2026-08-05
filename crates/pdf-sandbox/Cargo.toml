@@ -11,15 +11,27 @@ repository.workspace = true
 hayro-ccitt.workspace = true
 hayro-jbig2.workspace = true
 hayro-jpeg2000.workspace = true
-landlock.workspace = true
-libc.workspace = true
-rustix.workspace = true
-seccompiler.workspace = true
 thiserror.workspace = true
 
-[dev-dependencies]
+# The confinement itself. seccomp-BPF and Landlock are Linux interfaces and `libc` is here
+# only for its system-call *numbers*, so all three are Linux-only dependencies rather than
+# dependencies with Linux-only call sites: a `cfg` inside the code would still make every
+# other platform build them, and `seccompiler` is exactly what stopped compiling for Windows.
+# What this crate does where they do not exist is `lockdown.rs`'s subject.
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock.workspace = true
+libc.workspace = true
+seccompiler.workspace = true
+
+# `poll` on the worker's pipe, which is what gives a request a deadline. POSIX, so every unix
+# has it; Windows reads on a thread instead and the reason is written in `lib.rs`.
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
 # The confinement tests need signal numbers to tell "killed by the seccomp filter" apart
-# from every other way a process can end.
+# from every other way a process can end — which is a question only the platform with a
+# filter can be asked.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
 libc.workspace = true
 
 [lints]

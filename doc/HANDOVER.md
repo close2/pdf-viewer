@@ -134,8 +134,8 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 
 | gate | number | where |
 |---|---|---|
-| tests | **1033** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run whole in the **three-hundred-and-fourth** and again at the end of the twenty: `deny`, `fmt`, `clippy`, all **nine** fuzzers at 50 000 with no artifact left behind, and all **eight** corpus gates — corpus, oracle, text, dates, XMP, JPEG 2000, quorra and the window |
-| — | **1033 was 1027 was 1015, and this row said 1011: the round that added twelve counted them, and four before them had never been counted.** The twelve are §12.5.6.14's popup window — seven in `pdf-model`, three in `viewer-core`'s headless host and two in `viewer-ui`'s panel test, which is the only gate that can see chrome at all; the four are somebody's and the arithmetic is how it was found, which is this row's whole purpose. The six after them are Table 179's line endings and the box a construction turned out not to have. Before that: 1007 was 1004 was 996. The three before them are §14.8.2.5's range map and its two callers, and the eight before those were one round's: §14.3.2's reader, its corpus gate and the two consumers it broke. Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
+| tests | **1036** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run whole in the **three-hundred-and-fourth** and again at the end of the twenty: `deny`, `fmt`, `clippy`, all **nine** fuzzers at 50 000 with no artifact left behind, and all **eight** corpus gates — corpus, oracle, text, dates, XMP, JPEG 2000, quorra and the window |
+| — | **1036 was 1033 was 1027 was 1015, and this row said 1011: the round that added twelve counted them, and four before them had never been counted.** The twelve are §12.5.6.14's popup window — seven in `pdf-model`, three in `viewer-core`'s headless host and two in `viewer-ui`'s panel test, which is the only gate that can see chrome at all; the four are somebody's and the arithmetic is how it was found, which is this row's whole purpose. The six after them are Table 179's line endings and the box a construction turned out not to have; the three after those are what a build without a confinement says about itself. Before that: 1007 was 1004 was 996. The three before them are §14.8.2.5's range map and its two callers, and the eight before those were one round's: §14.3.2's reader, its corpus gate and the two consumers it broke. Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **886 draw with nothing reported**, **73 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1683** we call complete: **856 agree**, **68 contradicted**, 750 ambiguous — **678 of them diagnosed and 72 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
 | text (vs `pdftotext`, same 974) | **98.2%** of the reference's words (22 931 of 23 349), **36** named below the 0.90 floor — and the two figures above them were 22 970 of 23 390 for at least two sessions, which is a denominator nothing in this tree now produces | `tests/text_extraction.rs`, ~30 s |
@@ -1318,13 +1318,21 @@ which was not true. Nothing moved: 856 agree, 68 contradicted, 749 ambiguous, to
 
 **And since the three-hundred-and-eleventh session a person can get it without a toolchain.** Every
 push to `main` that passes `check` and `test` retags a rolling `snapshot` pre-release carrying
-`pdf-viewer` and `pdf-sandbox-worker`, x86_64 Linux, with `LICENSE` and `NOTICE` beside them
+`pdf-viewer` and `pdf-sandbox-worker` with `LICENSE` and `NOTICE` beside them
 because both vendored-font licences oblige a *binary* distribution to carry their notices (ADR
 0188). **Both executables, because one of them alone is a quietly reduced program**: a viewer that
 cannot find the worker beside it refuses JBIG2 and JPEG 2000 rather than decoding them in process.
-**macOS and Windows are absent by decision** — `pdf-sandbox` refuses to compile where seccomp-BPF
-and Landlock do not exist, which `cargo check --target x86_64-pc-windows-msvc` confirms in
-`seccompiler`, and the three ways out are in that ADR with the owner's choice among them.
+**Three platforms since the three-hundred-and-fifteenth session** — x86_64 Linux, aarch64 macOS,
+x86_64 Windows — **and the confinement is Linux's alone.** `pdf-sandbox` used to refuse to compile
+where seccomp-BPF and Landlock do not exist, on the argument that "a sandbox that silently does
+nothing on another platform is worse than no sandbox". The project owner asked for the other two
+executables and accepted that; what makes it not that failure is that nothing is silent (ADR 0194).
+The **worker process** is there on all three, so a decoder panic still costs one image rather than
+the viewer, and so is the request deadline — rebuilt on Windows as a reader thread, because `poll`
+is POSIX and on a platform with no address-space ceiling that deadline is the only bound left on a
+hostile file's decode. What is missing is named by `Confinement::shortfall`, carried in the worker's
+handshake, and printed by `pdf-viewer` in its first line. `doc/todo/35` is what a real confinement
+for each would take.
 
 ## Verify it
 
@@ -2785,3 +2793,4 @@ above rather than here.
 | 312 | A window the page does not draw: §12.5.6.14's popups, from a capability reason that had expired — and Table 197's `/U` reaching only a release that also followed a link | 0191 |
 | 313 | Four names off the ambiguous list for one measurement, and two `partial` rows whose blocker has been a sidebar since session 166 | — |
 | 314 | Ten shapes with no size — Table 179's line endings, drawn — and the box a constructed appearance turned out not to have, which had been clipping four annotations away in silence | 0192, 0193 |
+| 315 | Three platforms and one confinement: the `compile_error!` that kept macOS and Windows out becomes a sentence the viewer prints, by the owner's decision | 0194 |

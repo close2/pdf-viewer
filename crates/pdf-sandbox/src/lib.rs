@@ -6,6 +6,13 @@
 //! receives one image's bytes at a time over a pipe and returns samples over another. It
 //! never learns which document they came from, and it cannot ask.
 //!
+//! **Those two mechanisms are Linux's, and this crate builds everywhere.** Since the
+//! three-hundred-and-fifteenth session a platform without them gets the worker *process* and
+//! no kernel confinement, which keeps the second of the three reasons below and loses the
+//! first — and says which, in [`lockdown::Confinement::shortfall`], because the thing that
+//! must not happen is a caller believing itself confined when it is not. The decision and its
+//! argument are ADR 0194.
+//!
 //! # Why this is not redundant with Rust
 //!
 //! It would be, if memory corruption were the only thing that goes wrong. The decoders this
@@ -61,25 +68,14 @@
 // `landlock`, `seccompiler` and `rustix` each wrap the raw system calls in safe interfaces,
 // and `libc` is used here only for its system-call *numbers*, which are constants. So the
 // crate that exists to touch the most dangerous interfaces in the tree needs no `unsafe` of
-// its own, and says so in the same way every other crate here does.
-#![cfg_attr(
-    not(target_os = "linux"),
-    expect(
-        unused_imports,
-        reason = "the platform check below is the real diagnostic"
-    )
-)]
-
-#[cfg(not(target_os = "linux"))]
-compile_error!(
-    "pdf-sandbox confines processes with seccomp-BPF and Landlock, which are Linux \
-     interfaces. There is deliberately no fallback: a sandbox that silently does nothing \
-     on another platform is worse than no sandbox, because the code above it would keep \
-     handing untrusted input to a decoder while believing it was contained."
-);
+// its own, and says so in the same way every other crate here does — **and that is the
+// constraint a Windows or macOS confinement would have to meet too**, which is why the
+// platform without one gets no confinement rather than an `unsafe` block (ADR 0194).
 
 mod decode;
 pub mod lockdown;
+#[cfg(target_os = "linux")]
+mod lockdown_linux;
 mod protocol;
 mod worker;
 
@@ -88,7 +84,9 @@ pub use worker::serve;
 
 use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+#[cfg(unix)]
+use std::process::ChildStdout;
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -247,7 +245,15 @@ pub enum SandboxError {
 struct Connection {
     child: Child,
     to_worker: ChildStdin,
+    /// The worker's output. A pipe on unix, where `poll` bounds a read directly; a channel
+    /// fed by a reader thread on Windows, where nothing else can — see `read_exactly`.
+    #[cfg(unix)]
     from_worker: ChildStdout,
+    #[cfg(not(unix))]
+    from_worker: std::sync::mpsc::Receiver<std::io::Result<Vec<u8>>>,
+    /// Bytes the reader thread delivered and the last read did not want.
+    #[cfg(not(unix))]
+    pending: Vec<u8>,
     confinement: Confinement,
 }
 
@@ -362,14 +368,53 @@ impl Connection {
             )));
         };
 
+        #[cfg(unix)]
         let mut connection = Self {
             child,
             to_worker,
             from_worker,
-            confinement: Confinement {
-                landlock: lockdown::LandlockLevel::Unavailable,
-                address_space_limit: 0,
-            },
+            confinement: Confinement::NONE,
+        };
+        // Windows: the pipe moves onto a thread that owns it, because a read has to be
+        // interruptible and only a channel's own timeout can interrupt one here.
+        #[cfg(not(unix))]
+        let mut connection = {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            std::thread::Builder::new()
+                .name("pdf-sandbox-reader".to_owned())
+                .spawn(move || {
+                    let mut from_worker = from_worker;
+                    let mut chunk = vec![0u8; 64 * 1024];
+                    loop {
+                        match from_worker.read(&mut chunk) {
+                            Ok(0) => {
+                                let _ = sender.send(Ok(Vec::new()));
+                                return;
+                            }
+                            Ok(count) => {
+                                let Some(read) = chunk.get(..count) else {
+                                    return;
+                                };
+                                if sender.send(Ok(read.to_vec())).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                            Err(error) => {
+                                let _ = sender.send(Err(error));
+                                return;
+                            }
+                        }
+                    }
+                })
+                .map_err(SandboxError::Spawn)?;
+            Self {
+                child,
+                to_worker,
+                from_worker: receiver,
+                pending: Vec::new(),
+                confinement: Confinement::NONE,
+            }
         };
         connection.confinement = connection.read_handshake()?;
         Ok(connection)
@@ -423,6 +468,7 @@ impl Connection {
     /// A blocking read cannot be interrupted, so each read is preceded by a poll bounded by
     /// what is left of the budget. That is what makes [`SandboxError::TimedOut`] possible at
     /// all: without it, a worker that stopped answering would hang whatever thread asked.
+    #[cfg(unix)]
     fn read_exactly(&mut self, buffer: &mut [u8], deadline: Instant) -> Result<(), SandboxError> {
         use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
@@ -456,6 +502,62 @@ impl Connection {
                 Ok(count) => filled = filled.saturating_add(count),
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(self.explain(error)),
+            }
+        }
+        Ok(())
+    }
+
+    /// Fills `buffer`, giving up at `deadline` — the version for a platform with no `poll`.
+    ///
+    /// **A thread instead of a system call, and it exists for the deadline rather than for
+    /// speed.** `poll` is POSIX and Windows has no equivalent that reaches a `ChildStdout`, so
+    /// the only portable way to bound a read is to do it somewhere the timeout can be waited
+    /// for: [`Connection::start`] moves the pipe onto a reader thread that pushes chunks down a
+    /// channel, and this waits on the channel with what is left of the budget.
+    ///
+    /// What that costs is one thread per worker, which is one thread per *process* — the
+    /// sandbox holds a single connection — and it ends when the worker's output closes. What it
+    /// buys is the property the unix path gets from the kernel: a worker that stops answering
+    /// is a [`SandboxError::TimedOut`] rather than a hung viewer, which on a platform with no
+    /// address-space ceiling is the *only* bound left on a hostile file's decode.
+    #[cfg(not(unix))]
+    fn read_exactly(&mut self, buffer: &mut [u8], deadline: Instant) -> Result<(), SandboxError> {
+        let mut filled = 0;
+        while filled < buffer.len() {
+            if !self.pending.is_empty() {
+                let Some(rest) = buffer.get_mut(filled..) else {
+                    return Err(SandboxError::Malformed {
+                        detail: "read past the end of the buffer".to_owned(),
+                    });
+                };
+                let taken = rest.len().min(self.pending.len());
+                let Some((head, tail)) = rest
+                    .get_mut(..taken)
+                    .zip(self.pending.get(..taken))
+                    .map(|(head, tail)| (head, tail.to_vec()))
+                else {
+                    return Err(SandboxError::Malformed {
+                        detail: "read past the end of the buffer".to_owned(),
+                    });
+                };
+                head.copy_from_slice(&tail);
+                self.pending.drain(..taken);
+                filled = filled.saturating_add(taken);
+                continue;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(SandboxError::TimedOut);
+            }
+            match self.from_worker.recv_timeout(remaining) {
+                Ok(Ok(chunk)) if chunk.is_empty() => return Err(self.died()),
+                Ok(Ok(chunk)) => self.pending.extend_from_slice(&chunk),
+                Ok(Err(error)) => return Err(self.explain(error)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err(SandboxError::TimedOut);
+                }
+                // The reader thread ended, which it only does when the pipe closed.
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(self.died()),
             }
         }
         Ok(())
@@ -507,13 +609,18 @@ fn deadline() -> Instant {
     now.checked_add(REQUEST_TIMEOUT).unwrap_or(now)
 }
 
-/// Describes how a worker ended, naming the signal when one killed it.
+/// Describes how a worker ended, naming the signal where the platform has one.
+///
+/// The signal half is Linux's, and so is the interesting part of it: `SIGSYS` is the seccomp
+/// filter firing, which means the worker attempted something no decode needs. A platform with
+/// no filter cannot produce that diagnosis and does not pretend to — it reports the exit code,
+/// which is what it has.
 fn describe_exit(status: std::process::ExitStatus) -> String {
-    use std::os::unix::process::ExitStatusExt as _;
-
-    if let Some(signal) = status.signal() {
-        // `SIGSYS` is the seccomp filter firing, and it is worth naming: it means the worker
-        // attempted something no decode needs, which is a finding rather than a mishap.
+    #[cfg(target_os = "linux")]
+    if let Some(signal) = {
+        use std::os::unix::process::ExitStatusExt as _;
+        status.signal()
+    } {
         let name = match signal {
             libc::SIGSYS => " (SIGSYS: a system call the sandbox forbids)",
             libc::SIGABRT => " (SIGABRT: it aborted, typically a failed allocation)",
@@ -522,6 +629,14 @@ fn describe_exit(status: std::process::ExitStatus) -> String {
             _ => "",
         };
         return format!("killed by signal {signal}{name}");
+    }
+    // Every other unix still has signals, and a worker killed by one says so with its number.
+    #[cfg(all(unix, not(target_os = "linux")))]
+    if let Some(signal) = {
+        use std::os::unix::process::ExitStatusExt as _;
+        status.signal()
+    } {
+        return format!("killed by signal {signal}");
     }
     match status.code() {
         Some(code) => format!("exited with status {code}"),

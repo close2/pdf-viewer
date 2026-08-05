@@ -9,17 +9,21 @@
 //! carefully as the document's own numbers. The worker is the untrusted side of this
 //! boundary — that is the entire point of it being on the other side.
 
-use crate::lockdown::{Confinement, LandlockLevel};
+use crate::lockdown::{Confinement, LandlockLevel, SystemCalls};
 use crate::{Decoded, SandboxError};
 
 /// Greeting bytes, changed whenever this format changes incompatibly.
 ///
 /// A parent and a worker from different builds must not talk to each other, and the
-/// cheapest place to find that out is the first thing either says.
-const MAGIC: &[u8; 8] = b"PDFSBX01";
+/// cheapest place to find that out is the first thing either says. `02` since the
+/// three-hundred-and-fifteenth session, when the greeting gained the byte that says whether
+/// the system-call filter is in force — a worker from the build before it would answer a
+/// question this one asks with silence, which is exactly what the magic is for.
+const MAGIC: &[u8; 8] = b"PDFSBX02";
 
-/// Length of the worker's greeting: the magic, the Landlock level, the address-space limit.
-pub(crate) const HANDSHAKE_LEN: usize = 8 + 1 + 8;
+/// Length of the worker's greeting: the magic, the Landlock level, the address-space limit,
+/// and whether system calls are filtered.
+pub(crate) const HANDSHAKE_LEN: usize = 8 + 1 + 8 + 1;
 
 /// Length of a response header: the status byte and the payload length.
 pub(crate) const RESPONSE_HEADER_LEN: usize = 1 + 4;
@@ -270,13 +274,15 @@ pub(crate) fn encode_handshake(confinement: Confinement) -> [u8; HANDSHAKE_LEN] 
     let mut greeting = [0u8; HANDSHAKE_LEN];
     let (magic, rest) = greeting.split_at_mut(8);
     magic.copy_from_slice(MAGIC);
-    let (level, limit) = rest.split_at_mut(1);
+    let (level, rest) = rest.split_at_mut(1);
     level[0] = match confinement.landlock {
         LandlockLevel::Enforced => 2,
         LandlockLevel::Partial => 1,
         LandlockLevel::Unavailable => 0,
     };
+    let (limit, filtered) = rest.split_at_mut(8);
     limit.copy_from_slice(&confinement.address_space_limit.to_be_bytes());
+    filtered[0] = u8::from(confinement.system_calls == SystemCalls::Filtered);
     greeting
 }
 
@@ -286,17 +292,24 @@ pub(crate) fn parse_handshake(greeting: &[u8; HANDSHAKE_LEN]) -> Option<Confinem
     if magic != MAGIC {
         return None;
     }
-    let (level, limit) = rest.split_at(1);
+    let (level, rest) = rest.split_at(1);
     let landlock = match level.first()? {
         2 => LandlockLevel::Enforced,
         1 => LandlockLevel::Partial,
         0 => LandlockLevel::Unavailable,
         _ => return None,
     };
+    let (limit, filtered) = rest.split_at(8);
     let bytes: [u8; 8] = limit.try_into().ok()?;
+    let system_calls = match filtered.first()? {
+        1 => SystemCalls::Filtered,
+        0 => SystemCalls::Unfiltered,
+        _ => return None,
+    };
     Some(Confinement {
         landlock,
         address_space_limit: u64::from_be_bytes(bytes),
+        system_calls,
     })
 }
 
@@ -610,12 +623,27 @@ mod tests {
 
     #[test]
     fn a_greeting_round_trips() {
-        let confinement = Confinement {
-            landlock: LandlockLevel::Partial,
-            address_space_limit: 1 << 30,
-        };
-        let encoded = encode_handshake(confinement);
-        assert_eq!(parse_handshake(&encoded), Some(confinement));
+        for system_calls in [SystemCalls::Filtered, SystemCalls::Unfiltered] {
+            let confinement = Confinement {
+                landlock: LandlockLevel::Partial,
+                address_space_limit: 1 << 30,
+                system_calls,
+            };
+            let encoded = encode_handshake(confinement);
+            assert_eq!(parse_handshake(&encoded), Some(confinement));
+        }
+    }
+
+    /// The byte a platform without seccomp sets, read back as the thing it means.
+    ///
+    /// Not decoration: a parent that could not tell an unconfined worker from a confined one
+    /// would be exactly the failure the `compile_error!` this replaced was written against.
+    #[test]
+    fn an_unconfined_worker_is_legible_as_one() {
+        let encoded = encode_handshake(Confinement::NONE);
+        let parsed = parse_handshake(&encoded).expect("this protocol's own greeting");
+        assert!(!parsed.is_enforced());
+        assert!(parsed.shortfall().is_some());
     }
 
     #[test]

@@ -214,6 +214,20 @@ fn arguments() -> Arguments {
         std::process::exit(2);
     };
 
+    // What this *build* can confine, said before anything is opened, because it is a fact
+    // about the executable rather than about a document and a person choosing a viewer for
+    // untrusted files deserves it in the first line rather than in a release note. Linux has
+    // seccomp-BPF and Landlock; the other two platforms get the worker process and no kernel
+    // confinement, which is a decision with an argument (ADR 0194) rather than an omission.
+    if !pdf_sandbox::lockdown::ENFORCED_BY_THIS_BUILD {
+        println!(
+            "note: this build has no kernel confinement for the image decoder — seccomp-BPF \
+             and Landlock are Linux interfaces. JBIG2 and JPEG 2000 are still decoded in a \
+             separate process, so a decoder failure costs one image rather than the viewer, \
+             and there is no address-space ceiling on that process."
+        );
+    }
+
     if !sandbox {
         pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
         // Said out loud, once, on the way past. Turning the sandbox off is a reasonable choice

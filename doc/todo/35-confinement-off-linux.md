@@ -1,11 +1,13 @@
-# Confinement on macOS and Windows, and the executables that wait on it
+# Confinement on macOS and Windows
 
-Status: **owed**, and it is the only thing between this tree and a three-platform release.
+Status: **open, and no longer blocking an executable.** The viewer builds and ships on all three
+platforms since the three-hundred-and-fifteenth session (ADR 0194); what is owed here is the
+confinement itself on the two that have none.
 Priority: 35 — capability. Nothing is wrong here; something does not exist.
 Corpus: — (this is not a question about any document)
 Clauses: none. Principle 3, not the standard.
-Code: `crates/pdf-sandbox/src/lockdown.rs`, `crates/pdf-sandbox/src/lib.rs`'s `compile_error!`,
-`.github/workflows/ci.yml`'s `snapshot` job.
+Code: `crates/pdf-sandbox/src/lockdown.rs`, `crates/pdf-sandbox/src/lockdown_linux.rs`,
+`.github/workflows/ci.yml`'s `platforms` and `snapshot` jobs.
 
 **Read [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) first if the
 thought is "remove the codecs and the problem goes away".** It does not: all three decoders are
@@ -14,45 +16,50 @@ for resource exhaustion and panic isolation, which are as true off Linux as on i
 
 ## What is true today
 
-`pdf-sandbox` confines the JBIG2 and JPEG 2000 decoders to an unprivileged process with seccomp-BPF
-and Landlock. Both are Linux interfaces, and the crate refuses to compile anywhere else with the
-argument in the message:
+`pdf-sandbox` compiles everywhere. On Linux it confines the worker with seccomp-BPF, Landlock and
+`RLIMIT_AS`; on macOS and Windows it installs **nothing** and says so — `Confinement::shortfall`
+words it, the worker's handshake carries it, and `pdf-viewer` prints it in its first line.
 
-> There is deliberately no fallback: a sandbox that silently does nothing on another platform is
-> worse than no sandbox, because the code above it would keep handing untrusted input to a decoder
-> while believing it was contained.
+What those two platforms still get, and it is not nothing:
 
-`viewer-ui` depends on it, so **the viewer does not build on macOS or Windows**. Measured rather
-than assumed in the three-hundred-and-eleventh session: `cargo check -p viewer-ui --target
-x86_64-pc-windows-msvc` fails inside `seccompiler`, on eight system-call constants `libc` does not
-define off Linux. The snapshot release therefore ships Linux only (ADR 0188).
+- **The worker process**, so a decoder panic costs one image rather than the viewer — release
+  builds are `panic = "abort"`, and this is the reason that matters most in practice.
+- **The request deadline**, which on Windows is a reader thread and a channel timeout because
+  `poll` is POSIX. On a platform with no address-space ceiling this is the *only* bound left on a
+  hostile file's decode, which is why it was worth the thread.
+- **`decode.rs`'s `MAX_PIXELS` and `MAX_SAMPLES`**, which are a discipline rather than a fact.
 
-## The three ways out, and none of them is wrong
+What they do not get: a system-call filter, so the worker's filesystem and network are the
+process's own; and an address-space ceiling, so a decompression bomb is bounded only by the
+machine.
 
-The project owner chose the first in session 311. The other two stay written down because either
-could be taken later, and because a gap nobody argued about turns into an oversight.
+## What is owed: option 1, per platform
 
-1. **Build the real confinement for each platform.** Windows: a job object for the address-space
-   limit, and AppContainer or `SetProcessMitigationPolicy` for the rest. macOS: the App Sandbox,
-   with `sandbox_init` deprecated and entitlements the supported route — which means a signed,
-   bundled application, so this is the option that reaches furthest into how the program is
-   packaged. **The thing to settle first is `#![forbid(unsafe_code)]`**: `pdf-sandbox` has it
-   today because `landlock`, `seccompiler` and `rustix` each wrap the raw calls safely, and the
-   Windows and macOS equivalents would have to be found or written to the same standard rather
-   than reached for with `unsafe` blocks.
-2. **Build everywhere, refuse the codecs off Linux.** `cfg`-gate the Linux-only dependencies,
-   keep the worker protocol, and have a JBIG2 or JPEG 2000 request on an unconfined platform
-   report exactly as a missing worker already does. Nothing about principle 3 weakens; two image
-   formats are unavailable there until option 1 lands. **This is the cheapest honest option** and
-   the one to take if a macOS or Windows executable is wanted before the confinement exists.
-3. **Build everywhere with a weaker confinement.** Separate process and an address-space limit
-   (job object, `setrlimit`), no syscall filter, no filesystem restriction, and the crate says at
-   runtime what it is not doing. Three fully-functional platforms, and a documented departure from
-   principle 3 that would need its own ADR arguing that a process boundary without a filter is
-   worth having.
+The three ways out are in ADR 0194's context; option 3 was taken. Option 1 is what closes this
+file, and it is two independent pieces of work.
 
-## What taking any of them costs in the workflow
+**Windows.** A *job object* gives the address-space ceiling (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`),
+and AppContainer or `SetProcessMitigationPolicy` gives the rest — no filesystem, no network,
+restricted tokens. Both are `windows-sys` calls, and **the thing to settle first is
+`#![forbid(unsafe_code)]`**: `landlock`, `seccompiler` and `rustix` each wrap the raw calls safely,
+and the Windows equivalents would have to be found or written to the same standard rather than
+reached for with an `unsafe` block. That constraint is why this crate builds unconfined on Windows
+today rather than half-confined.
 
-One line. `.github/workflows/ci.yml`'s `snapshot` job builds a single target because there is a
-single target; it becomes a matrix over `runs-on` and an archive name the day the second one
-compiles. The packaging step is already written to name its target rather than assume it.
+**macOS.** The App Sandbox, with `sandbox_init` deprecated and entitlements the supported route —
+which means a signed, bundled application, so this is the option that reaches furthest into how the
+program is packaged. `setrlimit(RLIMIT_AS)` exists and would be the cheap half; whether it is
+*enforced* on modern macOS is the first thing to measure rather than assume.
+
+## What a round taking either owes
+
+- A test that fails on a kernel that should confine and cannot, in the shape
+  `a_confined_process_cannot_open_a_file` already has. The four Linux tests are
+  `cfg(target_os = "linux")` and each new platform adds its own rather than widening those: the
+  question "does the *kernel* refuse this" is asked differently everywhere.
+- A `SystemCalls` variant or a wider `Confinement`, so that "confined by a job object" is not
+  reported as "confined by seccomp". The vocabulary is deliberately small today because there is
+  one mechanism.
+- The startup sentence in `pdf-viewer` narrows or goes away, and it is the visible half: a person
+  running the Windows build is told what this build cannot enforce, and that sentence is a promise
+  to keep accurate.

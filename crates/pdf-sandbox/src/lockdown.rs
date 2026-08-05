@@ -1,65 +1,32 @@
-//! Confining the calling process, irreversibly.
+//! Confining the calling process, irreversibly — and saying so where a platform cannot.
 //!
-//! Three mechanisms, applied in this order because each one removes the ability to apply
-//! the next:
+//! The mechanism is Linux's and lives in [`crate::lockdown_linux`]: resource limits, a
+//! Landlock domain that permits nothing, and a seccomp-BPF allow-list. This module is the
+//! front door: the vocabulary for *what was achieved*, and [`apply`], which on a platform
+//! with none of those three installs nothing and returns a [`Confinement`] that says so.
 //!
-//! 1. **Resource limits.** `RLIMIT_AS` bounds the address space, so a decompression bomb
-//!    fails an allocation instead of taking the machine's memory. `RLIMIT_NOFILE` bounds
-//!    descriptors, and `RLIMIT_FSIZE` of zero means a file that somehow got opened still
-//!    cannot be written.
-//! 2. **Landlock**, which makes the filesystem unreachable by path: the ruleset is created
-//!    handling every access right the kernel offers and *no rules are added*, so nothing is
-//!    permitted anywhere.
-//! 3. **seccomp-BPF**, an allow-list of system call numbers. Anything not on it kills the
-//!    process. This is the load-bearing layer: `openat` and `socket` are simply not
-//!    reachable, so there is no filesystem and no network irrespective of what any path or
-//!    address would have permitted.
+//! # Why a platform without a filter still gets a worker
 //!
-//! # Why both Landlock and seccomp
+//! Decided by the project owner in the three-hundred-and-fifteenth session, and it is a
+//! narrowing of principle 3 rather than an abandonment of it. The crate's own documentation
+//! lists three reasons the boundary exists, and only the first two are about the isolation
+//! being *enforced by the kernel*:
 //!
-//! They fail differently. seccomp is decided by system call number and cannot see
-//! arguments that live in memory, so it can say "no `openat` at all" but not "`openat` only
-//! under this directory". Landlock is decided by path and stays correct if a later version
-//! of this worker genuinely needs one file. Today seccomp alone would be enough; the day
-//! that changes is the day the second layer starts carrying weight, and adding it then
-//! would be adding it after the code that needs it.
+//! - **Resource exhaustion** — `RLIMIT_AS` is Linux's here. Off Linux the ceiling is gone, and
+//!   what is left of it is `crate::decode`'s hand-placed `MAX_PIXELS` and `MAX_SAMPLES`, which
+//!   are a discipline rather than a fact.
+//! - **Panics** — this survives untouched, and it is a *process* property rather than a kernel
+//!   one. Release builds abort on panic; a decoder that panics in a worker costs one image and
+//!   the page draws around it, on every platform equally.
+//! - **What comes later** — the protocol stays narrow everywhere, which is the half of that
+//!   argument a platform cannot take away.
 //!
-//! # What is deliberately *not* required
-//!
-//! Landlock is best-effort and its achieved level is reported rather than demanded.
-//! A kernel built without it, or booted with it out of the LSM list, is a deployment this
-//! worker should still run under — because the property that matters, no filesystem and no
-//! network, is enforced by seccomp either way. seccomp is not best-effort: if the filter
-//! cannot be installed, [`apply`] fails and the caller must not proceed.
-//!
-//! # This confines a thread, not a process
-//!
-//! Both Landlock and seccomp attach to the calling thread and to threads it creates
-//! afterwards. The seccomp filter is installed with `TSYNC` so that it reaches threads that
-//! already exist, but the Landlock domain is not synchronised that way. The worker is
-//! therefore single-threaded by construction, and [`apply`] is called before it does
-//! anything else.
-
-use landlock::{
-    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible as _, RulesetAttr as _,
-    RulesetStatus, Scope,
-};
-use seccompiler::{SeccompAction, SeccompFilter, TargetArch};
-
-/// Ceiling on the worker's address space, in bytes.
-///
-/// A bilevel page at 600 dpi is 35 megabytes as one byte per pixel and the decoders hold a
-/// handful of such planes at once, so a gigabyte is roughly thirty times the largest
-/// legitimate working set. It is a bound against a hostile file, not a budget anyone should
-/// ever reach: crossing it aborts the worker, which the parent reports as an undecodable
-/// image.
-const ADDRESS_SPACE_LIMIT: u64 = 1 << 30;
-
-/// Ceiling on open descriptors.
-///
-/// The worker inherits three and opens none. Eight leaves room for the runtime to do
-/// something ordinary without leaving room to do something interesting.
-const DESCRIPTOR_LIMIT: u64 = 8;
+//! **The thing that must not happen is a sandbox that silently does nothing**, which is what
+//! the `compile_error!` this module replaced was defending against. So the level reached is
+//! carried in the worker's handshake, [`Confinement::is_enforced`] answers it in one call, and
+//! `viewer-ui` prints what it did not get. A caller that believed itself confined and was not
+//! is the failure this design exists to prevent; a caller that is told, in the same sentence
+//! every other refusal in this program uses, is not that failure.
 
 /// How thoroughly Landlock could be applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,29 +39,97 @@ pub enum LandlockLevel {
     /// it does not implement, so nothing is permitted that would otherwise have been
     /// denied — the gap is in *future* protections, not current ones.
     Partial,
-    /// The kernel does not support Landlock, or it is not enabled.
+    /// The kernel does not support Landlock, it is not enabled, or this platform has no
+    /// such interface at all.
     Unavailable,
+}
+
+/// Whether the worker's system calls are restricted to an allow-list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemCalls {
+    /// seccomp-BPF is installed: anything outside the allow-list kills the process.
+    ///
+    /// This is the layer that makes "no filesystem and no network" true irrespective of what
+    /// any path or address would have permitted.
+    Filtered,
+    /// No filter. The worker may call anything the operating system offers it.
+    ///
+    /// Off Linux, where seccomp-BPF does not exist. What remains is the process boundary
+    /// itself, which is not nothing — see this module's header — but it is not this.
+    Unfiltered,
 }
 
 /// What confinement was achieved.
 ///
 /// Reported rather than assumed: the parent process logs it, and a test asserts the
-/// strongest level on a kernel that can provide it. Everything in here that is not
-/// [`LandlockLevel::Enforced`] is a weakening of defence in depth and never of the
-/// no-filesystem, no-network property, which seccomp enforces unconditionally.
+/// strongest level on a kernel that can provide it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Confinement {
     /// How thoroughly Landlock could be applied.
     pub landlock: LandlockLevel,
-    /// The address-space ceiling that was installed, in bytes.
+    /// The address-space ceiling that was installed, in bytes, or 0 where there is none.
     pub address_space_limit: u64,
+    /// Whether the system-call allow-list is in force.
+    pub system_calls: SystemCalls,
+}
+
+impl Confinement {
+    /// Whether the kernel is enforcing the properties this crate exists to provide.
+    ///
+    /// True only where the system-call filter is installed, because that is the layer the
+    /// no-filesystem, no-network property rests on. Landlock is defence in depth and its
+    /// absence weakens rather than removes; a missing filter removes.
+    #[must_use]
+    pub fn is_enforced(&self) -> bool {
+        self.system_calls == SystemCalls::Filtered
+    }
+
+    /// One sentence naming what is *not* enforced, or `None` where everything is.
+    ///
+    /// For a host with somewhere to print it. Written here rather than in the host because
+    /// what a weakened confinement gives up is this crate's knowledge, not a window's.
+    #[must_use]
+    pub fn shortfall(&self) -> Option<String> {
+        let mut missing = Vec::new();
+        if self.system_calls == SystemCalls::Unfiltered {
+            missing.push("no system-call filter, so the worker's filesystem and network are the process's own");
+        }
+        if self.address_space_limit == 0 {
+            missing.push(
+                "no address-space ceiling, so a decompression bomb is bounded only by this machine",
+            );
+        }
+        if self.landlock != LandlockLevel::Enforced {
+            missing.push("no Landlock domain");
+        }
+        if missing.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "the image decoder runs in a separate process, which still contains a panic and a \
+             crash, but it is not confined: {}",
+            missing.join("; ")
+        ))
+    }
+
+    /// The confinement of a platform that has none of the three mechanisms.
+    pub(crate) const NONE: Self = Self {
+        landlock: LandlockLevel::Unavailable,
+        address_space_limit: 0,
+        system_calls: SystemCalls::Unfiltered,
+    };
 }
 
 /// Why a process could not be confined.
+///
+/// Every variant is Linux's, because Linux is where the mechanisms are. On another platform
+/// [`apply`] installs nothing and cannot fail, which is what an enum with no reachable
+/// variants says in the type system rather than in a comment.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum LockdownError {
     /// A resource limit could not be installed.
+    #[cfg(target_os = "linux")]
     #[error("setting {resource} failed: {source}")]
     Rlimit {
         /// Which limit.
@@ -105,168 +140,87 @@ pub enum LockdownError {
     },
     /// The Landlock ruleset could not be built, which is a programming error rather than a
     /// kernel one — an unsupported kernel yields [`LandlockLevel::Unavailable`] instead.
+    #[cfg(target_os = "linux")]
     #[error("building the Landlock ruleset failed: {0}")]
     Landlock(#[from] landlock::RulesetError),
     /// This architecture has no seccomp back end in `seccompiler`.
+    #[cfg(target_os = "linux")]
     #[error("no seccomp filter can be built for the {0} architecture")]
     UnknownArchitecture(String),
     /// The seccomp filter could not be compiled from the allow-list.
+    #[cfg(target_os = "linux")]
     #[error("compiling the seccomp filter failed: {0}")]
     SeccompCompile(#[from] seccompiler::BackendError),
     /// The seccomp filter could not be installed.
+    #[cfg(target_os = "linux")]
     #[error("installing the seccomp filter failed: {0}")]
     Seccomp(#[from] seccompiler::Error),
 }
+
+/// Whether this build has a confinement to install at all.
+///
+/// A property of the *build* rather than of a worker, and therefore knowable before anything
+/// is spawned — which is what a host needs, because `CLAUDE.md`'s startup rules forbid starting
+/// a worker to find out. `false` off Linux, where [`apply`] installs nothing.
+///
+/// [`Confinement::is_enforced`] is the same question asked of a worker that exists, and is the
+/// one to trust: a kernel can refuse what a build offers.
+pub const ENFORCED_BY_THIS_BUILD: bool = cfg!(target_os = "linux");
 
 /// Confines the calling thread. There is no way to undo this.
 ///
 /// # Errors
 ///
 /// Returns [`LockdownError`] if a limit or the seccomp filter could not be installed. A
-/// caller that gets an error must not continue with the work it intended to confine.
+/// caller that gets an error must not continue with the work it intended to confine. On a
+/// platform with no confinement to install this cannot fail, and answers
+/// [`Confinement::NONE`].
+///
+/// `#[must_use]` because off Linux the error type has no reachable variants, so the compiler
+/// would let a caller drop the whole answer — including the part that says what was *not*
+/// enforced, which is the one thing this crate promises never to lose quietly.
+#[must_use = "the confinement reached is what a host has to report"]
 pub fn apply() -> Result<Confinement, LockdownError> {
-    limit_resources()?;
-    let landlock = deny_filesystem_and_network();
-    restrict_system_calls()?;
-    Ok(Confinement {
-        landlock,
-        address_space_limit: ADDRESS_SPACE_LIMIT,
-    })
-}
-
-/// Installs the resource ceilings.
-fn limit_resources() -> Result<(), LockdownError> {
-    use rustix::process::{Resource, Rlimit, setrlimit};
-
-    let fixed = |value: u64| Rlimit {
-        current: Some(value),
-        maximum: Some(value),
-    };
-    for (resource, name, value) in [
-        (Resource::As, "RLIMIT_AS", ADDRESS_SPACE_LIMIT),
-        (Resource::Nofile, "RLIMIT_NOFILE", DESCRIPTOR_LIMIT),
-        (Resource::Fsize, "RLIMIT_FSIZE", 0),
-    ] {
-        setrlimit(resource, fixed(value)).map_err(|error| LockdownError::Rlimit {
-            resource: name,
-            source: error.into(),
-        })?;
+    #[cfg(target_os = "linux")]
+    {
+        crate::lockdown_linux::apply()
     }
-    Ok(())
-}
-
-/// Creates a Landlock domain that permits nothing.
-///
-/// A ruleset *handles* the access rights it names and then permits only what its rules
-/// allow. No rules are added, so every handled right is denied everywhere. Compatibility is
-/// best effort, and the level actually reached is returned rather than swallowed.
-fn deny_filesystem_and_network() -> LandlockLevel {
-    // The highest ABI this code was written against. Naming it explicitly rather than
-    // asking the kernel keeps the request deterministic: the same binary asks for the same
-    // rights everywhere, and the *answer* is what varies.
-    const TARGET: ABI = ABI::V6;
-
-    let built = landlock::Ruleset::default()
-        .set_compatibility(CompatLevel::BestEffort)
-        .handle_access(AccessFs::from_all(TARGET))
-        .and_then(|ruleset| ruleset.handle_access(AccessNet::from_all(TARGET)))
-        .and_then(|ruleset| ruleset.scope(Scope::from_all(TARGET)))
-        .and_then(landlock::Ruleset::create)
-        .and_then(landlock::RulesetCreated::restrict_self);
-
-    match built {
-        Ok(status) => match status.ruleset {
-            RulesetStatus::FullyEnforced => LandlockLevel::Enforced,
-            RulesetStatus::PartiallyEnforced => LandlockLevel::Partial,
-            RulesetStatus::NotEnforced => LandlockLevel::Unavailable,
-        },
-        // A ruleset this crate builds from constants cannot be malformed, so an error here
-        // means the kernel refused the whole mechanism. That is the same situation as
-        // `NotEnforced` and is reported the same way; seccomp still runs.
-        Err(_) => LandlockLevel::Unavailable,
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(Confinement::NONE)
     }
 }
 
-/// The system calls the worker is permitted to make once confined.
-///
-/// This list was not written from intuition. It is what a worker actually issues, found by
-/// running it under `strace` and adding what appeared, and every entry has a reason:
-///
-/// - `read`, `write`, `close` — the request and response pipes, and stderr for diagnostics.
-/// - `mmap`, `munmap`, `mremap`, `mprotect`, `brk`, `madvise` — the allocator. A decoder
-///   allocates plane buffers per image, so these are hot rather than incidental.
-/// - `futex`, `sched_yield` — lock and allocator arbitration inside the runtime.
-/// - `exit`, `exit_group`, `rt_sigreturn`, `restart_syscall` — leaving, and returning from
-///   a signal handler.
-/// - `rt_sigaction`, `rt_sigprocmask`, `sigaltstack`, `getpid`, `gettid`, `tgkill` — the
-///   abort path. Without these a failed allocation would die by `SIGSYS` from this very
-///   filter, which reports the wrong cause; with them it dies by `SIGABRT` and the parent
-///   can say what happened.
-/// - `getrandom` — the standard library seeds a hash map's keys from it on first use.
-/// - `clock_gettime` — usually served from the vDSO without a system call at all, but not
-///   on every machine, and a decoder that measures its own progress must not die for it.
-///
-/// Notably absent: `openat`, `socket`, `connect`, `execve`, `clone`, `ptrace`, `prctl`,
-/// `ioctl`. There is no path from decoding an image to any of them.
-/// The type is `i64` because that is what `seccompiler` keys a filter by. On a 32-bit
-/// target `libc::SYS_*` is an `i32` and this will not compile — which is the right outcome,
-/// because the rest of the list would need reviewing for that architecture anyway.
-const PERMITTED: &[i64] = &[
-    libc::SYS_read,
-    libc::SYS_write,
-    libc::SYS_close,
-    libc::SYS_mmap,
-    libc::SYS_munmap,
-    libc::SYS_mremap,
-    libc::SYS_mprotect,
-    libc::SYS_brk,
-    libc::SYS_madvise,
-    libc::SYS_futex,
-    libc::SYS_sched_yield,
-    libc::SYS_exit,
-    libc::SYS_exit_group,
-    libc::SYS_rt_sigreturn,
-    libc::SYS_restart_syscall,
-    libc::SYS_rt_sigaction,
-    libc::SYS_rt_sigprocmask,
-    libc::SYS_sigaltstack,
-    libc::SYS_getpid,
-    libc::SYS_gettid,
-    libc::SYS_tgkill,
-    libc::SYS_getrandom,
-    libc::SYS_clock_gettime,
-];
+#[cfg(test)]
+mod tests {
+    use super::{Confinement, LandlockLevel, SystemCalls};
 
-/// Installs the seccomp-BPF allow-list.
-///
-/// The mismatch action is `KillProcess` rather than `Errno`: a worker that reaches a
-/// forbidden call is a worker doing something no image decode requires, and the loud answer
-/// is the one that reaches the parent as an unmistakable signal rather than as an error
-/// return the code might paper over. It also means an exploit's first step, not its tenth,
-/// is what ends the process.
-fn restrict_system_calls() -> Result<(), LockdownError> {
-    let architecture = TargetArch::try_from(std::env::consts::ARCH)
-        .map_err(|_| LockdownError::UnknownArchitecture(std::env::consts::ARCH.to_owned()))?;
+    #[test]
+    fn a_confinement_that_enforces_nothing_says_all_three_things() {
+        let sentence = Confinement::NONE.shortfall().expect("a shortfall");
+        assert!(sentence.contains("system-call filter"), "{sentence}");
+        assert!(sentence.contains("address-space"), "{sentence}");
+        assert!(sentence.contains("Landlock"), "{sentence}");
+        assert!(!Confinement::NONE.is_enforced());
+    }
 
-    // An empty rule vector means "this call, unconditionally". Conditions exist for
-    // narrowing by argument; nothing here needs one, because every permitted call is
-    // permitted for every argument the worker could pass.
-    let rules = PERMITTED
-        .iter()
-        .map(|number| (*number, Vec::new()))
-        .collect();
-
-    let filter = SeccompFilter::new(
-        rules,
-        SeccompAction::KillProcess,
-        SeccompAction::Allow,
-        architecture,
-    )?;
-    let program: seccompiler::BpfProgram = filter.try_into()?;
-    // `TSYNC`, so that a process which already has threads is covered rather than only the
-    // thread that asked. The worker has none; a future caller that confines itself later
-    // would, and the surprising version of this function is the one that quietly protects a
-    // single thread.
-    seccompiler::apply_filter_all_threads(&program)?;
-    Ok(())
+    /// A worker with the filter and the ceiling is enforced whatever Landlock managed.
+    ///
+    /// The distinction the crate rests on: seccomp carries the no-filesystem, no-network
+    /// property on its own, and Landlock is depth. So a kernel without Landlock still
+    /// reports an enforced confinement, and still says what it did not get.
+    #[test]
+    fn landlock_is_depth_and_seccomp_is_the_property() {
+        let partial = Confinement {
+            landlock: LandlockLevel::Unavailable,
+            address_space_limit: 1 << 30,
+            system_calls: SystemCalls::Filtered,
+        };
+        assert!(partial.is_enforced());
+        assert!(
+            partial
+                .shortfall()
+                .is_some_and(|sentence| sentence.contains("Landlock"))
+        );
+    }
 }

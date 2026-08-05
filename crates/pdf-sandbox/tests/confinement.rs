@@ -1,5 +1,12 @@
 //! What the sandbox is for, tested by doing it.
 //!
+//! **Four of these are Linux's**, and are `cfg`-gated rather than skipped: they ask whether a
+//! *kernel* refuses an `openat` and a `socket`, and a platform with no seccomp-BPF has no such
+//! question to answer. The rest — the specification's own JBIG2 example, both isolation
+//! settings agreeing, a worker surviving rubbish — are about the protocol and the decoders and
+//! run everywhere the crate does. A test that silently passed by doing nothing off Linux would
+//! be worse than one that is not there, which is this project's own rule (ADR 0194).
+//!
 //! Two kinds of test live here and they answer different questions. The confinement tests
 //! ask whether a confined process can still reach the filesystem or the network — the
 //! property the whole crate exists to provide, and one that no amount of reading the source
@@ -210,6 +217,7 @@ fn an_empty_image_is_refused_rather_than_returned() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn the_worker_reports_full_landlock_enforcement() {
     // This asserts a property of the machine as much as of the code, and that is deliberate:
     // this kernel supports every Landlock right the ruleset asks for, so anything less than
@@ -225,6 +233,7 @@ fn the_worker_reports_full_landlock_enforcement() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn a_confined_process_cannot_open_a_file() {
     let status = run_probe("open");
     assert_ne!(
@@ -239,6 +248,7 @@ fn a_confined_process_cannot_open_a_file() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn a_confined_process_cannot_reach_the_network() {
     let status = run_probe("socket");
     assert_ne!(
@@ -259,6 +269,7 @@ fn a_confined_process_cannot_reach_the_network() {
 /// `socket` are absent from it. A clean `REFUSED` exit is Landlock having denied the path
 /// before the call could fail for any other reason. Both are the sandbox working; only
 /// `ALLOWED` is not.
+#[cfg(target_os = "linux")]
 fn refused(status: &std::process::ExitStatus) -> bool {
     use std::os::unix::process::ExitStatusExt as _;
     status.signal() == Some(libc::SIGSYS) || status.code() == Some(REFUSED)
@@ -269,6 +280,7 @@ fn refused(status: &std::process::ExitStatus) -> bool {
 /// The child is this same test binary, re-executed with a filter that selects the one test
 /// below. Confinement cannot be tested in the process doing the testing: it is irreversible
 /// and process-wide, so the first thing it would break is the test harness.
+#[cfg(target_os = "linux")]
 fn run_probe(probe: &str) -> std::process::ExitStatus {
     std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "confined_probe", "--test-threads=1"])
@@ -284,6 +296,7 @@ fn run_probe(probe: &str) -> std::process::ExitStatus {
 /// confines itself and then attempts the thing the sandbox exists to prevent, reporting the
 /// answer as an exit code — the only channel it has left.
 #[test]
+#[cfg(target_os = "linux")]
 fn confined_probe() {
     let Ok(probe) = std::env::var(PROBE_VARIABLE) else {
         return;

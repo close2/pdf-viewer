@@ -135,31 +135,80 @@ jobs:
           cargo +nightly fuzz run object -- -runs=50000 -max_len=1024
           cargo +nightly fuzz run document -- -runs=20000 -max_len=4096
 
+
+  # The two platforms whose confinement does not exist, built and checked rather than
+  # assumed. `pdf-sandbox` compiles everywhere since the three-hundred-and-fifteenth session
+  # (ADR 0194) and installs seccomp-BPF and Landlock only on Linux, so what these jobs are
+  # for is the *other* half of that decision: that the code behind the `cfg` still compiles
+  # and its platform-independent tests still pass, on a runner that is actually that platform.
+  #
+  # `--all-targets` is deliberately not used on Windows: `criterion` pulls `alloca`, whose
+  # build script needs a C toolchain, and a benchmark is not what is being shipped.
+  platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macOS
+          - os: windows-latest
+            name: Windows
+    runs-on: ${{ matrix.os }}
+    name: build (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build both executables
+        run: cargo build --bin pdf-viewer --bin pdf-sandbox-worker
+
+      # `pdf-sandbox` itself, whose tests off Linux are the protocol, the worker handshake
+      # and the decoders — the kernel questions are `cfg`-gated out, because a platform with
+      # no seccomp has no such question to answer — and `pdf-render`, which is the largest
+      # crate that reads nothing from `doc/`. The rest of the suite needs the specification
+      # documents, which are a repository secret and not what these two runners are for.
+      - name: Test what needs neither a display nor the specifications
+        run: cargo test -p pdf-sandbox -p pdf-render
+
   # A rolling pre-release, retagged at every push to main that passes its gates.
   #
   # `needs` is the whole design decision here: a snapshot binary that fails the project's
   # own gates is worse than no snapshot, because someone will run it and report what it
   # does. So the release waits for fmt, clippy and the full test suite.
   #
-  # LINUX ONLY, and by decision rather than by omission. `pdf-sandbox` confines the JBIG2
-  # and JPEG 2000 decoders with seccomp-BPF and Landlock, and carries a `compile_error!`
-  # for every other platform saying why there is no fallback: "a sandbox that silently does
-  # nothing on another platform is worse than no sandbox". `viewer-ui` depends on it, so
-  # macOS and Windows executables wait on a real confinement for each -- Windows job
-  # objects and AppContainer, macOS's App Sandbox -- which is a security argument with an
-  # ADR attached and not a matrix entry.
+  # THREE PLATFORMS since the three-hundred-and-fifteenth session, and the change was a
+  # decision rather than a matrix entry: `pdf-sandbox` used to carry a `compile_error!` for
+  # every platform without seccomp-BPF and Landlock, on the argument that "a sandbox that
+  # silently does nothing on another platform is worse than no sandbox". It no longer does
+  # nothing *silently* — the worker process is still there, so a decoder panic still costs
+  # one image rather than the viewer, and the viewer prints what this build cannot enforce
+  # in its first line. ADR 0194 is the argument and doc/todo/35 is what a real confinement
+  # for each would take.
   snapshot:
-    needs: [check, test]
+    needs: [check, test, platforms]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      # `gh release` writes to the repository, and the default token is read-only.
-      contents: write
-    # Two pushes in quick succession would otherwise race to retag `snapshot`, and the
-    # loser could publish the older commit's binaries. The newest push wins.
-    concurrency:
-      group: snapshot
-      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            exe: ''
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            exe: ''
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: '.exe'
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    name: snapshot (${{ matrix.target }})
     steps:
       - uses: actions/checkout@v5
         with:
@@ -183,31 +232,93 @@ jobs:
       # both licences oblige a binary distribution to carry their notices. `pdf-viewer
       # --licences` prints the same text, and a file beside the executable is what someone
       # unpacking a tarball can actually find.
+      #
+      # One script for three platforms, in bash, which every runner has. What differs is
+      # named in the matrix rather than branched on here: the executable suffix, the archive
+      # format, and -- because macOS has `shasum` where Linux has `sha256sum` -- the digest
+      # command.
       - name: Package
+        shell: bash
         run: |
           set -eu
-          target=x86_64-unknown-linux-gnu
+          target=${{ matrix.target }}
+          exe=${{ matrix.exe }}
           stage="pdf-viewer-snapshot-$target"
           mkdir "$stage"
-          cp target/release/pdf-viewer target/release/pdf-sandbox-worker "$stage"/
-          strip "$stage"/pdf-viewer "$stage"/pdf-sandbox-worker
+          cp "target/release/pdf-viewer$exe" "target/release/pdf-sandbox-worker$exe" "$stage"/
+          # Stripping is Linux's here. macOS signs what it strips and Windows keeps its
+          # symbols in a separate file, so a portable `strip` step would be three steps.
+          if [ "$target" = x86_64-unknown-linux-gnu ]; then
+            strip "$stage/pdf-viewer" "$stage/pdf-sandbox-worker"
+          fi
           cp LICENSE NOTICE "$stage"/
-          cat > "$stage"/README <<'TXT'
+          confinement="seccomp-BPF and Landlock confine the decoder on this platform."
+          if [ "$target" != x86_64-unknown-linux-gnu ]; then
+            confinement="This build has NO kernel confinement: seccomp-BPF and Landlock are
+          Linux interfaces. JBIG2 and JPEG 2000 are still decoded in a separate process, so a
+          decoder failure costs one image rather than the viewer, and there is no
+          address-space ceiling on that process. The viewer says so in its first line."
+          fi
+          cat > "$stage"/README <<TXT
           pdf-viewer -- a snapshot build. Not a release; built from whatever was on main.
 
           Two executables, and they must stay in the same directory. pdf-sandbox-worker is
-          the confined process that decodes JBIG2 and JPEG 2000 images; the viewer looks
-          for it beside itself and, not finding it, refuses those images rather than
-          decoding them unconfined.
+          the process that decodes JBIG2 and JPEG 2000 images; the viewer looks for it beside
+          itself and, not finding it, refuses those images rather than decoding them in
+          process.
 
-              ./pdf-viewer [file.pdf]
+          $confinement
 
-          Needs a Vulkan driver. Page one goes to the graphics device by design, so a
-          machine with no working Vulkan will not draw one.
+              ./pdf-viewer$exe [file.pdf]
+
+          Needs a Vulkan, Metal or DirectX device. Page one goes to the graphics device by
+          design, so a machine with no working driver will not draw one.
           TXT
-          tar czf "$stage.tar.gz" "$stage"
-          sha256sum "$stage.tar.gz" > "$stage.tar.gz.sha256"
-          ls -l "$stage.tar.gz"
+          if [ "${{ matrix.archive }}" = zip ]; then
+            7z a -tzip "$stage.zip" "$stage" > /dev/null
+            archive="$stage.zip"
+          else
+            tar czf "$stage.tar.gz" "$stage"
+            archive="$stage.tar.gz"
+          fi
+          if command -v sha256sum > /dev/null; then
+            sha256sum "$archive" > "$archive.sha256"
+          else
+            shasum -a 256 "$archive" > "$archive.sha256"
+          fi
+          ls -l "$archive"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-${{ matrix.target }}
+          path: |
+            pdf-viewer-snapshot-*.tar.gz
+            pdf-viewer-snapshot-*.zip
+            pdf-viewer-snapshot-*.sha256
+          if-no-files-found: error
+
+  # One job publishes, and that is the point of it being separate: three build jobs racing
+  # to delete and recreate a moving tag would let the loser publish the older commit's
+  # binaries under the newer one's name.
+  publish-snapshot:
+    needs: snapshot
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      # `gh release` writes to the repository, and the default token is read-only.
+      contents: write
+    # Two pushes in quick succession would otherwise race to retag `snapshot`, and the
+    # loser could publish the older commit's binaries. The newest push wins.
+    concurrency:
+      group: snapshot
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: snapshot-*
+          merge-multiple: true
 
       # A moving tag: delete the release and its tag, then create both at this commit.
       # `gh` is on the runner, so this needs no third-party action -- which matters for a
@@ -217,6 +328,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          ls -l
           gh release delete snapshot --cleanup-tag --yes || true
           gh release create snapshot \
             --prerelease \
@@ -226,7 +338,7 @@ jobs:
 
           **This is not a release.** It is whatever was on \`main\`, retagged at every push.
 
-          \`pdf-viewer\` and \`pdf-sandbox-worker\`, x86_64 Linux, glibc as new as the CI runner's. Unpack both into one directory and keep them there: the viewer spawns the worker for JBIG2 and JPEG 2000 and refuses those images without it.
+          \`pdf-viewer\` and \`pdf-sandbox-worker\` for x86_64 Linux, aarch64 macOS and x86_64 Windows. Unpack both into one directory and keep them there: the viewer spawns the worker for JBIG2 and JPEG 2000 and refuses those images without it.
 
-          macOS and Windows are absent by decision, not by omission -- \`pdf-sandbox\` confines those decoders with seccomp-BPF and Landlock and refuses to build where it cannot, rather than pretending to confine anything." \
-            pdf-viewer-snapshot-*.tar.gz pdf-viewer-snapshot-*.tar.gz.sha256
+          **The confinement is Linux's.** seccomp-BPF and Landlock restrict the image decoder's system calls and filesystem there; macOS and Windows have neither, so on those two the decoder runs in a separate process with no kernel confinement and no address-space ceiling — which the viewer prints in its first line rather than leaving to a release note. What a real confinement for each would take is in \`doc/todo/35\`." \
+            pdf-viewer-snapshot-*.tar.gz pdf-viewer-snapshot-*.zip pdf-viewer-snapshot-*.sha256
