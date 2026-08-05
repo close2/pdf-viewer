@@ -313,6 +313,28 @@ View depend on (such as zoom level), the corresponding dictionaries shall be rea
 `Export` — **`Zoom`, `User` and `Language` not once**. A path nobody takes is one `CLAUDE.md`
 forbids shipping, and now the row says so with a number instead of with an architecture.
 
+## The six sweeps run again in the three-hundred-and-thirty-second, and a clean run is the result
+
+After six rounds that added verbs — §12.5.6.10's markup, `Page`'s identity, §9.10.2's second
+method reaching Type 3 fonts — all six were run over `ledger.toml` and over `crates/`:
+
+- **The arithmetic sweep**: one hit, §7.9, which `doc/todo/01` already records as read and kept.
+- **Expired blockers**: six hits, every one a row naming a clause it genuinely waits on
+  (§11.4.6's knockout groups, §12.10.3's geospatial, §12.6.4.11's hide action).
+- **Capability reasons**: 35 hits and every one a true statement about a boundary this tree keeps
+  — no clock, no filesystem, no printing path, no comments pane. Two are the *quoted retired
+  wording* inside a correction, which is this sweep's oldest false-positive shape.
+- **Entries claimed unread**: the same nine §8.9.5.1 and §8.4.5 hits the two-hundred-and-ninth
+  session identified as one short key in three clauses.
+- **The caller sweep**: 198 `pub fn`s in `pdf-model`, 71 named by neither host. The interesting
+  names are all one of three known populations — §14.7/§14.9's structure entries waiting on
+  `doc/todo/31`'s host, §7.11.6's collection folders and §12.4.3's beads waiting on
+  `doc/todo/36`'s panels, and functions `pdf-model` calls *itself* (`unresolved_usage` is read by
+  `content.rs`, `added_on` by the interpreter), which the sweep cannot see and which are worth
+  knowing it cannot.
+
+**A clean run says the population has not drifted**, which is the only way it is watched at all.
+
 ## What is still owed, named
 
 - ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).

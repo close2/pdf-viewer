@@ -2982,3 +2982,46 @@ fn yellow(raster: &pdf_render::Raster) -> usize {
         .filter(|pixel| pixel[0] > 200 && pixel[1] > 200 && pixel[2] < 60)
         .count()
 }
+
+/// A selection survives the page being drawn again, and ends when the page is turned.
+///
+/// The two are different events and one line treated them alike: every re-interpretation cleared
+/// the selection, so a field edited, a layer switched or §12.5.6.10's markup added took a
+/// person's selection away from them. A page's readback is a function of the document and the
+/// view state, and after any of those three it is still *this* page's — so the range still names
+/// what it named. A page **turn** is the case the line was written for.
+#[test]
+fn a_selection_survives_a_redraw_of_the_same_page_and_not_a_page_turn() {
+    let (mut viewer, events) = opened(600, 800);
+    serve(&mut viewer, &request(&events).clone());
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let Answer::Selected(selected) = viewer.query(Query::Selection) else {
+        panic!("everything on the page is selected");
+    };
+    let before = selected.text.len();
+    assert!(before > 0, "the cover page reads back as something");
+
+    // §12.5.6.10's markup rebuilds the display list, which is the case that took the selection.
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::Markup {
+            kind: pdf_model::view::Markup::Highlight,
+            colour: [1.0, 1.0, 0.0],
+        }))
+        .collect();
+    serve(&mut viewer, &request(&events).clone());
+    let Answer::Selected(after) = viewer.query(Query::Selection) else {
+        panic!("the selection is still there after the page is drawn again");
+    };
+    assert_eq!(after.text.len(), before);
+
+    // A page turn is a different page's readback, and there the range means nothing.
+    viewer
+        .handle(Command::GoTo(PageTarget::Next))
+        .for_each(drop);
+    assert!(
+        matches!(viewer.query(Query::Selection), Answer::None),
+        "a turned page ends the selection"
+    );
+}

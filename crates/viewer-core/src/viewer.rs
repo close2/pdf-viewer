@@ -1173,6 +1173,12 @@ impl Viewer {
     /// The one place a render is scheduled. Interpretation happens here too, which is what makes
     /// [`Event::NeedsRender`] self-contained — see the crate documentation on who interprets and
     /// who rasterises.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the whole of what settling a viewer means, in the order it happens: the \
+                  magnification, the page, the interpretation, the scheduler's token. Splitting \
+                  it would put that order in two places"
+    )]
     fn settle(&mut self, events: &mut Vec<Event>) {
         let (viewport, scale) = (self.viewport, self.scale);
         // A viewport with no extent is a window that has not been laid out yet, and rendering
@@ -1216,6 +1222,14 @@ impl Viewer {
             .map(|interpreted| interpreted.page)
             != Some(page)
         {
+            // Whether this is a *different* page or the same one drawn again, which is the
+            // difference the selection turns on below. Asked of `current` rather than of
+            // `interpreted`, because the display list is what a re-interpretation throws away:
+            // by this line it is already `None` for both cases and could not tell them apart.
+            let turned = open
+                .current
+                .as_ref()
+                .is_none_or(|(interpreted, _)| *interpreted != page);
             let Some((interpretation, reports, object)) = crate::open::interpret(open, page) else {
                 return;
             };
@@ -1239,8 +1253,15 @@ impl Viewer {
                 view_dependent: interpretation.view_dependent,
             });
             open.current = Some((page, object));
-            // A selection is a range of the page that has just been replaced.
-            open.selection = None;
+            // A selection is a range of *this page's* readback, so a page turn ends it — and a
+            // re-interpretation of the same page does not. The two are different events and this
+            // line treated them alike: a field edited, a layer switched or an annotation added
+            // rebuilds the display list, and every one of those took a person's selection away
+            // from them. The readback of a page is a function of the document and the view state
+            // and both are the same page's, so the range still names what it named.
+            if turned {
+                open.selection = None;
+            }
         }
         let Some(interpreted) = open.interpreted.as_ref() else {
             return;
