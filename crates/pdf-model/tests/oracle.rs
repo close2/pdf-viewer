@@ -2580,7 +2580,27 @@ const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 2] = [
 /// shape, no matter how small the intersection is" is what puts 214 where the geometry has 176,
 /// and ADR 0025's departure is what puts ours on the area. `poppler` is 1.5% over its *own* limit
 /// at 576 dpi, which is the same sentence at the other end of the ladder.
-const AMBIGUOUS_WIDGET_BORDER: [&str; 4] = [
+/// # A fifth, and the tightest pair of ladders this group has seen
+///
+/// `160F-2019.pdf` page 1 — the Italian tax form the window test presses Tab on — came off §3a's
+/// ranking in the three-hundred-and-thirty-first session at 0.45 from the nearest reference and
+/// 2.06 from the furthest. 2 474 commands: Arial subsets, one 102 × 72 image, and several hundred
+/// field borders.
+///
+/// ```text
+///                 72 dpi     576 dpi
+/// mupdf          14.8713   14.87940
+/// poppler        17.5573   14.87860
+/// ours (1x/8x)   14.8597   14.86320
+/// ```
+///
+/// **The two ladders end 0.0008 of 255 apart** — the tightest pair this group has measured — and
+/// ours is 0.016 under them. What the first column shows is this group's whole subject at a scale
+/// nothing else in the corpus reaches: `poppler` at the page's own scale is **2.70 of 255 over
+/// its own limit**, 18% of the page's ink, on a page whose marks are mostly one-unit rules. Ours
+/// is 0.003 from its own limit at 72 dpi.
+const AMBIGUOUS_WIDGET_BORDER: [&str; 5] = [
+    "160F-2019.pdf page 1",
     "issue19083.pdf page 1",
     "multiline.pdf page 1",
     "bug1863910.pdf page 1",
@@ -4577,7 +4597,28 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 /// page's own scale ours is 0.163 under its own limit, which is this group's standing subject: a
 /// page that is nothing but nine-point text is a page of glyph edges, and §10.7.4's last sentence
 /// is the permission both ends of the ladder are exercising.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 17] = [
+/// # Three more in the three-hundred-and-thirty-first, two of them one document
+///
+/// ```text
+///                        ours 1x   ours 8x   poppler 576   mupdf 576   apart
+/// issue13201.pdf p1      10.3559   10.3506     10.36500     10.35930   0.0057
+/// canvas.pdf p1          23.6980   23.7920     23.86670     23.90290   0.0362
+/// canvas.pdf p2          21.3130   21.4305     21.43890     21.51130   0.0724
+/// ```
+///
+/// All three are pages of embedded `TrueType` subsets and nothing else, so each mean *is* its
+/// glyph coverage, and all three have ours climbing onto a limit two ladders bracket. What is
+/// worth keeping is `issue13201.pdf`'s first column: **ours at the page's own scale is 0.005 from
+/// its own 8× value**, where `poppler` is 0.07 under its and `mupdf` 0.14 under — the same shape
+/// `issue13242.pdf` has, and the reason this group's argument is about *where* the ink lands
+/// rather than about how much of it there is.
+///
+/// `canvas.pdf`'s two pages are `doc/todo/00`'s "check what else on the list is the same file"
+/// paying its sixth time, and the two are the same finding to two figures.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 20] = [
+    "issue13201.pdf page 1",
+    "canvas.pdf page 1",
+    "canvas.pdf page 2",
     "bug1868759.pdf page 1",
     "issue840.pdf page 2",
     "issue13242.pdf page 1",

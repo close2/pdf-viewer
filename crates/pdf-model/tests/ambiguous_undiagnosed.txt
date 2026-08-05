@@ -10,7 +10,6 @@
 #
 # One page per line, exactly as the gate names it. Blank lines and lines beginning with `#`
 # are ignored.
-160F-2019.pdf page 1
 XiaoBiaoSong.pdf page 1
 bug1308536.pdf page 1
 bug1872721.pdf page 1
@@ -19,8 +18,6 @@ bug886717.pdf page 1
 bug911034.pdf page 1
 bug920426.pdf page 1
 bug_jpx.pdf page 1
-canvas.pdf page 1
-canvas.pdf page 2
 ccitt_EndOfBlock_false.pdf page 1
 colorspace_atan.pdf page 1
 colorspace_cos.pdf page 1
@@ -32,7 +29,6 @@ issue10339_reduced.pdf page 1
 issue12705.pdf page 1
 issue12841_reduced.pdf page 1
 issue13193.pdf page 1
-issue13201.pdf page 1
 issue1350.pdf page 2
 issue14953.pdf page 1
 issue15150.pdf page 1
