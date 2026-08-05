@@ -2,9 +2,8 @@
 
 *Written for `pdf-viewer` about a change in `quorra` (the sibling checkout at
 `/home/cl/projects/render-lib`, upstream `https://github.com/close2/quorra`).
-Status at the time of writing: the lane exists and is proven; it is **not yet wired
-into quorra's encoder**, so nothing in this viewer can switch to it today. What
-follows is what it will cost when it can.*
+The lane is complete and selectable: `quorra_gpu::Options::coverage`. Nothing in this
+viewer uses it yet, and this is what using it would cost.*
 
 ## Why there is a second lane at all
 
@@ -70,8 +69,8 @@ it.
 
 ### 1. Pass the option through `render-quorra`
 
-`quorra_gpu::Options` will gain a coverage selector. `render-quorra` constructs
-`Options` in two places — `QuorraRasterizer::new` and `QuorraPresenter::around` — and
+`quorra_gpu::Options` has the selector — `coverage: Coverage::{Cpu, Gpu}`, and
+`coverage_samples` for its quality. `render-quorra` constructs `Options` in two places — `QuorraRasterizer::new` and `QuorraPresenter::around` — and
 both currently take `Options::default()`. The change is to thread a choice in:
 
 ```rust
@@ -83,26 +82,36 @@ pub fn with_options(
 ```
 
 Keep `new` as it is, defaulting to the CPU lane. A backend knob this project's §8.3
-talks a host out of is still a knob; this one earns its place only if the measurement
-below says it does.
+talks a host out of is still a knob, and this one earns its place only where the
+measurement below says it does.
 
-### 2. Decide *when*, not *whether*
+### 2. Decide *when*, not *whether* — the crossover is measured
 
-The two lanes have opposite cost curves, and the crossover is a magnification:
+Dense 5 933-fill page at 1191×1684, RADV, wall clock per frame:
 
-| | CPU lane | GPU lane |
+| magnification | CPU lane | GPU lane |
 |---|---|---|
-| page at 1×, dense text | 107 atlas tiles, ~1.0 ms/frame | one triangle per segment, every frame |
-| page at 20× | 6.8 ms/frame, cached by nothing | unchanged by the zoom |
-| memory | atlas, 8 MiB budget | a winding texture the size of the visible tiles |
+| 1× | **1.1 ms** | 15.2 ms |
+| 4× | **0.54 ms** | 2.5 ms |
+| 20× | 12.5 ms | **1.9 ms** |
+| 100× | 7.4 ms | **2.2 ms** |
 
-So the honest integration is **not** a build-time choice but a per-frame one keyed on
-magnification, and the viewer is the only crate that knows the magnification. The
-natural home is `viewer-ui`'s presenter call, and the natural signal is the one already
-in hand: `RenderRequest::target`'s scale against the page size.
+**The crossover is between 4× and 20×.** The shape is what the two designs predict: the
+CPU lane has a glyph atlas and pays per pixel rasterised, so it wins while glyphs are
+small and repeated; the GPU lane has no atlas and pays per triangle, so it wins once a
+glyph costs more to fill than to describe.
 
-Do not implement that until quorra reports the crossover. Ask for the number; do not
-guess it.
+So the choice is **per frame, keyed on magnification**, and this viewer is the only
+crate that knows the magnification. The natural home is the presenter call in
+`viewer-ui/src/bin/pdf-viewer.rs`, and the natural signal is already in hand:
+`RenderRequest::target`'s scale against the page size.
+
+Two cautions before wiring it up. The number above is this laptop's — take it again on
+the target machine, with `cargo run --release -p quorra-gpu --example zoom -- gpu`.
+And switching lanes mid-session means switching *devices* today, because the lane is an
+`Options` field read at construction: either hold two presenters, or ask quorra for a
+per-frame selector. The second is a smaller change and is worth asking for before
+building the first.
 
 ### 3. Nothing changes in `pdf-render`
 
@@ -110,24 +119,30 @@ guess it.
 untouched. The lane is entirely inside quorra's coverage step, below the level this
 project's contract describes.
 
-## What is left in quorra before any of this is possible
+## What the lane still does not do
 
-Recorded here so that this viewer's todo list can point at it rather than re-derive it
-(quorra's ADR 0016 has the full version):
+- **Residue clips take the CPU lane.** A non-rectangular clip multiplies into coverage
+  on the CPU, and no pass does that on the device yet. Such commands fall back
+  silently and correctly — both kinds of tile share one sheet — so a page full of
+  non-rectangular clips gets the CPU lane's cost even under `Coverage::Gpu`.
+- **No atlas stands in front of it.** That is most of why 1× costs what it does, and it
+  is deliberate: a cache keyed on the device transform is exactly what a zoom gesture
+  defeats.
+- **Selecting the lane per frame** is not possible yet (see §2).
 
-- **The encoder integration.** The lane is proven end to end — an aligned square is
-  solid inside and empty outside, a half-covered column reads exactly 128, and nested
-  same-wound squares fill under §8.5.3.3.2 and hollow under §8.5.3.3.3 — but the
-  encoder still routes every fill to the CPU rasteriser. Wiring it means the scratch
-  packer reserving tile space without bytes, and the frame budget pricing the winding
-  texture before it is allocated.
-- **Residue clips.** A non-rectangular clip multiplies into the coverage mask on the
-  CPU. Until the same happens on the GPU, a command under one has to take the CPU lane,
-  which means a frame can need both sheets at once.
-- **The crossover measurement**, per §2 above.
+## One thing worth knowing about correctness
+
+The two lanes do not produce identical pixels, and the difference is not all in the
+direction you would expect. They agree **exactly** where no edge crosses a pixel. On a
+straight edge they differ by at most an eighth of a pixel of coverage — the sample
+grid. On a **curved** edge they differ by up to a quarter pixel more, and there **the
+GPU lane is the more accurate of the two**: quorra's CPU rasteriser flattens curves to
+a quarter-pixel tolerance and a chord cuts inside a convex curve, while the GPU lane
+draws the quadratics themselves. If this viewer's comparison harness starts reporting
+differences on curved artwork after a switch, that is the reason, and the CPU backend
+is not the reference to trust on it.
 
 ## Where the numbers came from
 
 `crates/quorra-gpu/examples/zoom.rs` in the quorra checkout, release build, RADV
-(Radeon 890M), the dense 5 933-fill page at 1191×1684. Run it before believing any of
-the figures above: they were taken on a loaded machine and the ratios are what carry.
+(Radeon 890M), the dense 5 933-fill page at 1191×1684, best of five per row.
