@@ -778,7 +778,7 @@ fn trimmed(text: &str) -> String {
 /// declaration (see the module comment). An undefined reference is kept verbatim, because
 /// dropping it would silently delete text a producer wrote and erroring would refuse a whole
 /// packet over one ampersand.
-fn unescape(text: &str, out: &mut String) {
+pub(crate) fn unescape(text: &str, out: &mut String) {
     let mut rest = text;
     while let Some(at) = rest.find('&') {
         out.push_str(&rest[..at]);

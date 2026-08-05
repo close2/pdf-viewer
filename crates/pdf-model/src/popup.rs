@@ -171,11 +171,104 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         rect,
         open: document.get_key(dict, "Open") == pdf_syntax::Object::Boolean(true),
         title: text(document, source, "T"),
-        text: text(document, source, "Contents"),
+        // Table 166's `/Contents` first, and Table 172's `/RC` only where there is none: NOTE 1
+        // makes the two "textually equivalent" where both are present, and the plain string is
+        // the one this crate can hand over without reading a specification it does not have.
+        text: text(document, source, "Contents").or_else(|| rich_text(document, source)),
         modified: text(document, source, "M"),
         colour: colour(document, source),
     })
 }
+
+/// Table 172's `/RC`, as the characters it carries — §12.5.6.2:
+///
+/// > A rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification,
+/// > version 3.3 ) that shall be displayed in the popup window when the annotation is opened.
+///
+/// A `shall` about the popup window, and this program has had one since the
+/// three-hundred-and-twelfth session — so `doc/todo/01`'s capability shape applies to it, and the
+/// row that said these entries "reach a comments pane this program has no panel for" stopped
+/// being true then.
+///
+/// # What is read, and what is deliberately not
+///
+/// **The characters, and none of the formatting.** The format is XFA's rich text, which is a
+/// profile of XHTML, and `CLAUDE.md` excludes XFA — so nothing here interprets a `<span>`'s
+/// style, a colour, a size or a face. What it takes is the element content, which is text the
+/// clause requires displayed and which needs no specification this tree does not have; the
+/// clause's own NOTE 1 says so from the other end, by making `/RC` and `/Contents` "textually
+/// equivalent" where a file states both.
+///
+/// **A paragraph is a break.** §12.5.6.2 states the rule for the plain form — "[w]hen separating
+/// text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used" — and the rich form spells a
+/// paragraph as an element, so a closing `</p>` and a `<br/>` become the newline the plain form
+/// would have carried. Nothing else in the markup changes the text.
+///
+/// **18 corpus annotations state `/RC` and no `/Contents`** (`examples/markup_text_census`,
+/// counted over every page of all 974 documents), which is 18 popups this program opened with
+/// nothing in them. 71 state `/RC` at all and 197 state `/Contents`.
+///
+/// Returns `None` where the entry is absent, is neither a string nor a stream, does not parse as
+/// XML, exceeds [`MAX_RICH_TEXT`], or carries no characters at all — a window with nothing to
+/// show is the same answer as no entry, and a malformed one may not become a refusal of the
+/// window itself.
+fn rich_text(document: &Document, dict: &Dictionary) -> Option<String> {
+    let value = document.get_key(dict, "RC");
+    let bytes: Vec<u8> = match &value {
+        pdf_syntax::Object::String(bytes) => bytes.to_vec(),
+        // Table 172 gives `/RC` as "text string or text stream", and §7.9.3's text stream is a
+        // stream whose decoded bytes are a text string — so the same decoding follows either.
+        pdf_syntax::Object::Stream(stream) => document.decoded_stream_data(stream)?.to_vec(),
+        _ => return None,
+    };
+    if bytes.len() > MAX_RICH_TEXT {
+        return None;
+    }
+    let markup = pdf_syntax::text_string(&bytes);
+    let mut out = String::with_capacity(markup.len());
+    let mut breaks = 0_usize;
+    for token in xmlparser::Tokenizer::from(markup.as_str()) {
+        // A malformed packet stops the walk and keeps what was read: this is a window's text, and
+        // half a comment is better than none of it. The alternative — refusing — would take a
+        // popup away over a producer's stray ampersand.
+        let Ok(token) = token else { break };
+        match token {
+            xmlparser::Token::Text { text } | xmlparser::Token::Cdata { text, .. } => {
+                crate::xmp::unescape(text.as_str(), &mut out);
+            }
+            xmlparser::Token::ElementEnd { end, .. } => {
+                let name = match end {
+                    xmlparser::ElementEnd::Close(_, local) => local.as_str().to_owned(),
+                    xmlparser::ElementEnd::Empty => String::new(),
+                    xmlparser::ElementEnd::Open => continue,
+                };
+                if name.eq_ignore_ascii_case("p") || name.eq_ignore_ascii_case("br") {
+                    breaks = breaks.saturating_add(1);
+                    if breaks <= MAX_RICH_TEXT_BREAKS {
+                        out.push('\n');
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let trimmed = out.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// The most `/RC` markup this module will parse, in bytes.
+///
+/// A window's text, not a document: `xmp.rs`'s own packet budget is 8 MiB and this is two orders
+/// below it because a popup a person reads is a paragraph or two. A larger one is left unread
+/// rather than truncated, so what a window shows is always the whole of something.
+const MAX_RICH_TEXT: usize = 64 << 10;
+
+/// How many paragraph breaks the text above may carry.
+///
+/// Bounds the one place [`rich_text`] appends without consuming input: an element with no text is
+/// still a `</p>`, so a file of nothing but empty paragraphs would otherwise grow the string
+/// without bound in the tokenizer's own terms. The text itself is bounded by [`MAX_RICH_TEXT`].
+const MAX_RICH_TEXT_BREAKS: usize = 4096;
 
 /// A text string entry, §7.9.2.2's three encodings decoded.
 fn text(document: &Document, dict: &Dictionary, key: &str) -> Option<String> {
@@ -372,6 +465,76 @@ mod tests {
         let parent = document.get(pdf_syntax::ObjectId::new(4, 0));
         let dict = parent.as_dict().expect("an annotation dictionary");
         assert_eq!(popup_of(dict), Some(pdf_syntax::ObjectId::new(5, 0)));
+    }
+
+    /// Table 172's `/RC`, where the file states one and no `/Contents` — §12.5.6.2:
+    ///
+    /// > A rich text string … that shall be displayed in the popup window when the annotation is
+    /// > opened.
+    ///
+    /// The characters and none of the formatting: a `<span>`'s style is XFA's and `CLAUDE.md`
+    /// excludes it, while the text is what the clause requires shown and what NOTE 1 makes
+    /// equivalent to `/Contents`. A closing paragraph is the newline §12.5.6.2 asks a plain
+    /// `/Contents` to spell with a carriage return.
+    #[test]
+    fn a_rich_text_string_fills_a_window_a_plain_one_would_have_left_empty() {
+        let document = document(
+            "4 0 R 5 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Popup 5 0 R \
+             /RC (<?xml version=\"1.0\"?><body xmlns=\"http://www.w3.org/1999/xhtml\">\
+             <p><span style=\"font-weight:bold\">first</span> line</p><p>second &amp; last</p>\
+             </body>) >> endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R >> \
+             endobj\n",
+        );
+        let view = crate::view::ViewState::of(&document);
+        let popups = popups(&document, &page(&document), &view);
+        assert_eq!(popups.len(), 1);
+        assert_eq!(
+            popups[0].text.as_deref(),
+            Some("first line\nsecond & last"),
+            "the characters, the paragraph break and the entity — and no style"
+        );
+    }
+
+    /// And `/Contents` wins where a file states both, which is §12.5.6.2's NOTE 1 read straight:
+    ///
+    /// > When both Contents and RC entries are present, it is expected that the contents of both
+    /// > entries are textually equivalent.
+    #[test]
+    fn a_plain_contents_outranks_the_rich_one() {
+        let document = document(
+            "4 0 R 5 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Popup 5 0 R \
+             /Contents (the plain one) \
+             /RC (<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>the rich one</p></body>) >> \
+             endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R >> \
+             endobj\n",
+        );
+        let view = crate::view::ViewState::of(&document);
+        let popups = popups(&document, &page(&document), &view);
+        assert_eq!(popups[0].text.as_deref(), Some("the plain one"));
+    }
+
+    /// Malformed markup keeps what it had read rather than emptying the window.
+    #[test]
+    fn markup_that_stops_parsing_keeps_the_text_before_it() {
+        let document = document(
+            "4 0 R 5 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Popup 5 0 R \
+             /RC (<body><p>what was written</p><p>and then <<<) >> endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R >> \
+             endobj\n",
+        );
+        let view = crate::view::ViewState::of(&document);
+        let popups = popups(&document, &page(&document), &view);
+        assert_eq!(
+            popups[0].text.as_deref(),
+            Some("what was written\nand then"),
+            "everything the tokenizer reached before it stopped — half a comment is better than \
+             none of it"
+        );
     }
 
     #[test]

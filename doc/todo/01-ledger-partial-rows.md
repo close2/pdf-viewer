@@ -335,6 +335,32 @@ method reaching Type 3 fonts — all six were run over `ledger.toml` and over `c
 
 **A clean run says the population has not drifted**, which is the only way it is watched at all.
 
+## The six run again in the three-hundred-and-forty-second, and the third sweep paid
+
+After three rounds that added verbs — §12.7.5.3's `DoNotScroll`, `LaidOut::overflows`,
+`QuorraRasterizer::rasterize_frame` — all six were run over `ledger.toml` and over `crates/`:
+
+- **The arithmetic sweep**: one hit, §7.9, which this file already records as read and kept.
+- **Expired blockers**: seven, every one a row naming a clause it genuinely waits on.
+- **Entries claimed unread**: fourteen, all of them lists whose entries were checked in the
+  two-hundred-and-ninth and three-hundred-and-thirty-second runs, plus §12.7.5.3's own — which the
+  round that wrote it had just corrected.
+- **Capability reasons**: 24 hits, 23 of them true statements about a boundary this tree keeps.
+- **The caller sweep**: 198 `pub fn`s in `pdf-model`, 71 named by neither host — the same three
+  known populations.
+
+**The twenty-fourth capability hit was §12.5.6.2 and it had expired thirty sessions earlier.** The
+row said `/Subj`, `/RC`, `/IRT`, `/RT` and `/IT` "reach a comments pane this program has no panel
+for", and four of the five still do — but Table 172 makes `/RC` "[a] rich text string … that shall
+be displayed in the **popup window** when the annotation is opened", and `viewer_ui::chrome` has
+drawn that window since the three-hundred-and-twelfth session (ADR 0191). ADR 0199 reads it now.
+
+**What that adds to the method**: a row that lists several entries behind one reason is several
+claims, and the sweep reads the reason. §12.5.3's `NoZoom`/`NoRotate` was the same shape in the
+two-hundred-and-seventeenth — "**split a refusal into one claim per entry before believing it**" —
+and this is that rule applied to a *capability* reason rather than to an architectural one. Five
+entries, one sentence, and only one of them named a capability that had arrived.
+
 ## What is still owed, named
 
 - ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).
