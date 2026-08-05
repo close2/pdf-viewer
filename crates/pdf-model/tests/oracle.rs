@@ -3997,6 +3997,78 @@ const AMBIGUOUS_ONE_LADDER: [&str; 3] = [
 /// where any bound is tight in relative terms, which is the other way to reach this bucket.
 const AMBIGUOUS_FOUR_ANSWERS: [&str; 2] = ["bug1844583.pdf page 1", "tagged_stamp.pdf page 1"];
 
+/// Ambiguous, and the whole disagreement is the row or column at a shape's boundary.
+///
+/// Two pages the three-hundred-and-forty-third session took off §3a's ranking, and the per-row
+/// ink profile named the same thing on both: a shape whose edge falls between pixels, and five
+/// renderers deciding differently whether the pixels it half covers are painted.
+///
+/// # `bug_jpx.pdf`, where the arithmetic is exact
+///
+/// 612 × 792, and everything on it is one 128 × 64 grey JPEG 2000 image drawn at 1:1 — the whole
+/// page is blank but rows 200 to 264. The interior is uniform, and the profile says the four
+/// renderers agree about it to two thousandths of a level: over the image's own rows the mean is
+/// **201.665 for ours and 201.667 for `ghostscript`**, 201.250 for `mupdf` and `hayro`. The name
+/// is a red herring: nothing here is about the codestream.
+///
+/// What differs is the boundary. Per column, at the image's left and right edges:
+///
+/// ```text
+/// column         268     269     270 …   396     397     398
+/// ours            0      64     255      255     192      0
+/// mupdf           0     255     255      255     255      0
+/// hayro           0     255     255      255     255      0
+/// ghostscript     0       0     255      255     255      0
+/// ```
+///
+/// **64/255 + 127 + 192/255 = 128.004**, which is the image's width to four decimal places, and
+/// the rows do the same thing with 64. So ours covers exactly the rectangle the page states, with
+/// two partly covered columns at its edges; `mupdf` and `hayro` round outwards to 129 × 65 and
+/// `ghostscript` to 128 × 64 at another phase. The ink follows arithmetically: 129 × 65 ÷
+/// (128 × 64) = 1.0236, and 4.3099 × 1.0236 = **4.4116** against the 4.4113 both of them print.
+/// `ghostscript` is 4.30976 against our 4.30990.
+///
+/// # `tensor-allflags-withfunction.pdf`, where five renderers split three ways
+///
+/// A §8.7.4.5.7 tensor-product mesh on a 612 × 792 page. Two rows of the profile are singular and
+/// nothing else on the page is:
+///
+/// ```text
+/// row 203    ours   0   poppler 100   mupdf   0   ghostscript 100   hayro   0
+/// row 492    ours   0   poppler   0   mupdf   0   ghostscript  86   hayro  86
+/// ```
+///
+/// The mesh's top edge is drawn by `poppler` and `ghostscript` and not by the other three; its
+/// bottom edge by `ghostscript` and `hayro` and not by the other three. Every other row of 792 is
+/// within one level of 255 across all five. Removing those two rows takes the page's spread from
+/// **0.343 of 255 to 0.135** — they are 61% of the whole disagreement.
+///
+/// And step 6 says ours is the one measuring the area:
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler       26.5570   26.3894
+/// mupdf         26.4176   26.4130
+/// ours (1x/8x)  26.3708   26.3707
+/// ```
+///
+/// **Two ladders 0.024 of 255 apart at the limit**, ours flat to a ten-thousandth across an
+/// eightfold change and 0.018 under `poppler`'s limit. A renderer whose ladder does not move is
+/// one already measuring the geometry (`doc/todo/00` step 6), and a page where the references
+/// disagree about a boundary row by more than any of them disagrees with us about everything else
+/// is `ambiguous` by the verdict's own definition.
+///
+/// **Why these are not `AMBIGUOUS_IMAGE_REDUCTION`'s**, though the sentence rhymes: that group is
+/// about a reduction, where §10.7.4's area averaging is the departure ADR 0025 records. Neither of
+/// these is reduced — the image is at 1:1 and the mesh is a shading — so what is being decided is
+/// only the edge, and no clause decides it. §10.7.4 says a shape covering part of a pixel is the
+/// device's business and §8.5.3.3.1 calls the degenerate case "device-dependent and not generally
+/// useful"; three answers among five renderers is what a clause that decides nothing produces.
+const AMBIGUOUS_BOUNDARY_PIXELS: [&str; 2] = [
+    "bug_jpx.pdf page 1",
+    "tensor-allflags-withfunction.pdf page 1",
+];
+
 /// Ambiguous, and the whole of the difference is four horizontal rules.
 ///
 /// `issue9972-1.pdf`, `-2` and `-3` are **one page under three names**: the same catalog, the
@@ -4919,6 +4991,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_SPACE_DRAWN_AS_A_MARK)
         .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
         .chain(&AMBIGUOUS_FOUR_ANSWERS)
+        .chain(&AMBIGUOUS_BOUNDARY_PIXELS)
         .chain(&AMBIGUOUS_TABLE_RULE_EDGES)
         .chain(&AMBIGUOUS_ONE_LADDER)
         .chain(&AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY)

@@ -16,7 +16,6 @@ bug1889122.pdf page 1
 bug886717.pdf page 1
 bug911034.pdf page 1
 bug920426.pdf page 1
-bug_jpx.pdf page 1
 ccitt_EndOfBlock_false.pdf page 1
 colorspace_atan.pdf page 1
 colorspace_cos.pdf page 1
@@ -48,4 +47,3 @@ issue8187.pdf page 1
 issue9084.pdf page 1
 jbig2_symbol_offset.pdf page 1
 knockout_groups_test.pdf page 1
-tensor-allflags-withfunction.pdf page 1
