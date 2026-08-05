@@ -282,7 +282,8 @@ fourteen that were byte-identical, every one of them reversible, stay so. `hayro
 `test_jpeg2000_standard_example_b4`, which is Annex B.4's worked example, still passes.
 
 Offered as a pull request from `close2/hayro`, branch
-`fix/reconstruction-midpoint-when-fully-decoded`.
+`fix/reconstruction-midpoint-when-fully-decoded`, and **merged into that fork's `main` as
+`2a1abd14`** — which is what this tree pins while it waits for upstream.
 
 **What is left after it is one level on 0.02% to 0.1% of a plate's samples**, which is where a
 precision ladder becomes the right instrument rather than more reading: a difference that shrinks

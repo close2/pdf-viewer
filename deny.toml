@@ -76,9 +76,11 @@ unknown-git = "deny"
 # manifest), first-party and pinned through Cargo.lock.
 allow-git = [
     "https://github.com/close2/quorra",
-    # The second, third-party, and temporary. `hayro-jpeg2000` 0.4.0 implements none of
-    # ISO/IEC 15444-1 E.1.1.2's reconstruction bias; upstream `9cce046b` does and no published
-    # version carries it. Worst sample error against the reference software: 87 levels to 3.
-    # Pinned by revision in Cargo.lock, and it goes back to crates.io on the next release.
-    "https://github.com/LaurenzV/hayro",
+    # The second, third-party, and temporary — and a *fork*, which is the part to justify.
+    # ISO/IEC 15444-1's E-6 reconstruction term is missing entirely from `hayro-jpeg2000`
+    # 0.4.0 and missing for fully decoded coefficients upstream; the second half was found
+    # here and fixed in `2a1abd14`, offered upstream and not yet merged there. Worst sample
+    # error against the reference software: 87 levels to 1. Pinned by revision in Cargo.lock,
+    # and it goes back to crates.io the moment a release carries both halves.
+    "https://github.com/close2/hayro",
 ]

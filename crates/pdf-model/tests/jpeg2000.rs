@@ -79,43 +79,53 @@ const NOT_COMPARABLE: usize = 3;
 /// rounds away. Layer count is *not* the discriminator: `issue5475.pdf` object 8 has one layer
 /// and differs; `S2.pdf` objects 29 to 31 have five and six and match.
 ///
-/// # The cause was found, reported, and fixed upstream
+/// # Two defects, one clause, and both are fixed
 ///
-/// The two-hundredth session measured *which way* the samples moved — on `S2.pdf` object 17, two
-/// of every three differing samples moved toward the image's own mean and the standard deviation
-/// fell from 0.2499 to 0.2399 — and offered a hypothesis: the reconstruction bias of ISO/IEC
-/// 15444-1 E.1.1.2, which places a nonzero coefficient at the *middle* of its quantisation
-/// interval rather than at its edge. `doc/JPEG2000_FEEDBACK.md` said so as a hypothesis because
-/// the finding did not depend on it.
+/// ISO/IEC 15444-1's E-6 reconstructs a nonzero coefficient at `r · 2^(Mb − Nb)` above its
+/// decoded magnitude, `r` conventionally ½. `Mb − Nb` is the count of magnitude bits never
+/// coded. Both halves of that sentence were wrong in the decoder, and each hid the other:
 ///
-/// **It was right, and `hayro-jpeg2000` 0.4.0 implemented none of it**: `Coefficient::get`
-/// returned the truncated magnitude and nothing added the term. Upstream `9cce046b` adds it, this
-/// tree pins that revision (see the workspace manifest and `deny.toml`), and the worst sample
-/// error over the whole corpus falls from **87 levels to 3**:
+/// 1. **The term was absent entirely.** `hayro-jpeg2000` 0.4.0's `Coefficient::get` returned the
+///    truncated magnitude. The two-hundredth session measured the symptom — on `S2.pdf` object
+///    17, two of every three differing samples moved toward the image's own mean and the standard
+///    deviation fell from 0.2499 to 0.2399 — and named this as a *hypothesis*, because the
+///    finding did not depend on it. It was right. Upstream `9cce046b` adds the term.
+/// 2. **It was then skipped where `Mb − Nb` is zero**, which is a coefficient that was *fully*
+///    decoded — and `2^0 = 1`, so the term is `r` itself rather than nothing, because the
+///    quantisation interval of width Δ still surrounds the value. Invisible on coarsely
+///    quantised images, where most coefficients are truncated and (1) dominates; the whole error
+///    on finely quantised ones. Found in the three-hundred-and-eleventh session by bisecting on
+///    resolution — `issue5475.pdf` object 8 has `numresolutions=2`, so decoding at `-r 1` stops
+///    at the LL sub-band with no 9/7 synthesis at all, and the disagreement was still there —
+///    then confirmed by the residual being symmetric and confined to fractional parts in
+///    (0.25, 0.75), which is two floats a quarter-level apart and nothing else. Fixed in
+///    `close2/hayro` `2a1abd14`, offered upstream.
 ///
-/// | | 0.4.0 | pinned |
-/// |---|---|---|
-/// | `S2.pdf` object 17 | 298 229 samples differ, worst by 52 | **53 286, worst by 3** |
-/// | `S2.pdf` object 32 | 104 334, worst by 48 | **56, worst by 1** |
-/// | `S2.pdf` object 33 | 102 139, worst by 87 | **63, worst by 1** |
-/// | `S2.pdf` object 34 | 105 963, worst by 60 | **45, worst by 1** |
-/// | `issue5481.pdf` object 5 | 1 076 388, worst by 4 | 1 076 388, worst by 4 |
+/// **Without quantisation the term must not be applied at all**: there is no interval, a fully
+/// decoded coefficient is exact, and offsetting it by half moves a lossless image. Applying (2)
+/// unconditionally takes `S2.pdf` objects 29 to 31 from byte-identical to 19 131 samples wrong by
+/// up to 5 — which is how that half of the fix earned its condition.
+///
+/// | | 0.4.0 | `9cce046b` | both |
+/// |---|---|---|---|
+/// | `S2.pdf` object 17 | 298 229 differ, worst by 52 | 53 286, worst by 3 | **325, worst by 1** |
+/// | `S2.pdf` object 33 | 102 139, worst by 87 | 63, worst by 1 | 63, worst by 1 |
+/// | `issue5475.pdf` object 8 | 91 144, worst by 2 | 91 144, worst by 2 | **48, worst by 1** |
+/// | `issue5481.pdf` object 5 | 1 076 388, worst by 4 | 1 076 388, worst by 4 | **546, worst by 1** |
+/// | `issue5549.pdf` object 11 | 965 165, worst by 5 | 965 165, worst by 5 | **2 494, worst by 1** |
+///
+/// Roughly **3.4 million differing samples become 5 900, and nothing exceeds one level**.
 ///
 /// # What is left, and why the list is still thirteen
 ///
-/// **Not one codestream became byte-identical**, which is the honest headline: the population did
-/// not move, the magnitude of its error did. What remains is 1 to 5 levels on between 0.04% of a
-/// plate's samples (`S2.pdf` object 32) and 45% of them (`issue5481.pdf`), and whether that is a
-/// second defect or the last place of two `f32` pipelines is **not established**. The three
-/// documents whose errors barely moved — `issue5475.pdf` and the two `issue5481.pdf` plates,
-/// already at 2 to 4 levels before the fix — are where to look first, because the bias term
-/// cannot explain them.
-///
-/// **The final rounding is ruled out.** This decoder reaches eight bits through `f32::round`,
-/// half away from zero; `opj_decompress` reaches it through `lrintf` under the default mode,
-/// half to even. Rounding half to even instead moves nothing toward agreement and two counts
-/// away from it — `S2.pdf` object 33 goes 63 → 64 and `issue5549.pdf` object 11 goes 965 165 →
-/// 965 171 — so the residual is upstream of the conversion.
+/// **Not one codestream became byte-identical**, through either fix. The population has never
+/// moved; the magnitude of its error has, by a factor of 87. What remains is one level on 0.02%
+/// to 0.1% of a plate's samples, and whether that is a third defect or the last place of two
+/// `f32` pipelines is **not established** — a precision ladder is the instrument for that, and
+/// nobody has run it. Two causes are ruled out and worth not re-testing: the final rounding mode
+/// (half away from zero here, `lrintf` under the default mode there — forcing half-to-even moves
+/// two counts the wrong way), and FMA, which `math::mul_add` already `cfg`s off on a target
+/// without it.
 ///
 /// Held by name in both directions: a codestream leaving this list means something improved and
 /// the improvement should be recorded, and one arriving means something regressed.
