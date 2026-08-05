@@ -2295,7 +2295,24 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 9] = [
 /// what a code means and nothing about which face draws it, so five processors reach five faces.
 /// The `-UCS2` tables (ADR 0140) are what make the *characters* right; the weight is not theirs
 /// to fix.
-const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 7] = [
+/// # An eighth, in the three-hundred-and-thirty-third, where one reference draws a third less
+///
+/// `XiaoBiaoSong.pdf` page 1 — 0.52 from the nearest reference and 2.05 from the furthest — is
+/// 693 commands of Chinese in two **non-embedded** `TrueType` fonts whose `/BaseFont` names are
+/// themselves mojibake (the bytes of a GB2312 name read as Latin-1). At the page's own scale:
+///
+/// ```text
+/// poppler 10.8844   ghostscript 10.8804   ours 10.7511   hayro 9.7978   mupdf 7.1015
+/// ```
+///
+/// Ours, `poppler` and `ghostscript` agree to 0.13 of 255; `mupdf` is **3.6 below all three**,
+/// which is a third of the page's ink and is a face that draws far less of it. Two ladders say
+/// the same thing at 576 dpi — `poppler` 10.8095 against `mupdf` 7.1384 — so there is no limit
+/// to climb onto here and the finding is the *spread*: §9.10.2 says how to learn what a code
+/// means and nothing about which face draws it, and five processors reached five answers, one of
+/// them nearly empty.
+const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 8] = [
+    "XiaoBiaoSong.pdf page 1",
     "issue13343.pdf page 1",
     "issue13343.pdf page 2",
     "issue8697.pdf page 1",
@@ -3802,6 +3819,35 @@ const AMBIGUOUS_RECOVERED_PAGE_TREE: [&str; 1] = ["issue21436.pdf page 1"];
 /// than the eight-bit quantisation of the mask at its brightest, which this image reaches at
 /// 110 of 255. The page stays `ambiguous` because two renderers are 2× and 6× away, which is a
 /// statement about them.
+/// Ambiguous, and it is §11.4's group compositing with one renderer alone in it.
+///
+/// `transparency_group.pdf` page 1 came off §3a's ranking in the three-hundred-and-thirty-third
+/// session at 0.50 from the nearest reference and 3.76 from the furthest. **Three commands**: two
+/// overlapping ellipses filled with axial shadings inside a §11.4.7 transparency group, which is
+/// what the corpus put the file there to exercise.
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// mupdf          30.2985   30.2768
+/// poppler        29.6131   29.5573
+/// ours (1x/8x)   29.5207   29.5512
+/// ```
+///
+/// Both ladders are flat from the start — a page of large smooth fills has no edges to converge
+/// — and they end **0.72 of 255 apart**, so there is no consensus to sit inside or outside.
+/// What decides the grouping is who is with whom: at the page's own scale ours is 29.5207,
+/// `hayro` 29.5058 and `poppler` 29.6131, while `mupdf` is 30.2985 and `ghostscript` 30.4637.
+/// **Three renderers within 0.09 and two others 0.9 above them**, and the four-panel strip shows
+/// where it lives: the region where the two ellipses overlap is visibly darker in `mupdf`'s.
+///
+/// So this is §11.4.7's page group and §11.6.6's blending space in one picture, and the clause is
+/// what says nobody can be checked against anybody: an isolated group's backdrop is "a
+/// transparent backdrop" and what a processor composites it onto afterwards is the *device's*
+/// space, which §10.3.1 puts beyond the standard. `doc/todo/23` holds the departures this tree
+/// reports by name; this page reports none, and the difference is a compositing space rather than
+/// a missing mark.
+const AMBIGUOUS_TRANSPARENCY_GROUP: [&str; 1] = ["transparency_group.pdf page 1"];
+
 const AMBIGUOUS_MASKED_BLUR: [&str; 1] = ["issue19634.pdf page 1"];
 
 /// Ambiguous, and Table 87 defines the premultiplication and nothing else.
@@ -4803,6 +4849,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_JPEG_COMPONENT_IDS)
         .chain(&AMBIGUOUS_RECOVERED_PAGE_TREE)
         .chain(&AMBIGUOUS_STANDARD_FOURTEEN_FACE)
+        .chain(&AMBIGUOUS_TRANSPARENCY_GROUP)
         .chain(&AMBIGUOUS_MASKED_BLUR)
         .chain(&AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)

@@ -10,7 +10,6 @@
 #
 # One page per line, exactly as the gate names it. Blank lines and lines beginning with `#`
 # are ignored.
-XiaoBiaoSong.pdf page 1
 bug1308536.pdf page 1
 bug1872721.pdf page 1
 bug1889122.pdf page 1
@@ -53,4 +52,3 @@ issue9972-3.pdf page 1
 jbig2_symbol_offset.pdf page 1
 knockout_groups_test.pdf page 1
 tensor-allflags-withfunction.pdf page 1
-transparency_group.pdf page 1
