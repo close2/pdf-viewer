@@ -4232,7 +4232,34 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 /// So the shape step 1 reads as *we are alone* is here the shape of a page where nobody has a
 /// limit tight enough to be alone from — which is what §10.7.4's last sentence permits and this
 /// group quotes.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 9] = [
+/// # Four pages of one document, in the three-hundred-and-thirteenth
+///
+/// `file_pdfjs_test.pdf` had **four** of the seventy-six undiagnosed names, which is
+/// `doc/todo/00`'s "check what else on the list is the same file" paying for the fourth time. It
+/// is Mozilla's own test-suite documentation: four US Letter pages of headings, paragraphs and
+/// bulleted lists in six embedded subsets — Times New Roman in three weights, Georgia Bold,
+/// Symbol and a `CIDFontType2` SimSun — with no image anywhere, so each page's mean *is* its
+/// glyph coverage.
+///
+/// ```text
+///            poppler 576   mupdf 576   they agree to   ours 8x   short by
+/// page 1        11.0742     11.0708        0.0034      11.0665     0.006
+/// page 2        11.2625     11.2629        0.0004      11.2539     0.009
+/// page 3         9.6327      9.63485       0.0022       9.61846    0.015
+/// page 4        11.0166     11.0174        0.0008      11.0090     0.008
+/// ```
+///
+/// Four independent limits, each measured from two ladders that converge on it from opposite
+/// sides, and ours climbing onto every one of them from below by 0.05 to 0.10 of 255 between 1x
+/// and 8x. **The residual is 0.006 to 0.015 of 255**, which is this group's own subject; the
+/// nearest reference at the page's own scale is 0.46 to 0.55 away, which is what a page of
+/// eight-point text costs before the pixels shrink.
+///
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 13] = [
+    "file_pdfjs_test.pdf page 1",
+    "file_pdfjs_test.pdf page 2",
+    "file_pdfjs_test.pdf page 3",
+    "file_pdfjs_test.pdf page 4",
     "issue14999_reduced.pdf page 1",
     "issue19971.pdf page 6",
     "issue11913.pdf page 1",

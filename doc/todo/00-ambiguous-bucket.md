@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **76 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **72 pages left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (749 on documents we call complete); 673 diagnosed, 76 held by name
+Corpus: 786 ambiguous pages (749 on documents we call complete); 677 diagnosed, 72 held by name
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -351,6 +351,15 @@ side-by-side did in one look. `AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG`, w
 caveat written into it: `tests/jpeg2000.rs` declines this codestream because it is sixteen-bit, so
 the evidence is four decoders agreeing rather than ISO/IEC 15444-5's reference software, and it is
 recorded as the weaker kind.
+
+**And four more in the three-hundred-and-thirteenth, off one document, the same way.**
+`file_pdfjs_test.pdf` had four of the seventy-six names — Mozilla's own test-suite documentation,
+four US Letter pages of headings and bulleted lists in six embedded subsets and no image at all, so
+each page's mean *is* its glyph coverage. Two ladders converge on each page independently and agree
+to **0.0004 to 0.0034 of 255**; ours climbs onto every one of the four from below and ends 0.006 to
+0.015 short. `AMBIGUOUS_GLYPH_SCAN_CONVERSION`, with no new argument needed — which is the fifth
+time "check what else on the list is the same file" has paid, and the second time it has paid four
+names for one measurement.
 
 **And four in the three-hundredth, off one document, by this file's own instruction.**
 `issue12963.pdf` had four pages on the undiagnosed list and two more already inside

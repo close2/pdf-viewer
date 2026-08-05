@@ -29,10 +29,6 @@ colorspace_cos.pdf page 1
 colorspace_sin.pdf page 1
 coons-allflags-withfunction.pdf page 1
 decodeACSuccessive.pdf page 1
-file_pdfjs_test.pdf page 1
-file_pdfjs_test.pdf page 2
-file_pdfjs_test.pdf page 3
-file_pdfjs_test.pdf page 4
 images_1bit_grayscale.pdf page 1
 issue10339_reduced.pdf page 1
 issue12705.pdf page 1
