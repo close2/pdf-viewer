@@ -2836,3 +2836,4 @@ above rather than here.
 | 331 | Four more, and the tightest pair of ladders yet: 0.0008 of 255 on the tax form, where a reference is 2.70 over its own limit at the page's own scale | — |
 | 332 | A selection was a range of the page "that has just been replaced", and a page drawn again is not a page turned — every edit took a person's selection away; the six sweeps run clean | — |
 | 333 | Two more, and a new group for the one the standard puts beyond itself: three renderers within 0.09 of each other and two 0.9 above, on three commands of §11.4.7 | — |
+| 334 | Step 7 over all 786 after twenty rounds of change: three names past −1 and all three diagnosed, which is the alarm holding rather than a finding | — |

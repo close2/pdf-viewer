@@ -178,6 +178,29 @@ at +0.42.
 **Re-run it after any round that changes what gets drawn**, and expect it to stay empty; a name
 appearing at −1 or beyond is a regression no other gate would report as one.
 
+**Run in the three-hundred-and-thirty-fourth over all 786**, after twenty rounds that changed the
+readback, the chrome, the annotations a person can add and nine pages' worth of diagnoses. Filtered
+against the corpus's own incomplete list first — correction 3 inside the loop rather than beside it
+— which leaves **743 pages**:
+
+```text
+−6.700  issue16038.pdf p1       AMBIGUOUS_TILING_CELL_CLIP, 13% short by its own note
+−1.712  issue12295.pdf p1       AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY
+−1.000  issue7821.pdf p1        AMBIGUOUS_GRADIENT_QUANTISATION
+−0.840  jpx_smaskindata.pdf p1  AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE
+−0.717  issue16473.pdf p1       then nothing past −0.54
+```
+
+**Three names at or past −1 and all three diagnosed**, which is the same head the
+two-hundred-and-ninety-first found and the alarm holding. The positive side did its job too:
+`bug1743245.pdf` at +23.1, `bug920426.pdf` at +21.1, `issue4260_reduced.pdf` at +17.6 and
+`issue6931_reduced.pdf` at +17.3 are four references that drew nearly nothing where four
+renderers draw a page.
+
+The sweep is `doc/todo/00`'s own recipe and now has a script beside it in the round's scratch
+notes; what makes it cheap is that nothing is rendered again — every panel is already on disk
+under `<target>/tmp/oracle/`.
+
 **Run in the two-hundred-and-ninety-first**, after three rounds that changed pixels — a `Tf`
 naming `/Helvetica` (ADR 0183), a written `/Differences` (0184), §9.6.5.2's `.notdef` (none, as it
 turned out). All 786 ambiguous pages, and **correction 3 is worth doing inside the loop rather
