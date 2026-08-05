@@ -1,8 +1,10 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **72 pages left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **59 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (749 on documents we call complete); 677 diagnosed, 72 held by name
+Corpus: 786 ambiguous pages (750 on documents we call complete); **727 diagnosed, 59 held by name**
+— and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
+three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 ## Why this is work rather than a caveat
@@ -316,6 +318,29 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**And one in the three-hundred-and-seventeenth, where the page's own name was the hypothesis.**
+`blendmode.pdf` page 1 sat at **0.46 from the nearest reference and 0.59 from the furthest** — the
+tightest ratio the tail had left, which step 1 reads as *we are alone*. It is sixteen labelled
+swatches, each a 100 × 100 JPEG with an 8-bit soft mask at 90 ppi, so every one of the thirty-two
+images is reduced by 0.8. Two ladders converge to 30.1531 and 30.1638 and ours is flat at 30.07
+across three scales; at the page's own scale ours is 0.11 from its own limit where `poppler` is
+0.55 and `mupdf` 0.61 *above* theirs, which is `AMBIGUOUS_IMAGE_REDUCTION`'s sentence.
+
+**What is new is the second measurement, and it is the one the file's name asks for.** At 8×,
+`|ours − mupdf|` is 0.53 of 255 per pixel against `|mupdf − poppler|` 0.67 — we are inside the
+references' own spread — while the *signed* ink difference over the same page is 0.09, an eighth
+of that. A difference that cancels is where an edge is, not what was drawn. And a four-by-eight
+grid of tile means puts the ratio of difference to the tile's own ink between 0.009 and 0.055 over
+every tile that has ink, largest on the one tile that is a heading rather than a photograph. **No
+blend mode is an outlier**, which is the hypothesis a page called `blendmode.pdf` exists to invite.
+
+**And the count in this file's own header was wrong**: it said 72 undiagnosed names, which is
+`wc -l` of `ambiguous_undiagnosed.txt` — a file with a twelve-line header. The gate counts the
+lines that are not comments and holds *that* list to equality, so the number was 60 before this
+round and is 59 now. Trap 1 one directory over: the instrument that reports a count is not the
+count.
+
 
 **The head went in the two-hundred-and-ninety-fifth, and it produced a mechanism this bucket had
 not named.** `issue19971.pdf` pages 5 and 6 are one document — a specimen of lists, headings,

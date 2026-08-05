@@ -12,7 +12,6 @@
 # are ignored.
 160F-2019.pdf page 1
 XiaoBiaoSong.pdf page 1
-blendmode.pdf page 1
 bug1308536.pdf page 1
 bug1868759.pdf page 1
 bug1872721.pdf page 1

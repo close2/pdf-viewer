@@ -1534,7 +1534,44 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// eight times the resolution. What the oracle sees at the page's own scale is a worst tile of
 /// 6.88 with a mean of 0.55, which is `stamps.pdf`'s sentence again: the ink instrument answers
 /// *how much* and is silent on *where*, and where is what a resampling filter decides.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 14] = [
+/// **`blendmode.pdf` page 1 is the fifteenth, and it is here because the page's own *name* is a
+/// hypothesis this ruled out.** Off §3a's ranking in the three-hundred-and-seventeenth session at
+/// **0.46 from the nearest reference and 0.59 from the furthest** — the tightest ratio the tail
+/// had left, which step 1 reads as *we are alone*. The corpus's manifest calls it "[e]very blend
+/// mode that PDF supports": sixteen labelled swatches, each a 100 × 100 RGB `DCTDecode`
+/// photograph with an 8-bit soft mask at **90 ppi**, so every one of the thirty-two images is
+/// reduced by 0.8, and 173 commands in all.
+///
+/// The two ladders converge and ours is already at its own limit:
+///
+/// ```text
+///                  72 dpi   288 dpi   576 dpi
+/// poppler         30.7164   30.4748   30.1638
+/// mupdf           30.7680   30.2355   30.1531
+/// ours (1x/4x/8x) 30.1818   30.0651   30.0703
+/// ```
+///
+/// The references agree with each other at 8× to **0.011 of 255**; ours is flat across three
+/// scales and lands 0.09 under them. At the page's own scale — which is what the oracle judges —
+/// ours is **0.11 from its own limit** while `poppler` is 0.55 and `mupdf` 0.61 *above* theirs,
+/// which is this group's sentence: the reduction is where they part from the geometry and ours is
+/// ADR 0025's documented departure landing on it.
+///
+/// # And no blend mode is the difference
+///
+/// The residual is worth two more numbers, because a page called `blendmode.pdf` invites the
+/// obvious guess. At 8×, mean absolute difference per pixel: **ours against `mupdf` 0.53, the two
+/// references against each other 0.67** — we are inside their own spread. And the *signed* ink
+/// difference over the same page is 0.09, an eighth of that, so the difference cancels: it is
+/// where each renderer puts an edge and not what any of them drew.
+///
+/// A four-by-eight grid of tile means says the same thing about *place*. The ratio of
+/// `|ours − mupdf|` to the tile's own ink is **0.009 to 0.055 over every tile that has ink**,
+/// largest on the one tile that is a heading rather than a photograph — glyph edges — and not one
+/// of the sixteen swatches is an outlier. Sixteen blend modes, and the difference is spread over
+/// all of them in proportion to how much they draw.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 15] = [
+    "blendmode.pdf page 1",
     "bug1703683_page2_reduced.pdf page 1",
     "two_pages.pdf page 1",
     // Taken out of the book beside it in the two-hundred-and-sixty-second session, by the band
