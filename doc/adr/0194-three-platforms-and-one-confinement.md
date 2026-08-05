@@ -103,3 +103,23 @@ asked:
   image while reporting a missing worker. `worker_file_name()` appends `std::env::consts::EXE_SUFFIX`,
   and the constant now documents that it is the name *without* it. The compiler could not have
   found this one; the Windows runner's test step would have, one failure later.
+
+**And the Windows read path can be run here after all**, which is worth more than either fix. The
+two implementations are chosen by `#[cfg(unix)]` / `#[cfg(not(unix))]`, so rewriting those two
+attributes as `any()` and `all()` compiles the *thread* path on Linux, where every gate in this tree
+can be pointed at it:
+
+```sh
+sed -i 's/#\[cfg(unix)\]/#[cfg(any())]/; s/#\[cfg(not(unix))\]/#[cfg(all())]/' \
+    crates/pdf-sandbox/src/lib.rs
+cargo test -p pdf-sandbox                                    # 19 tests, including the worker
+cargo build --release -p pdf-sandbox --bins && \
+  cargo test --release -p pdf-model --test corpus -- --ignored   # 104 JBIG2 and 12 JPX documents
+git checkout crates/pdf-sandbox/src/lib.rs
+```
+
+All 19 pass and the corpus is unchanged — 73 incomplete, the same three refusals by name — so the
+reader thread carries the specification's own JBIG2 example, a worker being killed by rubbish, both
+isolation settings agreeing, and every codec image in the corpus. What that does *not* test is
+Windows' pipe semantics; what it does test is the buffering, the deadline and the end-of-file
+handling, which is where the logic is.

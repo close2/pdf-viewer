@@ -1367,6 +1367,10 @@ RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ui
   # build script needs a C toolchain for the target and this machine has neither MSVC nor macOS's.
   # The CI runners do, which is why the `platforms` job builds the binaries and these two check
   # what a benchmark does not reach.
+# And the Windows *read path* runs here, which is the only way to test it from Linux: the two
+# implementations are chosen by `#[cfg(unix)]` / `#[cfg(not(unix))]`, so rewriting those two
+# attributes compiles the thread-and-channel one on this machine. ADR 0194 has the recipe; all 19
+# sandbox tests and the whole corpus gate pass through it.
 cargo bench -p pdf-model
 valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_interpret            # stops at the display list
