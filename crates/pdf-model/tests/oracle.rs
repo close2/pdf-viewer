@@ -4511,7 +4511,27 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 ///
 /// Its page 1 is `AMBIGUOUS_EIGHT_BIT_COMPOSITING` and the reason is written there: one document,
 /// two pages, two different answers.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 16] = [
+/// # A page of a web site, in the three-hundred-and-twenty-ninth
+///
+/// `bug1868759.pdf` page 1 came off §3a's ranking at **0.42 from the nearest reference and 0.84
+/// from the furthest** — a ratio of two, which is as alone as this tail gets. It is a printed
+/// Mozilla support page: 1 573 commands of French text, links and bullets, with one 480 × 501
+/// image at **1440 ppi** that occupies a few dozen device pixels.
+///
+/// ```text
+///                 72 dpi    576 dpi   1152 dpi
+/// mupdf          10.2470   10.26790   10.27120
+/// poppler        10.2621   10.25220   10.25160
+/// ours (1x/8x/16x) 10.0780  10.24210   10.24050
+/// ```
+///
+/// **The two ladders close from opposite sides** — `mupdf` climbing, `poppler` descending — and
+/// end 0.0196 of 255 apart; ours is flat from 8× and sits 0.011 under the lower of them. At the
+/// page's own scale ours is 0.163 under its own limit, which is this group's standing subject: a
+/// page that is nothing but nine-point text is a page of glyph edges, and §10.7.4's last sentence
+/// is the permission both ends of the ladder are exercising.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 17] = [
+    "bug1868759.pdf page 1",
     "issue840.pdf page 2",
     "issue13242.pdf page 1",
     "issue6132.pdf page 1",
