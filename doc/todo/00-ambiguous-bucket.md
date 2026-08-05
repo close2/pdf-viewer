@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **57 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **56 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **729 diagnosed, 57 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **730 diagnosed, 56 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -318,6 +318,22 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**And one in the three-hundred-and-twentieth, where the ink table was measuring a colour.**
+`issue269_1.pdf` page 1 is 100 × 100 points of Illustrator art in **three** commands, each a `k`
+operator inside its own `/OC` section. Ours is flat at 28.288 from 4× to 32× — an area-exact
+rasteriser has nothing left to converge — `poppler` descends onto it (28.7324 → 28.3097 and still
+falling), and `mupdf` is flat 0.135 *above*. A flat offset is not scan conversion, and the
+difference image says so: it is the *interiors* of both glyphs at 2 to 6 levels rather than their
+outlines. At 2304 dpi the whole raster is three colours, so the histogram is the measurement —
+ours and `poppler` byte-identical at (35, 31, 32) and (38, 40, 108), `mupdf` two to three levels
+away on every channel. `AMBIGUOUS_DEVICE_CMYK_CONVERSION`, which had one member since the
+hundred-and-seventy-eighth.
+
+**The step this adds**: when a ladder is *flat* rather than converging, the difference is not in
+the marks. Take the histogram of a page whose colours are few, and the answer is exact rather than
+statistical.
+
 
 **And one in the three-hundred-and-nineteenth, where the references are the ones short.**
 `issue13242.pdf` page 1 — 0.51 from the nearest and 1.21 from the furthest — is 2 449 commands of

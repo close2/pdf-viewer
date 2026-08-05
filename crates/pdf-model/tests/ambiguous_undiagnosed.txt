@@ -43,7 +43,6 @@ issue16742.pdf page 1
 issue18072.pdf page 1
 issue1905.pdf page 1
 issue19083.pdf page 1
-issue269_1.pdf page 1
 issue269_2.pdf page 1
 issue2840.pdf page 1
 issue3584.pdf page 1

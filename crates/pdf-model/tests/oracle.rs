@@ -1642,7 +1642,53 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 15] = [
 /// `zune-jpeg` was left to convert the four-component codestream and applied the
 /// standalone-JPEG inversion; the page sat at 30 bounds from the nearest reference inside a
 /// verdict nothing watched. ADR 0149.
-const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 1] = ["cmykjpeg.pdf page 1"];
+/// # A second page, and it is the cleanest statement of the same thing
+///
+/// `issue269_1.pdf` page 1 came off §3a's ranking in the three-hundred-and-twentieth session at
+/// 0.47 from the nearest reference and 1.36 from the furthest. It is 100 × 100 points of
+/// Illustrator vector art — **three** commands, three `/OC` sections, one of them switched off by
+/// the default configuration — and every mark in it is a `k` operator:
+///
+/// ```text
+/// /OC /MC0 BDC  0 0 0 1 k          EMC   the black 1
+/// /OC /MC1 BDC  1 1 0.149 0.188 k  EMC   the blue 2
+/// /OC /MC2 BDC  0.761 0 1 0 k      EMC   a green layer the /OFF array hides
+/// ```
+///
+/// So the page's ink is two colours and their edges, and the two can be separated. At 2304 dpi
+/// the whole raster is three colours, and the histogram is the measurement:
+///
+/// ```text
+///            the 1              the 2
+/// ours       (35, 31, 32)       (38, 40, 108)
+/// poppler    (35, 31, 32)       (38, 40, 108)
+/// mupdf      (34, 31, 31)       (40, 37, 111)
+/// ```
+///
+/// **Ours and `poppler` are byte-identical on both** and `mupdf` is two to three levels away on
+/// each channel, which is this group's subject: §10.4.2.1 ranks §10.3's ICC route above
+/// §10.4.2.5's formula, §10.3.1 puts the destination profile "beyond the scope of this document",
+/// and a renderer's answer is its own assumption about a press.
+///
+/// The ink ladder says the same thing and separates the colour from the edges:
+///
+/// ```text
+///              72 dpi   288 dpi   576 dpi   1152 dpi   2304 dpi
+/// poppler     28.7324   28.4165   28.3613    28.3280    28.3097
+/// mupdf       28.4492   28.4290   28.4263    28.4243    28.4233
+/// ours        28.2459   28.2788   28.2808    28.2878    28.2880
+/// ```
+///
+/// **Ours is flat from 4× onwards** — an area-exact rasteriser has nothing left to converge — and
+/// `poppler` descends steadily towards it, its excess halving with each doubling exactly as
+/// §10.7.4's "paint any pixel the shape intersects" predicts. `mupdf` is flat too, 0.135 *above*,
+/// and a flat offset is not a scan-conversion difference at all: the difference image against it
+/// is the *interiors* of both glyphs at 2 to 6 levels, not their outlines. Two renderers agreeing
+/// on the geometry to the byte while a third is uniformly darker is a colour result wearing an
+/// ink measurement's clothes.
+///
+const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 2] =
+    ["cmykjpeg.pdf page 1", "issue269_1.pdf page 1"];
 
 /// Ambiguous, and settled outright by §10.7.5's last sentence.
 ///
