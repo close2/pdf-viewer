@@ -539,7 +539,7 @@ disagreed because the condition was written twice. Guarding the charge would hav
 913 / 43 / 1 / 17 — this gate's exact state from before the coverage lane, restored, with the one
 remaining refusal the coverage-extent one that has been argued since §0's first run.
 
-## 11. The GPU coverage lane draws the **wrong glyph** after a larger frame — and it stays wrong
+## 11. The GPU coverage lane draws the **wrong glyph** after a larger frame — and it stays wrong — **answered**
 
 **New, 2026-08-05, and it is a defect rather than a request.** The project owner reported it from
 the window: *"I do not get the same output at the same zoom level. When I zoom in, the output looks
@@ -626,3 +626,72 @@ this is fixed, a person who zooms past 1000% and comes back sees a page of wrong
 no way to clear it except reopening the document. The obvious mitigation on this side — stop
 switching lanes — costs the ten-fold frame time the switch was measured to buy, so it is being
 held until you have looked.
+
+### What came back — `52b07f29`
+
+**The state that survived the frame was the winding texture, and what leaked was not its
+contents but its size.** ADR 0016 keeps that texture between frames and grows it to the largest
+sheet any frame has needed, because allocating and zeroing it per frame cost 10.7 ms of a 15 ms
+frame at 20×. What the growth also did was break an equality nothing had written down: clip space
+spans the *attachment*, and `vs_winding` reaches it by dividing by the *sheet*. While the two were
+equal the mapping was pixels. Once the texture could outlive a taller frame, a smaller frame's
+geometry was stretched over the whole of it — every sheet pixel written `held ÷ sheet` times too
+far down — while the resolve pass went on reading sheet coordinates as texels of the same texture.
+Each tile then resolved whatever the stretch had put under it: another glyph's coverage, at the
+tile's own place and size. `orT` for `ort`, and `extens:ve` for `extensive`.
+
+That also settles the selectivity this section called the clue worth having, and it is worth
+printing rather than reasoning about. The scratch sheet is the device's maximum dimension wide
+always, so only its *height* varies, and the height is what a frame's tiles **pack** — not what
+its magnification is. Instrumenting `render_into` on this very ladder, at `0a1ffb13`:
+
+| rung | tiles | sheet | texture held | verdict |
+|---|---|---|---|---|
+| up 1600% | 23 | 16384 × **417** | none — first GPU frame | right |
+| up 3200% | 6 | 16384 × **533** | 417, grown to 533 | right |
+| up 6400% | 4 | 16384 × **349** | **533** | **wrong** |
+| down 3200% | 6 | 16384 × **533** | 533 | right |
+| down 1600% | 23 | 16384 × **417** | **533** | **wrong** |
+| down 800% | — | CPU lane | — | right |
+
+**The 3200% sheet is the tallest**: six mid-sized tiles pack more rows than four huge ones do, and
+the shelf packer will not put a tile in a shelf more than twice its height, so a mixture of sizes
+opens shelves rather than filling them. The high-water mark was therefore set at 3200%, and every
+wrong rung is a rung whose own sheet was shorter than it — 349 stretched over 533 at 6400%, 417
+over 533 at 1600%. Nothing was overwritten and nothing was evicted; a wrong rung is a rung that
+was made to read its own sheet through the wrong scale factor.
+
+The fix is a viewport of the sheet's extent at the winding target's origin, which makes the two
+passes agree without either shader learning the size of a texture that is the module's business
+alone. The invariant is now stated where the texture is grown — **the sheet is the top-left of
+this texture** — and ADR 0016's bullet about keeping it between frames says what the keeping
+costs.
+
+**Measured against this ladder.** `zoom_ladder` reproduced there against `0a1ffb13` to the digit,
+which is what says the instrument crossed the tree intact; the same run against `52b07f29`:
+
+```text
+ leg      zoom        target       mean     worst      ssim
+  up     1600%   9523 × 13468     0.0347      1.50   0.99978
+  up     3200%  19046 × 26937     0.0166      0.48   0.99991
+  up     6400%  38092 × 53875     0.0134      2.79   0.99993
+down     3200%  19046 × 26937     0.0166      0.48   0.99991
+down     1600%   9523 × 13468     0.0347      1.50   0.99978
+down      800%   4761 × 6734      0.1175      1.51   0.99950
+```
+
+6400% is 0.0134 / 0.99993, which is **this section's own fresh-device control to the digit** — the
+lane on a device with no history was already right, and now a device with a history draws the same
+thing. Every rung of the descent equals its ascent. §0's corpus gate is unmoved at 913 / 43 / 1 /
+17.
+
+The regression test is `tests/frame_independence.rs` in that tree, and it is deliberately not a
+test about zoom: it renders a scene on a device that has already drawn a *larger* frame and
+requires the pixels to equal what a device that has drawn nothing produces, under both lanes. Two
+frames on one device, which is all this ever needed.
+
+**One caveat about the measurement, because a number should say what was actually run.** The
+numbers above were taken in a copy of this tree with a `[patch]`
+pointing at quorra's working tree, not by bumping `Cargo.lock` — so they say the fix is right, and
+this side should still re-run the ladder and the gate against the published revision before the
+lane switch in `viewer-ui` is considered safe again.

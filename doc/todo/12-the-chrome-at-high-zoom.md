@@ -42,9 +42,20 @@ now **reproduced offscreen in two frames** and written up for the rendering libr
   (mean 0.0134), and the same frame after one 3200% frame on the same device is wrong (7.63);
 - the damage **reaches backwards**: 1600% is wrong afterwards and was right on the way up.
 
-What is left on *this* side is the mitigation, and it is deliberately not taken yet: not switching
-lanes would cost the ten-fold frame time the switch was measured to buy
-(`doc/quorra-gpu-coverage.md`). It waits on their answer.
+**The answer came back the same day, at `52b07f29`**, and `doc/QUORRA_FEEDBACK.md` §11 has it: the
+winding texture is kept between frames and grown to the tallest sheet any frame has needed, and
+what leaked across frames was its *size* rather than its contents — clip space spans the
+attachment while `vs_winding` divides by the sheet, so a shorter frame's geometry was stretched
+over a taller texture and every tile resolved whatever the stretch had put under it.
+
+**It cannot be verified here yet, and that is a fact worth dating.** The measurements in §11 were
+taken through a `[patch]` at quorra's working tree; `git ls-remote https://github.com/close2/quorra`
+still answers `0a1ffb1382724e8e9a394d9c624f334325147c85` for both `HEAD` and `refs/heads/main` on
+2026-08-05, which is the revision `Cargo.lock` already pins. So `cargo update -p quorra-gpu` moves
+nothing, and **the ladder and the corpus gate against the published fix are owed to the round after
+it lands**. Until then the mitigation on this side stays untaken, for the reason it always had: not
+switching lanes would cost the ten-fold frame time the switch was measured to buy
+(`doc/quorra-gpu-coverage.md`).
 
 ## What is measured, so that "the characters go wrong" has a number
 
