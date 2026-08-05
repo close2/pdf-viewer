@@ -7,6 +7,11 @@ Clauses: none. Principle 3, not the standard.
 Code: `crates/pdf-sandbox/src/lockdown.rs`, `crates/pdf-sandbox/src/lib.rs`'s `compile_error!`,
 `.github/workflows/ci.yml`'s `snapshot` job.
 
+**Read [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) first if the
+thought is "remove the codecs and the problem goes away".** It does not: all three decoders are
+already pure safe Rust with no dependencies and compile on every platform, and the sandbox exists
+for resource exhaustion and panic isolation, which are as true off Linux as on it.
+
 ## What is true today
 
 `pdf-sandbox` confines the JBIG2 and JPEG 2000 decoders to an unprivileged process with seccomp-BPF
