@@ -112,6 +112,21 @@ const DIMMED: Color = Color {
     a: 1.0,
 };
 
+/// How wide the box standing for a character §9.6.2.2's fourteen state no code for is, in ems.
+///
+/// **A choice, and it is this host's own** — the standard says nothing about an interface's own
+/// text. The argument for the number is that §9.6.2.2's Courier advances *every* code by exactly
+/// 0.6 em: a placeholder claims nothing about the character it stands for, so the one width the
+/// fourteen state for everything is the honest width to give it. See [`Chrome::set`] for why
+/// there is a box at all.
+const MISSING_WIDTH: f32 = 0.6;
+
+/// How tall that box is, in ems: a capital's height, so a run of them reads as a run of text.
+const MISSING_HEIGHT: f32 = 0.62;
+
+/// How thick its edge is, in ems.
+const MISSING_EDGE: f32 = 0.06;
+
 /// The fonts this program draws its own text with.
 ///
 /// Four faces rather than one because §12.3.3's Table 152 gives an outline item a `/F` whose two
@@ -229,31 +244,71 @@ impl Chrome {
         }
     }
 
+    /// What one character costs a line of chrome, and what stands for it.
+    ///
+    /// The one place [`Self::text`] and [`Self::width`] agree about a character, so that a string
+    /// cannot be measured one way and drawn another — which is what elision, wrapping and the
+    /// popup's title bar all depend on.
+    ///
+    /// **A character the face states no code for used to draw nothing and advance nothing**, so a
+    /// row of Japanese was an empty row and a person had been told the document says nothing
+    /// (trap 5, and `doc/todo/27`). It gets a box: the standard states no artwork for an
+    /// interface's own text, so this is a documented choice and not a reading, and it is the one
+    /// every text engine makes for the same reason.
+    fn set(face: &pdf_font::LoadedFont, character: char) -> (Set, f32) {
+        if let Some(code) = face.code_for(character) {
+            return (Set::Glyph(code), face.advance(code));
+        }
+        if character.is_whitespace() {
+            // A space this face cannot spell — U+00A0 and U+3000 are the ones documents write —
+            // is still a space, and a box in place of one would be a claim about a character
+            // nobody can see. It takes the width of the space the face *does* state.
+            let blank = face.code_for(' ').map_or(0.25, |code| face.advance(code));
+            return (Set::Blank, blank);
+        }
+        if character.is_control() {
+            // Nor is a control character something a producer meant a person to see: it has no
+            // visible form to be missing, so a box would be saying something untrue rather than
+            // saying nothing. One `/Info` value in the corpus carries one.
+            //
+            // **U+FFFD is deliberately not in this arm.** §7.9.2.2's undefined code point is
+            // exactly a byte that represents no character, and `pdf_syntax::text_string`'s own
+            // comment says a caller "reports it rather than dropping it silently" — the box is
+            // that report. `bug1146106.pdf` writes its layer names as UTF-16 **little**-endian,
+            // which is none of the clause's three encodings, so 51 characters of one name are
+            // that case and the panel says so.
+            return (Set::Blank, 0.0);
+        }
+        (Set::Missing, MISSING_WIDTH)
+    }
+
     /// How wide a string is at a size, in the same pixels [`Self::text`] draws it in.
     ///
-    /// A code the face does not map contributes nothing, which is the honest answer: nothing is
-    /// drawn for it either, and inventing a width would put the rest of the line in the wrong
-    /// place.
+    /// Character for character with [`Self::text`], through [`Self::set`]: a placeholder box has
+    /// a width because it is drawn, and a measurement that disagreed with the drawing would put
+    /// every elision and every wrap in the wrong place.
     #[must_use]
     pub fn width(&self, text: &str, size: f32, style: Style) -> f32 {
         let face = self.face(style);
         text.chars()
-            .filter_map(|character| face.code_for(character))
-            .map(|code| face.advance(code) * size)
+            .map(|character| Self::set(face, character).1 * size)
             .sum()
     }
 
     /// How many of a string's characters this face states no code for.
     ///
-    /// [`Self::text`] draws nothing for one and [`Self::width`] gives it no advance, which is the
-    /// right answer for a label being elided and a silence for the text of a document's own note
-    /// (§12.5.6.14). This is what lets a caller say so instead.
+    /// [`Self::text`] draws a box for one, which says *that* something is missing and cannot say
+    /// how much; this is what lets a caller say how many — which is what §12.5.6.14's popup does
+    /// under a note (ADR 0191).
+    ///
+    /// Counted through [`Self::set`], so it counts exactly the boxes: a blank and a control
+    /// character are not among them, and a count that disagreed with the picture beside it would
+    /// be worse than no count.
     #[must_use]
     pub fn without_a_code(&self, text: &str, style: Style) -> usize {
         let face = self.face(style);
         text.chars()
-            .filter(|character| !character.is_whitespace())
-            .filter(|character| face.code_for(*character).is_none())
+            .filter(|character| matches!(Self::set(face, *character).0, Set::Missing))
             .count()
     }
 
@@ -274,31 +329,91 @@ impl Chrome {
         let face = self.face(style);
         let mut x = at.0;
         for character in text.chars() {
-            let Some(code) = face.code_for(character) else {
-                continue;
-            };
-            if let Some(path) = face.outline(code) {
-                list.push(Command::Fill {
-                    path,
-                    transform: Transform {
-                        a: size,
-                        b: 0.0,
-                        c: 0.0,
-                        d: -size,
-                        e: x,
-                        f: at.1,
-                    },
-                    fill_rule: FillRule::NonZero,
-                    paint: Paint::Solid(colour),
-                    clip: None,
-                    mask: None,
-                    blend: pdf_render::BlendMode::Normal,
-                });
+            let (set, advance) = Self::set(face, character);
+            match set {
+                Set::Glyph(code) => {
+                    if let Some(path) = face.outline(code) {
+                        list.push(Command::Fill {
+                            path,
+                            transform: Transform {
+                                a: size,
+                                b: 0.0,
+                                c: 0.0,
+                                d: -size,
+                                e: x,
+                                f: at.1,
+                            },
+                            fill_rule: FillRule::NonZero,
+                            paint: Paint::Solid(colour),
+                            clip: None,
+                            mask: None,
+                            blend: pdf_render::BlendMode::Normal,
+                        });
+                    }
+                }
+                Set::Blank => {}
+                Set::Missing => missing_box(list, (x, at.1), size, colour),
             }
-            x += face.advance(code) * size;
+            x += advance * size;
         }
         x
     }
+}
+
+/// What stands for one character on a line of chrome.
+///
+/// Three cases rather than two, because a space and a character with no glyph at all are
+/// different silences: one of them is what the document meant.
+#[derive(Debug, Clone, Copy)]
+enum Set {
+    /// The face states a code for it, and this is it.
+    Glyph(pdf_font::Code),
+    /// Nothing is drawn and the line still moves.
+    Blank,
+    /// [`missing_box`], because §9.6.2.2's fourteen have no code for it.
+    Missing,
+}
+
+/// The box drawn for a character the interface's own font cannot set.
+///
+/// A hollow rectangle: one path with two rings and [`FillRule::EvenOdd`], which is the cheapest
+/// way to draw an outline in a display list whose only primitive here is a fill. `at.1` is the
+/// baseline and this module's y runs downwards, so the box grows *up* from it.
+fn missing_box(list: &mut DisplayList, at: (f32, f32), size: f32, colour: Color) {
+    let edge = MISSING_EDGE * size;
+    let left = at.0 + edge;
+    let right = at.0 + (MISSING_WIDTH - MISSING_EDGE) * size;
+    let bottom = at.1;
+    let top = at.1 - MISSING_HEIGHT * size;
+    let mut path = Path::new();
+    for ring in [
+        [(left, top), (right, top), (right, bottom), (left, bottom)],
+        [
+            (left + edge, top + edge),
+            (right - edge, top + edge),
+            (right - edge, bottom - edge),
+            (left + edge, bottom - edge),
+        ],
+    ] {
+        for (index, (x, y)) in ring.into_iter().enumerate() {
+            let point = pdf_render::Point { x, y };
+            if index == 0 {
+                path.push(PathCommand::MoveTo(point));
+            } else {
+                path.push(PathCommand::LineTo(point));
+            }
+        }
+        path.push(PathCommand::Close);
+    }
+    list.push(Command::Fill {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::EvenOdd,
+        paint: Paint::Solid(colour),
+        clip: None,
+        mask: None,
+        blend: pdf_render::BlendMode::Normal,
+    });
 }
 
 /// A filled axis-aligned rectangle, in the panel's pixels.
@@ -1629,10 +1744,13 @@ fn draw_popup(
         }
     }
     // What the face could not set. Counted over the whole value rather than per line, because
-    // the sentence is about the note and not about a row of it.
+    // the sentence is about the note and not about a row of it — and it is still worth saying
+    // beside the boxes `Chrome::text` now draws, because a count is what a person needs to know
+    // whether a word or a paragraph is missing.
     let missing = chrome.without_a_code(text, Style::default());
     if missing > 0 && line <= bottom {
-        let note = format!("[{missing} characters this interface's font cannot set]");
+        let note =
+            format!("[{missing} characters this interface's font cannot set, shown as boxes]");
         chrome.text(
             list,
             &elide(chrome, &note, size * 0.85, Style::default(), room),

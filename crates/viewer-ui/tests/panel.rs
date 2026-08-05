@@ -23,7 +23,7 @@ use pdf_render::{Rasterizer as _, TargetSpec, Transform};
 use pdf_syntax::ObjectId;
 use render_cpu::CpuRasterizer;
 use viewer_core::Layer;
-use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar};
+use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar, Style};
 
 /// A window this test pretends to have: wide enough for the panel, tall enough for the rows.
 const WIDTH: u32 = 400;
@@ -149,6 +149,43 @@ fn the_panel_puts_ink_on_the_rows_it_lists() {
     );
 }
 
+/// A title §9.6.2.2's fourteen cannot set draws a box per character rather than nothing.
+///
+/// `doc/todo/27`: the popup window has said how many characters it could not set since the
+/// three-hundred-and-twelfth session, and every other string this host draws from a document —
+/// an outline title, a layer name, an `/Info` value — was dropped in silence, so a Japanese
+/// document's outline was a panel of empty rows. Trap 5 one clause over: a person shown an empty
+/// row has been told the document states nothing there.
+#[test]
+fn a_title_this_interfaces_font_cannot_set_draws_a_box_for_each_character() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let title = "多边形批注";
+    let outline = Outline {
+        items: vec![item(title, 10, Vec::new())],
+        stated_count: None,
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    let shown = panel.draw(&chrome, only(&outline), HEIGHT, 1.0);
+    assert!(
+        ink(&shown, 26..46) > 40,
+        "five characters with no code drew nothing at all"
+    );
+
+    // And the boxes are measured as they are drawn, which is what elision and the popup's title
+    // bar depend on: five of them at 0.6 em each, at the panel's 12 logical pixels.
+    let width = chrome.width(title, 12.0, Style::default());
+    assert!(
+        (width - 5.0 * 0.6 * 12.0).abs() < 0.01,
+        "a placeholder that is drawn and not measured: {width}"
+    );
+    assert_eq!(
+        chrome.without_a_code(title, Style::default()),
+        5,
+        "and the count a caller says out loud is unchanged"
+    );
+}
+
 /// A click follows a destination, a click on the triangle discloses, and neither does the other.
 #[test]
 fn a_click_lands_on_the_row_it_was_aimed_at() {
@@ -246,7 +283,7 @@ fn a_long_title_is_elided_to_the_width_available() {
     // The whole title is wider than the panel, so something must have been dropped — and what
     // is drawn must stay inside it. Measured through the same function that laid it out.
     assert!(
-        chrome.width(long, 12.0, viewer_ui::chrome::Style::default()) > 300.0,
+        chrome.width(long, 12.0, Style::default()) > 300.0,
         "the fixture is not long enough to elide"
     );
     assert!(ink(&list, 26..46) > 40, "the row has glyphs");

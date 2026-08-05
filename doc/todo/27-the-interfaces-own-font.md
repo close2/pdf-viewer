@@ -1,56 +1,69 @@
-# The interface's own font, and the text it drops in silence
+# The interface's own font, and the text it cannot set
 
-Status: **found in the three-hundred-and-twelfth session, half of it answered.**
+Status: **measured in the three-hundred-and-sixteenth session, and no longer silent.** What is
+open is coverage, which is a decision the project owner has not been asked for.
 Priority: 27
-Corpus: 45 documents state a popup and 6 of the 7 open ones are Chinese; the outline half is
-unmeasured
+Corpus: **74 documents** state something in the sidebar this font cannot set; 9 strings would be
+drawn as nothing at all. 45 documents state a popup and 6 of the 7 open ones are Chinese.
 Clauses: §9.6.2.2, §12.3.3, §12.5.6.14, §14.3.3
-Code: `crates/viewer-ui/src/chrome.rs` (`Chrome::text`, `Chrome::width`)
+Code: `crates/viewer-ui/src/chrome.rs` (`Chrome::set`, `Chrome::text`, `Chrome::width`),
+`crates/viewer-ui/examples/chrome_coverage.rs`
 
 ## What it is
 
 Everything this program draws for itself is set in §9.6.2.2's fourteen, compiled into the binary
 (ADR 0133) — which is what makes an interface reproduce on a machine with no fonts installed, and
-is the right default. `Chrome::text` walks a string, asks the face for each character's code and
-**skips the character where there is none**. `Chrome::width` gives it no advance either, so a line
-containing nothing the face can set measures zero and draws nothing.
-
-That is correct for the case it was written for: a title being elided to a panel's width, where a
-missing glyph is one character of a label a person can see the rest of. It is wrong for **text the
-document states and this program is showing on purpose**, and the difference is trap 5's:
-
-> a person shown an empty window has been told the note is empty.
+is the right default. The fourteen are Latin; a document's own text is not.
 
 ## What is answered
 
-§12.5.6.14's popup window counts what it could not set and says so, in the window
-(`Chrome::without_a_code`, ADR 0191). Six of the corpus's seven open popups are in Chinese, so the
-first thing this feature drew would have been six blank windows.
+**Nothing is dropped in silence any more** (ADR 0195). A character the face states no code for is
+drawn as a **box**, 0.6 em wide, and it advances — so five characters of Japanese are five boxes
+rather than an empty row, and `Chrome::width` measures them exactly as they are drawn. Whitespace
+with no code is a space; a control character is nothing, because it has no visible form to be
+missing. §12.5.6.14's popup window still says *how many* under its note
+(`Chrome::without_a_code`, ADR 0191), which a picture cannot.
 
-## What is not
+**And the population is measured**, by `examples/chrome_coverage`, which opens every corpus
+document through `viewer-core` with a zero-pixel viewport and asks the four queries the sidebar
+asks. 964 documents open:
 
-The same silence is still there for every other string this host draws from a document:
+| population | documents | of those, short | strings | short | drawn as nothing | characters |
+|---|---|---|---|---|---|---|
+| §12.3.3 outline titles | 150 | **7** | 343 | 24 | 3 | 46 |
+| §8.11.4.3 layer names | 21 | **1** | 91 | 2 | 0 | 61 |
+| §7.11.4 file names and descriptions | 10 | **0** | 64 | 0 | 0 | 0 |
+| §14.3.3 `/Info` values | 492 | **45** | 1293 | 80 | 4 | 195 |
+| §14.3.2 XMP properties | 317 | **21** | 1437 | 38 | 2 | 72 |
 
-- §12.3.3's outline titles — a Japanese document's outline is an empty tree of rows;
-- §8.11.4.3's layer names;
-- §7.11.4's embedded file names and descriptions;
-- §14.3.3's `/Info` values and §14.3.2's XMP properties, both of which are document text.
+The nine strings that would have been drawn as nothing are Japanese, Thai and Chinese:
+`issue2884_reduced.pdf`'s outline is あいち電子調達共同システム, `issue16176.pdf`'s is
+ローカルディスク, `issue13211.pdf`'s `/Info` is a Thai sentence of 46 characters of which
+Helvetica sets one.
 
-**Unmeasured**, and the measurement is one sweep: how many corpus documents state an outline title,
-a layer name or an `/Info` value with a character §9.6.2.2's Helvetica has no code for.
+**The largest single loss is a malformed file rather than a language.** `bug1146106.pdf` loses 51
+characters of one layer name, and they are U+FFFD: it writes its text strings as UTF-16
+little-endian, which is none of §7.9.2.2's three encodings, so `text_string` reads Table D.3 and
+every second byte is the clause's undefined code point. Correct reading, malformed file — and
+`text_string`'s own comment had already said a caller "reports it rather than dropping it
+silently", which nothing did until ADR 0195.
 
-## What the fix is, and why it is not obvious
+## What is not answered: coverage
 
-Three answers, in rising order of what they cost:
+A box says a character is there and that this program cannot set it. It does not say *what*, and
+for a person reading a Japanese outline that is most of what they wanted. Three answers, in rising
+order of what they cost, and none is obviously right:
 
-1. **Say so, everywhere** — the popup's answer, applied to rows. Cheap, honest, and it turns a
-   panel of Japanese headings into a panel of apologies.
-2. **Fall back to a face on the machine**, which is `pdf_font::substitute`'s whole subject. It
+1. **Fall back to a face on the machine**, which is `pdf_font::substitute`'s whole subject. It
    works and it costs ADR 0133's argument: the interface stops looking the same on two machines,
    and every assertion about it becomes an assertion about which fonts this one has.
-3. **Compile in a face with the coverage** — which is a licence question, a size question (a CJK
-   face is megabytes against the standard fourteen's 804 KB) and a decision the project owner has
-   not been asked for.
+2. **Compile in a face with the coverage** — a licence question, a size question (a CJK face is
+   megabytes against the standard fourteen's 804 KB) and a decision the project owner has not been
+   asked for.
+3. **Ask the host.** A native host draws these rows in a `QTreeView` or an `NSOutlineView` with the
+   platform's own font stack, which has the coverage and did not have to ship it — so on the hosts
+   `doc/todo/30` is about, this whole item is `viewer-ui`'s alone. That is an argument for not
+   spending a megabyte on it here.
 
-None is obviously right, which is why this is a todo rather than a patch. What is *not* acceptable
-is what was there before: drawing part of a sentence, or none of it, without a word.
+The 74 documents above are the demand side of that decision, and they are what this file was
+missing.
