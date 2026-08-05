@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **56 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **54 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **730 diagnosed, 56 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **732 diagnosed, 54 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -318,6 +318,21 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**And two in the three-hundred-and-twenty-third, off one document, with two different answers.**
+`issue840.pdf` is a festival timetable and both its pages were on the list. Page 1 is 4 328
+commands of flat coloured blocks: three ladders climb **in parallel** — `mupdf` 0.60 of 255 above
+`poppler` at every rung, ours 0.22 below it at every rung — and a difference that does not shrink
+with the pixels is a colour. The file states it outright: `0.125 0.125 0.125 rg` is 31.875 of 255,
+ours and `poppler` round it to 32 and `mupdf` truncates to 31, on nearly every pixel of a page that
+is nearly all flat fill (`AMBIGUOUS_EIGHT_BIT_COMPOSITING`). Page 2 is a light page of text whose
+two ladders converge from opposite sides to **0.0002 of 255** — the tightest limit this bucket has
+measured — with ours 0.005 under it (`AMBIGUOUS_GLYPH_SCAN_CONVERSION`).
+
+**So the instruction is "check what else on the list is the same file", not "assume it is the same
+answer".** Five times that check has paid four names for one measurement; this is the first time
+one document has needed two.
+
 
 **And one in the three-hundred-and-twentieth, where the ink table was measuring a colour.**
 `issue269_1.pdf` page 1 is 100 × 100 points of Illustrator art in **three** commands, each a `k`

@@ -55,8 +55,6 @@ issue6769_no_matrix.pdf page 1
 issue6931_reduced.pdf page 1
 issue7406.pdf page 1
 issue8187.pdf page 1
-issue840.pdf page 1
-issue840.pdf page 2
 issue9084.pdf page 1
 issue9972-1.pdf page 1
 issue9972-2.pdf page 1

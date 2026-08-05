@@ -2364,8 +2364,52 @@ const AMBIGUOUS_COLOUR_OPERANDS: [&str; 1] = ["issue18894.pdf page 1"];
 ///
 /// This is §3a's first shape — the clause determines it and we can be checked against it — and
 /// the check needs no reference at all: the file's own numbers give 235.569, and 235.569 is 236.
-const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 1] =
-    ["chrome-text-selection-markedContent.pdf page 1"];
+/// # A second page, and it is one document giving two different answers
+///
+/// `issue840.pdf` page 1 came off §3a's ranking in the three-hundred-and-twenty-third session at
+/// 0.44 from the nearest reference and 1.35 from the furthest. It is the *Download Festival 2009*
+/// timetable: 4 328 commands of flat coloured blocks with small white text on them, and 177 of
+/// 255 of the page is ink.
+///
+/// **Three ladders, all parallel and none converging**, which is what says this is not an edge:
+///
+/// ```text
+///              72 dpi   288 dpi   576 dpi   1152 dpi
+/// mupdf       176.783   177.526   177.636    177.716
+/// poppler     176.174   176.989   177.056    177.117
+/// ours        176.230   176.738   176.845    176.901
+/// ```
+///
+/// `mupdf` is 0.60 of 255 above `poppler` at every rung and ours 0.22 below it at every rung. A
+/// difference that does not shrink with the pixels is a colour, and `doc/todo/00`'s step for it
+/// is the histogram of a page whose colours are few. At 1152 dpi the three dominant fills are:
+///
+/// ```text
+///                   ours          poppler       mupdf
+/// the page ground   (32,32,32)    (32,32,32)    (31,31,31)
+/// the grid          (60,60,60)    (60,60,60)    (59,59,59)
+/// a block under /ca (117,51,53)   (116,50,52)   (116,50,52)
+/// ```
+///
+/// **And the file states the first two outright**, so this is §3a's first shape and needs no
+/// reference at all: the content stream fills `0.125 0.125 0.125 rg` and `0.235 0.235 0.235 rg`,
+/// which are **31.875** and **59.925** of 255. Ours and `poppler` round them to 32 and 60;
+/// `mupdf` truncates to 31 and 59, one level darker on nearly every pixel of a page that is
+/// nearly all flat fill — which is the whole of its 0.60. The third row is the group's own
+/// subject one step along: 127 of the page's blocks are drawn under an `/ExtGState` with
+/// `/ca 0.95` and twelve more under `/ca 0.35`, and the level ours keeps is the one an eight-bit
+/// premultiplied composite cannot.
+///
+/// **Its page 2 is *not* this group**, and that is the finding worth carrying: `doc/todo/00` says
+/// to check what else on the list is the same file, and here the same file gives two different
+/// answers. Page 2 is a light page of text whose two ladders converge to **0.0002 of 255** of
+/// each other — the tightest limit this bucket has measured — with ours 0.005 under it, which is
+/// `AMBIGUOUS_GLYPH_SCAN_CONVERSION`. Check what else is the same file; do not assume it is the
+/// same answer.
+const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 2] = [
+    "chrome-text-selection-markedContent.pdf page 1",
+    "issue840.pdf page 1",
+];
 
 /// Ambiguous, and it is a page of nothing but widget borders at their own geometry.
 ///
@@ -4383,7 +4427,28 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 /// limit the other three agree about, on a page whose only non-glyph mark is a flat wash under
 /// `Multiply`. The spread is 3.5 of 255 and the diagnosis rests on the two ladders that converge.
 ///
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 15] = [
+/// # And the tightest limit this bucket has measured, in the three-hundred-and-twenty-third
+///
+/// `issue840.pdf` page 2 — 0.48 from the nearest reference and 2.28 from the furthest — is the
+/// second page of a festival timetable: text and rules on a light ground, 14 of 255 of ink.
+///
+/// ```text
+///                72 dpi   288 dpi    576 dpi
+/// poppler       14.4058   14.2878   14.27200
+/// mupdf         14.0665   14.2421   14.27220
+/// ours (1x/8x)  14.1965             14.26690
+/// ```
+///
+/// **The two ladders converge from opposite sides to 0.0002 of 255 of each other** — `poppler`
+/// descending, `mupdf` climbing — which is the tightest agreement about a geometry this bucket
+/// has produced, better than `issue12963.pdf`'s 0.0004. Ours ends 0.005 under it, and at the
+/// page's own scale ours is 0.052 under where `poppler` is 0.134 over, `mupdf` 0.206 under and
+/// `ghostscript` **5.05 over**, which is why nobody can be called wrong.
+///
+/// Its page 1 is `AMBIGUOUS_EIGHT_BIT_COMPOSITING` and the reason is written there: one document,
+/// two pages, two different answers.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 16] = [
+    "issue840.pdf page 2",
     "issue13242.pdf page 1",
     "issue6132.pdf page 1",
     "file_pdfjs_test.pdf page 1",
