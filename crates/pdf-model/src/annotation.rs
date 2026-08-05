@@ -63,8 +63,13 @@ pub(crate) struct Appearance {
     /// user space, so that its bounding box covers the annotation's `/Rect`.
     pub transform: Transform,
     /// The appearance's `/BBox`, in the appearance's own coordinates, which §8.10.2 makes
-    /// the clip for a form `XObject`'s content.
-    pub bbox: [f32; 4],
+    /// the clip for a form `XObject`'s content — where there is one.
+    ///
+    /// `None` for a construction whose geometry the clause states in *default user space* rather
+    /// than inside a box — see `crate::appearance::Constructed::bounded`. A stored appearance
+    /// always has one, because §12.5.5 makes it a form `XObject` and §8.10.2 gives every form a
+    /// `/BBox`.
+    pub bbox: Option<[f32; 4]>,
     /// Table 166's `/ca`, the opacity "used for all nonstroking operations on all visible
     /// elements of the annotation", defaulting to `/CA` and then to 1. Only a constructed
     /// appearance has one.
@@ -845,7 +850,7 @@ fn decided(
         ),
         appearance: Box::new(Appearance {
             transform: placement(bbox, matrix, rect),
-            bbox,
+            bbox: Some(bbox),
             // §12.5.2 and Table 166: a stored stream states its own transparency, so the
             // annotation's `/ca`, `/CA` and `/BM` are not applied to it — and a regenerated
             // one is still that stream, with one region of its marks rewritten.
@@ -903,7 +908,9 @@ fn construct(
         highlight: pressed_mark(document, annotation, view, rect, false),
         appearance: Box::new(Appearance {
             transform: Transform::IDENTITY,
-            bbox: rect,
+            // §8.10.2's box is a *form XObject's*, and a construction is not one: the clause
+            // that states this subtype's geometry is what decides whether `/Rect` bounds it.
+            bbox: constructed.bounded.then_some(rect),
             fill_alpha: opacity(document, annotation, "ca")
                 .or(stroke_alpha)
                 .unwrap_or(1.0),

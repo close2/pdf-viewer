@@ -4271,6 +4271,41 @@ const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 13] = [
     "pr12564.pdf page 1",
 ];
 
+/// Ambiguous because Table 179 names ten shapes and gives not one dimension.
+///
+/// `issue13447.pdf` is a page of Acrobat markup — sticky notes, squares, a circle, two lines and
+/// two polylines — and two of its lines state `/LE [/None /ClosedArrow]` over a six-unit and a
+/// three-unit border. **The clause states the shape and not the size** (ADR 0192), so every
+/// renderer chooses one, and the page is the measurement of what four of them chose. The
+/// arrowhead on the six-unit line, in device pixels of its bounding box at the page's own scale:
+///
+/// ```text
+/// ours          33 wide    720 blue pixels     4 x the line width
+/// poppler       49 wide   1304                ~7.2 x
+/// ghostscript   61 wide   1344                ~9 x
+/// mupdf         63 wide   2015                ~9.5 x
+/// hayro         — nothing at all —
+/// ```
+///
+/// **Four answers spanning a factor of 2.4, and a fifth renderer that draws no ending**, on a
+/// shape whose only stated property is "[t]wo short lines meeting in an acute angle … connected
+/// by a third line". That is `doc/todo/00`'s shape 3 in its purest form: the specification
+/// determines the shape, determines nothing about its extent, and this tree's four-widths is a
+/// choice recorded as one beside the artwork — the same construction §12.5.6.10's marks use,
+/// where the quadrilateral's own height is the only length the annotation gives.
+///
+/// The page arrived in this bucket **because it was fixed**: it was on the corpus's incomplete
+/// list until the three-hundred-and-fourteenth session, so the oracle did not judge it, and
+/// drawing the endings is what let it be judged. Ink 24.13 → 24.81 of 255 against the three C
+/// renderers' 25.5 to 25.8 and `hayro`'s 23.93 — we moved 45% of the way to them by drawing the
+/// arrowheads, and the rest is their size.
+///
+/// **And the same page found a defect a size could not explain.** Both of its arrowed lines
+/// state a `/Rect` that does not contain their own `/L` — `[598.31 146.63 537 316.13]` against a
+/// line at x ≈ 177 — and a constructed appearance was clipped to `/Rect`, so this tree drew
+/// *neither* the line nor its ending and said nothing. ADR 0193.
+const AMBIGUOUS_LINE_ENDING_SIZE: [&str; 1] = ["issue13447.pdf page 1"];
+
 /// Ambiguous, and §9.6.2.2 states fourteen *names* and not one outline.
 ///
 /// `standard_fonts.pdf` is the sheet: fourteen pages setting specimen text in Times, Helvetica,
@@ -4378,6 +4413,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_COLOUR_OPERANDS)
         .chain(&AMBIGUOUS_CALRGB_TO_SCREEN)
         .chain(&AMBIGUOUS_DEVICE_N_ALTERNATE)
+        .chain(&AMBIGUOUS_LINE_ENDING_SIZE)
         .chain(&AMBIGUOUS_EIGHT_BIT_COMPOSITING)
         .chain(&AMBIGUOUS_WIDGET_BORDER)
         .chain(&AMBIGUOUS_RADIAL_CONE)

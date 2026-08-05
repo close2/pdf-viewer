@@ -4227,26 +4227,39 @@ impl Interpreter<'_> {
         // §8.10.2: a form `XObject`'s `/BBox` "shall be" the clip for its content. §12.5.5
         // relies on that — the whole algorithm is about making the box cover `/Rect`, and
         // an appearance drawing outside its own box would spill across the page.
-        let bbox = &appearance.bbox;
-        let mut path = Path::new();
-        path.push(PathCommand::MoveTo(Point::new(bbox[0], bbox[1])));
-        path.push(PathCommand::LineTo(Point::new(bbox[2], bbox[1])));
-        path.push(PathCommand::LineTo(Point::new(bbox[2], bbox[3])));
-        path.push(PathCommand::LineTo(Point::new(bbox[0], bbox[3])));
-        path.push(PathCommand::Close);
-        let Ok(clip) = self.list.add_clip(Clip {
-            path,
-            transform,
-            // §12.2's `/ViewClip`, where the document narrowed what the screen shows: an
-            // annotation is drawn over the page and is not exempt from what the page is
-            // clipped to. `None` for every document that states no preference.
-            parent: view_clip,
-            fill_rule: FillRule::NonZero,
-        }) else {
-            self.note(Unsupported::LimitReached { limit: "max_clips" });
-            return;
+        //
+        // **A construction is not a form XObject and may have no box at all**, since the
+        // three-hundred-and-fourteenth session: four subtypes state their geometry "in default
+        // user space" rather than inside a box, and a file whose `/Rect` does not contain what
+        // its own `/L` or `/QuadPoints` states was having those marks clipped away in silence.
+        // `crate::appearance::Constructed::bounded` is the reading; ADR 0193 is the argument.
+        //
+        // §12.2's `/ViewClip` is not part of that exception. Where the document narrowed what
+        // the screen shows, an annotation is drawn over the page and is not exempt from what the
+        // page is clipped to — so an unbounded construction still inherits it, and only the box
+        // goes away. `None` for every document that states no preference.
+        let clip = match appearance.bbox {
+            Some(bbox) => {
+                let mut path = Path::new();
+                path.push(PathCommand::MoveTo(Point::new(bbox[0], bbox[1])));
+                path.push(PathCommand::LineTo(Point::new(bbox[2], bbox[1])));
+                path.push(PathCommand::LineTo(Point::new(bbox[2], bbox[3])));
+                path.push(PathCommand::LineTo(Point::new(bbox[0], bbox[3])));
+                path.push(PathCommand::Close);
+                let Ok(clip) = self.list.add_clip(Clip {
+                    path,
+                    transform,
+                    parent: view_clip,
+                    fill_rule: FillRule::NonZero,
+                }) else {
+                    self.note(Unsupported::LimitReached { limit: "max_clips" });
+                    return;
+                };
+                Some(clip)
+            }
+            None => view_clip,
         };
-        state.clip = Some(clip);
+        state.clip = clip;
 
         // §7.8.3: an appearance stream is a form `XObject` (§12.5.5), and a form written
         // before PDF 1.2 may omit `/Resources` — "All resources that are referenced from
@@ -4291,11 +4304,13 @@ impl Interpreter<'_> {
         // `0.5 0.5 149 21 re s` inside a `/BBox [0 0 150 22]`, so a one-point stroke's outer
         // edge lies *exactly* on the box, and multiplying the stroke's anti-aliased coverage by
         // the clip's cost it **22% of the page's ink**. ADR 0165.
-        let box_in_page = Rect::from_corners(
-            transform.apply(Point::new(bbox[0], bbox[1])),
-            transform.apply(Point::new(bbox[2], bbox[3])),
-        );
-        self.unclip_redundant(mark, box_in_page, Transform::IDENTITY, view_clip);
+        if let Some(bbox) = appearance.bbox {
+            let box_in_page = Rect::from_corners(
+                transform.apply(Point::new(bbox[0], bbox[1])),
+                transform.apply(Point::new(bbox[2], bbox[3])),
+            );
+            self.unclip_redundant(mark, box_in_page, Transform::IDENTITY, view_clip);
+        }
         self.base = outer_base;
     }
 

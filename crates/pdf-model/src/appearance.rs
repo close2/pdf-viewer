@@ -118,6 +118,19 @@ pub(crate) struct Constructed {
     /// Empty for every construction that draws only paths, which is most of them — a
     /// rectangle in a device colour names no resource.
     pub resources: Dictionary,
+    /// Whether Table 166's `/Rect` bounds what this construction drew.
+    ///
+    /// **Four subtypes state their geometry in default user space and are therefore not bounded
+    /// by it**: §12.5.6.7's `/L`, §12.5.6.9's `/Vertices`, §12.5.6.10's `/QuadPoints` and
+    /// §12.5.6.13's `/InkList` are all "in default user space", which is the page's space and
+    /// not a box's — so a file whose `/Rect` does not contain them has written a bounding box
+    /// that is wrong, and the marks the clause states are still where the clause states them.
+    ///
+    /// Every other construction here *derives* its geometry from `/Rect` — an icon on the square
+    /// inside it, a border along it, a field's text laid out in it — and stays inside by
+    /// construction, so bounding those changes nothing except in the one case where it must not:
+    /// §12.7.4.3's value, which is clipped to the field it does not fit in.
+    pub bounded: bool,
 }
 
 /// A colour read from an appearance-characteristics array.
@@ -209,6 +222,17 @@ pub(crate) fn construct(
     rect: [f32; 4],
 ) -> Constructed {
     let mut stream = Stream::new();
+    let bounded = !matches!(
+        subtype,
+        b"Line"
+            | b"Polygon"
+            | b"PolyLine"
+            | b"Ink"
+            | b"Highlight"
+            | b"Underline"
+            | b"StrikeOut"
+            | b"Squiggly"
+    );
     let outcome = match subtype {
         b"Link" => link(document, annotation, &mut stream),
         b"Square" | b"Circle" => square_or_circle(document, annotation, &mut stream, subtype),
@@ -247,6 +271,7 @@ pub(crate) fn construct(
         content: painted.drawn.then(|| stream.text.into_bytes()),
         report: painted.report.map(|refusal| refusal.detail()),
         resources: stream.resources.unwrap_or_default(),
+        bounded,
     }
 }
 
@@ -847,12 +872,11 @@ fn polygon(
     if cloudy(document, annotation) {
         return Err(CLOUDY);
     }
-    // As on a line annotation: `/LE` decorates the ends of a shape Table 181 makes required,
-    // so it is named beside the drawn shape rather than instead of it. `/BE` above is *not*
-    // the same case and stays a refusal — a cloudy border is a different border rather than an
-    // extra mark, and drawing a straight one would put a shape on the page the file did not
-    // describe.
-    let plain_ends = line_endings(document, annotation);
+    // As on a line annotation, and drawn since the three-hundred-and-fourteenth session. `/BE`
+    // above is *not* the same case and stays a refusal — a cloudy border is a different border
+    // rather than an extra mark, and drawing a straight one would put a shape on the page the
+    // file did not describe.
+    let endings = line_endings(document, annotation)?;
 
     let closed = subtype == b"Polygon";
     let border = Border::read(document, annotation, annotation, "C")?;
@@ -867,15 +891,50 @@ fn polygon(
 
     border.apply(stream);
     stream.set_colour(interior, false);
-    if !path(document, annotation, stream)? {
+    let vertices = if path(document, annotation, stream)? {
+        // §12.5.6.9's `/Path` is a sequence of curves, and Table 181 makes `/Vertices` "not
+        // present" where it is used — so the ends an ending would decorate are inside a
+        // construction this routine does not hold. Reported below rather than guessed at.
+        None
+    } else {
         let Some(vertices) = points(document, annotation, "Vertices") else {
             return Err(Refusal::Missing("/Vertices or /Path"));
         };
         polyline(stream, &vertices, closed);
-    }
+        Some(vertices)
+    };
     stream.paint(interior != Colour::None, border.strokes());
-    if plain_ends {
-        return Ok(Painted::partly(LINE_ENDINGS));
+
+    // **A polygon's ends meet, so it has none.** Table 181 gives `/LE` to both subtypes and
+    // §12.5.6.9 gives a polygon no end to put one on — "the first and last vertex shall be
+    // implicitly connected" — so this is the polyline half alone, which is also the only half
+    // Table 181's `/IC` is a line-ending colour for.
+    if !closed
+        && let Some(vertices) = vertices.as_deref()
+        && let (Some(first), Some(second)) = (vertices.first(), vertices.get(1))
+        && let (Some(last), Some(before)) = (
+            vertices.last(),
+            vertices.get(vertices.len().saturating_sub(2)),
+        )
+    {
+        // Each end's direction is the segment it belongs to, not the whole shape's: a polyline
+        // bends, and an arrowhead follows the last leg.
+        draw_endings(
+            stream,
+            [endings[0], Ending::None],
+            [*second, *first],
+            border.width,
+            interior,
+        );
+        draw_endings(
+            stream,
+            [Ending::None, endings[1]],
+            [*before, *last],
+            border.width,
+            interior,
+        );
+    } else if endings != [Ending::None; 2] {
+        return Ok(Painted::partly(ENDINGS_WITH_NO_END));
     }
     Ok(Painted::DRAWN)
 }
@@ -1143,22 +1202,18 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 /// declining the whole annotation for either drew nothing where the clause states a line. That
 /// is the same reasoning the refusal above records for `/LL`, applied one entry over.
 fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
-    // Both entries are additive: neither changes the line, and both are optional where `/L` is
-    // required. So each is named beside the drawn line rather than instead of it.
+    // `/Cap` is additive: it changes nothing about the line and is optional where `/L` is
+    // required, so it is named beside the drawn line rather than instead of it.
     let captioned = matches!(document.get_key(annotation, "Cap"), Object::Boolean(true));
-    let owed = match (line_endings(document, annotation), captioned) {
-        (true, true) => Some(LINE_ENDINGS_AND_CAPTION),
-        (true, false) => Some(LINE_ENDINGS),
-        (false, true) => Some(LINE_CAPTION),
-        (false, false) => None,
-    };
+    let owed = captioned.then_some(LINE_CAPTION);
     let drawn = |painted: Painted| match (painted.drawn, owed) {
-        // An annotation that draws nothing owes nothing: there is no line for an ending to
-        // decorate or a caption to sit on, so naming them would report a gap on a blank page.
+        // An annotation that draws nothing owes nothing: there is no line for a caption to sit
+        // on, so naming it would report a gap on a blank page.
         (false, _) | (_, None) => Ok(painted),
         (true, Some(refusal)) => Ok(Painted::partly(refusal)),
     };
 
+    let endings = line_endings(document, annotation)?;
     let ends = points(document, annotation, "L").unwrap_or_default();
     let (Some(start), Some(end)) = (ends.first().copied(), ends.get(1).copied()) else {
         return Err(Refusal::Missing("/L"));
@@ -1168,11 +1223,14 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
         return drawn(Painted::EMPTY);
     }
     border.apply(stream);
+    let interior = colour(document, annotation, "IC")?;
+    stream.set_colour(interior, false);
 
     let leader = entry_number(document, annotation, "LL").unwrap_or(0.0);
     let Some(offset) = perpendicular(start, end) else {
         // A line of no length has no direction to be perpendicular to, so its leader lines
-        // have nowhere to go; the degenerate line itself is still §8.5.3.2's business.
+        // have nowhere to go; the degenerate line itself is still §8.5.3.2's business — and an
+        // ending has no direction to point in either.
         stream.move_to(start);
         stream.line_to(end);
         stream.paint(false, true);
@@ -1183,6 +1241,7 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
         stream.move_to(start);
         stream.line_to(end);
         stream.paint(false, true);
+        draw_endings(stream, endings, [start, end], border.width, interior);
         return drawn(Painted::DRAWN);
     }
 
@@ -1211,7 +1270,232 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
         stream.line_to(along(point, away.mul_add(extension, leader)));
     }
     stream.paint(false, true);
+    // **On the line proper's ends, not on `/L`'s**, where the two differ. Table 178 says `/LE`
+    // states the styles "for the endpoints defined … by the first and second pairs of
+    // coordinates … in the L array", and says four rows earlier that with `/LL` present those
+    // coordinates are "the endpoints of the leader lines rather than the endpoints of the line
+    // itself". So the endpoints the first sentence names are not on the line; Figure 80 draws
+    // the arrowhead on the line proper, and an ending is an ending *of a line*.
+    draw_endings(
+        stream,
+        endings,
+        [along(start, leader), along(end, leader)],
+        border.width,
+        interior,
+    );
     drawn(Painted::DRAWN)
+}
+
+/// Draws both of Table 179's endings on a two-ended line.
+///
+/// The outward direction at each end is the line's own, away from the other end — see
+/// [`draw_ending`] for what "outward" is deciding.
+fn draw_endings(
+    stream: &mut Stream,
+    endings: [Ending; 2],
+    ends: [[f32; 2]; 2],
+    width: f32,
+    interior: Colour,
+) {
+    let [start, end] = ends;
+    let (dx, dy) = (end[0] - start[0], end[1] - start[1]);
+    // ADR 0189: `hypot` is not correctly rounded and the two backends must agree about every
+    // number a shape is built from, so a length here is the IEEE operations and nothing else.
+    let length = dx.mul_add(dx, dy * dy).sqrt();
+    if !(length.is_finite() && length > 0.0) {
+        return;
+    }
+    let forward = [dx / length, dy / length];
+    let backward = [-forward[0], -forward[1]];
+    draw_ending(stream, endings[0], start, backward, width, interior);
+    draw_ending(stream, endings[1], end, forward, width, interior);
+}
+
+/// Table 179's ten line ending styles. ISO 32000-2 §12.5.6.7, of Table 178's `/LE`:
+///
+/// > The first and second elements of the array shall specify the line ending styles for the
+/// > endpoints defined, respectively, by the first and second pairs of coordinates, ( x 1 , y 1 )
+/// > and ( x 2 , y 2 ), in the L array.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    /// "No line ending", Table 179's default for both ends.
+    None,
+    /// "A square filled with the annotation's interior colour, if any".
+    Square,
+    /// "A circle filled with the annotation's interior colour, if any".
+    Circle,
+    /// "A diamond shape filled with the annotation's interior colour, if any".
+    Diamond,
+    /// "Two short lines meeting in an acute angle to form an open arrowhead".
+    OpenArrow,
+    /// The same "connected by a third line to form a triangular closed arrowhead filled with the
+    /// annotation's interior colour, if any".
+    ClosedArrow,
+    /// "Two short lines in the reverse direction from `OpenArrow`".
+    ReverseOpenArrow,
+    /// "A triangular closed arrowhead in the reverse direction from `ClosedArrow`".
+    ReverseClosedArrow,
+    /// "A short line at the endpoint perpendicular to the line itself".
+    Butt,
+    /// "A short line at the endpoint approximately 30 degrees clockwise from perpendicular to the
+    /// line itself".
+    Slash,
+}
+
+impl Ending {
+    /// Table 179's names, and `None` for a name the table does not have.
+    ///
+    /// An unknown name is not the default: Table 178 makes `[/None /None]` the value of an
+    /// *absent* `/LE`, and a name outside the table is a file saying something this reader cannot
+    /// read. It is reported rather than silently drawn as nothing — trap 5, which is why this
+    /// returns an `Option` where [`Self::None`] already exists.
+    fn read(name: &[u8]) -> Option<Self> {
+        Some(match name {
+            b"None" => Self::None,
+            b"Square" => Self::Square,
+            b"Circle" => Self::Circle,
+            b"Diamond" => Self::Diamond,
+            b"OpenArrow" => Self::OpenArrow,
+            b"ClosedArrow" => Self::ClosedArrow,
+            b"ROpenArrow" => Self::ReverseOpenArrow,
+            b"RClosedArrow" => Self::ReverseClosedArrow,
+            b"Butt" => Self::Butt,
+            b"Slash" => Self::Slash,
+            _ => return None,
+        })
+    }
+
+    /// Whether Table 179 fills this shape with "the annotation's interior colour, if any".
+    ///
+    /// Four of the ten say so and the other six do not, which is the whole of the difference an
+    /// `/IC` makes here — and for a polyline it is the only thing `/IC` does at all (Table 181:
+    /// "[f]or Polyline annotations, the value of the IC key is used to fill only the line
+    /// ending").
+    fn filled(self) -> bool {
+        matches!(
+            self,
+            Self::Square
+                | Self::Circle
+                | Self::Diamond
+                | Self::ClosedArrow
+                | Self::ReverseClosedArrow
+        )
+    }
+}
+
+/// How large a line ending is, as a multiple of the line's own width.
+///
+/// **The clause states no size and this is a choice, in the same place §12.5.6.10's thickness is
+/// one**: Table 179 describes ten shapes — "[a] square", "[t]wo short lines meeting in an acute
+/// angle", "[a] short line at the endpoint perpendicular to the line itself" — and gives not one
+/// dimension. The only length a line annotation supplies its ending is §12.5.4's border width,
+/// which is what draws the line the ending decorates, so the size is stated as a multiple of it
+/// and is therefore right at every scale rather than right at one. Four widths is about what a
+/// drawing program's arrowhead is, and nothing derives it.
+const ENDING_SIZE: f32 = 4.0;
+
+/// Half the angle at an arrowhead's apex, in radians.
+///
+/// Table 179 says "an acute angle" and no more, so this is a choice bounded by the word: 60° at
+/// the apex is acute, and it is the angle every arrowhead in ordinary type is drawn at.
+const ARROW_HALF_ANGLE: f32 = std::f32::consts::FRAC_PI_6;
+
+/// Table 179's own "approximately 30 degrees clockwise from perpendicular", for `Slash`.
+const SLASH_ANGLE: f32 = std::f32::consts::FRAC_PI_6;
+
+/// Draws one of Table 179's endings at a line's endpoint.
+///
+/// `out` is the unit vector pointing **away from the line** at this end, which is the one thing
+/// the table does not say and every reader has to decide: an `OpenArrow` at (x1, y1) points along
+/// it, so a line with arrows at both ends is an arrow at each end pointing outwards, and the two
+/// reverse styles are Table 179's own way of asking for the other direction ("in the reverse
+/// direction from `OpenArrow`"). Recorded as a choice.
+///
+/// The stroking colour and width are already the line's; `interior` is Table 178's `/IC`, and a
+/// shape the table does not fill is stroked alone.
+fn draw_ending(
+    stream: &mut Stream,
+    ending: Ending,
+    at: [f32; 2],
+    out: [f32; 2],
+    width: f32,
+    interior: Colour,
+) {
+    let size = width * ENDING_SIZE;
+    if ending == Ending::None || !(size.is_finite() && size > 0.0) {
+        return;
+    }
+    // The line's own direction and the perpendicular to it, both unit length: everything below is
+    // written in that frame so that no shape has to know the line's angle.
+    let (ux, uy) = (out[0], out[1]);
+    let (vx, vy) = (-uy, ux);
+    let point = |along: f32, across: f32| {
+        [
+            along.mul_add(ux, across.mul_add(vx, at[0])),
+            along.mul_add(uy, across.mul_add(vy, at[1])),
+        ]
+    };
+    let half = size * 0.5;
+    let fill = ending.filled() && interior != Colour::None;
+    match ending {
+        Ending::None => {}
+        Ending::Square => {
+            stream.move_to(point(-half, -half));
+            stream.line_to(point(half, -half));
+            stream.line_to(point(half, half));
+            stream.line_to(point(-half, half));
+            stream.close();
+            stream.paint(fill, true);
+        }
+        Ending::Circle => {
+            stream.circle(at, half);
+            stream.paint(fill, true);
+        }
+        Ending::Diamond => {
+            stream.move_to(point(-half, 0.0));
+            stream.line_to(point(0.0, -half));
+            stream.line_to(point(half, 0.0));
+            stream.line_to(point(0.0, half));
+            stream.close();
+            stream.paint(fill, true);
+        }
+        Ending::Butt => {
+            stream.move_to(point(0.0, -half));
+            stream.line_to(point(0.0, half));
+            stream.paint(false, true);
+        }
+        Ending::Slash => {
+            // "Approximately 30 degrees clockwise from perpendicular": in this y-up space a
+            // clockwise turn takes the perpendicular towards the line's own backward direction.
+            let (sin, cos) = SLASH_ANGLE.sin_cos();
+            stream.move_to(point(-half * sin, -half * cos));
+            stream.line_to(point(half * sin, half * cos));
+            stream.paint(false, true);
+        }
+        Ending::OpenArrow
+        | Ending::ClosedArrow
+        | Ending::ReverseOpenArrow
+        | Ending::ReverseClosedArrow => {
+            let reverse = matches!(
+                ending,
+                Ending::ReverseOpenArrow | Ending::ReverseClosedArrow
+            );
+            let closed = matches!(ending, Ending::ClosedArrow | Ending::ReverseClosedArrow);
+            let direction = if reverse { -1.0 } else { 1.0 };
+            let (sin, cos) = ARROW_HALF_ANGLE.sin_cos();
+            // The apex sits on the endpoint and the two barbs run back from it, so the whole
+            // arrowhead is inside the line's own end rather than beyond it.
+            let back = -direction * size * cos;
+            let spread = size * sin;
+            stream.move_to(point(back, spread));
+            stream.line_to(at);
+            stream.line_to(point(back, -spread));
+            if closed {
+                stream.close();
+            }
+            stream.paint(closed && interior != Colour::None, true);
+        }
+    }
 }
 
 /// The unit vector §12.5.6.7 calls clockwise from `start` to `end`, or `None` for no direction.
@@ -1854,8 +2138,18 @@ const CLOUDY: Refusal =
 /// line, and refusing the whole of it draws nothing where the clause states something. This is
 /// ADR 0075's finding one entry over: an entry that cannot be derived is a reason to draw the
 /// part that can be, not a reason to decline.
-const LINE_ENDINGS: Refusal =
-    Refusal::NotDerivable("Table 179's line endings state no size, so the ends are drawn plain");
+/// A `/LE` naming something Table 179 does not.
+///
+/// The ten styles are the whole of the table and the entry is "[a]n array of two names", so a
+/// name outside it is a file asking for a shape this reader has no description of. Reported
+/// rather than dropped to `None`, which would draw a line that quietly lost its arrowheads.
+/// A `/LE` on a shape with no end this routine holds: a `/Path`, or fewer than two vertices.
+const ENDINGS_WITH_NO_END: Refusal = Refusal::NotDerivable(
+    "its /LE states line endings and its /Path or /Vertices gives no two points to put them on",
+);
+
+const UNKNOWN_LINE_ENDING: Refusal =
+    Refusal::NotDerivable("its /LE names a line ending style Table 179 does not define");
 
 /// §12.5.6.7's `/Cap`, which replicates `/Contents` "as a caption in the appearance of the
 /// line" and gives no entry from which to take a font.
@@ -1863,12 +2157,6 @@ const LINE_ENDINGS: Refusal =
 /// Additive like `/LE`, and named the same way: the line is drawn and the caption is not.
 const LINE_CAPTION: Refusal = Refusal::NotDerivable(
     "§12.5.6.7's /Cap asks for /Contents as a caption, and no entry gives it a font",
-);
-
-/// Both of the above, because trap 11's other edge is that a report can hide another report.
-const LINE_ENDINGS_AND_CAPTION: Refusal = Refusal::NotDerivable(
-    "Table 179's line endings state no size and §12.5.6.7's /Cap states no font, so the line \
-     is drawn without either",
 );
 
 /// The border style names of §12.5.4 Table 168.
@@ -2238,6 +2526,17 @@ impl Stream {
     }
 
     /// An ellipse inscribed in a box, as four Bézier arcs (§12.5.6.8, and [`ARC`]).
+    /// A circle of a radius, centred on a point — [`Self::ellipse`] with one number instead of
+    /// four, for Table 179's `Circle` ending, whose size is a length rather than a box.
+    fn circle(&mut self, centre: [f32; 2], radius: f32) {
+        self.ellipse([
+            centre[0] - radius,
+            centre[1] - radius,
+            centre[0] + radius,
+            centre[1] + radius,
+        ]);
+    }
+
     fn ellipse(&mut self, box_: [f32; 4]) {
         let (left, bottom, right, top) = (box_[0], box_[1], box_[2], box_[3]);
         let (middle_x, middle_y) = ((left + right) * 0.5, (bottom + top) * 0.5);
@@ -2385,17 +2684,25 @@ fn cloudy(document: &Document, annotation: &Dictionary) -> bool {
 }
 
 /// Whether `/LE` names a line ending other than Table 179's `None`.
-fn line_endings(document: &Document, annotation: &Dictionary) -> bool {
+fn line_endings(document: &Document, annotation: &Dictionary) -> Result<[Ending; 2], Refusal> {
     let entry = document.get_key(annotation, "LE");
     let Some(values) = entry.as_array() else {
-        return false;
+        return Ok([Ending::None; 2]);
     };
-    values.iter().any(|value| {
-        document
-            .resolve(value)
-            .as_name()
-            .is_some_and(|name| name.as_bytes() != b"None")
-    })
+    let mut endings = [Ending::None; 2];
+    for (slot, value) in endings.iter_mut().zip(values) {
+        let resolved = document.resolve(value);
+        let Some(name) = resolved.as_name() else {
+            // "An array of two names": an entry that is not a name states no style, and the
+            // table's default answers an *absent* array rather than a malformed one.
+            return Err(UNKNOWN_LINE_ENDING);
+        };
+        let Some(ending) = Ending::read(name.as_bytes()) else {
+            return Err(UNKNOWN_LINE_ENDING);
+        };
+        *slot = ending;
+    }
+    Ok(endings)
 }
 
 /// Reads one of Table 166's colour arrays.

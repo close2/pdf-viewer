@@ -1289,19 +1289,19 @@ fn a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it() {
     );
 }
 
-/// An entry that states no shape must not erase the shape the clause does state.
+/// An entry that states no *size* must not erase the shape the clause does state.
 ///
 /// ISO 32000-2 §12.5.6.7 makes `/L` required and `/LE` optional with a default of
-/// `[/None /None]`, and Table 179 gives its nine endings names and not one dimension. So an
-/// annotation naming an ending has still stated a line, and this pair is that difference: the
-/// same line with and without an ending it cannot be given a size, drawn identically, with the
-/// ending named beside it rather than instead of it.
+/// `[/None /None]`, and Table 179 gives its ten endings names and not one dimension. Both halves
+/// of that were once a refusal and each was removed by the same argument, six rounds apart: the
+/// line is drawn whatever its ends ask for (session 116), and since the
+/// three-hundred-and-fourteenth the ends are drawn too, at a size taken from the only length the
+/// annotation supplies — §12.5.4's border width (ADR 0192).
 ///
-/// It was a whole-annotation refusal until the hundred-and-sixteenth session — the same shape
-/// ADR 0075 removed from `/LL` one entry over, where the refusal fired on an entry's presence
-/// and took the line with it.
+/// What is still named beside the line is `/Cap`, and it is a different kind of nothing: a
+/// caption needs a *font*, and no entry of a line annotation states one.
 #[test]
-fn a_line_ending_that_cannot_be_sized_is_named_beside_the_line_it_decorates() {
+fn a_line_ending_is_drawn_and_a_caption_is_still_named_beside_the_line() {
     let line = |extra: &str| {
         format!(
             "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] \
@@ -1315,26 +1315,25 @@ fn a_line_ending_that_cannot_be_sized_is_named_beside_the_line_it_decorates() {
 
     let ended = of("/LE [/OpenArrow /OpenArrow]");
     assert!(
-        !ended.display_list.commands().is_empty(),
-        "the line the clause requires is drawn whatever its ends ask for"
+        ended.is_complete(),
+        "and one with an ending owes nothing either now: {:?}",
+        ended.unsupported
     );
     assert!(
-        !ended.is_complete(),
-        "and the ending nobody can size is reported"
-    );
-    let reported = format!("{:?}", ended.unsupported);
-    assert!(
-        reported.contains("line endings state no size"),
-        "by name: {reported}"
+        ended.display_list.commands().len() > plain.display_list.commands().len(),
+        "the arrowheads are marks the plain line does not have"
     );
 
-    // Same for §12.5.6.7's caption, and both at once name both — a report that hides another
-    // report is trap 11's other edge.
-    let both = of("/LE [/Square /Square] /Cap true");
-    let reported = format!("{:?}", both.unsupported);
+    // §12.5.6.7's caption is still owed, and naming it does not take the line with it.
+    let captioned = of("/LE [/Square /Square] /Cap true");
     assert!(
-        reported.contains("line endings state no size") && reported.contains("/Cap"),
-        "both owed entries are named, not just the first: {reported}"
+        !captioned.display_list.commands().is_empty(),
+        "the line the clause requires is drawn whatever the caption asks for"
+    );
+    let reported = format!("{:?}", captioned.unsupported);
+    assert!(
+        reported.contains("/Cap") && !reported.contains("line endings"),
+        "the caption alone is named: {reported}"
     );
 
     // And a polyline's ends are the same rule: Table 181 makes `/Vertices` required.
@@ -1348,7 +1347,7 @@ fn a_line_ending_that_cannot_be_sized_is_named_beside_the_line_it_decorates() {
         !polyline.display_list.commands().is_empty(),
         "the polyline is drawn"
     );
-    assert!(!polyline.is_complete(), "and its endings are named");
+    assert!(polyline.is_complete(), "and its endings are drawn with it");
 }
 
 /// §12.5.6.19's `/H`, which is a clause about a *moment* and became reachable when this program
@@ -1754,5 +1753,148 @@ fn a_text_annotation_behaves_as_though_both_flags_were_set() {
     assert!(
         text(4, None).1,
         "a page with a text annotation depends on the magnification whatever its /F says"
+    );
+}
+
+/// Table 179's ten styles, each drawing its own shape and none drawing nothing.
+///
+/// The same argument as the seven icons one clause over: the table *describes* ten shapes and
+/// gives not one dimension, so what is checked is that each name reaches a different picture —
+/// a golden image would pin a size the standard does not state.
+#[test]
+fn each_of_table_179_s_line_endings_draws_its_own_shape() {
+    let ending = |name: &str| {
+        let raster = render(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /L [30 50 70 50] \
+                 /C [0 0 0] /IC [1 0 0] /BS << /W 3 >> /LE [/{name} /{name}] >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+        raster.data.clone()
+    };
+    let plain = ending("None");
+    let names = [
+        "Square",
+        "Circle",
+        "Diamond",
+        "OpenArrow",
+        "ClosedArrow",
+        "ROpenArrow",
+        "RClosedArrow",
+        "Butt",
+        "Slash",
+    ];
+    let drawn: Vec<Vec<u8>> = names.iter().map(|name| ending(name)).collect();
+    for (name, pixels) in names.iter().zip(&drawn) {
+        assert_ne!(*pixels, plain, "/{name} drew the line and nothing else");
+    }
+    for (first, one) in names.iter().enumerate() {
+        for (second, other) in names.iter().enumerate().skip(first + 1) {
+            assert_ne!(
+                drawn[first], drawn[second],
+                "/{one} and /{other} draw the same ending"
+            );
+        }
+    }
+}
+
+/// Table 179 fills four of its ten with `/IC` and leaves the other six to the stroke.
+#[test]
+fn only_the_four_endings_table_179_fills_use_the_interior_colour() {
+    let ending = |name: &str, interior: &str| {
+        let raster = render(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /L [30 50 70 50] \
+                 /C [0 0 0] {interior} /BS << /W 3 >> /LE [/{name} /None] >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+        raster.data.clone()
+    };
+    for name in ["Square", "Circle", "Diamond", "ClosedArrow", "RClosedArrow"] {
+        assert_ne!(
+            ending(name, "/IC [1 0 0]"),
+            ending(name, ""),
+            "Table 179 fills /{name} with the annotation's interior colour"
+        );
+    }
+    for name in ["OpenArrow", "ROpenArrow", "Butt", "Slash"] {
+        assert_eq!(
+            ending(name, "/IC [1 0 0]"),
+            ending(name, ""),
+            "Table 179 does not fill /{name}, so /IC changes nothing"
+        );
+    }
+}
+
+/// The reverse styles are Table 179's own way of asking for the other direction.
+#[test]
+fn a_reversed_arrowhead_is_not_the_one_it_reverses() {
+    let ending = |name: &str| {
+        render(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /L [30 50 70 50] \
+                 /C [0 0 0] /BS << /W 3 >> /LE [/{name} /None] >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ))
+        .data
+        .clone()
+    };
+    assert_ne!(ending("OpenArrow"), ending("ROpenArrow"));
+    assert_ne!(ending("ClosedArrow"), ending("RClosedArrow"));
+}
+
+/// A `/LE` naming something Table 179 does not is reported rather than dropped.
+#[test]
+fn a_line_ending_style_the_table_does_not_have_is_reported() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /L [30 50 70 50] /C [0 0 0] \
+         /LE [/Wedge /None] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        format!("{:?}", interpretation.unsupported).contains("Table 179"),
+        "{:?}",
+        interpretation.unsupported
+    );
+}
+
+/// §12.5.6.9's polyline takes its endings from its own first and last legs.
+#[test]
+fn a_polylines_endings_follow_its_first_and_last_leg() {
+    let bent = render(pdf_with(
+        "<< /Type /Annot /Subtype /PolyLine /Rect [0 0 100 100] /F 4 \
+         /Vertices [20 20 50 80 80 20] /C [0 0 0] /BS << /W 3 >> /LE [/OpenArrow /OpenArrow] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    let plain = render(pdf_with(
+        "<< /Type /Annot /Subtype /PolyLine /Rect [0 0 100 100] /F 4 \
+         /Vertices [20 20 50 80 80 20] /C [0 0 0] /BS << /W 3 >> /LE [/None /None] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert_ne!(bent.data, plain.data, "the arrowheads are drawn");
+}
+
+/// A polygon's ends meet, so §12.5.6.9 gives it none to decorate — and it says so.
+#[test]
+fn a_polygons_line_endings_are_reported_because_it_has_no_ends() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Polygon /Rect [0 0 100 100] /F 4 \
+         /Vertices [20 20 50 80 80 20] /C [0 0 0] /BS << /W 3 >> /LE [/OpenArrow /OpenArrow] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        format!("{:?}", interpretation.unsupported).contains("no two points"),
+        "{:?}",
+        interpretation.unsupported
     );
 }
