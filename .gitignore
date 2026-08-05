@@ -14,6 +14,13 @@
 /target/pdfref
 /corpus-cache
 
+# The specifications this project is written against, and the Markdown conversion of them
+# that the citation checker reads. Free to obtain from the PDF Association, not free to
+# redistribute — so they are kept out of the repository and out of its history (ADR 0187),
+# and a developer's own copies live here untracked. NOTICE section 3.
+/doc/*.pdf
+/doc/md/
+
 # Claude Code local settings (per-user, not shared).
 .claude/settings.local.json
 

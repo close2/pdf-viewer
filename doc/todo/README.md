@@ -10,7 +10,7 @@ The number prefix **is** the priority, and `ls` sorts by it:
 
 | band | means |
 |---|---|
-| `00`–`09` | **standing** — take some of this every round, whatever else is on. One exception, and it is numbered last in the band so that it reads as one: [09](09-the-specifications-are-in-the-history.md) is a one-off that outranks everything below it |
+| `00`–`09` | **standing** — take some of this every round, whatever else is on |
 | `10`–`19` | **defects**: wrong pixels or wrong output, with a diagnosis and usually a fix already argued |
 | `20`–`29` | **owed features with corpus demand** — a real document asks and we refuse |
 | `30`–`39` | **capability** — things the program cannot do at all, mostly hosts and interfaces |
@@ -36,7 +36,6 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 76 pages |
 | [01](01-ledger-partial-rows.md) | Read the ledger's 231 `partial` rows against the code — and the six sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
-| [09](09-the-specifications-are-in-the-history.md) | **The ISO documents are tracked and must not be** — a history rewrite, and the bootstrap that has to exist first. Not standing; ranked here because it has to be true *before this repository is published* | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; a tiling cell's two halves; a hairline at the raster's edge | 4 |
 | [21](21-font-substitution.md) | `Identity` orderings; a font reported as a whole; per-character fallback, with no witness left | 40 |

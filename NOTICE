@@ -112,12 +112,19 @@ lines, as Adobe published it.
 3. The specification, and the test corpus
 -------------------------------------------------------------------------------
 
-Neither is part of the program, and neither is in the binary. They are recorded here because they
-are in the repository and a reader of it should know their terms.
+Neither is part of the program, and neither is in the binary. They are recorded here because a
+reader of this repository should know their terms — and, for the first, because their absence is
+deliberate and needs explaining.
 
-doc/*.pdf and doc/md/* are ISO 32000-2 and the PDF Association's application notes, present for
-the citation checker and the conformance ledger to read. They are ISO's and the PDF Association's,
-under their own terms, and are not redistributed by any build of this program.
+doc/*.pdf and doc/md/* are ISO 32000-2, the ISO/TS extensions to it, and the PDF Association's
+application notes and guides. This project is written against them: the citation checker and the
+conformance ledger read the Markdown conversion, and several tests and measurement examples open
+the PDF. They are NOT in this repository and never were, in any commit — they are ISO's and the
+PDF Association's, free to obtain from the PDF Association at https://pdfa.org/ and not free to
+pass on, and a repository carrying them would be passing them on. .gitignore keeps them untracked
+so that a developer's own downloaded copies can sit in doc/ where the code expects them; doc/md/
+is then produced from those by docling (doc/README-script.txt). Whatever opens one of these files
+and does not find it says so.
 
 doc/pdf.js is a submodule holding Mozilla's pdf.js test corpus, Apache-2.0. It is used by the
 gates and by nothing that ships.

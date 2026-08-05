@@ -349,15 +349,18 @@ priority — `00`–`09` standing, `10`–`19` defects, `20`–`29` owed feature
 `30`–`39` capability, `40`–`49` measured performance, `50`–`59` blocked. `doc/todo/README.md` is
 the index, and `doc/todo/02-every-round.md` is what a round does around whatever it takes.
 
-**One item outranks the choosing and is not engineering.** [todo 09](todo/09-the-specifications-are-in-the-history.md):
-the fourteen ISO and PDF Association documents in `doc/` and their Markdown conversions under
-`doc/md/` are **tracked, and the project owner is not licensed to redistribute them** — they are
-free to obtain and that is not the same permission. A git repository carrying them is
-redistributing them, so this has to be true before this tree is published anywhere: the bootstrap
-written first (the download, and `docling` for the conversion), every gate made to skip and say so
-rather than fail, then `git filter-repo` over the whole history. It is also the largest single
-thing that could be done about clone time — 105 MB of a 64 MiB pack — and **the only item here
-whose cost rises with every commit.**
+**The one item that outranked the choosing is done, and it was not engineering.** The fourteen ISO
+and PDF Association documents in `doc/` and their Markdown conversions under `doc/md/` were
+**tracked, and the project owner is not licensed to redistribute them** — free to obtain is not the
+same permission, and a repository carrying them passes them on to everyone who clones it. In the
+three-hundred-and-eleventh session they left the tree and all 436 commits of the history (ADR
+0187), which is what this tree needed to be true before it could be published anywhere and was the
+only item whose cost rose with every commit. **Every reference to them stays as it was**, decided
+in that session: four tests and eleven measurement examples open `doc/ISO_32000-2_sponsored_EC3.pdf`
+or `doc/PDF20_AN001-BPC.pdf` and fail loudly without it, `cargo test -p conformance` needs
+`doc/md/ISO_32000-2_sponsored_EC3.md` and checks no citation without it, and putting your own
+downloaded copies in `doc/` — where `.gitignore` now keeps them — is what makes all sixteen work.
+`NOTICE` section 3 says where they come from.
 
 What stays here is the *shape* of choosing, which is the part that has been wrong before.
 
@@ -2625,6 +2628,7 @@ above rather than here.
 | 193 | A font program that draws nothing says so, and the condition was not the one written down | 0157 |
 | 194 | A one-bit scan reduced by six: the bucket's fourth entry is one image too | — |
 | 195 | Everything re-verified after ten sessions of change; a 2.2% counter given back | — |
+| 196 | The corpus feedback answered by the library's team, and re-measured here | — |
 | 196 | The corpus feedback answered; the owed work moved into `doc/todo/` and this file halved again | — |
 | 197 | A name that ends in the word "Symbol" is not the standard-14 `Symbol`, and §9.6.5.4 says which half of the file wins | 0158 |
 | 198 | §12.8.2.3: a save that outgrows a usage rights signature withdraws it — and no corpus document can trip that | 0159 |

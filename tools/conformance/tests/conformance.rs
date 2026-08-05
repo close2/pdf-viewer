@@ -1,8 +1,10 @@
 //! The conformance gate: citations checked against the standard, and the ledger kept honest.
 //!
-//! Runs with the rest of the workspace's tests and needs nothing but the tree — the
-//! standard's conversion in `doc/md/` is committed, unlike the pdf.js corpus, so none of
-//! these has a skip path.
+//! Runs with the rest of the workspace's tests and needs the standard's conversion in
+//! `doc/md/`, which is **not** in this repository (ADR 0187) and which a developer puts there
+//! themselves. None of these has a skip path: unlike the pdf.js corpus, whose absence costs a
+//! ratchet, the absence of the standard costs every citation in the tree its only check, and a
+//! gate that went quiet about that would be worse than one that fails.
 //!
 //! Three of the four failures below have been seen for real, which is why they are here:
 //! `§8.9.6.5` and `§11.4.5.6` were cited for a year and name nothing; three of five sampled

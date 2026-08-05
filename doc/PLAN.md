@@ -461,8 +461,11 @@ rather than by a TOML crate, because the conformance gate is the last thing that
 running because a dependency did not. That module accepts a documented subset and **rejects**
 the rest by line — valid TOML outside the subset fails to read rather than being misread,
 which is the property that makes a restricted reader safe to build. It reads
-`doc/md/ISO_32000-2_sponsored_EC3.md`, committed, so unlike the pdf.js submodule it needs no
-skip path. It:
+`doc/md/ISO_32000-2_sponsored_EC3.md`, which since session 311 is **not in this repository** —
+ISO's text is free to obtain and not free to redistribute (ADR 0187) — and which a developer puts
+there themselves. It has no skip path all the same, and unlike the pdf.js submodule that is
+deliberate: a missing corpus costs a ratchet, and a missing standard costs every citation in the
+tree its only check. It:
 
 - builds the clause index from the file's 860 `##` headings, each giving a clause number, a
   title and a line range;
