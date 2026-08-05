@@ -134,7 +134,7 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 
 | gate | number | where |
 |---|---|---|
-| tests | **1045** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run whole in the **three-hundred-and-fourth** and again at the end of the twenty: `deny`, `fmt`, `clippy`, all **nine** fuzzers at 50 000 with no artifact left behind, and all **eight** corpus gates — corpus, oracle, text, dates, XMP, JPEG 2000, quorra and the window |
+| tests | **1045** over the ten crates that touch PDF bytes, `clippy` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`, `fmt` clean, `cargo deny` clean on all four, **nine fuzz targets clean at 50 000 runs**, the newest (`xmp`) also at 1 000 000 | re-run whole in the **three-hundred-and-thirty-fifth**, which is the end of this block of twenty: `deny` clean on all four checks, `fmt`, `clippy`, all **nine** fuzzers at 50 000 with **no artifact left behind**, both cross-target checks under `-D warnings`, and all **eight** corpus gates — corpus, oracle, text, dates, XMP, JPEG 2000, quorra and the window |
 | — | **1045 was 1044 was 1043 was 1040 was 1038 was 1037 was 1036 was 1033 was 1027 was 1015, and this row said 1011: the round that added twelve counted them, and four before them had never been counted.** The newest two are §12.5.6.10's markup at both ends — the picture a person sees and the objects the update writes (ADR 0196) — and before them the one chrome gate that can see a character §9.6.2.2's fourteen cannot set (ADR 0195). The twelve are §12.5.6.14's popup window — seven in `pdf-model`, three in `viewer-core`'s headless host and two in `viewer-ui`'s panel test, which is the only gate that can see chrome at all; the four are somebody's and the arithmetic is how it was found, which is this row's whole purpose. The six after them are Table 179's line endings and the box a construction turned out not to have; the three after those are what a build without a confinement says about itself. Before that: 1007 was 1004 was 996. The three before them are §14.8.2.5's range map and its two callers, and the eight before those were one round's: §14.3.2's reader, its corpus gate and the two consumers it broke. Before that, 996 was 993, and the eleven rounds from the two-hundred-and-seventy-fourth added three tests and no gate. Counted with the quoted command in the two-hundred-and-eighty-fifth. **this row said 866 for at least one session and nobody had run it.** Counted as `cargo test -p pdf-spec -p pdf-syntax -p pdf-model -p pdf-font -p pdf-render -p render-cpu -p render-gpu -p pdf-sandbox -p viewer-core -p viewer-ui --no-fail-fast`, summing the `test result: ok. N` lines, it was **931** before the hundred-and-eighty-sixth session's fourteen, and the forty-four sessions from the hundred-and-eighty-sixth added forty-one. Quote the command with the number | — |
 | corpus (974 pdf.js documents, page one) | 964 open, 959 reach page one, **886 draw with nothing reported**, **73 report something** — five of them net new over the hundred-and-eighty-first to -third: a stencil painted with a *tiling* pattern stopped being drawn in a colour nothing had set (2, ADR 0151), a substituted font that draws **none** of its characters stopped being silent (10, ADR 0152), and eight of those ten then drew, because a substitute is now chosen by coverage (ADR 0153) — 0 slower than 30 s | `tests/corpus.rs`, ~3 s |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | of **1685** we call complete: **856 agree**, **68 contradicted**, 750 ambiguous — **744 of the 786 diagnosed and 42 held by name since the hundred-and-seventy-sixth** (§3a) — 9 not comparable, 2 a reference's geometry | `tests/oracle.rs`, **36 s** |
@@ -144,8 +144,8 @@ that exists (ADR 0146, and §12.3.4's `UseThumbs` in the two-hundred-and-sixty-f
 | dates | 1545 date strings, 1514 conforming (97.99%) | `tests/dates.rs` |
 | **§14.3.2's XMP** (same 974) | 319 documents carry a metadata stream: **318 read, 1 refused**, 3191 properties between them, 106 stating `dc:title` — the refusal is a fuzzed file whose stream does not decode at all. New in the two-hundred-and-ninety-fourth (ADR 0186) | `tests/xmp.rs`, ~0.3 s |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and **no remaining difference exceeds one level** — down from 87. Two defects, one clause, and each hid the other: ISO/IEC 15444-1's E-6 reconstructs a nonzero coefficient at `r · 2^(Mb − Nb)`, and `hayro-jpeg2000` 0.4.0 applied *none* of that term while upstream `9cce046b` applies it except where `Mb − Nb` is zero — a **fully decoded** coefficient, where `2^0 = 1` makes the term `r` itself. The first was this project's hypothesis in the two-hundredth session, confirmed in the three-hundred-and-eleventh; the second was found in the three-hundred-and-eleventh by bisecting on resolution and fixed in `close2/hayro` `2a1abd14`, which this tree pins (ADR 0190). **3.4 M differing samples became 5 900**, the population never moved, and the residual — one level on 0.02% to 0.1% of a plate — is an open question with the rounding mode and FMA already ruled out. `doc/JPEG2000_FEEDBACK.md` §§7–8 | `tests/jpeg2000.rs`, ~8 s |
-| the window | **Tab draws a focus ring** — `160F-2019.pdf` under `Xvfb`, two presses, the ring round its first widget, captured with `xwd` (ADR 0126's recipe, and `xdotool windowfocus` before `key --window` is what makes the press arrive). page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **22.4 ms**, and five arrow keys turn to page 6 presenting in **9.5 to 15.9 ms** with nothing refused — re-run in the three-hundred-and-ninth at 9.6 to 22.7 ms over the same five keys, with the whole launch **125.4 ms** on a machine running the corpus gates beside it (`arguments` 0.016, `chrome fonts` 3.4, `event loop` 28.9, `window` 29.2, `graphics instance` 33.2, `graphics device` 55.0, `document joined` 58.9, first present 125.4). Measured undisturbed in the two-hundred-and-ninety-second, where the whole launch is **98.8 ms** (ADR 0179's timeline, ADR 0185's threads), on `lavapipe` through quorra and so not comparable with a real adapter, where `examples/first_frame` puts the first frame at 18.2 ms and the tenth at 4.1; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` — and since the two-hundred-and-ninety-fourth that string comes from the `dc:title` Table 147 actually names rather than from `/Info /Title`, which on this document happens to say the same thing | ADR 0126's recipe, session 175 |
-| conformance | **416 quotations**, all verbatim, 4033 citations, 193 distinct tables cited by the tree, **823 ledger rows** | `-p conformance` |
+| the window | **Tab draws a focus ring** — `160F-2019.pdf` under `Xvfb`, two presses, the ring round its first widget, captured with `xwd` (ADR 0126's recipe, and `xdotool windowfocus` before `key --window` is what makes the press arrive). page one of ISO 32000-2 drawn in a real window on `Xvfb`, presented in **22.4 ms**, and five arrow keys turn to page 6 presenting in **9.5 to 15.9 ms** with nothing refused — re-run in the three-hundred-and-ninth at 9.6 to 22.7 ms over the same five keys, with the whole launch **125.4 ms** on a machine running the corpus gates beside it (`arguments` 0.016, `chrome fonts` 3.4, `event loop` 28.9, `window` 29.2, `graphics instance` 33.2, `graphics device` 55.0, `document joined` 58.9, first present 125.4). Measured undisturbed in the two-hundred-and-ninety-second, where the whole launch is **98.8 ms** (ADR 0179's timeline, ADR 0185's threads), on `lavapipe` through quorra and so not comparable with a real adapter, where `examples/first_frame` puts the first frame at 18.2 ms and the tenth at 4.1; the shape is what the row is for. **The sidebar opens by itself** — that document states `/PageMode /UseOutlines` — and its title bar reads *ISO 32000-2:2020 (PDF 2.0) including Errata Collection 3* rather than the file name, because it also sets `/DisplayDocTitle` — and since the two-hundred-and-ninety-fourth that string comes from the `dc:title` Table 147 actually names rather than from `/Info /Title`, which on this document happens to say the same thing **Re-run whole in the three-hundred-and-thirty-fifth**: five arrow keys turn ISO 32000-2 to page 6 under `Xvfb`, presenting in **8.7 to 15.6 ms**, with the launch at **98.5 ms** to the first present and the sidebar open on §12.3.3's outline — and the outline's rows carry the placeholder boxes of ADR 0195, which is two features meeting in one screenshot | ADR 0126's recipe, session 335 |
+| conformance | **426 quotations**, all verbatim, 4229 citations, 194 distinct tables cited by the tree, **823 ledger rows** | `-p conformance` |
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -287,59 +287,68 @@ reports `Timeout`, and the drag keeps updating. A page the device refuses for th
 `bug1721218_reduced.pdf`, whose coverage outgrows a 16384 × 16384 scratch image — comes back on the
 processor in 1.68 s and the window zooms, scrolls and opens its sidebar afterwards.
 
-### The twenty rounds from the two-hundred-and-ninety-fourth
+### The twenty rounds from the three-hundred-and-fifteenth
 
-**A hundred-session refusal that turned out to be a question nobody had asked, two clauses whose
-callers nobody maintained, and a sweep that is arithmetic.** What the twenty have in common is one
-sentence:
+**What the twenty have in common is one sentence, and it is the previous block's shape with the
+tree in the place the capability used to be:**
 
-> **A reason that names a decision expires the moment somebody takes it, and nothing announces
-> that either** — which is the capability shape one level up, with the project itself in the
-> place the capability used to be.
+> **The answer was already in the tree, and what was stale was the argument for not having it.**
 
-`doc/todo/50` had said for a hundred sessions that §14.3.2's XMP was blocked on "a dependency
-decision this tree has not taken", with **319 corpus witnesses** behind it and, in the same file,
-the four questions that would settle it: which crate, what its attack surface is, what it does on
-malformed input, what the fuzz target looks like. Answering them took one round (ADR 0186).
+Nine of the twenty found something this program already did, or already could, behind a sentence
+saying otherwise — and the sentences were in ledger rows, in doc comments, in a todo file's header
+and in this file.
 
-- **§14.3.2 is read** — `xmlparser`, 2148 lines, no dependencies, `#![forbid(unsafe_code)]`, a pull
-  tokenizer that resolves no entity and opens no file, so the billion-laughs expansion and the
-  external entity are structurally absent rather than defended against. 318 of 319 packets read,
-  3191 properties, a ninth fuzz target seeded with all of them and clean at 1 000 000 runs. §12.2's
-  `/DisplayDocTitle` is a *reading* now rather than a documented departure, and the census answered
-  the question the departure had been carrying: 93 documents state a title in both places and one
-  disagrees.
-- **Two clauses had a reader and no caller**, which is `doc/todo/01`'s fifth sweep from both ends.
-  §14.8.2.5's logical order had been implemented since session 156 and a selection was still taken
-  in content order; `Tree::logical_range` is the map between the two orders' *offsets* and it
-  refuses rather than shortens, because a copy that silently dropped what the structure tree missed
-  would be worse than one in the wrong order. And §12.5.1's `/Tabs` was owed to "a keyboard this
-  program has no key for" — all five of Table 31's orders now, with `Command::Focused`, the key the
-  clause itself names, and `Query::Focus` so the ring can be drawn round what it lands on.
-- **A sixth sweep, and it is arithmetic rather than a grep**: print every ledger row that owes more
-  than all of its own children. Five hits, four wrong, three of them in a shape no grep can see —
-  **the note corrected and the status left behind**. §7.6.3 was `partial` above a note opening
-  "both algorithms are implemented in both directions".
-- **And the ambiguous bucket went 94 → 76**, on eleven pages and four documents, with two results
-  about the *instrument* rather than about any page: step 6's assumption fails in the direction
-  that is a finding — a difference identical at 8× and 16× is neither scan conversion nor the
-  reduction, which is what found `AMBIGUOUS_ICC_MATRIX_PROFILE` — and a gap between two *clusters*
-  is still a question for the ladder, on `prefilled_f1040.pdf` where the clusters were 2.4 of 255
-  apart and neither was a defect.
+- **§9.10.2's second method applies to a Type 3 font**, which `type3.rs` denied for three hundred
+  sessions in a comment beside the field: "a glyph name in a Type 3 font names a procedure, so …
+  the name is no evidence at all about the character". It names a procedure *and* a character.
+  With the clause's own last-resort permission beside it and the rule that a glyph description's
+  own text is the glyph rather than the page's, the readback went **98.2% → 99.2%** of
+  `pdftotext`'s words and the documents below the 0.90 floor **36 → 25**.
+- **A person can mark up a page** — §12.5.6.10's four subtypes over a selection, written back by
+  §7.5.6 with the appearance stream this program draws — which needed one field (`Page::id`) that
+  `doc/todo/33` had scoped and deliberately not added, and one distinction: the log records what
+  was *done*, not what was asked for (ADR 0196).
+- **Two rows in the §8.11 family were stale in ways no sweep could see**: §8.11.2.1 listed two
+  Table 96 entries as "read by nothing" that had been read for 150 and 290 sessions, and
+  §8.11.3.2 called the `DP` form unimplemented sixty-five sessions after a resource walk covered
+  it by construction.
+- **A selection was cleared by every re-interpretation**, on a comment naming the one case it was
+  written for: "a range of the page that has just been replaced". A page drawn again is not a page
+  turned, and every field edit took a person's selection away from them.
+- **The chrome's own silence was measured** — 74 corpus documents state text §9.6.2.2's fourteen
+  cannot set, nine strings drew as nothing at all — and a character with no code is a box now
+  rather than a gap (ADR 0195).
+- **And three counts in this file and the ledger were the instrument rather than the measurement**:
+  the ambiguous bucket's "72 undiagnosed" was `wc -l` of a file with a twelve-line header, the
+  oracle row's "1683 complete" was arithmetic where the gate prints 1685, and §9.10.2's row opened
+  with the sixty-third session's 96.5% while six later sessions had moved it.
 
-**Three failures of this project's own process, all in the same place.** A correction recorded in
-`doc/todo/01` and never made to the row it named (§7.9, seventeen rounds later). A count written by
-a script whose `assert` sat before its write, so two rounds' commit messages reported numbers the
-handover never received. And a habit written into `02-every-round.md` one round after the first
-occurrence and one round before the second. **A habit recorded and not performed is the same
-failure as a correction recorded in a todo file** — grep the number back out of the file.
+**The ambiguous bucket went 60 → 42**, and what came out of it is mostly *instruments*:
 
-**And one refusal taken and written down as a refusal.** Table 231's `DoNotScroll` is a `shall`
-that has bound this program since the hundred-and-thirty-fifth session, found in §12.7.5.3's own
-"Not read:" list behind the reason *"constrains typing"*: **a flag that constrains typing binds a
-program that types.** It is owed rather than half-done, because what it costs is a measurement —
-`variable_text::lay_out` reporting where it stopped — and because truncation without a caret is
-half the behaviour the clause describes.
+- **A ladder that is flat is not measuring an edge.** `issue269_1.pdf`'s three renderers are
+  parallel across five resolutions, so the difference is a colour — and on a page whose colours are
+  few the histogram is exact rather than statistical: ours and `poppler` byte-identical, `mupdf`
+  two levels away (`AMBIGUOUS_DEVICE_CMYK_CONVERSION`).
+- **On a small page the per-row mean is a free heatmap.** `issue19083.pdf` is 149 × 68 pixels and
+  twenty rows of two numbers said what the ink table could only say the size of: two border lines
+  are 78% of the whole difference.
+- **The tightest limits this bucket has produced** — `160F-2019.pdf`'s two ladders agree to
+  **0.0008 of 255**, `issue269_2.pdf`'s to 0.0001 — and on both, ours is within 0.02 of them while
+  a reference at the page's own scale is 2.70 and 0.55 over its own.
+- **And "check what else on the list is the same file" is not "assume it is the same answer"**:
+  `issue840.pdf`'s two pages are a colour and an edge respectively.
+
+**Three new instruments, each built because a claim needed a number**: `chrome_coverage` (what the
+interface's font cannot set), `oc_usage_census` (which of Table 100's categories the corpus asks
+for — six documents, and `Zoom` not once), and `readback` (what a page reads back as, which is the
+direction the text gate is silent about and the only way to judge a rule that could invent text).
+
+**And one measurement that was wrong because of *when* it was taken.** §9.10.2's last-resort
+permission applied to simple fonts was measured, found to cost `pr4922.pdf` its whole readback, and
+dropped — two rounds before the round that removed the interaction. Re-measured after it, the same
+code is free and lifts two documents off the floor. **A measurement is a measurement of the tree as
+it stands**, and a rule refused on one round's evidence is worth re-measuring after the round that
+changes what it touches.
 
 ---
 
@@ -2837,3 +2846,4 @@ above rather than here.
 | 332 | A selection was a range of the page "that has just been replaced", and a page drawn again is not a page turned — every edit took a person's selection away; the six sweeps run clean | — |
 | 333 | Two more, and a new group for the one the standard puts beyond itself: three renderers within 0.09 of each other and two 0.9 above, on three commands of §11.4.7 | — |
 | 334 | Step 7 over all 786 after twenty rounds of change: three names past −1 and all three diagnosed, which is the alarm holding rather than a finding | — |
+| 335 | Everything re-verified after twenty rounds: nine fuzzers, `deny`, two cross-targets, the eight gates and the window — and twenty rounds' prose brought up to date | — |

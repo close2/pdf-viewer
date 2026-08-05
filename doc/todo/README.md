@@ -33,7 +33,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 
 | | item | corpus |
 |---|---|---|
-| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 76 pages |
+| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 42 names |
 | [01](01-ledger-partial-rows.md) | Read the ledger's 228 `partial` rows against the code — and the six sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |
@@ -44,11 +44,11 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [24](24-image-sampling-intent.md) | Carry an image *and its sampling intent* to the backends | 3 |
 | [25](25-view-dependent-annotations.md) | `/FixedPrint`, which waits on a printing path | 15 |
 | [26](26-icons-a-clause-only-recommends.md) | `Stamp`'s icon, whose standard names are legends rather than symbols | 1 |
-| [27](27-the-interfaces-own-font.md) | The interface drops a character §9.6.2.2's fourteen have no code for, in silence | 45 |
+| [27](27-the-interfaces-own-font.md) | The interface's own font: a character it cannot set is a box now; what is open is *coverage* | 74 |
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` | — |
 | [32](32-presentation-player.md) | Draw a transition's frames | — |
-| [33](33-annotation-editing.md) | Markup and free text, and a caret — §14.8.2.5's logical order is done | — |
+| [33](33-annotation-editing.md) | A caret, and free text — §12.5.6.10's markup and §14.8.2.5's logical order are done | — |
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser, not only the codecs | — |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out | — |
 | [36](36-two-panels-with-no-witness.md) | §12.3.5's collection browser and §12.4.3's article list — a sixth and seventh tab, no witness | 0 |
