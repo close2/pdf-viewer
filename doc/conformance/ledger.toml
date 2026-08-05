@@ -2020,18 +2020,18 @@ note = "Descriptive: it names the three subclauses below. Carries their aggregat
 [[clause]]
 clause = "8.11.2"
 title = "Optional content groups"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/optional_content.rs"]
-test = ["crates/pdf-model/tests/optional_content.rs"]
-note = "Aggregate of §8.11.2.1 to §8.11.2.3."
+test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "crates/pdf-model/tests/optional_content.rs::a_visibility_expression_outranks_the_policy_beside_it", "crates/pdf-model/tests/optional_content.rs::a_group_whose_intent_the_configuration_ignores_does_not_hide_anything"]
+note = "Aggregate of §8.11.2.1 to §8.11.2.3, and all three are `implemented` — the last of them since the three-hundred-and-eighteenth session, when §8.11.2.1's two unread entries turned out to have been read since the thirty-fifth and the sixty-seventh. A parent may owe more than its children and this one does not: what §8.11 still owes is in §8.11.3.2's `DP` form and in §8.11.4's configuration rows, which are the other two branches."
 
 [[clause]]
 clause = "8.11.2.1"
 title = "General"
-status = "partial"
-code = ["crates/pdf-model/src/optional_content.rs"]
-test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn"]
-note = "A group's state comes from the default configuration and its /Intent is honoured. Two Table 96 entries are read by nothing: /Name, which exists to be shown in a user interface, and /Usage, which feeds the automatic state setting of §8.11.4.4. The nesting rule — an outer level that hides content hides every inner level — falls out of the interpreter's hidden-section counter."
+status = "implemented"
+code = ["crates/pdf-model/src/optional_content.rs", "crates/viewer-ui/src/chrome.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "crates/viewer-ui/tests/panel.rs::a_layer_switch_throws_unless_the_document_locked_it"]
+note = "All four of Table 96's entries, and both of the clause's prose rules. A group's state comes from the default configuration (§8.11.4.3, §8.11.4.5); `/Intent` is honoured in both directions (§8.11.2.3); the nesting rule — \"if the visibility state of an outer level indicates that the content needs to be hidden, all inner levels shall be hidden regardless of their individual visibility states\" — falls out of the interpreter's hidden-section counter. **This row read `partial` for two entries the tree reads, and it was wrong about each of them for a different number of sessions.** It said \"[t]wo Table 96 entries are read by nothing: /Name, which exists to be shown in a user interface, and /Usage, which feeds the automatic state setting of §8.11.4.4\". `/Usage` has been read since the **thirty-fifth** session, by §8.11.4.4's usage application dictionaries — `optional_content.rs` fetches it per group and evaluates Table 100's categories against it — and `/Name` since the **sixty-seventh**, where `OptionalContent::name` decodes it as a §7.9.2.2 text string and, since the hundred-and-sixty-seventh, `viewer_ui::chrome` puts it on the row a person throws the switch on. Both are `doc/todo/01`'s fifth shape: a family's member row is not maintained by the session that implements its neighbour, because the clauses do not cite each other — and the entry whose whole purpose is \"presentation in an interactive PDF processor's user interface\" was recorded as unread for a hundred and fifty sessions after a panel existed to present it. Found in the three-hundred-and-eighteenth."
 
 [[clause]]
 clause = "8.11.2.2"

@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **59 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **58 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **727 diagnosed, 59 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **728 diagnosed, 58 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -318,6 +318,24 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**And one in the three-hundred-and-eighteenth, where ours lands *between* the two limits.**
+`issue6132.pdf` page 1 — 0.50 from the nearest reference and 0.93 from the furthest — is a US
+Letter page of 2 328 commands set in nine embedded Computer Modern `Type1C` subsets, with no image
+anywhere, so its mean *is* its glyph coverage.
+
+```text
+                 72 dpi   288 dpi   576 dpi
+poppler         10.3520   10.4153   10.4255
+mupdf           10.4040   10.4455   10.4430
+ours (1x/4x/8x) 10.4147   10.4315   10.4361
+```
+
+Both references climb and end 0.0175 of 255 apart; ours climbs too and ends between them. And it
+is the clearest instance of the other half of `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s argument: at the
+page's own scale ours is 0.02 from its own limit where `poppler` is 0.07 and `mupdf` 0.04 below
+theirs, so of the five renderers at 72 dpi ours is nearest a limit no reference is trusted for.
+
 
 **And one in the three-hundred-and-seventeenth, where the page's own name was the hypothesis.**
 `blendmode.pdf` page 1 sat at **0.46 from the nearest reference and 0.59 from the furthest** — the

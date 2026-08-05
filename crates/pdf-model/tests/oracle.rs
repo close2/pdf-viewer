@@ -4292,7 +4292,30 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 /// nearest reference at the page's own scale is 0.46 to 0.55 away, which is what a page of
 /// eight-point text costs before the pixels shrink.
 ///
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 13] = [
+/// # A page of TeX, in the three-hundred-and-eighteenth, where ours lands *between* the limits
+///
+/// `issue6132.pdf` page 1 came off §3a's ranking at **0.50 from the nearest reference and 0.93
+/// from the furthest**. It is a US Letter page of 2 328 commands, no image anywhere, set in nine
+/// embedded Computer Modern `Type1C` subsets — so its mean, like every other member here, *is* its
+/// glyph coverage.
+///
+/// ```text
+///                  72 dpi   288 dpi   576 dpi
+/// poppler         10.3520   10.4153   10.4255
+/// mupdf           10.4040   10.4455   10.4430
+/// ours (1x/4x/8x) 10.4147   10.4315   10.4361
+/// ```
+///
+/// Both references climb and end **0.0175 of 255 apart**; ours climbs too and ends **between
+/// them** — 0.011 above `poppler`'s limit and 0.007 below `mupdf`'s. And this page is the group's
+/// clearest instance of the other half of the argument: at the page's own scale ours is already
+/// 0.02 from its own limit, where `poppler` is 0.07 and `mupdf` 0.04 below theirs, so of the five
+/// renderers at 72 dpi — ours 10.4147, `mupdf` 10.4040, `poppler` 10.3520, `ghostscript` 10.7446,
+/// `hayro` 10.3149, a spread of 0.43 — ours is the nearest to a limit neither of us is trusted
+/// for.
+///
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 14] = [
+    "issue6132.pdf page 1",
     "file_pdfjs_test.pdf page 1",
     "file_pdfjs_test.pdf page 2",
     "file_pdfjs_test.pdf page 3",

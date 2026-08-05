@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~175 of the 231 rows have not been re-read.
+Status: **standing task.** ~173 of the 229 rows have not been re-read.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -11,8 +11,8 @@ fifty-sixth session, and the statuses are gated: `silent` is **zero**, `REVIEW_O
 fails the build the moment a cited-but-unread clause appears, and `FILE_ONLY_EVIDENCE_CEILING` is
 zero and asserted with `==`.
 
-What no gate can watch is a **note that has gone stale**, and the 238 `partial` rows are where
-those live. Five failure shapes, in the order they were found:
+What no gate can watch is a **note that has gone stale**, and the 229 `partial` rows are where
+those live. Six failure shapes, in the order they were found:
 
 1. A note that *understates* what the code does (five in session 115).
 2. A note whose **reason** has expired — "while §X does not exist", "needs §Y" (117, 118).
@@ -263,6 +263,29 @@ became one. `ViewState::set_field` obeys it now.
 the program *is*, not only the ones about what a clause needs.** The same shape as §7.6.3.2's
 random initialisation vector, which sat in an `implemented` row for a hundred and twenty sessions
 because a reader only ever *reads* one (ADR 0129).
+
+## The seventh run of the fifth shape, and it is the sweep's own subject
+
+**§8.11.2.1 named two Table 96 entries as read by nothing, and the tree read both** — found in the
+three-hundred-and-eighteenth session by reading the §8.11 family top to bottom rather than by any
+grep, because the row's sentence contains no blocker, no capability and no retired string:
+
+> Two Table 96 entries are read by nothing: /Name, which exists to be shown in a user interface,
+> and /Usage, which feeds the automatic state setting of §8.11.4.4.
+
+`/Usage` has been read since the **thirty-fifth** session — §8.11.4.4's usage application
+dictionaries fetch it per group and evaluate Table 100's categories against it — and `/Name` since
+the **sixty-seventh**, with `viewer_ui::chrome` putting it on a row since the hundred-and-sixty-
+seventh. So the entry whose stated purpose is "presentation in an interactive PDF processor's user
+interface" was recorded as unread for a hundred and fifty sessions after a panel existed to present
+it. §8.11.2.1 is `implemented` and its parent §8.11.2 with it, which is the sixth sweep's shape
+arriving one round after the row it depended on was fixed.
+
+**What this adds to the method**: the four greps and the arithmetic all read a row's *reason*, and
+this row gave none — it simply listed two keys. The second sweep is the one that should have caught
+it (an entry claimed unread) and it did not, because the sentence says "read by nothing" rather
+than "Not read:". **Grep the shape, not the wording**: `read by nothing`, `is unread`, `nobody
+reads` are the same claim.
 
 ## What is still owed, named
 
