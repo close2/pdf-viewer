@@ -96,6 +96,33 @@ Inlining a referenced array would leave the original object in the file saying s
 **Appended rather than inserted**, because the array's order is the drawing order the same clause
 states, and a mark a person made last belongs on top of what was there.
 
+### The appearance stream is written too
+
+ADR 0130's argument, one clause over: **this program can produce the bytes, so a file that carried
+the annotation without them would be asking the next reader to do work this one has already done**
+— and a reader that constructs nothing would show the page unmarked. `crate::appearance::construct`
+is the same function the drawing path calls, so what a saved file shows is what this program shows.
+
+`/BBox` is the annotation's own `/Rect`, and that is not a coincidence to be tidied away.
+§12.5.6.10's `/QuadPoints` is "in default user space", so the constructed marks are already in the
+page's coordinates; §12.5.5's algorithm maps a form's `/BBox` onto its `/Rect`, and giving it the
+same rectangle twice makes that map the identity. Any other box would move the marks off the words
+they are over.
+
+**Measured on the two readers this project compares against**, over a five-page note whose cover
+was marked up and saved by the viewer itself:
+
+| | yellow pixels at 72 dpi |
+|---|---|
+| ours | 32 423 |
+| `poppler` | 35 654 |
+| `mupdf` | 35 050 |
+
+Without the `/AP` the same two were 23 060 and 27 241 — eighteen percent apart, because each was
+constructing its own picture of the same quadrilaterals. With it they are within 1.7% of each
+other and of ours, which is the difference between a file that *states* its marks and one that
+asks.
+
 ## Consequences
 
 - A markup is drawn by the *same three functions* the file's own annotations take:

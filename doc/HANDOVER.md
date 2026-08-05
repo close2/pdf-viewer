@@ -1307,7 +1307,7 @@ the page could not be drawn and the things themselves are printed. A click follo
 links and performs the eleven §12.6 actions this program can, and on a markup annotation it **opens the popup window §12.5.6.14 gives it** — a card over the page with Table 172's `/T` in its title bar, Table 166's `/C` behind that and `/Contents` under it, closed again by a second click (ADR 0191) — printing every refusal — including
 §12.7.6.4's import, which reads an FDF file **beside the open document** and nowhere else. A
 locked document is asked for its password at the terminal (§7.6.4.1), three times, with an empty
-line to give up. **`pdf-viewer --licences`** prints `/NOTICE` and exits, which is what both
+line to give up. **`h` marks up what is selected** with §12.5.6.10's highlight and **`k`** with its strikeout, and the mark is written into the file by `s` — §7.5.6's update, with the appearance stream this program draws beside it, so another reader shows the same marks (ADR 0196). **`pdf-viewer --licences`** prints `/NOTICE` and exits, which is what both
 licences covering the compiled-in standard 14 fonts oblige a binary to carry. `--no-sandbox`
 decodes JBIG2 and JPEG 2000 in-process — faster by a spawn and a pipe round trip, appropriate for trusted
 documents, and it prints what it gave up.
@@ -2824,3 +2824,4 @@ above rather than here.
 | 319 | A page whose references are 0.18 under their own limits at 72 dpi; and §8.11.3.2's `DP`, unimplemented in the row for sixty-five sessions after a resource walk covered it by construction | — |
 | 320 | Three `k` operators on a 100 × 100 page: ours and `poppler` byte-identical, `mupdf` uniformly two levels off, and a flat offset is a colour result wearing an ink measurement's clothes | — |
 | 321 | §12.5.6.10's markup, added by a person and written by §7.5.6: a page learns which object it is, and the log records what was done rather than what was asked for | 0196 |
+| 322 | `h` marks up the selection in a real window, and the file states its own marks: with the appearance stream written, `poppler` and `mupdf` go from 18% apart to 1.7% | 0196 |

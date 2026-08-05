@@ -58,7 +58,7 @@ use pdf_render::{
 use render_cpu::CpuRasterizer;
 use render_quorra::{PresentFrame, QuorraPresenter};
 use viewer_core::{
-    Answer, Command, DocumentId, Event, FocusMove, PageTarget, PointerAction, Purpose, Query,
+    Answer, Command, DocumentId, Edit, Event, FocusMove, PageTarget, PointerAction, Purpose, Query,
     RenderRequest, Rendered, Selection, Viewer, Zoom,
 };
 use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar, Tab};
@@ -850,6 +850,16 @@ impl App {
                 winit::window::CursorIcon::Default
             });
         }
+    }
+
+    /// Whether anything on the page is selected.
+    ///
+    /// Asked before §12.5.6.10's markup, which is defined over selected text: the core does
+    /// nothing when there is nothing to mark up, and a person who pressed a key and saw no change
+    /// has been told nothing at all.
+    fn has_selection(&self) -> bool {
+        matches!(self.viewer.query(Query::Selection),
+            Answer::Selected(selection) if !selection.quads.is_empty())
     }
 
     /// Whether the pointer is over the panel rather than over the page.
@@ -1680,6 +1690,15 @@ impl ApplicationHandler for App {
                 let Some(command) = key_command(&logical_key.as_ref(), self.shift) else {
                     return;
                 };
+                // §12.5.6.10's markups are defined over selected text, so a press with nothing
+                // selected asks for an annotation over nothing. `viewer-core` answers by doing
+                // nothing, which is right and silent — and a person who pressed a key and saw no
+                // change has been told nothing at all (trap 5). The host has the selection
+                // already, because it draws it.
+                if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
+                    println!("note: select some text first — §12.5.6.10's markups mark up text");
+                    return;
+                }
                 self.dispatch(command);
             }
 
@@ -1787,6 +1806,21 @@ fn key_command(key: &Key<&str>, shift: bool) -> Option<Command> {
         },
         Key::Character("a") => Command::Select(Selection::All),
         Key::Character("s") => Command::Save,
+        // §12.5.6.10 over what is selected. Four subtypes and one key apiece would be four
+        // bindings a person has to learn; this host offers the one a person means by "mark
+        // this" and leaves the other three to a host with a menu. The colour is this host's
+        // choice — the standard states none, Table 166's `/C` simply carries what a processor
+        // was told — and a soft yellow is what a highlighter is.
+        Key::Character("h") => Command::Edit(Edit::Markup {
+            kind: pdf_model::view::Markup::Highlight,
+            colour: [1.0, 0.9, 0.2],
+        }),
+        // The same mark struck through rather than washed over, because a person marking up a
+        // draft means both and the two are one construction in `pdf-model`.
+        Key::Character("k") => Command::Edit(Edit::Markup {
+            kind: pdf_model::view::Markup::StrikeOut,
+            colour: [0.85, 0.15, 0.15],
+        }),
         // A page taller than the window: the scroll is in device pixels, so this is about a
         // fifteenth of a fitted A4 page and the same on any display.
         Key::Named(NamedKey::ArrowDown) => Command::Scroll { dx: 0.0, dy: 60.0 },

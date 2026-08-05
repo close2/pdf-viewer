@@ -780,6 +780,7 @@ impl ViewState {
         for added in &self.added {
             let mut dict = added.dict.clone();
             dict.insert(Name::new(&b"P"[..]), Object::Reference(added.page));
+            write_added_appearance(document, update, &mut dict);
             update.put(added.id, Object::Dictionary(dict));
 
             let Some(mut page) = update.current(document, added.page) else {
@@ -1723,6 +1724,77 @@ pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Opti
         }
     }
     found
+}
+
+/// Writes the constructed appearance of an annotation a person added into its `/AP`.
+///
+/// ADR 0130's argument, one clause over: this program can produce the bytes, so a file that
+/// carried the annotation without them would be asking the next reader to do work this one has
+/// already done — and a reader that constructs nothing would show the page unmarked. The bytes
+/// are the ones this program draws, so writing them states no new opinion about the file.
+///
+/// **`/BBox` is the annotation's own `/Rect`**, and that is not a coincidence to be tidied away.
+/// §12.5.6.10's `/QuadPoints` is "in default user space", so the marks `crate::appearance`
+/// constructs are already in the page's coordinates; §12.5.5's algorithm maps a form's `/BBox`
+/// onto its `/Rect`, and giving it the same rectangle twice makes that map the identity. Any
+/// other box would move the marks off the words they are over.
+///
+/// Silent where the construction produces nothing — there is no such markup, since
+/// `ViewState::add_markup` refuses an empty set of quadrilaterals and Table 166's `/C` is always
+/// written — and deliberately so: an annotation with no `/AP` is legal, and every reader this
+/// project compares against constructs one.
+fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut Dictionary) {
+    let Some(subtype) = document
+        .get_key(dict, "Subtype")
+        .as_name()
+        .map(|name| name.as_bytes().to_vec())
+    else {
+        return;
+    };
+    let Some(rect) = crate::annotation::rectangle(document, dict, "Rect") else {
+        return;
+    };
+    let built = crate::appearance::construct(document, dict, &subtype, FieldValue::Stored, rect);
+    let Some(content) = built.content else {
+        return;
+    };
+    let mut stream = Dictionary::new();
+    stream.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"XObject"[..])),
+    );
+    stream.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"Form"[..])),
+    );
+    stream.insert(
+        Name::new(&b"BBox"[..]),
+        Object::Array(
+            rect.iter()
+                .map(|edge| Object::Real(f64::from(*edge)))
+                .collect(),
+        ),
+    );
+    stream.insert(
+        Name::new(&b"Resources"[..]),
+        Object::Dictionary(built.resources),
+    );
+    stream.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(content.len()).unwrap_or(i64::MAX)),
+    );
+    let id = update.allocate();
+    update.put(
+        id,
+        Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+            dict: stream,
+            data: content.into(),
+            decryption_failed: false,
+        })),
+    );
+    let mut appearances = Dictionary::new();
+    appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));
+    dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
 }
 
 #[cfg(test)]

@@ -260,6 +260,53 @@ fn a_markup_a_person_added_is_written_and_attached_to_its_page() {
         "one quadrilateral is eight numbers"
     );
 
+    // And the marks themselves, because a reader that constructs no appearance would otherwise
+    // show the page unmarked (ADR 0130's argument, one clause over). §12.5.5 maps a form's
+    // `/BBox` onto its `/Rect`, and §12.5.6.10's quadrilaterals are in default user space, so
+    // the two rectangles are the same one and the map is the identity.
+    let appearance = entry(&saved, added, "AP");
+    let normal = appearance
+        .as_dict()
+        .map(|appearances| saved.get_key(appearances, "N"))
+        .expect("the annotation carries an /AP");
+    let stream = normal.as_stream().expect("its /N is a stream");
+    assert_eq!(
+        saved.get_key(&stream.dict, "BBox").as_array().map(|box_| {
+            box_.iter()
+                .filter_map(Object::as_number)
+                .collect::<Vec<f64>>()
+        }),
+        entry(&saved, added, "Rect").as_array().map(|rect| {
+            rect.iter()
+                .filter_map(Object::as_number)
+                .collect::<Vec<f64>>()
+        }),
+        "the appearance's box is the annotation's rectangle"
+    );
+    let content = saved
+        .decoded_stream_data(stream)
+        .expect("the stream this program wrote decodes");
+    let content = String::from_utf8_lossy(&content);
+    assert!(
+        content.contains("gs"),
+        "§11.3.5.2's mode is what keeps the text under a highlight readable: {content}"
+    );
+    // And the state that operator names is in the stream's own resources, which is the half a
+    // content stream cannot state: a `gs` naming nothing draws in `Normal` and hides the words.
+    let named = saved
+        .get_key(&stream.dict, "Resources")
+        .as_dict()
+        .map(|resources| saved.get_key(resources, "ExtGState"))
+        .and_then(|states| states.as_dict().cloned())
+        .expect("the appearance carries the graphics state it names");
+    let blend = named
+        .iter()
+        .next()
+        .map(|(_, state)| saved.resolve(state))
+        .and_then(|state| state.as_dict().map(|state| saved.get_key(state, "BM")))
+        .and_then(|mode| mode.as_name().map(|name| name.as_bytes().to_vec()));
+    assert_eq!(blend, Some(b"Multiply".to_vec()));
+
     // And the page names it, after whatever it already had: §12.5.2 makes the array's order the
     // drawing order, so a mark made last is drawn on top.
     let annotations = entry(&saved, page, "Annots");
