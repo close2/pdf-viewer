@@ -1,9 +1,9 @@
-# The GPU coverage lane, and what this viewer needs to do to use it
+# The GPU coverage lane, and how this viewer chooses it
 
 *Written for `pdf-viewer` about a change in `quorra` (the sibling checkout at
 `/home/cl/projects/render-lib`, upstream `https://github.com/close2/quorra`).
-The lane is complete and selectable: `quorra_gpu::Options::coverage`. Nothing in this
-viewer uses it yet, and this is what using it would cost.*
+The lane is complete, and this viewer now chooses between it and the CPU one **per
+frame**, from the magnification. This is what that choice is, and where it came from.*
 
 ## Why there is a second lane at all
 
@@ -69,7 +69,9 @@ it.
 
 ### 1. Pass the option through `render-quorra`
 
-`quorra_gpu::Options` has the selector — `coverage: Coverage::{Cpu, Gpu}`, and
+`quorra_gpu::Options::coverage` sets the default and `Device::set_coverage` changes it
+between frames; `QuorraPresenter::set_coverage` forwards the second, and `viewer-ui`
+calls it before each `present`. The selector is — `coverage: Coverage::{Cpu, Gpu}`, and
 `coverage_samples` for its quality. `render-quorra` constructs `Options` in two places — `QuorraRasterizer::new` and `QuorraPresenter::around` — and
 both currently take `Options::default()`. The change is to thread a choice in:
 
@@ -85,33 +87,35 @@ Keep `new` as it is, defaulting to the CPU lane. A backend knob this project's �
 talks a host out of is still a knob, and this one earns its place only where the
 measurement below says it does.
 
-### 2. Decide *when*, not *whether* — the crossover is measured
+### 2. Decide *when*, not *whether* — the crossover is a cliff
 
-Dense 5 933-fill page at 1191×1684, RADV, wall clock per frame:
+Dense 5 933-fill page at 1191×1684, RADV, wall clock per frame in milliseconds:
 
-| magnification | CPU lane | GPU lane |
-|---|---|---|
-| 1× | **1.1 ms** | 15.2 ms |
-| 4× | **0.54 ms** | 2.5 ms |
-| 20× | 12.5 ms | **1.9 ms** |
-| 100× | 7.4 ms | **2.2 ms** |
+| magnification | 1× | 2× | 4× | 6× | 8× | 12× | 16× | 20× | 100× |
+|---|---|---|---|---|---|---|---|---|---|
+| CPU lane | 1.05 | 0.67 | 0.50 | 0.46 | **0.44** | 4.4 | 4.5 | 12.1 | 5.9 |
+| GPU lane | 11.3 | 4.2 | 2.3 | 2.1 | 1.71 | **1.66** | 2.06 | 1.58 | 1.90 |
 
-**The crossover is between 4× and 20×.** The shape is what the two designs predict: the
-CPU lane has a glyph atlas and pays per pixel rasterised, so it wins while glyphs are
-small and repeated; the GPU lane has no atlas and pays per triangle, so it wins once a
-glyph costs more to fill than to describe.
+**The crossover sits between 8× and 12×, and it is a cliff rather than a curve.** The
+CPU lane costs ten times more at 12× than at 8× — for a fraction as much visible page
+— because that is where glyphs cross quorra's 128-pixel atlas limit and stop being
+cached. Below it the CPU lane answers from a handful of tiles; above it it rasterises
+every glyph on every frame, while the GPU lane is flat because nothing in it depends on
+the scale.
 
-So the choice is **per frame, keyed on magnification**, and this viewer is the only
-crate that knows the magnification. The natural home is the presenter call in
-`viewer-ui/src/bin/pdf-viewer.rs`, and the natural signal is already in hand:
-`RenderRequest::target`'s scale against the page size.
+So the threshold is **derived, not tuned**: `128 ÷ the height of the text`. For body
+text of 10 to 12 points that is 13× down to 10.7×, and `GPU_COVERAGE_MAGNIFICATION` in
+`viewer-ui/src/bin/pdf-viewer.rs` is ten — the low end of the band, because being early
+costs a fraction of a millisecond and being late costs ten.
 
-Two cautions before wiring it up. The number above is this laptop's — take it again on
-the target machine, with `cargo run --release -p quorra-gpu --example zoom -- gpu`.
-And switching lanes mid-session means switching *devices* today, because the lane is an
-`Options` field read at construction: either hold two presenters, or ask quorra for a
-per-frame selector. The second is a smaller change and is worth asking for before
-building the first.
+The magnification comes from the frame's own transform, as the square root of its
+determinant rather than from its `a`: §7.7.3.3's page rotation puts the scale into `b`
+and `c` instead, and reading `a` would quietly choose the slow lane on every rotated
+page in the corpus. `tests::a_rotated_page_reads_the_same_magnification` is that case.
+
+A page whose text is much larger or smaller than a book's crosses the cliff somewhere
+else. The honest improvement is to ask the display list how tall its text is, not to
+move the constant.
 
 ### 3. Nothing changes in `pdf-render`
 
@@ -128,7 +132,9 @@ project's contract describes.
 - **No atlas stands in front of it.** That is most of why 1× costs what it does, and it
   is deliberate: a cache keyed on the device transform is exactly what a zoom gesture
   defeats.
-- **Selecting the lane per frame** is not possible yet (see §2).
+- **Nothing chooses per *command*.** A page mixing a huge headline with body text gets
+  one lane for the whole frame, chosen from the magnification: the lane is a device
+  setting, not a property of a fill.
 
 ## One thing worth knowing about correctness
 

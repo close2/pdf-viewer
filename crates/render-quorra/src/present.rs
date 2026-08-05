@@ -114,6 +114,18 @@ impl QuorraPresenter {
         }
     }
 
+    /// Chooses the coverage lane for the frames after this call.
+    ///
+    /// Forwarded to `quorra_gpu::Device::set_coverage`, and the reason it is forwarded
+    /// rather than fixed when the presenter is built is that the right answer changes
+    /// while a document is open. quorra's two lanes have opposite cost curves and the
+    /// crossover is a magnification — see `doc/quorra-gpu-coverage.md` and the caller
+    /// in `viewer-ui`, which is the crate that knows what magnification the next frame
+    /// is at. Nothing here decides; this only carries the decision.
+    pub fn set_coverage(&mut self, coverage: quorra_gpu::Coverage) {
+        self.device.set_coverage(coverage);
+    }
+
     /// The adapter quorra selected, for reports.
     #[must_use]
     pub fn adapter_description(&self) -> &str {

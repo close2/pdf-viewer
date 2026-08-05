@@ -508,6 +508,43 @@ struct App {
     launch: Launch,
 }
 
+/// The magnification past which quorra's GPU coverage lane is the cheaper one.
+///
+/// **Derived, not tuned.** quorra keeps a glyph's rasterised coverage in an atlas until
+/// the glyph exceeds 128 device pixels; past that it rasterises the glyph again on
+/// every frame, which is where its cost stops being flat (its ADR 0016). The
+/// magnification that happens at is `128 ÷ the height of the text`, so body text of 10
+/// to 12 points crosses it between 10.7× and 13×. Ten is the low end of that band,
+/// chosen because being early costs a fraction of a millisecond and being late costs
+/// ten — measured on this machine at 0.44 ms per frame at 8× against 4.4 ms at 12×
+/// (`doc/quorra-gpu-coverage.md`).
+///
+/// A page whose text is much larger or much smaller than a book's crosses it somewhere
+/// else, and the honest way to do better would be to ask the display list what size its
+/// text is rather than to move this number.
+const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
+
+/// Which coverage lane the next frame should be drawn with.
+///
+/// Per frame, because the crossover is a magnification and a person zooming crosses it;
+/// decided *here*, because this is the only crate that knows what magnification the
+/// frame is at. The transform's determinant is the magnification squared — the page
+/// transform is a scale, a y flip and a translation, and §7.7.3.3's page rotation puts
+/// the same factor into `b` and `c` instead of `a` and `d` — so its square root is the
+/// number to compare, and it is right for a rotated page as well.
+fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
+    let magnification = transform
+        .a
+        .mul_add(transform.d, -(transform.b * transform.c))
+        .abs()
+        .sqrt();
+    if magnification >= GPU_COVERAGE_MAGNIFICATION {
+        quorra_gpu::Coverage::Gpu
+    } else {
+        quorra_gpu::Coverage::Cpu
+    }
+}
+
 /// The window, and the presenter that owns its surface.
 struct State {
     window: Arc<Window>,
@@ -1352,6 +1389,11 @@ impl App {
         let drawn = if self.processor {
             Err("was not asked, because --cpu".to_owned())
         } else {
+            // Which lane draws this frame's coverage, decided from this frame's
+            // magnification: see `coverage_for`. Set every frame rather than when it
+            // changes, because it is a field write and tracking the change would be
+            // more state than the thing it saved.
+            state.presenter.set_coverage(coverage_for(target.transform));
             match state.presenter.present(PresentFrame {
                 width,
                 height,
@@ -1942,4 +1984,55 @@ fn ask_password(name: &str) -> Option<String> {
     std::io::stdin().read_line(&mut line).ok()?;
     let password = line.trim_end_matches(['\r', '\n']).to_owned();
     (!password.is_empty()).then_some(password)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GPU_COVERAGE_MAGNIFICATION, coverage_for};
+    use pdf_render::Transform;
+
+    /// The lane follows the magnification, and the page transform a frame is drawn
+    /// with is what states it: scale, y flip, translation.
+    #[test]
+    fn the_lane_follows_the_magnification() {
+        let page = |magnification: f32| {
+            Transform::scale(magnification, -magnification)
+                .then(Transform::translate(0.0, 842.0 * magnification))
+        };
+        assert_eq!(
+            coverage_for(page(8.0)),
+            quorra_gpu::Coverage::Cpu,
+            "below the atlas cliff the cached lane is cheaper"
+        );
+        assert_eq!(
+            coverage_for(page(12.0)),
+            quorra_gpu::Coverage::Gpu,
+            "above it the CPU lane rasterises every glyph on every frame"
+        );
+        assert_eq!(
+            coverage_for(page(GPU_COVERAGE_MAGNIFICATION)),
+            quorra_gpu::Coverage::Gpu,
+            "the threshold itself belongs to the lane it names"
+        );
+    }
+
+    /// §7.7.3.3's page rotation puts the magnification in `b` and `c` rather than `a`
+    /// and `d`, so a rotated page must land on the same lane as an upright one at the
+    /// same zoom. This is the case a `transform.a` test would get wrong — and get wrong
+    /// silently, by choosing the slow lane on a quarter of the corpus.
+    #[test]
+    fn a_rotated_page_reads_the_same_magnification() {
+        let upright = Transform::scale(12.0, -12.0);
+        // A quarter turn: the scale moves off the diagonal entirely.
+        let turned = Transform {
+            a: 0.0,
+            b: 12.0,
+            c: -12.0,
+            d: 0.0,
+            e: 0.0,
+            f: 0.0,
+        };
+        assert_eq!(coverage_for(upright), coverage_for(turned));
+        assert_eq!(coverage_for(turned), quorra_gpu::Coverage::Gpu);
+    }
 }
