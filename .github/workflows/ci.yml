@@ -43,6 +43,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      # The fourteen specification documents this project is written against. They are
+      # free to obtain from the PDF Association and not free to redistribute, so the
+      # repository carries them encrypted rather than in the clear: doc/specifications.zip,
+      # opened with a repository secret (ADR 0187, NOTICE section 3). CI is a developer
+      # like any other here -- it has to put the documents in doc/ before the gates that
+      # read them will run. Without them `cargo test --workspace` fails: the conformance
+      # gate checks 4033 citations against doc/md/, and four tests open a PDF.
+      #
+      # The secret is passed through the environment rather than interpolated into the
+      # command, so that a password containing shell metacharacters cannot become one.
+      - name: Unpack the specifications
+        env:
+          SPEC_ZIP_PASSWORD: ${{ secrets.SPEC_ZIP_PASSWORD }}
+        run: |
+          if [ -z "$SPEC_ZIP_PASSWORD" ]; then
+            echo "SPEC_ZIP_PASSWORD is unset. It is a repository secret, and a pull" >&2
+            echo "request from a fork does not receive it -- see NOTICE section 3." >&2
+            exit 1
+          fi
+          unzip -q -o -P "$SPEC_ZIP_PASSWORD" doc/specifications.zip
+          test -s doc/md/ISO_32000-2_sponsored_EC3.md
+
       # GitHub runners have no GPU and no display. lavapipe is Mesa's software
       # Vulkan implementation, which lets the GPU backend run its full pipeline --
       # including compute shaders -- entirely on the CPU. It is slow, but it makes

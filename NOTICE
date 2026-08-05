@@ -119,12 +119,22 @@ deliberate and needs explaining.
 doc/*.pdf and doc/md/* are ISO 32000-2, the ISO/TS extensions to it, and the PDF Association's
 application notes and guides. This project is written against them: the citation checker and the
 conformance ledger read the Markdown conversion, and several tests and measurement examples open
-the PDF. They are NOT in this repository and never were, in any commit — they are ISO's and the
-PDF Association's, free to obtain from the PDF Association at https://pdfa.org/ and not free to
-pass on, and a repository carrying them would be passing them on. .gitignore keeps them untracked
-so that a developer's own downloaded copies can sit in doc/ where the code expects them; doc/md/
-is then produced from those by docling (doc/README-script.txt). Whatever opens one of these files
-and does not find it says so.
+the PDF. They are ISO's and the PDF Association's, free to obtain from the PDF Association at
+https://pdfa.org/ and NOT free to pass on — a repository carrying them in the clear would be
+passing them on to everyone who clones it.
+
+So they are not carried in the clear. doc/specifications.zip holds all twenty-eight files
+encrypted; .gitignore keeps the unpacked copies untracked. Open it with
+
+    unzip -P <password> doc/specifications.zip
+
+from the workspace root, which puts them where the code looks. The password is not a security
+measure and is not treated as one: it is what keeps a clone of this repository from being a
+redistribution of ISO's text. Ask the project owner for it, or download your own copies from the
+PDF Association under the file names the archive uses. CI reads it from a repository secret.
+
+doc/md/ is docling's conversion of those PDFs (doc/README-script.txt), regenerable from them and
+a derived work of the same documents, which is why it is inside the archive rather than beside it.
 
 doc/pdf.js is a submodule holding Mozilla's pdf.js test corpus, Apache-2.0. It is used by the
 gates and by nothing that ships.

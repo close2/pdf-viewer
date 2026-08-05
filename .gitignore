@@ -16,8 +16,8 @@
 
 # The specifications this project is written against, and the Markdown conversion of them
 # that the citation checker reads. Free to obtain from the PDF Association, not free to
-# redistribute — so they are kept out of the repository and out of its history (ADR 0187),
-# and a developer's own copies live here untracked. NOTICE section 3.
+# redistribute — so the repository carries them only inside doc/specifications.zip, which is
+# encrypted and is tracked (ADR 0187, NOTICE section 3). What `unzip` puts here is ignored.
 /doc/*.pdf
 /doc/md/
 

@@ -1,7 +1,7 @@
 # Handover
 
 Written 2026-07-26, rewritten and halved 2026-08-01 at the end of the **hundred-and-thirtieth**
-session, and kept current since; the **three-hundred-and-tenth** is the last one in it. Read `/CLAUDE.md` first — the five
+session, and kept current since; the **three-hundred-and-eleventh** is the last one in it. Read `/CLAUDE.md` first — the five
 principles, what *done* means, and the closed exclusion list. **Principle 5 is the one that changes how you work**: the specification is the
 only source of truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it
 right, never the definition of right.
@@ -349,18 +349,31 @@ priority — `00`–`09` standing, `10`–`19` defects, `20`–`29` owed feature
 `30`–`39` capability, `40`–`49` measured performance, `50`–`59` blocked. `doc/todo/README.md` is
 the index, and `doc/todo/02-every-round.md` is what a round does around whatever it takes.
 
-**The one item that outranked the choosing is done, and it was not engineering.** The fourteen ISO
-and PDF Association documents in `doc/` and their Markdown conversions under `doc/md/` were
-**tracked, and the project owner is not licensed to redistribute them** — free to obtain is not the
-same permission, and a repository carrying them passes them on to everyone who clones it. In the
-three-hundred-and-eleventh session they left the tree and all 436 commits of the history (ADR
-0187), which is what this tree needed to be true before it could be published anywhere and was the
-only item whose cost rose with every commit. **Every reference to them stays as it was**, decided
-in that session: four tests and eleven measurement examples open `doc/ISO_32000-2_sponsored_EC3.pdf`
-or `doc/PDF20_AN001-BPC.pdf` and fail loudly without it, `cargo test -p conformance` needs
-`doc/md/ISO_32000-2_sponsored_EC3.md` and checks no citation without it, and putting your own
-downloaded copies in `doc/` — where `.gitignore` now keeps them — is what makes all sixteen work.
-`NOTICE` section 3 says where they come from.
+**The one item that outranked the choosing is half done, and its other half is the owner's to
+run.** The fourteen ISO and PDF Association documents in `doc/` and their Markdown conversions
+under `doc/md/` were **tracked in the clear, and the project owner is not licensed to redistribute
+them** — free to obtain is not the same permission, and a repository carrying them passes them on
+to everyone who clones it. In the three-hundred-and-eleventh session they left the tree and the
+index and came back **encrypted** (ADR 0187): `doc/specifications.zip`, 37 MB, ZipCrypto, all
+twenty-eight files, with `.gitignore` covering what `unzip` puts back.
+
+**Run this once in a fresh clone, and everything below works:**
+
+```sh
+unzip -P <password> doc/specifications.zip    # from the workspace root; ask the owner
+```
+
+**Every reference to the documents stays as it was**, decided by the owner in that session: four
+tests and eleven measurement examples open `doc/ISO_32000-2_sponsored_EC3.pdf` or
+`doc/PDF20_AN001-BPC.pdf` and fail loudly until you have, and `cargo test -p conformance` checks
+no citation without `doc/md/ISO_32000-2_sponsored_EC3.md`. **CI is a developer like any other
+here** and unpacks the archive from the `SPEC_ZIP_PASSWORD` repository secret before its tests;
+a pull request from a fork gets no secret, and the step says so rather than failing obscurely.
+
+**What is left is one command over 436 commits, and until it runs this tree may not be
+published** — every commit before session 311 still carries the documents in the clear, which is
+where the 64 MiB pack and 105 MB of it are. It is in "Verify it" below, it needs a force push
+behind it, and it is still the only item here whose cost rises with every commit.
 
 What stays here is the *shape* of choosing, which is the part that has been wrong before.
 
@@ -1292,6 +1305,25 @@ decodes JBIG2 and JPEG 2000 in-process — faster by a spawn and a pipe round tr
 documents, and it prints what it gave up.
 
 ## Verify it
+
+**Nothing here runs in a fresh clone until the specifications are unpacked**, which is one command
+and is above.
+
+**And one command here is not a gate and has not been run.** ADR 0187 took the fourteen
+specification documents out of the tree in the clear; taking them out of the *history* is this,
+and it needs the owner behind it because it rewrites all 436 hashes and force-pushes:
+
+```sh
+FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --index-filter \
+  "git rm -r -q --cached --ignore-unmatch doc/md 'doc/*.pdf'" \
+  --prune-empty --tag-name-filter cat -- --all
+git for-each-ref --format='delete %(refname)' refs/original | git update-ref --stdin
+git reflog expire --expire=now --all && git gc --prune=now --aggressive
+git push --force origin main
+```
+
+The documents themselves are untracked and stay on disk, and `doc/specifications.zip` is tracked
+and is not one of the paths dropped; nothing above touches either.
 
 ```sh
 cargo fmt --all --check
@@ -2742,3 +2774,5 @@ above rather than here.
 | 307 | Nine of 255 painted and given back: the sub-pixel line-work group's extreme, and nobody is wrong | — |
 | 308 | Two ladders ending 0.70 apart, which is the text tolerance's own premise demonstrated | — |
 | 309 | The tightest *ratio* the tail has produced, and it was a page with no limit tight enough to be alone from | — |
+| 310 | quorra's coverage lane chosen per frame from the magnification; the page extent taken once, in f64 | — |
+| 311 | The fourteen specification documents out of the tree and the index; the history rewrite is the owner's to run | 0187 |

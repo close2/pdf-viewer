@@ -57,9 +57,9 @@ use citation::{Citation, Scan};
 
 /// The standard, in the form code can read.
 ///
-/// **Not in this repository** — ISO's text is free to obtain and not free to redistribute, so it
-/// was removed from the tree and from its history (ADR 0187, `NOTICE` section 3). A developer
-/// puts their own conversion here; without it every check below fails rather than skipping,
+/// **Not tracked in the clear** — ISO's text is free to obtain and not free to redistribute, so
+/// the repository carries it inside `doc/specifications.zip` and a developer unpacks it (ADR
+/// 0187, `NOTICE` section 3). Without that step every check below fails rather than skipping,
 /// which is the cost that decision names and accepts.
 pub const STANDARD: &str = "doc/md/ISO_32000-2_sponsored_EC3.md";
 
