@@ -6,8 +6,9 @@ behind it, and the command that reproduces each line — written for whoever mai
 not as a complaint.
 
 **Answered in the three-hundred-and-eleventh session, and the hypothesis this document offered
-was the cause.** §7 is what came back and what it is worth; everything above it is the report as
-it was written, kept because it is the evidence. The short version: 0.4.0 implemented *none* of
+was the cause.** §7 is what came back and what it is worth; §8 is the rest of the same defect,
+found here by bisecting the pipeline and offered back as a pull request. Everything above them is
+the report as it was written, kept because it is the evidence. The short version: 0.4.0 implemented *none* of
 ISO/IEC 15444-1 E.1.1.2's reconstruction bias, upstream commit `9cce046b` implements it, and the
 worst sample error over the corpus falls from **87 levels to 3**. No published version carries it
 yet, so this tree pins the revision.
@@ -189,7 +190,8 @@ is a conclusion:
 
 - **`issue5475.pdf` and the two `issue5481.pdf` plates did not move at all**, and they were at 2
   to 4 levels before the fix. The bias term cannot explain an error it does not change, so if
-  there is a second defect it is visible there and nowhere else. That is where we would look next.
+  there is a second defect it is visible there and nowhere else. **That is where we looked, and
+  there was one — §8.**
 - **1 to 5 levels over 45% of an image's samples is not obviously rounding**, but it is not
   obviously *not* rounding either: both decoders carry the irreversible path in `f32`, and
   `doc/todo/_scan-conversion.md`'s habit applies — a difference that shrinks with precision is
@@ -213,3 +215,76 @@ both say to go back to crates.io the moment a release contains `9cce046b`. `9cce
 conversion* (#1313), corrects `let rb = lab.ra.unwrap_or(200)` to `lab.rb` — a JP2 `Lab` colour
 specification's `b` range read from its `a` field. No corpus document exercises it, which is why
 this tree never saw it.
+
+---
+
+## 8. The reconstruction midpoint is skipped for fully decoded coefficients — **found here, fix offered**
+
+§7 left one question: `issue5475.pdf` and the two `issue5481.pdf` plates did not move at all when
+the bias landed. They were the place to look, and they had the rest of the defect.
+
+### How it was found
+
+**Bisect the pipeline by resolution.** `issue5475.pdf` object 8 states `numresolutions=2`, so
+`opj_decompress -r 1` and `target_resolution: Some((w/2, h/2))` both stop at the LL sub-band with
+**no 9/7 synthesis performed at all** — and the two still disagreed on 16 799 of 65 536 samples.
+That puts the divergence before the wavelet, in dequantisation.
+
+**Then characterise it.** The difference was symmetric — 8 348 samples one lower, 8 451 one higher
+— so it was not the systematic contrast loss of §7. Dumping the pre-rounding `f32` alongside
+`opj_decompress`'s output showed the samples that differ do so **only where our fractional part
+lies in (0.25, 0.75)**:
+
+```text
+we are higher: fractions 0.505 … 0.754
+we are lower : fractions 0.246 … 0.495
+```
+
+which is the exact signature of two floats a **quarter of a level** apart, and of nothing else.
+Two candidates were ruled out before that measurement — the final rounding mode (§7) and FMA,
+which `math::mul_add` already `cfg`s off on a target without it.
+
+### The cause
+
+E-6 reconstructs a nonzero coefficient at `r · 2^(Mb − Nb)` above its decoded magnitude.
+`Mb − Nb` is the count of magnitude bits never coded, so it is **zero once a coefficient is fully
+decoded** — and `2^0 = 1`, which makes the term `r` itself rather than nothing. The quantisation
+interval of width Δ still surrounds the value.
+
+`9cce046b` applies the term only `if bit_position != 0`, which is precisely the fully decoded
+case. That is invisible on coarsely quantised images, where most coefficients are truncated and
+the term §7 restored dominates; it is the *whole* error on finely quantised ones, where almost
+every coefficient is complete. Which is exactly the population §7 could not explain.
+
+### The fix, and one thing it must not do
+
+Applying `r` unconditionally makes the irreversible codestreams agree and **breaks the reversible
+ones**: `S2.pdf` objects 29 to 31 go from byte-identical to 19 131 samples wrong by up to 5. With
+no quantisation there is no interval — a fully decoded coefficient is *exact*, and offsetting it
+by half moves a lossless image. So the offset is skipped where the quantisation style is
+`NoQuantization`, which is why reconstruction now takes the style as an argument. It also has to
+return `f32`, since half a unit is not an integer.
+
+### Measured, on top of §7
+
+| codestream | after `9cce046b` | with this fix |
+|---|---|---|
+| `S2.pdf` object 17 | 53 286 differ, worst by 3 | **325, worst by 1** |
+| `S2.pdf` object 19 | 34 908, worst by 3 | **436, worst by 1** |
+| `S2.pdf` object 21 | 8 758, worst by 2 | **314, worst by 1** |
+| `issue5475.pdf` object 8 | 91 144, worst by 2 | **48, worst by 1** |
+| `issue5481.pdf` object 5 | 1 076 388, worst by 4 | **546, worst by 1** |
+| `issue5549.pdf` object 11 | 965 165, worst by 5 | **2 494, worst by 1** |
+
+**Roughly 3.4 million differing samples become 5 900, and no remaining difference exceeds one
+level.** The buckets are unchanged — 14 identical, 13 differing, 3 not comparable — and all
+fourteen that were byte-identical, every one of them reversible, stay so. `hayro-jpeg2000`'s own
+`test_jpeg2000_standard_example_b4`, which is Annex B.4's worked example, still passes.
+
+Offered as a pull request from `close2/hayro`, branch
+`fix/reconstruction-midpoint-when-fully-decoded`.
+
+**What is left after it is one level on 0.02% to 0.1% of a plate's samples**, which is where a
+precision ladder becomes the right instrument rather than more reading: a difference that shrinks
+as both sides move to `f64` is arithmetic, and one that does not is a third defect. Nobody has run
+that.
