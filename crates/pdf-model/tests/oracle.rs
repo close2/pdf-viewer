@@ -1570,7 +1570,31 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// largest on the one tile that is a heading rather than a photograph — glyph edges — and not one
 /// of the sixteen swatches is an outlier. Sixteen blend modes, and the difference is spread over
 /// all of them in proportion to how much they draw.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 15] = [
+/// # A sixteenth, and the tightest limit this group has produced
+///
+/// `issue269_2.pdf` page 1 came off §3a's ranking in the three-hundred-and-twenty-fourth session
+/// at 0.43 from the nearest reference and 1.23 from the furthest. It is a checkerboard: one
+/// 200 × 200 `DCTDecode` photograph at **144 ppi** repeated across the page inside `/OC` sections,
+/// with crop marks and no text anywhere — so every mark on it is an image reduced by two.
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler       29.0344   28.48040
+/// mupdf         28.7474   28.48050
+/// ours (1x/8x)  28.4280   28.46650
+/// ```
+///
+/// **The two ladders converge to 0.0001 of 255 of each other**, which is this group's tightest
+/// and the bucket's; ours is 0.014 under it at 8× and 0.052 under at the page's own scale, where
+/// `poppler` is 0.554 *over* its own limit and `mupdf` 0.267 over. Same sentence as every other
+/// member: the reduction is where they part from the geometry and ADR 0025's departure is what
+/// lands ours on it.
+///
+/// **Its sibling `issue269_1.pdf` is `AMBIGUOUS_DEVICE_CMYK_CONVERSION`**, four rounds earlier and
+/// for a reason nothing about the name would suggest: a common stem is a reason to look, not an
+/// answer. `issue840.pdf`'s two pages are the same caution inside one file.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 16] = [
+    "issue269_2.pdf page 1",
     "blendmode.pdf page 1",
     "bug1703683_page2_reduced.pdf page 1",
     "two_pages.pdf page 1",

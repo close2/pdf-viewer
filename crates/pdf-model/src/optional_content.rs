@@ -864,11 +864,28 @@ fn covers(configuration: &BTreeSet<Vec<u8>>, intent: &[u8]) -> bool {
 /// # The three categories a page cannot answer, and what happens to them
 ///
 /// `Zoom` asks whether "the current magnification level of the document is greater than or
-/// equal to min and less than max", and a display list has no magnification: it is built once
-/// and rasterised at whatever scale the caller asks for. It is answered at **1.0**, the
-/// magnification at which a page is its stated size, which is a choice — the alternative is to
-/// thread a scale into `interpret` and rebuild the display list per zoom, which is a viewer's
-/// design question rather than a clause's.
+/// equal to min and less than max". It is answered at **1.0**, the magnification at which a page
+/// is its stated size, and that is a choice with a measurement behind it rather than an
+/// architectural limit.
+///
+/// **The reason this comment used to give has expired.** It said "a display list has no
+/// magnification: it is built once and rasterised at whatever scale the caller asks for … the
+/// alternative is to thread a scale into `interpret` and rebuild the display list per zoom, which
+/// is a viewer's design question rather than a clause's". The tree answered that question in the
+/// two-hundred-and-seventeenth session: §12.5.3's `NoZoom` threads exactly such a scale through
+/// `ViewState::magnification`, and `Interpretation::view_dependent` says which pages notice, so
+/// 923 of the 974 corpus documents never re-interpret on a zoom (ADR 0168). §8.11.4.5 states the
+/// obligation that would follow — "[w]henever there is a change to a factor that the usage
+/// application dictionaries with event type View depend on (such as zoom level), the
+/// corresponding dictionaries shall be reapplied".
+///
+/// **What holds it is that nothing asks.** `examples/oc_usage_census` reads every configuration's
+/// `/AS` in all 974 corpus documents: 31 state `/OCProperties`, **six** state a usage application
+/// dictionary at all, and the categories they name are `View` (6), `Print` (6) and `Export` (5)
+/// — **no `Zoom`, no `User`, no `Language` anywhere**. So the magnification would decide nothing
+/// on any document anyone has, and building the reapplication would be shipping a path nobody
+/// takes. The measurement is what makes that a decision rather than an omission, and a document
+/// that named `Zoom` would make it work to do (the three-hundred-and-twenty-fourth session).
 ///
 /// `User` matches "the user's identification" and `Language` "the language and locale of the
 /// application". Both would be answers about this machine rather than about the document, and

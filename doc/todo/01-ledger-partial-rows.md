@@ -294,6 +294,25 @@ it (an entry claimed unread) and it did not, because the sentence says "read by 
 than "Not read:". **Grep the shape, not the wording**: `read by nothing`, `is unread`, `nobody
 reads` are the same claim.
 
+## And the fifth shape found in the *code* rather than in a row, in the three-hundred-and-twenty-fourth
+
+`optional_content.rs` explained answering Table 100's `Zoom` category at a magnification of 1.0 by
+saying that "a display list has no magnification … the alternative is to thread a scale into
+`interpret` and rebuild the display list per zoom, which is a viewer's design question rather than
+a clause's". **The tree answered that design question in the two-hundred-and-seventeenth session**:
+§12.5.3's `NoZoom` threads exactly such a scale through `ViewState::magnification`, and
+`Interpretation::view_dependent` says which pages notice (ADR 0168). So the conclusion was right
+and the argument had expired — `doc/todo/01`'s fifth shape, in a doc comment rather than in a
+ledger row.
+
+**What replaced it is a measurement**, because the clause has a `shall` behind it (§8.11.4.5:
+"[w]henever there is a change to a factor that the usage application dictionaries with event type
+View depend on (such as zoom level), the corresponding dictionaries shall be reapplied").
+`examples/oc_usage_census` reads every configuration's `/AS` in all 974 documents: 31 state
+`/OCProperties`, **six** state a usage application dictionary, and they name `View`, `Print` and
+`Export` — **`Zoom`, `User` and `Language` not once**. A path nobody takes is one `CLAUDE.md`
+forbids shipping, and now the row says so with a number instead of with an architecture.
+
 ## What is still owed, named
 
 - ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).
