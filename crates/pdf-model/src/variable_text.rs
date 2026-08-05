@@ -171,6 +171,18 @@ pub(crate) struct LaidOut {
     pub content: String,
     /// What could not be shown, if anything.
     pub owed: Option<Owed>,
+    /// Whether the value needs more room than [`Request::box_`] gives it, on the axis
+    /// §12.7.5.3's Table 231 bit 24 names.
+    ///
+    /// The clause names one axis per shape — "horizontally for single-line fields, vertically
+    /// for multiple-line fields" — so this is one question with three answers rather than a
+    /// bounding box: a line wider than a multiline field's box is not what the flag is about,
+    /// because [`wrap`] has already decided where that line ends.
+    ///
+    /// **The stream is written either way.** The layout clips to the box and always has; what
+    /// this adds is the ability to *ask*, which is what a program that fills a field needs and a
+    /// program that only draws one does not. See [`crate::view::ViewState::set_field`].
+    pub overflows: bool,
     /// A font dictionary this module invented, to be added to the appearance's `/Resources`
     /// under the name the `/DA` used.
     ///
@@ -606,6 +618,18 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     Ok(LaidOut {
         content: stream,
         owed,
+        overflows: overflows(
+            &measure,
+            &lines,
+            Set {
+                size,
+                metrics: &metrics,
+            },
+            leading,
+            request.shape,
+            width,
+            height,
+        ),
         // The invented dictionary has to reach the appearance's `/Resources` under the name
         // the `/DA` used, whichever of the two ways this crate arrived at it — the stream says
         // `/{name} {size} Tf` either way, and a resource the interpreter cannot find is a
@@ -858,6 +882,50 @@ fn write_lines(
             matrix[0], matrix[1], matrix[2], matrix[3]
         );
         show(stream, line);
+    }
+}
+
+/// Whether the laid-out value needs more room than the box gives, on the axis §12.7.5.3 names.
+///
+/// > If set, the field shall not scroll (horizontally for single-line fields, vertically for
+/// > multiple-line fields) to accommodate more text than fits within its annotation rectangle.
+///
+/// One axis per shape, because that is what the sentence states. The measurements are the ones
+/// [`write_lines`] and [`comb`] use to place the text, deliberately: a question answered with a
+/// different formula from the one that draws would say a value fits and then clip it.
+///
+/// A comb field is a third case the sentence does not spell out, and Table 231's own rule for
+/// bit 25 settles it — the box is divided into `/MaxLen` positions and "the text is laid out
+/// into those combs", so the room is a count rather than a length.
+fn overflows(
+    measure: &Measure,
+    lines: &[Vec<pdf_font::Code>],
+    set: Set,
+    leading: f32,
+    shape: Shape,
+    width: f32,
+    height: f32,
+) -> bool {
+    match shape {
+        Shape::Comb(cells) => {
+            lines
+                .iter()
+                .flatten()
+                .filter(|code| **code != BREAK)
+                .count()
+                .saturating_sub(usize::try_from(cells).unwrap_or(usize::MAX))
+                > 0
+        }
+        Shape::SingleLine => lines
+            .iter()
+            .any(|line| measure.width(line, set.size) > width),
+        // The same height [`write_lines`] lays out: one ascent above the first baseline, one
+        // descent below the last, and a leading between each pair.
+        Shape::Multiline => {
+            let ascent = set.metrics.ascent * set.size;
+            let descent = set.metrics.descent * set.size;
+            leading.mul_add(count(lines.len().saturating_sub(1)), ascent - descent) > height
+        }
     }
 }
 

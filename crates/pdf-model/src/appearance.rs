@@ -1810,6 +1810,105 @@ fn field_text(
         .map_err(Refusal::Text)
 }
 
+/// How much of a value one widget will take, where §12.7.5.3's Table 231 bit 24 binds.
+///
+/// > If set, the field shall not scroll (horizontally for single-line fields, vertically for
+/// > multiple-line fields) to accommodate more text than fits within its annotation rectangle.
+/// > Once the field is full, no further text shall be accepted for interactive form filling;
+/// > for non-interactive form filling, the filler should take care not to add more character
+/// > than will visibly fit in the defined area.
+///
+/// Two sentences and only the second binds a reader — a `shall` about *accepting* text, which
+/// binds this tree because [`crate::view::ViewState::set_field`] made it a program that fills a
+/// field. `None` is a widget the flag does not constrain: it is clear, or the field is not a
+/// text field (Table 231 is §12.7.5.3's alone), or nothing about the widget can be laid out at
+/// all, in which case refusing text on the strength of a layout that does not exist would be a
+/// guess. `Some(n)` is the byte length of the longest prefix of `value` that fits.
+///
+/// **The search is a bisection over the value's character boundaries**, on the property that a
+/// longer value never fits where a shorter one does not: [`variable_text::lay_out`]'s wrapping
+/// is greedy left to right, so the lines a prefix produces are what the full value's layout had
+/// reached at that point, and auto-sizing only shrinks as the value grows. The answer is checked
+/// rather than assumed — the prefix returned is one this function measured — so a font with
+/// negative advances costs an early cut and not a wrong one.
+pub(crate) fn accepted_prefix(
+    document: &Document,
+    annotation: &Dictionary,
+    value: &str,
+) -> Option<usize> {
+    let field = Field::read(document, annotation, FieldValue::Edited(None));
+    if field.too_deep
+        || field.kind != Some(FieldKind::Text)
+        || field.flags & FLAG_DO_NOT_SCROLL == 0
+    {
+        return None;
+    }
+
+    // The same box the appearance is laid out in, arrived at the same way: `/Rect` turned into
+    // the widget's own axes and inset by the border that would otherwise strike the text
+    // through. A different box here would accept text the appearance then clips.
+    let rect = rectangle(document, annotation).ok()?;
+    let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    let source = characteristics.as_ref().unwrap_or(annotation);
+    let border = Border::read(document, annotation, source, "BC").ok()?;
+    let rect = Rotation::read(document, source)?.content_box(rect);
+    let box_ = inset(rect, border.width);
+
+    let form = interactive_form(document).unwrap_or_default();
+    let sources: Vec<&Dictionary> = field
+        .ancestry
+        .iter()
+        .chain(std::iter::once(&form))
+        .collect();
+    let default_appearance = variable_text::bytes(document, &sources, "DA")?;
+    let resources = default_resources(document);
+    let quadding = Quadding::read(document, &sources);
+    let shape = field.text_shape(document, annotation);
+    // Table 231 bit 14 has a password field's characters "echoed in some unreadable form", and
+    // `field_text` echoes them as bullets — so the width that decides whether the field is full
+    // is the bullets' and not the characters'.
+    let password = field.flags & FLAG_PASSWORD != 0;
+    let fits = |prefix: &str| {
+        let shown = if password {
+            "\u{2022}".repeat(prefix.chars().count())
+        } else {
+            prefix.to_owned()
+        };
+        let request = Request {
+            text: &shown,
+            box_,
+            default_appearance: &default_appearance,
+            resources: &resources,
+            quadding,
+            shape,
+        };
+        // A layout this crate cannot build says nothing about how much text the box holds, so
+        // it constrains nothing — the report `field_text` raises is the honest answer there.
+        variable_text::lay_out(document, &request).is_ok_and(|laid_out| !laid_out.overflows)
+    };
+
+    if fits(value) {
+        return Some(value.len());
+    }
+    let boundaries: Vec<usize> = value
+        .char_indices()
+        .map(|(at, _)| at)
+        .chain(std::iter::once(value.len()))
+        .collect();
+    // An empty value fits by construction, so the bisection's lower bound needs no measuring.
+    let (mut low, mut high) = (0_usize, boundaries.len().saturating_sub(1));
+    while low < high {
+        let middle = low.saturating_add(high.saturating_add(1).saturating_sub(low) / 2);
+        let at = boundaries.get(middle).copied()?;
+        if fits(value.get(..at)?) {
+            low = middle;
+        } else {
+            high = middle.saturating_sub(1);
+        }
+    }
+    boundaries.get(low).copied()
+}
+
 /// Draws a free text annotation's `/Contents`, laid out by §12.7.4.3, as §12.5.6.6 states:
 ///
 /// > A free text annotation ( PDF 1.3 ) displays text directly on the page.
@@ -1910,6 +2009,9 @@ const FLAG_PASSWORD: i64 = 1 << 13;
 const FLAG_PUSHBUTTON: i64 = 1 << 16;
 /// Table 233 bit 18: "If set, the field is a combo box; if clear, the field is a list box."
 const FLAG_COMBO: i64 = 1 << 17;
+/// Table 231 bit 24: "If set, the field shall not scroll … to accommodate more text than fits
+/// within its annotation rectangle."
+const FLAG_DO_NOT_SCROLL: i64 = 1 << 23;
 /// Table 231 bit 25: the field "shall be automatically divided into as many equally spaced
 /// positions, or combs, as the value of `MaxLen`".
 const FLAG_COMB: i64 = 1 << 24;

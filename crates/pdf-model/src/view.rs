@@ -637,6 +637,22 @@ impl ViewState {
     /// **Nothing is written to the file.** `CLAUDE.md`'s rule 1 makes the document immutable;
     /// what a person did is a log beside it, and turning that log into §7.5.6's incremental
     /// update is a separate operation with its own clause.
+    ///
+    /// # What Table 231 bit 24 takes away
+    ///
+    /// §12.7.5.3's `DoNotScroll` makes a full field stop accepting text — "[o]nce the field is
+    /// full, no further text shall be accepted for interactive form filling" — and this is the
+    /// one place in the tree a person's text is accepted, so it is where the `shall` binds. The
+    /// value a widget takes is the **longest prefix of `value` that fits its annotation
+    /// rectangle**, which is what "no further text" means for a host that sends whole values
+    /// rather than keystrokes. Where the flag is clear, or the field is not a text field, or
+    /// nothing about the widget can be laid out, the value is taken whole.
+    ///
+    /// **One field, one value, so the shortest prefix wins.** §12.7.4.1 makes a field's value
+    /// shared by all of its widgets and Table 231's flag belongs to the *field*; a value that
+    /// overflowed one widget's rectangle while fitting another's would be a field that is full
+    /// and not full at once, and the reading that keeps every widget showing the whole value is
+    /// the one that keeps the clause's sentence true of the field.
     pub fn set_field(&mut self, document: &Document, name: &str, value: Option<&str>) -> usize {
         if !permits_form_filling(document) {
             return 0;
@@ -645,20 +661,23 @@ impl ViewState {
         let Some(widgets) = table.get(name) else {
             return 0;
         };
+        // Table 227 bit 1: an interactive processor shall not allow a *user* to change the
+        // value. A person is exactly who this refuses, which is what separates it from
+        // §12.7.6.3's reset and §12.7.8's import — both of those are the *document* changing
+        // its own value, and neither is a user.
+        let taking: Vec<ObjectId> = widgets
+            .iter()
+            .copied()
+            .filter(|widget| !is_read_only(document, *widget))
+            .collect();
+        let value = value.map(|value| accepted(document, &taking, value));
         let mut applied = 0_usize;
-        for widget in widgets {
-            // Table 227 bit 1: an interactive processor shall not allow a *user* to change the
-            // value. A person is exactly who this refuses, which is what separates it from
-            // §12.7.6.3's reset and §12.7.8's import — both of those are the *document* changing
-            // its own value, and neither is a user.
-            if is_read_only(document, *widget) {
-                continue;
-            }
+        for widget in &taking {
             // The four statements about a value answer one question, so a widget belongs to
             // exactly one of them: what a person typed is the latest of the four.
             self.reset.remove(widget);
             self.imported.remove(widget);
-            self.edited.insert(*widget, value.map(ToOwned::to_owned));
+            self.edited.insert(*widget, value.clone());
             applied = applied.saturating_add(1);
         }
         applied
@@ -1530,6 +1549,25 @@ fn permits_form_filling(document: &Document) -> bool {
 /// The `/Ff` walk is the one §12.7.4.1 describes and the bound is this module's own: a `/Parent`
 /// chain in a hostile file can be a cycle, and a field nobody can reach the root of is refused
 /// rather than followed for ever.
+/// The part of a typed value §12.7.5.3's Table 231 bit 24 leaves room for, over one field's
+/// widgets.
+///
+/// The shortest prefix any of them accepts, and the whole value where none of them constrains
+/// it — `crate::appearance::accepted_prefix` answers `None` for a widget the flag does not bind.
+fn accepted(document: &Document, widgets: &[ObjectId], value: &str) -> String {
+    let mut limit = value.len();
+    for widget in widgets {
+        let object = document.get(*widget);
+        let Some(annotation) = object.as_dict() else {
+            continue;
+        };
+        if let Some(prefix) = crate::appearance::accepted_prefix(document, annotation, value) {
+            limit = limit.min(prefix);
+        }
+    }
+    value.get(..limit).unwrap_or(value).to_owned()
+}
+
 fn is_read_only(document: &Document, widget: ObjectId) -> bool {
     let mut current = match document.get(widget).as_dict() {
         Some(dict) => dict.clone(),

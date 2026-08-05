@@ -823,3 +823,123 @@ fn a_combo_box_draws_its_value_and_a_list_box_says_it_cannot() {
     let named = reports.iter().any(|report| report.contains("list box"));
     assert!(named, "and says so by name: {reports:?}");
 }
+
+/// What a person typing into one field reaches the page as.
+///
+/// The readback rather than the ink, because what is being checked here is *which characters*
+/// were laid out and no measurement of pixels can say that.
+fn typed(bytes: Vec<u8>, value: &str) -> (usize, String) {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let mut view = pdf_model::view::ViewState::of(&document);
+    let applied = view.set_field(&document, "field", Some(value));
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &view);
+    (applied, interpretation.text.clone())
+}
+
+/// The longest prefix of `value` the readback holds, which is what "no further text" leaves.
+///
+/// The readback puts a line break between two lines the layout wrapped and the value's own space
+/// stays at the end of the first, so dropping the breaks turns the readback back into the run of
+/// characters that was accepted.
+fn prefix_shown(value: &str, shown: &str) -> usize {
+    let shown = shown.replace('\n', "");
+    value
+        .char_indices()
+        .map(|(at, character)| at.saturating_add(character.len_utf8()))
+        .take_while(|end| {
+            value
+                .get(..*end)
+                .is_some_and(|prefix| shown.contains(prefix))
+        })
+        .last()
+        .unwrap_or_default()
+}
+
+/// §12.7.5.3's Table 231 bit 24: a field that may not scroll stops accepting text when it is full.
+///
+/// > If set, the field shall not scroll (horizontally for single-line fields, vertically for
+/// > multiple-line fields) to accommodate more text than fits within its annotation rectangle.
+/// > Once the field is full, no further text shall be accepted for interactive form filling
+///
+/// Two sentences and only the second binds a reader — a `shall` about *accepting* text, which
+/// became this tree's to obey in the hundred-and-thirty-fifth session, when `set_field` made it
+/// a program a person fills a field with. The same value goes into the same box twice and the
+/// fixtures differ in one flag, so this is a test of the clause rather than of a layout: with
+/// the bit clear the value is taken whole and the box clips it, with the bit set the value is
+/// cut where the box ends and the characters past that were never accepted.
+#[test]
+fn a_field_that_may_not_scroll_takes_only_what_fits() {
+    let long = "the quick brown fox jumps over the lazy dog";
+
+    let (applied, shown) = typed(text_field("", "", ""), long);
+    assert_eq!(applied, 1);
+    assert!(
+        shown.contains(long),
+        "with the flag clear the whole value is accepted: {shown:?}"
+    );
+
+    // Bit 24 is 1 << 23.
+    let (applied, shown) = typed(text_field("", "", "/Ff 8388608"), long);
+    assert_eq!(
+        applied, 1,
+        "the field still accepts text, just not all of it"
+    );
+    let kept = prefix_shown(long, &shown);
+    assert!(
+        kept > 0 && kept < long.len(),
+        "a proper, non-empty prefix of the value: {kept} of {}",
+        long.len()
+    );
+    // 160 points of twelve-point Helvetica is a little over twenty characters, and the bound is
+    // stated as a range because the face is whatever this machine substitutes (see this file's
+    // own header). What the clause decides is that it is *not* all forty-two.
+    assert!(
+        (10..40).contains(&kept),
+        "roughly a box's worth of characters, not {kept}"
+    );
+}
+
+/// The same flag on a multiline field, where §12.7.5.3's Table 231 bit 24 names the other axis:
+/// "horizontally for single-line fields, vertically for multiple-line fields".
+///
+/// One axis per shape is the whole of the sentence's parenthesis, so the fixture is a box that
+/// is wide enough for any of these words and tall enough for two lines of them: the value is cut
+/// where the *lines* run out and not where a line does.
+#[test]
+fn a_multiline_field_that_may_not_scroll_stops_at_the_last_line_that_fits() {
+    let value = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi \
+                 omicron pi rho sigma tau upsilon phi chi psi omega";
+    // Bit 13 (multiline, 1 << 12) with bit 24 (1 << 23).
+    let field = |flags: &str| {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx {flags} \
+                 /T (field) /DA (/Helv 10 Tf 0 g) >>"
+            ),
+        )
+    };
+
+    let (_, whole) = typed(field("/Ff 4096"), value);
+    assert_eq!(
+        prefix_shown(value, &whole),
+        value.len(),
+        "with the flag clear the whole value is accepted: {whole:?}"
+    );
+
+    let (_, shown) = typed(field("/Ff 8392704"), value);
+    let kept = prefix_shown(value, &shown);
+    assert!(
+        kept > 0 && kept < value.len(),
+        "a proper, non-empty prefix of the value: {kept} of {}",
+        value.len()
+    );
+    // Thirty points holds two lines of ten-point text at 13/12 leading and not three, and this
+    // value takes five or so lines of this box's width — so what comes back is about two of
+    // them, stated as a range because the face is whatever this machine substitutes.
+    assert!(
+        (30..90).contains(&kept),
+        "about two lines' worth of characters, not {kept}"
+    );
+}
