@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~173 of the 229 rows have not been re-read.
+Status: **standing task.** ~172 of the 228 rows have not been re-read.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -280,6 +280,13 @@ seventh. So the entry whose stated purpose is "presentation in an interactive PD
 interface" was recorded as unread for a hundred and fifty sessions after a panel existed to present
 it. §8.11.2.1 is `implemented` and its parent §8.11.2 with it, which is the sixth sweep's shape
 arriving one round after the row it depended on was fixed.
+
+**And the same shape one clause along, in the three-hundred-and-nineteenth**: §8.11.3.2 said the
+`DP` form was "not implemented", sixty-five sessions after ADR 0178's `groups_referenced_by` covered
+it *by construction* — the clause's sentence has one consequence, a reference, and the walk that
+answers `/ListMode /VisiblePages` reads the page's `/Properties` rather than interpreting the
+stream. Two rows in one family in two rounds, both stale for the same reason: the session that
+implements a mechanism does not maintain the rows of the clauses that need it.
 
 **What this adds to the method**: the four greps and the arithmetic all read a row's *reason*, and
 this row gave none — it simply listed two keys. The second sweep is the one that should have caught

@@ -2068,10 +2068,10 @@ note = "Hiding suppresses marking and nothing else: the colour, transform and cl
 [[clause]]
 clause = "8.11.3.2"
 title = "Optional content in content streams"
-status = "partial"
-code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "crates/pdf-model/tests/optional_content.rs::a_group_missing_from_the_properties_dictionary_hides_nothing"]
-note = "BDC /OC is honoured, including the rule that the operand must name a group listed in /OCProperties /OCGs or a membership dictionary. What is not implemented is the DP form: a DP marked-content point may force a reference to a group on a page that draws nothing in it, which affects a layer panel's ListMode /VisiblePages and nothing that is drawn."
+status = "implemented"
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-model/src/optional_content.rs"]
+test = ["crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "crates/pdf-model/tests/optional_content.rs::a_group_missing_from_the_properties_dictionary_hides_nothing", "crates/pdf-model/tests/optional_content.rs::a_group_named_only_by_a_marked_content_point_is_still_referenced"]
+note = "BDC /OC is honoured, including the rule that the operand must name a group listed in /OCProperties /OCGs or a membership dictionary. **And the DP form with it, which this row called unimplemented for sixty-five sessions after it stopped being so.** The clause's sentence — \"a DP marked-content operator may be placed in a page's content stream to force a reference to an optional content group or groups on the page, even when the page has no current content in that layer\" — has exactly one consequence, because a marked-content *point* marks nothing: the group is *referenced* by the page, which is what Table 99's `/ListMode /VisiblePages` asks. `optional_content::groups_referenced_by` answers that from the page's `/Resources /Properties` rather than by interpreting the stream (ADR 0178, the two-hundred-and-fifty-fourth session), so a `DP` naming a property is counted **by construction** — and the walk's own comment argues the over-listing that buys: a group whose `BDC` never runs costs a person nothing, a group hidden from the panel the document asked to show costs them a switch. `a_group_named_only_by_a_marked_content_point_is_still_referenced` is the gate, because a walk that ever became an interpretation would drop this case in silence. Found in the three-hundred-and-nineteenth session, one clause after §8.11.2.1's two entries, and it is the same shape: the row was not maintained by the session that implemented its mechanism somewhere else."
 
 [[clause]]
 clause = "8.11.3.3"

@@ -4314,7 +4314,31 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 /// `hayro` 10.3149, a spread of 0.43 — ours is the nearest to a limit neither of us is trusted
 /// for.
 ///
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 14] = [
+/// # And a page with a highlight over it, in the three-hundred-and-nineteenth
+///
+/// `issue13242.pdf` page 1 — 0.51 from the nearest reference and 1.21 from the furthest — is
+/// 2 449 commands of Lorem ipsum in one embedded `CIDFontType2` Calibri subset with §12.5.6.10's
+/// yellow wash over eight lines of it, and no image at all.
+///
+/// ```text
+///                  72 dpi   288 dpi   576 dpi
+/// poppler         13.1328   13.3008   13.3168
+/// mupdf           13.1223   13.2659   13.3052
+/// ours (1x/4x/8x) 13.3152   13.2913   13.3119
+/// ```
+///
+/// The two ladders converge to **0.0116 of 255** of each other and ours ends between them again.
+/// What is unusual is the first column: **ours at the page's own scale is already 0.003 from its
+/// own 8× value**, where both references are 0.18 *below* theirs — so on this page the whole of
+/// the oracle's disagreement is the two references' own 72 dpi shortfall.
+///
+/// The other two are worth naming because they are why the verdict is `ambiguous` rather than a
+/// contradiction: `ghostscript` is 14.4157 and `hayro` 10.8733 at 72 dpi, 1.1 over and 2.4 under a
+/// limit the other three agree about, on a page whose only non-glyph mark is a flat wash under
+/// `Multiply`. The spread is 3.5 of 255 and the diagnosis rests on the two ladders that converge.
+///
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 15] = [
+    "issue13242.pdf page 1",
     "issue6132.pdf page 1",
     "file_pdfjs_test.pdf page 1",
     "file_pdfjs_test.pdf page 2",

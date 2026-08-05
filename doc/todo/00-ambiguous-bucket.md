@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **58 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **57 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **728 diagnosed, 58 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **729 diagnosed, 57 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -318,6 +318,14 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**And one in the three-hundred-and-nineteenth, where the references are the ones short.**
+`issue13242.pdf` page 1 — 0.51 from the nearest and 1.21 from the furthest — is 2 449 commands of
+Lorem ipsum in one embedded Calibri subset with §12.5.6.10's yellow wash over eight lines. Two
+ladders converge to 0.0116 of 255 of each other and ours ends between them; what is unusual is
+72 dpi, where **ours is already 0.003 from its own 8× value** and both references are 0.18 below
+theirs. `ghostscript` is 1.1 over and `hayro` 2.4 under, which is why nobody can be called wrong.
+
 
 **And one in the three-hundred-and-eighteenth, where ours lands *between* the two limits.**
 `issue6132.pdf` page 1 — 0.50 from the nearest reference and 0.93 from the furthest — is a US

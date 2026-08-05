@@ -757,6 +757,53 @@ fn a_selected_alternate_whose_image_is_hidden_draws_nothing() {
 /// `/OCGs` or `/VE` mentions. A group nothing on the page names is what the entry exists to
 /// hide, and that is the case with no witness in the corpus: `visibility_expressions.pdf` is the
 /// one document that states the entry, and its page reaches all three of its groups.
+/// §8.11.3.2's `DP` form: a group referenced by a page that draws nothing in it.
+///
+/// > In addition, a DP marked-content operator may be placed in a page's content stream to force
+/// > a reference to an optional content group or groups on the page, even when the page has no
+/// > current content in that layer.
+///
+/// The sentence's only consequence is the *reference*: a marked-content point marks nothing, so
+/// nothing is drawn either way, and the one entry that asks who references what is Table 99's
+/// `/ListMode /VisiblePages`. `groups_referenced_by` answers it from the page's resources rather
+/// than by interpreting the stream, so a `DP` naming a property in `/Properties` is counted by
+/// construction — which is what this test pins, because a walk that ever became an
+/// interpretation would drop the case silently.
+#[test]
+fn a_group_named_only_by_a_marked_content_point_is_still_referenced() {
+    let bytes = pdf(
+        "/OCProperties << /OCGs [5 0 R 6 0 R] /D << >> >>",
+        "/Properties << /forced 5 0 R >>",
+        // No `BDC` at all: the page draws one square in no layer, and states the group with a
+        // marked-content *point*, which is the clause's own "no current content in that layer".
+        "/OC /forced DP 20 20 60 60 re f",
+        "",
+        "5 0 obj\n<< /Type /OCG /Name (forced by DP) >>\nendobj\n\
+         6 0 obj\n<< /Type /OCG /Name (named by nothing on this page) >>\nendobj\n",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let found = pdf_model::optional_content::groups_referenced_by(&document, &page);
+    let numbers: Vec<u32> = found.iter().map(|id| id.number).collect();
+    assert_eq!(
+        numbers,
+        vec![5],
+        "the DP'd group is referenced by the page and 6, which nothing names, is not"
+    );
+
+    // And it is still a page that draws: a marked-content point governs nothing.
+    assert!(
+        drew(&render(pdf(
+            "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] >> >>",
+            "/Properties << /forced 5 0 R >>",
+            "/OC /forced DP 20 20 60 60 re f",
+            "",
+            "5 0 obj\n<< /Type /OCG /Name (forced by DP) >>\nendobj\n",
+        ))),
+        "a DP is a point, so switching its group off must not hide the square beside it"
+    );
+}
+
 #[test]
 fn a_page_names_the_groups_its_content_annotations_and_forms_reach() {
     let bytes = pdf(
