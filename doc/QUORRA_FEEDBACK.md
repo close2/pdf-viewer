@@ -9,9 +9,10 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
-**§10 is the newest and is a defect rather than a request** — one unconditional line prices a
-texture the default coverage lane never allocates, five real pages are refused on it, and a local
-patch of the one-line fix restores this gate's numbers exactly.
+**§10 was the newest, was a defect rather than a request, and was answered at `0a1ffb13` the same
+day it was reported** — one unconditional line priced a texture the default coverage lane never
+allocates, five real pages were refused on it, and the fix went in one level deeper than the one
+proposed.
 
 **§8 was answered at `7d5dafb` and §9 is open.** Both were requests rather than defects, and both
 exist because the project owner's decision that page one goes to the graphics device put your
@@ -24,9 +25,9 @@ shaders.
 
 | | first run | now |
 |---|---|---|
-| agree | 900 | **912** |
-| differ | 50 | **44** — 29 of them the antialiasing floor (§4) |
-| refused | 7 | **1** |
+| agree | 900 | **913** |
+| differ | 50 | **43** — 28 of them the antialiasing floor (§4) |
+| refused | 7 | **1** — and 6 for one day, which is §10 |
 | median page | 2.64× the CPU backend | **2.05×** |
 
 ---
@@ -432,7 +433,7 @@ made by the field.
 
 ---
 
-## 10. The CPU coverage lane is charged for the GPU lane's winding texture — **defect, one line, reproduced**
+## 10. The CPU coverage lane was charged for the GPU lane's winding texture — **answered**
 
 **Five corpus pages that drew at `7d5dafb` are refused at `7599081`**, all with the same message:
 
@@ -510,8 +511,30 @@ whether this frame has a GPU lane at all. Either `device_bytes` answers zero whe
 the dimensions are only stamped when there are tiles to stamp them for. The first is smaller; the
 second makes the invariant hold at the point where it is easy to see.
 
-**And the constant's comment now has a counterexample.** It says 256 MiB is "roughly eight million
-rectangle commands — beyond any real page by orders of magnitude". Whatever the charge ends up
-being, five of 974 real first pages were within reach of it, one at 2.3×. That may be entirely the
-phantom texture; it is worth confirming, because a budget whose comment says it cannot be reached
-is a budget nobody re-reads.
+**And the constant's comment had a counterexample, which the fix withdrew.** It says 256 MiB is
+"roughly eight million rectangle commands — beyond any real page by orders of magnitude", and five
+of 974 real first pages were within reach of it, one at 2.3×. With the phantom texture gone, none
+is: all five draw, and the largest genuine charge in the corpus is back below the budget. The
+comment is safe, and it is safe *because somebody checked* rather than because nothing complained.
+
+### What came back — `0a1ffb13`
+
+**The fix went one level deeper than the one this section proposed**, and it is the better of the
+two options named above. Rather than guarding the call site, `Winding::device_bytes` answers zero
+for an empty sheet, above a comment that says why that is not merely tidier arithmetic:
+
+> Not merely an optimisation of the arithmetic below: `is_empty` is exactly the condition
+> `Device::upload_scratch` allocates under, and saying it once is what stops the pre-flight and the
+> allocation from disagreeing again.
+
+Which is the right reading of the defect: the two sites did not disagree by accident, they
+disagreed because the condition was written twice. Guarding the charge would have made it three.
+
+**Re-measured here** after bumping `Cargo.lock` to `0a1ffb13`, §0's instrument unchanged:
+
+```
+957 pages compared in 24.0s: 913 agree, 43 differ, 1 refused, 17 not comparable
+```
+
+913 / 43 / 1 / 17 — this gate's exact state from before the coverage lane, restored, with the one
+remaining refusal the coverage-extent one that has been argued since §0's first run.
