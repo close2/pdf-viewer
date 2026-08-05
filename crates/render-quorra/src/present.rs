@@ -159,7 +159,14 @@ impl QuorraPresenter {
         self.caches.begin_frame();
         let mut builder = quorra_scene::SceneBuilder::new();
         let mut transient: Vec<ResourceId> = Vec::new();
-        let built = self.build(&mut builder, &frame, &mut transient);
+        let built = build(
+            &mut self.device,
+            &mut self.caches,
+            self.background,
+            &mut builder,
+            &frame,
+            &mut transient,
+        );
 
         let rendered = built.and_then(|()| {
             let scene = builder.finish();
@@ -191,77 +198,81 @@ impl QuorraPresenter {
         }
         Ok(())
     }
+}
 
-    /// Assembles the frame's scene: medium, page (or its raster stand-in),
-    /// overlays.
-    fn build(
-        &mut self,
-        builder: &mut quorra_scene::SceneBuilder,
-        frame: &PresentFrame<'_>,
-        transient: &mut Vec<ResourceId>,
-    ) -> Result<(), QuorraRasterError> {
-        // The medium first: a surface frame has no compositor behind it to impose
-        // on, so the background is the bottom of the scene itself.
+/// Assembles the frame's scene: medium, page (or its raster stand-in), overlays.
+///
+/// A free function rather than a method because there are two devices that draw a *window's*
+/// frame and only one of them owns a surface: [`QuorraPresenter::present`] renders it to the
+/// swapchain, and [`crate::QuorraRasterizer::rasterize_frame`] renders the same scene to a
+/// readback so that a test can look at it. A second copy of this would be two scenes that drift.
+pub(crate) fn build(
+    device: &mut quorra_gpu::Device,
+    caches: &mut crate::cache::ResourceCaches,
+    background: Color,
+    builder: &mut quorra_scene::SceneBuilder,
+    frame: &PresentFrame<'_>,
+    transient: &mut Vec<ResourceId>,
+) -> Result<(), QuorraRasterError> {
+    // The medium first: a surface frame has no compositor behind it to impose
+    // on, so the background is the bottom of the scene itself.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "window dimensions are far below f32's exact integer range"
+    )]
+    let (w, h) = (frame.width as f32, frame.height as f32);
+    builder.rect(
+        quorra_scene::Rect::new(
+            quorra_scene::Point::new(0.0, 0.0),
+            quorra_scene::Point::new(w, h),
+        ),
+        quorra_scene::Affine::IDENTITY,
+        crate::scene::colour(background),
+        None,
+        None,
+    )?;
+
+    if let Some((list, target)) = frame.page {
+        Encoder::new(device, list, target, caches, transient).commands(builder, list.commands())?;
+    }
+    if let Some(raster) = frame.raster {
+        let image = device.upload_image(&quorra_scene::ImageSpec {
+            width: raster.width,
+            height: raster.height,
+            data: Arc::from(raster.data.as_slice()),
+        })?;
+        transient.push(image.into());
         #[expect(
             clippy::cast_precision_loss,
-            reason = "window dimensions are far below f32's exact integer range"
+            reason = "raster dimensions are far below f32's exact integer range"
         )]
-        let (w, h) = (frame.width as f32, frame.height as f32);
-        builder.rect(
-            quorra_scene::Rect::new(
-                quorra_scene::Point::new(0.0, 0.0),
-                quorra_scene::Point::new(w, h),
-            ),
-            quorra_scene::Affine::IDENTITY,
-            crate::scene::colour(self.background),
+        let (rw, rh) = (raster.width as f32, raster.height as f32);
+        // The unit square carries the image with its top row at unit y = 1
+        // (§8.9.5), so placing the top row at the window's y = 0 takes a flip.
+        builder.image(
+            image,
+            quorra_scene::Affine {
+                a: rw,
+                b: 0.0,
+                c: 0.0,
+                d: -rh,
+                e: 0.0,
+                f: rh,
+            },
+            1.0,
+            quorra_scene::ImageFilter::Nearest,
             None,
+            quorra_scene::BlendMode::Normal,
             None,
         )?;
-
-        if let Some((list, target)) = frame.page {
-            Encoder::new(&mut self.device, list, target, &mut self.caches, transient)
-                .commands(builder, list.commands())?;
-        }
-        if let Some(raster) = frame.raster {
-            let image = self.device.upload_image(&quorra_scene::ImageSpec {
-                width: raster.width,
-                height: raster.height,
-                data: Arc::from(raster.data.as_slice()),
-            })?;
-            transient.push(image.into());
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "raster dimensions are far below f32's exact integer range"
-            )]
-            let (rw, rh) = (raster.width as f32, raster.height as f32);
-            // The unit square carries the image with its top row at unit y = 1
-            // (§8.9.5), so placing the top row at the window's y = 0 takes a flip.
-            builder.image(
-                image,
-                quorra_scene::Affine {
-                    a: rw,
-                    b: 0.0,
-                    c: 0.0,
-                    d: -rh,
-                    e: 0.0,
-                    f: rh,
-                },
-                1.0,
-                quorra_scene::ImageFilter::Nearest,
-                None,
-                quorra_scene::BlendMode::Normal,
-                None,
-            )?;
-        }
-        for list in frame.overlays {
-            let spec = TargetSpec {
-                width: frame.width,
-                height: frame.height,
-                transform: Transform::IDENTITY,
-            };
-            Encoder::new(&mut self.device, list, spec, &mut self.caches, transient)
-                .commands(builder, list.commands())?;
-        }
-        Ok(())
     }
+    for list in frame.overlays {
+        let spec = TargetSpec {
+            width: frame.width,
+            height: frame.height,
+            transform: Transform::IDENTITY,
+        };
+        Encoder::new(device, list, spec, caches, transient).commands(builder, list.commands())?;
+    }
+    Ok(())
 }

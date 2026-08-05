@@ -141,6 +141,73 @@ impl QuorraRasterizer {
     pub fn adapter_description(&self) -> &str {
         self.device.description()
     }
+
+    /// A whole *window's* frame — page, raster stand-in and overlays — drawn offscreen.
+    ///
+    /// [`QuorraPresenter::present`] is the same scene onto a swapchain, and this is the only way
+    /// to look at one without a window. It exists because a defect lived where no instrument
+    /// reached: `viewer-ui`'s sidebar stops being drawn above about 2000% magnification on the
+    /// graphics device and not on the processor (`doc/todo/12`), and every gate in this tree
+    /// rasterises **one** display list — the corpus and the oracle a page, `tests/corpus.rs` a
+    /// page at 1×, 2× and 4×. None of them puts chrome over a magnified page, which is exactly
+    /// the combination that breaks.
+    ///
+    /// The medium is the bottom of the scene rather than imposed afterwards, as it is on the
+    /// surface path: a window has an opaque background, and this is a window's frame.
+    ///
+    /// # Errors
+    ///
+    /// As [`Rasterizer::rasterize`], plus whatever the overlays' own commands refuse.
+    ///
+    /// [`QuorraPresenter::present`]: crate::present::QuorraPresenter::present
+    pub fn rasterize_frame(
+        &mut self,
+        frame: &PresentFrame<'_>,
+    ) -> Result<Raster, QuorraRasterError> {
+        self.caches.begin_frame();
+        let mut builder = quorra_scene::SceneBuilder::new();
+        let mut transient: Vec<ResourceId> = Vec::new();
+        let built = present::build(
+            &mut self.device,
+            &mut self.caches,
+            self.background,
+            &mut builder,
+            frame,
+            &mut transient,
+        );
+
+        let rendered = built.and_then(|()| {
+            let scene = builder.finish();
+            let viewport = quorra_gpu::Viewport::full(
+                frame.width,
+                frame.height,
+                quorra_scene::Affine::IDENTITY,
+            );
+            Ok(self
+                .device
+                .render(&scene, &viewport, quorra_gpu::Target::Readback)?)
+        });
+
+        let mut release_error: Option<quorra_gpu::DeviceError> = None;
+        for id in transient.drain(..) {
+            if let Err(error) = self.device.release(id) {
+                release_error.get_or_insert(error);
+            }
+        }
+        self.caches.evict_settled(&mut self.device)?;
+        let readback = rendered?;
+        if let Some(error) = release_error {
+            return Err(error.into());
+        }
+        Ok(Raster {
+            width: frame.width,
+            height: frame.height,
+            // Opaque throughout: the medium is the bottom of this scene, so straight and
+            // premultiplied alpha are the same bytes and no imposition is owed.
+            format: RasterFormat::Rgba8,
+            data: readback.into_raster()?.into_pixels(),
+        })
+    }
 }
 
 impl Rasterizer for QuorraRasterizer {

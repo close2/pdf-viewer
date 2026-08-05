@@ -256,7 +256,7 @@ the 974 documents' first pages it affects.
 | A character of the *document's own text in this host's chrome* — an outline title, a layer name, an `/Info` value — that §9.6.2.2's fourteen have no code for. Drawn as a box since the three-hundred-and-sixteenth session, and what a box cannot say is which character | **74** documents, 9 strings that used to draw as nothing | [todo 27](todo/27-the-interfaces-own-font.md) |
 | Signature *validation*, public-key handlers (§7.6.5), `/R` 5 | 1 | [todo 51](todo/51-signatures-and-public-keys.md) |
 | A **four-component YCCK JPEG** (Adobe APP14 transform 2): the decoder hands three components where the codestream states four, so the image is refused — and on the document that found it, that image *is* the page | 0 in the corpus; **92 blank pages** in a catalogue the owner opened | [todo 28](todo/28-a-catalogue-that-draws-nothing.md) |
-| Two things at high magnification, on the graphics device only: the sidebar above ~2000%, and — **quorra's, reported as `doc/QUORRA_FEEDBACK.md` §11** — the **wrong glyph** drawn by its GPU coverage lane after a frame at a larger magnification, which reproduces offscreen in two frames and stays wrong on the way back down | — | [todo 12](todo/12-the-chrome-at-high-zoom.md) |
+| Two things at high magnification on the graphics device, and since the three-hundred-and-thirty-ninth session they are **one defect and it is quorra's**: the **wrong glyph** its GPU coverage lane draws after a frame at a larger magnification, and the sidebar that above ~2000% is its background rectangle alone, shifted down. Both are clean on a device with no history and wrong on one that has drawn a taller frame; both are answered upstream at `52b07f29`, which `git ls-remote` says is **not published**, so neither can be verified here yet. `doc/QUORRA_FEEDBACK.md` §11 | — | [todo 12](todo/12-the-chrome-at-high-zoom.md) |
 | Sandboxing the interpreter and rasteriser | — | [todo 34](todo/34-sandbox-the-interpreter.md) |
 
 **Closed by decision rather than by work**, recorded in the ledger and not owed to anybody:
@@ -1401,6 +1401,14 @@ cargo run --release -p pdf-model --example strip_spans -- [file.pdf] [page] [sca
 cargo run --release -p pdf-model --example render_at -- [file.pdf] [page] [scale] [out.png]
   # our own render at any resolution, which is how §3a's step 5b tells a scan-conversion
   # difference from a difference in the shapes themselves
+cargo run --release -p render-quorra --example zoom_ladder -- [file.pdf] [page] [out-dir]
+  # the two backends compared up a ladder of magnifications and back down, through one device,
+  # switching coverage lanes where `viewer-ui` does. `doc/QUORRA_FEEDBACK.md` §11
+cargo run --release -p viewer-ui --example chrome_ladder -- [file.pdf] [page] [out-dir]
+  # the window's *whole frame* offscreen — page and chrome in one scene, which no gate does —
+  # with a device per rung beside one device, which is what separates state from magnification
+cargo run --release -p pdf-model --example field_flag_census -- doc/pdf.js/test/pdfs/*.pdf
+  # which of §12.7's twenty field flags any real document states (ADR 0197)
 cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [scale]
   # where a GPU frame's time goes: encoding, the whole frame, and the same target drawn from a
   # list of one rectangle. doc/RENDER_LIBRARY.md §6.1
@@ -2852,3 +2860,4 @@ above rather than here.
 | 336 | Zoomed in until something broke: the keyboard clamps at 6400% and the sidebar stops being drawn above ~2000% on the graphics device and not on the processor — `examples/zoom_ladder`, the first instrument in this tree that magnifies past 4× | — |
 | 337 | The wrong glyph, reproduced in two frames on one device: a ladder that does not switch coverage lanes is not measuring what a person sees past 1000%, and `extensive` reading `extens:ve` is a glyph *replaced* rather than lost — `doc/QUORRA_FEEDBACK.md` §11 | — |
 | 338 | A field that may not scroll: §12.7.5.3's Table 231 bit 24, a `shall` about *accepting* text that has bound this program since session 135 — 260 corpus widgets over 8 documents, and four of the twenty field flags have no witness at all | 0197 |
+| 339 | The sidebar at high zoom and the wrong glyph are one defect: `chrome_ladder` draws the window's *whole frame* offscreen — page and chrome in one scene, which no gate in this tree does — and a device per rung is clean where one device is not, so it is state between frames and not magnification | — |

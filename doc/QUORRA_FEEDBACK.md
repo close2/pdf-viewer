@@ -695,3 +695,44 @@ numbers above were taken in a copy of this tree with a `[patch]`
 pointing at quorra's working tree, not by bumping `Cargo.lock` — so they say the fix is right, and
 this side should still re-run the ladder and the gate against the published revision before the
 lane switch in `viewer-ui` is considered safe again.
+
+### And a second symptom of the same thing, on this side — the *overlays*
+
+**2026-08-06.** This tree had a second high-zoom defect open, reported by the project owner and
+believed unrelated: `viewer-ui`'s sidebar stops being drawn above about 2000% magnification. It is
+the same defect, and the reproduction is worth having because it is a **different kind of
+geometry**.
+
+`crates/viewer-ui/examples/chrome_ladder.rs` draws the window's whole frame offscreen — the page
+under its target transform, and a display list of window-pixel chrome at identity over it, which
+is what `present` composes into one scene — and crops the panel's own 300 columns out of each
+rung. The panel is the same list at the same target on every rung, so its pixels may not depend on
+the page's magnification.
+
+On `lavapipe`, `doc/PDF20_AN001-BPC.pdf` page 3, 900 × 1100, GPU coverage lane above 10×:
+
+| zoom | page target | panel mean vs the first GPU-lane rung | panel ink | one device | a device per rung |
+|---|---|---|---|---|---|
+| 1200% | 7143 × 10102 | reference | 19.57 | — | — |
+| 1900% | 11309 × 15995 | 0.0002 | 19.57 | same | same |
+| **3000%** | 17857 × 25254 | **3.7733** | **14.53** | **wrong** | same (0.0003) |
+| **4600%** | 27380 × 38723 | **3.9170** | **15.09** | **wrong** | same (0.0003) |
+| 6400% | 38093 × 53876 | 0.0003 | 19.57 | same | same |
+
+Same signature as the section above: **clean on a device with no history, wrong on a device that
+has drawn a taller frame, and not monotone in the zoom.** At 3000% the panel is its background
+rectangle alone, shifted about **43 px down**, with the tab strip and every row gone.
+
+Two things in it may be useful to you:
+
+- **The displacement reaches a plain filled rectangle**, not only glyphs. The panel's background
+  is one `rect` at identity and it moves with the rest, which fits `held ÷ sheet` stretching every
+  sheet pixel rather than anything about the glyph atlas.
+- **The overlay's own geometry is tiny and at identity** while the page's is enormous, and they
+  are in one scene. So the stretch is not a property of the commands being magnified — it is the
+  frame's sheet against the texture's, applied to whatever is in the frame.
+
+Nothing is asked for here: `52b07f29`'s fix is a viewport at the sheet's extent, which covers both.
+It is recorded so that your regression test knows a second shape to check, and so that this side
+can say what it expects to see when the fix is published: `chrome_ladder` saying `same` on every
+rung of its one-device pass.

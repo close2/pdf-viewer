@@ -3192,6 +3192,7 @@ dependencies = [
  "pdf-render",
  "pdf-sandbox",
  "pdf-syntax",
+ "png",
  "quorra-gpu",
  "render-cpu",
  "render-quorra",

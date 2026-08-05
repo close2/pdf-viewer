@@ -1,13 +1,15 @@
-# Two things break at high zoom: the chrome, and the glyphs
+# Two things break at high zoom, and in the three-hundred-and-thirty-ninth session they became one
 
-Status: **reproduced and measured, not diagnosed.** Found in the three-hundred-and-thirty-sixth
-session, by zooming a page in steps until something broke — which is what the project owner asked
-for.
+Status: **both halves reproduced offscreen, and they are one defect — quorra's, answered upstream
+at `52b07f29` and not yet published.** Found in the three-hundred-and-thirty-sixth session by
+zooming a page in steps until something broke, which is what the project owner asked for; joined
+in the three-hundred-and-thirty-ninth by the control that separates state from magnification.
 Priority: 12
 Corpus: none — this is the *window*, and no gate opens one
 Clauses: none. Every number here is this host's own chrome.
 Code: `crates/render-quorra/src/present.rs` (`build`), `crates/viewer-ui/src/bin/pdf-viewer.rs`
-(`present`), `crates/render-quorra/examples/zoom_ladder.rs`
+(`present`), `crates/viewer-ui/examples/chrome_ladder.rs`,
+`crates/render-quorra/examples/zoom_ladder.rs`
 
 ## What happens
 
@@ -78,14 +80,71 @@ at 10× the way the viewer does is what produced §11's reproduction above. **A 
 switch lanes is not measuring what a person sees past 1000%**, and this file said the opposite for
 one round.
 
-## The hypothesis to check first
+## And they are the same defect, which one control settled
+
+`crates/viewer-ui/examples/chrome_ladder.rs` is the instrument the first half never had. It draws
+the **window's whole frame** — the page under `viewer-core`'s own target transform, the real
+§12.3.3 outline panel over it at identity — through `QuorraRasterizer::rasterize_frame`, which is
+`QuorraPresenter::present`'s scene rendered to a readback instead of to a swapchain. No window, no
+surface, no display.
+
+The closed form needs no reference renderer: **the panel is the same display list at the same
+target on every rung, so its pixels may not depend on the page's magnification.** So the panel's
+own 300 columns are cropped out of each frame and compared with the first rung's *in the same
+coverage lane* — one reference per lane, because the two lanes are two rasterisers and a rung that
+switches lanes differs for a reason that is not a defect.
+
+`doc/PDF20_AN001-BPC.pdf` page 3, 900 × 1100, on `lavapipe`:
+
+| zoom | page target | panel mean | ink | one device | a device per rung |
+|---|---|---|---|---|---|
+| 100% | 596 × 842 | — | 19.51 | reference (CPU lane) | reference |
+| 400% | 2381 × 3368 | 0.0000 | 19.51 | same | same |
+| 1200% | 7143 × 10102 | — | 19.57 | reference (GPU lane) | reference |
+| 1900% | 11309 × 15995 | 0.0002 | 19.57 | same | same |
+| **3000%** | 17857 × 25254 | **3.7733** | **14.53** | **MOVED** | same (0.0003) |
+| **4600%** | 27380 × 38723 | **3.9170** | **15.09** | **MOVED** | same (0.0003) |
+| 6400% | 38093 × 53876 | 0.0003 | 19.57 | same | same |
+
+**The right-hand column is the whole finding.** A device that has drawn nothing before is clean at
+every rung, including the two that break; one device drawing the rungs in order loses the panel's
+rows at 3000% and 4600% and gets them back at 6400%. So this is **state carried between frames**
+rather than anything about the magnification — which is exactly the control
+`doc/QUORRA_FEEDBACK.md` §11 ran on the page's own glyphs, with the same answer, and the same
+non-monotone shape: a rung is wrong when its own sheet is *shorter* than the tallest one drawn
+before it.
+
+The picture matches the owner's report to the detail: at 3000% the panel is its background
+rectangle alone, **shifted about 43 px down**, with the tab strip and every row gone.
+
+That is quorra's held winding texture, already diagnosed upstream — clip space spans the
+attachment while `vs_winding` divides by the sheet, so a shorter frame's geometry is stretched by
+`held ÷ sheet` and every tile resolves whatever the stretch put under it. The sidebar is not a
+second defect; it is what that stretch does to an overlay drawn after a magnified page.
+
+**So the hypothesis this file carried is refuted, and it is worth keeping refuted:** it was that
+the page's target crossing 16 384 truncated the commands encoded after it. The page's target never
+reaches quorra at that size at all — `present` passes the *window's* width and height with the
+magnification in the transform — and the two wrong rungs are 17857 × 25254 and 27380 × 38723 while
+the clean one above them is 38093 × 53876. A bound that fired at 16 384 would not let 6400% through.
+
+### What the instrument found about the instrument, which is a fact about hosts
+
+The ladder stopped at about 20× until it answered `Command::RenderReady { rendered:
+Rendered::Presented }`. That answer is how a host tells `viewer-core` it is **tier 2** — it draws
+its own frames at its own size and holds no whole-page raster — and until it does, `MAX_PIXELS`
+bounds a raster nobody was going to allocate and the core refuses the page by name. Correct
+behaviour on both sides, and worth knowing: a tier-2 host that never says `Presented` is a host
+that cannot zoom past 20×.
+
+## The hypothesis that was checked first, and refuted
 
 The overlays are drawn into the *same* scene as the page, immediately after it, each with its own
 `TargetSpec { width, height, transform: IDENTITY }`. What changes between 1 900% and 2 970% is not
 the overlay and not the window: it is the **page's** target, which crosses 16 384 in one dimension
 between those two rungs.
 
-That number is quorra's scratch-sheet bound, and this tree already knows it as the reason a page
+(Kept because it was wrong, and the section above says why.) That number is quorra's scratch-sheet bound, and this tree already knows it as the reason a page
 can be refused (`doc/HANDOVER.md`'s "a page the device refuses for the other reason" —
 `bug1721218_reduced.pdf`, whose coverage outgrows a 16 384 × 16 384 scratch image). The frame here
 is **not** refused: it presents in 78 to 92 ms and reports nothing. So the first question is
@@ -103,7 +162,22 @@ Two cheaper checks before that one:
 ## Why it is a defect and not a curiosity
 
 A person who zooms to read something small loses the panel that tells them where they are, and
-nothing says so — the trap-5 shape in the window rather than on the page. And **no gate can see
+nothing says so — the trap-5 shape in the window rather than on the page. And **no gate could see
 it**: the corpus interprets page one, the oracle rasterises a page at its own scale,
-`render-quorra/tests/corpus.rs` compares backends at 1×, 2× and 4×, and none of them opens a
-window or magnifies past 4×. The ladder above is the first instrument that looks.
+`render-quorra/tests/corpus.rs` compares backends at 1×, 2× and 4×, and every one of them
+rasterises **one** display list. The window draws several into one scene, and that combination is
+what breaks. `chrome_ladder` is the first instrument that looks at it, and it is not a gate yet
+for one reason: it measures a defect that is currently *expected to fire*.
+
+## What is owed
+
+1. **Re-run both ladders against the published quorra** once `52b07f29` lands — `git ls-remote`
+   still answered `0a1ffb13` for `HEAD` and `refs/heads/main` on 2026-08-05, so `cargo update -p
+   quorra-gpu` moves nothing. `chrome_ladder` should then say `same` on every rung of the
+   left-hand column, and `zoom_ladder`'s descent should equal its ascent.
+2. **Then make `chrome_ladder` a gate**, because there is now a property worth ratcheting that
+   nothing else in this tree watches: *chrome drawn over a page does not depend on the page's
+   magnification*. It costs seven frames on a software adapter.
+3. The mitigation on this side — stop switching coverage lanes — stays untaken, for the reason it
+   always had: it would cost the ten-fold frame time the switch was measured to buy
+   (`doc/quorra-gpu-coverage.md`).
