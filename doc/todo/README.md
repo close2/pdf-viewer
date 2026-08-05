@@ -38,7 +38,6 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; a tiling cell's two halves; a hairline at the raster's edge | 4 |
-| [12](12-the-chrome-at-high-zoom.md) | The sidebar vanishes above ~2000% on the graphics device and not on the processor | — |
 | [21](21-font-substitution.md) | `Identity` orderings; a font reported as a whole; per-character fallback, with no witness left | 40 |
 | [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: a `/DA` font `/DR` lacks, a list box, and Table 231's `DoNotScroll` — a `shall` | 3 |
 | [23](23-transparency-departures.md) | §11.4, §11.5.3 and §11.6.6, each reported where it can change a pixel | 19 |

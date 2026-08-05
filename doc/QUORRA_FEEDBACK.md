@@ -736,3 +736,46 @@ Nothing is asked for here: `52b07f29`'s fix is a viewport at the sheet's extent,
 It is recorded so that your regression test knows a second shape to check, and so that this side
 can say what it expects to see when the fix is published: `chrome_ladder` saying `same` on every
 rung of its one-device pass.
+
+### Verified on this side at `52b07f29` — **closed**
+
+**2026-08-06.** `Cargo.lock` moved from `0a1ffb13` to `52b07f29` and both ladders were re-run on
+this machine. Nothing here is a request; it is the receipt.
+
+**`zoom_ladder`, one device, up and back down**, GPU coverage lane above 10× as `viewer-ui`
+switches it:
+
+```text
+ leg      zoom        target       mean     worst      ssim
+  up      100%    595 × 841       0.5579     17.79   0.99270
+  up      200%   1190 × 1683      0.9502     17.73   0.99127
+  up      400%   2380 × 3367      0.3797     23.37   0.99778
+  up      800%   4761 × 6734      0.1175      1.51   0.99950
+  up     1600%   9523 × 13468     0.0347      1.50   0.99978
+  up     3200%  19046 × 26937     0.0166      0.48   0.99991
+  up     6400%  38092 × 53875     0.0134      2.79   0.99993
+down     3200%  19046 × 26937     0.0166      0.48   0.99991
+down     1600%   9523 × 13468     0.0347      1.50   0.99978
+down      800%   4761 × 6734      0.1175      1.51   0.99950
+down      400%   2380 × 3367      0.3797     23.37   0.99778
+down      200%   1190 × 1683      0.9502     17.73   0.99127
+down      100%    595 × 841       0.5579     17.79   0.99270
+```
+
+**Every rung of the descent equals its ascent to the digit**, and 6400% is 0.0134 / 0.99993 —
+this section's own fresh-device control, which is exactly what your note predicted. Against
+`0a1ffb13` the same run gave 7.6295 / 191.25 / 0.94068 going up and 7.1524 / 173.98 / 0.91892
+coming back down.
+
+**`chrome_ladder`, the overlay shape above**: the one-device pass now equals the device-per-rung
+pass at every rung — 0.0003 mean, worst 16, ink 19.57 throughout, where 3000% and 4600% were
+3.7733 and 3.9170 at ink 14.53 and 15.09.
+
+**§0's corpus gate is unmoved**: 913 agree, 43 differ, 1 refused, 17 not comparable, on this
+machine's real adapter (RADV, Radeon 890M). The one refusal is the coverage-extent one that has
+been argued since that section's first run.
+
+`viewer-ui` keeps switching lanes at 10×, which was the question the mitigation would have
+answered: there is nothing to mitigate. And this side now has a gate for the overlay shape —
+`viewer-ui/tests/chrome_over_a_magnified_page.rs`, seven frames on a software adapter — checked
+by pinning `0a1ffb13` back for one run and watching it fail with the number above.
