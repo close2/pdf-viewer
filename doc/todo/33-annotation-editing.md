@@ -1,6 +1,7 @@
 # Annotation editing, a caret, and logical-order selection
 
-Status: the log, the writer and the constructions all exist; **two** things sit on top of them — the third went in the two-hundred-and-ninety-sixth session.
+Status: **markup landed in the three-hundred-and-twenty-first session** (ADR 0196). What is left is
+a caret, and a host that sends the command from a drag.
 Priority: 33
 Clauses: §12.5.6.6, §12.5.6.10, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
@@ -10,33 +11,29 @@ Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.r
 is not authoring, and §7.5.6's incremental update is how it is written back — the producer's
 bytes stay in the file, byte for byte, under whatever the user added.
 
-## 1. Markup and free-text annotations
+## 1. ~~Markup annotations~~ — **done in the three-hundred-and-twenty-first session**
 
-The constructions exist (`appearance.rs` draws §12.5.6.6's markup and §12.5.6.10's four text
-markups) and `pdf_syntax::write` puts an object into a file. What is new:
+`Edit::Markup { kind, colour }` marks up what is selected in one of §12.5.6.10's four ways;
+`ViewState::add_markup` builds the annotation; §7.5.6's update writes it and appends the reference
+to the page's `/Annots`. ADR 0196 has the argument. Three decisions worth keeping here:
 
-- authoring `/QuadPoints` and `/Rect` from a drag — geometry from the pointer, in the page's
-  space, which `Query::Selection` already produces for text;
-- **an `Edit` variant that carries a new object rather than a field's value.** `Update` in
-  `view.rs` already allocates object numbers for it, and the writer already *adds* an object
-  (that is the half of §7.5.6's "changed, replaced, or deleted" that widgets with no `/AP`
-  needed).
+- **`Page` gained its own identity**, which is what the three-hundredth session found in the way
+  and what this round added because it now has a consumer. `Pages::get` sets it from the `/Kids`
+  entry that named the node; the interpreter needs no page-tree walk.
+- **The log records what was *done*, not what was asked for.** `Edit::Markup` names its target as
+  "what is selected", which is a fact about the moment the command arrived, so `Open::resolve`
+  fixes the page and the quadrilaterals before anything reaches the log — undo and redo are a
+  replay, and a replay has to reproduce what happened.
+- **`/QuadPoints` is in default user space** and everything this crate answers with is in the
+  display list's, so `content::page_transform` is public and its inverse is what an author
+  composes.
 
-The number to start from is the larger of `/Size` and the highest the cross-reference table
-holds, because 68 corpus documents understate the first.
+### What is still owed here: free text
 
-**And one thing the three-hundredth session found by scoping the work rather than doing it**: a
-new annotation has to be attached to a *page*, and nothing on the interpretation path knows which
-page it is looking at. `interpret(&document, &page)` takes a `Page`, which carries `dict`,
-`resources` and five boundaries and **no `ObjectId`** — so `ViewState` has no key to file an added
-annotation under and `draw_annotations` has nothing to look it up by. `Pages::indices` inverts the
-tree for exactly this question in two other places already (`viewer_core`'s accessibility tree and
-its logical selection), and doing it a third time inside the interpreter would put a page-tree
-walk on the render path.
-
-So the first commit of this item is `Page` gaining its own identity, set by `Pages::get`, and it
-is written here rather than done because a field with no consumer is speculative infrastructure —
-the round that adds the `Edit` variant is the round that adds the field.
+§12.5.6.6's free-text annotation is a *different* shape: it has no selection to take its geometry
+from and it carries text this program would have to lay out (§12.7.4.3's `/DA` machinery, one
+clause over). Nothing in the corpus asks for it, and a host has nowhere to type it yet — the
+caret below is the same missing piece.
 
 ## 2. A caret
 

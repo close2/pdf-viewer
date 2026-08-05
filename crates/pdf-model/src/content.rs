@@ -27,7 +27,7 @@ use pdf_render::{
     PathCommand, Point, Rect, Size, SoftMaskId, Stroke, Transform,
 };
 use pdf_render::{Shading, ShadingKind};
-use pdf_syntax::{Dictionary, Document, Name, Object};
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use crate::colour::ColourSpace;
 use crate::page::Page;
@@ -1304,7 +1304,7 @@ enum FontKey {
     /// the two routes to a font — `Tf`'s resource name and Table 57's `/Font`, which §8.4.1's
     /// NOTE 1 makes alternatives — arrive here differently and only this says they are the
     /// same thing when they name the same object.
-    Referenced(pdf_syntax::ObjectId),
+    Referenced(ObjectId),
 }
 
 /// The font a `Tf` names when the resource dictionary defines nothing under that name.
@@ -1464,6 +1464,18 @@ pub fn page_space_at(page: &Page, x: f32, y: f32) -> (f32, f32) {
 /// substituted fonts because they carry one — and a page that is upside down is one that
 /// still has the right ink in the right *quantity*, so no metric in this tree could see it.
 /// `rotation_turns_the_page_clockwise_as_displayed` pins all four angles.
+/// The map from a page's default user space to the display list's own coordinates.
+///
+/// [`base_transform`] under a name a caller outside this module can say, and it is public for
+/// one reason: **an edit has to go the other way**. Every geometry this crate answers with —
+/// [`Placed::quad`], a selection's shapes — is in the display list's space, and §12.5.6.10's
+/// `/QuadPoints` is defined in default user space, so a host authoring an annotation from a drag
+/// composes this transform's inverse. `pdf_render::Transform::invert` is the other half.
+#[must_use]
+pub fn page_transform(page: &Page) -> Transform {
+    base_transform(page)
+}
+
 fn base_transform(page: &Page) -> Transform {
     let shift = Transform::translate(-page.display_box[0], -page.display_box[1]);
     let (width, height) = (page.width(), page.height());
@@ -4005,82 +4017,103 @@ impl Interpreter<'_> {
 
     fn draw_annotations(&mut self, page: &Page, base: Transform, view_clip: Option<ClipId>) {
         let annotations = self.document.get_key(&page.dict, "Annots");
-        let Some(entries) = annotations.as_array().map(<[Object]>::to_vec) else {
-            return;
-        };
+        if let Some(entries) = annotations.as_array().map(<[Object]>::to_vec) {
+            for entry in &entries {
+                let resolved = self.document.resolve(entry);
+                let Some(dict) = resolved.as_dict() else {
+                    continue;
+                };
+                let dict = dict.clone();
+                self.draw_annotation(&dict, entry.as_reference(), page, base, view_clip);
+            }
+        }
+        // §12.5.6.10's markups a *person* added, after the page's own and in the order they
+        // were added — which is §12.5.2's rule for `/Annots` applied to the log beside it:
+        // "the annotations shall be drawn in the order in which they appear in the array".
+        // They are drawn from the same three functions the file's own annotations take, because
+        // an annotation this program constructed is not a second kind of annotation.
+        let added: Vec<(ObjectId, Dictionary)> = self
+            .view
+            .added_on(page.id)
+            .map(|added| (added.id, added.dict.clone()))
+            .collect();
+        for (id, dict) in added {
+            self.draw_annotation(&dict, Some(id), page, base, view_clip);
+        }
+    }
 
-        for entry in &entries {
-            let resolved = self.document.resolve(entry);
-            let Some(dict) = resolved.as_dict() else {
-                continue;
-            };
-            // §8.11.3.3: "If an annotation contains an OC entry, it shall be visible for
-            // screen or print only if the flags have the appropriate settings and the group
-            // or membership dictionary indicates it shall be visible." The flags are
-            // `decide`'s business (§12.5.3); this is the other half of the condition, and it
-            // is silent because an annotation the document hides is not one we failed to
-            // draw.
-            if let Some(oc) = dict.get("OC").cloned()
-                && !self.shows_optional_content(&oc)
-            {
-                continue;
+    /// Draws one annotation, whether the file states it or a person added it.
+    fn draw_annotation(
+        &mut self,
+        dict: &Dictionary,
+        id: Option<ObjectId>,
+        page: &Page,
+        base: Transform,
+        view_clip: Option<ClipId>,
+    ) {
+        // §8.11.3.3: "If an annotation contains an OC entry, it shall be visible for
+        // screen or print only if the flags have the appropriate settings and the group
+        // or membership dictionary indicates it shall be visible." The flags are
+        // `decide`'s business (§12.5.3); this is the other half of the condition, and it
+        // is silent because an annotation the document hides is not one we failed to
+        // draw.
+        if let Some(oc) = dict.get("OC").cloned()
+            && !self.shows_optional_content(&oc)
+        {
+            return;
+        }
+        // §12.6.4.11: a hide action "hides or shows one or more annotations on the screen
+        // by setting or clearing their Hidden flags", so what it states is the same flag
+        // §12.5.3 defines and overrides what the file wrote there. Silent for the same
+        // reason the line above is: an annotation something switched off is not one this
+        // program failed to draw.
+        // Everything the view state says about this annotation, in one call: whether a hide
+        // action named it, which of §12.5.5's three appearances the pointer asks for, and —
+        // for a widget — where its value comes from, which §12.7.6.3's reset and §12.7.8's
+        // import each change and which decides what §12.7.4.3 lays out.
+        let view = id.map(|id| self.view.annotation(id)).unwrap_or_default();
+        if view.hidden_by_action == Some(true) {
+            return;
+        }
+        match crate::annotation::decide(
+            self.document,
+            dict,
+            view,
+            crate::annotation::ViewGeometry {
+                rotate: page.rotate,
+                magnification: self.view.magnification(),
+            },
+        ) {
+            crate::annotation::Decision::Nothing => {}
+            crate::annotation::Decision::Unsupported(detail) => {
+                self.note(Unsupported::Annotation { detail });
             }
-            // §12.6.4.11: a hide action "hides or shows one or more annotations on the screen
-            // by setting or clearing their Hidden flags", so what it states is the same flag
-            // §12.5.3 defines and overrides what the file wrote there. Silent for the same
-            // reason the line above is: an annotation something switched off is not one this
-            // program failed to draw.
-            // Everything the view state says about this annotation, in one call: whether a hide
-            // action named it, which of §12.5.5's three appearances the pointer asks for, and —
-            // for a widget — where its value comes from, which §12.7.6.3's reset and §12.7.8's
-            // import each change and which decides what §12.7.4.3 lays out.
-            let view = entry
-                .as_reference()
-                .map(|id| self.view.annotation(id))
-                .unwrap_or_default();
-            if view.hidden_by_action == Some(true) {
-                continue;
-            }
-            match crate::annotation::decide(
-                self.document,
-                dict,
-                view,
-                crate::annotation::ViewGeometry {
-                    rotate: page.rotate,
-                    magnification: self.view.magnification(),
-                },
-            ) {
-                crate::annotation::Decision::Nothing => {}
-                crate::annotation::Decision::Unsupported(detail) => {
+            crate::annotation::Decision::Draw {
+                appearance,
+                owed,
+                highlight,
+                adjust,
+            } => {
+                // What the subtype's clause asks for and `crate::appearance` could not
+                // construct — a field's value, a bevel's shadow — said out loud beside the
+                // part that *is* drawn, rather than either being lost.
+                if let Some(detail) = owed {
                     self.note(Unsupported::Annotation { detail });
                 }
-                crate::annotation::Decision::Draw {
-                    appearance,
-                    owed,
-                    highlight,
-                    adjust,
-                } => {
-                    // What the subtype's clause asks for and `crate::appearance` could not
-                    // construct — a field's value, a bevel's shadow — said out loud beside the
-                    // part that *is* drawn, rather than either being lost.
-                    if let Some(detail) = owed {
-                        self.note(Unsupported::Annotation { detail });
-                    }
-                    let before = self.text.len();
-                    // §12.5.5: "Any transformation applied to the annotation as a whole shall
-                    // be applied to the appearance within it" — so §12.5.3's adjustment goes
-                    // between the appearance's own placement and the page's transform, where it
-                    // is still in default user space and can undo what the page does to it.
-                    self.view_dependent |= adjust.view_dependent;
-                    let base = adjust.transform.then(base);
-                    self.draw_appearance(&appearance, base, &page.resources, view_clip);
-                    self.describe_annotation(dict, before);
-                    // §12.5.6.19's `/H`, over the appearance rather than instead of it: the
-                    // clause calls it a *highlighting* mode, and what it highlights is whatever
-                    // the annotation looks like.
-                    if let Some(mark) = highlight {
-                        self.draw_highlight(mark, base, view_clip);
-                    }
+                let before = self.text.len();
+                // §12.5.5: "Any transformation applied to the annotation as a whole shall
+                // be applied to the appearance within it" — so §12.5.3's adjustment goes
+                // between the appearance's own placement and the page's transform, where it
+                // is still in default user space and can undo what the page does to it.
+                self.view_dependent |= adjust.view_dependent;
+                let base = adjust.transform.then(base);
+                self.draw_appearance(&appearance, base, &page.resources, view_clip);
+                self.describe_annotation(dict, before);
+                // §12.5.6.19's `/H`, over the appearance rather than instead of it: the
+                // clause calls it a *highlighting* mode, and what it highlights is whatever
+                // the annotation looks like.
+                if let Some(mark) = highlight {
+                    self.draw_highlight(mark, base, view_clip);
                 }
             }
         }
@@ -6365,6 +6398,7 @@ mod tests {
     /// A page 400 wide and 200 tall, with no crop offset, at `rotate` degrees.
     fn landscape(rotate: u16) -> Page {
         Page {
+            id: None,
             dict: pdf_syntax::Dictionary::default(),
             resources: pdf_syntax::Dictionary::default(),
             media_box: [0.0, 0.0, 400.0, 200.0],

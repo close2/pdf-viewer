@@ -782,9 +782,15 @@ impl Viewer {
         let Some(open) = self.focused_mut() else {
             return;
         };
+        // What was *done*, rather than what was asked for: `Edit::Markup` names its target as
+        // "what is selected", and a replay after the selection moved would mark up something
+        // else. See `open::Done`.
+        let Some(done) = open.resolve(edit) else {
+            return;
+        };
         let before = open.dirty();
         open.log.truncate(open.cursor);
-        open.log.push(edit);
+        open.log.push(done);
         open.cursor = open.log.len();
         open.replay();
         if open.dirty() != before {

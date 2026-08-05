@@ -119,6 +119,58 @@ pub struct ViewState {
     /// Under it `NoZoom` changes nothing, so a page rendered at its own scale is the page it
     /// always was.
     magnification: Option<f32>,
+    /// Annotations a person has **added**, in the order they added them.
+    ///
+    /// The fifth thing in this struct that comes from outside the document, and the first that
+    /// is not a change to something the file already holds: `CLAUDE.md` permits exactly this —
+    /// what a *user* does to an open document is not authoring, and §7.5.6's incremental update
+    /// is how it goes back into the file with the producer's bytes untouched underneath.
+    ///
+    /// Each carries the object number it will be written under, allocated when it is added so
+    /// that it has an identity for as long as the document is open — which is what the pointer,
+    /// a later edit and the writer all need to name it by.
+    added: Vec<Added>,
+}
+
+/// One annotation a person added, and the page it belongs to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Added {
+    /// The object it will be written under, and its identity while the document is open.
+    pub id: ObjectId,
+    /// The page it belongs to, which is what `Page::id` answers.
+    pub page: ObjectId,
+    /// The annotation dictionary, whole, as §7.5.6 will write it.
+    pub dict: Dictionary,
+}
+
+/// Which of §12.5.6.10's four text markup annotations to add.
+///
+/// The clause's own list, and the four are one construction with four shapes:
+///
+/// > Text markup annotations shall appear as highlights, underlines, strikeouts (all PDF 1.3),
+/// > or jagged ("squiggly") underlines ( PDF 1.4 ) in the text of a document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Markup {
+    /// `Highlight`, drawn as a wash under `Multiply` so the text stays readable.
+    Highlight,
+    /// `Underline`, a bar on the bottom edge.
+    Underline,
+    /// `StrikeOut`, a bar across the middle.
+    StrikeOut,
+    /// `Squiggly`, a jagged underline.
+    Squiggly,
+}
+
+impl Markup {
+    /// Table 179's `/Subtype` for this markup.
+    const fn subtype(self) -> &'static [u8] {
+        match self {
+            Self::Highlight => b"Highlight",
+            Self::Underline => b"Underline",
+            Self::StrikeOut => b"StrikeOut",
+            Self::Squiggly => b"Squiggly",
+        }
+    }
 }
 
 /// What the pointer is doing to an annotation, in §12.5.5's terms.
@@ -296,6 +348,7 @@ impl ViewState {
             appended: Vec::new(),
             pointer: None,
             magnification: None,
+            added: Vec::new(),
         }
     }
 
@@ -425,6 +478,146 @@ impl ViewState {
         outcome
     }
 
+    /// Adds one of §12.5.6.10's text markup annotations over a run of quadrilaterals.
+    ///
+    /// The quadrilaterals are in **default user space**, which is what Table 179's
+    /// `/QuadPoints` is defined in — a caller holding a selection in the display list's own
+    /// coordinates maps them back through `crate::content::page_transform`'s inverse. Each is
+    /// `[x0, y0, … x3, y3]`, and the order does not matter: `crate::appearance`'s reader sorts
+    /// the four corners by where they fall along the text's own direction, because the clause's
+    /// "counterclockwise" has two readings and producers use both.
+    ///
+    /// Returns the object the annotation will be written under, or `None` where there is
+    /// nothing to mark up.
+    ///
+    /// **What is written and what is left out.** Table 166's `/Subtype`, `/Rect`, `/C` and
+    /// `/QuadPoints`, plus `/F 4`. The `/Rect` is the quadrilaterals' bounding box, which is
+    /// §12.5.2's "the annotation shall be positioned by its `/Rect`" and what every reader clips
+    /// the appearance to. `/F 4` is Table 167's `Print` bit and it is **a choice**: the flag's
+    /// own default is "never print the annotation", and a person who marks up a document to send
+    /// it on means the mark to survive printing. Table 166's `/M` is *not* written, because
+    /// `CLAUDE.md`'s rule 3 gives this crate no clock; a host with one may add it. Nor is `/T`,
+    /// which is a person's name and something no part of this program knows.
+    ///
+    /// **Nothing is written to the file**, like every other edit here: the annotation is a log
+    /// entry beside an immutable document until [`ViewState::save`] turns it into §7.5.6's
+    /// incremental update.
+    pub fn add_markup(
+        &mut self,
+        document: &Document,
+        page: ObjectId,
+        kind: Markup,
+        colour: [f32; 3],
+        quads: &[[f32; 8]],
+    ) -> Option<ObjectId> {
+        if quads.is_empty() {
+            return None;
+        }
+        let mut points = Vec::with_capacity(quads.len().saturating_mul(8));
+        let (mut left, mut bottom) = (f32::MAX, f32::MAX);
+        let (mut right, mut top) = (f32::MIN, f32::MIN);
+        for quad in quads {
+            for corner in quad.chunks_exact(2) {
+                let (x, y) = (corner[0], corner[1]);
+                if !x.is_finite() || !y.is_finite() {
+                    return None;
+                }
+                left = left.min(x);
+                right = right.max(x);
+                bottom = bottom.min(y);
+                top = top.max(y);
+                points.push(Object::Real(f64::from(x)));
+                points.push(Object::Real(f64::from(y)));
+            }
+        }
+        let mut dict = Dictionary::default();
+        dict.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"Annot"[..])),
+        );
+        dict.insert(
+            Name::new(&b"Subtype"[..]),
+            Object::Name(Name::new(kind.subtype())),
+        );
+        dict.insert(
+            Name::new(&b"Rect"[..]),
+            Object::Array(
+                [left, bottom, right, top]
+                    .into_iter()
+                    .map(|value| Object::Real(f64::from(value)))
+                    .collect(),
+            ),
+        );
+        dict.insert(Name::new(&b"QuadPoints"[..]), Object::Array(points));
+        dict.insert(
+            Name::new(&b"C"[..]),
+            Object::Array(
+                colour
+                    .into_iter()
+                    .map(|value| Object::Real(f64::from(value.clamp(0.0, 1.0))))
+                    .collect(),
+            ),
+        );
+        // Table 167 bit 3.
+        dict.insert(Name::new(&b"F"[..]), Object::Integer(4));
+        let id = self.next_free_object(document);
+        self.added.push(Added { id, page, dict });
+        Some(id)
+    }
+
+    /// A number no object in the file and no annotation already added is using.
+    ///
+    /// The same rule [`Update::beside`] applies, and for the same reason: §7.5.5 makes `/Size`
+    /// "one greater than the highest object number used in the file" and 68 of the corpus's 974
+    /// documents write a cross-reference entry beyond their own, so the larger of the two wins.
+    /// The count of annotations already added is added on top, because those numbers are spoken
+    /// for even though nothing has been written yet.
+    fn next_free_object(&self, document: &Document) -> ObjectId {
+        let highest = document.xref().object_numbers().max().unwrap_or_default();
+        let stated = document
+            .trailer()
+            .get("Size")
+            .and_then(Object::as_integer)
+            .and_then(|size| u32::try_from(size).ok())
+            .unwrap_or_default();
+        let base = highest.saturating_add(1).max(stated);
+        let number = base.saturating_add(u32::try_from(self.added.len()).unwrap_or(u32::MAX));
+        ObjectId {
+            number,
+            generation: 0,
+        }
+    }
+
+    /// Every annotation a person added to one page, in the order they added them.
+    ///
+    /// What the interpreter draws after the page's own `/Annots`, which is where §12.5.2 puts
+    /// them: "the annotations shall be drawn in the order in which they appear in the array".
+    /// A page reached without an identity — [`crate::Pages::detached`]'s, which is §12.7.7's
+    /// template — has none of these by construction.
+    pub fn added_on(&self, page: Option<ObjectId>) -> impl Iterator<Item = &Added> {
+        let page = page.filter(|_| !self.added.is_empty());
+        self.added
+            .iter()
+            .filter(move |added| Some(added.page) == page)
+    }
+
+    /// Every annotation a person added, in order.
+    ///
+    /// What a save writes and what a host asks to know whether there is anything to save.
+    #[must_use]
+    pub fn additions(&self) -> &[Added] {
+        &self.added
+    }
+
+    /// Forgets every annotation a person added.
+    ///
+    /// The other half of [`ViewState::clear_all_fields`]: an undo replays the log's surviving
+    /// prefix rather than inverting its last entry, so the state it replays onto has to be the
+    /// one before any of it.
+    pub fn clear_all_additions(&mut self) {
+        self.added.clear();
+    }
+
     /// Sets the value of every widget of one field, the way a person typing into it does.
     ///
     /// §12.7.4.2 makes a field's identity its *fully qualified name*, and §12.7.4.1 lets one
@@ -517,6 +710,7 @@ impl ViewState {
     /// writes reaches the file in the form the document's own key expects.
     pub fn save(&self, document: &Document) -> Result<Vec<u8>, pdf_syntax::write::UpdateError> {
         let mut update = Update::beside(document);
+        self.write_additions(document, &mut update);
         for (widget, value) in self.edits() {
             let Some(dict) = document.get(widget).as_dict().cloned() else {
                 continue;
@@ -561,6 +755,61 @@ impl ViewState {
             update.put(id, Object::Dictionary(catalog));
         }
         pdf_syntax::write::incremental_update(document, &update.replacements)
+    }
+
+    /// Writes every annotation a person added, and attaches each to its page.
+    ///
+    /// Two objects per annotation, because §12.5.2 says where an annotation lives: "each page
+    /// object shall contain an `/Annots` entry … an array of annotation dictionaries". So the
+    /// annotation is written under the number it was given when it was added, and the *page* is
+    /// rewritten with the reference appended — which is the half of §7.5.6's "changed, replaced,
+    /// or deleted" that a new object needs, and the same half Table 224's widgets already use.
+    ///
+    /// **Appended rather than inserted**, because the array's order is the drawing order the
+    /// same clause states, and a mark a person made last belongs on top of what was there.
+    ///
+    /// Table 166's `/P` is added here rather than at [`ViewState::add_markup`]: it is "an
+    /// indirect reference to the page object with which this annotation is associated", which is
+    /// a statement about the *file* and so belongs to the writing rather than to the log.
+    fn write_additions(&self, document: &Document, update: &mut Update) {
+        for added in &self.added {
+            // The numbers were allocated when the annotation was added, so nothing else in this
+            // update may reach for them.
+            update.reserve(added.id);
+        }
+        for added in &self.added {
+            let mut dict = added.dict.clone();
+            dict.insert(Name::new(&b"P"[..]), Object::Reference(added.page));
+            update.put(added.id, Object::Dictionary(dict));
+
+            let Some(mut page) = update.current(document, added.page) else {
+                continue;
+            };
+            // **Where the array is matters.** `/Annots` may be written inline or as a reference
+            // to an array object, and both are ordinary — so an inline array is rewritten in the
+            // page and a referenced one is rewritten *where it is*. Inlining a referenced array
+            // would leave the original object in the file saying something else, which §7.5.6's
+            // "most recent copy" rule would then have to arbitrate for no reason.
+            match page.get("Annots").cloned() {
+                Some(Object::Reference(id)) => {
+                    let mut entries = match update.current_object(document, id) {
+                        Object::Array(entries) => entries,
+                        _ => Vec::new(),
+                    };
+                    entries.push(Object::Reference(added.id));
+                    update.put(id, Object::Array(entries));
+                }
+                other => {
+                    let mut entries = match other {
+                        Some(Object::Array(entries)) => entries,
+                        _ => Vec::new(),
+                    };
+                    entries.push(Object::Reference(added.id));
+                    page.insert(Name::new(&b"Annots"[..]), Object::Array(entries));
+                    update.put(added.page, Object::Dictionary(page));
+                }
+            }
+        }
     }
 
     /// Forgets every value a person typed, leaving the file's own and whatever actions did.
@@ -1002,6 +1251,15 @@ impl Update {
         self.replacements.is_empty()
     }
 
+    /// Keeps [`Self::allocate`] away from a number already spoken for.
+    ///
+    /// An annotation a person added was given its number when they added it — it is that
+    /// annotation's identity for as long as the document is open — so the update's own
+    /// allocation has to start past it, or an appearance stream would land on top of it.
+    fn reserve(&mut self, id: ObjectId) {
+        self.next = self.next.max(id.number.saturating_add(1));
+    }
+
     /// A number no object in the file or in this update has.
     fn allocate(&mut self) -> ObjectId {
         let number = self.next;
@@ -1010,6 +1268,14 @@ impl Update {
             number,
             generation: 0,
         }
+    }
+
+    /// What this object says now, whatever kind it is: the update's copy, else the file's.
+    fn current_object(&self, document: &Document, id: ObjectId) -> Object {
+        self.replacements
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| document.get(id))
     }
 
     /// What this object says now: the update's own copy if it has one, else the file's.

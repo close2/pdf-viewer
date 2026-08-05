@@ -194,3 +194,80 @@ fn saving_leaves_both_of_a_documents_metadata_sources_exactly_as_they_were() {
         "§14.3.2's stream is not among the objects an update writes"
     );
 }
+
+/// §12.5.6.10's markup a person added reaches the file, and reaches its page.
+///
+/// Two objects, because §12.5.2 says where an annotation lives: the annotation itself, and the
+/// page's `/Annots` with the reference appended. Both are checked by reading the saved bytes
+/// back with this crate's own parser, which is the only reader that can be pointed at an
+/// arbitrary object number — `viewer-core`'s end-to-end test says the picture changes and cannot
+/// say which objects carry it.
+#[test]
+fn a_markup_a_person_added_is_written_and_attached_to_its_page() {
+    let Some(bytes) = corpus("160F-2019.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let document = Document::open(bytes.clone()).expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("page one")
+        .id
+        .expect("a page reached through the tree is an object");
+    let before = match entry(&document, page, "Annots") {
+        Object::Array(entries) => entries.len(),
+        _ => 0,
+    };
+
+    let mut view = ViewState::of(&document);
+    let added = view
+        .add_markup(
+            &document,
+            page,
+            pdf_model::view::Markup::Highlight,
+            [1.0, 1.0, 0.0],
+            &[[100.0, 700.0, 300.0, 700.0, 100.0, 690.0, 300.0, 690.0]],
+        )
+        .expect("one quadrilateral is something to mark up");
+    let out = view.save(&document).expect("the fixture can be written");
+    assert!(
+        out.starts_with(&bytes),
+        "§7.5.6 appends: the producer's bytes are untouched underneath"
+    );
+
+    let saved = Document::open(out).expect("what was written can be read");
+    assert_eq!(
+        entry(&saved, added, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Highlight".to_vec())
+    );
+    // Read raw rather than through `entry`, which resolves: what is being checked is that the
+    // entry *is* a reference, which Table 166 requires of `/P`.
+    let annotation = saved.get(added);
+    assert_eq!(
+        annotation
+            .as_dict()
+            .and_then(|dict| dict.get("P"))
+            .and_then(Object::as_reference),
+        Some(page),
+        "Table 166's /P names the page the annotation was added to"
+    );
+    let quads = entry(&saved, added, "QuadPoints");
+    assert_eq!(
+        quads.as_array().map(<[Object]>::len),
+        Some(8),
+        "one quadrilateral is eight numbers"
+    );
+
+    // And the page names it, after whatever it already had: §12.5.2 makes the array's order the
+    // drawing order, so a mark made last is drawn on top.
+    let annotations = entry(&saved, page, "Annots");
+    let entries = annotations.as_array().expect("the page has an /Annots now");
+    assert_eq!(entries.len(), before + 1);
+    assert_eq!(
+        entries.last().and_then(Object::as_reference),
+        Some(added),
+        "appended rather than inserted"
+    );
+}

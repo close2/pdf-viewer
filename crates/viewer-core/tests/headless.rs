@@ -2917,3 +2917,68 @@ fn a_host_may_open_a_popup_without_a_pointer() {
         "activating the parent opens its window"
     );
 }
+
+/// §12.5.6.10: a person marks up what they selected, and undo takes it away again.
+///
+/// The first edit that *adds* an object to a document rather than changing one it holds, which
+/// `CLAUDE.md`'s amended exclusion permits: what a user does to an open document is not
+/// authoring. Three things are checked because three things could go wrong in silence — the
+/// annotation is drawn at all, it is drawn in the colour asked for, and the log's replay removes
+/// it rather than leaving it behind.
+#[test]
+fn a_markup_over_a_selection_is_drawn_and_undone() {
+    let (mut viewer, events) = opened(600, 800);
+    let before = yellow(&raster(request(&events)));
+    assert_eq!(before, 0, "the note is black on white before anything");
+
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::Markup {
+            kind: pdf_model::view::Markup::Highlight,
+            colour: [1.0, 1.0, 0.0],
+        }))
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: true, .. })),
+        "{events:?}"
+    );
+    let marked = yellow(&raster(request(&events)));
+    assert!(
+        marked > 5000,
+        "§12.5.6.10's wash is not on the page: {marked} yellow pixels"
+    );
+
+    let events: Vec<_> = viewer.handle(Command::Undo).collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: false, .. })),
+        "{events:?}"
+    );
+    assert_eq!(
+        yellow(&raster(request(&events))),
+        0,
+        "undo replays the log's surviving prefix, so the annotation is gone"
+    );
+}
+
+/// Rasterises a render request with the CPU backend, which is what a tier-1 host does.
+fn raster(request: &viewer_core::RenderRequest) -> pdf_render::Raster {
+    CpuRasterizer::new()
+        .rasterize(&request.list, request.target)
+        .expect("the CPU backend draws this page")
+}
+
+/// How many pixels are yellow: a full red and green with no blue, which is what a `Multiply`
+/// wash of `[1 1 0]` over white leaves and what nothing else on this page draws.
+fn yellow(raster: &pdf_render::Raster) -> usize {
+    raster
+        .data
+        .chunks_exact(4)
+        .filter(|pixel| pixel[0] > 200 && pixel[1] > 200 && pixel[2] < 60)
+        .count()
+}

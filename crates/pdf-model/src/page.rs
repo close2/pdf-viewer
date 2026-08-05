@@ -140,6 +140,19 @@ impl Boundary {
 /// One page of a document.
 #[derive(Debug, Clone)]
 pub struct Page {
+    /// Which object the page *is*, where it was reached through one.
+    ///
+    /// A page is always an indirect object in a well-formed file — §7.7.3.2's `/Kids` is "an
+    /// array of indirect references" — so this is `Some` for every page reached through the tree
+    /// and for every page found by [`Pages`]' scan. It is `None` for [`Pages::detached`], which
+    /// builds a page from a dictionary a caller already holds (§12.7.7's templates).
+    ///
+    /// **It exists because an *edit* has to be filed against a page.** A markup annotation a
+    /// person adds belongs to the page they added it on, and `ViewState` — which is a log beside
+    /// an immutable document — has no other key to file it under. `Pages::indices` inverts the
+    /// tree for the same question in two other places, and doing that a third time inside the
+    /// interpreter would put a page-tree walk on the render path.
+    pub id: Option<ObjectId>,
     /// The page dictionary.
     pub dict: Dictionary,
     /// The resource dictionary in effect, after inheritance.
@@ -291,6 +304,8 @@ impl Page {
 pub struct Pages<'a> {
     document: &'a Document,
     root: Option<Dictionary>,
+    /// Which object the root node is, so that a one-node tree's leaf knows its own identity.
+    root_id: Option<ObjectId>,
     count: usize,
     /// §12.2's `/ViewArea` and `/ViewClip`, read once with the catalog.
     ///
@@ -318,6 +333,13 @@ impl<'a> Pages<'a> {
             .as_ref()
             .map(|catalog| document.get_key(catalog, "Pages"))
             .and_then(|pages| pages.as_dict().cloned());
+        // The catalog's `/Pages` is a reference in every well-formed file, and a tree whose root
+        // is also its only leaf is the case that needs it: `find_leaf` learns a node's identity
+        // from the `/Kids` entry that named it, and the root was named by nobody.
+        let root_id = catalog
+            .as_ref()
+            .and_then(|catalog| catalog.get("Pages"))
+            .and_then(Object::as_reference);
 
         // `/Count` is authoritative when present and plausible, and the tree is counted
         // only when it is not — which keeps opening a large document cheap.
@@ -355,6 +377,7 @@ impl<'a> Pages<'a> {
         Self {
             document,
             root,
+            root_id,
             count: if count == 0 { scanned.len() } else { count },
             view: (preferences.view_area, preferences.view_clip),
             scanned,
@@ -380,7 +403,8 @@ impl<'a> Pages<'a> {
         // documented choice rather than a claim about what the producer meant. §7.7.3.2's tree is
         // where page order lives, and a file whose tree is gone has not stated one.
         if !self.scanned.is_empty() {
-            let object = self.document.get(*self.scanned.get(index)?);
+            let id = *self.scanned.get(index)?;
+            let object = self.document.get(id);
             let dict = object.as_dict()?;
             // §7.7.3.4's inheritance runs up `/Parent`, and a page found by scanning may still
             // have a usable chain — the *tree* is what failed, which is a walk downwards from the
@@ -403,7 +427,13 @@ impl<'a> Pages<'a> {
                 .fold(Inherited::default(), |so_far, node| {
                     so_far.overlay(self.document, node)
                 });
-            return Some(build_page(self.document, dict, &inherited, self.view));
+            return Some(build_page(
+                self.document,
+                dict,
+                &inherited,
+                self.view,
+                Some(id),
+            ));
         }
         let root = self.root.clone()?;
         let mut remaining = index;
@@ -411,6 +441,7 @@ impl<'a> Pages<'a> {
         find_leaf(
             self.document,
             &root,
+            self.root_id,
             &Inherited::default(),
             &mut remaining,
             &mut visited,
@@ -437,6 +468,7 @@ impl<'a> Pages<'a> {
             dict,
             &Inherited::default().overlay(self.document, dict),
             self.view,
+            None,
         )
     }
 
@@ -644,9 +676,16 @@ fn count_leaves(document: &Document, node: &Dictionary) -> usize {
 }
 
 /// Descends to the leaf at `remaining` pages from here, accumulating inherited attributes.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a recursive tree walk carrying what §7.7.3.4's inheritance and §12.2's boundaries \
+              need, plus the node's own identity: bundling them into a struct would name a thing \
+              that is not one"
+)]
 fn find_leaf(
     document: &Document,
     node: &Dictionary,
+    node_id: Option<ObjectId>,
     inherited: &Inherited,
     remaining: &mut usize,
     visited: &mut usize,
@@ -664,14 +703,17 @@ fn find_leaf(
     let Some(kids) = kids.as_array() else {
         // A leaf. Take it if this is the one asked for.
         if *remaining == 0 {
-            return Some(build_page(document, node, &inherited, view));
+            return Some(build_page(document, node, &inherited, view, node_id));
         }
         *remaining = remaining.saturating_sub(1);
         return None;
     };
 
-    for kid in kids {
-        let kid = document.resolve(kid);
+    for entry in kids {
+        // The entry before it is resolved, because that is where the child's identity is:
+        // §7.7.3.2 makes `/Kids` "an array of indirect references to the immediate children".
+        let kid_id = entry.as_reference();
+        let kid = document.resolve(entry);
         let Some(kid) = kid.as_dict() else { continue };
 
         // Skip whole subtrees using `/Count` where it is trustworthy: for a hundred-thousand
@@ -691,6 +733,7 @@ fn find_leaf(
         if let Some(page) = find_leaf(
             document,
             kid,
+            kid_id,
             &inherited,
             remaining,
             visited,
@@ -710,6 +753,7 @@ fn build_page(
     dict: &Dictionary,
     inherited: &Inherited,
     view: (Boundary, Boundary),
+    id: Option<ObjectId>,
 ) -> Page {
     let media_box = inherited.media_box.unwrap_or(Page::DEFAULT_MEDIA_BOX);
 
@@ -786,6 +830,7 @@ fn build_page(
         .unwrap_or(1.0);
 
     Page {
+        id,
         dict: dict.clone(),
         resources: inherited.resources.clone().unwrap_or_default(),
         media_box,

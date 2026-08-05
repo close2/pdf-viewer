@@ -169,7 +169,7 @@ pub(crate) struct Open {
     /// here and never a change to the file. Undo and redo *are* this log — which is why they
     /// belong in the core rather than being reimplemented by every host — and §7.5.6's
     /// incremental update is a pure function of it.
-    pub(crate) log: Vec<crate::command::Edit>,
+    pub(crate) log: Vec<Done>,
     /// How many entries of [`Self::log`] are in effect.
     ///
     /// Everything before the cursor has been applied; everything after it has been undone and
@@ -191,6 +191,36 @@ pub(crate) struct Open {
     /// makes for a field's value: the document says what it says, and what a person did is a log
     /// beside it (`CLAUDE.md`'s rule 1).
     pub(crate) popups: BTreeMap<ObjectId, bool>,
+}
+
+/// One thing a person did, **resolved**, as the log records it.
+///
+/// Not [`crate::Edit`], and the difference is the whole reason this type exists: an `Edit` is
+/// what a host *asks for* and this is what was done. `Edit::Markup` names its target as "what is
+/// selected", which is a fact about the moment the command arrived — a replay after the selection
+/// moved would mark up something else — so [`crate::Viewer`] resolves it to the page and the
+/// quadrilaterals before it reaches the log. Undo and redo replay this, and a replay has to
+/// produce what happened rather than what was requested.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Done {
+    /// §12.7.4's value, by the field's fully qualified name.
+    SetField {
+        /// §12.7.4.2's name.
+        field: String,
+        /// The value, or nothing.
+        value: Option<String>,
+    },
+    /// §12.5.6.10's markup, over quadrilaterals in **default user space**.
+    Markup {
+        /// The page it was added to, which is `Page::id`.
+        page: ObjectId,
+        /// Which of the four.
+        kind: pdf_model::view::Markup,
+        /// Table 166's `/C`.
+        colour: [f32; 3],
+        /// Table 179's `/QuadPoints`, one entry per run of a line.
+        quads: Vec<[f32; 8]>,
+    },
 }
 
 /// A page, interpreted.
@@ -355,6 +385,55 @@ impl Open {
         Some(pages.detached(object.as_dict()?))
     }
 
+    /// Turns what a host asked for into what was done, or `None` where nothing was.
+    ///
+    /// The one place [`crate::Edit`] and [`Done`] meet. A field's value passes through unchanged;
+    /// a markup is resolved *here*, against the selection and the page as they are now, because
+    /// the log has to record geometry rather than an intention — see [`Done`].
+    ///
+    /// `None` for a markup with nothing selected, with no page interpreted, or on a page reached
+    /// without an identity ([`Pages::detached`]'s, which is §12.7.7's template): each is a
+    /// request this crate cannot turn into an annotation, and adding an empty one would be worse
+    /// than doing nothing.
+    pub(crate) fn resolve(&self, edit: crate::command::Edit) -> Option<Done> {
+        match edit {
+            crate::command::Edit::SetField { field, value } => {
+                Some(Done::SetField { field, value })
+            }
+            crate::command::Edit::Markup { kind, colour } => {
+                let interpreted = self.interpreted.as_ref()?;
+                let quads = crate::select::quads_for(&interpreted.placed, self.selection?);
+                let page = self.page(interpreted.page)?;
+                // §12.5.6.10's `/QuadPoints` is in default user space and everything this crate
+                // answers with is in the display list's, so the shapes go back through the
+                // transform that put them there. A page transform is a similarity with a flip
+                // and is always invertible; the `?` is the type system's rather than a case.
+                let back = pdf_model::content::page_transform(&page).invert()?;
+                let quads = quads
+                    .into_iter()
+                    .map(|quad| {
+                        let mut mapped = [0.0; 8];
+                        for (corner, out) in quad.chunks_exact(2).zip(mapped.chunks_exact_mut(2)) {
+                            let point = back.apply(pdf_render::Point {
+                                x: corner[0],
+                                y: corner[1],
+                            });
+                            out[0] = point.x;
+                            out[1] = point.y;
+                        }
+                        mapped
+                    })
+                    .collect::<Vec<[f32; 8]>>();
+                (!quads.is_empty()).then_some(Done::Markup {
+                    page: page.id?,
+                    kind,
+                    colour,
+                    quads,
+                })
+            }
+        }
+    }
+
     /// Replays the log up to the cursor onto a state that has none of it applied.
     ///
     /// Undo and redo are *replays* rather than inverses, and that is the decision: an inverse
@@ -365,10 +444,20 @@ impl Open {
     pub(crate) fn replay(&mut self) {
         let log = std::mem::take(&mut self.log);
         self.view.clear_all_fields();
+        self.view.clear_all_additions();
         for edit in log.iter().take(self.cursor) {
             match edit {
-                crate::command::Edit::SetField { field, value } => {
+                Done::SetField { field, value } => {
                     self.view.set_field(&self.document, field, value.as_deref());
+                }
+                Done::Markup {
+                    page,
+                    kind,
+                    colour,
+                    quads,
+                } => {
+                    self.view
+                        .add_markup(&self.document, *page, *kind, *colour, quads);
                 }
             }
         }

@@ -255,10 +255,10 @@ pub enum PointerAction {
 
 /// One change a person made.
 ///
-/// One variant today, and the enum exists rather than the variant's fields being inlined because
-/// the log is what a save writes and an annotation added or a markup drawn belongs in the same
-/// log — `CLAUDE.md`'s amended exclusion permits exactly those two beside this one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Two variants, and they are the two halves of `CLAUDE.md`'s amended exclusion: a value put into
+/// a field the document already holds, and an annotation added to it. Both are a log beside an
+/// immutable document, and both leave through §7.5.6's incremental update.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Edit {
     /// §12.7.4: put a value into a field, by the fully qualified name §12.7.4.2 gives it.
     ///
@@ -273,6 +273,28 @@ pub enum Edit {
         field: String,
         /// The new value, or nothing.
         value: Option<String>,
+    },
+    /// §12.5.6.10: mark up **what is selected**, in one of the clause's four ways.
+    ///
+    /// The first edit that adds an object to a document rather than changing one it already
+    /// holds, and `CLAUDE.md` permits exactly it: what a *user* does to an open document is not
+    /// authoring, and §7.5.6's incremental update writes it back with the producer's bytes
+    /// untouched underneath.
+    ///
+    /// **The selection is the target, and it is resolved when the command arrives.** The clause
+    /// defines these four over *text* — "text markup annotations shall appear as highlights,
+    /// underlines, strikeouts … in the text of a document" — and this crate already has that
+    /// geometry: [`crate::Query::Selection`]'s quadrilaterals, one per run of a line. Nothing
+    /// happens where nothing is selected, which is a host's mistake rather than a document's.
+    ///
+    /// The colour is Table 166's `/C`, in `DeviceRGB` because that is what the entry's three
+    /// components mean. What is *not* carried: Table 166's `/M`, because rule 3 gives this crate
+    /// no clock, and `/T`, because a person's name is not something this program knows.
+    Markup {
+        /// Which of §12.5.6.10's four.
+        kind: pdf_model::view::Markup,
+        /// Table 166's `/C`, as `DeviceRGB` components in 0..=1.
+        colour: [f32; 3],
     },
 }
 
