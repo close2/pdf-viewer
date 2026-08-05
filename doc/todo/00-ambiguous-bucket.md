@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **51 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **48 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **735 diagnosed, 51 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **738 diagnosed, 48 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -318,6 +318,18 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**Three in the three-hundred-and-thirtieth, and one of them is why step 3 exists.**
+`issue13343.pdf`'s two pages are **eight commands** each — a line reading `( 57)【要約】` in a
+non-embedded `Ryumin-Light-90ms-RKSJ-H` — and the ink table says ours is 30% darker than either
+reference. The four-panel strip says what the table cannot: `poppler` draws `【要約】` and not
+`( 57)`, `hayro` draws `( 57)` and not the ideographs, and three of us draw the line in three
+faces of different weight. Five renderers, three different *sets of characters*
+(`AMBIGUOUS_SUBSTITUTED_FACE`). `tiling-pattern-box.pdf` is a cube on a §8.7.3 hairline grid with
+0.67 of 255 of ink on the whole page: two ladders converge to 0.0024 of each other, ours lands
+between them, and `poppler` at the page's own scale is **34% over its own limit**
+(`AMBIGUOUS_SUB_PIXEL_LINE_WORK`).
+
 
 **And one in the three-hundred-and-twenty-fifth, where the page was small enough to read row by
 row.** `issue19083.pdf` is 149 × 68 device pixels: one choice field with an auto-sized `/DA`

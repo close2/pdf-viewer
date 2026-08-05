@@ -31,10 +31,8 @@ images_1bit_grayscale.pdf page 1
 issue10339_reduced.pdf page 1
 issue12705.pdf page 1
 issue12841_reduced.pdf page 1
-issue13343.pdf page 1
 issue13193.pdf page 1
 issue13201.pdf page 1
-issue13343.pdf page 2
 issue1350.pdf page 2
 issue14953.pdf page 1
 issue15150.pdf page 1
@@ -59,5 +57,4 @@ issue9972-3.pdf page 1
 jbig2_symbol_offset.pdf page 1
 knockout_groups_test.pdf page 1
 tensor-allflags-withfunction.pdf page 1
-tiling-pattern-box.pdf page 1
 transparency_group.pdf page 1

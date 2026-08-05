@@ -2114,7 +2114,27 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 ///
 /// This page is why the group's own caution is worth repeating: at the page's own scale the five
 /// renderers span **9.3 of 255** and none of them is wrong about anything.
-const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 8] = [
+/// # A ninth, and the reference is 34% over its own limit
+///
+/// `tiling-pattern-box.pdf` page 1 came off §3a's ranking in the three-hundred-and-thirtieth
+/// session at 0.45 from the nearest reference and 2.99 from the furthest. It is a line drawing of
+/// a cube on a §8.7.3 tiling-pattern grid — 567 commands, and **0.67 of 255 of ink on the whole
+/// page**, which is what a page of hairlines looks like to an ink table.
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// mupdf          0.68275   0.669391
+/// poppler        0.89469   0.666952
+/// ours (1x/8x)   0.66091   0.668751
+/// ```
+///
+/// The two ladders converge to **0.0024 of 255** of each other and ours at 8× lands *between*
+/// them. At the page's own scale `poppler` is **34% over** its own limit — the grid is where its
+/// "paint any pixel the shape intersects" costs most — and ours is 0.008 under. The four-panel
+/// strip says the same thing without a number: the same cube on four grids, and `poppler`'s grid
+/// is visibly the darkest.
+const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 9] = [
+    "tiling-pattern-box.pdf page 1",
     "issue7454.pdf page 1",
     "prefilled_f1040.pdf page 1",
     "prefilled_f1040.pdf page 2",
@@ -2250,7 +2270,34 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 8] = [
 ///
 /// Both pages are this group's standing subject with the numbers to say so: the clause hands the
 /// face to the processor, and five processors reach five faces.
-const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 5] = [
+/// # Two more, in the three-hundred-and-thirtieth, and the picture is the whole argument
+///
+/// `issue13343.pdf`'s two pages sat on §3a's undiagnosed list at 0.42 and 0.42 from the nearest
+/// reference. Each is **eight commands** — a line reading `( 57)【要約】` — in
+/// `Ryumin-Light-90ms-RKSJ-H`, a **non-embedded** Adobe-Japan1 font reached through §9.7.5.2's
+/// `90ms-RKSJ-H` `CMap`. The descriptor states `/Flags 6` and `/StemV 69` and **no
+/// `/FontWeight`**, so §9.8.1 leaves the weight to the face a processor finds.
+///
+/// ```text
+///           ours    poppler   mupdf
+/// page 1   9.2865   6.1379   7.0004
+/// page 2  15.1896  11.4200  11.5458
+/// ```
+///
+/// **The ink table is not the finding here and the four-panel strip is.** `poppler` draws
+/// `【要約】` and *not* `( 57)`; `hayro` draws `( 57)` and not the ideographs; `mupdf`,
+/// `ghostscript` and ours draw the line. So the spread is three renderers drawing different
+/// *sets of characters* and, among those that draw all of them, three faces of different weight
+/// — Ryumin is a light-weight Mincho and what each of us substitutes for it is whatever the
+/// machine has. Ours is the heaviest, which is what 30% more ink over the same glyphs means.
+///
+/// This group's standing sentence, with a page that states it twice: §9.10.2 says how to learn
+/// what a code means and nothing about which face draws it, so five processors reach five faces.
+/// The `-UCS2` tables (ADR 0140) are what make the *characters* right; the weight is not theirs
+/// to fix.
+const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 7] = [
+    "issue13343.pdf page 1",
+    "issue13343.pdf page 2",
     "issue8697.pdf page 1",
     "non-embedded-NuptialScript.pdf page 1",
     "bug1671312_ArialNarrow.pdf page 1",
