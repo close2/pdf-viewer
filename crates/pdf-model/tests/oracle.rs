@@ -3997,6 +3997,83 @@ const AMBIGUOUS_ONE_LADDER: [&str; 3] = [
 /// where any bound is tight in relative terms, which is the other way to reach this bucket.
 const AMBIGUOUS_FOUR_ANSWERS: [&str; 2] = ["bug1844583.pdf page 1", "tagged_stamp.pdf page 1"];
 
+/// Ambiguous, and the whole of the difference is four horizontal rules.
+///
+/// `issue9972-1.pdf`, `-2` and `-3` are **one page under three names**: the same catalog, the
+/// same readback md5 (`0444a129…`), and the same ink in all five renderers to the fourth
+/// decimal. A *Personal Sleep Study* form — A4 of six- to nine-point Helvetica with two ruled
+/// tables at the foot — and the three files differ in what their pdf.js issue was about rather
+/// than in what a page draws.
+///
+/// At the page's own scale:
+///
+/// ```text
+/// ours 16.7900   poppler 16.5226   mupdf 16.7102   hayro 17.0341   ghostscript 18.2760
+/// ```
+///
+/// Ours is 0.08 from `mupdf` and 0.24 from `hayro`, inside a band the four span and 1.49 under
+/// `ghostscript`. What makes this diagnosable rather than another dense-text page is that the
+/// difference is **localised**, and one instrument says where.
+///
+/// # Where: a per-row ink profile at eight times
+///
+/// Ours against `mupdf`, row by row over the 5880-row raster, worst twelve rows:
+///
+/// ```text
+/// 1x row 560.9   ours  91   mupdf  53   poppler   7
+/// 1x row 561.0   ours  72   mupdf  34   poppler   5
+/// 1x row 589.8   ours 134   mupdf  97   poppler  30
+/// 1x row 589.9   ours 112   mupdf  68   poppler  17
+/// 1x row 669.9   ours  85   mupdf  50   poppler   7
+/// 1x row 697.9   ours  93   mupdf  56   poppler  15
+/// ```
+///
+/// **Every one of the twelve is within a fifth of a pixel of one of the page's four horizontal
+/// table rules** — 1× rows 561, 590, 670 and 698 — and the ordering at each is ours > `mupdf` >
+/// `poppler`. Nothing else on the page reaches the list. The prose half of the page settles it
+/// from the other side: over the top 55% the three ladders agree to **0.02 of 255** —
+///
+/// ```text
+///              1x / 72 dpi    8x / 576 dpi
+/// ours            11.8885        11.8832
+/// poppler         11.8324        11.9073
+/// mupdf           11.7970        11.9023
+/// ```
+///
+/// — so the text is not in question at all, and four rules are.
+///
+/// # Why that is `ambiguous` and not a defect
+///
+/// The same row profiles, as distances over the whole page:
+///
+/// ```text
+/// ours    vs mupdf     0.6862
+/// mupdf   vs poppler   1.2978
+/// ours    vs poppler   1.5850
+/// ```
+///
+/// **We are nearer `mupdf` than the two references are to each other**, by a factor of two. Three
+/// renderers put a hairline rule's edge in three places and no clause states which: §8.4.3.2's
+/// "thinnest line" and §10.7.5's stroke adjustment are permissions, and `doc/todo/_scan-conversion`
+/// holds what this tree departs from and why.
+///
+/// **And it explains the whole-page ladders**, which is what the ink table alone could not.
+/// Ours is flat — 16.79 at 1×, 16.84 at 4×, 16.83 at 8× — while `poppler` descends 16.52 → 16.28
+/// and `mupdf` 16.71 → 16.43. A flat ladder is a renderer already measuring the geometry; the
+/// references' descent is their rule edges narrowing as the pixels shrink, which is the same
+/// quantity the row profile above measures directly.
+///
+/// **A caution this page earned the hard way.** A band of rows chosen by eye to be "rules only"
+/// caught the bottom of a caption as well, and produced a 14% over-paint that is not there.
+/// `doc/todo/00`'s step 5's rule about `-alpha off` has a sibling: **a band is a hypothesis about
+/// what is in it**, and the row profile is what checks it — 13 rows at 1× is 6 of text, 1 of rule
+/// and 6 of white, and only the profile says so.
+const AMBIGUOUS_TABLE_RULE_EDGES: [&str; 3] = [
+    "issue9972-1.pdf page 1",
+    "issue9972-2.pdf page 1",
+    "issue9972-3.pdf page 1",
+];
+
 /// Ambiguous, and on all three ours is the render nearest the geometry.
 ///
 /// Three pages of small marks — `issue7339_reduced.pdf` at 115×220, `issue21570.pdf` at 842×595
@@ -4842,6 +4919,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_SPACE_DRAWN_AS_A_MARK)
         .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
         .chain(&AMBIGUOUS_FOUR_ANSWERS)
+        .chain(&AMBIGUOUS_TABLE_RULE_EDGES)
         .chain(&AMBIGUOUS_ONE_LADDER)
         .chain(&AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY)
         .chain(&AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE)

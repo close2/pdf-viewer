@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **42 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **39 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **744 diagnosed, 42 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **747 diagnosed, 39 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -96,6 +96,22 @@ session is that the tree is far enough along for this to be the work.
    two-hundred-and-thirty-third session, `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`). The tell is the
    raster's size: `magick identify` every panel before believing any number, and if the
    dimensions differ the measurement has not started yet. `mutool draw -r N` needs no flag.
+
+   **And a band of rows is a hypothesis about what is in it**, which the three-hundred-and-forty-first
+   session learned by paying for it. A strip picked by eye off the 1× page as "the empty cells,
+   rules only" turned out to be six rows of caption, one of rule and six of white, and the ink it
+   produced said this tree over-paints a table rule by 14%. It does not. **The instrument that
+   checks a band is a per-row ink profile**, which costs one `magick -resize 1xH!` per panel and
+   is the same shape as step 7's per-row heatmap:
+
+   ```sh
+   magick <png> -alpha off -colorspace Gray -resize 1x<height>! -depth 8 txt:-
+   ```
+
+   Read row by row it also *localises* a difference, which no ink table can: on
+   `issue9972-1.pdf` every one of the twelve worst rows was within a fifth of a pixel of one of
+   the page's four horizontal rules, and that is what turned "a dense form somewhere in the band"
+   into `AMBIGUOUS_TABLE_RULE_EDGES`. Take it before taking a ladder, not after.
 
    **And the assumption inside it is checkable, because it has failed once.** The step assumes
    the reference *converges on the geometry* as the pixels shrink. On `issue2177.pdf`, a page of
