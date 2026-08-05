@@ -1,11 +1,11 @@
-# Five pages quorra newly refuses, and a budget whose own comment says they cannot exist
+# Five pages quorra newly refuses — diagnosed, reproduced, and waiting on one line upstream
 
-Status: **open, and it is failing a gate right now.**
+Status: **diagnosed and handed over.** The gate fails here until quorra is fixed; the project
+owner took the upstream half in the three-hundred-and-eleventh session.
 Priority: 12 — a defect: five documents that drew do not draw.
 Corpus: 5 of 974.
-Clauses: none directly. This is a resource budget in a dependency.
-Code: `crates/render-quorra/tests/corpus.rs`'s `REFUSED` ratchet; `quorra-gpu`'s
-`DEFAULT_MAX_FRAME_BYTES`.
+Clauses: none. A resource budget in a dependency.
+Code: `crates/render-quorra/tests/corpus.rs`'s `REFUSED` ratchet; `doc/QUORRA_FEEDBACK.md` §10.
 
 ## What fails
 
@@ -20,58 +20,66 @@ assertion `left == right` failed: the pages quorra refuses have changed
  right: ["bug1721218_reduced.pdf"]
 ```
 
-One refusal is expected and argued — `bug1721218_reduced.pdf`'s coverage outgrows a 16384 × 16384
-scratch image, which the handover has recorded for sessions. **Five are new**, and all five give
-the same reason:
+`bug1721218_reduced.pdf` is the expected one — its coverage outgrows a 16384 × 16384 scratch
+image, argued and recorded. **Five are new**, all "over the stated budget" of 256 MiB of
+scene-derived bytes: 616 862 585 needed for `bug1703683_page2_reduced.pdf`, 312 400 361 for
+`issue14497.pdf`, 280 762 806 for `issue12810.pdf`, and `issue1905.pdf` and `issue9418.pdf` beside
+them.
+
+## The cause, read and then reproduced
+
+**`DEFAULT_MAX_FRAME_BYTES` did not move** — identical at `7d5dafb` and `7599081`. What a frame is
+*charged* did, with the GPU coverage lane session 310 bumped quorra for.
+
+`encode.rs` charges `winding.device_bytes()` **unconditionally** at the end of encoding.
+`device.rs`, where the winding texture is actually created, adds those same bytes only
+`if !winding.is_empty()`. `device_bytes()` is `width × height × 8` for an `rgba16float` target, and
+`width`/`height` are stamped from **the whole scratch sheet** — which the CPU lane's tiles size
+just as much as the GPU lane's, because both share one sheet.
+
+So on `Coverage::Cpu` — the default, and what the offscreen rasteriser this gate drives gets —
+every frame is charged eight bytes per texel of its entire coverage sheet for a texture that is
+never allocated, never counted where allocations are counted, and never rendered into. **The
+pre-flight check is stricter than the thing it checks**, which is the one direction a budget must
+not be wrong in.
+
+**Reproduced.** A local checkout of `7599081` patched with the guard the allocation site already
+has:
+
+```rust
+if !winding.is_empty() {
+    encoder.charge(winding.device_bytes())?;
+}
+```
+
+and `[patch."https://github.com/close2/quorra"]` pointing at it, re-running the gate:
 
 ```
-frame refused: frame needs 616862585 scene-derived bytes, over the stated budget of 268435456
+957 pages compared in 23.8s: 913 agree, 43 differ, 1 refused, 17 not comparable
 ```
 
-(`bug1703683_page2_reduced.pdf`; the others need 280 762 806, 312 400 361 and so on.)
+913 / 43 / 1 / 17 is this gate's recorded state from before the coverage lane, to the number. The
+fix costs nothing else and restores exactly what was taken. The patch was **not** committed — it
+points into a scratch directory, and the fix belongs upstream.
 
-## What is known, and what is not
+## What is left here
 
-**Known.** The budget is `quorra_gpu::DEFAULT_MAX_FRAME_BYTES`, 256 MiB, and it is *unchanged*
-between the two quorra revisions this tree has used — the constant and its comment are identical
-at `7d5dafb` and at `7599081`. So the budget did not move; **what the frame is charged did**.
+1. **Nothing, until quorra ships it.** Written up as `doc/QUORRA_FEEDBACK.md` §10 with both call
+   sites quoted and the reproduction; the project owner is taking the upstream half.
+2. **When it lands**: bump `Cargo.lock`, re-run the gate, expect 913 / 43 / 1 / 17, and delete this
+   file.
+3. **Do not raise the budget** to make the gate pass. The constant exists because a GPU buffer
+   sized from document-derived arithmetic is a decompression bomb under another name (principle 3),
+   and a ratchet moved to accommodate a regression is trap 5 exactly.
+4. **One question the fix does not answer**, left in §10 for whoever is there: the constant's
+   comment says 256 MiB is "beyond any real page by orders of magnitude", and five real first pages
+   were within reach of it. If that is entirely the phantom texture, the comment is safe; if it is
+   not, a budget whose comment says it cannot be reached is a budget nobody re-reads.
 
-**Known.** The failure predates the three-hundred-and-eleventh session's work and is not its. Run
-with session 311's `pdf-render` changes stashed, the assertion is identical, name for name.
+## What this cost, and the habit it belongs to
 
-**Known.** The last change to `Cargo.lock` is `cdf81a1`, session 310's "The coverage lane is chosen
-per frame, from the magnification", which moves quorra from `7d5dafb` to `7599081` for
-`set_coverage`. That is the only candidate in range and it is the obvious one — a per-frame
-coverage lane is exactly the kind of change that adds scene-derived allocations.
-
-**Not known, and it is the first thing to establish**: that the bump is the cause. It has not been
-bisected, because `QuorraPresenter::set_coverage` does not exist at `7d5dafb`, so downgrading the
-lock alone does not compile — the check is a worktree at `9e8e6e1` (the commit before the bump)
-with `doc/pdf.js` linked into it, running the same gate.
-
-## Why it matters more than five documents
-
-`quorra-gpu`'s own comment on the constant says:
-
-> 256 MiB of instance data is roughly eight million rectangle commands — beyond any real page by
-> orders of magnitude, while still refusing runaway input long before an allocator does.
-
-Five real pages out of 974 exceed it, one of them by 2.3×. Either the accounting now charges
-something it should not, or the premise is wrong and the number wants revisiting — and which of
-those it is decides whether the fix is upstream or a `quorra_gpu::Options` this tree sets. That
-question belongs in `doc/QUORRA_FEEDBACK.md` with the measurement attached, which is how every
-other finding about this dependency has gone back.
-
-**Do not raise the budget to make the gate pass.** The constant exists because a GPU buffer sized
-from document-derived arithmetic is a decompression bomb under another name (principle 3), and a
-ratchet moved to accommodate a regression is the failure mode `CLAUDE.md` trap 5 is about.
-
-## Steps
-
-1. Bisect it, as above, and record which revision changed the charge.
-2. Measure what the five pages actually contain — `render-gpu`'s `frame_split` example prints
-   where a frame's cost goes — so the report says *what* is being charged rather than that
-   something is.
-3. Take it to `doc/QUORRA_FEEDBACK.md` if the accounting is wrong, or argue a per-host budget here
-   if the premise is.
-4. The gate goes green when the five draw, not when the list is edited.
+The regression shipped in session 310 and was found in 311, by running the gates rather than by
+any gate running itself. **CI runs none of this**: `every_corpus_page_agrees_with_the_cpu_oracle`
+is `#[ignore]`d, as are the corpus, oracle, text, dates, XMP and actions gates, and
+`cargo test --workspace` skips them all. Ten ignored tests over seven files, every ratchet in the
+handover among them. That is its own item, and it is the reason this one had a session to hide in.

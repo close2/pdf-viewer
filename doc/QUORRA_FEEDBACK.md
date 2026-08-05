@@ -9,6 +9,10 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
+**§10 is the newest and is a defect rather than a request** — one unconditional line prices a
+texture the default coverage lane never allocates, five real pages are refused on it, and a local
+patch of the one-line fix restores this gate's numbers exactly.
+
 **§8 was answered at `7d5dafb` and §9 is open.** Both were requests rather than defects, and both
 exist because the project owner's decision that page one goes to the graphics device put your
 bring-up on this viewer's critical path. §8 asked for a field split and an entry point and got
@@ -425,3 +429,89 @@ line a host can read a regression out of. **Your headless measurement and ours d
 share and both are right** — you measured 3.2–4.4 ms of adapter selection headless, we measure
 5.3–6.8 with a `compatible_surface` under a virtual X server. That is the argument for the split,
 made by the field.
+
+---
+
+## 10. The CPU coverage lane is charged for the GPU lane's winding texture — **defect, one line, reproduced**
+
+**Five corpus pages that drew at `7d5dafb` are refused at `7599081`**, all with the same message:
+
+```
+frame refused: frame needs 616862585 scene-derived bytes, over the stated budget of 268435456
+```
+
+`bug1703683_page2_reduced.pdf` (616 862 585), `issue14497.pdf` (312 400 361), `issue12810.pdf`
+(280 762 806), `issue1905.pdf`, `issue9418.pdf`. The sixth refusal is `bug1721218_reduced.pdf`,
+which has been refused for coverage extent since §0's first run and is not this.
+
+**`DEFAULT_MAX_FRAME_BYTES` did not move** — the constant and its comment are byte-identical
+between the two revisions. What changed is what a frame is *charged*.
+
+### The two sites disagree
+
+`encode.rs`, at the end of `encode`:
+
+```rust
+let mut winding = std::mem::take(&mut encoder.winding);
+let scratch = std::mem::replace(&mut encoder.scratch, ScratchPacker::new(1, 1)).finish();
+if let Some(sheet) = scratch.as_ref() {
+    winding.width = sheet.width;
+    winding.height = sheet.height;
+}
+encoder.charge(winding.device_bytes())?;          // ← unconditional
+```
+
+`device.rs`, where the texture is actually made:
+
+```rust
+*bytes = bytes.saturating_add(scratch.data.len() as u64);
+if !winding.is_empty() {                           // ← guarded
+    *bytes = bytes.saturating_add(winding.device_bytes());
+    crate::winding::render_into(…)?;
+}
+```
+
+`Winding::device_bytes` is `width × height × 8` (rgba16float) plus the vertex and tile buffers,
+and `width`/`height` are taken from **the whole scratch sheet** — which is sized by the CPU lane's
+tiles just as much as by the GPU lane's, because both share one sheet. `is_empty()` is
+`tiles.is_empty() || vertices.is_empty()`.
+
+So under `Coverage::Cpu` — the default, and what an offscreen `Device::headless` gets — a frame is
+charged eight bytes per texel of its entire coverage sheet for a texture that is then **not
+allocated, not counted at the allocation site, and never rendered into**. A page whose sheet
+reaches 32 M texels is refused on a phantom quarter-gigabyte. The pre-flight check is stricter
+than the thing it is checking, which is the one direction a budget must not be wrong in.
+
+### The fix, and what it restores
+
+Guarding the charge the way the allocation is guarded:
+
+```rust
+if !winding.is_empty() {
+    encoder.charge(winding.device_bytes())?;
+}
+```
+
+**Reproduced here** by patching a local checkout of `7599081` with exactly that and re-running §0's
+instrument. Before: 6 refused. After:
+
+```
+957 pages compared in 23.8s: 913 agree, 43 differ, 1 refused, 17 not comparable
+```
+
+913 / 43 / 1 / 17 is this gate's recorded state from before the coverage lane landed, to the
+number — so the change costs nothing else and restores exactly what it took.
+
+### One thing worth a second look while you are there
+
+`device_bytes()` returning a non-zero size for an empty sheet is the proximate cause, and the
+deeper shape is that `width`/`height` are assigned from the shared sheet before anyone asks
+whether this frame has a GPU lane at all. Either `device_bytes` answers zero when `is_empty()`, or
+the dimensions are only stamped when there are tiles to stamp them for. The first is smaller; the
+second makes the invariant hold at the point where it is easy to see.
+
+**And the constant's comment now has a counterexample.** It says 256 MiB is "roughly eight million
+rectangle commands — beyond any real page by orders of magnitude". Whatever the charge ends up
+being, five of 974 real first pages were within reach of it, one at 2.3×. That may be entirely the
+phantom texture; it is worth confirming, because a budget whose comment says it cannot be reached
+is a budget nobody re-reads.
