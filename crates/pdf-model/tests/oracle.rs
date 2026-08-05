@@ -2133,7 +2133,46 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// "paint any pixel the shape intersects" costs most — and ours is 0.008 under. The four-panel
 /// strip says the same thing without a number: the same cube on four grids, and `poppler`'s grid
 /// is visibly the darkest.
-const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 9] = [
+/// # A tenth, and the per-row profile says *phase* rather than width
+///
+/// `issue1350.pdf` page 2 came off §3a's ranking in the three-hundred-and-forty-fifth session at
+/// 0.39 from the nearest reference and 0.71 from the furthest — the closest pair on the list, which
+/// `doc/todo/00`'s step 1 says is the shape that accuses us. It is a 361 × 310 table of rules and
+/// small type, and at the page's own scale the five renderers span **0.134 of 255**: ours 11.0347,
+/// `poppler` 11.0597, `ghostscript` 11.0760, `hayro` 11.1547, `mupdf` 11.1691.
+///
+/// The per-row ink profile says what an ink table cannot — the difference is *which row* a rule
+/// lands in:
+///
+/// ```text
+/// row       ours   poppler   mupdf   ghostscript   hayro
+///  44          2       160      38             2      38
+///  46        157         2     129           156     130
+///  48          2       155      24             3      25
+///  49        153         3     132           150     136
+/// ```
+///
+/// Three answers to one question. Ours and `ghostscript` put each rule wholly in one row;
+/// `poppler` puts it wholly in the *adjacent* row; `mupdf` and `hayro` split it across both. No
+/// clause decides which — §10.7.4's half-open rule is the departure this whole group records — and
+/// a rule one row up is a rule, which is why the page's total moves by a tenth of a level while
+/// four of its rows move by 150.
+///
+/// Step 6, and here the two ladders do not converge on each other:
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler       11.0597   11.1367
+/// mupdf         11.1691   11.3833
+/// ours (1x/8x)  11.0347   11.1168
+/// ```
+///
+/// **Ours and `poppler` end 0.020 of 255 apart** and `mupdf` ends 0.267 above both, so the limit
+/// worth trusting is the one two ladders agree on and ours is on it. Unlike the rest of this
+/// group, nobody's first rung is wildly high: the page's marks are a *whole* pixel wide, so what
+/// is being decided is where the pixel goes rather than how many of them there are.
+const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
+    "issue1350.pdf page 2",
     "tiling-pattern-box.pdf page 1",
     "issue7454.pdf page 1",
     "prefilled_f1040.pdf page 1",
@@ -4069,6 +4108,35 @@ const AMBIGUOUS_BOUNDARY_PIXELS: [&str; 2] = [
     "tensor-allflags-withfunction.pdf page 1",
 ];
 
+/// Ambiguous, and §11.4.6's knockout groups are the whole of it.
+///
+/// `knockout_groups_test.pdf` page 1 is four labelled tests in a 2 × 2 grid — non-isolated
+/// knockout, isolated knockout, non-isolated normal, isolated normal — which makes the page its
+/// own instrument: measure each quadrant and the disagreement names itself.
+///
+/// ```text
+///                       ours   poppler   mupdf   ghostscript   hayro
+/// non-isolated knockout 72.36    74.40   71.89       71.21      78.56
+/// isolated knockout     60.16    65.93   59.60       59.00      66.01
+/// non-isolated normal   76.87    77.68   77.46       77.99      77.89
+/// isolated normal       64.54    65.16   64.91       65.32      65.30
+/// ```
+///
+/// **The two `normal` quadrants agree across all five within 1.1 and 0.8 of 255.** The two
+/// `knockout` quadrants split them into two groups that are **5.8 to 6.4 apart**: ours with
+/// `mupdf` and `ghostscript` (within 0.47 and 1.15 of us), against `poppler` and `hayro`. Three
+/// renderers give one answer to §11.4.6 and two give another, which is a clause with two readings
+/// rather than a page with a defect.
+///
+/// **And this page reports nothing**, which is worth saying because five of the corpus's documents
+/// report exactly this clause: `doc/todo/23`'s first population is "a knockout element whose shape
+/// is not its coverage", and `knockout_blend_multiply.pdf`, `knockout_inner_backdrop.pdf`,
+/// `knockout_nested.pdf` and this file's own **page 2** are on the incomplete list for it. Page 1's
+/// knockout groups are ones this tree composites without reaching that condition, so the page is
+/// judged rather than excused — and the judgement is that we are inside the references' own
+/// spread on the only quadrants that separate them.
+const AMBIGUOUS_KNOCKOUT_GROUP: [&str; 1] = ["knockout_groups_test.pdf page 1"];
+
 /// Ambiguous, and the whole of the difference is four horizontal rules.
 ///
 /// `issue9972-1.pdf`, `-2` and `-3` are **one page under three names**: the same catalog, the
@@ -4992,6 +5060,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
         .chain(&AMBIGUOUS_FOUR_ANSWERS)
         .chain(&AMBIGUOUS_BOUNDARY_PIXELS)
+        .chain(&AMBIGUOUS_KNOCKOUT_GROUP)
         .chain(&AMBIGUOUS_TABLE_RULE_EDGES)
         .chain(&AMBIGUOUS_ONE_LADDER)
         .chain(&AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY)
