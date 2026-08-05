@@ -442,7 +442,7 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// every Helvetica has that glyph. Held by name because a reference that drops characters cannot
 /// be the numerator, and this is the one entry on this list whose readback is *better* than
 /// `pdftotext`'s rather than worse.
-const TEXT_BELOW_FLOOR: [&str; 29] = [
+const TEXT_BELOW_FLOOR: [&str; 27] = [
     "ArabicCIDTrueType.pdf",
     "bug1865341.pdf",
     "PDFJS-7562-reduced.pdf",
@@ -453,13 +453,11 @@ const TEXT_BELOW_FLOOR: [&str; 29] = [
     "complex_ttf_font.pdf",
     "french_diacritics.pdf",
     "issue10301.pdf",
-    "issue11016_reduced.pdf",
     "issue11131_reduced.pdf",
     "issue11656.pdf",
     "issue12705.pdf",
     "issue13211.pdf",
     "issue14046.pdf",
-    "issue15516_reduced.pdf",
     "issue16553.pdf",
     "issue17069.pdf",
     "issue19802.pdf",

@@ -346,7 +346,7 @@ fn a_glyph_name_the_adobe_glyph_list_knows_is_what_the_code_means() {
     assert_eq!(pdf_model::interpret(&document, &page).text, "A:");
 }
 
-/// And where the name is not in the list, the clause's own permission takes the code.
+/// And where the name is not in the list, §9.10.2's own permission takes the code.
 ///
 /// > If these methods fail to produce a Unicode value, there is no way to determine what the
 /// > character code represents in which case a PDF processor may choose a character code of

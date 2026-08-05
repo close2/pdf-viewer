@@ -255,6 +255,48 @@ pub fn character_for(name: &str) -> Option<char> {
     read_fonts::ps::agl::name_to_char(name)
 }
 
+/// The *characters* a glyph name stands for, by the Adobe Glyph List's own algorithm.
+///
+/// §9.10.2's second method names two lists — "the Adobe Glyph List **and Adobe Glyph List for New
+/// Fonts**" — and the second brings a convention with it that a one-character lookup cannot
+/// express: a name may be *composed*, and it may carry a variant suffix.
+///
+/// ```text
+/// f_f_i     → "ffi"    three components, each a name the list knows
+/// oacute.sc → "ó"      the small-capital variant of a name the list knows
+/// ```
+///
+/// So the algorithm is the Adobe Glyph List Specification's, in three steps: drop everything from
+/// the first period, split on underscores, and map each component. A component the list cannot
+/// answer for makes the whole name unanswerable — a half-mapped ligature would be worse than
+/// none, because it would put `ff` where the page shows `ffi`.
+///
+/// **A suffix is dropped rather than read**, and that is the specification's own instruction:
+/// the part after the period names a *variant* — `.sc` for small capitals, `.alt` for an
+/// alternate — and the variant of a character is that character. It is the same reading ADR 0050
+/// gave the suffix in the other direction, where a program's own name for a glyph keeps it.
+///
+/// `issue15516_reduced.pdf` is the corpus witness: a Minion subset whose eight codes are
+/// `/f_f_i`, `/f_i`, `/f_f_l`, `/f_f`, `/f_l`, `/f_t`, `/T_h` and `/f_h`, and which read back as
+/// nothing at all until the three-hundred-and-twenty-seventh session.
+#[must_use]
+pub fn text_for(name: &str) -> Option<String> {
+    let stem = name.split('.').next().unwrap_or(name);
+    if stem.is_empty() {
+        return None;
+    }
+    // The common case is one component and a name the list knows, which is every ordinary
+    // encoding: answered without splitting or allocating a `Vec`.
+    if let Some(character) = character_for(stem) {
+        return Some(character.to_string());
+    }
+    let mut out = String::new();
+    for component in stem.split('_') {
+        out.push(character_for(component)?);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 /// This is the reverse of the encoding §9.6.5.4 calls "the standard Roman encoding that is
 /// used on Mac OS", which it needs in exactly one place: a `TrueType` font with a (1, 0)
 /// `cmap` subtable is addressed by *code*, so a glyph name has to be turned back into one.
@@ -593,6 +635,28 @@ mod tests {
         assert_eq!(super::mac_os_roman_code("currency"), None);
         // A name no encoding lists has no code, rather than a plausible one.
         assert_eq!(super::mac_os_roman_code("gid2436"), None);
+    }
+
+    /// §9.10.2's second method names two lists, and the second brings an algorithm.
+    #[test]
+    fn a_composed_glyph_name_reads_back_as_its_components() {
+        // `issue15516_reduced.pdf`'s eight codes, which read back as nothing until the
+        // three-hundred-and-twenty-seventh session.
+        assert_eq!(super::text_for("f_f_i").as_deref(), Some("ffi"));
+        assert_eq!(super::text_for("T_h").as_deref(), Some("Th"));
+        // A variant suffix names the same character: the part after the first period is
+        // dropped, which is the Adobe Glyph List Specification's own instruction.
+        assert_eq!(super::text_for("oacute.sc").as_deref(), Some("\u{f3}"));
+        assert_eq!(super::text_for("a.alt.two").as_deref(), Some("a"));
+        // The ordinary case is unchanged, and the `uniXXXX` form the list itself defines.
+        assert_eq!(super::text_for("colon").as_deref(), Some(":"));
+        assert_eq!(super::text_for("uni0041").as_deref(), Some("A"));
+        // A component the list cannot answer for makes the *whole* name unanswerable: half a
+        // ligature would put `ff` where the page shows `ffi`.
+        assert_eq!(super::text_for("f_f_notaglyph"), None);
+        assert_eq!(super::text_for("a97"), None);
+        assert_eq!(super::text_for(""), None);
+        assert_eq!(super::text_for(".notdef"), None);
     }
 
     #[test]

@@ -235,12 +235,12 @@ impl Type3Font {
         // `/colon` has said which character it draws, in the same table the clause sends every
         // other simple font to. `pr4922.pdf`'s Type 3 font names its twenty glyphs `/P`, `/a`,
         // `/colon`, `/five`, `/hyphen`, `/slash` and so on, and nothing in it is invented.
-        if let Some(character) = self
+        if let Some(text) = self
             .encoding
             .get(&u8::try_from(code).unwrap_or(0))
-            .and_then(|name| pdf_font::encoding::character_for(name))
+            .and_then(|name| pdf_font::encoding::text_for(name))
         {
-            out.push(character);
+            out.push_str(&text);
             return true;
         }
         Self::text_from_the_code(code, out)

@@ -385,7 +385,7 @@ pub struct LoadedFont {
     /// Lazy rather than built at load, because a font whose `/ToUnicode` covers its codes
     /// never reaches the list at all, and 256 AGL searches is not a cost to pay on the page-one
     /// path for nothing (`CLAUDE.md` principle 2).
-    agl_by_code: OnceCell<Box<[Option<char>; 256]>>,
+    agl_by_code: OnceCell<Box<[Option<String>; 256]>>,
     /// §9.10.2's last resort: what the *program* calls the glyph a code selected.
     ///
     /// One entry per code of a simple font, built once and only for a font that reaches this
@@ -783,23 +783,22 @@ impl LoadedFont {
             return self.text_from_program(code, out);
         };
         let table = self.agl_by_code.get_or_init(|| {
-            let mut table = Box::new([None; 256]);
+            let mut table: Box<[Option<String>; 256]> = Box::new([const { None }; 256]);
             for (code, slot) in table.iter_mut().enumerate() {
                 *slot = names
                     .get(code)
                     .map(Cow::as_ref)
                     .filter(|name| !name.is_empty())
-                    .and_then(read_fonts::ps::agl::name_to_char);
+                    .and_then(encoding::text_for);
             }
             table
         });
-        if let Some(character) = usize::try_from(code.value())
+        if let Some(text) = usize::try_from(code.value())
             .ok()
             .and_then(|code| table.get(code))
-            .copied()
-            .flatten()
+            .and_then(Option::as_deref)
         {
-            out.push(character);
+            out.push_str(text);
             return true;
         }
         self.text_from_program(code, out)
