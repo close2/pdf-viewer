@@ -44,13 +44,11 @@ them where a build can reach them.**
   fails with a sentence naming the secret when it is absent — which is what a pull request from a
   fork sees, since a fork does not receive secrets.
 - `git filter-branch --index-filter` over every ref, dropping the same two paths from all 436
-  commits, then `git push --force`. The 436 hashes all change; there is one author in the whole
-  history, which makes this the cheapest it will ever be and is why the item was ranked above
-  every band of engineering work in `doc/todo/`. **This half is the project owner's to run**, and
-  as of this ADR it has not been: the working tree and the index are clean of the documents in the
-  clear, and every commit before this one still carries them, so the repository is not yet
-  publishable. The command is in `doc/HANDOVER.md`'s "Verify it", and every commit added before it
-  runs is one more hash that will change.
+  commits, then `git push --force`. **Run by the project owner in this session**, and checked
+  afterwards the only way worth checking it: `git log --all --name-only` over every commit finds
+  **zero** paths under `doc/md/` or matching `doc/*.pdf`. All 436 hashes changed; there was one
+  author in the whole history, which made this the cheapest it would ever be and is why the item
+  was ranked above every band of engineering work in `doc/todo/`.
 - `NOTICE` section 3 rewritten to describe what is then true.
 
 **The password is not a security measure and is not treated as one.** Stated by the project owner:
@@ -74,8 +72,8 @@ are still one afternoon away.
 
 ## Consequences
 
-- **The repository may be published once the history rewrite has run**, which it could not before
-  and cannot until then. Nothing else in `doc/todo/` has to be true before that.
+- **The repository may be published**, which it could not before. Nothing else in `doc/todo/` had
+  to be true before that.
 - **Clone cost falls from 105 MB of documents to one 37 MB blob**, and that is a smaller win than
   the removal alone would have been. It is bought back honestly: these documents change
   approximately never, so there will be exactly one blob, and the alternative — the archive kept
@@ -85,6 +83,6 @@ are still one afternoon away.
 - **A fresh clone builds and runs the program, and cannot check a citation until it unpacks.**
   That is the load-bearing consequence and the reason this ADR exists rather than a commit
   message.
-- **Anyone holding a clone must re-clone** once the history is rewritten. Every hash changes.
+- **Anyone holding a clone must re-clone.** Every hash changed.
 - **The password now has to live somewhere a person can find it**, which is a small permanent
   obligation this project did not have before: the GitHub secret, and the owner.

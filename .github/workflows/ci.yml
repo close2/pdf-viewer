@@ -125,3 +125,99 @@ jobs:
           cargo +nightly fuzz run lexer -- -runs=50000 -max_len=1024
           cargo +nightly fuzz run object -- -runs=50000 -max_len=1024
           cargo +nightly fuzz run document -- -runs=20000 -max_len=4096
+
+  # A rolling pre-release, retagged at every push to main that passes its gates.
+  #
+  # `needs` is the whole design decision here: a snapshot binary that fails the project's
+  # own gates is worse than no snapshot, because someone will run it and report what it
+  # does. So the release waits for fmt, clippy and the full test suite.
+  #
+  # LINUX ONLY, and by decision rather than by omission. `pdf-sandbox` confines the JBIG2
+  # and JPEG 2000 decoders with seccomp-BPF and Landlock, and carries a `compile_error!`
+  # for every other platform saying why there is no fallback: "a sandbox that silently does
+  # nothing on another platform is worse than no sandbox". `viewer-ui` depends on it, so
+  # macOS and Windows executables wait on a real confinement for each -- Windows job
+  # objects and AppContainer, macOS's App Sandbox -- which is a security argument with an
+  # ADR attached and not a matrix entry.
+  snapshot:
+    needs: [check, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      # `gh release` writes to the repository, and the default token is read-only.
+      contents: write
+    # Two pushes in quick succession would otherwise race to retag `snapshot`, and the
+    # loser could publish the older commit's binaries. The newest push wins.
+    concurrency:
+      group: snapshot
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # pdf-spec generates the object model's validation tables from the Arlington
+          # submodule in build.rs, so a checkout without it does not build.
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Both executables, and both is not a detail: `pdf_sandbox::WORKER_PROGRAM` is a
+      # separate program the viewer spawns for JBIG2 and JPEG 2000, looked for beside the
+      # running binary. A viewer without it refuses those images rather than decoding them
+      # in process -- there is deliberately no in-process fallback -- so an archive
+      # carrying only the viewer would ship a quietly reduced program.
+      - name: Build both executables
+        run: cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker
+
+      # LICENSE and NOTICE travel with the binaries because they have to: this program is
+      # MIT and contains BSD-3-Clause font programs and SIL OFL 1.1 Liberation Sans, and
+      # both licences oblige a binary distribution to carry their notices. `pdf-viewer
+      # --licences` prints the same text, and a file beside the executable is what someone
+      # unpacking a tarball can actually find.
+      - name: Package
+        run: |
+          set -eu
+          target=x86_64-unknown-linux-gnu
+          stage="pdf-viewer-snapshot-$target"
+          mkdir "$stage"
+          cp target/release/pdf-viewer target/release/pdf-sandbox-worker "$stage"/
+          strip "$stage"/pdf-viewer "$stage"/pdf-sandbox-worker
+          cp LICENSE NOTICE "$stage"/
+          cat > "$stage"/README <<'TXT'
+          pdf-viewer -- a snapshot build. Not a release; built from whatever was on main.
+
+          Two executables, and they must stay in the same directory. pdf-sandbox-worker is
+          the confined process that decodes JBIG2 and JPEG 2000 images; the viewer looks
+          for it beside itself and, not finding it, refuses those images rather than
+          decoding them unconfined.
+
+              ./pdf-viewer [file.pdf]
+
+          Needs a Vulkan driver. Page one goes to the graphics device by design, so a
+          machine with no working Vulkan will not draw one.
+          TXT
+          tar czf "$stage.tar.gz" "$stage"
+          sha256sum "$stage.tar.gz" > "$stage.tar.gz.sha256"
+          ls -l "$stage.tar.gz"
+
+      # A moving tag: delete the release and its tag, then create both at this commit.
+      # `gh` is on the runner, so this needs no third-party action -- which matters for a
+      # step holding a token that can write to the repository.
+      - name: Publish the snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release delete snapshot --cleanup-tag --yes || true
+          gh release create snapshot \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Snapshot ${GITHUB_SHA:0:8}" \
+            --notes "Built from \`${GITHUB_SHA}\` on $(date -u '+%Y-%m-%d %H:%M UTC'), after fmt, clippy and the full test suite passed.
+
+          **This is not a release.** It is whatever was on \`main\`, retagged at every push.
+
+          \`pdf-viewer\` and \`pdf-sandbox-worker\`, x86_64 Linux, glibc as new as the CI runner's. Unpack both into one directory and keep them there: the viewer spawns the worker for JBIG2 and JPEG 2000 and refuses those images without it.
+
+          macOS and Windows are absent by decision, not by omission -- \`pdf-sandbox\` confines those decoders with seccomp-BPF and Landlock and refuses to build where it cannot, rather than pretending to confine anything." \
+            pdf-viewer-snapshot-*.tar.gz pdf-viewer-snapshot-*.tar.gz.sha256
