@@ -2773,3 +2773,147 @@ fn with_no_zoom_annotation() -> Vec<u8> {
     );
     out.into_bytes()
 }
+
+/// A 100×100 page carrying one `Text` annotation and the popup window it opens.
+///
+/// §12.5.6.14's shape exactly: the markup annotation states `/Popup`, the popup states `/Parent`,
+/// and the text a window would show is the parent's `/Contents` rather than the popup's.
+fn with_a_popup(open: bool) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R 6 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Text /Rect [10 80 30 100] /Popup 6 0 R \
+         /T (the author) /Contents (a sticky note) /C [1 1 0] >>\nendobj\n\
+         6 0 obj\n<< /Type /Annot /Subtype /Popup /Rect [30 20 90 70] /Parent 5 0 R \
+         /Open {open} >>\nendobj\n"
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Opens `with_a_popup` into a 200×200 viewport and settles the first frame.
+fn popup_viewer(open: bool) -> Viewer {
+    let mut viewer = Viewer::new(200, 200, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_popup(open),
+            password: None,
+        })
+        .for_each(drop);
+    viewer
+}
+
+#[test]
+fn a_document_that_opens_a_popup_window_says_so_before_anybody_clicks() {
+    // Table 186's `/Open`: "A flag specifying whether the popup annotation shall initially be
+    // displayed open." Seven popups in the corpus state it; this is the same shape.
+    let viewer = popup_viewer(true);
+    let Answer::Popups(windows) = viewer.query(Query::Popups) else {
+        panic!("a popup query answers with popups");
+    };
+    assert_eq!(windows.len(), 1);
+    let window = &windows[0];
+    // Table 186: the parent's `Contents`, `M`, `C` and `T` "shall override those of the popup
+    // annotation itself" — and the popup here states none of the four.
+    assert_eq!(window.text.as_deref(), Some("a sticky note"));
+    assert_eq!(window.title.as_deref(), Some("the author"));
+    assert_eq!(
+        window.colour.map(|c| (c.r, c.g, c.b)),
+        Some((1.0, 1.0, 0.0))
+    );
+    assert_eq!(window.parent, Some(pdf_syntax::ObjectId::new(5, 0)));
+
+    // The window is 60 × 50 user units on a page drawn at some magnification, and the quad is
+    // the same mapping `Query::Focus` and `Query::Selection` answer in — clockwise from the
+    // top-left, y downwards.
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    let width = window.quad[2] - window.quad[0];
+    let height = window.quad[5] - window.quad[3];
+    assert!((width - 60.0 * geometry.scale).abs() < 0.01, "{width}");
+    assert!((height - 50.0 * geometry.scale).abs() < 0.01, "{height}");
+}
+
+#[test]
+fn a_closed_popup_is_no_window_until_the_annotation_is_clicked() {
+    // §12.5.1: "When the user activates the annotation by clicking it, it exhibits its
+    // associated object, such as by opening a popup window displaying a text note."
+    let mut viewer = popup_viewer(false);
+    assert!(
+        matches!(viewer.query(Query::Popups), Answer::Popups(windows) if windows.is_empty()),
+        "the file says closed, so nothing is open"
+    );
+    // The `Text` annotation is `/Rect [10 80 30 100]`, a 20-unit square at the page's top left.
+    let on_note = device_point(&viewer, [10.0, 80.0, 30.0, 100.0], 100.0);
+    viewer
+        .handle(Command::Pointer {
+            at: on_note,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Pointer {
+            at: on_note,
+            action: PointerAction::Released,
+        })
+        .for_each(drop);
+    assert!(
+        matches!(viewer.query(Query::Popups), Answer::Popups(windows) if windows.len() == 1),
+        "the click exhibited the annotation's object"
+    );
+    // A second click closes it, which the clause does not state and this crate chooses.
+    viewer
+        .handle(Command::Pointer {
+            at: on_note,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Pointer {
+            at: on_note,
+            action: PointerAction::Released,
+        })
+        .for_each(drop);
+    assert!(
+        matches!(viewer.query(Query::Popups), Answer::Popups(windows) if windows.is_empty()),
+        "and a second click puts it away"
+    );
+}
+
+#[test]
+fn a_host_may_open_a_popup_without_a_pointer() {
+    // `Command::Activate` is what a panel row sends and what a keyboard would: the object, and
+    // the document decides what activating it means. Here it means §12.5.1's exhibition.
+    let mut viewer = popup_viewer(false);
+    viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(5, 0)))
+        .for_each(drop);
+    assert!(
+        matches!(viewer.query(Query::Popups), Answer::Popups(windows) if windows.len() == 1),
+        "activating the parent opens its window"
+    );
+}

@@ -405,6 +405,41 @@ fn anchored_icon(subtype: &[u8], rect: [f32; 4]) -> Option<[f32; 4]> {
 /// **Unreachable before the two-hundred-and-fifty-third session**, and not because of this
 /// clause: `viewer-core` took the annotation under the pointer from the *link* one, so no
 /// annotation that was not a link ever left [`Appearance::Normal`].
+/// §12.5.3's two flags that say "not on this screen": `Hidden`, and `NoView` as read by
+/// [`no_view`].
+///
+/// **One statement of it rather than two**, which is why it is a function: `crate::popup` asks
+/// the same question of a subtype [`decided`] answers `Nothing` for before it gets this far, and
+/// two copies of a flag test are how a clause comes to be honoured on one path and not the other.
+pub(crate) fn displayed(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> bool {
+    let flags = stated_flags(document, annotation, view);
+    !((flags & FLAG_HIDDEN != 0 && view.hidden_by_action != Some(false))
+        || no_view(flags, view.appearance))
+}
+
+/// The annotation's `/F`, with whatever §12.7.8 or §12.6.4.11 has said about it applied.
+///
+/// §12.7.8's Table 249: an imported `/F` "shall replace that of the F entry in the form's
+/// corresponding annotation dictionary", and `/SetF` and `/ClrF` modify it — so where an FDF file
+/// has said something about this widget's flags, that is the answer and the file's `/F` is what
+/// it was applied to.
+fn stated_flags(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> i64 {
+    let stated = document
+        .get_key(annotation, "F")
+        .as_integer()
+        .unwrap_or_default();
+    view.flags
+        .map_or(stated, |change| change.applied_to(stated))
+}
+
 fn no_view(flags: i64, appearance: crate::view::Appearance) -> bool {
     let stated = flags & FLAG_NO_VIEW != 0;
     let inverted =
@@ -691,22 +726,10 @@ fn decided(
         return Decision::Nothing;
     }
 
-    // §12.7.8's Table 249: an imported `/F` "shall replace that of the F entry in the form's
-    // corresponding annotation dictionary", and `/SetF` and `/ClrF` modify it — so where an FDF
-    // file has said something about this widget's flags, that is the answer and the file's `/F`
-    // is what it was applied to.
-    let stated = document
-        .get_key(annotation, "F")
-        .as_integer()
-        .unwrap_or_default();
-    let flags = view
-        .flags
-        .map_or(stated, |change| change.applied_to(stated));
-    if (flags & FLAG_HIDDEN != 0 && view.hidden_by_action != Some(false))
-        || no_view(flags, view.appearance)
-    {
+    if !displayed(document, annotation, view) {
         return Decision::Nothing;
     }
+    let flags = stated_flags(document, annotation, view);
     if flags & FLAG_INVISIBLE != 0 && !STANDARD_SUBTYPES.contains(&subtype.as_slice()) {
         return Decision::Nothing;
     }

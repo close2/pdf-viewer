@@ -243,6 +243,20 @@ impl Chrome {
             .sum()
     }
 
+    /// How many of a string's characters this face states no code for.
+    ///
+    /// [`Self::text`] draws nothing for one and [`Self::width`] gives it no advance, which is the
+    /// right answer for a label being elided and a silence for the text of a document's own note
+    /// (§12.5.6.14). This is what lets a caller say so instead.
+    #[must_use]
+    pub fn without_a_code(&self, text: &str, style: Style) -> usize {
+        let face = self.face(style);
+        text.chars()
+            .filter(|character| !character.is_whitespace())
+            .filter(|character| face.code_for(*character).is_none())
+            .count()
+    }
+
     /// Draws a string with its left edge at `at` and its **baseline** at `at.1`.
     ///
     /// Returns where the next run would start. The transform is the flip this module's header
@@ -1451,4 +1465,220 @@ impl About {
         }
         list
     }
+}
+
+/// How tall a popup window's title bar is, as a multiple of the text size.
+///
+/// §12.5.6.14 says a popup "displays text in a popup window" and describes no furniture at all,
+/// so every number here is this host's. A native one draws a real window.
+const POPUP_TITLE_HEIGHT: f32 = 1.6;
+
+/// How far a popup window's text is inset from its `/Rect`, in logical pixels.
+const POPUP_PADDING: f32 = 5.0;
+
+/// The colour a popup's title bar takes where the annotation states no `/C`.
+const POPUP_TITLE: Color = Color {
+    r: 0.98,
+    g: 0.92,
+    b: 0.60,
+    a: 1.0,
+};
+
+/// A popup window's paper.
+const POPUP_PAPER: Color = Color {
+    r: 1.0,
+    g: 0.99,
+    b: 0.90,
+    a: 1.0,
+};
+
+/// §12.5.6.14's windows, drawn over the page.
+///
+/// **A window is not page content**, which is the whole reason this is here rather than in
+/// `pdf-model`: the clause says a popup "shall have no appearance stream", so there is nothing
+/// for `crate::appearance` to construct and nothing for either backend to be compared on. What
+/// crosses from the core is [`viewer_core::PopupWindow`] — a rectangle in the window's own pixels
+/// and the strings the document states — and everything below decides what that *looks* like,
+/// which is a host's business and is written down as a choice:
+///
+/// - a title bar in Table 166's `/C`, which is the one thing the standard does say about a
+///   popup's appearance: "[t]he title bar of the annotation's popup window";
+/// - Table 172's `/T` in it, "[t]he text label that shall be displayed in the title bar of the
+///   annotation's popup window", with Table 166's `/M` after it where there is room;
+/// - the `/Contents` under that, wrapped, with Table 172's own clause's paragraph rule applied
+///   (ISO 32000-2 section 12.5.6.2): "[w]hen
+///   separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for example,
+///   a LINE FEED character (0Ah)" — so a carriage return starts a paragraph here, and a line feed
+///   is accepted as one too, because a reader that obeyed the writer's rule as if it were its own
+///   would show a paragraph break as a space.
+///
+/// **A character this interface's own font states no code for is counted and said out loud.**
+/// `Chrome::text` skips one silently, which is right for a glyph in a title it is eliding and
+/// wrong for the text of a note: six of the corpus's seven open popups are in Chinese, and a
+/// blank window would be this program telling a person the note is empty. Trap 5, in an
+/// interface.
+pub fn popup_windows(
+    chrome: &Chrome,
+    windows: &[viewer_core::PopupWindow],
+    width: u32,
+    height: u32,
+    scale: f32,
+) -> Option<DisplayList> {
+    if windows.is_empty() {
+        return None;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "window dimensions are far below f32's exact integer range"
+    )]
+    let mut list = DisplayList::new(pdf_render::Size::new(width as f32, height as f32));
+    for window in windows {
+        draw_popup(chrome, &mut list, window, scale);
+    }
+    Some(list)
+}
+
+/// One window: its paper, its title bar, and as much of its text as fits.
+fn draw_popup(
+    chrome: &Chrome,
+    list: &mut DisplayList,
+    window: &viewer_core::PopupWindow,
+    scale: f32,
+) {
+    let (x, y) = (window.quad[0], window.quad[1]);
+    let (w, h) = (window.quad[2] - x, window.quad[5] - y);
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let size = TEXT_SIZE * scale;
+    let padding = POPUP_PADDING * scale;
+    let bar = size * POPUP_TITLE_HEIGHT;
+    rectangle(list, (x, y, w, h), EDGE);
+    rectangle(list, (x + 1.0, y + 1.0, w - 2.0, h - 2.0), POPUP_PAPER);
+    rectangle(
+        list,
+        (x + 1.0, y + 1.0, w - 2.0, bar.min(h - 2.0)),
+        window.colour.unwrap_or(POPUP_TITLE),
+    );
+
+    let room = w - 2.0 * padding;
+    if room <= 0.0 {
+        return;
+    }
+    let baseline = y + bar - size * 0.4;
+    let title = window.title.as_deref().unwrap_or_default();
+    let used = chrome.text(
+        list,
+        &elide(
+            chrome,
+            title,
+            size,
+            Style {
+                bold: true,
+                italic: false,
+            },
+            room,
+        ),
+        (x + padding, baseline),
+        size,
+        Style {
+            bold: true,
+            italic: false,
+        },
+        Color::BLACK,
+    );
+    // Table 166's `/M`, in whatever format the file spells it — the table makes displaying it a
+    // `shall` and puts no format on the string. Only where the title has left room for it.
+    if let Some(modified) = window.modified.as_deref() {
+        let stamp = stamp(
+            pdf_syntax::Date::parse(modified),
+            Some(&modified.to_owned()),
+        )
+        .unwrap_or_else(|| modified.to_owned());
+        let stamp_width = chrome.width(&stamp, size * 0.85, Style::default());
+        let at = x + w - padding - stamp_width;
+        if at > used + padding {
+            chrome.text(
+                list,
+                &stamp,
+                (at, baseline),
+                size * 0.85,
+                Style::default(),
+                DIMMED,
+            );
+        }
+    }
+
+    let mut line = y + bar + size;
+    let bottom = y + h - padding;
+    let text = window.text.as_deref().unwrap_or_default();
+    for paragraph in text.split(['\r', '\n']) {
+        for run in wrap(chrome, paragraph, size, room) {
+            if line > bottom {
+                return;
+            }
+            chrome.text(
+                list,
+                &run,
+                (x + padding, line),
+                size,
+                Style::default(),
+                Color::BLACK,
+            );
+            line += size * 1.25;
+        }
+    }
+    // What the face could not set. Counted over the whole value rather than per line, because
+    // the sentence is about the note and not about a row of it.
+    let missing = chrome.without_a_code(text, Style::default());
+    if missing > 0 && line <= bottom {
+        let note = format!("[{missing} characters this interface's font cannot set]");
+        chrome.text(
+            list,
+            &elide(chrome, &note, size * 0.85, Style::default(), room),
+            (x + padding, line),
+            size * 0.85,
+            Style::default(),
+            DIMMED,
+        );
+    }
+}
+
+/// Breaks a paragraph into lines that fit `room`, at word boundaries where it can.
+///
+/// A word longer than the line is broken by character, because the alternative is a line that
+/// runs out of the window — and the window is the document's rectangle rather than this host's,
+/// so there is nowhere for it to go.
+fn wrap(chrome: &Chrome, paragraph: &str, size: f32, room: f32) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in paragraph.split_whitespace() {
+        let candidate = if line.is_empty() {
+            word.to_owned()
+        } else {
+            format!("{line} {word}")
+        };
+        if chrome.width(&candidate, size, Style::default()) <= room {
+            line = candidate;
+            continue;
+        }
+        if !line.is_empty() {
+            lines.push(std::mem::take(&mut line));
+        }
+        // The word alone, broken where it stops fitting.
+        for character in word.chars() {
+            let wider = format!("{line}{character}");
+            if !line.is_empty() && chrome.width(&wider, size, Style::default()) > room {
+                lines.push(std::mem::take(&mut line));
+            }
+            line.push(character);
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }

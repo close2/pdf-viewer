@@ -57,6 +57,7 @@ pub mod optional_content;
 pub mod outline;
 pub mod page;
 pub mod page_label;
+pub mod popup;
 pub mod requirements;
 pub mod shading;
 pub mod signature;

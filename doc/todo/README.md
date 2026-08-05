@@ -44,6 +44,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [24](24-image-sampling-intent.md) | Carry an image *and its sampling intent* to the backends | 3 |
 | [25](25-view-dependent-annotations.md) | `/FixedPrint`, which waits on a printing path | 15 |
 | [26](26-icons-a-clause-only-recommends.md) | `Stamp`'s icon, whose standard names are legends rather than symbols | 1 |
+| [27](27-the-interfaces-own-font.md) | The interface drops a character §9.6.2.2's fourteen have no code for, in silence | 45 |
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` | — |
 | [32](32-presentation-player.md) | Draw a transition's frames | — |

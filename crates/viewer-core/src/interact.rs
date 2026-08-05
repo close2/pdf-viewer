@@ -48,6 +48,14 @@ pub(crate) struct Outcome {
     pub(crate) redraw: bool,
 }
 
+/// Whether this dictionary is one of §12.5.6.14's popup annotations.
+fn is_popup(document: &Document, dict: &pdf_syntax::Dictionary) -> bool {
+    document
+        .get_key(dict, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"Popup")
+}
+
 /// The annotation under a point in default user space, where it is a link.
 pub(crate) fn link_at(open: &Open, x: f32, y: f32) -> Option<ObjectId> {
     let links = pdf_model::link::links(&open.document, open.shown_page()?);
@@ -118,6 +126,16 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     let Some(dict) = object.as_dict() else {
         return Outcome::default();
     };
+    // §12.5.1's other reading of "activate", for a host with no pointer on the object: an
+    // annotation carrying one of §12.5.6.14's windows exhibits it. Asked before `/A` and `/Dest`
+    // because a markup annotation states neither and would otherwise activate nothing — and a
+    // popup is not an outline item, so nothing here can mean both.
+    if pdf_model::popup::popup_of(dict).is_some() || is_popup(&open.document, dict) {
+        return Outcome {
+            redraw: open.toggle_popup(id),
+            ..Outcome::default()
+        };
+    }
     let actions = pdf_model::action::read(
         &open.document,
         dict.get("A").unwrap_or(&pdf_syntax::Object::Null),

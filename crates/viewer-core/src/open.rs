@@ -4,6 +4,7 @@
 //! viewport they share, while everything here is per document: which page is showing, how large
 //! it is drawn, and the pixels that showed it last.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pdf_model::content::{Interpretation, Placed};
@@ -123,8 +124,19 @@ pub(crate) struct Open {
     /// re-interpreting a page because the cursor crossed a link with one appearance stream
     /// would put 2 000 M instructions on a mouse move.
     pub(crate) pointer: Option<(ObjectId, Pointer)>,
-    /// The annotation a press went down on, if the button is still down.
+    /// The *link* a press went down on, if the button is still down.
+    ///
+    /// §12.5.6.5's activation region and nothing wider, because what a release here decides is
+    /// whether §12.6's action chain runs. [`Self::pressed_on`] is the same question for
+    /// §12.5.1's activation, which belongs to every annotation.
     pub(crate) pressed: Option<ObjectId>,
+    /// The annotation a press went down on, whatever its subtype.
+    ///
+    /// Two fields for two clauses: this one is what §12.5.1 calls activating an annotation — "the
+    /// user activates the annotation by clicking it" — and a click is a press and a release on
+    /// one thing. Kept apart from [`Self::pressed`] because a link under a stamp is two
+    /// annotations and the two clauses answer differently about which one was clicked.
+    pub(crate) pressed_on: Option<ObjectId>,
     /// Which annotation the pointer is inside, for §12.6.3's `/E` and `/X`.
     ///
     /// Separate from `pointer` above, which is §12.5.5's *appearance* state and is filtered to
@@ -170,6 +182,15 @@ pub(crate) struct Open {
     /// a selection dragged backwards is a selection, and which end moves is the difference
     /// between extending it and starting again.
     pub(crate) selection: Option<(usize, usize)>,
+    /// Which of §12.5.6.14's popup windows a person has opened or closed, by annotation.
+    ///
+    /// **The file states only the first frame.** Table 186's `/Open` is "[a] flag specifying
+    /// whether the popup annotation shall *initially* be displayed open", so what is here is
+    /// every window whose state has since been changed — absent means the file's answer still
+    /// stands. That is the same division `ViewState` makes for §12.6.4's actions and the edit log
+    /// makes for a field's value: the document says what it says, and what a person did is a log
+    /// beside it (`CLAUDE.md`'s rule 1).
+    pub(crate) popups: BTreeMap<ObjectId, bool>,
 }
 
 /// A page, interpreted.
@@ -294,12 +315,14 @@ impl Open {
             pending: None,
             pointer: None,
             pressed: None,
+            pressed_on: None,
             inside: None,
             focus: None,
             importing: None,
             log: Vec::new(),
             cursor: 0,
             selection: None,
+            popups: BTreeMap::new(),
         }
     }
 
@@ -387,6 +410,49 @@ impl Open {
         }
         self.page(index)
             .map(|page| pdf_model::content::displayed_size(&page))
+    }
+
+    /// Whether one of §12.5.6.14's windows is open now.
+    ///
+    /// Table 186's `/Open` answers for a window nobody has touched — "shall *initially* be
+    /// displayed open" — and [`Self::popups`] answers for every one somebody has.
+    pub(crate) fn popup_is_open(&self, popup: &pdf_model::popup::Popup) -> bool {
+        self.popups
+            .get(&popup.annotation)
+            .copied()
+            .unwrap_or(popup.open)
+    }
+
+    /// The activation §12.5.1 describes, for an annotation that has one of §12.5.6.14's windows.
+    ///
+    /// ISO 32000-2 §12.5.1:
+    ///
+    /// > When the user activates the annotation by clicking it, it exhibits its associated
+    /// > object, such as by opening a popup window displaying a text note
+    ///
+    /// The clause says *exhibits*, not *toggles*: what a second click does is not in the standard,
+    /// and closing the window is the choice every reader of a sticky note makes. Recorded as a
+    /// choice. Returns whether anything changed, which is what tells the caller to repaint.
+    pub(crate) fn toggle_popup(&mut self, annotation: ObjectId) -> bool {
+        let Some(page) = self.shown_page() else {
+            return false;
+        };
+        let object = self.document.get(annotation);
+        let Some(dict) = object.as_dict() else {
+            return false;
+        };
+        // Either end of Table 172's `/Popup`: a click lands on the *markup* annotation, and a
+        // host with a close button on the window has the popup itself.
+        let popup = pdf_model::popup::popup_of(dict).unwrap_or(annotation);
+        let Some(state) = pdf_model::popup::popups(&self.document, page, &self.view)
+            .iter()
+            .find(|window| window.annotation == popup)
+            .map(|window| self.popup_is_open(window))
+        else {
+            return false;
+        };
+        self.popups.insert(popup, !state);
+        true
     }
 
     /// The page being shown, without walking the tree for it again.

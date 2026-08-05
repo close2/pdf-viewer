@@ -15,7 +15,7 @@ use crate::command::{
 use crate::event::{Event, RenderRequest};
 use crate::interact;
 use crate::open::{Frame, Interpreted, Open, Pending};
-use crate::query::{Answer, FrameView, Layer, PageGeometry, Query, Selected};
+use crate::query::{Answer, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected};
 
 /// Pixel budget for one rendered page.
 ///
@@ -171,6 +171,7 @@ impl Viewer {
                     object,
                     quad,
                 }),
+            Query::Popups => Answer::Popups(self.popup_windows(open)),
             Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),
             Query::LogicalSelection => {
                 Self::logical_selection(open).map_or(Answer::None, Answer::LogicalSelection)
@@ -489,6 +490,7 @@ impl Viewer {
                 // `/D`: "a mouse button is pressed inside the annotation's active area".
                 raised.extend(over.map(|annotation| (annotation, Trigger::Down)));
                 open.pressed = under;
+                open.pressed_on = over;
                 // Table 197's `/Bl` and `/Fo`, in the clause's own order, which is `/X` and
                 // `/E`'s: one thing loses the focus before the next receives it.
                 //
@@ -519,6 +521,7 @@ impl Viewer {
             }
             PointerAction::Released => {
                 let pressed = open.pressed.take();
+                let pressed_on = open.pressed_on.take();
                 // A press dragged off the annotation before release is a press the person
                 // changed their mind about; see `PointerAction::Released`. And a press that
                 // selected something was a drag rather than a click, so it does not follow the
@@ -527,6 +530,35 @@ impl Viewer {
                 let selecting = open
                     .selection
                     .is_some_and(|(anchor, focus)| anchor != focus);
+                let clicked = !selecting;
+                // Table 197's `/U` — "an action that shall be performed when the mouse button is
+                // released inside the annotation's active area" — for anything that is not the
+                // link about to be activated. **The exclusion is the precedence rule, not a
+                // shortcut**: the table says an annotation's `/A` "takes precedence over" its
+                // `/AA /U`, `interact::activate` performs a link's `/A`, and
+                // `action::for_annotation` would return the same list again — so routing a link
+                // through both would perform its actions twice.
+                //
+                // **Raised before the link question is asked, since the three-hundred-and-twelfth
+                // session**, and that is a clause rather than a tidy-up: the table conditions the
+                // event on the *release* being inside the area and on nothing else, while this
+                // arm used to return early whenever the release did not activate a link — so a
+                // click on a stamp, a widget or a markup annotation raised nothing at all.
+                if clicked && let Some(annotation) = over.filter(|over| Some(*over) != under) {
+                    raised.push((annotation, Trigger::Up));
+                }
+                // §12.5.1's other half: "[w]hen the user activates the annotation by clicking it,
+                // it exhibits its associated object, such as by opening a popup window displaying
+                // a text note". A press and a release on one annotation, and the window §12.5.6.14
+                // gives it opens — or closes, which the clause does not state and every reader of
+                // a sticky note expects (`Open::toggle_popup`).
+                let toggled = clicked
+                    && pressed_on
+                        .filter(|annotation| Some(*annotation) == over)
+                        .is_some_and(|annotation| open.toggle_popup(annotation));
+                if toggled {
+                    events.push(damage(viewport));
+                }
                 if selecting || pressed.is_none() || pressed != under {
                     self.raise(id, raised, events);
                     return;
@@ -535,14 +567,6 @@ impl Viewer {
                     self.raise(id, raised, events);
                     return;
                 };
-                // Table 197's `/U`, for anything that is not the link about to be activated.
-                // **The exclusion is the precedence rule, not a shortcut**: the table says an
-                // annotation's `/A` "takes precedence over" its `/AA /U`, `interact::activate`
-                // performs a link's `/A`, and `action::for_annotation` would return the same
-                // list again — so routing a link through both would perform its actions twice.
-                if let Some(annotation) = over.filter(|annotation| Some(*annotation) != under) {
-                    raised.push((annotation, Trigger::Up));
-                }
                 self.raise(id, raised, events);
                 let Some(open) = self.focused_mut() else {
                     return;
@@ -843,7 +867,42 @@ impl Viewer {
         }
         let (x0, x1) = (values[0].min(values[2]), values[0].max(values[2]));
         let (y0, y1) = (values[1].min(values[3]), values[1].max(values[3]));
+        Some((object, self.device_quad(open, [x0, y0, x1, y1])?))
+    }
 
+    /// §12.5.6.14's open popup windows, placed on the screen.
+    ///
+    /// The state is the file's `/Open` unless a person has said otherwise since, which is what
+    /// `Open::popups` holds and why Table 186's word "initially" is load-bearing.
+    fn popup_windows(&self, open: &Open) -> Vec<PopupWindow> {
+        let Some(page) = open.shown_page() else {
+            return Vec::new();
+        };
+        pdf_model::popup::popups(&open.document, page, &open.view)
+            .into_iter()
+            .filter(|popup| open.popup_is_open(popup))
+            .filter_map(|popup| {
+                Some(PopupWindow {
+                    annotation: popup.annotation,
+                    parent: popup.parent,
+                    quad: self.device_quad(open, popup.rect)?,
+                    title: popup.title,
+                    text: popup.text,
+                    modified: popup.modified,
+                    colour: popup.colour,
+                })
+            })
+            .collect()
+    }
+
+    /// A rectangle in default user space, as the quadrilateral a host draws over the page.
+    ///
+    /// **One copy of this arithmetic and deliberately not one per caller**: the origin, the
+    /// magnification and the y flip are exactly what was wrong for seventy-five sessions (ADR
+    /// 0118), and a second opinion about them in a host — or in a second method here — would be
+    /// that defect again. `[x0, y0, x1, y1]`, normalised, in; clockwise from the top-left as it
+    /// appears on the screen, out.
+    fn device_quad(&self, open: &Open, rect: [f32; 4]) -> Option<[f32; 8]> {
         let interpreted = open.interpreted.as_ref()?;
         let magnification = open.magnification(self.viewport, self.scale)?;
         let height = open.page_size(open.page_index).map(|size| size.height)?;
@@ -855,10 +914,11 @@ impl Viewer {
                 origin.1 + (height - y) * magnification,
             )
         };
+        let [x0, y0, x1, y1] = rect;
         // Clockwise from the top-left as it appears on the screen, which is the order
         // `Selected::quads` uses and the order a host strokes a ring in.
         let (a, b, c, d) = (place(x0, y1), place(x1, y1), place(x1, y0), place(x0, y0));
-        Some((object, [a.0, a.1, b.0, b.1, c.0, c.1, d.0, d.1]))
+        Some([a.0, a.1, b.0, b.1, c.0, c.1, d.0, d.1])
     }
 
     /// §12.5.1's tab order, applied: the focus moves to the next or previous annotation.

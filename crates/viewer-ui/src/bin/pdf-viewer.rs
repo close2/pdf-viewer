@@ -1297,6 +1297,29 @@ impl App {
         highlight_list(&quads, width, height)
     }
 
+    /// §12.5.6.14's popup windows, over the page and under the sidebar.
+    ///
+    /// The core says which windows are open, where they are and what they say; this host decides
+    /// what a window looks like, because the clause describes none of that — see
+    /// `chrome::popup_windows`. Over the page and *under* the panel, which is the order the
+    /// overlays already state: a window belongs to the document and the sidebar belongs to the
+    /// program.
+    fn popup_list(&self, edge: f32, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let Answer::Popups(mut windows) = self.viewer.query(Query::Popups) else {
+            return None;
+        };
+        // Device pixels of the *page's* viewport, which begins where the panel ends — the same
+        // one addition `selection_list` makes, and for the same reason.
+        for window in &mut windows {
+            for x in window.quad.iter_mut().step_by(2) {
+                *x += edge;
+            }
+        }
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        viewer_ui::chrome::popup_windows(chrome, &windows, width, height, scale)
+    }
+
     /// §12.5.1's focus ring: a stroked box round whatever the tab key last landed on.
     ///
     /// The clause lets a processor walk the annotations with the tab key and says nothing about
@@ -1377,11 +1400,13 @@ impl App {
         };
         let selection = self.selection_list(edge, width, height);
         let focus = self.focus_list(edge, width, height);
+        let popups = self.popup_list(edge, width, height);
         // Selection first (it belongs to the page), then the sidebar, then the
         // modal card on top — the same order the Vello host drew them in.
         let mut overlays: Vec<&pdf_render::DisplayList> = Vec::new();
         overlays.extend(selection.as_ref());
         overlays.extend(focus.as_ref());
+        overlays.extend(popups.as_ref());
         overlays.extend(chrome.panel.as_ref());
         overlays.extend(chrome.about.as_ref());
 

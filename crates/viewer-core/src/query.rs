@@ -120,6 +120,18 @@ pub enum Query<'a> {
     /// [`Answer::None`] where nothing is focused, or where the focused annotation states no
     /// usable `/Rect`.
     Focus,
+    /// §12.5.6.14's popup windows that are open on the page being shown.
+    ///
+    /// The clause makes a popup "a window … for entry and editing" with "no appearance stream", so
+    /// it is the one annotation subtype whose picture is not the page's: a host draws it as chrome,
+    /// in its platform's window furniture, which is why this answers text and a rectangle rather
+    /// than pixels. Device pixels of the viewport, like [`Query::Selection`] and [`Query::Focus`].
+    ///
+    /// Only the open ones: Table 186's `/Open` says which start that way and
+    /// [`crate::Command::Activate`] on the parent annotation changes it, which is §12.5.1's
+    /// "[w]hen the user activates the annotation by clicking it, it exhibits its associated
+    /// object, such as by opening a popup window displaying a text note".
+    Popups,
     /// What is selected: the text, and the shapes to draw over it.
     ///
     /// Asked whenever a host repaints, which during a drag is every frame — so it is a query
@@ -216,6 +228,8 @@ pub enum Answer<'a> {
     },
     /// §14.8.2.5's logical content order for the selection, a rearrangement of the same bytes.
     LogicalSelection(String),
+    /// §12.5.6.14's open popup windows, in the `/Annots` array's order.
+    Popups(Vec<PopupWindow>),
     /// §14.3.3's Table 349, and §14.3.2's metadata stream beside it.
     Properties {
         /// What the trailer's `/Info` says.
@@ -300,6 +314,32 @@ pub struct Selected<'a> {
     /// and the y flip — which is exactly the arithmetic that was wrong for seventy-five sessions
     /// (ADR 0118).
     pub quads: Vec<[f32; 8]>,
+}
+
+/// One of §12.5.6.14's popup windows, placed on the screen.
+///
+/// **Geometry and text, not pixels**, for the reason [`Selected`] gives: a window belongs to the
+/// host's platform. What this crate owns is which windows are open, where the page puts them and
+/// what the document says goes in them; what a title bar looks like is the host's, and a native
+/// one would draw a real window rather than a rectangle.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PopupWindow {
+    /// The popup annotation, which is what [`crate::Command::Activate`] closes.
+    pub annotation: ObjectId,
+    /// The markup annotation whose text this is, where Table 186's `/Parent` names one.
+    pub parent: Option<ObjectId>,
+    /// The window's `/Rect` on the screen, `[x0, y0, … x3, y3]` clockwise from the top-left,
+    /// y downwards — the same form [`Answer::Focus`] and [`Selected::quads`] take.
+    pub quad: [f32; 8],
+    /// §12.5.6.2's `/T`: "[t]he text label that shall be displayed in the title bar".
+    pub title: Option<String>,
+    /// Table 166's `/Contents`: the text in the window.
+    pub text: Option<String>,
+    /// Table 166's `/M`, as the file spells it — the table makes displaying it in *any* format a
+    /// `shall`, so this crate does not narrow it to the dates §7.9.4 states.
+    pub modified: Option<String>,
+    /// Table 166's `/C`: "[t]he title bar of the annotation's popup window".
+    pub colour: Option<pdf_render::Color>,
 }
 
 /// One entry of §8.11.4.3's `/Order`, as a layer panel would show it.

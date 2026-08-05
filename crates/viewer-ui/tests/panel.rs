@@ -589,3 +589,54 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
         Some(Hit::GoTo(1))
     );
 }
+
+/// A popup window the core would answer with, at a rectangle in the pretend window's pixels.
+fn window(text: &str, title: Option<&str>) -> viewer_core::PopupWindow {
+    viewer_core::PopupWindow {
+        annotation: ObjectId::new(7, 0),
+        parent: Some(ObjectId::new(6, 0)),
+        // 200 × 120 at (40, 30), clockwise from the top-left, y downwards.
+        quad: [40.0, 30.0, 240.0, 30.0, 240.0, 150.0, 40.0, 150.0],
+        title: title.map(str::to_owned),
+        text: Some(text.to_owned()),
+        modified: Some("D:20260805120000Z".to_owned()),
+        colour: None,
+    }
+}
+
+#[test]
+fn a_popup_window_puts_its_note_on_the_page() {
+    // §12.5.6.14's window is chrome, so no gate in this tree can see it — the same argument the
+    // panel's own tests make, one clause over. Ink inside the window's body and none outside it.
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let windows = [window(
+        "A note whose words this face can set.",
+        Some("author"),
+    )];
+    let list = viewer_ui::chrome::popup_windows(&chrome, &windows, WIDTH, HEIGHT, 1.0)
+        .expect("one window is drawn");
+    // The title bar is rows 30 to about 50; the body is under it.
+    assert!(ink(&list, 55..145) > 100, "the note's words are drawn");
+    assert!(ink(&list, 32..48) > 20, "and its title bar carries the /T");
+    assert_eq!(ink(&list, 160..HEIGHT), 0, "and nothing below the window");
+
+    assert!(
+        viewer_ui::chrome::popup_windows(&chrome, &[], WIDTH, HEIGHT, 1.0).is_none(),
+        "no open window is no display list at all"
+    );
+}
+
+#[test]
+fn a_note_this_interfaces_font_cannot_set_says_so() {
+    // Six of the corpus's seven open popups are in Chinese and §9.6.2.2's Helvetica states no
+    // code for one character of it. Drawing a blank window would be this program telling a
+    // person the note is empty (trap 5).
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let windows = [window("多边形批注", None)];
+    let list = viewer_ui::chrome::popup_windows(&chrome, &windows, WIDTH, HEIGHT, 1.0)
+        .expect("one window is drawn");
+    assert!(
+        ink(&list, 55..145) > 50,
+        "the sentence about what could not be set is drawn"
+    );
+}
