@@ -80,6 +80,13 @@ pub struct Viewer {
     /// on its first frame, which it draws at an opening magnification where the budget is not
     /// in question — so the conservative start costs nothing and the tier is never guessed.
     holds_rasters: bool,
+    /// What this reader does with the restrictions a document asserts over it.
+    ///
+    /// The whole of the policy `CLAUDE.md`'s "a document's restrictions are the reader's to set"
+    /// asks for: one value, held here rather than deduced anywhere, set by
+    /// [`Command::Restrict`] and asked **once per operation** in [`Self::edit`]. Defaults to
+    /// obeying. ADR 0212.
+    restrictions: crate::RestrictionLevel,
 }
 
 impl Viewer {
@@ -97,6 +104,7 @@ impl Viewer {
             next_token: 0,
             raising: false,
             holds_rasters: true,
+            restrictions: crate::RestrictionLevel::default(),
         }
     }
 
@@ -280,21 +288,8 @@ impl Viewer {
             Command::Activate(object) => self.activate(object, events),
             Command::Tick { millis } => self.tick(millis, events),
             Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
-            Command::Scroll { dx, dy } => {
-                let viewport = self.viewport;
-                let Some(open) = self.focused_mut() else {
-                    return;
-                };
-                let raster = open
-                    .frame
-                    .as_ref()
-                    .map(|frame| (frame.target.width, frame.target.height));
-                open.scroll = (open.scroll.0 + dx, open.scroll.1 + dy);
-                if let Some(raster) = raster {
-                    open.clamp_scroll(viewport, raster);
-                }
-                events.push(damage(viewport));
-            }
+            Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
+            Command::Restrict(level) => self.restrictions = level,
             Command::Edit(edit) => self.edit(edit, events),
             Command::Undo => self.move_cursor(-1, events),
             Command::Redo => self.move_cursor(1, events),
@@ -810,6 +805,10 @@ impl Viewer {
     /// which is what makes a replay of its prefix the whole of the state.
     fn edit(&mut self, edit: crate::command::Edit, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
+        if let Some(refused) = self.refusal(id, operation_of(&edit)) {
+            events.push(refused);
+            return;
+        }
         let Some(open) = self.focused_mut() else {
             return;
         };
@@ -830,6 +829,55 @@ impl Viewer {
                 dirty: open.dirty(),
             });
         }
+    }
+
+    /// Moves the page under the viewport, clamped to the raster the host is holding.
+    ///
+    /// A method rather than an arm of [`Self::act`] because the clamp needs the viewport *and*
+    /// the focused document at once, and the borrow that gets one has to end before the other.
+    fn scroll(&mut self, dx: f32, dy: f32, events: &mut Vec<Event>) {
+        let viewport = self.viewport;
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let raster = open
+            .frame
+            .as_ref()
+            .map(|frame| (frame.target.width, frame.target.height));
+        open.scroll = (open.scroll.0 + dx, open.scroll.1 + dy);
+        if let Some(raster) = raster {
+            open.clamp_scroll(viewport, raster);
+        }
+        events.push(damage(viewport));
+    }
+
+    /// The one place a document's restrictions are consulted, and it is asked per **operation**.
+    ///
+    /// Once per thing a person did, rather than once per widget the value lands on: §12.7.4.1
+    /// makes one field's value shared by all of its widgets, and a question asked per widget
+    /// would ask a person the same question three times about one keystroke. That is the shape
+    /// *ask* and *warn* need, and it is why the check moved out of `ViewState::set_field` — where
+    /// it could only ever say "nothing happened" — into the crate that holds the policy.
+    ///
+    /// `None` means go ahead: either the document asserts nothing against the operation, or this
+    /// reader has turned its restrictions off, which `CLAUDE.md` says shall always be possible.
+    /// The two are one answer here and two answers to a person, which is what
+    /// [`crate::Event::Refused`] carries the operation for.
+    fn refusal(
+        &self,
+        id: DocumentId,
+        operation: pdf_model::restriction::Operation,
+    ) -> Option<Event> {
+        if self.restrictions == crate::RestrictionLevel::Off {
+            return None;
+        }
+        let open = self.focused()?;
+        let notes = crate::notes::refusal(&open.document, operation);
+        (!notes.is_empty()).then_some(Event::Refused {
+            document: id,
+            operation,
+            notes,
+        })
     }
 
     /// Moves the log's cursor, which is what undo and redo are.
@@ -1635,6 +1683,19 @@ fn annotations_on(open: &Open, pages: &pdf_model::Pages, index: usize) -> Vec<Ob
         .iter()
         .filter_map(pdf_syntax::Object::as_reference)
         .collect()
+}
+
+/// Which of §7.6.4.1's operations an [`crate::Edit`] is.
+///
+/// The one place a host's vocabulary is mapped onto the standard's, so that the two enums stay
+/// separate: `Edit` says what a person did in a viewer's terms and
+/// [`pdf_model::restriction::Operation`] says what a clause restricts, and folding them into one
+/// type would make every future edit a claim about which permission covers it.
+fn operation_of(edit: &crate::command::Edit) -> pdf_model::restriction::Operation {
+    match edit {
+        crate::command::Edit::SetField { .. } => pdf_model::restriction::Operation::FillInForm,
+        crate::command::Edit::Markup { .. } => pdf_model::restriction::Operation::Annotate,
+    }
 }
 
 /// The whole viewport, which is what changes when a frame arrives or a page scrolls.

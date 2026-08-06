@@ -1,14 +1,12 @@
 # A document's restrictions are the reader's to set, and they have levels
 
-Status: **policy stated by the project owner in the three-hundred-and-fifty-eighth session and
-written into `CLAUDE.md`; the code does not have the shape yet.** No user interface is to be built
-now — what is owed is that the existing refusals stop being hard-coded, so the levels can be added
-without revisiting them.
+Status: **the shape is built (ADR 0212, session 373); two of the four levels and any interface for
+them are what is left.** No user interface is to be built until the project owner asks for one.
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
 §12.7.6.2
-Code: `crates/pdf-model/src/view.rs`, `crates/pdf-model/src/signature.rs`,
-`crates/viewer-core/src/notes.rs`
+Code: `crates/pdf-model/src/restriction.rs`, `crates/viewer-core/src/viewer.rs`,
+`crates/viewer-core/src/notes.rs`, `crates/pdf-syntax/src/crypt.rs`
 
 ## The policy, in the owner's words
 
@@ -17,57 +15,65 @@ Code: `crates/pdf-model/src/view.rs`, `crates/pdf-model/src/signature.rs`,
 > DRM levels: off, on, ask before operations, warn before operation. I tell this, so that, when we
 > encounter them for any reason, they are now implemented in a way, which allows such levels later.
 
-Four levels — `off`, `on`, *ask*, *warn* — and the binding part today is the **shape**: a
-restriction is written so that the policy is asked once, in a place a host can supply, rather than
-hard-coded as a refusal at the point of the operation.
-
 **This is not about the sandbox.** Principle 3's confinement runs the other way — it protects the
 reader from the document — and nothing here is negotiable in that direction.
 
-## Where the tree already refuses, and how
+## What the three-hundred-and-seventy-third session built
 
-Three places, all currently hard-coded to *on*:
-
-| clause | what it stops | where |
+| clause | what it does now | where |
 |---|---|---|
-| §12.8.2.2's `/DocMDP` `/P 1` | a person typing into a field | `view::permits_form_filling`, called at the top of `ViewState::set_field` |
-| §12.8.6 / Table 258's `/UR3` | nothing — but a save beyond the grant **withdraws the signature** | `ViewState::save`, through `UsageRights::grants` |
-| Table 22's `/P` | nothing yet | `Document::permissions` carries the flags and no operation consults them |
+| §12.8.2.2's `/DocMDP` | states which of Table 257's levels withholds which operation | `restriction::asserted` |
+| §7.6.4.2's Table 22 | **consulted at last**, for bit 6 and bit 9, with `/R` deciding bit 9 | `restriction::withheld` |
+| §12.8.6's `/Perms` | composes the two, because the clause says a permission needs *each* handler | `restriction::asserted` |
+| §12.8.2.3's `/UR3` | unchanged, and deliberately: a grant is not a restriction | `view::withdrawn_usage_rights` |
 
-Two of the three are the shape to change. The third is already right in one respect and worth
-saying: Table 22's flags are *carried* rather than acted on, so the day something consults them is
-the day the policy has to exist — and that is this file.
+The reading is in `pdf-model` and decides nothing; the policy is one value a host supplies
+(`Command::Restrict(RestrictionLevel)`), asked **once per `Edit`**; the refusal leaves as
+`Event::Refused { document, operation, notes }`, which carries the operation precisely so that it
+can become a question. `viewer-ui` supplies the value with `--ignore-restrictions` and prints the
+reason and the way out. The argument, the corpus measurement and the Table 22 revision finding are
+in ADR 0212.
 
-**§12.7.6.2's submit is not one of these.** It is refused because it needs a network this program
-does not have (principle 3), which is a capability rather than a permission, and no level would
-turn it on.
+## What is left
 
-## What the shape has to become
-
-- **One policy value, supplied by the host.** `viewer-core` is where a host reaches, so the level
-  belongs on the viewer — set at open, or per document. `pdf-model` may not decide it: rule 2 of §0
-  says the host supplies what the core cannot know, and how much a person's own program obeys
-  somebody else's file is exactly that.
-- **Asked once per operation, not once per widget.** `set_field` refuses per widget today; an
-  *ask* level needs one question per thing a person did, which is one per `Edit::SetField`.
-- **A refusal that can become a question.** The `on` level answers "no", `off` answers "yes",
-  and *ask* and *warn* both need the operation to be **describable** before it happens — which
-  means the check produces a *reason* rather than a boolean. `viewer_core::notes` already words
-  such reasons for a person when a document opens, which is the vocabulary to reuse.
-- **The event, not a callback.** `Command`/`Event` has no request-reply, and adding one for this
-  would be a vocabulary change. The shape that fits what is already there is the one
-  `Event::PasswordRequired` uses: the core emits *what it is about to refuse*, the host answers
-  with a `Command`, and the edit log records what was done rather than what was asked (ADR 0196's
-  rule).
+- **The two levels themselves.** *Ask* and *warn* are `Event::Refused` plus a host that answers
+  with a `Command` — the `Event::PasswordRequired` shape — and they are not shipped because a
+  variant nothing produces and nothing answers is a level that silently behaves like another one.
+  Nothing here is `#[non_exhaustive]`, so adding them fails every consumer's compile until it says
+  what it does, which is what makes waiting safe rather than lazy.
+- **A user interface**, when the owner asks for one. A menu with four entries and, probably, the
+  per-document override the viewer-wide value does not express today.
+- **Table 22's bit 5, and the copy operation nothing here can name.** The bit is "[c]opy or
+  otherwise extract text and graphics from the document", and this crate hands a host a *readback*
+  — the same `Query::Selection` that a drag asks sixty times a second in order to draw a
+  highlight. Refusing that would refuse the highlight. The bit also carves itself: "for the limited
+  purpose of providing this content to assistive technology, a PDF reader should behave as if this
+  bit was set to 1", so §14.9's tree must never be gated by it. What is needed is a host saying
+  *this is a copy* — plausibly `Query::LogicalSelection`, whose own doc comment already says "[a]
+  host asks this when a person presses copy", made to answer differently under the policy. It
+  wants an `Answer` variant rather than `Answer::None`, because a copy that came back empty would
+  be a lie about the selection.
+- **Annex O's `ef`, which is the same four levels arriving from `doc/todo/39`.** "[S]ecurity should
+  be strongly considered when opening an embedded file … a PDF processor may choose to prompt the
+  user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an
+  operation (`Command::Extract`) that no document restricts today. It is the second consumer the
+  levels are waiting for.
+- **Printing and assembling** (Table 22 bits 3, 11 and 12) will need rows here the day this program
+  can print or rearrange pages. Until then they are a capability rather than a permission, and
+  `restriction::Operation` deliberately has no arm for them.
 
 ## What not to do
 
-- **No user interface**, by the owner's instruction.
-- **No level enum shipped with one caller.** ADR 0178's lesson is that a model entry with no
-  consumer is a row that goes stale; this waits for the round that has a second restriction to
-  route through it, or for a host that wants to ask.
+- **No user interface**, by the owner's instruction, until it is asked for.
+- **No level enum shipped with one caller**, which is why two of four are absent rather than
+  stubbed. ADR 0178's lesson.
 - **No weakening of what is written.** §7.5.6's incremental update, `Document`'s immutability and
   the signature-withdrawal rule are correctness, not policy: a save that exceeds a usage-rights
   grant must still remove the `/UR3`, because §12.8.6 makes the signature a claim about the file
   and leaving it would make the file lie. Turning the *restriction* off is the reader's; making
-  the file assert something untrue is not.
+  the file assert something untrue is not. The types keep the two apart —
+  `RestrictionLevel` reaches `Viewer::refusal` and nothing else, and `withdrawn_usage_rights` is
+  reached from `ViewState::save` with no policy in scope at all — and it must stay that way.
+- **§12.7.6.2's submit is still not one of these**, re-checked in the three-hundred-and-seventy-third
+  session: it is refused because it needs a network this program does not have (principle 3), which
+  is a capability rather than a permission, and no level would turn it on.

@@ -567,43 +567,65 @@ fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
     assert!(after.contains("typed"), "{after:?}");
 }
 
-/// §12.8.2.2's `/P` 1 prevents a change rather than only invalidating a signature.
+/// §12.8.2.2's `/P` says which operation an author forbade, and it is stated rather than obeyed.
 ///
 /// ISO 32000-2 §12.8.2.2.1, in a parenthesis that is easy to read past:
 ///
 /// > (These changes to the document shall also be prevented if the signature dictionary is
 /// > referred from the DocMDP entry in the permissions dictionary.)
 ///
-/// Table 257 makes `/P` 1 "no changes to the document shall be permitted" and `/P` 2 "filling
-/// in forms, instantiating page templates, and signing". So the same fixture at two levels
-/// gives opposite answers to one person typing, which is what makes this a test of the clause
-/// rather than of a flag — and the sentence only became this tree's to obey when it acquired
-/// the verb, in the hundred-and-thirty-fifth session.
+/// Table 257 makes `/P` 1 "no changes to the document shall be permitted", `/P` 2 "filling in
+/// forms, instantiating page templates, and signing", and `/P` 3 the same "as well as annotation
+/// creation, deletion, and modification". So one fixture at three levels gives **different
+/// answers for two different operations**, which is what makes this a test of the clause rather
+/// than of a flag: level 2 is where filling in and annotating part company.
+///
+/// **What changed in the three-hundred-and-seventy-third session** is who acts on it. Until then
+/// `ViewState::set_field` refused by returning zero widgets, which is a number three other things
+/// also produce; now `restriction::asserted` says *which clause* and *which level*, and the host
+/// holding the reader's policy decides. `CLAUDE.md` makes that policy the reader's, with four
+/// levels, and two of them have to describe the operation to a person before it happens — which a
+/// count of widgets cannot. ADR 0212.
 #[test]
-fn a_certified_document_refuses_the_change_its_author_forbade() {
-    let final_document = Document::open(certified_form(1)).expect("the fixture is a valid PDF");
-    let mut view = ViewState::of(&final_document);
-    assert_eq!(
-        view.set_field(&final_document, "name", Some("typed")),
-        0,
-        "/P 1 permits no change at all"
-    );
-    let (after, _) = drawn(&final_document, &view);
-    assert!(!after.contains("typed"), "{after:?}");
+fn a_certified_document_states_which_operation_its_author_forbade() {
+    use pdf_model::restriction::{Operation, Restriction, asserted};
+    use pdf_model::signature::Modification;
 
+    let final_document = Document::open(certified_form(1)).expect("the fixture is a valid PDF");
+    for operation in [Operation::FillInForm, Operation::Annotate] {
+        assert_eq!(
+            asserted(&final_document, operation),
+            vec![Restriction::Certified {
+                level: Modification::None
+            }],
+            "/P 1 permits no change at all"
+        );
+    }
+
+    // Level 2 is the level that separates them: "filling in forms … and signing" and not
+    // annotation, which level 3 adds.
     let fillable = Document::open(certified_form(2)).expect("the fixture is a valid PDF");
-    let mut view = ViewState::of(&fillable);
+    assert_eq!(asserted(&fillable, Operation::FillInForm), Vec::new());
     assert_eq!(
-        view.set_field(&fillable, "name", Some("typed")),
-        1,
-        "/P 2 permits filling in forms"
+        asserted(&fillable, Operation::Annotate),
+        vec![Restriction::Certified {
+            level: Modification::FormFilling
+        }]
     );
-    let (after, _) = drawn(&fillable, &view);
-    assert!(after.contains("typed"), "{after:?}");
+
+    let commented = Document::open(certified_form(3)).expect("the fixture is a valid PDF");
+    assert_eq!(asserted(&commented, Operation::Annotate), Vec::new());
 
     // Table 257 defines 1, 2 and 3 and nothing else; a value outside them may not lock a
     // document a person is entitled to fill in.
     let odd = Document::open(certified_form(9)).expect("the fixture is a valid PDF");
-    let mut view = ViewState::of(&odd);
-    assert_eq!(view.set_field(&odd, "name", Some("typed")), 1);
+    assert_eq!(asserted(&odd, Operation::FillInForm), Vec::new());
+    assert_eq!(asserted(&odd, Operation::Annotate), Vec::new());
+
+    // And `pdf-model` itself no longer refuses: the value goes in, because whether to obey the
+    // document is not a question this crate is entitled to answer.
+    let mut view = ViewState::of(&final_document);
+    assert_eq!(view.set_field(&final_document, "name", Some("typed")), 1);
+    let (after, _) = drawn(&final_document, &view);
+    assert!(after.contains("typed"), "{after:?}");
 }

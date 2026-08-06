@@ -22,7 +22,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Event, FocusMove, PageTarget, PointerAction, Query,
-    Rendered, Selection, Viewer, Zoom,
+    Rendered, RestrictionLevel, Selection, Viewer, Zoom,
 };
 
 /// A document committed in `doc/`, which every checkout has.
@@ -3212,5 +3212,193 @@ fn a_selection_survives_a_redraw_of_the_same_page_and_not_a_page_turn() {
     assert!(
         matches!(viewer.query(Query::Selection), Answer::None),
         "a turned page ends the selection"
+    );
+}
+
+/// A one-page form whose author certified it at §12.8.2.2's `/P` `level`.
+///
+/// Built rather than found: the corpus's one certification signature states `/P` 2, so the level
+/// that refuses filling in a field exists nowhere in the 974 (trap 8). The catalog carries
+/// §12.8.6's `/Perms /DocMDP`, which is what §12.8.2.2.1's parenthesis makes binding:
+///
+/// > (These changes to the document shall also be prevented if the signature dictionary is
+/// > referred from the DocMDP entry in the permissions dictionary.)
+///
+/// It points at a signature whose `/Reference` names the `DocMDP` transform and states the level.
+fn certified_form(level: i64) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let objects = [
+        "<< /Type /Catalog /Perms << /DocMDP 6 0 R >> /Pages 2 0 R /AcroForm \
+         << /Fields [5 0 R] /DR << /Font << /Helv 8 0 R >> >> >> >>"
+            .to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+         /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_owned(),
+        "<< /Length 0 >>\nstream\n\nendstream".to_owned(),
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /T (name) \
+         /DA (/Helv 12 Tf 0 g) >>"
+            .to_owned(),
+        "<< /Type /Sig /Reference [7 0 R] >>".to_owned(),
+        format!(
+            "<< /Type /SigRef /TransformMethod /DocMDP /TransformParams \
+             << /Type /TransformParams /P {level} /V /1.2 >> >>"
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_owned(),
+    ];
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Opens a document under a host-chosen restriction level, draining the events.
+fn opened_with(bytes: Vec<u8>, level: RestrictionLevel) -> Viewer {
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer.handle(Command::Restrict(level)).for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer
+}
+
+/// An operation the document restricts is refused **with a reason**, not with a silence.
+///
+/// The shape `CLAUDE.md`'s "a document's restrictions are the reader's to set, and they have
+/// levels" asks for. What is asserted is not that something failed — a count of nothing happening
+/// is what this used to be — but that the refusal names its clause and its operation, which is
+/// what an *ask* level would put in front of a person and what a host words into a sentence. The
+/// level is read rather than the presence of a signature: `/P` 2 permits exactly this operation,
+/// and the same fixture one number apart is not refused at all. ADR 0212.
+#[test]
+fn a_restricted_operation_is_refused_with_a_reason() {
+    let mut viewer = opened_with(certified_form(1), RestrictionLevel::On);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: "name".to_owned(),
+            value: Some("typed".to_owned()),
+        }))
+        .collect();
+
+    let refused: Vec<&Event> = events
+        .iter()
+        .filter(|event| matches!(event, Event::Refused { .. }))
+        .collect();
+    let [
+        Event::Refused {
+            operation, notes, ..
+        },
+    ] = refused.as_slice()
+    else {
+        panic!("one refusal, naming what it refused: {events:?}");
+    };
+    assert_eq!(*operation, pdf_model::restriction::Operation::FillInForm);
+    let [note] = notes.as_slice() else {
+        panic!("one clause withholds it, so one sentence: {notes:?}");
+    };
+    assert!(
+        note.contains("§12.8.2.2's /P 1") && note.contains("filling in a form field"),
+        "the reason names the clause and the operation: {note}"
+    );
+
+    // Nothing was done, and the log knows it: an edit that was refused is not an edit that can
+    // be undone (ADR 0196's rule — the log records what was *done*).
+    assert!(
+        matches!(viewer.query(Query::Dirty), Answer::Dirty(false)),
+        "a refused edit leaves nothing to save"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { .. })),
+        "{events:?}"
+    );
+
+    // And it is the *level* that is read: Table 257's `/P` 2 is "filling in forms, instantiating
+    // page templates, and signing", so the same document one number apart refuses nothing.
+    let mut permitted = opened_with(certified_form(2), RestrictionLevel::On);
+    let events: Vec<_> = permitted
+        .handle(Command::Edit(Edit::SetField {
+            field: "name".to_owned(),
+            value: Some("typed".to_owned()),
+        }))
+        .collect();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Refused { .. })),
+        "{events:?}"
+    );
+}
+
+/// The reader turns the restriction off, and the operation happens.
+///
+/// `CLAUDE.md`, in the project owner's own words: "**it shall always be possible to turn them
+/// off**". So this is the second half of the shape and not a convenience — the policy is one
+/// value, it arrives from the host, and the same document that refused above accepts the same
+/// keystroke. The evidence is the *saved file*: §7.5.6's incremental update carries the value,
+/// which is a stronger statement than any flag this crate could answer with.
+#[test]
+fn the_reader_can_turn_a_documents_restrictions_off() {
+    let mut viewer = opened_with(certified_form(1), RestrictionLevel::Off);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: "name".to_owned(),
+            value: Some("typed".to_owned()),
+        }))
+        .collect();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Refused { .. })),
+        "the reader said not to obey it: {events:?}"
+    );
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(true)));
+
+    let events: Vec<_> = viewer.handle(Command::Save).collect();
+    let Some(Event::Saved { bytes, .. }) = events
+        .iter()
+        .find(|event| matches!(event, Event::Saved { .. }))
+    else {
+        panic!("the fixture can be updated: {events:?}");
+    };
+    let reopened = pdf_syntax::Document::open(bytes.clone()).expect("what was written is a PDF");
+    let names = pdf_model::view::ViewState::of(&reopened);
+    assert_eq!(
+        names.field_value(&reopened, "name").as_deref(),
+        Some("typed"),
+        "the value a person typed is in the file that came back"
+    );
+
+    // And the signature the document was certified with is still in the file, untouched: turning
+    // a restriction off is the reader's, and §12.8.2.2 states no obligation to remove anything.
+    // §12.8.2.3's `/UR3` is the one that would have to go, and this document states none.
+    assert!(
+        pdf_model::signature::permissions(&reopened)
+            .doc_mdp
+            .is_some(),
+        "the /DocMDP is where the producer put it"
     );
 }

@@ -104,6 +104,19 @@ pub enum Command {
         /// Vertical delta in device pixels.
         dy: f32,
     },
+    /// How much of what a document asserts about its reader this viewer obeys.
+    ///
+    /// **The one policy value in this crate, and the host is the only place it can come from.**
+    /// Rule 2's principle exactly: a document's restrictions — §7.6.4.2's Table 22, §12.8.2.2's
+    /// `/DocMDP` — are the *reader's* to set, and how much a person's own program obeys somebody
+    /// else's file is not something a state machine over the file can know. `CLAUDE.md` states
+    /// it: "**it shall always be possible to turn them off**".
+    ///
+    /// Applies to every open document and to every operation after it, until it is sent again.
+    /// [`RestrictionLevel::On`] is the default, because a reader that ignored a document's
+    /// restrictions without being asked would be making the choice on the person's behalf in the
+    /// other direction.
+    Restrict(RestrictionLevel),
     /// Change something about the document, and add it to the log.
     ///
     /// The document itself is never changed — `CLAUDE.md`'s rule 1 makes it immutable — so an
@@ -304,6 +317,42 @@ pub enum Edit {
         /// Table 166's `/C`, as `DeviceRGB` components in 0..=1.
         colour: [f32; 3],
     },
+}
+
+/// What this reader does with the restrictions a document asserts over it.
+///
+/// The project owner's statement, in `CLAUDE.md`, names four levels: `off`, `on`, *ask before the
+/// operation*, and *warn before the operation*. **Two of them are here and two are not, and that
+/// is a decision rather than an instalment.**
+///
+/// `Off` and `On` are answers this crate can give by itself. *Ask* and *warn* are not answers at
+/// all — they are a question put to a person, and a question needs somebody able to answer it: an
+/// [`crate::Event`] carrying what is about to be refused, and a [`Command`] carrying the verdict,
+/// which is the shape [`crate::Event::PasswordRequired`] already has. Shipping them as variants
+/// nothing produces and nothing answers would be two levels that silently behaved like a third,
+/// which is what `CLAUDE.md` forbids under "no placeholder implementations".
+///
+/// **What makes them cheap to add is that nothing here is `#[non_exhaustive]`.** The day a host
+/// can ask, two variants arrive and every consumer of this crate fails to compile until it says
+/// what it does about them — which is the whole reason `doc/HANDOVER.md`'s UI boundary keeps
+/// these enums exhaustive, and it is why the shape is what this round owed rather than the
+/// levels. ADR 0212.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RestrictionLevel {
+    /// Obey what the document asserts: the operation is refused and the reason is said.
+    ///
+    /// The default, and §7.6.4.1's `shall` — "PDF readers shall respect the intent of the
+    /// document creator by restricting user access to an encrypted PDF file according to the
+    /// permissions contained in the file" — is kept by a reader who leaves it alone.
+    #[default]
+    On,
+    /// Ignore what the document asserts and perform the operation.
+    ///
+    /// **This does not make the file say something untrue.** §12.8.2.3's withdrawal of a `/UR3`
+    /// whose grant a save exceeds still happens, because that is not a restriction on the reader
+    /// — it is a statement the *file* would be making about bytes nobody signed. Turning a
+    /// restriction off is the reader's; making the file lie is not.
+    Off,
 }
 
 /// What [`Command::Select`] asks for.

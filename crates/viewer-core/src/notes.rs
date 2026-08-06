@@ -84,6 +84,59 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
     notes
 }
 
+/// Why a document does not permit an operation, in sentences a host can show.
+///
+/// The other half of [`about`], and the same vocabulary: what a document asserts is read by
+/// `pdf_model::restriction`, which answers with clauses and levels, and the words are here
+/// because words about a document belong where the rest of this program's words about one are.
+/// Empty means the document asserts nothing against it.
+///
+/// **Worded even where the reader is ignoring them.** [`crate::RestrictionLevel::Off`] means the
+/// operation happens, not that the file said nothing — and *ask* and *warn*, when they arrive,
+/// need exactly these sentences at exactly this moment.
+pub(crate) fn refusal(
+    document: &Document,
+    operation: pdf_model::restriction::Operation,
+) -> Vec<String> {
+    use pdf_model::restriction::Restriction;
+    use pdf_model::signature::Modification;
+
+    pdf_model::restriction::asserted(document, operation)
+        .into_iter()
+        .map(|restriction| match restriction {
+            // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies:
+            // "(These changes to the document shall also be prevented if the signature
+            // dictionary is referred from the DocMDP entry in the permissions dictionary.)"
+            Restriction::Certified { level } => match level {
+                Modification::None => format!(
+                    "this document's author certified it as final (§12.8.2.2's /P 1), so it \
+                     permits no change at all — {} was not done",
+                    operation.as_str()
+                ),
+                Modification::FormFilling => format!(
+                    "this document's author permitted only form filling and signing (§12.8.2.2's \
+                     /P 2), which does not include {} — it was not done",
+                    operation.as_str()
+                ),
+                // Level 3 and an undefined level both permit, so `asserted` never names them
+                // here; saying which one arrived is better than a sentence that claims a rule.
+                other => format!(
+                    "this document's /DocMDP states {other:?}, and {} was not done",
+                    operation.as_str()
+                ),
+            },
+            // §7.6.4.2's Table 22, and §7.6.4.1's sentence about it: "PDF readers shall respect
+            // the intent of the document creator by restricting user access to an encrypted PDF
+            // file according to the permissions contained in the file."
+            Restriction::AccessDenied { bit } => format!(
+                "this document's encryption does not grant {} (§7.6.4.2's Table 22, bit {bit}) — \
+                 it was not done",
+                operation.as_str()
+            ),
+        })
+        .collect()
+}
+
 /// §12.8's signatures: what a program with no trust store can honestly say about one.
 ///
 /// Three things are said and a fourth is refused: who signed, why, whether the range they signed
@@ -155,9 +208,10 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
     // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies: "(These
     // changes to the document shall also be prevented if the signature dictionary is referred
     // from the DocMDP entry in the permissions dictionary.)" This program modifies since the
-    // hundred-and-thirty-fifth session, so it obeys it — `ViewState::set_field` refuses — and
-    // says so here, because a field that will not take a value is otherwise a person typing
-    // into a document that ignores them.
+    // hundred-and-thirty-fifth session, so it obeys it — an `Edit` that a level of `/P` does not
+    // permit is refused with `Event::Refused` and its reason — and says so here as well, because
+    // a field that will not take a value is otherwise a person typing into a document that
+    // ignores them, and this is said before they start rather than after.
     match pdf_model::signature::permissions(document).doc_mdp {
         Some(pdf_model::signature::Modification::None) => notes.push(
             "this document's author certified it as final (§12.8.2.2's /P 1), so no change to \

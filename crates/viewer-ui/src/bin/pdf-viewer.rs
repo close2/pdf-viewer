@@ -62,7 +62,7 @@ use render_cpu::CpuRasterizer;
 use render_quorra::{PresentFrame, QuorraPresenter};
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Event, FocusMove, PageTarget, PointerAction, Purpose, Query,
-    RenderRequest, Rendered, Selection, Viewer, Zoom,
+    RenderRequest, Rendered, RestrictionLevel, Selection, Viewer, Zoom,
 };
 use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar, Tab};
 use winit::application::ApplicationHandler;
@@ -169,6 +169,14 @@ struct Arguments {
     opens_at: Option<usize>,
     /// Annex O's fragment identifier, where the argument carried one after a `#`.
     fragment: Option<String>,
+    /// What this reader does with the restrictions a document asserts, from
+    /// `--ignore-restrictions`.
+    ///
+    /// **Not a user interface for them**, which `CLAUDE.md` says is not to be built yet: it is
+    /// the one policy value `viewer-core` asks for, supplied the way this host supplies every
+    /// other one it has — the sandbox, the backend, the page to open at. The four levels the
+    /// project owner named, and the menu that will offer them, are later.
+    restrictions: RestrictionLevel,
 }
 
 /// Reads the command line, applies the two settings that must be applied before anything opens a
@@ -182,6 +190,7 @@ fn arguments() -> Arguments {
     let mut trace = false;
     let mut processor = false;
     let mut opens_at = None;
+    let mut restrictions = RestrictionLevel::On;
     let mut arguments = std::env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
         if argument == "--licences" || argument == "--licenses" {
@@ -195,6 +204,8 @@ fn arguments() -> Arguments {
             speak_up();
         } else if argument == "--cpu" {
             processor = true;
+        } else if argument == "--ignore-restrictions" {
+            restrictions = RestrictionLevel::Off;
         } else if argument == "--page" {
             // A page number as the title bar shows it, which is one-based. §12.3.2.1's
             // `/OpenAction` is the document's own answer to the same question and wins where
@@ -251,6 +262,7 @@ fn arguments() -> Arguments {
         processor,
         opens_at,
         fragment,
+        restrictions,
     }
 }
 
@@ -294,6 +306,7 @@ fn open_document(
     path: &std::path::Path,
     opens_at: Option<usize>,
     fragment: Option<&str>,
+    restrictions: RestrictionLevel,
 ) -> (Viewer, Vec<Event>) {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
@@ -305,6 +318,11 @@ fn open_document(
     // No viewport yet: the window does not exist and may not for another 50 ms. The core renders
     // nothing into one with no extent, which is exactly right — there is nothing to render into.
     let mut viewer = Viewer::new(0, 0, 1.0);
+    // Before the document rather than after it, for the same reason the sandbox decision is made
+    // before anything opens: a policy applied halfway through is not a policy. Nothing an open
+    // does is restricted, so this is about where the value *belongs* rather than about an
+    // operation it would otherwise miss.
+    drop(viewer.handle(Command::Restrict(restrictions)));
     let mut events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
@@ -333,6 +351,7 @@ fn main() {
         processor,
         opens_at,
         fragment,
+        restrictions,
     } = arguments();
     launch.mark("arguments");
 
@@ -349,7 +368,7 @@ fn main() {
     let opening = std::thread::spawn({
         let path = path.clone();
         let fragment = fragment.clone();
-        move || open_document(&path, opens_at, fragment.as_deref())
+        move || open_document(&path, opens_at, fragment.as_deref(), restrictions)
     });
 
     // **And the graphics instance on a second thread**, since the two-hundred-and-eighty-eighth:
@@ -447,6 +466,10 @@ fn usage() {
     eprintln!("                step that did not finish. PDFVIEWER_LOG=error|warn|info|debug");
     eprintln!("                sets how much of the graphics stack's own logging comes with it,");
     eprintln!("                and defaults to warn.");
+    eprintln!("  --ignore-restrictions");
+    eprintln!("                perform an operation a document says its reader may not — filling");
+    eprintln!("                in a field under §7.6.4.2's permission flags or an author's");
+    eprintln!("                §12.8.2.2 certification. The default is to obey and say so.");
     eprintln!("  --licences    print the third-party notices this binary carries, and exit.");
 }
 
@@ -1488,13 +1511,7 @@ impl App {
             // Written beside the document with `.edited.pdf` appended rather than over it,
             // because overwriting somebody's file is a decision this program has not been given.
             Event::Extracted { name, bytes, .. } => self.write_extracted(&name, &bytes),
-            Event::Saved { bytes, .. } => {
-                let path = self.path.with_extension("edited.pdf");
-                match std::fs::write(&path, &bytes) {
-                    Ok(()) => println!("saved {} bytes to {}", bytes.len(), path.display()),
-                    Err(error) => println!("note: cannot write {}: {error}", path.display()),
-                }
-            }
+            Event::Saved { bytes, .. } => self.write_saved(&bytes),
             // What a host does with this is mark its window and ask before closing. This one
             // has no dialogue to ask with, so it marks the title and says so on the way past.
             Event::Dirty { dirty, .. } => {
@@ -1512,7 +1529,41 @@ impl App {
                     self.retitle_incomplete(notes.len());
                 }
             }
+            Event::Refused { notes, .. } => Self::say_refused(&notes),
         }
+    }
+
+    /// §7.5.6's update, written beside the document rather than over it.
+    ///
+    /// Rule 2 in one method: the core produced the bytes and the host owns the filesystem.
+    /// `.edited.pdf` appended rather than the file replaced, because overwriting somebody's
+    /// document is a decision this program has not been given.
+    fn write_saved(&self, bytes: &[u8]) {
+        let path = self.path.with_extension("edited.pdf");
+        match std::fs::write(&path, bytes) {
+            Ok(()) => println!("saved {} bytes to {}", bytes.len(), path.display()),
+            Err(error) => println!("note: cannot write {}: {error}", path.display()),
+        }
+    }
+
+    /// What this window does about an operation the document restricted.
+    ///
+    /// Said rather than swallowed, and said as the *reader's* doing rather than as the
+    /// document's: this host obeys what a file asserts unless it was started with
+    /// `--ignore-restrictions`, and a person whose keystroke did nothing is owed both the clause
+    /// and the way out. Trap 5 on the one path where this program declines on somebody else's
+    /// instructions rather than on its own.
+    ///
+    /// **This is not a user interface for the levels**, which `CLAUDE.md` says is not to be built
+    /// yet. It is the sentence a person needs, in the terminal this program already prints to.
+    fn say_refused(notes: &[String]) {
+        for note in notes {
+            println!("note: {note}");
+        }
+        println!(
+            "note: this reader is obeying that; --ignore-restrictions turns it off \
+             (CLAUDE.md: a document's restrictions are the reader's to set)"
+        );
     }
 
     /// §12.7.6.4's file, under the narrowest policy that still performs the action.
@@ -2317,6 +2368,7 @@ fn describe_command(command: &Command) -> String {
     match command {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
         Command::Close(id) => format!("close {id:?}"),
+        Command::Restrict(level) => format!("restrictions {level:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
         Command::Focus(id) => format!("focus {id:?}"),
         Command::Resize {
@@ -2375,6 +2427,9 @@ fn describe_event(event: &Event) -> String {
         Event::Reported { page, notes, .. } => {
             format!("reported about page {page:?}: {}", notes.join("; "))
         }
+        Event::Refused {
+            operation, notes, ..
+        } => format!("refused {}: {}", operation.as_str(), notes.join("; ")),
     }
 }
 

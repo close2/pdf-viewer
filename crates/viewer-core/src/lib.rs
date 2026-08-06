@@ -98,7 +98,8 @@ mod viewer;
 
 pub use accessibility::AccessibilityNode;
 pub use command::{
-    Command, Edit, FocusMove, PageTarget, PointerAction, Purpose, Rendered, Selection, Zoom,
+    Command, Edit, FocusMove, PageTarget, PointerAction, Purpose, Rendered, RestrictionLevel,
+    Selection, Zoom,
 };
 pub use event::{Event, RenderRequest};
 pub use query::{Answer, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected};

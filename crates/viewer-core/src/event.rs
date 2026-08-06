@@ -140,6 +140,33 @@ pub enum Event {
         /// The file.
         bytes: Vec<u8>,
     },
+    /// An operation was not performed, because the document restricts it and this reader is
+    /// obeying (§7.6.4.2, §12.8.2.2, §12.8.6).
+    ///
+    /// **Not [`Self::Reported`]**, and the difference is the point: `Reported` says what the
+    /// *document* could not do, and this says what the *reader's own policy* did. Telling a
+    /// person that a document is defective when what happened is that their program obeyed it
+    /// would be a false statement about the file.
+    ///
+    /// It carries the operation as well as the sentences, so that it can become a **question**.
+    /// [`crate::RestrictionLevel`]'s two unbuilt levels — ask and warn — are exactly this event
+    /// plus a host able to answer it with a [`crate::Command`], which is the shape
+    /// [`Self::PasswordRequired`] already uses; a refusal that had only prose could not.
+    ///
+    /// [`crate::Command::Restrict`] with [`crate::RestrictionLevel::Off`] is what stops it.
+    Refused {
+        /// Which document.
+        document: DocumentId,
+        /// What was not done.
+        operation: pdf_model::restriction::Operation,
+        /// One sentence per restriction that applied, already worded for a person.
+        ///
+        /// Every one of them rather than the first: §12.8.6 makes a permission granted only if
+        /// "allowed by each permission handler that is present in the permissions dictionary as
+        /// well as by the security handler", so two clauses can withhold one operation and a
+        /// person being asked is owed both reasons.
+        notes: Vec<String>,
+    },
     /// What could not be drawn on the page that was just interpreted.
     ///
     /// Trap 5's channel: every layer of this program reports what it could not handle rather

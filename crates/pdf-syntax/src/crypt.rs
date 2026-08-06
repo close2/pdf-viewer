@@ -92,6 +92,10 @@ pub(crate) enum Method {
 /// "shall respect the intent of the document creator" instead. That is an obligation on
 /// the parts of the application that copy, print and edit, so the flags are carried up to
 /// them rather than acted on here.
+///
+/// **Something up there reads them at last**: `pdf_model::restriction` turns these into what a
+/// document asserts about one *operation*, and `viewer_core` decides what its reader does with
+/// that. Which is why [`Self::revision`] is here: the flags cannot be read without it.
 #[expect(
     clippy::struct_excessive_bools,
     reason = "Table 22 is a flag word of independent permissions, and naming each one is \
@@ -103,6 +107,20 @@ pub struct Permissions {
     /// The document was opened with the owner password, which §7.6.4.1 says "should allow
     /// full (owner) access". Every other field is then advisory.
     pub owner: bool,
+    /// Table 21's `/R`, because Table 22's meanings depend on it. §7.6.4.2:
+    ///
+    /// > Which bits shall be meaningful, and in some cases how they shall be interpreted,
+    /// > shall depend on the security handler's revision number (specified in the encryption
+    /// > dictionary's R entry).
+    ///
+    /// Four of Table 22's positions — 9, 11 and 12, and the finer reading of 3 — are marked
+    /// "(Security handlers of revision 3 or greater)", so a consumer that acted on
+    /// [`Self::fill_forms`] without this would read a *reserved* bit of a revision 2 word as a
+    /// grant: the reserved positions "must be 1", so at revision 2 bit 9 is set in every file
+    /// that conforms. The clause's own example says what that costs — "assuming revision 2 of
+    /// the security handler, the value -44 permits printing and copying but disallows
+    /// modifying the contents and annotations" — and -44 has bit 9 set.
+    pub revision: u8,
     /// Bit 3: print the document.
     pub print: bool,
     /// Bit 4: modify the contents.
@@ -130,7 +148,12 @@ impl Permissions {
     ///
     /// Bit 10 is read and discarded: Table 22 says it "Not used ... PDF readers shall
     /// ignore this bit".
-    fn from_flags(p: i64, owner: bool) -> Self {
+    ///
+    /// Every bit is read as the file wrote it, and the revision it has to be read *with* is
+    /// kept beside it rather than folded in: what a position means at revision 2 is a
+    /// question about the operation being asked about, and `pdf_model::restriction` is where
+    /// an operation is named.
+    fn from_flags(p: i64, owner: bool, revision: u8) -> Self {
         // Table 22 numbers bits from 1, and the NOTE under Table 21 says the value "is
         // always specified as a negative integer" because the reserved high bits are 1 —
         // so the sign of the PDF integer carries no meaning and the low 32 bits do.
@@ -149,6 +172,7 @@ impl Permissions {
         };
         Self {
             owner,
+            revision,
             print: bit(3),
             modify: bit(4),
             copy: bit(5),
@@ -312,7 +336,14 @@ impl Encryption {
             string,
             filters,
             encrypt_metadata,
-            permissions: Permissions::from_flags(flags, owner),
+            // The match above admits 2, 3, 4 and 6 and refuses everything else, so this
+            // conversion cannot fail; `unwrap_or` names an impossible revision rather than
+            // panicking on it, and 0 is a revision Table 22 gives no meaningful bit at all.
+            permissions: Permissions::from_flags(
+                flags,
+                owner,
+                u8::try_from(revision).unwrap_or_default(),
+            ),
         })
     }
 
@@ -1216,7 +1247,7 @@ mod tests {
             string: Method::Rc4,
             filters: BTreeMap::new(),
             encrypt_metadata: true,
-            permissions: Permissions::from_flags(-1, false),
+            permissions: Permissions::from_flags(-1, false, 4),
         };
         let id = ObjectId::new(258, 7);
 
@@ -1241,7 +1272,7 @@ mod tests {
             string: Method::AesV2,
             filters: BTreeMap::new(),
             encrypt_metadata: true,
-            permissions: Permissions::from_flags(-1, false),
+            permissions: Permissions::from_flags(-1, false, 4),
         };
         let id = ObjectId::new(1, 0);
         assert_ne!(
@@ -1304,11 +1335,19 @@ mod tests {
         // -44 is the clause's own example: "assuming revision 2 of the security handler,
         // the value -44 permits printing and copying but disallows modifying the contents
         // and annotations."
-        let permissions = Permissions::from_flags(-44, false);
+        let permissions = Permissions::from_flags(-44, false, 2);
         assert!(permissions.print);
         assert!(permissions.copy);
         assert!(!permissions.modify);
         assert!(!permissions.annotate);
+        // And the half of that example a reader can get wrong: bit 9 is *set* in it, because
+        // Table 22 requires positions 13 to 32 to be 1 and revision 2 gives 9 no meaning at
+        // all. The revision travels with the flags so that a consumer can tell the two apart.
+        assert!(permissions.fill_forms, "bit 9 of -44 is set");
+        assert_eq!(
+            permissions.revision, 2,
+            "and means nothing at this revision"
+        );
     }
 
     /// An AES body must carry its initialisation vector and end on a block boundary.

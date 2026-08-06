@@ -60,6 +60,7 @@ pub mod page;
 pub mod page_label;
 pub mod popup;
 pub mod requirements;
+pub mod restriction;
 pub mod shading;
 pub mod signature;
 mod soft_mask;
