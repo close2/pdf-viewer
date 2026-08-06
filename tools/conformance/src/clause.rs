@@ -35,50 +35,85 @@ use std::str::FromStr;
 
 use crate::quote;
 
-/// A clause number, as the standard writes it: `8.9.6.2`.
+/// A clause number, as the standard writes it: `8.9.6.2` — or an annex's, `K.2`.
 ///
-/// Ordered by component rather than by text, so `§8.9` precedes `§8.10`.
+/// Ordered by component rather than by text, so `§8.9` precedes `§8.10`, and every numbered
+/// clause precedes every annex, which is the order the standard prints them in.
+///
+/// **The annexes were outside this type until the three-hundred-and-sixtieth session**, and
+/// eight of them are normative. A number nothing can parse is a number nothing can cite,
+/// check or record — so Annex O's fragment identifiers, Annex Q's transparency method and
+/// Annex D's encodings were invisible to every instrument this project has. ADR 0206.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClauseNumber(Vec<u16>);
+pub struct ClauseNumber {
+    /// The annex letter, for a number the standard writes as `K.2`; `None` for `8.9.6.2`.
+    ///
+    /// First in declaration order because the derived ordering reads the fields in order,
+    /// and `None` sorts before `Some`.
+    annex: Option<char>,
+    /// The numeric components, most significant first.
+    components: Vec<u16>,
+}
 
 impl ClauseNumber {
-    /// The components, most significant first: `8.9.6.2` gives `[8, 9, 6, 2]`.
+    /// The components, most significant first: `8.9.6.2` gives `[8, 9, 6, 2]`, `K.2` gives
+    /// `[2]`.
     #[must_use]
     pub fn components(&self) -> &[u16] {
-        &self.0
+        &self.components
     }
 
-    /// The top-level clause this number belongs to: `8.9.6.2` gives `8`.
+    /// The annex this number belongs to: `K.2` gives `Some('K')`, `8.9.6.2` gives `None`.
     #[must_use]
-    pub fn clause(&self) -> u16 {
-        // A `ClauseNumber` is only ever built through `FromStr`, which rejects an empty
-        // component list, so there is always a first component.
-        self.0.first().copied().unwrap_or_default()
+    pub fn annex(&self) -> Option<char> {
+        self.annex
     }
 
-    /// How many components the number has: `8.9.6.2` is at depth 4.
+    /// The top-level clause this number belongs to: `8.9.6.2` gives `Some(8)`, an annex's
+    /// number gives `None`.
+    #[must_use]
+    pub fn clause(&self) -> Option<u16> {
+        if self.annex.is_some() {
+            return None;
+        }
+        self.components.first().copied()
+    }
+
+    /// How many components the number has: `8.9.6.2` is at depth 4, and so is `K.2`, whose
+    /// annex letter counts as its first component.
     #[must_use]
     pub fn depth(&self) -> usize {
-        self.0.len()
+        self.components
+            .len()
+            .saturating_add(usize::from(self.annex.is_some()))
     }
 
     /// Whether `other` is a strictly deeper number beginning with this one.
     ///
     /// `8.9.6` is an ancestor of `8.9.6.2`; nothing is an ancestor of itself, and `8.9.6` is
-    /// not an ancestor of `8.9.61`, because the comparison is by component.
+    /// not an ancestor of `8.9.61`, because the comparison is by component. An annex letter
+    /// is part of the comparison, so `Q` is an ancestor of `Q.2` and of nothing else.
     #[must_use]
     pub fn is_ancestor_of(&self, other: &Self) -> bool {
-        other.0.len() > self.0.len() && other.0.starts_with(&self.0)
+        self.annex == other.annex
+            && other.components.len() > self.components.len()
+            && other.components.starts_with(&self.components)
     }
 }
 
 impl fmt::Display for ClauseNumber {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (index, component) in self.0.iter().enumerate() {
-            if index > 0 {
+        let mut written = 0usize;
+        if let Some(annex) = self.annex {
+            write!(f, "{annex}")?;
+            written = written.saturating_add(1);
+        }
+        for component in &self.components {
+            if written > 0 {
                 f.write_str(".")?;
             }
             write!(f, "{component}")?;
+            written = written.saturating_add(1);
         }
         Ok(())
     }
@@ -115,8 +150,18 @@ impl FromStr for ClauseNumber {
         if text.is_empty() {
             return Err(ClauseNumberError::Empty);
         }
+        let mut parts = text.split('.');
+        // The standard writes an annex's subclauses with the letter in the leading position
+        // — `K.2`, `O.2.2` — so a single upper-case letter there is the annex and everything
+        // after it is numeric. Anywhere else a letter is what it always was: not a number.
+        let mut annex = None;
         let mut components = Vec::new();
-        for component in text.split('.') {
+        let first = parts.clone().next().unwrap_or_default();
+        if is_annex_letter(first) {
+            annex = first.chars().next();
+            let _ = parts.next();
+        }
+        for component in parts {
             let parsed = component
                 .parse::<u16>()
                 .map_err(|_| ClauseNumberError::NotNumeric {
@@ -125,8 +170,20 @@ impl FromStr for ClauseNumber {
                 })?;
             components.push(parsed);
         }
-        Ok(Self(components))
+        if annex.is_none() && components.is_empty() {
+            return Err(ClauseNumberError::Empty);
+        }
+        Ok(Self { annex, components })
     }
+}
+
+/// Whether one dot-separated part is an annex letter: one upper-case ASCII letter.
+fn is_annex_letter(part: &str) -> bool {
+    let mut characters = part.chars();
+    let Some(letter) = characters.next() else {
+        return false;
+    };
+    letter.is_ascii_uppercase() && characters.next().is_none()
 }
 
 /// One numbered heading of the standard, with the text that belongs to it.
@@ -197,6 +254,8 @@ impl ClauseIndex {
         struct Raw {
             number: Option<ClauseNumber>,
             title: String,
+            /// The heading's whole text, which is the title when the number is a letter's.
+            full: String,
             line: usize,
             start: usize,
             ends_a_span: bool,
@@ -215,6 +274,20 @@ impl ClauseIndex {
                 Some((first, rest)) => (first, rest.trim()),
                 None => (heading, ""),
             };
+            // `## Annex Q (normative) Method for determining transparency on a page` is the
+            // annex's own heading, and its number is the letter. Written this way rather
+            // than numerically, so it needs reading rather than parsing.
+            let annex_heading = first
+                .eq_ignore_ascii_case("Annex")
+                .then(|| rest.split_once(char::is_whitespace).unwrap_or((rest, "")));
+            let (first, rest) = match annex_heading {
+                // `(normative)` is the standard's marking rather than part of the title, and
+                // `## Annex O` carries its title on the heading after it.
+                Some((letter, tail)) if is_annex_letter(letter) => {
+                    (letter, tail.trim().trim_start_matches("(normative)").trim())
+                }
+                _ => (first, rest),
+            };
             let number = first.trim_end_matches('.').parse::<ClauseNumber>().ok();
             // An annex heading ends the preceding clause's span. See the module comment:
             // the annexes and the corrigendum are not in clause-number order, so nothing
@@ -223,10 +296,36 @@ impl ClauseIndex {
             raw.push(Raw {
                 number,
                 title: rest.to_owned(),
+                full: heading
+                    .trim_start_matches("(normative)")
+                    .trim_start_matches("(informative)")
+                    .trim()
+                    .to_owned(),
                 line: index.saturating_add(1),
                 start,
                 ends_a_span,
             });
+        }
+
+        // `## Annex O` is followed by `## (normative) Fragment identifiers`: the conversion
+        // split one printed title across two headings. Without this the annex's own row
+        // would carry no title at all.
+        for position in 0..raw.len() {
+            let borrowed = (
+                raw.get(position).map(|entry| entry.title.is_empty()),
+                raw.get(position).and_then(|entry| entry.number.clone()),
+                raw.get(position.saturating_add(1))
+                    .map(|next| (next.number.is_none(), next.full.clone())),
+            );
+            let (Some(true), Some(number), Some((true, next))) = borrowed else {
+                continue;
+            };
+            if number.annex().is_none() || number.depth() != 1 || next.is_empty() {
+                continue;
+            }
+            if let Some(entry) = raw.get_mut(position) {
+                entry.title = next;
+            }
         }
 
         let mut headings = Vec::new();
@@ -239,10 +338,14 @@ impl ClauseIndex {
                 .skip(position.saturating_add(1))
                 .find(|later| {
                     later.ends_a_span
-                        && later
-                            .number
-                            .as_ref()
-                            .is_none_or(|later| !number.is_ancestor_of(later))
+                        && later.number.as_ref().is_none_or(|later| {
+                            // An *ancestor* appearing later is the conversion's doing rather
+                            // than the standard's: an annex's title page is set after the
+                            // first subclauses that follow it, so `## Annex K` sits between
+                            // `## K.2` and the rest of K.2's text. Ending K.2's span there
+                            // would hide the half of the subclause below its own title.
+                            !number.is_ancestor_of(later) && !later.is_ancestor_of(&number)
+                        })
                 })
                 .map_or(text.len(), |later| later.start);
             headings.push(Heading {
@@ -285,9 +388,26 @@ impl ClauseIndex {
     /// the requirements underneath it.
     #[must_use]
     pub fn subclauses_of(&self, clause: u16) -> Vec<ClauseNumber> {
+        self.numbers(|number| number.clause() == Some(clause) && number.depth() >= 2)
+    }
+
+    /// Every number of one annex, in document order, **including the annex's own**.
+    ///
+    /// Unlike a clause, an annex is not always a container: Annex L is one normative table
+    /// with no numbered subclause under it, so excluding the letter's own heading the way
+    /// `subclauses_of` excludes `§8`'s would leave a normative annex with no row at all —
+    /// which is the state this whole population was in until the three-hundred-and-sixtieth
+    /// session.
+    #[must_use]
+    pub fn numbers_of_annex(&self, annex: char) -> Vec<ClauseNumber> {
+        self.numbers(|number| number.annex() == Some(annex))
+    }
+
+    /// The distinct numbers whose heading satisfies `wanted`, in document order.
+    fn numbers(&self, wanted: impl Fn(&ClauseNumber) -> bool) -> Vec<ClauseNumber> {
         let mut seen: Vec<ClauseNumber> = Vec::new();
         for heading in &self.headings {
-            if heading.number.clause() != clause || heading.number.depth() < 2 {
+            if !wanted(&heading.number) {
                 continue;
             }
             if !seen.contains(&heading.number) {
@@ -363,8 +483,43 @@ mod tests {
     #[test]
     fn a_clause_number_must_be_numeric() {
         assert_eq!("".parse::<ClauseNumber>(), Err(ClauseNumberError::Empty));
-        assert!("A.1".parse::<ClauseNumber>().is_err());
         assert!("8.9.".parse::<ClauseNumber>().is_err());
+        assert!("AB.1".parse::<ClauseNumber>().is_err());
+        assert!("k.1".parse::<ClauseNumber>().is_err());
+    }
+
+    /// Eight of the standard's annexes are normative, and until the
+    /// three-hundred-and-sixtieth session this type could not hold one of their numbers.
+    #[test]
+    fn an_annex_number_carries_its_letter() {
+        assert_eq!(number("K.2").annex(), Some('K'));
+        assert_eq!(number("K.2").clause(), None);
+        assert_eq!(number("O.2.2").to_string(), "O.2.2");
+        assert_eq!(number("Q").to_string(), "Q");
+        assert_eq!(number("8.9").annex(), None);
+        assert_eq!(number("8.9").clause(), Some(8));
+        assert!(number("Q").is_ancestor_of(&number("Q.2")));
+        assert!(!number("Q").is_ancestor_of(&number("O.2")));
+        // Every numbered clause before every annex, which is the order they are printed in.
+        assert!(number("14.13.10") < number("D"));
+    }
+
+    /// The annexes' title pages are set *after* the subclauses that open them, so
+    /// `## Annex K` sits between `## K.2` and the rest of K.2's text.
+    #[test]
+    fn an_annex_title_page_does_not_cut_its_own_subclause_short() {
+        let index = ClauseIndex::parse(
+            "## K.1 General\nfirst\n\n## K.2 Access\nabove the title\n\n             ## Annex K (normative) XFA forms\n\nbelow the title\n\n## L.1 Something\nnext\n"
+                .to_owned(),
+        );
+        assert_eq!(index.title(&number("K")), Some("XFA forms"));
+        assert!(index.holds_quotation(&number("K.2"), "above the title"));
+        assert!(index.holds_quotation(&number("K.2"), "below the title"));
+        assert!(!index.holds_quotation(&number("K.2"), "next"));
+        assert_eq!(
+            index.numbers_of_annex('K'),
+            vec![number("K.1"), number("K.2"), number("K")]
+        );
     }
 
     /// A clause's span must reach into its subclauses, or a sentence cited at the family's

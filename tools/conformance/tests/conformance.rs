@@ -348,7 +348,7 @@ fn by_clause(ledger: &Ledger) -> String {
         let rows: Vec<_> = ledger
             .rows
             .iter()
-            .filter(|row| row.clause.clause() == clause)
+            .filter(|row| row.clause.clause() == Some(clause))
             .collect();
         let unreviewed = rows
             .iter()

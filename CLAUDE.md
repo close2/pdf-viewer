@@ -208,11 +208,30 @@ In scope, without exclusions:
   An entry here that says a clause does not apply is a *claim about the specification*, and it
   decays exactly the way a ledger row's does.
 - **Clause 14** — output intents, and tagged PDF as far as accessibility needs it.
+- **The normative annexes**, which this list did not mention until the
+  three-hundred-and-sixtieth session and which were therefore in scope all along with nothing
+  looking at them. Eight of the standard's seventeen are normative — **D** (character sets and
+  encodings), **E** (extending PDF), **F** (linearised PDF), **I** (versions and compatibility),
+  **K** (XFA), **L** (structure element nesting), **O** (fragment identifiers) and **Q** (a
+  method for determining transparency) — and the ledger carries a row for each because a
+  requirement is a requirement wherever the standard prints it. The other nine say *informative*
+  on their own title line and state nothing. Annex O is the reason this entry is not a
+  formality: eleven `shall`s addressed to "the PDF processor", none of them implemented and none
+  of them reported.
 
 The exclusions, closed, each with its reason:
 
 - **Clause 13, multimedia and 3D** — a media engine, not a rendering question.
-- **XFA** — deprecated by ISO 32000-2 itself and specified outside it.
+- **XFA** — the standard hands this one over itself: "[t]he implementation of such a schema
+  driven page generation involves considerable effort beyond that for a simple PDF viewer and
+  therefore **a PDF processor may choose to not implement this feature**" (§K.1). **This entry
+  used to read "deprecated by ISO 32000-2 itself and specified outside it", and the second half
+  was wrong**: Annex K is normative and it is *in* ISO 32000-2. What is documented separately is
+  the XFA template architecture, not the annex — and the exclusion is stronger for resting on a
+  permission the standard grants than on a claim about where it was printed. Annex K also says
+  what makes declining it safe, which is worth knowing rather than assuming: in a conforming
+  hybrid file "[t]he other entries in the interactive form dictionary shall be consistent with
+  the information in the XFA resource", so the AcroForm this tree reads *is* the form.
 - **JavaScript and script-driven form behaviour** — a sandboxed script engine is a separate
   project with its own security argument. Field *appearance* is not excluded; field
   *behaviour* is.

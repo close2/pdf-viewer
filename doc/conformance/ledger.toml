@@ -2401,7 +2401,7 @@ title = "Encodings for TrueType fonts"
 status = "implemented"
 code = ["crates/pdf-font/src/lib.rs"]
 test = ["crates/pdf-font/src/lib.rs::a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range", "crates/pdf-font/src/lib.rs::a_unicode_subtable_is_reached_through_the_adobe_glyph_list", "crates/pdf-font/src/lib.rs::a_suffixed_glyph_name_reaches_the_program_rather_than_its_base_letter"]
-note = "All five routes from a code to a glyph, implemented in the eighth session — see ADR 0015. The predecessor was one line that covered about one and a half of them and was worth 15 contradicted corpus pages. **The last of the five was reached by nothing until the forty-second session**, and both halves of the reason are worth keeping. The clause maps a glyph name to Unicode \"by consulting the Adobe Glyph List and Adobe Glyph List for New Fonts\", which are *lists*, and no entry in either contains a FULL STOP — but `read_fonts` implements the wider Adobe Glyph List *Specification*, whose algorithm for an unlisted name strips everything after the first period, so `o.sc` answered `o` and hid the clause's next sentence behind a real letter. And that next sentence names \"the font program's `post` table (if one is present)\", which a CFF-based OpenType does not have in any useful sense: `issue215.pdf`'s `OTTO` carries a version 3.0 `post`, which by definition holds no names, and names every glyph in its `CFF ` charset instead — the same structure by another name, §9.6.2.1's NOTE 1 again. With both read, the page draws the small capitals its own `/ToUnicode` says it means (ADR 0050). **And the clause's opening sentence binds the substitution path, which it did not reach until the hundred-and-ninety-seventh session.** \"If the font has a named Encoding entry of either MacRomanEncoding or WinAnsiEncoding , or if the font descriptor's Nonsymbolic flag (see \\\"Table 121 -Font flags\\\") is set, the PDF processor shall create a table that maps from character codes to glyph names\" — and a substituted font built its table from the *substitute's* character set instead, because `substitute::Request` picked the standard-14 `Symbol` off a name containing the word and `substitute_code_table` then took its encoding from that family. `issue8697.pdf` drew Greek where the file states WinAnsi and Table 121's Nonsymbolic bit. The two conditions are read in `substitute::states_latin_codes`, and the same statement holds for a Type 1 program by §9.6.5.2's \"An Encoding entry in the PDF font dictionary, if present, shall override a Type 1 font's mapping from character codes to character names\". ADR 0158. **And a witness for the end of every route, from the two-hundred-and-forty-eighth session.** `issue14821.pdf` shows codes 101, 120 and 49 — `e`, `x`, `1` — through `/ABCDEE+Segoe#20UI,Bold`, a nonsymbolic `TrueType` subset whose `/Encoding` names object 26, **which is a content stream**: §9.6.5 makes that entry a name or a dictionary and the file wrote neither. Every route this clause states then ends at nothing in that font: its `(3,1)` `cmap` maps all three characters to glyph 0, its `post` is version 3.0 and carries no glyph names at all, and there is no `(1,0)` subtable. So the subset does not contain those three characters by any means the standard defines, and drawing nothing is the answer rather than a gap — `doc/todo/14`. `poppler` draws them, from a face this machine has."
+note = "All five routes from a code to a glyph, implemented in the eighth session — see ADR 0015. The predecessor was one line that covered about one and a half of them and was worth 15 contradicted corpus pages. **The last of the five was reached by nothing until the forty-second session**, and both halves of the reason are worth keeping. The clause maps a glyph name to Unicode \"by consulting the Adobe Glyph List and Adobe Glyph List for New Fonts\", which are *lists*, and no entry in either contains a FULL STOP — but `read_fonts` implements the wider Adobe Glyph List *Specification*, whose algorithm for an unlisted name strips everything after the first period, so `o.sc` answered `o` and hid the clause's next sentence behind a real letter. And that next sentence names \"the font program's `post` table (if one is present)\", which a CFF-based OpenType does not have in any useful sense: `issue215.pdf`'s `OTTO` carries a version 3.0 `post`, which by definition holds no names, and names every glyph in its `CFF ` charset instead — the same structure by another name, §9.6.2.1's NOTE 1 again. With both read, the page draws the small capitals its own `/ToUnicode` says it means (ADR 0050). **And the clause's opening sentence binds the substitution path, which it did not reach until the hundred-and-ninety-seventh session.** \"If the font has a named Encoding entry of either MacRomanEncoding or WinAnsiEncoding , or if the font descriptor's Nonsymbolic flag (see \\\"Table 121 -Font flags\\\") is set, the PDF processor shall create a table that maps from character codes to glyph names\" — and a substituted font built its table from the *substitute's* character set instead, because `substitute::Request` picked the standard-14 `Symbol` off a name containing the word and `substitute_code_table` then took its encoding from that family. `issue8697.pdf` drew Greek where the file states WinAnsi and Table 121's Nonsymbolic bit. The two conditions are read in `substitute::states_latin_codes`, and the same statement holds for a Type 1 program by §9.6.5.2's \"An Encoding entry in the PDF font dictionary, if present, shall override a Type 1 font's mapping from character codes to character names\". ADR 0158. **And a witness for the end of every route, from the two-hundred-and-forty-eighth session.** `issue14821.pdf` shows codes 101, 120 and 49 — `e`, `x`, `1` — through `/ABCDEE+Segoe#20UI,Bold`, a nonsymbolic `TrueType` subset whose `/Encoding` names object 26, **which is a content stream**: §9.6.5 makes that entry a name or a dictionary and the file wrote neither. Every route this clause states then ends at nothing in that font: its `(3,1)` `cmap` maps all three characters to glyph 0, its `post` is version 3.0 and carries no glyph names at all, and there is no `(1,0)` subtable. So the subset does not contain those three characters by any means the standard defines, and drawing nothing is the answer rather than a gap — `doc/todo/21`. `poppler` draws them, from a face this machine has."
 
 [[clause]]
 clause = "9.7"
@@ -3501,7 +3501,7 @@ title = "Articles"
 status = "partial"
 code = ["crates/pdf-model/src/article.rs", "crates/viewer-core/src/interact.rs", "crates/viewer-ui/src/chrome.rs"]
 test = ["crates/pdf-model/src/article.rs::the_clauses_own_example_is_three_beads_on_two_pages", "crates/pdf-model/src/article.rs::the_ring_closes_and_following_it_wraps", "crates/pdf-model/tests/articles.rs::the_corpus_states_no_article", "crates/viewer-core/tests/articles.rs::activating_a_thread_goes_to_its_first_bead", "crates/viewer-ui/tests/panel.rs::the_read_tab_lists_a_thread_and_a_click_follows_it"]
-note = "The catalog's `/Threads`, Table 162's thread dictionaries with their `/I` information title, and Table 163's beads walked from `/F` along `/N`. **The chain is a ring**, which is what distinguishes this walk from §12.3.3's outline: `/N` \"[i]n the last bead … shall refer to the first bead\", so termination is a visited set rather than an absent entry, and following past the end wraps — which is what \"follow a thread from one bead to the next\" means at a thread's end. `/V` is deliberately unread, for the outline's reason: it is redundant with `/N` and could only disagree. Table 31's page `/B` is read *only* to be checked against the threads, since NOTE 2 says it \"can be created or recreated\" from them — and the two clauses disagree about its order (\"natural reading order\" in Table 31, \"in drawing order\" here), so the comparison is on the set, which is a documented choice and the only comparison both sentences license. **Table 163's `/R` is where a thread jump goes, since the two-hundred-and-fifty-fifth session**: the entry is \"[a] rectangle specifying the location of this bead on the page in default user space\", which is the same statement Table 149's `/FitR` makes about a window, so following a thread composes one of §12.3.2.1's eight forms rather than adding a ninth. A jump that turned to the bead's *page* and stopped there had not followed anything — a bead is one column of a layout and a page may hold four. The reason this row gave for leaving it — \"`viewer-ui` fits whole pages\" — expired in the hundred-and-thirty-second session and expired for destinations in the two-hundred-and-first (ADR 0162), which is `doc/todo/01`'s third sweep once more. **No corpus document states an article**: 2 catalogs carry a `/Threads` entry, one an empty array and one a null, and no page carries a `/B` — measured, and the clause's own EXAMPLE 2 is the test, beside a hand-built two-page thread in `viewer-core/tests/headless.rs`. **A person's way in arrived in the three-hundred-and-forty-seventh session** (ADR 0200), which is what this row had been `partial` for and what it had gone on not noticing for forty-seven rounds after the sidebar was drawn. `viewer_core::Query::Articles` answers with the threads in the `/Threads` array's own order, `viewer_ui::chrome`'s sixth tab draws one row apiece with the `/I` title and the bead count, and a click sends `Command::Activate` on the thread — the same message §12.3.3's outline row sends, because what activating an object means is the *document*'s to decide. `interact::activate_object` composes §12.6.4.7's own `ThreadJump` out of it rather than adding a second route to one place, so a click lands on Table 163's `/R` and not on the page the first bead sits on. The clause's own verb is the reason this is a panel rather than an obligation: \"[i]nteractive PDF processors **may** provide navigation facilities to allow the user to follow a thread from one bead to the next\", and a permission taken is still a permission. `partial` for the half no host asks: `beads_on_page` answers which article is under a point and nothing calls it, so \"which thread am I reading\" has no question yet. **No corpus document states an article** — 2 catalogs carry a `/Threads` entry, one an empty array and one a null, and no page carries a `/B` — so every one of these is defended by a hand-built fixture and nothing else, which is trap 8's converse and is said out loud. `doc/todo/36` carries §12.3.5's collection, which is the same shape and three times the size."
+note = "The catalog's `/Threads`, Table 162's thread dictionaries with their `/I` information title, and Table 163's beads walked from `/F` along `/N`. **The chain is a ring**, which is what distinguishes this walk from §12.3.3's outline: `/N` \"[i]n the last bead … shall refer to the first bead\", so termination is a visited set rather than an absent entry, and following past the end wraps — which is what \"follow a thread from one bead to the next\" means at a thread's end. `/V` is deliberately unread, for the outline's reason: it is redundant with `/N` and could only disagree. Table 31's page `/B` is read *only* to be checked against the threads, since NOTE 2 says it \"can be created or recreated\" from them — and the two clauses disagree about its order (\"natural reading order\" in Table 31, \"in drawing order\" here), so the comparison is on the set, which is a documented choice and the only comparison both sentences license. **Table 163's `/R` is where a thread jump goes, since the two-hundred-and-fifty-fifth session**: the entry is \"[a] rectangle specifying the location of this bead on the page in default user space\", which is the same statement Table 149's `/FitR` makes about a window, so following a thread composes one of §12.3.2.1's eight forms rather than adding a ninth. A jump that turned to the bead's *page* and stopped there had not followed anything — a bead is one column of a layout and a page may hold four. The reason this row gave for leaving it — \"`viewer-ui` fits whole pages\" — expired in the hundred-and-thirty-second session and expired for destinations in the two-hundred-and-first (ADR 0162), which is `doc/todo/01`'s third sweep once more. **No corpus document states an article**: 2 catalogs carry a `/Threads` entry, one an empty array and one a null, and no page carries a `/B` — measured, and the clause's own EXAMPLE 2 is the test, beside a hand-built two-page thread in `viewer-core/tests/headless.rs`. **A person's way in arrived in the three-hundred-and-forty-seventh session** (ADR 0200), which is what this row had been `partial` for and what it had gone on not noticing for forty-seven rounds after the sidebar was drawn. `viewer_core::Query::Articles` answers with the threads in the `/Threads` array's own order, `viewer_ui::chrome`'s sixth tab draws one row apiece with the `/I` title and the bead count, and a click sends `Command::Activate` on the thread — the same message §12.3.3's outline row sends, because what activating an object means is the *document*'s to decide. `interact::activate_object` composes §12.6.4.7's own `ThreadJump` out of it rather than adding a second route to one place, so a click lands on Table 163's `/R` and not on the page the first bead sits on. The clause's own verb is the reason this is a panel rather than an obligation: \"[i]nteractive PDF processors **may** provide navigation facilities to allow the user to follow a thread from one bead to the next\", and a permission taken is still a permission. `partial` for the half no host asks: `beads_on_page` answers which article is under a point and nothing calls it, so \"which thread am I reading\" has no question yet. **No corpus document states an article** — 2 catalogs carry a `/Threads` entry, one an empty array and one a null, and no page carries a `/B` — so every one of these is defended by a hand-built fixture and nothing else, which is trap 8's converse and is said out loud. §12.3.5's collection is the same shape and three times the size, and it landed one round after this did (ADR 0202)."
 
 [[clause]]
 clause = "12.4.4"
@@ -6262,3 +6262,368 @@ clause = "14.13.10"
 title = "Associated file examples"
 status = "inapplicable"
 note = "Three worked examples — a presentation associated with the catalog, a `.doc` associated with a marked-content sequence, a MathML file associated with a form XObject. Nothing normative that §14.13.1 to §14.13.9 do not state; read and dismissed, which the ledger records rather than leaving blank."
+
+[[clause]]
+clause = "D"
+title = "Character sets and encodings"
+status = "partial"
+code = ["crates/pdf-font/src/encoding.rs"]
+test = ["crates/pdf-font/src/encoding.rs::the_tables_encode_the_number_of_codes_the_specification_defines"]
+note = "Aggregate of the six below. The Latin, PDFDoc, Symbol and ZapfDingbats tables are transcribed from `doc/md/` and gated; `MacExpertEncoding` is refused by name and reported. **This annex had no row at all until the three-hundred-and-sixtieth session** — it is normative, and the ledger's population was the eight numbered clauses (ADR 0206)."
+
+[[clause]]
+clause = "D.1"
+title = "General"
+status = "implemented"
+code = ["crates/pdf-font/src/encoding.rs"]
+test = ["crates/pdf-font/src/encoding.rs::unknown_and_unimplemented_encoding_names_are_refused"]
+note = "The annex's own table of the four predefined encodings, and its two `shall`s are met: \"PDF processors shall have a predefined encoding named WinAnsiEncoding\" and the same for `MacExpertEncoding`. The first is `BaseEncoding::WinAnsi`, transcribed here rather than copied from Windows code page 1252 — the module comment says why, and it is the difference between a right glyph and a plausible one. The second is *had* rather than *used*: the name is recognised and a font naming it is refused out loud, which D.4's row states. `PDFDocEncoding` is the one the annex says PDF has no predefined encoding for, and §7.9.2.2 is where this tree reads it."
+
+[[clause]]
+clause = "D.2"
+title = "Latin character set and encodings"
+status = "implemented"
+code = ["crates/pdf-font/src/encoding.rs"]
+test = ["crates/pdf-font/src/encoding.rs::the_assignments_made_only_in_the_notes_are_present", "crates/pdf-font/src/encoding.rs::the_encodings_differ_where_they_are_known_to_differ"]
+note = "Table D.2's Latin character set — `StandardEncoding`, `MacRomanEncoding`, `WinAnsiEncoding` and `PDFDocEncoding` in four columns. Transcribed with the table's *notes*, which carry assignments the body does not show and are the entries most easily got wrong, and gated three ways: every glyph name is one the CFF specification knows, each table encodes the number of codes the annex defines, and the encodings differ exactly where they are known to differ. `StandardEncoding` is deliberately not transcribed — it is the CFF standard encoding, which `read-fonts` already carries, and one table is easier to keep right than two."
+
+[[clause]]
+clause = "D.3"
+title = "PDFDocEncoding character set"
+status = "implemented"
+code = ["crates/pdf-syntax/src/text_string.rs"]
+test = ["crates/pdf-syntax/src/text_string.rs::every_text_string_survives_the_round_trip"]
+note = "`PDFDocEncoding`, the encoding of a text string outside a content stream. Read in `pdf-syntax` rather than in `pdf-font`, because §7.9.2.2 is where the type is defined and a text string is syntax rather than typography: the fourth column of Table D.2, with every code round-tripped."
+
+[[clause]]
+clause = "D.4"
+title = "Expert set and MacExpert encoding"
+status = "reported"
+code = ["crates/pdf-font/src/encoding.rs", "crates/pdf-font/src/lib.rs"]
+test = ["crates/pdf-font/src/lib.rs::an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all"]
+note = "`MacExpertEncoding` and the expert character set. The table is absent and a font naming the encoding is **refused by name** rather than quietly given Latin glyph names — the annex itself says \"only certain fonts have the appropriate character set for use with this encoding\" and that none of the standard 14 has it, so substituting would map every code to the wrong glyph in silence. The name is in Table 112's permitted list, which is why the refusal distinguishes it from a name the table does not permit at all."
+
+[[clause]]
+clause = "D.5"
+title = "Symbol set and encoding"
+status = "implemented"
+code = ["crates/pdf-font/src/encoding.rs"]
+test = ["crates/pdf-font/src/encoding.rs::every_glyph_name_is_one_the_cff_specification_knows"]
+note = "The `Symbol` set and its encoding, one of the two symbolic fonts among the standard 14. It is not reachable through a base encoding — the glyph names of Table D.2 do not name Greek letters or mathematical operators — so it is its own table, with `/Differences` still applying on top."
+
+[[clause]]
+clause = "D.6"
+title = "ZapfDingbats set and encoding"
+status = "implemented"
+code = ["crates/pdf-font/src/encoding.rs"]
+test = ["crates/pdf-font/src/encoding.rs::every_glyph_name_is_one_the_cff_specification_knows"]
+note = "The `ZapfDingbats` set and its encoding, the other symbolic font of the standard 14, on the same construction as D.5's."
+
+[[clause]]
+clause = "E"
+title = "Extending PDF"
+status = "partial"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "Aggregate of the two below. Every requirement in this annex is addressed to a *developer* extending PDF, and this tree is a reader of what they wrote — with one sentence that reaches it, in E.1, and that sentence points at Annex I."
+
+[[clause]]
+clause = "E.1"
+title = "General"
+status = "partial"
+code = ["crates/pdf-model/src/requirements.rs"]
+test = ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes"]
+note = "\"Developers shall only add data to PDF files when such additions conform to this annex\" — a `shall` on a writer. The one sentence that binds a reader hands the question on: \"[i]f a user opens a PDF document using a PDF processor that does not support the developer-specific features, the PDF processor shall behave as described in Annex I\", which is §I's row and is `partial` for the version half. §7.12.3's developer extensions dictionary, which this annex tells developers to add, is read: `requirements::extensions` collects them under their registered prefixes."
+
+[[clause]]
+clause = "E.2"
+title = "Classes of PDF names"
+status = "writer-side"
+note = "First-, second- and third-class names, and every requirement is on the developer choosing one: second-class names carry a four-byte registered prefix, third-class names begin `XX`. A reader treats an unknown key the same whichever class it belongs to — which is exactly what Annex I says makes the extension mechanism work — so there is nothing here to implement and nothing to report."
+
+[[clause]]
+clause = "F"
+title = "Linearized PDF"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Aggregate of the twenty-two below. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route. Annex G, which describes how a reader *would* use the hints, is informative and outside the ledger's population."
+
+[[clause]]
+clause = "F.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "General: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.2"
+title = "Background and assumptions"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Background and assumptions: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3"
+title = "Linearized PDF document structure"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Linearized PDF document structure: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "General: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.2"
+title = "Header (Part 1)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Header (Part 1): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.3"
+title = "Linearization parameter dictionary (Part 2)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Linearization parameter dictionary (Part 2): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.4"
+title = "First-page cross-reference table and trailer (Part 3)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "First-page cross-reference table and trailer (Part 3): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.5"
+title = "Document catalog dictionary and document-level objects (Part 4)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Document catalog dictionary and document-level objects (Part 4): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.6"
+title = "Hint streams (Parts 5 and 10)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Hint streams (Parts 5 and 10): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.7"
+title = "First-page section (Part 6)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "First-page section (Part 6): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.8"
+title = "Remaining pages (Part 7)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Remaining pages (Part 7): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.9"
+title = "Shared objects (Part 8)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Shared objects (Part 8): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.10"
+title = "Other objects (Part 9)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Other objects (Part 9): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.3.11"
+title = "Main cross-reference and trailer (Part 11)"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Main cross-reference and trailer (Part 11): how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.4"
+title = "Hint tables"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Hint tables: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.4.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "General: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.4.2"
+title = "Page offset hint table"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Page offset hint table: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.4.3"
+title = "Shared object hint table"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Shared object hint table: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.4.4"
+title = "Thumbnail hint table"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Thumbnail hint table: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.4.5"
+title = "Generic hint tables"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Generic hint tables: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.4.6"
+title = "Extended generic hint tables"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Extended generic hint tables: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "F.4.7"
+title = "Embedded file stream hint tables"
+status = "out-of-scope"
+exclusion = "writer-side"
+note = "Embedded file stream hint tables: how a *writer* lays out a linearised file. Linearised PDF, and `CLAUDE.md` principle 5 excludes producing one by name: \"no clause whose requirements fall on a generator is in scope: linearisation, object-stream packing, optimisation\". **What is not excluded is reading one**, and this tree does: F.1 states that a linearised file \"shall be a conforming file\", so the hint tables are an accelerator a reader may ignore and every corpus document that is linearised opens through §7.5.4's ordinary cross-reference route."
+
+[[clause]]
+clause = "I"
+title = "PDF versions and compatibility"
+status = "partial"
+code = ["crates/pdf-model/src/requirements.rs", "crates/viewer-core/src/notes.rs"]
+test = ["crates/pdf-model/src/requirements.rs::the_requirements_this_program_cannot_meet_are_named"]
+note = "Aggregate of the three below. The annex's obligations are `should` rather than `shall`, and this tree meets one of the two: §12.11's requirements it cannot process are named to the reader, and the file's **version number is not read at all**, so a document written to a newer PDF than this program understands opens without a word. `doc/todo/01` carries it."
+
+[[clause]]
+clause = "I.1"
+title = "General"
+status = "implemented"
+code = ["crates/viewer-core/src/notes.rs"]
+test = ["crates/viewer-core/tests/headless.rs::a_page_that_could_not_be_drawn_whole_says_so"]
+note = "Why the annex exists, and its one instruction to a processor is a choice rather than a requirement: PDF \"enable[s] the PDF processor to ignore or inform the user about objects not understood[; t]he decision whether to ignore or inform the user is made on a feature-by-feature basis, at the discretion of the PDF processor\". This project made that decision once and wrote it into the ledger's own vocabulary: `reported` is *inform*, `silent` is *ignore*, and `silent` is a gate held at zero."
+
+[[clause]]
+clause = "I.2"
+title = "PDF version numbers"
+status = "partial"
+code = ["crates/pdf-syntax/src/xref.rs"]
+test = ["crates/pdf-syntax/tests/robustness.rs::junk_before_the_header_shifts_every_offset_in_the_file"]
+note = "The version number: the header's `%PDF-n.m` and the catalog's `/Version`, and \"[i]f a PDF processor opens a PDF file with a version number newer than the version that it supports … it should warn the user\". **The header is located and its number is thrown away** — `xref::header_at` searches for `%PDF-` to fix the byte offsets and reads no digits — and the catalog's `/Version` is not read either. That is a `should` this program does not meet and says nothing about, which is the one shape the ledger's `silent` row exists to name; it is `partial` rather than `silent` because the other half of I.2's paragraph binds a writer saving the file, and this tree's incremental update leaves the version where it found it."
+
+[[clause]]
+clause = "I.3"
+title = "Feature compatibility"
+status = "implemented"
+code = ["crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/shading.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance", "crates/pdf-model/tests/shadings.rs::an_unknown_shading_type_is_reported"]
+note = "Feature compatibility, and it is descriptive throughout: new entries in existing dictionaries are ignored by older processors, some features \"impossible to ignore\" leave \"little choice but to give an error\", and a few degrade silently. No `shall` and no `should` addressed to a processor. What this tree does with the first case is what the annex describes — an unknown key is not an error — and the second is what the corpus gate's `incomplete` verdict is for."
+
+[[clause]]
+clause = "K"
+title = "XFA forms"
+status = "out-of-scope"
+exclusion = "xfa"
+note = "Aggregate of the two below. XFA, and **`CLAUDE.md`'s reason for excluding it was half wrong until the three-hundred-and-sixtieth session**: the file said XFA is \"deprecated by ISO 32000-2 itself and specified outside it\", and this annex is *normative* and *inside* it. The exclusion survives on a better argument than the one it had — the annex grants it in as many words: \"[t]he implementation of such a schema driven page generation involves considerable effort beyond that for a simple PDF viewer and therefore **a PDF processor may choose to not implement this feature**\". What is documented separately is the *template* architecture, not the annex. ADR 0206."
+
+[[clause]]
+clause = "K.1"
+title = "General"
+status = "out-of-scope"
+exclusion = "xfa"
+note = "Why XFA exists — a form whose number of fields is decided by a schema rather than by the page — and the sentence that lets a viewer decline it: \"a PDF processor may choose to not implement this feature\". One `shall` in the clause is conditional on the choice this project did not make: \"[i]f an interactive processor supports XFA forms, that processor shall clearly indicate to the user when they are interacting with an XFA form\". And one sentence is worth carrying even so, because it decides what a *hybrid* file looks like here: \"[w]hether or not the pages generated by the processing of an XFA schema are materialized as PDF pages is implementation dependent\", so a dynamic XFA document may have nothing on its pages but a notice, and drawing that notice is drawing what the file says."
+
+[[clause]]
+clause = "K.2"
+title = "Access to the XFA template and other resources"
+status = "out-of-scope"
+exclusion = "xfa"
+note = "Where the template, the data and the configuration live: Table 224's `/XFA`, a stream or an array of named packets. Not read. **The annex's writer-side rules are what make ignoring it defensible, and they are worth stating rather than assuming**: \"[t]he other entries in the interactive form dictionary shall be consistent with the information in the XFA resource\", \"PDF interactive form field objects shall be present for each field specified in the XFA resource\" and \"[t]he XFA field values shall be consistent with the corresponding V entries of the PDF field objects\". So in a conforming hybrid file the AcroForm this tree reads *is* the form — which is a derivation from the standard rather than the usual claim that ignoring XFA works in practice."
+
+[[clause]]
+clause = "L"
+title = "Parent-child relationships between the standard structure elements in the standard structure namespace for PDF 2.0"
+status = "writer-side"
+code = ["crates/pdf-model/src/structure.rs"]
+note = "One normative table: which standard structure element may be the child of which, in the PDF 2.0 namespace. Every cell constrains the *document*'s structure tree, and a reader that walks §14.7's tree takes it as it finds it — `structure::Tree` follows `/K` and reports what is there, because a malformed nesting is still content a person needs read to them. A checker of tagged PDF would implement this table; a viewer implements §14.7 and §14.8, whose rows carry the reading."
+
+[[clause]]
+clause = "O"
+title = "Fragment identifiers"
+status = "silent"
+note = "Aggregate of the four below, and **the finding of the three-hundred-and-sixtieth session**: a normative annex of `shall`s addressed to \"the PDF processor\", none of them implemented and none of them reported. `page`, `nameddest`, `structelem`, `comment`, `ef`, `zoom`, `view`, `viewrect`, `highlight`, `search` and `fdf` — eleven parameters that say what a document shows when it is opened through a URI. Nine of the eleven are things this tree can already *do*: §12.3.2's destinations, §12.4.2's page numbers, §12.5.2's `/NM`, §7.11.4's embedded files, the magnification and the scroll position `viewer-core` owns since the hundred-and-thirty-second session. What is missing is the sentence that connects a URI's fragment to them, and nothing in `Command::Open` can carry one. `doc/todo/39`."
+
+[[clause]]
+clause = "O.1"
+title = "General"
+status = "silent"
+note = "What a fragment identifier is: text after the URI that \"anchor[s] onto specific content or characteristics of the document\". Descriptive, and it is the definition the three rows below need. Recorded `silent` with them rather than `implemented` alone, because a definition nobody has built against is not a requirement met."
+
+[[clause]]
+clause = "O.2"
+title = "Fragment identifiers"
+status = "silent"
+note = "The grammar, and it is three `shall`s this tree meets vacuously by never parsing one: parameters separated by `&`, arguments by `,`, and \"[f]ragment identifiers shall be processed and (if required) executed from left to right as they appear\". The ordering rule is the one that will matter first — `page=3&comment=x` selects a comment on page 3 and the reverse does not, which the `comment` parameter's own NOTE spells out."
+
+[[clause]]
+clause = "O.2.1"
+title = "PDF object identifiers"
+status = "silent"
+note = "Table Annex O.3's object identifiers: `page`, `nameddest`, `structelem`, `comment` and `ef`. Each is a `shall` on opening — \"the PDF processor shall open the document to the specified page\" — and each names a mechanism this tree has: §12.3.2.4's named destinations, §14.7's structure elements, Table 166's `/NM`, §7.11.4's `EmbeddedFiles` name tree. `ef`'s own sentence is the one to read twice before implementing it: \"[s]ecurity should be strongly considered when opening an embedded file\", which is `Command::Extract`'s existing argument."
+
+[[clause]]
+clause = "O.2.2"
+title = "PDF open parameters"
+status = "silent"
+note = "Table Annex O.4's open parameters: `zoom`, `view`, `viewrect`, `highlight`, `search` and `fdf`. `view` defers to §12.3.2.2's explicit destinations, which are implemented; `zoom`, `viewrect` and `highlight` are stated \"in the default user space coordinate system\", which is the arithmetic ADR 0118 found wrong once and which lives in one place now; `fdf` imports through §12.7.8's reader, which exists. The annex's own placement rule is a requirement on the *host*: these \"should be processed immediately after any other document-specified open parameters have been processed\", so §12.3.2's `/OpenAction` runs first and the fragment overrides it."
+
+[[clause]]
+clause = "Q"
+title = "Method for determining transparency on a page"
+status = "inapplicable"
+note = "Aggregate of the five below. A method for answering one question — does this page contain transparency — and The annex states its own optionality in a NOTE: the subset standards \"choose to mandate the use of this method because they restrict the processing of documents … PDF 2.0 is highly generalized to accommodate various processing needs so **this method is not required by this document**.\" Nothing in this tree asks the question: §11's compositing is done where the page asks for it, per object, rather than decided page-wide. `inapplicable` here means a method this document does not require and this program never invokes, not a device this program is not — the distinction ADR 0205 had to make and this row inherits."
+
+[[clause]]
+clause = "Q.1"
+title = "General"
+status = "inapplicable"
+note = "The method's scope and its own NOTE. The annex states its own optionality in a NOTE: the subset standards \"choose to mandate the use of this method because they restrict the processing of documents … PDF 2.0 is highly generalized to accommodate various processing needs so **this method is not required by this document**.\""
+
+[[clause]]
+clause = "Q.2"
+title = "Page content"
+status = "inapplicable"
+note = "The page-content half of the method: `/SMask` a dictionary, `ca` or `CA` below one, `BM` not `Normal`, a Type 1 pattern treated as a form XObject, and every annotation's appearance processed as one. Each of those five is read by `content.rs` where it is *used*; what is absent is the pass that answers whether any of them occurs. The annex states its own optionality in a NOTE: the subset standards \"choose to mandate the use of this method because they restrict the processing of documents … PDF 2.0 is highly generalized to accommodate various processing needs so **this method is not required by this document**.\""
+
+[[clause]]
+clause = "Q.3"
+title = "Form XObjects"
+status = "inapplicable"
+note = "A form XObject whose `/Group` has `/S /Transparency` puts transparency on any page it is placed on, and its content stream is processed as page content. The condition is implemented as a *behaviour* — §11.6.6's transparency groups are composited — rather than as the question this annex asks. The annex states its own optionality in a NOTE: the subset standards \"choose to mandate the use of this method because they restrict the processing of documents … PDF 2.0 is highly generalized to accommodate various processing needs so **this method is not required by this document**.\""
+
+[[clause]]
+clause = "Q.4"
+title = "Image XObjects"
+status = "inapplicable"
+note = "An image with an `/SMask` stream or `/SMaskInData` above zero has transparency. Both are read and applied by §8.9.5.4 and §7.4.9's JPXDecode path; neither is counted. The annex states its own optionality in a NOTE: the subset standards \"choose to mandate the use of this method because they restrict the processing of documents … PDF 2.0 is highly generalized to accommodate various processing needs so **this method is not required by this document**.\""
+
+[[clause]]
+clause = "Q.5"
+title = "Text objects"
+status = "inapplicable"
+note = "Text: a Type 3 font's `CharProcs` are processed as form XObjects, because a glyph procedure is a content stream and may set a soft mask of its own. Drawn as such by §9.6.5's Type 3 route. The annex states its own optionality in a NOTE: the subset standards \"choose to mandate the use of this method because they restrict the processing of documents … PDF 2.0 is highly generalized to accommodate various processing needs so **this method is not required by this document**.\""

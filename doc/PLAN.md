@@ -399,16 +399,23 @@ that makes the claim checkable.
 7–14 — 823 of them, 663 leaves — generated once with every row `unreviewed`, and changed
 only by someone who has read that clause against this code.
 
+**And, since the three-hundred-and-sixtieth session, one row per number of the eight normative
+annexes**: 52 more, taking the ledger to 875. The population was the eight numbered clauses
+because that is how the standard's *body* is organised, and nothing had noticed that D, E, F, I,
+K, L, O and Q say **normative** on their own title lines. `ClauseNumber` could not parse `K.2`,
+so a citation to one was malformed, a quotation from one was uncheckable and a row for one was
+unwritable — the instrument's silence was total rather than partial. ADR 0206.
+
 | Status | Means |
 |---|---|
 | `implemented` | Every normative requirement in the clause is executed. Names the code site and the test. |
 | `partial` | Names which requirements are implemented, which are not, and what is *reported* for the remainder. |
 | `reported` | Deliberately not implemented *yet*; detected and reported at runtime rather than skipped silently. Still owed. |
 | `silent` | Not implemented, and **nothing says so**: a document exercising the clause is drawn wrong without a word. |
-| `inapplicable` | The requirement describes a marking device rather than a screen — halftones, transfer functions, flatness, smoothness. Names why it cannot apply. **Not** the same as excluded. |
+| `inapplicable` | The requirement cannot reach this program: it describes a press rather than a screen (§10.6's halftones, on the standard's own condition — ADR 0204), or it is a permission this program declines and has no code to point at (§14.11.2.2's page-boundary guidelines). **Two situations under one word**, which ADR 0205 had to separate by hand; every such note says which it means. **Not** the same as excluded, and not the same as a permission *exercised*, which is `implemented` where there is code to name — §10.7.2's flatness is the standing example. |
 | `writer-side` | The requirement addresses a PDF *generator*: what a file shall contain, laid out how. Principle 5 also lists this as an exclusion, but it gets its own status because it is a property of the clause rather than a choice about scope. **The exclusion is authoring, not writing** — §7.5.6's incremental update of what a person did is in scope and implemented (ADR 0121) — so a row is `writer-side` only where the requirement falls on whoever *creates* the structure. The seven rows were re-read against that in session 137; six stayed and §7.2.2 moved to `implemented`, because a tree that writes has to write ASCII tokens. |
 | `out-of-scope` | **Only** for a clause covered by principle 5's closed exclusion list, and the row must name which entry covers it. |
-| `unreviewed` | Nobody has read this clause against this code. The initial state of all 823. |
+| `unreviewed` | Nobody has read this clause against this code. The initial state of all 823, and of the 52 annex rows added in the three-hundred-and-sixtieth session. |
 
 **`silent` was added while filling the first rows, and it is the status worth hunting.** Every
 missing *subsystem* in this tree reports — `LZWDecode`, encryption, Type 3 fonts — because

@@ -184,20 +184,36 @@ drawing the wrong font in silence started saying so, and **76** in the hundred-a
 ### The ledger
 
 All **823** subclauses of the eight technical clauses have been read against this code, since the
-fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, which prints them
+fifty-sixth session — **and, since the three-hundred-and-sixtieth, the 52 numbers of the standard's
+eight normative annexes**, which no instrument in this project could previously name: `ClauseNumber`
+was a list of integers, so `§K.2` was a malformed citation and Annex O could not have a row. ADR
+0206. Counts come from `cargo run -p conformance --bin ledger`, which prints them
 — **not** from arithmetic in this file, which has been wrong about them twice.
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 390 | every normative requirement in the clause is executed |
-| `partial` | 232 | some are; the note says which are not |
-| **`silent`** | **0** | not implemented, and nothing says so |
-| `inapplicable` | 79 | a press, a layout engine, a production workflow — **and read at last** |
-| `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
-| `reported` | 29 | not implemented, detected and named at runtime |
-| `writer-side` | 6 | addresses a PDF *generator* |
+| `implemented` | 397 | every normative requirement in the clause is executed |
+| `partial` | 237 | some are; the note says which are not |
+| **`silent`** | **5** | not implemented, and nothing says so — **all five are Annex O** |
+| `inapplicable` | 85 | a press, a layout engine, a production workflow — **and read at last** |
+| `out-of-scope` | 113 | principle 5's closed exclusions, which the row names |
+| `reported` | 30 | not implemented, detected and named at runtime |
+| `writer-side` | 8 | addresses a PDF *generator* |
 
-**`silent` is zero again, and it was one for exactly one round.** §10.5's transfer function:
+**`silent` is five, and every one of them is Annex O.** The three-hundred-and-sixtieth session gave
+the ledger the standard's **normative annexes** — D, E, F, I, K, L, O and Q, 52 rows — and the reason
+they had none is that the instrument could not spell their numbers: `ClauseNumber` was a `Vec<u16>`
+and its own test asserted `"A.1".parse()` fails, so a citation to `§K.2` was malformed, a quotation
+from Annex Q was uncheckable and a row for Annex O was unwritable. **Annex O is eleven `shall`s on
+"the PDF processor"** — `page`, `nameddest`, `zoom`, `view`, `highlight`, `search` and five more —
+saying what a document shows when it is opened through a URI, and nine of the eleven name a mechanism
+this tree already has. What is missing is the sentence joining a fragment to them; `Command::Open`
+has nowhere to put one. **A document cannot contain a fragment identifier**, so the corpus and the
+oracle are blind to this by construction — coverage found what robustness cannot see. `doc/todo/39`,
+ADR 0206. Annex I.2 came out of the same read: the file's version number is located and thrown away,
+against a `should` that says to warn the reader.
+
+**Before that it was zero, and it had been one for exactly one round.** §10.5's transfer function:
 `issue6931_reduced.pdf` states an `/ExtGState` `/TR` whose type-0 tables map 2/255 to 0.992, its
 image's every sample *is* 2, and the page's own text says *The color should be red*. Ours and
 `mupdf` showed a black square where three references showed a red heart. It came off
@@ -2920,3 +2936,4 @@ above rather than here.
 | 357 | The ledger's first `silent` row since session 35: §10.5's transfer function decides what a screen shows on `issue6931_reduced.pdf`, three references apply it and we do not, and the page's own text says what it should look like. Found by step 7's positive side, and a question for the owner | — |
 | 358 | §10.5 implemented, after the project owner split `CLAUDE.md`'s scope line on the standard's own evidence: 13 of 974 documents state a `/TR` and one states a real one, so the census made it a small change rather than a brave one. And a `CLAUDE.md` rule for a document's restrictions — four levels, and the shape they need before any of them exists | 0204 |
 | 359 | The `inapplicable` rows read for the first time, at the owner's instruction: five were wrong and all five the same shape — a §14 row saying a screen does not do this, beside a §12 row saying the tree draws it. No page changed and no corpus document states any of the four entries, which is the point | 0205 |
+| 360 | The ledger learns the standard's eight **normative annexes**, 52 rows it could not previously spell: `§K.2` was a malformed citation. Annex O — eleven `shall`s about what a URI's fragment opens — is `silent`, and no file could ever have triggered it. `CLAUDE.md`'s XFA exclusion loses the half of its reason that was false | 0206 |

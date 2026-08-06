@@ -23,7 +23,7 @@
 use std::process::ExitCode;
 
 use conformance::clause::ClauseIndex;
-use conformance::ledger::{Exclusion, Ledger, Row, Status, TECHNICAL_CLAUSES};
+use conformance::ledger::{Exclusion, Ledger, NORMATIVE_ANNEXES, Row, Status, TECHNICAL_CLAUSES};
 
 /// Written above the rows, as `#` comments, every time the file is generated.
 const PREAMBLE: &str = "\
@@ -78,6 +78,11 @@ fn main() -> ExitCode {
 
     let mut clauses: Vec<_> = TECHNICAL_CLAUSES
         .flat_map(|clause| index.subclauses_of(clause))
+        .chain(
+            NORMATIVE_ANNEXES
+                .into_iter()
+                .flat_map(|annex| index.numbers_of_annex(annex)),
+        )
         .collect();
     clauses.sort();
 
@@ -146,7 +151,7 @@ fn main() -> ExitCode {
 /// exclusion that is invisible is indistinguishable from an oversight, which is why those
 /// rows are written out rather than omitted.
 fn new_row(clause: conformance::clause::ClauseNumber, title: String) -> Row {
-    if clause.clause() == 13 {
+    if clause.clause() == Some(13) {
         return Row {
             status: Status::OutOfScope,
             exclusion: Some(Exclusion::Multimedia),

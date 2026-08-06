@@ -233,10 +233,19 @@ fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
             });
             continue;
         }
-        let digits: String = after
-            .chars()
-            .take_while(|character| character.is_ascii_digit() || *character == '.')
-            .collect();
+        // An annex's number opens with its letter — `§K.2`, `§Q` — and everything after it
+        // is a clause number like any other. Only the *first* character may be a letter.
+        let mut characters = after.chars();
+        let mut digits = String::new();
+        if let Some(opening) = characters
+            .next()
+            .filter(|character| character.is_ascii_uppercase() || character.is_ascii_digit())
+        {
+            digits.push(opening);
+        }
+        digits.extend(
+            characters.take_while(|character| character.is_ascii_digit() || *character == '.'),
+        );
         // A citation at the end of a sentence carries the full stop: `§7.4.9.` is `§7.4.9`.
         let number = digits.trim_end_matches('.');
         match number.parse::<ClauseNumber>() {

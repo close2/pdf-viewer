@@ -34,6 +34,17 @@ use crate::toml_subset::{self, Value};
 /// The technical clauses the ledger covers: syntax through document interchange.
 pub const TECHNICAL_CLAUSES: std::ops::RangeInclusive<u16> = 7..=14;
 
+/// The standard's normative annexes, which the ledger covers for the same reason.
+///
+/// **This constant did not exist until the three-hundred-and-sixtieth session**, and the
+/// eight letters in it were outside every instrument this project has: not citable, not
+/// checkable and not recorded. `CLAUDE.md`'s scope section names clauses because that is how
+/// the standard's *body* is organised, and its closed exclusion list says nothing about an
+/// annex — so the annexes were in scope all along and nothing was looking at them. Annexes
+/// A, B, C, G, H, J, M, N and P are informative and stay out: they state no requirement.
+/// ADR 0206.
+pub const NORMATIVE_ANNEXES: [char; 8] = ['D', 'E', 'F', 'I', 'K', 'L', 'O', 'Q'];
+
 /// What is known about one subclause.
 ///
 /// The vocabulary exists to keep five different situations from wearing one word: the
@@ -193,6 +204,18 @@ impl FromStr for Exclusion {
                 )
             })
     }
+}
+
+/// Every number the ledger is responsible for: the eight technical clauses' subclauses and
+/// the normative annexes.
+fn covered(index: &ClauseIndex) -> impl Iterator<Item = ClauseNumber> + use<'_> {
+    TECHNICAL_CLAUSES
+        .flat_map(|clause| index.subclauses_of(clause))
+        .chain(
+            NORMATIVE_ANNEXES
+                .into_iter()
+                .flat_map(|annex| index.numbers_of_annex(annex)),
+        )
 }
 
 /// One subclause's row.
@@ -640,7 +663,7 @@ pub fn check(
         }
     }
 
-    for clause in TECHNICAL_CLAUSES.flat_map(|clause| index.subclauses_of(clause)) {
+    for clause in covered(index) {
         if ledger.row(&clause).is_none() {
             problems.push(Problem::MissingRow { clause });
         }
@@ -648,7 +671,7 @@ pub fn check(
 
     // A clause the code cites is a clause somebody has read closely enough to name. Leaving
     // its row `unreviewed` is how 146 citations came to exist beside no record at all.
-    for clause in TECHNICAL_CLAUSES.flat_map(|clause| index.subclauses_of(clause)) {
+    for clause in covered(index) {
         let sites: Vec<&(PathBuf, Citation)> = citations
             .iter()
             .filter(|(_, citation)| citation.number == clause)
