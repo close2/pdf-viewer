@@ -1003,6 +1003,36 @@ fn stored_appearance(
     }
 }
 
+/// The box a *stored* appearance's marks are written in, and §12.5.5's map from it to the page.
+///
+/// `None` where the file states no stream for the state the annotation is showing, which is the
+/// case [`crate::appearance::construct`] answers instead — so the two answers here are the two
+/// arms [`decided`] chooses between, asked by a caller that needs the *space* rather than the
+/// picture. `crate::appearance::caret` is that caller, and it is why the box's two rules are
+/// repeated in eight lines rather than shared: `decided` needs the stream, the report and the
+/// two Decisions an absent stream can mean, and none of the three says where a point goes.
+pub(crate) fn stored_frame(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> Option<([f32; 4], Transform)> {
+    let Normal::Stream(stored) = stored_appearance(document, annotation, view.appearance) else {
+        return None;
+    };
+    let matrix = matrix(document, &stored.dict);
+    let stated_bbox = rectangle(document, &stored.dict, "BBox");
+    // The same pair of defaults §12.5.5 is applied under in `decided`: a missing operand makes
+    // the map the identity, whichever operand it is, and a stream with no `/BBox` gets
+    // §12.7.4.3's — the annotation rectangle's dimensions at the origin.
+    let rect = match (rectangle(document, annotation, "Rect"), stated_bbox) {
+        (Some(rect), _) => rect,
+        (None, Some(bbox)) => transformed(bbox, matrix),
+        (None, None) => return None,
+    };
+    let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
+    Some((bbox, placement(bbox, matrix, rect)))
+}
+
 /// Computes `AA`, the matrix ISO 32000-2 §12.5.5 defines.
 ///
 /// The three steps of the clause, in order:

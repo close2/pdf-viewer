@@ -50,7 +50,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` | — |
 | [32](32-presentation-player.md) | Draw a transition's frames | — |
-| [33](33-annotation-editing.md) | A caret, and free text — §12.5.6.10's markup and §14.8.2.5's logical order are done | — |
+| [33](33-annotation-editing.md) | Free text, and a click that places the caret inside a value — §12.5.6.10's markup, §14.8.2.5's logical order and the caret itself are done | — |
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser, not only the codecs | — |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out | — |
 | [37](37-what-a-native-host-would-not-draw-itself.md) | Five of six chrome populations already cross as data; **form fields are the gap** — audited at the owner's request | — |

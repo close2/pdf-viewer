@@ -69,6 +69,7 @@
 //! text each subtype and field type states — the two questions are separate and the clauses
 //! that answer them are in different subclauses.
 
+use pdf_render::{Transform, geom::Point};
 use pdf_syntax::{Dictionary, Document, Object};
 use std::fmt::Write as _;
 
@@ -344,8 +345,14 @@ pub(crate) fn regenerate(
 
     // §12.7.4.3 puts the appearance stream's `/BBox` at the origin, so the text is laid out in
     // the stream's own space rather than the page's.
-    let (marks, report) = match field_text(document, annotation, source, inset(bbox, width), value)
-    {
+    let (marks, report) = match field_text(
+        document,
+        annotation,
+        source,
+        inset(bbox, width),
+        value,
+        None,
+    ) {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
         // A field with no value has no marks, and an empty marked-content region is the
         // "corresponding new contents" for it. This is the case the clause's own wording
@@ -1570,7 +1577,7 @@ fn widget(
     // where text can go without being struck through by its own frame. Nothing states a
     // further margin and none is added.
     let inner = inset(rect, border.width);
-    let laid_out = match field_text(document, annotation, source, inner, value) {
+    let laid_out = match field_text(document, annotation, source, inner, value, None) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
             rotation.end(stream);
@@ -1663,7 +1670,7 @@ impl Rotation {
         }
     }
 
-    /// Opens the rotated space, where there is one.
+    /// The turn as a transform, which is what the `cm` [`Self::begin`] writes means.
     ///
     /// Each matrix is the rotation followed by the translation that brings the turned box back
     /// onto `/Rect`. A quarter turn counterclockwise takes `(x, y)` to `(−y, x)`, so a box
@@ -1671,15 +1678,30 @@ impl Rotation {
     /// *width* by `content_box` above, so the shift right is by that width. A half
     /// turn needs no swapped box and is still written as a `cm`, because a half turn is not the
     /// identity for anything with a direction, and text has one.
-    fn begin(self, stream: &mut Stream, rect: [f32; 4]) {
+    ///
+    /// Written here rather than only as the string below, because a caller that maps a *point*
+    /// out of the widget's axes — [`caret`] — needs the same turn as arithmetic, and two
+    /// spellings of one matrix are two chances to spell it differently.
+    fn transform(self, rect: [f32; 4]) -> Transform {
         let (width, height) = (rect[2] - rect[0], rect[3] - rect[1]);
-        let (matrix, x, y) = match self {
-            Self::None => return,
-            Self::Quarter => ("0 1 -1 0", rect[0] + width, rect[1]),
-            Self::Half => ("-1 0 0 -1", rect[0] + width, rect[1] + height),
-            Self::ThreeQuarters => ("0 -1 1 0", rect[0], rect[1] + height),
-        };
-        stream.rotate(matrix, [x, y]);
+        match self {
+            Self::None => Transform::IDENTITY,
+            Self::Quarter => Transform::new(0.0, 1.0, -1.0, 0.0, rect[0] + width, rect[1]),
+            Self::Half => Transform::new(-1.0, 0.0, 0.0, -1.0, rect[0] + width, rect[1] + height),
+            Self::ThreeQuarters => Transform::new(0.0, -1.0, 1.0, 0.0, rect[0], rect[1] + height),
+        }
+    }
+
+    /// Opens the rotated space, where there is one.
+    fn begin(self, stream: &mut Stream, rect: [f32; 4]) {
+        if self == Self::None {
+            return;
+        }
+        let turn = self.transform(rect);
+        stream.rotate(
+            &format!("{} {} {} {}", turn.a, turn.b, turn.c, turn.d),
+            [turn.e, turn.f],
+        );
     }
 
     /// Closes it again.
@@ -1696,12 +1718,17 @@ impl Rotation {
 /// does the same thing with all of them. `Ok(None)` is a field that states no text, which is
 /// the common case and not a gap: 147 widgets on the corpus's first pages are empty text
 /// fields waiting for a person.
+///
+/// `caret` is a byte offset into the *value*, asked for by [`caret`] and by nothing that draws:
+/// where it is `Some`, an empty field is laid out rather than skipped, because a place for the
+/// next character is exactly what an empty field can still be asked for.
 fn field_text(
     document: &Document,
     annotation: &Dictionary,
     characteristics: &Dictionary,
     box_: [f32; 4],
     value: FieldValue<'_>,
+    caret: Option<usize>,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let field = Field::read(document, annotation, value);
     if field.too_deep {
@@ -1744,14 +1771,17 @@ fn field_text(
             }
         }
         FieldKind::Text => {
-            let Some(value) = field
+            let value = field
                 .value
                 .as_ref()
                 .and_then(|value| variable_text::value_text(document, value))
-                .filter(|value| !value.is_empty())
-            else {
+                .unwrap_or_default();
+            // An empty field draws nothing — and it still has somewhere the next character
+            // goes, which is the one thing an empty field can be asked about. So the layout is
+            // skipped only when nobody asked where that place is.
+            if value.is_empty() && caret.is_none() {
                 return Ok(None);
-            };
+            }
             // Table 231 bit 14: a password field's characters "shall instead be echoed in some
             // unreadable form, such as asterisks or bullet characters". A value stored in the
             // file at all breaks the same row's NOTE; echoing it as it stands would publish it.
@@ -1768,14 +1798,14 @@ fn field_text(
         // like — no highlight colour, no rule, nothing.
         FieldKind::Choice { combo: false } => return Err(Refusal::Text(Owed::ListBoxSelection)),
         FieldKind::Choice { combo: true } => {
-            let Some(value) = field
+            let value = field
                 .value
                 .as_ref()
                 .and_then(|value| variable_text::value_text(document, value))
-                .filter(|value| !value.is_empty())
-            else {
+                .unwrap_or_default();
+            if value.is_empty() && caret.is_none() {
                 return Ok(None);
-            };
+            }
             (value, Shape::SingleLine)
         }
         // §12.7.5.5: a signature field's value is a signature dictionary and signing "entails
@@ -1804,10 +1834,78 @@ fn field_text(
         resources: &resources,
         quadding: Quadding::read(document, &sources),
         shape,
+        caret,
     };
     variable_text::lay_out(document, &request)
         .map(Some)
         .map_err(Refusal::Text)
+}
+
+/// Where the caret sits inside a widget's value, in **default user space**.
+///
+/// The place the next character will be drawn, which §12.7.4.3's layout is what knows: the x a
+/// line is positioned at plus the width of the value's own prefix, between the ascent and the
+/// descent [`variable_text`] measures a line's height by. A host that computed it instead would
+/// be laying the value out a second time, with its own font and its own auto-sizing, and would
+/// sit the caret beside the text rather than in it.
+///
+/// **Nothing in ISO 32000-2 states a caret**, and §12.5.6.11's caret *annotation* is a different
+/// object — a mark left in a document to say text was edited there, with its own `/Rect` and its
+/// own appearance. What the standard decides here is only where the glyphs go; the segment this
+/// answers with is derived from that, and what it looks like is the host's (ADR 0211).
+///
+/// `None` for a field §12.7.4.3 lays no text out for — a button, a signature, a list box — and for
+/// a widget whose value could not be laid out at all, which is the same condition that makes the
+/// page report the field.
+///
+/// # Which space the value is laid out in
+///
+/// The two `crate::annotation::decide` chooses between, chosen the same way. Where the file
+/// carries an appearance stream, the value is laid out in *that stream's* `/BBox` and §12.5.5's
+/// algorithm maps it onto `/Rect` — and the caret is answered from that stream's box whether or
+/// not the stream has been rewritten yet, because the next character typed rewrites it (the
+/// clause's own splice) and the caret's job is to say where that character will land. Where there
+/// is none, `construct` writes the marks in the page's own space and the only turn is Table 192's
+/// `/R`.
+pub(crate) fn caret(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    offset: usize,
+) -> Option<[f32; 4]> {
+    let field = Field::read(document, annotation, view.value);
+    if field.too_deep
+        || !matches!(
+            field.kind,
+            Some(FieldKind::Text | FieldKind::Choice { combo: true })
+        )
+    {
+        return None;
+    }
+    let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    let source = characteristics.as_ref().unwrap_or(annotation);
+    let width = Border::read(document, annotation, source, "BC")
+        .map(|border| border.width)
+        .unwrap_or_default();
+    let (box_, onto_page) = if let Some((bbox, placement)) =
+        crate::annotation::stored_frame(document, annotation, view)
+    {
+        (inset(bbox, width), placement)
+    } else {
+        let rect = rectangle(document, annotation).ok()?;
+        let rotation = Rotation::read(document, source)?;
+        (
+            inset(rotation.content_box(rect), width),
+            rotation.transform(rect),
+        )
+    };
+    let laid_out = field_text(document, annotation, source, box_, view.value, Some(offset))
+        .ok()
+        .flatten()?;
+    let caret = laid_out.caret?;
+    let from = onto_page.apply(Point::new(caret.from[0], caret.from[1]));
+    let to = onto_page.apply(Point::new(caret.to[0], caret.to[1]));
+    Some([from.x, from.y, to.x, to.y])
 }
 
 /// The text a text or combo-box field would be laid out with, as §12.7.4.3 sees it.
@@ -1923,6 +2021,7 @@ pub(crate) fn accepted_prefix(
             resources: &resources,
             quadding,
             shape,
+            caret: None,
         };
         // A layout this crate cannot build says nothing about how much text the box holds, so
         // it constrains nothing — the report `field_text` raises is the honest answer there.
@@ -1990,6 +2089,8 @@ fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) 
         quadding: Quadding::read(document, &sources),
         // Table 177 states no single-line free text: the annotation is a box of prose.
         shape: Shape::Multiline,
+        // §12.5.6.6's text is not a field and nothing types into it — see `doc/todo/33`.
+        caret: None,
     };
     let laid_out = variable_text::lay_out(document, &request).map_err(Refusal::Text)?;
     stream.text.push_str(&laid_out.content);

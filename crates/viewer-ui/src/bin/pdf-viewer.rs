@@ -567,7 +567,8 @@ struct App {
     /// host and only to a host: a document that states no metadata and one whose metadata this
     /// program could not read get two different sentences in the properties tab.
     metadata: Option<Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
-    /// The field a person is typing into, and the point on the page that named it.
+    /// The field a person is typing into: the point on the page that named it, and where in its
+    /// value the next character goes.
     ///
     /// **The host keeps the point, not the text.** §12.7.5.3's `DoNotScroll` makes a field take
     /// only as much of a value as fits its rectangle (ADR 0197), so a buffer of what had been
@@ -576,8 +577,14 @@ struct App {
     /// value the *document* now holds and sends that value plus one character back, which makes
     /// divergence impossible rather than unlikely.
     ///
+    /// **The caret is an offset and nothing more.** Where it *is* on the screen is
+    /// `Query::Caret`'s answer, because the place the next character will be drawn is
+    /// §12.7.4.3's arithmetic and not this host's — the same division `Query::Selection` and
+    /// `Query::Focus` already draw. The offset is clamped to the value after every edit, which is
+    /// what keeps it inside a value the field truncated.
+    ///
     /// `None` is a host that is not typing, which is every host until somebody clicks a field.
-    typing: Option<(f32, f32)>,
+    typing: Option<Typing>,
     /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
     ///
     /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:
@@ -635,6 +642,74 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
     } else {
         quorra_gpu::Coverage::Cpu
     }
+}
+
+/// The nearest character boundary at or before `offset`, clamped to the value's length.
+///
+/// A caret is a place *between* characters, and the value it indexes changes under it: a field
+/// that truncated what was typed (§12.7.5.3) is shorter than what was sent, and a value read back
+/// from the document may be shorter still. Every use of the offset goes through this, so a
+/// multi-byte character can never be cut in half by an index.
+fn caret_boundary(value: &str, offset: usize) -> usize {
+    // The clamp comes first, and the test below is why: `is_char_boundary` answers *false* for an
+    // offset past the end, so a search for the boundary before it would land on the last
+    // character's rather than on the end of the value — one character short after every
+    // truncation, which is the case this function exists for.
+    let offset = offset.min(value.len());
+    if value.is_char_boundary(offset) {
+        return offset;
+    }
+    value
+        .char_indices()
+        .map(|(at, _)| at)
+        .take_while(|at| *at < offset)
+        .last()
+        .unwrap_or(value.len())
+}
+
+/// The offset one character before `caret`, or the start of the value.
+fn before(value: &str, caret: usize) -> usize {
+    value
+        .get(..caret)
+        .and_then(|prefix| prefix.char_indices().next_back().map(|(at, _)| at))
+        .unwrap_or(0)
+}
+
+/// The offset one character after `caret`, or the end of the value.
+fn after(value: &str, caret: usize) -> usize {
+    value
+        .get(caret..)
+        .and_then(|rest| rest.chars().next())
+        .map_or(value.len(), |character| {
+            caret.saturating_add(character.len_utf8())
+        })
+}
+
+/// The value with `from..to` replaced by `insert`.
+///
+/// The whole of what a keystroke does to a field, and it is a whole *value* rather than an edit
+/// because that is what `Edit::SetField` carries: the core is told what the field says now, and
+/// §12.7.5.3 decides how much of it the widget accepts.
+fn spliced(value: &str, from: usize, to: usize, insert: &str) -> String {
+    let mut out = String::with_capacity(value.len().saturating_add(insert.len()));
+    out.push_str(value.get(..from).unwrap_or_default());
+    out.push_str(insert);
+    out.push_str(value.get(to..).unwrap_or_default());
+    out
+}
+
+/// A person typing into a form field: which field, and where in its value.
+///
+/// Two numbers and no text, which is ADR 0201's decision with ADR 0211's caret added to it. The
+/// point names the field because a field does not move; the offset says where the next character
+/// goes, and it is the one thing about typing that the core cannot know — nothing in a document
+/// says where a person's cursor is.
+#[derive(Debug, Clone, Copy)]
+struct Typing {
+    /// The point on the page that named the field, in the page viewport's device pixels.
+    at: (f32, f32),
+    /// How far into the field's value the caret is, in bytes.
+    caret: usize,
 }
 
 /// The window, and the presenter that owns its surface.
@@ -970,16 +1045,61 @@ impl App {
         self.typing = match self.viewer.query(Query::FieldAt(at)) {
             Answer::Field {
                 name,
-                value: Some(_),
+                value: Some(value),
             } => {
                 println!("note: typing into the field {}", name.shown());
-                Some(at)
+                // **The caret starts at the end of the value, wherever inside the field the
+                // click landed**, and that is a choice this host makes rather than a reading:
+                // placing it *where* the click was means turning a point into an offset, which
+                // is the inverse of `Query::Caret` and does not exist yet (`doc/todo/33`). The
+                // arrow keys, Home and End reach the rest of the value, so nothing is
+                // unreachable — it is one press further away than it should be.
+                Some(Typing {
+                    at,
+                    caret: value.len(),
+                })
             }
             _ => None,
         };
         if was && self.typing.is_none() {
             println!("note: the keyboard is back on the page");
         }
+    }
+
+    /// Aims the keyboard at whatever §12.5.1's tab walk just landed on, where it takes text.
+    ///
+    /// **The decision `doc/todo/33` left open, and it needed no new message.** The worry it
+    /// recorded was that a focus ring on a *button* means something else — a press activates it,
+    /// it does not take characters — and the answer is the one this host already uses for a
+    /// click: `Answer::Field`'s value is `Some` only for a field §12.7.4.3 lays text out for, so
+    /// the same question decides both. What was missing was only the *point*, and `Query::Focus`
+    /// answers with the annotation's quadrilateral in the same device pixels `Query::FieldAt`
+    /// takes, so the centre of the ring is the point to ask about.
+    ///
+    /// A walk onto anything else takes the keyboard back to the page, which is what makes Tab out
+    /// of a field stop typing without a second binding for it.
+    fn aim_at_focus(&mut self) {
+        let Answer::Focus { quad, .. } = self.viewer.query(Query::Focus) else {
+            self.typing = None;
+            return;
+        };
+        // The centre of the ring, which is inside the widget's `/Rect` by construction: §12.5.5
+        // places the appearance *on* that rectangle and `Query::Focus` answers with it.
+        let at = ((quad[0] + quad[4]) * 0.5, (quad[1] + quad[5]) * 0.5);
+        self.typing = match self.viewer.query(Query::FieldAt(at)) {
+            Answer::Field {
+                name,
+                value: Some(value),
+            } => {
+                println!("note: typing into the field {}", name.shown());
+                Some(Typing {
+                    at,
+                    caret: value.len(),
+                })
+            }
+            _ => None,
+        };
+        self.redraw();
     }
 
     /// One key press, while a field has the keyboard. Answers whether it was consumed.
@@ -989,37 +1109,76 @@ impl App {
     /// truncating a value is a thing the host *reads* rather than a thing it has to predict
     /// (ADR 0197). It costs a query per keystroke, which is a walk of one page's annotations.
     fn typed(&mut self, key: &Key<&str>) -> bool {
-        let Some(at) = self.typing else {
+        let Some(typing) = self.typing else {
             return false;
         };
-        let Answer::Field { name, value } = self.viewer.query(Query::FieldAt(at)) else {
+        let Answer::Field { name, value } = self.viewer.query(Query::FieldAt(typing.at)) else {
             // The field went away — a page turned under the pointer — so the keyboard goes back.
             self.typing = None;
             return false;
         };
         let field = name.qualified.clone();
         let current = value.unwrap_or_default();
-        let next = match *key {
+        // The caret is clamped to the value *this* press starts from, because the last one may
+        // have been truncated by §12.7.5.3's `DoNotScroll` — the same reason nothing is buffered.
+        let caret = caret_boundary(&current, typing.caret);
+        let (next, moved) = match *key {
             Key::Named(NamedKey::Escape) => {
                 self.typing = None;
                 println!("note: the keyboard is back on the page");
+                // The caret goes with the keyboard, and the window is what has to be told: this
+                // press changes nothing about the *document*, so no command is sent and nothing
+                // else would ask for the frame that takes the caret off the screen.
+                self.redraw();
                 return true;
             }
+            // Moving the caret changes nothing about the document, so these send no edit at all
+            // and only ask for the frame that redraws the caret.
+            Key::Named(NamedKey::ArrowLeft) => (None, before(&current, caret)),
+            Key::Named(NamedKey::ArrowRight) => (None, after(&current, caret)),
+            Key::Named(NamedKey::Home) => (None, 0),
+            Key::Named(NamedKey::End) => (None, current.len()),
             Key::Named(NamedKey::Backspace) => {
-                let mut text = current;
-                text.pop();
-                text
+                let from = before(&current, caret);
+                (Some(spliced(&current, from, caret, "")), from)
             }
+            Key::Named(NamedKey::Delete) => (
+                Some(spliced(&current, caret, after(&current, caret), "")),
+                caret,
+            ),
             Key::Named(NamedKey::Enter) => {
                 // §12.7.5.3's Multiline decides whether a return is a character or the end of
                 // typing, and the core is what knows: a value with a newline in it lays out on two
                 // lines only where Table 231 bit 13 is set, and `variable_text::wrap` is where
                 // that is read. So the host offers the newline and the field decides what to keep.
-                format!("{current}\n")
+                (
+                    Some(spliced(&current, caret, caret, "\n")),
+                    caret.saturating_add(1),
+                )
             }
-            Key::Character(text) if !text.is_empty() => format!("{current}{text}"),
-            Key::Named(NamedKey::Space) => format!("{current} "),
+            Key::Character(text) if !text.is_empty() => (
+                Some(spliced(&current, caret, caret, text)),
+                caret.saturating_add(text.len()),
+            ),
+            Key::Named(NamedKey::Space) => (
+                Some(spliced(&current, caret, caret, " ")),
+                caret.saturating_add(1),
+            ),
             _ => return false,
+        };
+        self.typing = Some(Typing {
+            at: typing.at,
+            caret: moved,
+        });
+        // A caret that moved is chrome and not a page: `Query::Caret` answers from state this host
+        // holds, so nothing has to be interpreted again and the window only repaints. A keystroke
+        // that leaves the value as it was is the same case, and there are two of them — Backspace
+        // at the start and Delete at the end — where sending the edit anyway would put an entry in
+        // the log, mark the document unsaved and re-interpret the page for a picture that cannot
+        // differ.
+        let Some(next) = next.filter(|next| *next != current) else {
+            self.redraw();
+            return true;
         };
         // Through `dispatch`, not through `Viewer::handle` directly: the events an edit raises
         // are what asks for the next frame, and a host that counted them instead of pumping them
@@ -1028,6 +1187,17 @@ impl App {
             field,
             value: Some(next),
         }));
+        // And the field decides how much of that it took, so where the caret ended up is read
+        // back rather than assumed — a value §12.7.5.3 truncated is shorter than what was sent.
+        if let Answer::Field {
+            value: Some(taken), ..
+        } = self.viewer.query(Query::FieldAt(typing.at))
+        {
+            self.typing = Some(Typing {
+                at: typing.at,
+                caret: caret_boundary(&taken, moved),
+            });
+        }
         true
     }
 
@@ -1563,6 +1733,48 @@ impl App {
         Some(list)
     }
 
+    /// The caret: a line where the next character will be drawn, while a field has the keyboard.
+    ///
+    /// **The standard states no caret**, and §12.5.6.11's caret *annotation* is a different thing
+    /// entirely — so its width, its colour and whether it blinks are this host's, exactly as
+    /// §12.5.1's focus ring is. This one is a steady line two pixels wide: a blink needs a clock,
+    /// and `viewer-core` has none by rule 3, so a host that wanted one would drive it from its own
+    /// timer. What is *not* this host's is where it goes — `Query::Caret` answers that from
+    /// §12.7.4.3's own layout, because a host laying the value out again to find the place would
+    /// be a second opinion about the field's font, its auto-sizing and its wrapping. ADR 0211.
+    fn caret_list(&self, edge: f32, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let typing = self.typing?;
+        let Answer::Caret { from, to } = self.viewer.query(Query::Caret {
+            at: typing.at,
+            offset: typing.caret,
+        }) else {
+            return None;
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
+        let mut path = Path::new();
+        // Device pixels of the *page's* viewport, which begins where the panel ends — the same
+        // one addition `selection_list` and `focus_list` make.
+        path.push(PathCommand::MoveTo(Point::new(from.0 + edge, from.1)));
+        path.push(PathCommand::LineTo(Point::new(to.0 + edge, to.1)));
+        list.push(DrawCommand::Stroke {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            stroke: pdf_render::Stroke {
+                width: CARET_WIDTH,
+                ..pdf_render::Stroke::default()
+            },
+            paint: Paint::Solid(CARET),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        Some(list)
+    }
+
     fn present(&mut self) -> Option<Rendered> {
         // §12.3.4's list is built here and nowhere else: this is the one place that holds
         // `&mut self` and runs before the panel is drawn.
@@ -1598,12 +1810,14 @@ impl App {
         };
         let selection = self.selection_list(edge, width, height);
         let focus = self.focus_list(edge, width, height);
+        let caret = self.caret_list(edge, width, height);
         let popups = self.popup_list(edge, width, height);
         // Selection first (it belongs to the page), then the sidebar, then the
         // modal card on top — the same order the Vello host drew them in.
         let mut overlays: Vec<&pdf_render::DisplayList> = Vec::new();
         overlays.extend(selection.as_ref());
         overlays.extend(focus.as_ref());
+        overlays.extend(caret.as_ref());
         overlays.extend(popups.as_ref());
         overlays.extend(chrome.panel.as_ref());
         overlays.extend(chrome.about.as_ref());
@@ -1845,6 +2059,15 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if matches!(logical_key.as_ref(), Key::Named(NamedKey::Escape)) {
+                    // **A field with the keyboard takes this key first**, which is what ADR 0201
+                    // decided and what this branch quietly defeated: the press exited the program
+                    // before `typed` was ever asked, so the one binding typing changes the meaning
+                    // of was dead code from the round that wrote it. Found by reading the two
+                    // against each other in the three-hundred-and-seventy-first session, because
+                    // no gate in this tree presses a key twice in one window.
+                    if self.typing.is_some() && self.typed(&logical_key.as_ref()) {
+                        return;
+                    }
                     event_loop.exit();
                     return;
                 }
@@ -1885,7 +2108,11 @@ impl ApplicationHandler for App {
                     println!("note: select some text first — §12.5.6.10's markups mark up text");
                     return;
                 }
+                let walked = matches!(command, Command::Focused(_));
                 self.dispatch(command);
+                if walked {
+                    self.aim_at_focus();
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
@@ -2229,6 +2456,22 @@ const FOCUS_RING: Color = Color {
 /// How wide that ring is, in device pixels.
 const FOCUS_RING_WIDTH: f32 = 2.0;
 
+/// The colour the caret is drawn in.
+///
+/// A choice, and for the same reason the focus ring's is: no clause states a text cursor at all.
+/// Black rather than the ring's blue, because a caret stands *in* the text and a person reads it
+/// as part of the line — and this host has no theme to ask for the platform's insertion-point
+/// colour, which a native one would use instead.
+const CARET: Color = Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 1.0,
+};
+
+/// How wide the caret is, in device pixels.
+const CARET_WIDTH: f32 = 2.0;
+
 /// The chrome drawn over a page, as display lists in the window's own pixels.
 ///
 /// Gathered once per frame and handed to the presenter beside the page, which is why they are
@@ -2255,7 +2498,7 @@ fn ask_password(name: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GPU_COVERAGE_MAGNIFICATION, coverage_for};
+    use super::{GPU_COVERAGE_MAGNIFICATION, after, before, caret_boundary, coverage_for, spliced};
     use pdf_render::Transform;
 
     /// The lane follows the magnification, and the page transform a frame is drawn
@@ -2301,5 +2544,33 @@ mod tests {
         };
         assert_eq!(coverage_for(upright), coverage_for(turned));
         assert_eq!(coverage_for(turned), quorra_gpu::Coverage::Gpu);
+    }
+
+    /// What a keystroke does to a value, on the one input that breaks a naive index.
+    ///
+    /// A caret is a byte offset into a value the *core* owns: §12.7.5.3's `DoNotScroll` shortens
+    /// it under the host, a page turn can take the field away, and a character is one to four
+    /// bytes. So every use of the offset goes through `caret_boundary`, and the splice is written
+    /// with `get` rather than with indexing — a panic here would be a program that quits because
+    /// somebody typed an accent.
+    #[test]
+    fn a_caret_never_falls_inside_a_character() {
+        let value = "café";
+        assert_eq!(value.len(), 5, "é is two bytes");
+        // The offset between the two bytes of `é` is not a place a caret can be.
+        assert_eq!(caret_boundary(value, 4), 3);
+        // And one past the end of a value the field truncated is its end.
+        assert_eq!(caret_boundary(value, 99), value.len());
+        assert_eq!(
+            before(value, 5),
+            3,
+            "one character back from the end is before é"
+        );
+        assert_eq!(after(value, 3), 5, "and one forward from there is past it");
+        assert_eq!(after(value, 5), 5, "the end of the value stays put");
+        assert_eq!(before(value, 0), 0, "so does the start");
+        // Backspace at the end, and an insertion in the middle.
+        assert_eq!(spliced(value, before(value, 5), 5, ""), "caf");
+        assert_eq!(spliced(value, 1, 1, "X"), "cXafé");
     }
 }

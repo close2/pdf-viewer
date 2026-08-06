@@ -84,6 +84,22 @@ pub(crate) enum Shape {
     Comb(u32),
 }
 
+/// Where the next character would go: the segment a host draws a text cursor along.
+///
+/// **A choice, and the standard states none.** ISO 32000-2 describes a text cursor nowhere —
+/// §12.5.6.11's *caret annotation* is a different object entirely, a mark left in a document to
+/// say that text was edited there — so how wide a cursor is, what colour it is and whether it
+/// blinks are the host's. What this crate owes is the *place*, and the place is the position the
+/// next glyph would be drawn at: the same x [`write_lines`] and [`comb`] position a line at, and
+/// the same ascent and descent they measure a line's height by.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Caret {
+    /// The end on the descent side of the baseline, `[x, y]`.
+    pub from: [f32; 2],
+    /// The end on the ascent side, which is the same point one line height up.
+    pub to: [f32; 2],
+}
+
 /// One layout job: the text, the box, and the entries §12.7.4.3 reads.
 pub(crate) struct Request<'a> {
     /// The value to show, already decoded from its §7.9.2.2 text string.
@@ -98,6 +114,15 @@ pub(crate) struct Request<'a> {
     pub quadding: Quadding,
     /// How the text fills the box.
     pub shape: Shape,
+    /// Where in [`Self::text`] a caret is wanted, as a byte offset — `None` for a layout that
+    /// only draws.
+    ///
+    /// **Nothing in ISO 32000-2 asks for this**: the standard says where a *glyph* goes and says
+    /// nothing whatever about a text cursor. What makes it belong here rather than in a caller is
+    /// that the answer is the position the next glyph would be placed at, and that position is
+    /// this module's arithmetic — a second opinion about it in a host would sit the caret beside
+    /// the text instead of in it. See [`LaidOut::caret`].
+    pub caret: Option<usize>,
 }
 
 /// What §12.7.4.3 asks for that this module cannot supply.
@@ -183,6 +208,10 @@ pub(crate) struct LaidOut {
     /// this adds is the ability to *ask*, which is what a program that fills a field needs and a
     /// program that only draws one does not. See [`crate::view::ViewState::set_field`].
     pub overflows: bool,
+    /// Where a caret at [`Request::caret`] sits, in the appearance's own coordinates.
+    ///
+    /// `None` where none was asked for, and where the value could not be laid out at all.
+    pub caret: Option<Caret>,
     /// A font dictionary this module invented, to be added to the appearance's `/Resources`
     /// under the name the `/DA` used.
     ///
@@ -326,7 +355,7 @@ fn set_in(
         )));
     }
 
-    let runs = encode(&font, request.text);
+    let runs = encode(&font, request.text, request.caret);
     // **A character the base encoding has no code for, given one.** §9.6.5.1 lets an encoding
     // dictionary name glyphs directly — "the value of the Differences entry [is] an array of
     // character codes and glyph names" — and a font *this module invented* is one whose encoding
@@ -342,7 +371,7 @@ fn set_in(
     if resolution != Resolution::Named
         && !runs.missing.is_empty()
         && let Some((named, reloaded, again)) =
-            named_glyphs_reach_more(document, &dict, font_name, request.text, &runs)
+            named_glyphs_reach_more(document, &dict, font_name, request, &runs)
     {
         return Ok((named, reloaded, again, resolution));
     }
@@ -358,12 +387,12 @@ fn named_glyphs_reach_more(
     document: &Document,
     dict: &Dictionary,
     font_name: &str,
-    text: &str,
+    request: &Request,
     runs: &Encoded,
 ) -> Option<(Dictionary, pdf_font::LoadedFont, Encoded)> {
     let named = with_differences(dict, &runs.missing)?;
     let reloaded = pdf_font::LoadedFont::load(document, &named, font_name).ok()?;
-    let again = encode(&reloaded, text);
+    let again = encode(&reloaded, request.text, request.caret);
     (again.missing.len() < runs.missing.len()).then_some((named, reloaded, again))
 }
 
@@ -561,37 +590,31 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     let leading = appearance.leading.unwrap_or(size * LINE_HEIGHT);
     let lines = match request.shape {
         Shape::Multiline => wrap(&measure, &runs.codes, size, width),
-        Shape::SingleLine | Shape::Comb(_) => vec![runs.codes.clone()],
+        Shape::SingleLine | Shape::Comb(_) => std::iter::once(0..runs.codes.len()).collect(),
     };
 
     let mut stream = String::new();
-    // The clause's own EXAMPLE, element by element: `/Tx BMC`, `q`, "any required graphics
-    // state changes, such as clipping", `BT`, the default appearance string, the positioning
-    // and showing operators, `ET`, `Q`, `EMC`.
-    stream.push_str("/Tx BMC\nq\n");
-    let _ = writeln!(
-        stream,
-        "{} {} {} {} re W n",
-        box_[0], box_[1], width, height
-    );
-    stream.push_str("BT\n");
-    stream.push_str(&appearance.operators);
-    // Written after the `/DA` rather than trusting it, because auto-sizing has to replace the
-    // zero the clause puts there and a size the document did state is reproduced unchanged.
-    let _ = writeln!(stream, "/{font_name} {size} Tf");
+    open_marked_content(&mut stream, &appearance, (&font_name, size), box_);
 
-    if let Shape::Comb(count) = request.shape {
+    let caret = if let Shape::Comb(count) = request.shape {
         comb(
             &mut stream,
             &measure,
-            &runs.codes,
+            Written {
+                codes: &runs.codes,
+                caret: runs.caret,
+                // The identity, because a comb writes one `Tm` per cell and that is the matrix it
+                // writes: Table 231 bit 25 places each character in a position of its own, so a
+                // `/DA`'s own `Tm` has nothing here to translate.
+                matrix: IDENTITY,
+            },
             Set {
                 size,
                 metrics: &metrics,
             },
             count,
             request,
-        );
+        )
     } else {
         if appearance
             .matrix
@@ -610,25 +633,29 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
             },
             leading,
             request,
-            appearance.matrix.unwrap_or(IDENTITY),
-        );
-    }
+            Written {
+                codes: &runs.codes,
+                caret: runs.caret,
+                matrix: appearance.matrix.unwrap_or(IDENTITY),
+            },
+        )
+    };
 
     stream.push_str("ET\nQ\nEMC\n");
     Ok(LaidOut {
         content: stream,
         owed,
+        caret,
         overflows: overflows(
             &measure,
+            &runs.codes,
             &lines,
             Set {
                 size,
                 metrics: &metrics,
             },
             leading,
-            request.shape,
-            width,
-            height,
+            request,
         ),
         // The invented dictionary has to reach the appearance's `/Resources` under the name
         // the `/DA` used, whichever of the two ways this crate arrived at it — the stream says
@@ -637,6 +664,31 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         font: (resolution != Resolution::Named)
             .then(|| (pdf_syntax::Name::new(font_name.into_bytes()), dict)),
     })
+}
+
+/// Writes everything §12.7.4.3's EXAMPLE puts before the first positioning operator.
+///
+/// The clause's own example, element by element: `/Tx BMC`, `q`, "any required graphics state
+/// changes, such as clipping", `BT`, the default appearance string, and the `Tf` — which is
+/// written after the `/DA` rather than trusting it, because auto-sizing has to replace the zero
+/// the clause puts there and a size the document did state is reproduced unchanged.
+fn open_marked_content(
+    stream: &mut String,
+    appearance: &DefaultAppearance,
+    font: (&str, f32),
+    box_: [f32; 4],
+) {
+    let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
+    stream.push_str("/Tx BMC\nq\n");
+    let _ = writeln!(
+        stream,
+        "{} {} {} {} re W n",
+        box_[0], box_[1], width, height
+    );
+    stream.push_str("BT\n");
+    stream.push_str(&appearance.operators);
+    let (name, size) = font;
+    let _ = writeln!(stream, "/{name} {size} Tf");
 }
 
 /// The size a run is set at and the font's vertical metrics at one em.
@@ -696,21 +748,52 @@ struct Encoded {
     missing: String,
     /// Whether [`MAX_CODES`] was reached and the rest of the value dropped.
     truncated: bool,
+    /// Which code [`Request::caret`]'s byte offset falls before, where one was asked for.
+    ///
+    /// An index into [`Self::codes`] rather than into the value, because that is what the layout
+    /// works in: a character the font states no code for produces none, and a caret cannot sit
+    /// beside a glyph that is not drawn.
+    caret: Option<usize>,
 }
 
 /// Turns a value into the font's own character codes, collecting what it cannot represent.
-fn encode(font: &pdf_font::LoadedFont, text: &str) -> Encoded {
-    // A carriage return, a line feed and the pair are all one line break, and none of them is
-    // a glyph. They travel through the layout as `BREAK` and `show` drops them.
-    let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
-    let mut codes = Vec::with_capacity(normalised.len().min(MAX_CODES));
+///
+/// The caret's byte offset is turned into a code index here, in the one loop that knows how many
+/// codes a character produced — which is none for a character the font cannot spell, and one for
+/// each of §12.7.5.3's line breaks. An offset inside a character counts that character as still
+/// to come, and one past the end is the end.
+fn encode(font: &pdf_font::LoadedFont, text: &str, caret: Option<usize>) -> Encoded {
+    let mut codes = Vec::with_capacity(text.len().min(MAX_CODES));
     let mut missing = String::new();
     let mut truncated = false;
-    for character in normalised.chars() {
+    let mut caret_code = None;
+    // A carriage return, a line feed and the pair are all one line break, and none of them is
+    // a glyph. They travel through the layout as `BREAK` and `show` drops them. Read from the
+    // value as it stands rather than from a normalised copy, so that the caret's offset means
+    // the same thing here as it does to the host that sent it.
+    let mut after_return = false;
+    for (at, character) in text.char_indices() {
+        if caret_code.is_none() && caret.is_some_and(|offset| offset <= at) {
+            caret_code = Some(codes.len());
+        }
         if codes.len() >= MAX_CODES {
             truncated = true;
             break;
         }
+        let character = match character {
+            '\n' if after_return => {
+                after_return = false;
+                continue;
+            }
+            '\r' => {
+                after_return = true;
+                '\n'
+            }
+            other => {
+                after_return = false;
+                other
+            }
+        };
         if character == '\n' {
             codes.push(BREAK);
             continue;
@@ -725,6 +808,7 @@ fn encode(font: &pdf_font::LoadedFont, text: &str) -> Encoded {
         }
     }
     Encoded {
+        caret: caret.map(|_| caret_code.unwrap_or(codes.len())),
         codes,
         missing,
         truncated,
@@ -816,11 +900,11 @@ fn auto_size(
     let fits = |size: f32| {
         let lines = match shape {
             Shape::Multiline => wrap(measure, codes, size, width),
-            Shape::SingleLine | Shape::Comb(_) => vec![codes.to_vec()],
+            Shape::SingleLine | Shape::Comb(_) => std::iter::once(0..codes.len()).collect(),
         };
         let widest = lines
             .iter()
-            .map(|line| measure.width(line, size))
+            .map(|line| measure.width(line_codes(codes, line), size))
             .fold(0.0_f32, f32::max);
         widest <= width && size * LINE_HEIGHT * count(lines.len()) <= height
     };
@@ -849,14 +933,15 @@ fn auto_size(
 /// sits one ascent below the top of the space the text occupies.
 fn write_lines(
     stream: &mut String,
-    lines: &[Vec<pdf_font::Code>],
+    lines: &[std::ops::Range<usize>],
     measure: &Measure,
     set: Set,
     leading: f32,
     request: &Request,
-    matrix: [f32; 6],
-) {
+    written: Written,
+) -> Option<Caret> {
     let box_ = request.box_;
+    let matrix = written.matrix;
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
     let ascent = set.metrics.ascent * set.size;
     let descent = set.metrics.descent * set.size;
@@ -867,22 +952,53 @@ fn write_lines(
         box_[1] + (height + text_height) * 0.5
     };
     let first = top - ascent;
+    let mut caret = None;
 
     for (index, line) in lines.iter().enumerate() {
-        let advance = measure.width(line, set.size);
+        let codes = line_codes(written.codes, line);
+        let advance = measure.width(codes, set.size);
         let x = match request.quadding {
             Quadding::Left => box_[0],
             Quadding::Centred => box_[0] + (width - advance) * 0.5,
             Quadding::Right => box_[0] + width - advance,
         };
         let baseline = leading.mul_add(-count(index), first);
+        // The caret sits on the first line the offset reaches the end of, which decides the one
+        // case the offset alone cannot: a soft wrap puts the same position at the end of one line
+        // and the start of the next, and this is the end of the earlier one. A hard break is not
+        // ambiguous — `BREAK` occupies an index of its own, so the position after it is past this
+        // line's end and lands on the next.
+        if caret.is_none()
+            && let Some(at) = written.caret.filter(|at| *at <= line.end)
+        {
+            let before = codes
+                .get(..at.saturating_sub(line.start).min(codes.len()))
+                .unwrap_or(codes);
+            let x = x + measure.width(before, set.size);
+            caret = Some(Caret {
+                from: [x, baseline + descent],
+                to: [x, baseline + ascent],
+            });
+        }
         let _ = writeln!(
             stream,
             "{} {} {} {} {x} {baseline} Tm",
             matrix[0], matrix[1], matrix[2], matrix[3]
         );
-        show(stream, line);
+        show(stream, codes);
     }
+    caret
+}
+
+/// What is being written out, beside the box and the metrics it is written into.
+///
+/// Three things a line needs that are not properties of the *box*: the codes its range indexes,
+/// where a caret goes if one was asked for, and the `/DA`'s own text matrix.
+#[derive(Clone, Copy)]
+struct Written<'a> {
+    codes: &'a [pdf_font::Code],
+    caret: Option<usize>,
+    matrix: [f32; 6],
 }
 
 /// Whether the laid-out value needs more room than the box gives, on the axis §12.7.5.3 names.
@@ -899,18 +1015,19 @@ fn write_lines(
 /// into those combs", so the room is a count rather than a length.
 fn overflows(
     measure: &Measure,
-    lines: &[Vec<pdf_font::Code>],
+    codes: &[pdf_font::Code],
+    lines: &[std::ops::Range<usize>],
     set: Set,
     leading: f32,
-    shape: Shape,
-    width: f32,
-    height: f32,
+    request: &Request,
 ) -> bool {
-    match shape {
+    let box_ = request.box_;
+    let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
+    match request.shape {
         Shape::Comb(cells) => {
             lines
                 .iter()
-                .flatten()
+                .flat_map(|line| line_codes(codes, line))
                 .filter(|code| **code != BREAK)
                 .count()
                 .saturating_sub(usize::try_from(cells).unwrap_or(usize::MAX))
@@ -918,7 +1035,7 @@ fn overflows(
         }
         Shape::SingleLine => lines
             .iter()
-            .any(|line| measure.width(line, set.size) > width),
+            .any(|line| measure.width(line_codes(codes, line), set.size) > width),
         // The same height [`write_lines`] lays out: one ascent above the first baseline, one
         // descent below the last, and a leading between each pair.
         Shape::Multiline => {
@@ -947,38 +1064,49 @@ fn wrap(
     codes: &[pdf_font::Code],
     size: f32,
     width: f32,
-) -> Vec<Vec<pdf_font::Code>> {
+) -> Vec<std::ops::Range<usize>> {
     let mut lines = Vec::new();
-    let mut line: Vec<pdf_font::Code> = Vec::new();
+    let mut start = 0_usize;
     let mut last_space: Option<usize> = None;
     let mut reached = 0.0_f32;
 
-    for code in codes {
+    for (index, code) in codes.iter().enumerate() {
         if *code == BREAK {
-            lines.push(std::mem::take(&mut line));
+            lines.push(start..index);
+            start = index.saturating_add(1);
             last_space = None;
             reached = 0.0;
             continue;
         }
-        line.push(*code);
         reached += measure.width(std::slice::from_ref(code), size);
         if code.takes_word_spacing() {
-            last_space = Some(line.len());
+            last_space = Some(index.saturating_add(1));
         }
-        if reached <= width || line.len() <= 1 {
+        if reached <= width || index.saturating_sub(start) == 0 {
             continue;
         }
         // Past the edge: break at the last space if there was one, otherwise between the
         // last two codes.
-        let at = last_space.unwrap_or(line.len().saturating_sub(1));
-        let rest = line.split_off(at);
-        lines.push(std::mem::take(&mut line));
-        reached = measure.width(&rest, size);
-        line = rest;
+        let at = last_space.unwrap_or(index);
+        lines.push(start..at);
+        reached = measure.width(codes.get(at..=index).unwrap_or_default(), size);
+        start = at;
         last_space = None;
     }
-    lines.push(line);
+    lines.push(start..codes.len());
     lines
+}
+
+/// The codes of one line, from the range [`wrap`] produced.
+///
+/// Empty for a range no slice of `codes` answers, which cannot happen for a range this module
+/// produced — every one of them is built from the same slice's own indices — and which is
+/// answered without a panic rather than with one.
+fn line_codes<'a>(
+    codes: &'a [pdf_font::Code],
+    line: &std::ops::Range<usize>,
+) -> &'a [pdf_font::Code] {
+    codes.get(line.clone()).unwrap_or_default()
 }
 
 /// Lays one character per comb, as §12.7.5.3's Table 231 bit 25 states.
@@ -993,16 +1121,17 @@ fn wrap(
 fn comb(
     stream: &mut String,
     measure: &Measure,
-    codes: &[pdf_font::Code],
+    written: Written,
     set: Set,
     cell_count: u32,
     request: &Request,
-) {
+) -> Option<Caret> {
     let size = set.size;
     let box_ = request.box_;
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
     let cells = count(usize::try_from(cell_count).unwrap_or(usize::MAX)).max(1.0);
     let cell = width / cells;
+    let codes = written.codes;
     let shown: Vec<pdf_font::Code> = codes.iter().copied().filter(|c| *c != BREAK).collect();
     let used = count(shown.len());
 
@@ -1025,6 +1154,20 @@ fn comb(
         let _ = writeln!(stream, "1 0 0 1 {x} {baseline} Tm");
         show(stream, std::slice::from_ref(code));
     }
+
+    // The caret goes at the *left edge* of the comb the next character would be laid into, rather
+    // than beside the last character drawn: Table 231 bit 25 divides the box into positions and
+    // puts one character in each, so the place a person is about to type into is a cell and not a
+    // gap between glyphs. A caret past the last cell stays on the box's right edge, which is
+    // where the value has stopped fitting.
+    let at = written.caret?;
+    let filled = codes.get(..at.min(codes.len())).unwrap_or_default();
+    let slot = first + count(filled.iter().filter(|code| **code != BREAK).count());
+    let x = cell.mul_add(slot.min(cells), 0.0) + box_[0];
+    Some(Caret {
+        from: [x, baseline + set.metrics.descent * size],
+        to: [x, baseline + set.metrics.ascent * size],
+    })
 }
 
 /// Writes one run of codes as a `Tj` with a literal string operand.

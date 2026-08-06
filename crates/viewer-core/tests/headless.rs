@@ -1111,6 +1111,112 @@ fn a_field_is_typed_into_undone_and_redone() {
     assert!(quiet.is_empty(), "{quiet:?}");
 }
 
+/// Where the caret goes, in the pixels a host draws it in.
+///
+/// **The standard states no caret** — §12.5.6.11's caret *annotation* is a different object, and
+/// nothing in ISO 32000-2 describes a text cursor at all — so what this pins is the relation that
+/// makes one mean anything to a person: it stands where the next character will be drawn, which
+/// §12.7.4.3's layout is what knows. The host keeps the point it clicked and an offset into the
+/// value, exactly as ADR 0201 has it keep the point and not the text; everything else is derived
+/// here, because a host deriving it would be re-deriving the magnification, the centring and the
+/// y flip. ADR 0211.
+#[test]
+fn a_caret_says_where_the_next_character_goes() {
+    let Some(bytes) = corpus_bytes("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page has a geometry");
+    };
+    // This form's first widget, `[48.54, 727.93, 198.54, 749.93]` in default user space — the
+    // same one `a_click_finds_the_field_it_landed_on` presses, written from the document.
+    let rect = [48.54_f32, 727.93, 198.54, 749.93];
+    let at = (
+        geometry.origin.0 + 120.0 * geometry.scale,
+        geometry.origin.1 + (geometry.page.height - 738.0) * geometry.scale,
+    );
+    let caret = |viewer: &Viewer, offset: usize| match viewer.query(Query::Caret { at, offset }) {
+        Answer::Caret { from, to } => Some((from, to)),
+        _ => None,
+    };
+
+    // An empty field still has a caret: it is where the first character will land, and a person
+    // clicking into an untouched field is shown exactly that.
+    let (from, to) = caret(&viewer, 0).expect("an empty text field has somewhere to type");
+    assert!(
+        (from.0 - to.0).abs() < 0.001,
+        "a caret is a vertical segment on an unturned page: {from:?} {to:?}"
+    );
+    assert!(
+        from.1 > to.1,
+        "the descent end is below the ascent end in a raster's downward y: {from:?} {to:?}"
+    );
+    // Inside the widget it belongs to, mapped through the same geometry the host draws with.
+    let left = geometry.origin.0 + rect[0] * geometry.scale;
+    let right = geometry.origin.0 + rect[2] * geometry.scale;
+    let top = geometry.origin.1 + (geometry.page.height - rect[3]) * geometry.scale;
+    let bottom = geometry.origin.1 + (geometry.page.height - rect[1]) * geometry.scale;
+    assert!(
+        (left..=right).contains(&from.0) && (top..=bottom).contains(&from.1),
+        "the caret is inside the widget: {from:?} in {left}..{right} by {top}..{bottom}"
+    );
+    let empty = from;
+
+    // Typed into, the caret after the value has moved along the line and not off it.
+    viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: "Text1".to_owned(),
+            value: Some("Ada".to_owned()),
+        }))
+        .for_each(drop);
+    let (start, _) = caret(&viewer, 0).expect("the field still has a caret");
+    let (end, _) = caret(&viewer, 3).expect("and one at the end of what was typed");
+    assert!(
+        (start.0 - empty.0).abs() < 0.001 && (start.1 - empty.1).abs() < 0.001,
+        "the caret before the first character has not moved: {start:?} against {empty:?}"
+    );
+    assert!(
+        end.0 > start.0 && end.0 < right,
+        "three characters along the line and still in the box: {end:?}"
+    );
+    assert!(
+        (end.1 - start.1).abs() < 0.001,
+        "and on the same line: {start:?} {end:?}"
+    );
+
+    // An offset past the end of the value is the end of the value rather than an error: a host
+    // whose caret outlived §12.7.5.3's truncation of what it typed asks a question with no answer
+    // otherwise.
+    let (clamped, _) = caret(&viewer, 4096).expect("an offset past the end still answers");
+    assert!(
+        (clamped.0 - end.0).abs() < 0.001,
+        "clamped to the end of the value: {clamped:?} against {end:?}"
+    );
+
+    // And a point on no field has no caret, which is the answer a host uses to decide the
+    // keyboard is back on the page.
+    assert!(
+        matches!(
+            viewer.query(Query::Caret {
+                at: (2.0, 2.0),
+                offset: 0
+            }),
+            Answer::None
+        ),
+        "nothing to type into at the corner of the page"
+    );
+}
+
 /// §8.11.4.3's Table 99 `/ListMode`, which is the one entry of that table whose answer depends
 /// on the window rather than on the file.
 ///

@@ -715,6 +715,44 @@ impl ViewState {
         crate::appearance::field_text_value(document, dict, self.annotation(widget).value)
     }
 
+    /// Where the caret sits in the field at a point, as a segment in **default user space**.
+    ///
+    /// `[x0, y0, x1, y1]`: the end on the descent side of the baseline, then the end on the
+    /// ascent side. Two points rather than a rectangle because a caret has no width — how thick
+    /// it is drawn is a platform's convention and not a fact about the document — and because a
+    /// widget's `/R`, its appearance's `/Matrix` or a `/DA`'s `Tm` can turn it, and a rectangle
+    /// could only describe the cases where none of them does.
+    ///
+    /// The offset is a byte offset into the value [`Self::field_value`] answers with, clamped to
+    /// its length: the two are the same string by construction, so a host that appends a
+    /// character to what it read back can ask where the next one goes without translating
+    /// anything. An offset inside a character counts that character as still to come.
+    ///
+    /// `None` where no widget covers the point, where the field is not one §12.7.4.3 lays text
+    /// out for, and where the value could not be laid out at all — which is the same condition
+    /// that makes the page report the field.
+    ///
+    /// **The standard states no caret.** §12.5.6.11's caret *annotation* is a different object
+    /// entirely; what this is derived from is where §12.7.4.3 puts the next glyph, and what a
+    /// cursor looks like is the host's. ADR 0211.
+    #[must_use]
+    pub fn caret_at(
+        &self,
+        document: &Document,
+        page: &crate::Page,
+        x: f32,
+        y: f32,
+        offset: usize,
+    ) -> Option<[f32; 4]> {
+        // The last widget covering the point, which is the one drawn on top (§12.5.2's order) and
+        // the one `field_at` names — so the caret and the name a host asked for are the same
+        // field's.
+        let widget = widgets_at(document, page, x, y).last().copied()?;
+        let object = document.get(widget);
+        let dict = object.as_dict()?;
+        crate::appearance::caret(document, dict, self.annotation(widget), offset)
+    }
+
     /// Forgets what a person typed into one field, leaving whatever the file and the actions say.
     ///
     /// The operation an undo needs, and it is deliberately not "set it back to the old value":
@@ -1741,9 +1779,6 @@ fn alternative_name(document: &Document, widget: ObjectId) -> Option<String> {
 /// The name of the form field at a point in default user space, where there is one.
 #[must_use]
 pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Option<FieldName> {
-    let (x, y) = (f64::from(x), f64::from(y));
-    let annotations = document.get_key(&page.dict, "Annots");
-    let annotations = annotations.as_array()?;
     let mut names: BTreeMap<ObjectId, String> = BTreeMap::new();
     for (name, widgets) in widgets_by_field_name(document) {
         for widget in widgets {
@@ -1751,6 +1786,31 @@ pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Opti
         }
     }
     let mut found = None;
+    for id in widgets_at(document, page, x, y) {
+        found = names
+            .get(&id)
+            .map(|qualified| FieldName {
+                qualified: qualified.clone(),
+                alternative: alternative_name(document, id),
+            })
+            .or(found);
+    }
+    found
+}
+
+/// Every widget annotation on the page whose `/Rect` covers a point in default user space.
+///
+/// In `/Annots` order, which is the order §12.5.2 has them drawn in — so the last one is the one
+/// on top where two overlap, and a caller wanting one takes the last. Split out of [`field_at`]
+/// because a caret needs the widget itself rather than the name of the field behind it, and two
+/// walks would be two hit tests that could disagree.
+fn widgets_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Vec<ObjectId> {
+    let (x, y) = (f64::from(x), f64::from(y));
+    let annotations = document.get_key(&page.dict, "Annots");
+    let Some(annotations) = annotations.as_array() else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
     for annotation in annotations {
         let Some(id) = annotation.as_reference() else {
             continue;
@@ -1784,13 +1844,7 @@ pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Opti
         // Table 166's rectangle is two opposite corners and states no order, so both are
         // normalised before the point is tested against them.
         if x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1) {
-            found = names
-                .get(&id)
-                .map(|qualified| FieldName {
-                    qualified: qualified.clone(),
-                    alternative: alternative_name(document, id),
-                })
-                .or(found);
+            found.push(id);
         }
     }
     found

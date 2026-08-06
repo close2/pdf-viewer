@@ -86,6 +86,29 @@ pub enum Query<'a> {
     /// Two names come back: [`pdf_model::view::FieldName::qualified`] addresses the field and
     /// [`pdf_model::view::FieldName::shown`] is what §14.9.3 requires a user interface to show.
     FieldAt((f32, f32)),
+    /// Where the caret sits in the field at a point, given how far into the value it is.
+    ///
+    /// The other half of typing, and the same shape [`Query::Focus`] takes: **the standard states
+    /// no caret at all**, so where a text cursor goes is derived from where §12.7.4.3 puts the
+    /// next glyph and what it *looks like* — its width, its colour, its blink — is the host's, in
+    /// its platform's own convention. §12.5.6.11's caret *annotation* is a different object and
+    /// nothing to do with this one. ADR 0211.
+    ///
+    /// The point names the field, exactly as [`Query::FieldAt`] does and for the reason ADR 0201
+    /// gives: a host holds the place it clicked rather than the text it typed, because a field
+    /// does not move and §12.7.5.3's truncation means the text can. The offset is a byte offset
+    /// into the value [`Answer::Field`] answered with, clamped to its length.
+    ///
+    /// [`Answer::None`] where no field is there, where its value is not text §12.7.4.3 lays out,
+    /// and where the value could not be laid out at all — the last is the same condition that
+    /// makes the page report the field, and a caret drawn from a layout that is not on the screen
+    /// would be a lie about where a character is going.
+    Caret {
+        /// Device pixels from the viewport's top-left corner, as [`Query::FieldAt`] takes.
+        at: (f32, f32),
+        /// How far into the field's value the caret is, in bytes.
+        offset: usize,
+    },
     /// Whether anything has been edited since the document opened.
     Dirty,
     /// §14.3.3's document information dictionary, and §14.3.2's metadata stream beside it.
@@ -256,6 +279,17 @@ pub enum Answer<'a> {
         /// A password field answers with Table 231 bit 14's bullets rather than with its
         /// characters: a host is allowed to draw them and not to know them.
         value: Option<String>,
+    },
+    /// Where the caret is, in device pixels of the viewport.
+    ///
+    /// Two points and not a rectangle, because a caret has no width: how thick a text cursor is
+    /// drawn is a platform's convention rather than a fact about the document, and a widget's
+    /// `/R`, its appearance's `/Matrix` or its `/DA`'s `Tm` can turn it off the axes anyway.
+    Caret {
+        /// The end on the descent side of the line's baseline — the *bottom* on an upright page.
+        from: (f32, f32),
+        /// The end on the ascent side.
+        to: (f32, f32),
     },
     /// Where a string occurs, one entry per occurrence in the order they are shown.
     ///

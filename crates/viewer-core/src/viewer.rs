@@ -169,6 +169,9 @@ impl Viewer {
                     let value = open.view.field_value(&open.document, &name.qualified);
                     Answer::Field { name, value }
                 }),
+            Query::Caret { at, offset } => self
+                .caret(open, at, offset)
+                .map_or(Answer::None, |(from, to)| Answer::Caret { from, to }),
             Query::Dirty => Answer::Dirty(open.dirty()),
             Query::Properties => Answer::Properties {
                 information: pdf_model::metadata::Information::read(&open.document),
@@ -935,24 +938,73 @@ impl Viewer {
     /// magnification and the y flip are exactly what was wrong for seventy-five sessions (ADR
     /// 0118), and a second opinion about them in a host — or in a second method here — would be
     /// that defect again. `[x0, y0, x1, y1]`, normalised, in; clockwise from the top-left as it
-    /// appears on the screen, out.
+    /// appears on the screen, out — for a page §7.7.3.3 does not turn, where the corner that is
+    /// lowest and leftmost in the document is also the one at the bottom left of the screen.
     fn device_quad(&self, open: &Open, rect: [f32; 4]) -> Option<[f32; 8]> {
+        let [x0, y0, x1, y1] = rect;
+        let corners = [(x0, y1), (x1, y1), (x1, y0), (x0, y0)];
+        let mut out = [0.0_f32; 8];
+        for (corner, place) in corners.iter().zip(out.chunks_exact_mut(2)) {
+            let (x, y) = self.device_point(open, *corner)?;
+            place[0] = x;
+            place[1] = y;
+        }
+        Some(out)
+    }
+
+    /// A point in **default user space**, in device pixels of the viewport.
+    ///
+    /// Two maps composed, and the second is the one a caller cannot be asked to redo: §7.7.3.3's
+    /// `/Rotate` and the crop box's own origin, which `content::page_space_at` applies, and then
+    /// the centring, the magnification and the y flip, which `on_screen` does. It is exactly
+    /// [`Self::user_space`] backwards — that function undoes the second and then the first — and
+    /// writing it as anything else is how the two halves come to disagree.
+    ///
+    /// **The page transform was missing here until the three-hundred-and-seventy-first session**,
+    /// so `Query::Focus`'s ring and `Query::Popups`' windows were placed as though every page were
+    /// unrotated with its crop box at the origin. Both are true of every corpus document that has
+    /// a widget — none of the 974 states a rotated page with one — which is why no gate saw it and
+    /// why this is arithmetic rather than a picture (ADR 0211).
+    fn device_point(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
+        let page = open.shown_page()?;
+        let (x, y) = pdf_model::content::page_space_at(page, at.0, at.1);
+        self.on_screen(open, (x, y))
+    }
+
+    /// A point in the **display list's** space, in device pixels of the viewport.
+    ///
+    /// The inverse of [`Self::page_point`], and the arithmetic every shape this crate hands over
+    /// goes through: the text layer's quadrilaterals are already in this space, and a rectangle
+    /// the *document* states reaches it through [`Self::device_point`].
+    fn on_screen(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
         let interpreted = open.interpreted.as_ref()?;
         let magnification = open.magnification(self.viewport, self.scale)?;
         let height = open.page_size(open.page_index).map(|size| size.height)?;
         let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
         let origin = open.origin(self.viewport, raster);
-        let place = |x: f32, y: f32| {
-            (
-                origin.0 + x * magnification,
-                origin.1 + (height - y) * magnification,
-            )
-        };
-        let [x0, y0, x1, y1] = rect;
-        // Clockwise from the top-left as it appears on the screen, which is the order
-        // `Selected::quads` uses and the order a host strokes a ring in.
-        let (a, b, c, d) = (place(x0, y1), place(x1, y1), place(x1, y0), place(x0, y0));
-        Some([a.0, a.1, b.0, b.1, c.0, c.1, d.0, d.1])
+        Some((
+            origin.0 + at.0 * magnification,
+            origin.1 + (height - at.1) * magnification,
+        ))
+    }
+
+    /// Where the caret sits in the field at a viewport point, in device pixels.
+    ///
+    /// The model answers in default user space — §12.7.4.3's layout is where the next glyph's
+    /// position comes from, and `ViewState::caret_at` is what asks it — and this is the one
+    /// mapping onto the screen that every other shape here already goes through.
+    fn caret(
+        &self,
+        open: &Open,
+        at: (f32, f32),
+        offset: usize,
+    ) -> Option<((f32, f32), (f32, f32))> {
+        let (x, y) = self.user_space(open, at)?;
+        let page = open.shown_page()?;
+        let segment = open.view.caret_at(&open.document, page, x, y, offset)?;
+        let from = self.device_point(open, (segment[0], segment[1]))?;
+        let to = self.device_point(open, (segment[2], segment[3]))?;
+        Some((from, to))
     }
 
     /// §12.5.1's tab order, applied: the focus moves to the next or previous annotation.
@@ -1101,6 +1153,11 @@ impl Viewer {
         };
         let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
         let origin = open.origin(self.viewport, raster);
+        // [`Self::on_screen`]'s formula, inlined over four corners at a time: this is asked sixty
+        // times a second during a drag and may answer with hundreds of quadrilaterals, so the
+        // magnification, the page height and the origin are read once per call rather than once
+        // per corner. A selection's shapes are already in the display list's space, so there is no
+        // page transform to compose — which is the whole difference from [`Self::device_point`].
         crate::select::quads_for(&interpreted.placed, range)
             .into_iter()
             .map(|quad| {

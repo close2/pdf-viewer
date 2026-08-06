@@ -943,3 +943,159 @@ fn a_multiline_field_that_may_not_scroll_stops_at_the_last_line_that_fits() {
         "about two lines' worth of characters, not {kept}"
     );
 }
+
+/// Where the caret goes, measured against the ink the same fixture draws.
+///
+/// **The standard states no caret** — §12.5.6.11's caret *annotation* is a different object, a
+/// mark left in a document to say text was edited there — so what is checked here is not a
+/// clause but the one relation that makes a text cursor mean anything: it stands where the next
+/// character will be drawn. §12.7.4.3 is what decides that, since it is what lays the value out,
+/// and the assertions below compare the caret against the marks that layout produced (ADR 0211).
+fn caret_of(bytes: Vec<u8>, offset: usize) -> [f32; 4] {
+    caret_in(bytes, offset, (100.0, 55.0))
+}
+
+/// The same, from a point the caller chooses inside the widget's `/Rect`.
+fn caret_in(bytes: Vec<u8>, offset: usize, at: (f32, f32)) -> [f32; 4] {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let view = pdf_model::view::ViewState::of(&document);
+    view.caret_at(&document, &page, at.0, at.1, offset)
+        .expect("the widget under the point lays text out")
+}
+
+#[test]
+fn a_caret_stands_where_the_next_character_will_be_drawn() {
+    // `/Rect [20 40 180 70]`, left-justified, three characters at twelve points.
+    let field = || text_field("abc", "", "");
+    let (_, raster) = draw(field());
+    let (first_ink, last_ink) = ink_span(&raster);
+
+    let start = caret_of(field(), 0);
+    let end = caret_of(field(), 3);
+
+    // A caret has no width: both ends share an x, which is what lets a host stroke it at
+    // whatever thickness its platform draws a text cursor at.
+    assert!(
+        (start[0] - start[2]).abs() < 0.001 && (end[0] - end[2]).abs() < 0.001,
+        "a caret is a vertical segment: {start:?} {end:?}"
+    );
+    // Before the first character it is at the box's left edge, which is where the first glyph
+    // starts — `/Rect`'s own edge inset by §12.5.4's border width, which this widget states
+    // as the Table 168 default of 1.
+    assert!(
+        (start[0] - 21.0).abs() < 0.5,
+        "the caret before a left-justified value sits at the left edge, not {}",
+        start[0]
+    );
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a column index on a 200-point page"
+    )]
+    let (first_ink, last_ink) = (first_ink as f32, last_ink as f32);
+    assert!(
+        (start[0] - first_ink).abs() < 2.0,
+        "and within a pixel or two of the first mark at {first_ink}: {}",
+        start[0]
+    );
+    // After the last character it is past the last mark and no further than one glyph beyond
+    // it — the advance of a character rather than the width of its ink.
+    assert!(
+        end[0] > last_ink && end[0] < last_ink + 12.0,
+        "the caret after the value stands just past the last mark at {last_ink}, not {}",
+        end[0]
+    );
+    // And the segment spans one line: the standard 14 have no font descriptor, so
+    // `variable_text`'s documented three-to-one split of the em is what states the ascent and
+    // the descent, and at twelve points that is twelve points from end to end.
+    let height = end[3] - end[1];
+    assert!(
+        (height - 12.0).abs() < 0.01,
+        "one em of a twelve-point line, not {height}"
+    );
+}
+
+#[test]
+fn a_caret_in_an_empty_field_is_where_the_first_character_will_go() {
+    // The case the layout skips when it is only drawing: an empty field draws nothing, and it
+    // still has somewhere the next character goes — which is the whole of what a person clicking
+    // into an untouched field is shown.
+    let empty = caret_of(text_field("", "", ""), 0);
+    let filled = caret_of(text_field("abc", "", ""), 0);
+    assert!(
+        (empty[0] - filled[0]).abs() < 0.001 && (empty[1] - filled[1]).abs() < 0.001,
+        "an empty field's caret is where the same field's first character would be: \
+         {empty:?} against {filled:?}"
+    );
+}
+
+#[test]
+fn a_caret_follows_the_quadding_the_field_states() {
+    // Table 228's `/Q`: with the value centred, the place the *next* character goes moves with
+    // the line rather than staying at the box's edge. Both carets are taken at the end of the
+    // same value, so the only difference between them is the clause.
+    let left = caret_of(text_field("abc", "/Q 0", ""), 3);
+    let centred = caret_of(text_field("abc", "/Q 1", ""), 3);
+    let right = caret_of(text_field("abc", "/Q 2", ""), 3);
+    assert!(
+        left[0] < centred[0] && centred[0] < right[0],
+        "left {left:?}, centred {centred:?}, right {right:?}"
+    );
+    // Right-justified text ends at the right edge of the box, so the caret after the last
+    // character stands there.
+    assert!(
+        (right[0] - 179.0).abs() < 0.5,
+        "the caret after a right-justified value sits at the right edge, not {}",
+        right[0]
+    );
+}
+
+#[test]
+fn a_caret_in_a_multiline_field_moves_down_a_line_at_a_time() {
+    // Table 231 bit 13 with a value that wraps: an offset in the second line's characters puts
+    // the caret on the second line, which is lower and further left than the end of the first.
+    let value = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+    let field = || {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 10 100 90] /F 4 /FT /Tx /Ff 4096 \
+                 /T (field) /V ({value}) /DA (/Helv 10 Tf 0 g) >>"
+            ),
+        )
+    };
+    let first = caret_in(field(), 0, (60.0, 50.0));
+    let last = caret_in(field(), value.len(), (60.0, 50.0));
+    assert!(
+        last[1] < first[1] - 10.0,
+        "the end of a wrapped value is at least one line below its start: {first:?} {last:?}"
+    );
+    assert!(
+        first[1] > 70.0,
+        "and a multiline field's first line starts at the top of its box, not {}",
+        first[1]
+    );
+}
+
+#[test]
+fn a_caret_in_a_comb_field_stands_at_the_next_cell() {
+    // Table 231 bit 25 divides the box into `/MaxLen` positions, so the place the next character
+    // goes is a *cell* rather than a gap between glyphs: eight cells across the 158 points inside
+    // `/Rect [20 40 180 70]`'s border are 19.75 apart, and each caret is one cell on from the
+    // last.
+    let comb = || {
+        pdf_with(
+            "",
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /Ff 16777216 \
+             /MaxLen 8 /T (field) /V (1234) /DA (/Helv 12 Tf 0 g) >>",
+        )
+    };
+    let cells: Vec<f32> = (0..5).map(|at| caret_of(comb(), at)[0]).collect();
+    for pair in cells.windows(2) {
+        let step = pair[1] - pair[0];
+        assert!(
+            (step - 19.75).abs() < 0.01,
+            "one comb of 19.75 points, not {step} ({cells:?})"
+        );
+    }
+}

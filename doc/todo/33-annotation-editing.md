@@ -1,10 +1,12 @@
 # Annotation editing, a caret, and logical-order selection
 
-Status: **markup landed in the three-hundred-and-twenty-first session** (ADR 0196) and **a window
-types into a field since the three-hundred-and-forty-ninth** (ADR 0201). What is left is a caret,
-and a host that sends the markup command from a drag.
+Status: **markup landed in the three-hundred-and-twenty-first session** (ADR 0196), **a window
+types into a field since the three-hundred-and-forty-ninth** (ADR 0201), and **a caret says where
+the next character goes since the three-hundred-and-seventy-first** (ADR 0211). What is left is
+free text, placing the caret by a click *inside* a value, a selection within one, and a host that
+sends the markup command from a drag.
 Priority: 33
-Clauses: §12.5.6.6, §12.5.6.10, §7.5.6, §14.8.2.5
+Clauses: §12.5.6.6, §12.5.6.10, §12.7.4.3, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
 `crates/pdf-syntax/src/write.rs`
 
@@ -36,30 +38,37 @@ from and it carries text this program would have to lay out (§12.7.4.3's `/DA` 
 clause over). Nothing in the corpus asks for it, and a host has nowhere to type it yet — the
 caret below is the same missing piece.
 
-## 2. A caret
+## 2. ~~A caret~~ — **done in the three-hundred-and-seventy-first session**
 
-Form-field editing landed in the hundred-and-thirty-fifth session and saving in the
-hundred-and-thirty-sixth, and until the three-hundred-and-forty-ninth **no window could reach
-either**: `viewer-ui` sent no `Edit::SetField` at all, and the only consumer the message ever had
-was the headless host.
+`Query::Caret { at, offset }` answers with the segment the next character will be drawn against, in
+device pixels of the viewport, and `viewer-ui` draws it: the arrow keys, Home and End move it,
+Backspace and Delete take out the character on either side of it, and the tab key aims the keyboard
+at whatever §12.5.1's walk lands on when that is a field with text in it. ADR 0211 has the argument.
+Three things worth keeping here:
 
-**It types now** (ADR 0201). A click inside a text field aims the keyboard at it, characters and
-Backspace go to the field, Escape gives the keyboard back, and the host keeps the *point* it
-clicked rather than the text it typed — so §12.7.5.3's `DoNotScroll` truncating a value is
-something it reads back rather than something it has to predict. `Answer::Field` carries the value
-for that, with `None` for a field whose value is not text and `Some("")` for an empty one.
+- **The place comes from §12.7.4.3's layout and not from the text layer.** An empty field has no
+  glyphs, and 147 of the corpus's first-page widgets are empty text fields — so `Interpretation::text_layer`,
+  which this file used to point at, cannot answer the commonest case at all. `variable_text::lay_out`
+  computes the caret in the same walk that writes the stream.
+- **The standard states no caret**, and §12.5.6.11's caret *annotation* is a different object. What
+  it looks like is the host's, exactly as §12.5.1's focus ring is.
+- **The host keeps a byte offset and clamps it** to the value the field accepted, because
+  §12.7.5.3's `DoNotScroll` truncates — the same reason ADR 0201 has it keep the point and not the
+  text.
 
-**So the caret is now the thing a person actually misses**, which is a better place to argue from
-than a list. A person typing sees the text and not where the next character goes; a person who
-wants to correct the middle of a value has to delete back to it. The text layer has the geometry —
-`Interpretation::text_layer` is one `Placed` per character code with the quadrilateral its glyph
-occupies — and what is missing is a *query* for the caret's quadrilateral given a field and an
-offset, plus the arrow keys and a selection inside a value.
+### What is still owed here: a point turned into an offset
 
-One more thing this round left: **typing into a field reached by the tab key**. §12.5.1's focus
-ring already marks which annotation the keyboard walk is on, and joining that to the typing state
-is one query away — but a focus ring on a *button* means something else, so it is a decision rather
-than a wire.
+Two things want the same missing piece, which is this query's *inverse*:
+
+- **A click inside a value places the caret.** Today a click aims the keyboard at the field and puts
+  the caret at the end of its value, wherever inside the field it landed; the arrow keys reach the
+  rest, so nothing is unreachable and everything is one press further away than it should be.
+- **A selection inside a value**, which is a drag between two such offsets — and then a decision
+  about what copy, cut and paste mean inside a field, which is a vocabulary question and not only a
+  geometry one.
+
+Neither is a clause: the standard says nothing about a text cursor, so both are choices to be made
+and written down the way ADR 0211's were.
 
 ## 3. ~~§14.8.2.5's logical order~~ — **done in the two-hundred-and-ninety-sixth session**
 
