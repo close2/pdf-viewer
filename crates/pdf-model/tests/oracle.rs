@@ -4158,9 +4158,24 @@ const AMBIGUOUS_FOUR_ANSWERS: [&str; 3] = [
 /// only the edge, and no clause decides it. §10.7.4 says a shape covering part of a pixel is the
 /// device's business and §8.5.3.3.1 calls the degenerate case "device-dependent and not generally
 /// useful"; three answers among five renderers is what a clause that decides nothing produces.
-const AMBIGUOUS_BOUNDARY_PIXELS: [&str; 2] = [
+/// # And its sibling, which is the same two rows
+///
+/// `coons-allflags-withfunction.pdf` page 1 is §8.7.4.5.6's Coons patch mesh where the other is
+/// §8.7.4.5.7's tensor-product one, and its profile is the same page's:
+///
+/// ```text
+/// row 203    ours   0   poppler 100   mupdf   0   ghostscript 100   hayro   0
+/// row 492    ours   0   poppler   0   mupdf   0   ghostscript  86   hayro  86
+/// ```
+///
+/// The same two rows, the same three-way split, the same values. `doc/todo/00`'s "check what else
+/// on the list is the same file" paying its seventh time — with the caution that goes with it,
+/// since `issue840.pdf`'s two pages were a colour and an edge respectively. Here the profile is
+/// what says they are the same rather than the name.
+const AMBIGUOUS_BOUNDARY_PIXELS: [&str; 3] = [
     "bug_jpx.pdf page 1",
     "tensor-allflags-withfunction.pdf page 1",
+    "coons-allflags-withfunction.pdf page 1",
 ];
 /// Ambiguous, and the five renderers agree to a fortieth of a level.
 ///
@@ -4476,8 +4491,36 @@ const AMBIGUOUS_LOCA_OUT_OF_ORDER: [&str; 1] = ["issue11131_reduced.pdf page 1"]
 /// *positive* side is "content nobody else is drawing", and taking the **minimum** over live
 /// references makes one outlier the whole comparison. Here that outlier is the finding. The
 /// ranking had it at 0.35 from the nearest and 2.62 from the furthest, which accuses nobody.
-const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 2] =
-    ["issue6006.pdf page 1", "bug920426.pdf page 1"];
+/// # And three where the reference that drew nothing is `mupdf`, on a function it does not evaluate
+///
+/// `colorspace_sin.pdf`, `colorspace_cos.pdf` and `colorspace_atan.pdf` are 276 × 276 and each
+/// paints one `/DeviceN` whose tint transform is a §7.10.5 **type 4 PostScript calculator
+/// function** — `{ pop exch 360 mul sin 2 add 4 div sub abs .1 exch sub … }`.
+///
+/// ```text
+///                    ours      hayro   ghostscript    poppler    mupdf
+/// sin and cos     29.1376    29.1376       29.1382    29.5397     0.00
+/// atan            28.0044    28.0044       28.0044    28.3870     0.00
+/// ```
+///
+/// **Ours and `hayro` are equal to four decimal places on all three**, `ghostscript` is within
+/// 0.0006, `poppler` is 0.39 above, and `mupdf` renders white paper. Four renderers agreeing to a
+/// ten-thousandth of a level while the fifth draws nothing is trap 9's "an unimplemented feature
+/// has a default" with the default being *nothing*, exactly as `issue6006.pdf` above.
+///
+/// Step 6 puts ours on the geometry: `poppler` descends 29.5397 → 29.1529 and **ours is flat at
+/// 29.1376** across an eightfold change, 0.015 under its limit.
+///
+/// **`colorspace_sin` and `colorspace_cos` render byte-identically** — the same md5 for our own
+/// panel — so they are one page under two names, which is `doc/todo/00`'s own check and the reason
+/// their numbers agree to the digit rather than merely closely.
+const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 5] = [
+    "issue6006.pdf page 1",
+    "bug920426.pdf page 1",
+    "colorspace_sin.pdf page 1",
+    "colorspace_cos.pdf page 1",
+    "colorspace_atan.pdf page 1",
+];
 
 /// Ambiguous, and both pages are gradients on a page too small for a bound to be loose.
 ///

@@ -14,10 +14,6 @@ bug1308536.pdf page 1
 bug1889122.pdf page 1
 bug911034.pdf page 1
 ccitt_EndOfBlock_false.pdf page 1
-colorspace_atan.pdf page 1
-colorspace_cos.pdf page 1
-colorspace_sin.pdf page 1
-coons-allflags-withfunction.pdf page 1
 decodeACSuccessive.pdf page 1
 images_1bit_grayscale.pdf page 1
 issue10339_reduced.pdf page 1
