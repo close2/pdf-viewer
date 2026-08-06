@@ -115,6 +115,7 @@ fn main() {
         outline: &outline,
         layers: &layers,
         attachments: &attachments,
+        articles: &[],
         information: &information,
         metadata: metadata.as_ref(),
         pages: &[],

@@ -183,6 +183,7 @@ fn sidebar(viewer: &Viewer) -> (pdf_render::DisplayList, u32) {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        articles: &[],
         information: &information,
         metadata: None,
         pages: &[],

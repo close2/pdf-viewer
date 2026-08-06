@@ -134,6 +134,12 @@ impl Viewer {
             Query::Attachments => {
                 Answer::Attachments(pdf_model::attachment::attachments(&open.document))
             }
+            // Read here rather than held on `Open`: see `Query::Articles`. Two of the 974 corpus
+            // documents state a `/Threads` entry at all, one of them an empty array and one a
+            // null, so a list built at launch would be empty 999 times in a thousand.
+            Query::Articles => {
+                Answer::Articles(pdf_model::article::Articles::read(&open.document).threads)
+            }
             Query::PageLabel(index) => label(open, index).map_or(Answer::None, Answer::Label),
             Query::Thumbnail(index) => pdf_model::Pages::new(&open.document)
                 .get(index)

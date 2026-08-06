@@ -55,6 +55,7 @@ fn only(outline: &Outline) -> Content<'_> {
         outline,
         layers: &[],
         attachments: &[],
+        articles: &[],
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -121,10 +122,10 @@ fn ink_within(
 /// written out here rather than exported, because a test that computed the position with the
 /// code under test would follow it into any mistake. **Update the divisor when a tab is added**:
 /// two tests failed the day §12.3.4's arrived, on a hard-coded 100.0 that had meant "the second
-/// of four" and came to mean "the second of five".
+/// of four" and came to mean "the second of five", and three failed the day §12.4.3's did.
 fn tab(index: usize) -> f32 {
-    #[expect(clippy::cast_precision_loss, reason = "one of five tabs")]
-    let middle = (index as f32 + 0.5) / 5.0;
+    #[expect(clippy::cast_precision_loss, reason = "one of six tabs")]
+    let middle = (index as f32 + 0.5) / 6.0;
     300.0 * middle
 }
 
@@ -325,6 +326,7 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
         outline: &outline,
         layers: &layers,
         attachments: &[],
+        articles: &[],
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -377,6 +379,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        articles: &[],
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -406,6 +409,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         outline: &outline,
         layers: &[],
         attachments: &files,
+        articles: &[],
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -417,6 +421,94 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         panel.click((80.0, 36.0), listed, 1.0),
         Some(Hit::Extract(files[0].name.clone()))
     );
+}
+
+/// §12.4.3's threads, listed and followed — the sixth tab.
+///
+/// The clause states the structure and makes the *way in* a permission: "[i]nteractive PDF
+/// processors may provide navigation facilities to allow the user to follow a thread from one bead
+/// to the next". So the panel is this host's answer to that permission, and what it owes is a row
+/// per thread and a click that means follow it.
+///
+/// **Not one of the 974 corpus documents states an article thread**, which is why the fixture is
+/// written here: trap 8's converse, and the same position §12.7.4.3's comb and password fixtures
+/// are in.
+#[test]
+fn the_read_tab_lists_a_thread_and_a_click_follows_it() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let outline = Outline::default();
+    let empty = Content {
+        outline: &outline,
+        layers: &[],
+        attachments: &[],
+        articles: &[],
+        information: &NOTHING,
+        metadata: None,
+        pages: &[],
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    assert_eq!(
+        panel.click((tab(4), 8.0), empty, 1.0),
+        Some(Hit::Redraw),
+        "the Read tab"
+    );
+    assert!(
+        ink(&panel.draw(&chrome, empty, HEIGHT, 1.0), 26..46) > 40,
+        "an empty list must say it is empty"
+    );
+
+    let threads = vec![
+        pdf_model::article::Thread {
+            id: ObjectId::new(7, 0),
+            title: Some("The leading story".to_owned()),
+            beads: vec![bead(11), bead(12), bead(13)],
+        },
+        // A thread with no `/I` is still a thread: Table 158 makes the information dictionary
+        // optional, so the row falls back to the clause's own noun and the array's order.
+        pdf_model::article::Thread {
+            id: ObjectId::new(8, 0),
+            title: None,
+            beads: vec![bead(14)],
+        },
+    ];
+    let listed = Content {
+        outline: &outline,
+        layers: &[],
+        attachments: &[],
+        articles: &threads,
+        information: &NOTHING,
+        metadata: None,
+        pages: &[],
+    };
+    assert!(
+        ink(&panel.draw(&chrome, listed, HEIGHT, 1.0), 26..46) > 40,
+        "the first thread's title is drawn"
+    );
+    assert!(
+        ink(&panel.draw(&chrome, listed, HEIGHT, 1.0), 46..66) > 40,
+        "and the untitled one below it is a row too"
+    );
+    // The same message §12.3.3's outline sends: the object, not a destination. What activating a
+    // thread means is the *document*'s to decide, and `viewer_core::interact` composes §12.6.4.7's
+    // own thread action out of it.
+    assert_eq!(
+        panel.click((80.0, 36.0), listed, 1.0),
+        Some(Hit::Activate(ObjectId::new(7, 0)))
+    );
+    assert_eq!(
+        panel.click((80.0, 56.0), listed, 1.0),
+        Some(Hit::Activate(ObjectId::new(8, 0)))
+    );
+}
+
+/// A bead with an object number and nothing else the panel reads.
+fn bead(number: u32) -> pdf_model::article::Bead {
+    pdf_model::article::Bead {
+        id: ObjectId::new(number, 0),
+        page: None,
+        rect: None,
+    }
 }
 
 /// A corpus document's bytes, or `None` when the submodule is not checked out.
@@ -494,6 +586,7 @@ fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        articles: &[],
         information: &information,
         metadata: None,
         pages: &[],
@@ -502,7 +595,7 @@ fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
     panel.toggle();
     // The fourth of four tabs.
     assert_eq!(
-        panel.click((tab(4), 8.0), stated, 1.0),
+        panel.click((tab(5), 8.0), stated, 1.0),
         Some(Hit::Redraw),
         "the About tab"
     );
@@ -599,6 +692,7 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        articles: &[],
         information: &NOTHING,
         metadata: None,
         pages: &pages,

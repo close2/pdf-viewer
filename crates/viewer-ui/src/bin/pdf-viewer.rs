@@ -353,6 +353,7 @@ fn main() {
         about: About::default(),
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
+        articles: Vec::new(),
         pages: Vec::new(),
         information: pdf_model::metadata::Information::default(),
         metadata: None,
@@ -491,6 +492,9 @@ struct App {
     outline: pdf_model::outline::Outline,
     /// §7.11.4's embedded files, likewise.
     attachments: Vec<pdf_model::attachment::Attachment>,
+    /// §12.4.3's article threads, likewise: `Query::Articles` reads them on demand and the list
+    /// belongs to a document that no edit reaches.
+    articles: Vec<pdf_model::article::Thread>,
     /// §14.3.3's Table 349, likewise.
     information: pdf_model::metadata::Information,
     /// §14.3.2's metadata stream, read — `None` where the catalog names none.
@@ -626,9 +630,9 @@ impl App {
         )
     }
 
-    /// Takes the two lists a document cannot change, once, when it opens.
+    /// Takes the lists a document cannot change, once, when it opens.
     ///
-    /// §12.3.3's outline and §7.11.4's embedded files. `Answer::Outline` borrows the viewer, so
+    /// §12.3.3's outline, §7.11.4's embedded files and §12.4.3's article threads. `Answer::Outline` borrows the viewer, so
     /// what the panel holds is a copy — see the fields' own note — and both are properties of an
     /// immutable document, so a copy cannot go stale. §8.11's layers are *not* here for exactly
     /// that reason.
@@ -638,6 +642,9 @@ impl App {
         }
         if let Answer::Attachments(files) = self.viewer.query(Query::Attachments) {
             self.attachments = files;
+        }
+        if let Answer::Articles(threads) = self.viewer.query(Query::Articles) {
+            self.articles = threads;
         }
         if let Answer::Properties {
             information,
@@ -664,13 +671,18 @@ impl App {
         self.retitle();
         self.obey_page_mode();
         let layers = self.layers().len();
-        if !self.outline.items.is_empty() || !self.attachments.is_empty() || layers > 0 {
+        if !self.outline.items.is_empty()
+            || !self.attachments.is_empty()
+            || !self.articles.is_empty()
+            || layers > 0
+        {
             println!(
-                "{}: {} outline item(s), {layers} layer entr(ies), {} embedded file(s) — \
-                 press o for the panel",
+                "{}: {} outline item(s), {layers} layer entr(ies), {} embedded file(s), {} \
+                 article thread(s) — press o for the panel",
                 self.title,
                 self.outline.visible_count(),
-                self.attachments.len()
+                self.attachments.len(),
+                self.articles.len()
             );
         }
     }
@@ -762,6 +774,7 @@ impl App {
             outline: &self.outline,
             layers,
             attachments: &self.attachments,
+            articles: &self.articles,
             information: &self.information,
             metadata: self.metadata.as_ref(),
             pages: &self.pages,
@@ -814,6 +827,7 @@ impl App {
                 outline: &self.outline,
                 layers: &layers,
                 attachments: &self.attachments,
+                articles: &self.articles,
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
                 pages: &self.pages,
@@ -897,6 +911,7 @@ impl App {
                 outline: &self.outline,
                 layers: &layers,
                 attachments: &self.attachments,
+                articles: &self.articles,
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
                 pages: &self.pages,
@@ -989,6 +1004,7 @@ impl App {
                     outline: &self.outline,
                     layers: &layers,
                     attachments: &self.attachments,
+                    articles: &self.articles,
                     information: &self.information,
                     metadata: self.metadata.as_ref(),
                     pages: &self.pages,

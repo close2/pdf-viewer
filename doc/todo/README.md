@@ -52,7 +52,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [33](33-annotation-editing.md) | A caret, and free text — §12.5.6.10's markup and §14.8.2.5's logical order are done | — |
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser, not only the codecs | — |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out | — |
-| [36](36-two-panels-with-no-witness.md) | §12.3.5's collection browser and §12.4.3's article list — a sixth and seventh tab, no witness | 0 |
+| [36](36-two-panels-with-no-witness.md) | §12.3.5's collection browser — the seventh tab; §12.4.3's articles are the sixth and are drawn | 0 |
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect | 1 |
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
 | [42](42-the-launch-path.md) | The launch path: 145 ms to 110, four of five items closed, the fifth is quorra's | all |

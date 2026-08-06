@@ -13,7 +13,7 @@ use pdf_model::Pages;
 use pdf_model::action::{Action, EmbeddedGoTo, ImportData, Trigger};
 use pdf_model::navigation::Transition;
 use pdf_model::view::{Pointer, Request};
-use pdf_syntax::{Document, ObjectId};
+use pdf_syntax::{Dictionary, Document, ObjectId};
 
 use crate::command::Purpose;
 use crate::open::Open;
@@ -49,7 +49,7 @@ pub(crate) struct Outcome {
 }
 
 /// Whether this dictionary is one of §12.5.6.14's popup annotations.
-fn is_popup(document: &Document, dict: &pdf_syntax::Dictionary) -> bool {
+fn is_popup(document: &Document, dict: &Dictionary) -> bool {
     document
         .get_key(dict, "Subtype")
         .as_name()
@@ -152,10 +152,56 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
                 _ => None,
             })
         });
+    // §12.4.3's thread is the third thing a host can hand this, and it states neither `/A` nor
+    // `/Dest`: a thread dictionary is Table 158's `/F`, `/I` and nothing that names a place. So
+    // what activating one means has to be *composed* — and §12.6.4.7 has already composed it, as
+    // the action a file writes to do the same job. Turning the object into that action's own
+    // `ThreadTarget::Object` reuses `Request::Thread` whole, down to Table 163's `/R` framing the
+    // bead rather than the page it sits on, rather than adding a second route to one place.
+    if actions.is_empty() && destination.is_none() && is_thread(&open.document, dict) {
+        let jump = pdf_model::action::ThreadJump {
+            thread: pdf_model::action::ThreadTarget::Object(id),
+            // Table 209 makes `/B` optional and says what its absence means; a thread activated
+            // from a list has named no bead either, so it means the same thing.
+            bead: None,
+        };
+        return perform(
+            open,
+            &[Action::Thread(jump)],
+            None,
+            None,
+            "this article thread",
+        );
+    }
     // **No position.** §12.6.4.8's `/IsMap` "applies only to actions triggered by the user's
     // clicking an annotation; it shall be ignored for actions associated with outline items" —
     // so the clause itself says what a caller with no cursor position does here.
     perform(open, &actions, destination, None, "this item")
+}
+
+/// Whether a dictionary is one of §12.4.3's article threads.
+///
+/// Table 158 gives a thread dictionary an optional `/Type /Thread` and a **required** `/F`, "[a]n
+/// indirect reference to the first bead in the thread", so the entry that must be there is the one
+/// to test and the one that may be there is the one to accept. A bead is not mistaken for a thread
+/// by either: Table 163 names a bead's own first entry `/T`, pointing the other way.
+fn is_thread(document: &Document, dict: &Dictionary) -> bool {
+    if document
+        .get_key(dict, "Type")
+        .as_name()
+        .map(pdf_syntax::Name::as_bytes)
+        == Some(b"Thread")
+    {
+        return true;
+    }
+    dict.get("F")
+        .and_then(pdf_syntax::Object::as_reference)
+        .is_some()
+        && document.get_key(dict, "F").as_dict().is_some_and(|bead| {
+            // A bead's `/T` refers back to its thread, which is what tells a thread's `/F` from a
+            // file specification's `/F` — the other entry of that name a dictionary can carry.
+            bead.get("T").is_some() || bead.get("N").is_some()
+        })
 }
 
 /// Performs §12.6.3's trigger event on one annotation, where the file states actions for it.
@@ -189,7 +235,7 @@ pub(crate) fn trigger(open: &mut Open, annotation: ObjectId, event: Trigger) -> 
 /// `/AA` is not one of §7.7.3.4's inheritable entries, which `action::for_page` states.
 pub(crate) fn page_trigger(
     open: &mut Open,
-    page: &pdf_syntax::Dictionary,
+    page: &Dictionary,
     event: pdf_model::action::PageTrigger,
 ) -> Outcome {
     let actions = pdf_model::action::for_page(&open.document, page, event);

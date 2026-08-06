@@ -533,7 +533,7 @@ impl Row {
     }
 }
 
-/// Which of the three lists the sidebar is showing.
+/// Which of the sidebar's lists it is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
     /// §12.3.3's outline.
@@ -545,17 +545,20 @@ pub enum Tab {
     Layers,
     /// §7.11.4's embedded files.
     Files,
+    /// §12.4.3's article threads.
+    Articles,
     /// §14.3.3's document information dictionary.
     Document,
 }
 
 impl Tab {
-    /// The five, in the order they are drawn.
-    const ALL: [Self; 5] = [
+    /// The six, in the order they are drawn.
+    const ALL: [Self; 6] = [
         Self::Contents,
         Self::Pages,
         Self::Layers,
         Self::Files,
+        Self::Articles,
         Self::Document,
     ];
 
@@ -566,6 +569,9 @@ impl Tab {
             Self::Pages => "Pages",
             Self::Layers => "Layers",
             Self::Files => "Files",
+            // Short enough for a sixth tab in 300 logical pixels, and the clause's own noun:
+            // §12.4.3 calls the thing "an article thread" and its `/I` title is the article's.
+            Self::Articles => "Read",
             Self::Document => "About",
         }
     }
@@ -577,7 +583,8 @@ impl Tab {
             Self::Pages => 1,
             Self::Layers => 2,
             Self::Files => 3,
-            Self::Document => 4,
+            Self::Articles => 4,
+            Self::Document => 5,
         }
     }
 }
@@ -595,6 +602,8 @@ pub struct Content<'a> {
     pub layers: &'a [Layer],
     /// [`viewer_core::Query::Attachments`].
     pub attachments: &'a [pdf_model::attachment::Attachment],
+    /// [`viewer_core::Query::Articles`]: §12.4.3's threads, in the `/Threads` array's order.
+    pub articles: &'a [pdf_model::article::Thread],
     /// §14.3.3's Table 349, from [`viewer_core::Query::Properties`].
     pub information: &'a pdf_model::metadata::Information,
     /// §14.3.2's metadata stream, read — `None` where the catalog names none.
@@ -657,7 +666,7 @@ pub struct Sidebar {
     /// and this records only what a person changed.
     toggled: std::collections::BTreeSet<usize>,
     /// How far each list is scrolled, in logical pixels, never negative.
-    scroll: [f32; 5],
+    scroll: [f32; 6],
     /// Which row the pointer is over, for the hover highlight.
     hovered: Option<usize>,
 }
@@ -881,6 +890,31 @@ impl Sidebar {
                     out.push(nothing("This document has no pages."));
                 }
             }
+            Tab::Articles => {
+                for thread in content.articles {
+                    // §12.4.3 puts the title in the thread's *information* dictionary — Table 159
+                    // is §14.3.3's Table 349 by another name — and a thread that states none is
+                    // still a thread, so it gets the clause's own noun and its place in the array.
+                    let label = thread
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| format!("Article {}", out.len().saturating_add(1)));
+                    let mut row = Row::plain(0, label);
+                    row.detail = Some(match thread.beads.len() {
+                        1 => "1 bead".to_owned(),
+                        count => format!("{count} beads"),
+                    });
+                    // The same message an outline row sends, and for the same reason: the
+                    // *document* decides what activating an object means. `interact` composes
+                    // §12.6.4.7's own thread action out of it, so a click lands on Table 163's
+                    // `/R` rather than on the page the first bead happens to sit on.
+                    row.act = Act::Activate(thread.id);
+                    out.push(row);
+                }
+                if out.is_empty() {
+                    out.push(nothing("This document states no article threads."));
+                }
+            }
             Tab::Document => property_rows(content, &mut out),
         }
         out
@@ -1071,7 +1105,7 @@ impl Sidebar {
         rectangle(list, (0.0, 0.0, width, strip - scale), BACKGROUND);
         #[expect(
             clippy::cast_precision_loss,
-            reason = "the number of tabs, which is five"
+            reason = "the number of tabs, which is six"
         )]
         let each = width / Tab::ALL.len() as f32;
         for (index, tab) in Tab::ALL.into_iter().enumerate() {

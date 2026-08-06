@@ -36,6 +36,19 @@ pub enum Query<'a> {
     Layers,
     /// §7.11.4's embedded files, listed rather than extracted.
     Attachments,
+    /// §12.4.3's article threads, as a panel would list them.
+    ///
+    /// The clause states the *structure* and leaves the way in to a viewer — "[i]nteractive PDF
+    /// processors **may** provide navigation facilities to allow the user to follow a thread from
+    /// one bead to the next" — so what crosses is the list and the choosing is a host's.
+    /// [`crate::Command::Activate`] on a thread's object follows it, which is the same message an
+    /// outline row sends and for the same reason: the *document* decides what activating a thing
+    /// means.
+    ///
+    /// **Read on demand rather than when the document opens.** An article is a list nothing else
+    /// consults, and `CLAUDE.md`'s "nothing eager" applies to the two documents in a thousand that
+    /// would pay for it at launch — the same decision `interact`'s thread action already makes.
+    Articles,
     /// §12.4.2's page label for one page, where the document states one.
     ///
     /// [`Query::CurrentPage`] answers it for the page being shown, which is what a title bar
@@ -187,6 +200,8 @@ pub enum Answer<'a> {
     Layers(Vec<Layer>),
     /// §7.11.4's embedded files.
     Attachments(Vec<pdf_model::attachment::Attachment>),
+    /// §12.4.3's article threads, in the `/Threads` array's own order.
+    Articles(Vec<pdf_model::article::Thread>),
     /// §12.4.2's label for the page asked about, or [`Answer::None`] where it states none.
     Label(String),
     /// §12.3.4's thumbnail for the page asked about, decoded.
