@@ -11,7 +11,6 @@
 # One page per line, exactly as the gate names it. Blank lines and lines beginning with `#`
 # are ignored.
 bug1308536.pdf page 1
-bug1872721.pdf page 1
 bug1889122.pdf page 1
 bug911034.pdf page 1
 ccitt_EndOfBlock_false.pdf page 1
@@ -32,7 +31,6 @@ issue18072.pdf page 1
 issue1905.pdf page 1
 issue2840.pdf page 1
 issue3584.pdf page 1
-issue4246.pdf page 1
 issue4379.pdf page 1
 issue4665.pdf page 1
 issue6769_no_matrix.pdf page 1

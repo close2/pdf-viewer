@@ -4162,6 +4162,50 @@ const AMBIGUOUS_BOUNDARY_PIXELS: [&str; 2] = [
     "bug_jpx.pdf page 1",
     "tensor-allflags-withfunction.pdf page 1",
 ];
+/// Ambiguous, and the five renderers agree to a fortieth of a level.
+///
+/// Two pages the three-hundred-and-fifty-third session took off §3a's ranking, both for the same
+/// reason: the verdict is `ambiguous` because no *pair* of references is close enough to form a
+/// consensus, and the reason no pair is close enough is that **all five are already within a
+/// rounding error of each other**. A bound that is a fraction of a level is a bound nobody meets.
+///
+/// # `issue4246.pdf`, where our eight-times render *is* a reference's limit
+///
+/// 595 × 842 and **one command**, which `doc/todo/00`'s step 4 says means one image — a 50 × 40
+/// indexed image at 7 ppi with a 1000 × 800 stencil mask over it, magnified across most of the
+/// page.
+///
+/// ```text
+/// ours 5.86948 │ ghostscript 5.86801 │ hayro 5.86707 │ mupdf 5.87978 │ poppler 5.89171
+/// ```
+///
+/// **The five span 0.0246 of 255**, and step 6 closes it further:
+///
+/// ```text
+///                72 dpi     576 dpi
+/// poppler       5.89171    5.86779
+/// mupdf         5.87978    5.86170
+/// ours (1x/8x)  5.86948    5.86779
+/// ```
+///
+/// **Ours at eight times equals `poppler`'s limit to seven significant figures** — 5.86779 both —
+/// and `mupdf`'s is 0.006 below. There is nothing on this page for anybody to be wrong about, and
+/// the entry exists because a page can sit on §3a's ranking for that reason alone.
+///
+/// # `bug1872721.pdf`, which is 88 × 31
+///
+/// Ten commands on a page the size of a postage stamp, and the five span 0.42 of 255 with ours in
+/// the middle. Three ladders all *climb* and end within **0.028 of 255** of each other — `poppler`
+/// 12.2616, `mupdf` 12.2763, ours 12.2897 — which on a page of 2728 pixels is a handful of
+/// partly-covered ones.
+///
+/// **And the renderers do not agree about the raster's own size**: 87 × 31 for ours and
+/// `ghostscript`, 88 × 31 for `poppler` and `mupdf`, 87 × 30 for `hayro`. On a page this small a
+/// column is more than 1% of it, which is `doc/todo/00`'s `magick identify` rule at the scale
+/// where it bites hardest — and the reason the numbers above are means rather than a pairwise
+/// metric.
+const AMBIGUOUS_INSIDE_A_ROUNDING_ERROR: [&str; 2] =
+    ["issue4246.pdf page 1", "bug1872721.pdf page 1"];
 
 /// Ambiguous, and §11.4.6's knockout groups are the whole of it.
 ///
@@ -5178,6 +5222,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
         .chain(&AMBIGUOUS_FOUR_ANSWERS)
         .chain(&AMBIGUOUS_BOUNDARY_PIXELS)
+        .chain(&AMBIGUOUS_INSIDE_A_ROUNDING_ERROR)
         .chain(&AMBIGUOUS_KNOCKOUT_GROUP)
         .chain(&AMBIGUOUS_TABLE_RULE_EDGES)
         .chain(&AMBIGUOUS_ONE_LADDER)
