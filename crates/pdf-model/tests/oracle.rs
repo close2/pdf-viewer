@@ -4274,6 +4274,28 @@ const AMBIGUOUS_INSIDE_A_ROUNDING_ERROR: [&str; 3] = [
 ///
 /// The panels are not all one size on two of the three — 595 × 842, 596 × 842 and 595 × 841 — so
 /// the numbers above are means, for `doc/todo/00`'s reason.
+/// Ambiguous, and **this page is drawn wrong** — §10.5's transfer function, unapplied.
+///
+/// `issue6931_reduced.pdf` page 1 says, in words, *The color should be red*, and it is the entry
+/// that proves this bucket's whole premise: a page can be plainly wrong inside an `ambiguous`
+/// verdict with nothing announcing it. It is not on the ranking — 0.35 from the nearest reference
+/// — and it came off `doc/todo/00`'s **step 7** at **+17.26**, our ink minus the lightest live
+/// reference's.
+///
+/// ```text
+/// ours 20.3861 │ mupdf 20.6726 │ poppler 3.12869 │ ghostscript 3.70614 │ hayro 3.67272
+/// ```
+///
+/// The image's samples are near black — ours reads `[2, 2, 2]` and `pdfimages`, *poppler's own*
+/// extractor, writes a PNG of `srgb(2,2,2)` — and the `/ExtGState` in force when it is drawn sets
+/// `/TR` to three type-0 sampled functions that map **2/255 to 0.992**. Three renderers apply the
+/// function and show a red heart on white; ours and `mupdf` do not and show a black square.
+///
+/// **It is listed here rather than fixed** because implementing §10.5 crosses `CLAUDE.md`'s own
+/// scope sentence, which calls transfer functions inapplicable. §10.5's ledger row is `silent` —
+/// the first since the thirty-fifth session — and `doc/todo/13` carries the evidence and the cost.
+const AMBIGUOUS_TRANSFER_FUNCTION_UNAPPLIED: [&str; 1] = ["issue6931_reduced.pdf page 1"];
+
 const AMBIGUOUS_OURS_ON_THE_LIMIT: [&str; 3] = [
     "images_1bit_grayscale.pdf page 1",
     "decodeACSuccessive.pdf page 1",
@@ -5337,6 +5359,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_BOUNDARY_PIXELS)
         .chain(&AMBIGUOUS_INSIDE_A_ROUNDING_ERROR)
         .chain(&AMBIGUOUS_OURS_ON_THE_LIMIT)
+        .chain(&AMBIGUOUS_TRANSFER_FUNCTION_UNAPPLIED)
         .chain(&AMBIGUOUS_KNOCKOUT_GROUP)
         .chain(&AMBIGUOUS_TABLE_RULE_EDGES)
         .chain(&AMBIGUOUS_ONE_LADDER)
