@@ -5256,6 +5256,56 @@ const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 24] = [
     "pr12564.pdf page 1",
 ];
 
+/// Ambiguous because two references clip a soft mask with an axis-aligned box.
+///
+/// `issue16742.pdf` page 1 is **one command**: a 200 × 200 green square, rotated ten degrees,
+/// filled under an `/ExtGState` whose `/SMask` is a `/Luminosity` mask. It came off
+/// `doc/todo/00`'s ranking at 0.04 from the nearest reference and **19.88 from the furthest**,
+/// which is the widest spread in the bucket, and the five split cleanly in two:
+///
+/// ```text
+/// mupdf 49.3966 │ hayro 49.4025 │ ours 49.4034 │ ghostscript 64.638 │ poppler 65.7891
+/// ```
+///
+/// **Three inside 0.007 of 255 and two painting a third more ink.** No ladder is needed, because
+/// the disagreement is where the green *stops*, and one column profile says which of the two
+/// answers the standard states.
+///
+/// The mask group's bounding box is `/BBox [-20 -20 80 220.00002]` — a strip a hundred units wide
+/// — while its content fills white over the whole 0…200 square. So the mask is white inside that
+/// strip and, §11.6.5.1:
+///
+/// > Outside the transparency group's bounding box, the mask value shall be derived by
+/// > transforming the BC colour to luminosity and applying the transfer function to the result.
+///
+/// with Table 145's `/BC` absent and its default "the colour space's initial value, representing
+/// black" — luminosity 0, so nothing is painted there. And §8.10.2 puts the box in the *form's*
+/// coordinate space, which here is the rotated one: the `gs` that sets the mask is executed after
+/// `0.9848077 0.17364818 -0.17364818 0.9848077 0 0 cm`.
+///
+/// The right-hand edge of the green, by row:
+///
+/// ```text
+///                row 50   row 100   row 150   row 199   max column
+/// ours              72       63        54        45         78
+/// mupdf             72       63        54        46         78
+/// hayro             72       63        54        46         78
+/// ghostscript       82       82        82        82         82
+/// poppler           83       83        83        83         83
+/// ```
+///
+/// **Three renderers draw a sloping edge and two draw a vertical one.** The slope is
+/// 27 columns over 149 rows, which is 0.181 — the tangent of ten degrees, the rotation the file
+/// states. And 0.9848 × 80 = **78.8**, which is where a boundary at x = 80 in the rotated space
+/// lands: our maximum column exactly. The two vertical edges sit at 82 and 83, and the device-space
+/// *bounding box* of the rotated `/BBox` reaches 0.9848 × 80 + 0.17365 × 20 = **82.2** — so those
+/// two renderers clip the mask by the axis-aligned bound of the box rather than by the box.
+///
+/// This is `CLAUDE.md` principle 5 running in the direction it is written in: the answer was
+/// derived from §11.6.5.1 and §8.10.2, and the agreement of `mupdf` and `hayro` is evidence that
+/// the reading is right rather than the reason for it.
+const AMBIGUOUS_ROTATED_MASK_BOUNDING_BOX: [&str; 1] = ["issue16742.pdf page 1"];
+
 /// Ambiguous because a bilevel image enlarged four times has no right answer at its edges.
 ///
 /// `jbig2_symbol_offset.pdf` page 1 draws one thing: a **132 × 14** one-bit `JBIG2Decode` image at
@@ -5583,6 +5633,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_DENSE_CHART_POSTER)
         .chain(&AMBIGUOUS_SUB_PIXEL_BARS)
         .chain(&AMBIGUOUS_ENLARGED_BILEVEL)
+        .chain(&AMBIGUOUS_ROTATED_MASK_BOUNDING_BOX)
         .chain(&AMBIGUOUS_HAIRLINE_BORDERS)
         .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
         .chain(&AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG)
