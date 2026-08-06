@@ -1771,6 +1771,15 @@ const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 2] =
 /// `Stroke::device_width` conditions the rule on `/SA` rather than applying it always, which
 /// is what makes this a derivation rather than a coincidence: 30 corpus documents state
 /// `/SA true` and this is the one page where it decides a pixel.
+///
+/// **A degenerate fill's mark *does* snap to the grid since the three-hundred-and-sixty-eighth
+/// session, and that is not this rule quietly arriving.** The two are separated by the clauses
+/// rather than by preference: a stroke has a width the document stated and §10.7.5 makes the
+/// adjustment of its coordinates conditional, while a fill with no extent has no width at all
+/// and §10.7.4 states which pixels its mark covers with no condition attached — and exempts a
+/// zero-width *stroke* from that same rule in the next sentence, "[z]ero-width strokes may be
+/// done in an implementation-defined manner that may include fewer pixels than the rule
+/// implies". So this page is still measuring what it says it measures. ADR 0208.
 const AMBIGUOUS_STROKE_ADJUSTMENT: [&str; 1] = ["bug1743245.pdf page 1"];
 
 /// Ambiguous because two references reduce a discontinuous function to something smooth.
@@ -1840,12 +1849,27 @@ const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_sh
 ///
 /// The grid draws, and the page is still `ambiguous` because the difference is now about the
 /// lines' **weight** rather than their existence. Ink over the page, as `255 − mean` on the
-/// artefacts beside this file: ours **19.79**, `hayro` **19.83**, `ghostscript` 6.29, `poppler`
+/// artefacts beside this file: ours **19.74**, `hayro` **19.83**, `ghostscript` 6.29, `poppler`
 /// 3.51, `mupdf` 2.16. §10.7.4 asks for the pixel to be *painted* — "no matter how small the
 /// intersection is" — which is a full mark and is what the two Rust renderers put down; the
 /// three C ones shade it by something under a fifth. That is
 /// `CONTRADICTED_ANTIALIASED_EDGES`' departure seen from the other side, and this project's
 /// answer is the clause's rather than the consensus's.
+///
+/// # And *where* the mark goes was the other half, paid in the three-hundred-and-sixty-eighth
+///
+/// The ink was right and its placement was not. Until that session each mark was a band of one
+/// device pixel centred on the shape's own fractional position, so an anti-aliasing rasteriser
+/// split it across two rows at every placement but one and the page came out as a mixture of
+/// crisp lines and fuzzy grey double ones — the project owner saw it beside Okular on a
+/// high-DPI screen. §10.7.4 states the answer twice: a filling region "is considered to
+/// intersect every pixel through which its boundary passes, even if the interior of the filling
+/// region is empty", and its EXAMPLE says a zero-height rectangle "paints a line 1 pixel wide".
+/// `render-quorra/examples/mark_width` measures it: 1–2 rows per line before and **1 row at
+/// 1.00 ink on both backends at 1×, 2× and 4×** after. The page's own numbers moved with it —
+/// mean 13.31 → 13.09, differing 10.02% → 6.87%, similarity 0.5619 → 0.5835 — and the verdict
+/// did not, because the references still disagree with each other about the weight. It is also
+/// the only page in the 1794 whose numbers moved at all. ADR 0208.
 ///
 /// The verdict was `ambiguous` before the fix as well, because the references disagree about the
 /// weight among themselves, so nobody's pair ever agreed closely enough to contradict us for

@@ -131,19 +131,32 @@ fn a_rectangle_of_no_width_marks_the_page_too() {
     );
 }
 
-/// The mark is the same one a zero-width stroke down the same line makes.
+/// The mark carries the ink a zero-width stroke down the same line carries, and not its pixels.
 ///
-/// This is what says the rule adds no second opinion about the device's minimum: §8.4.3.2's
-/// answer for a line and §10.7.4's for a flat fill are one width, stated once in
-/// `pdf_render::thinnest_line`. Exact equality rather than a tolerance — the two constructions
-/// meet at the same rectangle, and if they ever stop doing so a reader should be told.
+/// **This was an assertion of byte-identity until the three-hundred-and-sixty-eighth session,
+/// and it is an ink test now because the identity was broken on purpose.** What the two
+/// constructions still share is the *width*, which is the thing that must not drift: §8.4.3.2's
+/// answer for a line and §10.7.4's for a flat fill are one device pixel, stated once in
+/// `pdf_render::thinnest_line`, so each lays down one pixel of ink per device pixel of length.
+///
+/// What they no longer share is placement. The fill's mark is the whole device pixel row
+/// §10.7.4 says the shape's boundary passes through — the clause states that outright, and it
+/// has no width of its own for anything else to be derived from. The stroke keeps the
+/// coordinates the document gave it, because moving a stroke's coordinates onto the grid is
+/// §10.7.5's automatic stroke adjustment, which is conditioned on the graphics state's `/SA`
+/// and which this tree therefore does not do unasked. ADR 0208 argues it.
+///
+/// The line is placed off a pixel boundary deliberately: on one, the snapped row and the
+/// centred band are the same rectangle and the divergence this test pins would be invisible.
 #[test]
-fn a_flat_fill_marks_what_a_hairline_stroke_marks() {
-    let fill = filled(&zero_height_rectangle(50.5), FillRule::NonZero);
+fn a_flat_fill_carries_a_hairline_strokes_ink_at_its_own_placement() {
+    const OFF_THE_GRID: f32 = 50.3;
+
+    let fill = filled(&zero_height_rectangle(OFF_THE_GRID), FillRule::NonZero);
     let mut stroked = DisplayList::new(Size::new(PAGE, PAGE));
     let mut path = Path::new();
-    path.push(PathCommand::MoveTo(Point::new(10.0, 50.5)));
-    path.push(PathCommand::LineTo(Point::new(10.0 + LENGTH, 50.5)));
+    path.push(PathCommand::MoveTo(Point::new(10.0, OFF_THE_GRID)));
+    path.push(PathCommand::LineTo(Point::new(10.0 + LENGTH, OFF_THE_GRID)));
     stroked.push(Command::Stroke {
         path: Arc::new(path),
         transform: Transform::IDENTITY,
@@ -165,9 +178,19 @@ fn a_flat_fill_marks_what_a_hairline_stroke_marks() {
         let two = CpuRasterizer::new()
             .rasterize(&stroked, target)
             .expect("supported");
-        assert_eq!(
+        let expected = f64::from(LENGTH * scale);
+        let (mark, hairline) = (ink(&one), ink(&two));
+        assert!(
+            (mark - hairline).abs() < 1.0,
+            "at scale {scale} the mark carries {mark} and the hairline {hairline}"
+        );
+        assert!(
+            (mark - expected).abs() < 3.0,
+            "at scale {scale}: {mark} pixels of ink, expected about {expected}"
+        );
+        assert_ne!(
             one.data, two.data,
-            "at scale {scale} the flat fill and the hairline stroke differ"
+            "at scale {scale} the snapped mark and the unsnapped hairline should differ"
         );
     }
 }

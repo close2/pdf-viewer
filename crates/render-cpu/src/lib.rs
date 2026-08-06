@@ -864,8 +864,7 @@ impl CpuRasterizer {
         // live for exactly as long as this call.
         let mut scratch = None;
         let brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
-        let split = pdf_render::thinnest_line(at)
-            .and_then(|thinnest| pdf_render::split_collapsed_fill(source, thinnest));
+        let split = pdf_render::split_collapsed_fill(source, at);
         if let Some(split) = &split
             && !split.marks.is_empty()
             && let Some(marks) = convert::path(&split.marks)

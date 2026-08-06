@@ -209,8 +209,7 @@ impl<'a> Encoder<'a> {
         // blank). Marks fill under the **non-zero** rule whatever the command's
         // own rule is: a mark is a shape in its own right, and adding it to an
         // even-odd path's winding would punch a hole in what it should draw.
-        let split = pdf_render::thinnest_line(transform.then(self.target.transform))
-            .and_then(|thinnest| pdf_render::split_collapsed_fill(path, thinnest));
+        let split = pdf_render::split_collapsed_fill(path, transform.then(self.target.transform));
         if let Some(split) = split {
             if !split.marks.is_empty() {
                 let marks = self.transient_outline(&split.marks)?;

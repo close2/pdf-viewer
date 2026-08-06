@@ -1,6 +1,6 @@
 # Shared background: §10.7.4, and what this tree departs from
 
-Not a todo. Referred to by `10-hairline-mark-snapping.md`, `11-shapes-that-still-disappear.md`,
+Not a todo. Referred to by `11-shapes-that-still-disappear.md`,
 by `AMBIGUOUS_ZERO_AREA_FILL`, `AMBIGUOUS_TILING_CELL_CLIP`, `AMBIGUOUS_SUB_PIXEL_LINE_WORK` and
 `CONTRADICTED_ANTIALIASED_EDGES` in `oracle.rs`, and by the ledger's §10.7.4 row, which is the
 authoritative version.
@@ -35,6 +35,15 @@ rasteriser's own algorithm (the clause's last sentence allows it), and — since
 hundred-and-eighty-sixth session — **"no shape ever disappears"** for a fill whose subpath has no
 extent along one axis (`pdf_render::collapsed`, ADR 0154).
 
+**And since the three-hundred-and-sixty-eighth, *where* that mark goes.** NOTE 1 of the same
+subclause says a filling region "is considered to intersect every pixel through which its boundary
+passes, even if the interior of the filling region is empty", and its EXAMPLE says "A zero-width or
+zero-height rectangle paints a line 1 pixel wide" — so the mark is the run of whole device pixels
+the collapsed axis passes through, not a band at the shape's own fractional position. Both
+statements were in `doc/md/` for the whole of the rule's life and neither had been read. Under a
+rotation or a shear the band remains, because a slanted line's pixel run is a staircase; no corpus
+document writes one. ADR 0208.
+
 ## Where the departure is *visible*, and how to tell it from a defect
 
 Three oracle groups turn on this, and the distinction that matters is between a difference the
@@ -63,4 +72,11 @@ preference. The other half asks that "the line width and the coordinates of a st
 automatically be adjusted": that is grid-fitting, the non-uniformity it removes is an artefact of
 the aliased scan conversion this tree already departs from, and nothing reports it because there
 is no page on which this device could do better. **Any proposal to snap something to the pixel
-grid has to say why it is not this** — see `10-hairline-mark-snapping.md`, which does.
+grid has to say why it is not this.**
+
+The one that has been taken says it in two sentences, and both are the standard's. A stroke has a
+width the document stated, so adjusting its coordinates is *this* clause's requirement and is
+conditional; a degenerate fill has no width, so its mark is §10.7.4's construction, stated with no
+condition — and §10.7.4 exempts the zero-width **stroke** from that same rule in the next
+sentence, "Zero-width strokes may be done in an implementation-defined manner that may include
+fewer pixels than the rule implies". The fill's mark snaps and the `0 w` stroke does not. ADR 0208.

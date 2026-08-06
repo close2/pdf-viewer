@@ -430,13 +430,12 @@ fn encode_fill_command(
     scene: &mut vello::Scene,
     (path, rule): (&Path, peniko::Fill),
     spaces: Spaces,
-    to_path: Transform,
+    path_to_device: Transform,
     paint: &Paint,
     how: (Compose, BlendMode),
     target: TargetSpec,
 ) -> Result<(), GpuRasterError> {
-    let split = pdf_render::thinnest_line(to_path)
-        .and_then(|thinnest| pdf_render::split_collapsed_fill(path, thinnest));
+    let split = pdf_render::split_collapsed_fill(path, path_to_device);
     let Some(split) = split else {
         return encode_fill(scene, &bez_path(path), spaces, rule, paint, how, target);
     };

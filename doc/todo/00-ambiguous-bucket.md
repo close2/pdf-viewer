@@ -181,6 +181,18 @@ the other three are the same three session 265 named — `issue16038.pdf` at −
 (`AMBIGUOUS_GRADIENT_QUANTISATION`). Fourteen rounds of change and the negative tail has not moved,
 which is what a standing alarm is for.
 
+**Re-run in the three-hundred-and-sixty-eighth**, after the round that snapped §10.7.4's marks to
+the pixel grid (ADR 0208), over all 786 and filtered to the 743 on documents this tree calls
+complete. **The head did not move**: `issue16038.pdf` −6.40, `issue12295.pdf` −1.71,
+`issue7821.pdf` −1.07, then `jpx_smaskindata.pdf` −0.84 and `issue16473.pdf` −0.72 and nothing past
+−0.54 — three names at or past −1 and all three diagnosed, which is the fourth consecutive run of
+the alarm holding. The only entry that moved anywhere was the round's own page,
+`issue4260_reduced.pdf`, on the *positive* side at +17.635 → +17.577: two rules landing within one
+device pixel of each other now paint the same pixel instead of two overlapping bands, which is the
+clause. The absolute values here are a hair off the numbers above because this run's ink is
+`255 − mean` over a straight `L` conversion; what is compared across runs is the same instrument
+before and after, and it is unchanged.
+
 **And the run's *positive* side produced a name off the undiagnosed list**, which it had not done
 before. `bug920426.pdf` page 1 at **+21.07** — ours 25.49 against a lightest live reference of 4.42
 — is `poppler` drawing fourteen `.notdef` boxes where the other four draw *Checkliste Service*;

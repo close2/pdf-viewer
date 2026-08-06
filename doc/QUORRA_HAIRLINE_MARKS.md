@@ -85,6 +85,39 @@ is this tree's decision to take, not a backend's. Say the word and the quorra si
 will implement it, re-run the corpus at 1× and 4×, and bring the before/after numbers
 back to this document.
 
+## Answered, in the three-hundred-and-sixty-eighth session
+
+**Implemented, on this side rather than the quorra side**, because `pdf_render::split_collapsed_fill`
+is deliberately this tree's and the decision to move the oracle was this tree's to take. The
+proposal's shape was adopted whole — the placement transform passed in, the run of whole device
+pixels along the collapsed axis, the band kept under a rotation or a shear — with one thing
+checked and one thing added.
+
+**Checked**: the reading. §10.7.4 states the answer twice more than the sentence quoted above, and
+neither statement had ever been read here. NOTE 1: a filling region "is considered to intersect
+every pixel through which its boundary passes, even if the interior of the filling region is
+empty". EXAMPLE: "A zero-width or zero-height rectangle paints a line 1 pixel wide." The first is
+written *for* a region whose interior is empty and the second names this document's own shape, so
+the proposal is not an extrapolation from a general sentence — it is the clause's own two
+statements about the case.
+
+**Added**: the boundary against §10.7.5. A `0 w` stroke down the same line does **not** snap, the
+byte-identity test became an ink test, and the argument is in ADR 0208.
+
+The before/after numbers this document asked for:
+
+| | before | after |
+|---|---|---|
+| `mark_width`, both backends, 1×/2×/4× | 1–2 rows per line, ink 1.00 | **1 row, ink 1.00** everywhere |
+| corpus, 974 documents | 73 incomplete | 73, same set |
+| oracle, 1794 pages | 856 agree / 68 contradicted / 750 ambiguous | identical, every bucket |
+| oracle, this page | mean 13.31, differing 10.02%, ssim 0.5619 | mean **13.09**, differing **6.87%**, ssim **0.5835** |
+| quorra vs the CPU oracle | 913 agree, 43 differ | **914 agree, 42 differ** |
+
+`issue4260_reduced.pdf` page 1 is **the only page in the oracle's 1794 whose numbers moved at
+all**, and it left the quorra gate's `DIFFERS_AT_THE_EDGES` list: a band at a fractional position
+is exactly what two rasterisers spread differently, and a whole pixel row is not.
+
 ## Reproducing the numbers
 
 ```sh

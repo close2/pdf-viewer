@@ -49,6 +49,65 @@
 //! [`thinnest_line`] is where it is stated, so this rule adds no second opinion about what a
 //! device's minimum is — only a third place that asks for it.
 //!
+//! # Where it is painted, and why that is not the shape's own fractional position
+//!
+//! §10.7.4 states the answer twice more, and both statements are about *pixels* rather than
+//! about a width:
+//!
+//! > Normally, the intersection of two regions is defined as the intersection of their
+//! > interiors. However, for purposes of scan conversion, a filling region is considered to
+//! > intersect every pixel through which its boundary passes, even if the interior of the
+//! > filling region is empty.
+//!
+//! > A zero-width or zero-height rectangle paints a line 1 pixel wide.
+//!
+//! and the pixel a point belongs to is named in the same subclause:
+//!
+//! > let i = floor( x ) and j = floor( y ). The pixel that contains this point is the one
+//! > identified as ( i, j )
+//!
+//! So the mark is the **run of whole device pixels the collapsed axis passes through**, and
+//! that run is found by flooring the axis's device coordinate — not a band of one pixel's
+//! width centred whereever the shape happened to fall between two pixel centres, which is what
+//! this module built until the three-hundred-and-sixty-eighth session. The difference is
+//! visible rather than theoretical: an anti-aliasing rasteriser splits such a band across two
+//! rows at every placement but one, so a page ruled with a grid of them — `issue4260_reduced.pdf`
+//! is one — came out as a mixture of crisp lines and fuzzy grey double ones. A mark whose
+//! appearance depends on where it falls relative to the grid is precisely what the clause's own
+//! stated purpose forbids: "no shape ever disappears as a result of unfavourable placement
+//! relative to the device pixel grid".
+//!
+//! Only the collapsed axis is snapped. Along the other one the subpath has a stated extent, and
+//! what an extent gets on this device is the coverage its area implies — §10.7.4's first
+//! documented departure, argued in the ledger's row for this clause. Snapping the length as well
+//! would extend a departure from the clause into an axis where the clause is being followed.
+//!
+//! Snapping needs the placement transform to carry a device axis onto a path axis, so it is done
+//! only where [`Transform::preserves_axes`] holds — a scale and a translation, or a quarter turn,
+//! which is what every mark in the corpus rides. Under a rotation or a shear the collapsed axis
+//! lies across the pixel grid and "the run of pixels it passes through" is a staircase rather
+//! than a rectangle; there the band of one device pixel stays, as the stated fallback.
+//!
+//! # What does *not* move with it: a hairline stroke
+//!
+//! A `0 w` stroke down the same line still lands where the document puts it, and the two
+//! constructions are therefore no longer byte-identical. That is deliberate, and the clauses
+//! separate them rather than this renderer doing so.
+//!
+//! A degenerate fill has no width at all, so every pixel of its mark is this processor's
+//! construction under a rule §10.7.4 states without condition. A stroke has a width the document
+//! stated, and moving its *coordinates* onto the grid is §10.7.5's other half —
+//!
+//! > When stroke adjustment is enabled, the line width and the coordinates of a stroke shall
+//! > automatically be adjusted as necessary to produce lines of uniform thickness.
+//!
+//! — which is conditioned on the graphics state's `/SA`, and applying it unconditionally is what
+//! `AMBIGUOUS_STROKE_ADJUSTMENT`'s reading of `bug1743245.pdf` rests on this tree not doing.
+//! §10.7.4 says the same thing from its own side by exempting the zero-width stroke from the
+//! rule that governs the fill: "Zero-width strokes may be done in an implementation-defined
+//! manner that may include fewer pixels than the rule implies." The fill's placement is stated;
+//! the stroke's is left to the implementation and then made conditional. ADR 0208.
+//!
 //! The mark is *geometry* built here rather than a hairline stroke each backend applies,
 //! for the reason [`crate::degenerate`] states a circle rather than trusting a round cap: a
 //! decision either backend can make alone is a decision neither has made. It is also filled
@@ -65,7 +124,8 @@
 //! direction derived from it. No corpus document has been observed to write one, and a rule
 //! whose shape is guessed is worse than a stated absence.
 
-use crate::geom::{Path, PathCommand, Point};
+use crate::geom::{Path, PathCommand, Point, Transform};
+use crate::paint::thinnest_line;
 
 /// A fill's path separated into the part that encloses an area and the marks left by the part
 /// that does not.
@@ -82,36 +142,65 @@ pub struct CollapsedFill {
     /// command's own paint.
     ///
     /// One per collapsed subpath, each one device pixel thick along the axis the subpath has
-    /// no extent in and exactly as long as the subpath is along the other.
+    /// no extent in and exactly as long as the subpath is along the other. Under an
+    /// axis-preserving transform that pixel is a *whole* device pixel — the run the collapsed
+    /// axis passes through, which is what the clause states; under a rotation or a shear it is
+    /// a band centred on the subpath's own line. The module comment argues both.
     pub marks: Path,
 }
 
 /// Splits a fill path's area-less subpaths out of it, ISO 32000-2 §10.7.4.
 ///
-/// `thinnest` is one device pixel expressed in the path's own space — [`thinnest_line`] —
-/// because that is the space the returned geometry is in, exactly as a [`Stroke`]'s width is.
+/// `to_device` maps the path's own space onto the device pixel grid, and it is the whole of
+/// what this function needs: the mark's thickness comes from it through [`thinnest_line`],
+/// exactly as a [`Stroke`]'s substituted width does, and its *placement* comes from it because
+/// §10.7.4's rule is stated about device pixels. Taking the transform rather than a width is
+/// what stops a caller from snapping against one space and measuring against another.
 ///
 /// Returns `None` when there is nothing to separate, so that an ordinary path costs one pass
 /// over its commands and no allocation. [`Path::collapses`] memoises that pass, which matters:
-/// this question is asked once per fill command per strip the page is cut into.
+/// this question is asked once per fill command per strip the page is cut into. Also `None`
+/// where the transform states no width at all — [`thinnest_line`]'s own refusal, for one that
+/// is not finite or that lengthens nothing, leaving no space of the path's own for a mark to
+/// be stated in. A transform that is singular while still stretching one axis does state a
+/// width, and gets the band: it has flattened the whole page onto a line, so there is no pixel
+/// grid left to snap the mark to and nothing on the device for it to be wrong about.
 ///
 /// [`thinnest_line`]: crate::paint::thinnest_line
 /// [`Stroke`]: crate::paint::Stroke
 #[must_use]
-pub fn split_collapsed_fill(path: &Path, thinnest: f32) -> Option<CollapsedFill> {
-    if !path.collapses() || !thinnest.is_finite() || thinnest <= 0.0 {
+pub fn split_collapsed_fill(path: &Path, to_device: Transform) -> Option<CollapsedFill> {
+    if !path.collapses() {
         return None;
     }
+    let thinnest = thinnest_line(to_device)?;
+    // §10.7.4's rule is about whole device pixels, so it can only be applied where a device
+    // axis is a path axis. Both halves are needed: the forward transform to find the pixel
+    // run, the inverse to state it back in the space the returned geometry is in.
+    let grid = to_device
+        .preserves_axes()
+        .then(|| to_device.invert())
+        .flatten()
+        .map(|inverse| Grid { to_device, inverse });
 
     let mut filled = Path::new();
     let mut marks = Path::new();
     for extent in subpath_extents(path) {
         match extent.collapse() {
-            Some(axis) => append_mark(&mut marks, &extent, axis, thinnest),
+            Some(axis) => append_mark(&mut marks, &extent, axis, thinnest, grid),
             None => filled.extend(&path.commands()[extent.range()]),
         }
     }
     Some(CollapsedFill { filled, marks })
+}
+
+/// The device pixel grid, in both directions, for a placement transform that has axes to snap to.
+#[derive(Debug, Clone, Copy)]
+struct Grid {
+    /// Path space onto the device.
+    to_device: Transform,
+    /// Its inverse, which states a run of device pixels back in the path's own space.
+    inverse: Transform,
 }
 
 /// Whether any of a path's subpaths encloses no area because one of its extents is zero.
@@ -174,24 +263,18 @@ impl Extent {
     }
 }
 
-/// Appends the rectangle a collapsed subpath marks.
+/// Appends the rectangle a collapsed subpath marks, ISO 32000-2 §10.7.4.
 ///
-/// One device pixel thick, centred on the line the subpath lies along — the same placement a
-/// stroke of that width down the same line would have, since §8.4.3.2 defines stroking as
-/// painting "all points whose perpendicular distance from the path … is less than or equal to
-/// half the line width".
-fn append_mark(into: &mut Path, extent: &Extent, axis: Axis, thinnest: f32) {
-    let half = thinnest / 2.0;
-    let (min, max) = match axis {
-        Axis::Horizontal => (
-            Point::new(extent.min.x, extent.min.y - half),
-            Point::new(extent.max.x, extent.min.y + half),
-        ),
-        Axis::Vertical => (
-            Point::new(extent.min.x - half, extent.min.y),
-            Point::new(extent.min.x + half, extent.max.y),
-        ),
-    };
+/// The whole device pixels the collapsed axis passes through where `grid` says the transform
+/// has axes to snap to, and otherwise a band of one device pixel centred on the line the
+/// subpath lies along — which is where a stroke of that width down the same line would sit,
+/// since §8.4.3.2 defines stroking as painting "all points whose perpendicular distance from
+/// the path … is less than or equal to half the line width". The module comment argues why the
+/// first is the clause and the second only its approximation.
+fn append_mark(into: &mut Path, extent: &Extent, axis: Axis, thinnest: f32, grid: Option<Grid>) {
+    let (min, max) = grid
+        .and_then(|grid| snapped_span(extent, grid))
+        .unwrap_or_else(|| band_span(extent, axis, thinnest));
     if !min.x.is_finite() || !min.y.is_finite() || !max.x.is_finite() || !max.y.is_finite() {
         return;
     }
@@ -200,6 +283,68 @@ fn append_mark(into: &mut Path, extent: &Extent, axis: Axis, thinnest: f32) {
     into.push(PathCommand::LineTo(max));
     into.push(PathCommand::LineTo(Point::new(min.x, max.y)));
     into.push(PathCommand::Close);
+}
+
+/// The mark as a band of one device pixel about the subpath's own line.
+///
+/// The fallback of [`append_mark`]: what a mark is under a rotation or a shear, where the
+/// collapsed axis crosses the pixel grid and the run of pixels it passes through is a staircase
+/// rather than a rectangle.
+fn band_span(extent: &Extent, axis: Axis, thinnest: f32) -> (Point, Point) {
+    let half = thinnest / 2.0;
+    match axis {
+        Axis::Horizontal => (
+            Point::new(extent.min.x, extent.min.y - half),
+            Point::new(extent.max.x, extent.min.y + half),
+        ),
+        Axis::Vertical => (
+            Point::new(extent.min.x - half, extent.min.y),
+            Point::new(extent.min.x + half, extent.max.y),
+        ),
+    }
+}
+
+/// The mark as the run of whole device pixels the collapsed axis passes through, in path space.
+///
+/// ISO 32000-2 §10.7.4 identifies a pixel by flooring the coordinates of a point inside it, so
+/// the collapsed axis at device coordinate `v` lies in the pixel row or column `floor(v)` and
+/// the mark spans `floor(v)` to `floor(v) + 1`. The other axis keeps the subpath's own extent.
+///
+/// `None` where the subpath's device bounding box is degenerate in neither axis or in both,
+/// which an axis-preserving transform of a subpath collapsed along exactly one axis cannot
+/// produce — the guard is here because reading it off the arithmetic is cheaper than trusting
+/// the caller's, and a mark placed on the wrong axis would be a line across the page.
+#[expect(
+    clippy::float_cmp,
+    reason = "exactness is what identifies the collapsed axis: an axis-preserving transform \
+              carries a shared coordinate to a shared coordinate through the same arithmetic, \
+              and any inexactness here means the transform was not axis-preserving after all"
+)]
+fn snapped_span(extent: &Extent, grid: Grid) -> Option<(Point, Point)> {
+    let a = grid.to_device.apply(extent.min);
+    let b = grid.to_device.apply(extent.max);
+    let (x0, x1) = (a.x.min(b.x), a.x.max(b.x));
+    let (y0, y1) = (a.y.min(b.y), a.y.max(b.y));
+    let (lo, hi) = if x0 == x1 && y0 != y1 {
+        let column = x0.floor();
+        (Point::new(column, y0), Point::new(column + 1.0, y1))
+    } else if y0 == y1 && x0 != x1 {
+        let row = y0.floor();
+        (Point::new(x0, row), Point::new(x1, row + 1.0))
+    } else {
+        return None;
+    };
+    if !lo.x.is_finite() || !lo.y.is_finite() || !hi.x.is_finite() || !hi.y.is_finite() {
+        return None;
+    }
+    // An axis-preserving transform carries a rectangle to a rectangle, so two opposite corners
+    // of the pixel run are two opposite corners of the mark — whether the axes were kept or
+    // exchanged by a quarter turn, which is why the sides are sorted rather than assumed.
+    let (p, q) = (grid.inverse.apply(lo), grid.inverse.apply(hi));
+    Some((
+        Point::new(p.x.min(q.x), p.y.min(q.y)),
+        Point::new(p.x.max(q.x), p.y.max(q.y)),
+    ))
 }
 
 /// Walks a path's subpaths, reporting each one's bounding extent.
@@ -284,7 +429,7 @@ fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ {
 #[cfg(test)]
 mod tests {
     use super::{CollapsedFill, split_collapsed_fill};
-    use crate::geom::{Path, PathCommand, Point};
+    use crate::geom::{Path, PathCommand, Point, Transform};
 
     fn path(commands: &[PathCommand]) -> Path {
         let mut p = Path::new();
@@ -305,42 +450,120 @@ mod tests {
         ])
     }
 
-    /// The rule itself: a rectangle of no height becomes one of exactly one device pixel,
-    /// centred where the shape was and as long as the shape is.
+    /// The rectangle a mark should be, given its two opposite corners.
+    fn rectangle(min: Point, max: Point) -> [PathCommand; 5] {
+        [
+            PathCommand::MoveTo(min),
+            PathCommand::LineTo(Point::new(max.x, min.y)),
+            PathCommand::LineTo(max),
+            PathCommand::LineTo(Point::new(min.x, max.y)),
+            PathCommand::Close,
+        ]
+    }
+
+    /// The rule itself: a rectangle of no height marks the whole pixel row it lies in, at
+    /// whatever fraction of a row it happens to sit — §10.7.4 identifies that row by flooring.
     #[test]
-    fn a_rectangle_of_no_height_marks_a_line_one_pixel_thick() {
-        let split = split_collapsed_fill(&zero_height_rectangle(50.0), 2.0).expect("collapsed");
+    fn a_rectangle_of_no_height_marks_the_pixel_row_it_lies_in() {
+        let split = split_collapsed_fill(&zero_height_rectangle(50.3), Transform::IDENTITY)
+            .expect("collapsed");
         assert!(split.filled.is_empty(), "nothing is left to fill");
         assert_eq!(
             split.marks.commands(),
-            [
-                PathCommand::MoveTo(Point::new(10.0, 49.0)),
-                PathCommand::LineTo(Point::new(110.0, 49.0)),
-                PathCommand::LineTo(Point::new(110.0, 51.0)),
-                PathCommand::LineTo(Point::new(10.0, 51.0)),
-                PathCommand::Close,
-            ]
+            rectangle(Point::new(10.0, 50.0), Point::new(110.0, 51.0))
         );
     }
 
     /// The same shape in the other axis, which is the other half of a ruled grid.
     #[test]
-    fn a_rectangle_of_no_width_marks_a_line_across_the_other_axis() {
+    fn a_rectangle_of_no_width_marks_the_pixel_column_it_lies_in() {
         let column = path(&[
-            PathCommand::MoveTo(Point::new(20.0, 0.0)),
-            PathCommand::LineTo(Point::new(20.0, 80.0)),
+            PathCommand::MoveTo(Point::new(20.7, 0.0)),
+            PathCommand::LineTo(Point::new(20.7, 80.0)),
             PathCommand::Close,
         ]);
-        let split = split_collapsed_fill(&column, 1.0).expect("collapsed");
+        let split = split_collapsed_fill(&column, Transform::IDENTITY).expect("collapsed");
         assert_eq!(
             split.marks.commands(),
-            [
-                PathCommand::MoveTo(Point::new(19.5, 0.0)),
-                PathCommand::LineTo(Point::new(20.5, 0.0)),
-                PathCommand::LineTo(Point::new(20.5, 80.0)),
-                PathCommand::LineTo(Point::new(19.5, 80.0)),
-                PathCommand::Close,
-            ]
+            rectangle(Point::new(20.0, 0.0), Point::new(21.0, 80.0))
+        );
+    }
+
+    /// A line exactly on a pixel boundary belongs to the pixel above it, not to both.
+    ///
+    /// §10.7.4's pixel region "includes its lower but not its upper boundaries", so the shape at
+    /// device y = 50 is in row 50. The band this rule used to lay down straddled the boundary
+    /// and put half its ink in row 49, which is the placement dependence the snap removes.
+    #[test]
+    fn a_line_on_a_pixel_boundary_takes_the_pixel_above_it() {
+        let split = split_collapsed_fill(&zero_height_rectangle(50.0), Transform::IDENTITY)
+            .expect("collapsed");
+        assert_eq!(
+            split.marks.commands(),
+            rectangle(Point::new(10.0, 50.0), Point::new(110.0, 51.0))
+        );
+    }
+
+    /// The pixel is the *device's*, so the mark's thickness in path space follows the scale.
+    ///
+    /// Halving the scale makes one device pixel two path units, and the row the line lies in is
+    /// row 25 rather than row 50 — which a test at one scale could not tell from a constant
+    /// (trap 2).
+    #[test]
+    fn the_row_is_found_in_device_space_and_stated_back_in_the_paths() {
+        let split = split_collapsed_fill(&zero_height_rectangle(50.6), Transform::scale(0.5, 0.5))
+            .expect("collapsed");
+        assert_eq!(
+            split.marks.commands(),
+            rectangle(Point::new(10.0, 50.0), Point::new(110.0, 52.0)),
+            "device row 25 is path units 50 to 52"
+        );
+    }
+
+    /// A quarter turn exchanges the axes and the mark follows, because the run of pixels is
+    /// found in device space and carried back through the transform's own inverse.
+    #[test]
+    fn a_quarter_turn_marks_a_column_of_the_device_and_a_row_of_the_page() {
+        let quarter = Transform::new(0.0, 1.0, -1.0, 0.0, 0.0, 0.0);
+        assert!(quarter.preserves_axes(), "the case under test");
+        let split = split_collapsed_fill(&zero_height_rectangle(50.3), quarter).expect("collapsed");
+        assert_eq!(
+            split.marks.commands(),
+            rectangle(Point::new(10.0, 50.0), Point::new(110.0, 51.0)),
+            "device column -51 is path y 50 to 51"
+        );
+    }
+
+    /// Under a shear no device axis is a path axis, so the band stays — the stated fallback.
+    #[test]
+    fn a_shear_keeps_the_band_because_a_pixel_run_is_a_staircase() {
+        let shear = Transform::new(1.0, 0.25, 0.0, 1.0, 0.0, 0.0);
+        assert!(!shear.preserves_axes(), "the case under test");
+        let thinnest = crate::paint::thinnest_line(shear).expect("invertible");
+        let split = split_collapsed_fill(&zero_height_rectangle(50.3), shear).expect("collapsed");
+        assert_eq!(
+            split.marks.commands(),
+            rectangle(
+                Point::new(10.0, 50.3 - thinnest / 2.0),
+                Point::new(110.0, 50.3 + thinnest / 2.0)
+            )
+        );
+    }
+
+    /// A transform that flattens the page onto a line still states a width, and gets the band.
+    ///
+    /// The one shape of transform where the snap declines and the arithmetic still has a number
+    /// to work with: `max_stretch` is 1 along x, so there is a width, and the inverse does not
+    /// exist, so there is no device pixel grid to floor a coordinate onto.
+    #[test]
+    fn a_singular_transform_that_still_stretches_keeps_the_band() {
+        let flattened = Transform::scale(1.0, 0.0);
+        assert_eq!(flattened.invert(), None, "the case under test");
+        let split =
+            split_collapsed_fill(&zero_height_rectangle(3.0), flattened).expect("collapsed");
+        assert_eq!(
+            split.marks.commands(),
+            rectangle(Point::new(10.0, 2.5), Point::new(110.0, 3.5))
         );
     }
 
@@ -354,7 +577,7 @@ mod tests {
             PathCommand::LineTo(Point::new(0.0, 10.0)),
             PathCommand::Close,
         ]);
-        assert_eq!(split_collapsed_fill(&square, 1.0), None);
+        assert_eq!(split_collapsed_fill(&square, Transform::IDENTITY), None);
     }
 
     /// A shape thinner than a pixel is *not* this rule's business: it has an area, an
@@ -369,7 +592,7 @@ mod tests {
             PathCommand::LineTo(Point::new(0.0, 0.001)),
             PathCommand::Close,
         ]);
-        assert_eq!(split_collapsed_fill(&sliver, 1.0), None);
+        assert_eq!(split_collapsed_fill(&sliver, Transform::IDENTITY), None);
     }
 
     /// A point is §8.5.3.3.1's case rather than this one, and this rule must not claim it:
@@ -380,7 +603,7 @@ mod tests {
             PathCommand::MoveTo(Point::new(5.0, 5.0)),
             PathCommand::Close,
         ]);
-        assert_eq!(split_collapsed_fill(&dot, 1.0), None);
+        assert_eq!(split_collapsed_fill(&dot, Transform::IDENTITY), None);
     }
 
     /// The two halves of a mixed path go their separate ways, and the surviving one keeps its
@@ -394,7 +617,8 @@ mod tests {
             PathCommand::Close,
         ]);
         mixed.extend(zero_height_rectangle(20.0).commands());
-        let CollapsedFill { filled, marks } = split_collapsed_fill(&mixed, 1.0).expect("collapsed");
+        let CollapsedFill { filled, marks } =
+            split_collapsed_fill(&mixed, Transform::IDENTITY).expect("collapsed");
         assert_eq!(
             filled.commands(),
             [
@@ -419,18 +643,22 @@ mod tests {
                 Point::new(9.0, 7.0),
             ),
         ]);
-        let split = split_collapsed_fill(&flat, 1.0).expect("collapsed");
+        let split = split_collapsed_fill(&flat, Transform::IDENTITY).expect("collapsed");
         assert_eq!(split.marks.commands().len(), 5);
         assert!(split.filled.is_empty());
     }
 
-    /// A degenerate transform leaves nothing to state a width in, and the split must decline
-    /// rather than invent a mark of no thickness or of infinite one.
+    /// A transform that lengthens nothing leaves no width to state a mark in, and the split
+    /// must decline rather than invent one of no thickness or of infinite thickness.
     #[test]
-    fn no_thickness_means_no_mark() {
-        for thinnest in [0.0, -1.0, f32::INFINITY, f32::NAN] {
+    fn a_transform_that_states_no_width_makes_no_mark() {
+        for to_device in [
+            Transform::scale(0.0, 0.0),
+            Transform::new(f32::NAN, 0.0, 0.0, 1.0, 0.0, 0.0),
+            Transform::new(f32::INFINITY, 0.0, 0.0, 1.0, 0.0, 0.0),
+        ] {
             assert_eq!(
-                split_collapsed_fill(&zero_height_rectangle(3.0), thinnest),
+                split_collapsed_fill(&zero_height_rectangle(3.0), to_device),
                 None
             );
         }

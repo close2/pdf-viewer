@@ -118,8 +118,13 @@ const REFUSED: [&str; 1] = ["bug1721218_reduced.pdf"];
 ///
 /// `issue4260_reduced.pdf` — once the worst page in the run at similarity 0.49, a grid of
 /// zero-height rectangles drawn blank — arrived here from the shape list when the backend
-/// started asking `pdf_render::split_collapsed_fill` the §10.7.4 question: the grid draws,
-/// and what remains is hairline-mark coverage at the edges.
+/// started asking `pdf_render::split_collapsed_fill` the §10.7.4 question, and **left
+/// altogether in the three-hundred-and-sixty-eighth session, when that question started being
+/// answered with whole device pixels.** What kept it here was the last thing two rasterisers
+/// can disagree about: a mark laid down at the shape's own fractional position is an
+/// anti-aliased band, and each backend distributes such a band across two rows in its own way.
+/// A mark that is a whole pixel row has nothing left to distribute — the two backends draw the
+/// same rows, from the same shared geometry, and the page agrees to the byte. ADR 0208.
 ///
 /// **`issue21068.pdf` left in the two-hundred-and-seventh session and the reason is worth
 /// keeping**: it is four rows of comb fields whose separators sit exactly on their `/BBox`, and
@@ -128,7 +133,7 @@ const REFUSED: [&str; 1] = ["bug1721218_reduced.pdf"];
 /// redundant clip came off (ADR 0165) there was nothing left to differ about. **A page in this
 /// list can be here because of something upstream of both backends**, which is not what its name
 /// suggests.
-const DIFFERS_AT_THE_EDGES: [&str; 28] = [
+const DIFFERS_AT_THE_EDGES: [&str; 27] = [
     "bug1308536.pdf",
     "bug1885505.pdf",
     "bug1992868.pdf",
@@ -146,7 +151,6 @@ const DIFFERS_AT_THE_EDGES: [&str; 28] = [
     "issue18911.pdf",
     "issue19239.pdf",
     "issue2884_reduced.pdf",
-    "issue4260_reduced.pdf",
     "issue7014.pdf",
     "issue7492.pdf",
     "issue8187.pdf",
