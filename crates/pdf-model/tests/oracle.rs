@@ -4034,7 +4034,26 @@ const AMBIGUOUS_ONE_LADDER: [&str; 3] = [
 /// against a two-ladder limit of 0.6406 and 0.6390 — **all five renderers inside 0.02 of 255 of
 /// each other**, and ours a thousandth from the geometry. A page with almost no ink is a page
 /// where any bound is tight in relative terms, which is the other way to reach this bucket.
-const AMBIGUOUS_FOUR_ANSWERS: [&str; 2] = ["bug1844583.pdf page 1", "tagged_stamp.pdf page 1"];
+///
+/// **And `issue6081.pdf` page 1 is that at twenty times the extreme**, off the ranking in the
+/// three-hundred-and-fiftieth session. 612 × 792, 109 commands, and the *whole page's ink is
+/// 0.03 of 255* — all of it in rows 205 to 220. The five span 0.014:
+///
+/// ```text
+/// ours 0.029635 │ mupdf 0.030897 │ poppler 0.039181 │ hayro 0.042880 │ ghostscript 0.043455
+/// ```
+///
+/// and the worst single row differs by **4 of 255**. Step 6's two ladders end at 0.029228 and
+/// 0.028583 — **0.00065 of 255 apart** — with ours at 0.027989, 0.0006 under the lower. In
+/// relative terms ours is 4% light and in absolute terms it is six ten-thousandths of a level,
+/// which is the whole reason this page reaches a bucket at all: `Interpretation::glyphs` earns it
+/// no tolerance and a similarity measure over a page that is 99.99% white has almost nothing to
+/// be similar about.
+const AMBIGUOUS_FOUR_ANSWERS: [&str; 3] = [
+    "bug1844583.pdf page 1",
+    "tagged_stamp.pdf page 1",
+    "issue6081.pdf page 1",
+];
 
 /// Ambiguous, and the whole disagreement is the row or column at a shape's boundary.
 ///
@@ -4922,7 +4941,25 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 /// within a few levels across all five. Step 6 agrees that nobody is wrong: `poppler` descends
 /// 22.5321 → 22.1655, `mupdf` 22.1948 → 22.1089 and ours climbs 21.9458 → 22.2116, **three ladders
 /// ending within 0.103 of 255 of each other**.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 21] = [
+/// # And its neighbour, one page over on the same ranking
+///
+/// `issue5896.pdf` page 1 is 200 × 50 too — one line of text and 25 commands — and it came off the
+/// ranking in the three-hundred-and-fiftieth session at 0.30 from the nearest and 1.07 from the
+/// furthest. Every row that differs is a row the letters are on (21 to 30 of 50), and the largest
+/// is 19 of 255 at row 24 where `poppler` is 63 against our 44 and `mupdf`'s 43.
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler       8.0013    7.13641
+/// mupdf         7.0505    7.24492
+/// ours (1x/8x)  7.2990    7.23938
+/// ```
+///
+/// **The two ladders close from opposite sides and end 0.109 of 255 apart**, and ours at 8× is
+/// **0.005 from `mupdf`'s limit** and inside both. This group's standing sentence, one more time:
+/// a page that is nothing but nine-point text is a page of glyph edges.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 22] = [
+    "issue5896.pdf page 1",
     "issue7406.pdf page 1",
     "issue13201.pdf page 1",
     "canvas.pdf page 1",
