@@ -370,7 +370,8 @@ entries, one sentence, and only one of them named a capability that had arrived.
   trip it. What is still owed under §12.8.2.3 is §12.8.2.2.2's comparison of two revisions, which
   needs the digest.
 - **~180 `partial` rows** not yet re-read against the code.
-- **The 30 `reported` rows are worked out** — all read in the hundred-and-twenty-first and
+- **§7.9.3 closed in the three-hundred-and-forty-sixth**, and it is the first `reported` row to close by a capability this tree gave *itself* one round earlier. The row named its own expiry condition — "this closes the day an entry in scope uses the type" — and ADR 0199's reading of Table 172's `/RC` was that day. Six entries in the whole standard are typed `text string or text stream` and `/RC` is the only one in scope, so implementing the clause was implementing it once. **A row that states its own trigger still has to be re-read by somebody**, and this one waited a round.
+- **The 29 `reported` rows are worked out** — all read in the hundred-and-twenty-first and
   -second, and none is of the two known failure classes (a true observation about the wrong half
   of a sentence, ADR 0109; a clause with two populations where the row names one, ADR 0110). 17
   are cryptographic validation needing a trust store, 5 need a second file or a network, 3 are

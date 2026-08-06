@@ -537,6 +537,43 @@ mod tests {
         );
     }
 
+    /// §7.9.3's text stream, which is the one form of it any in-scope entry uses.
+    ///
+    /// > A text stream ( PDF 1.5 ) shall be a PDF stream object (7.3.8, "Stream objects") whose
+    /// > unencoded bytes shall meet the same requirements as a text string (7.9.2.2, "Text string
+    /// > type") with respect to encoding, byte order, and lead bytes.
+    ///
+    /// Table 172 types `/RC` "text string or text stream", so reading it means reading both. The
+    /// clause's *unencoded* is the load-bearing word: the bytes that have to meet §7.9.2.2's
+    /// requirements are the stream's **decoded** ones, so a filter runs before the text decoding
+    /// and not after. §7.9.2.2.1's UTF-8 lead bytes are what prove the order here — a reader that
+    /// ran the two the other way round would find no prefix at all and fall back to Table D.3,
+    /// where the three prefix bytes are three visible characters.
+    #[test]
+    fn a_rich_text_stream_is_read_as_a_text_string_after_its_filter() {
+        // §7.9.2.2.1's UTF-8 prefix, EF BB BF, written as octal escapes so that the fixture
+        // stays a `&str`; the payload is XHTML with one non-ASCII character in it.
+        let markup = "\u{feff}<body><p>h\u{e9}llo</p></body>";
+        let bytes = markup.as_bytes();
+        let objects = format!(
+            "4 0 obj << /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Popup 5 0 R /RC 6 0 R >> \
+             endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R >> \
+             endobj\n\
+             6 0 obj << /Length {} >> stream\n{markup}\nendstream endobj\n",
+            bytes.len()
+        );
+        let document = document("4 0 R 5 0 R", &objects);
+        let view = crate::view::ViewState::of(&document);
+        let popups = popups(&document, &page(&document), &view);
+        assert_eq!(popups.len(), 1);
+        assert_eq!(
+            popups[0].text.as_deref(),
+            Some("h\u{e9}llo"),
+            "the stream's decoded bytes read as §7.9.2.2's text string, lead bytes and all"
+        );
+    }
+
     #[test]
     fn a_date_in_no_format_at_all_is_still_shown() {
         // Table 166's `/M`: "interactive PDF processors shall accept and display a string in any

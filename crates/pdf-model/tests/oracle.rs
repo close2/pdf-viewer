@@ -4878,7 +4878,32 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 ///
 /// `canvas.pdf`'s two pages are `doc/todo/00`'s "check what else on the list is the same file"
 /// paying its sixth time, and the two are the same finding to two figures.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 20] = [
+/// # And one where a single row is a whole reference's excess, in the three-hundred-and-forty-sixth
+///
+/// `issue7406.pdf` page 1 is 200 × 50 and shows one line — *placed after the SOF[n] markers.* — in
+/// nine-point type. `doc/todo/00`'s note about it is that it once drew a JPEG cyan on black inside
+/// an `ambiguous` verdict and is correct now; what nobody had measured is why it is still
+/// `ambiguous`.
+///
+/// ```text
+/// ours 21.9458 │ ghostscript 21.9519 │ hayro 21.8320 │ mupdf 22.1948 │ poppler 22.5321
+/// ```
+///
+/// **Ours and `ghostscript` agree to 0.006 of 255**, which on a page this small is 50 rows of
+/// glyph edges landing in the same places. `poppler` is 0.59 above, and the per-row profile puts
+/// all of it in **one row**:
+///
+/// ```text
+/// row 40   ours 3   poppler 35   mupdf 4   ghostscript 4   hayro 4
+/// ```
+///
+/// 32 of 255 on one row of fifty is 0.64 of the page, against `poppler`'s 0.59 excess — so its
+/// whole disagreement with the other four is the bottom row of the letters, and every other row is
+/// within a few levels across all five. Step 6 agrees that nobody is wrong: `poppler` descends
+/// 22.5321 → 22.1655, `mupdf` 22.1948 → 22.1089 and ours climbs 21.9458 → 22.2116, **three ladders
+/// ending within 0.103 of 255 of each other**.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 21] = [
+    "issue7406.pdf page 1",
     "issue13201.pdf page 1",
     "canvas.pdf page 1",
     "canvas.pdf page 2",

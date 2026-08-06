@@ -863,8 +863,10 @@ note = "A byte string is what the lexer produces for every `/String`: 'binary da
 [[clause]]
 clause = "7.9.3"
 title = "Text streams"
-status = "reported"
-note = "A text *stream*, whose \"unencoded bytes shall meet the same requirements as a text string with respect to encoding, byte order, and lead bytes\". Nothing here reads one, and the reason is worth stating precisely rather than approximately: **every entry ISO 32000-2 types `text string or text stream` is excluded by principle 5** — `/RV` on Table 228 and Table 249 and `/RC` on Tables 172 and 174 are XFA rich text, and `/JS` and the FDF ECMAScript dictionary's `/Before`, `/After`, `/AfterPermsReady` and `/Doc` are scripts. Each is refused by name where it is met, which is what makes this row `reported` rather than `silent`. The decoder it would need already exists — `text_string` is the same rule one level down — so this closes the day an entry in scope uses the type. (A metadata stream is *not* one: §14.3.2 makes it XML.)"
+status = "implemented"
+code = ["crates/pdf-model/src/popup.rs"]
+test = ["crates/pdf-model/src/popup.rs::a_rich_text_stream_is_read_as_a_text_string_after_its_filter"]
+note = "A text *stream*, whose \"unencoded bytes shall meet the same requirements as a text string with respect to encoding, byte order, and lead bytes\". **This row said \"[n]othing here reads one\" and named its own expiry condition — \"this closes the day an entry in scope uses the type\" — and that day was the round before the sweep found it.** ADR 0199 brought Table 172's `/RC` into scope for §12.5.6.14's popup window: the *characters* of a rich text string are not what principle 5 excludes, the XFA formatting is, so `popup::rich_text` reads the entry in both of the forms Table 172 types it. There are exactly six entries in the standard typed `text string or text stream` — `/RC` twice, `/RV` twice, `/JS`, and the FDF ECMAScript dictionary's `/Before`, `/After` and `/AfterPermsReady` — and `/RC` is the only one of them in scope, so implementing this clause is implementing it once. The clause's *unencoded* decides the order: `Document::decoded_stream_data` runs the filter and `text_string` decodes the result, so §7.9.2.2's prefixes are looked for in the stream's data rather than in its bytes. (A metadata stream is *not* one: §14.3.2 makes it XML.)"
 
 [[clause]]
 clause = "7.9.4"
