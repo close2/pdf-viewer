@@ -17,9 +17,7 @@ issue10339_reduced.pdf page 1
 issue12705.pdf page 1
 issue14953.pdf page 1
 issue16742.pdf page 1
-issue18072.pdf page 1
 issue4379.pdf page 1
 issue4665.pdf page 1
 issue6769_no_matrix.pdf page 1
 issue9084.pdf page 1
-jbig2_symbol_offset.pdf page 1

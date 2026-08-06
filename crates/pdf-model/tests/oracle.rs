@@ -5256,6 +5256,71 @@ const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 24] = [
     "pr12564.pdf page 1",
 ];
 
+/// Ambiguous because a bilevel image enlarged four times has no right answer at its edges.
+///
+/// `jbig2_symbol_offset.pdf` page 1 draws one thing: a **132 × 14** one-bit `JBIG2Decode` image at
+/// 19 ppi, stretched across an A4 page — an enlargement of about 3.8, with `/Interpolate` false,
+/// so §8.9.5.3 asks for no smoothing and every renderer still has to decide what a source sample
+/// straddling four device pixels looks like. It sat third on `doc/todo/00`'s ranking at 0.46 from
+/// the nearest reference.
+///
+/// ```text
+/// poppler 2.54071 │ ghostscript 2.56736 │ mupdf 2.60065 │ ours 2.60406 │ hayro 2.72227
+/// ```
+///
+/// **Five renderers inside 0.18 of 255** on a page whose whole ink is 2.6, and ours between
+/// `mupdf` and `hayro`. Step 6 says the shape is agreed:
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler       2.54071   2.51204
+/// ours (1x/8x)  2.59969   2.49495
+/// ```
+///
+/// **The two ladders end 0.017 of 255 apart.** Ours descends 0.105 as the pixels shrink where
+/// `poppler` descends 0.029, which is the measurement of what this group is about: at the page's
+/// own scale we put slightly more ink into the enlarged sample edges, and by 8× there is nothing
+/// left to put it in.
+///
+/// One reference is missing from the strip entirely — four panels, not five — which is a fact
+/// about that renderer's `JBIG2Decode` and not about this page.
+const AMBIGUOUS_ENLARGED_BILEVEL: [&str; 1] = ["jbig2_symbol_offset.pdf page 1"];
+
+/// Ambiguous because four hairline borders on a 198 × 204 page are four hairlines.
+///
+/// `issue18072.pdf` page 1 is **4 commands** — four widget appearance streams, each a rectangle
+/// with a one-unit border — on a page 198 × 204 device pixels at its own scale. It came off
+/// `doc/todo/00`'s ranking at 0.36 from the nearest reference and 4.04 from the furthest, and the
+/// two outliers are at opposite ends:
+///
+/// ```text
+/// hayro 7.30672 │ poppler 8.44043 │ ours 8.5938 │ mupdf 8.61215 │ ghostscript 10.9632
+/// ```
+///
+/// **A spread of 3.66 of 255 with ours in the middle of it**, 0.02 from `mupdf`. `ghostscript`
+/// draws half again as much ink as `hayro` on the same four rectangles, which is the range of
+/// answers a one-unit border admits when a unit is one pixel.
+///
+/// Step 6, three ladders:
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler       8.44043   8.60487
+/// ours (1x/8x)  8.55167   8.62365
+/// mupdf         8.61215   8.62643
+/// ```
+///
+/// **All three limits inside 0.022 of 255, and ours 0.003 from `mupdf`'s.** The rectangles are the
+/// right rectangles; what differs at the page's own scale is a stroke a pixel wide landing between
+/// pixel centres — `doc/todo/_scan-conversion.md`'s subject, on the smallest page in this file.
+///
+/// A second fact worth recording because it makes a mean incomparable: the five rasters are 197,
+/// 198 wide and 203 or 204 tall for the same page. **A page whose device height falls between two
+/// integers is rounded differently by different renderers**, so an ink *mean* is taken over a
+/// different number of rows — 0.5% of the denominator here. That is trap 12's shape one step
+/// earlier than usual, and the reason step 6's ladders are quoted from rasters of identical size.
+const AMBIGUOUS_HAIRLINE_BORDERS: [&str; 1] = ["issue18072.pdf page 1"];
+
 /// Ambiguous because a barcode is a page of bars narrower than a pixel.
 ///
 /// `issue8187.pdf` page 1 is 200 × 50 and holds one Code-39 barcode and nothing else. It sat
@@ -5517,6 +5582,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_GLYPH_SCAN_CONVERSION)
         .chain(&AMBIGUOUS_DENSE_CHART_POSTER)
         .chain(&AMBIGUOUS_SUB_PIXEL_BARS)
+        .chain(&AMBIGUOUS_ENLARGED_BILEVEL)
+        .chain(&AMBIGUOUS_HAIRLINE_BORDERS)
         .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
         .chain(&AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG)
         .copied()
