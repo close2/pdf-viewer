@@ -1,7 +1,9 @@
 # A 92-page catalogue whose pages draw nothing, and the four things it asks for
 
-Status: **measured in the three-hundred-and-thirty-sixth session**, from a document the project
-owner opened and the notes it printed.
+Status: **the image is decoded and the catalogue draws, since the three-hundred-and-fifty-fourth
+session** (ADR 0203). Items 2 and 3 are `doc/todo/23`'s and stay open, with this document as their
+witness. Measured in the three-hundred-and-thirty-sixth, from a document the project owner opened
+and the notes it printed.
 Priority: 28
 Corpus: **0** — and that is the point. This is a real document from outside the pdf.js corpus, and
 the gates cannot see it.
@@ -11,7 +13,20 @@ Code: `crates/pdf-model/src/image.rs` (`convert_channels`, `decode_jpeg`),
 Witness: `/tmp/katalogs_2023_web.pdf` (19.9 MB, 92 pages) — **not in this repository**; the owner
 has it.
 
-## 1. The page draws *nothing*, and the note undersells it
+## 1. ~~The page draws *nothing*~~ — **closed in the three-hundred-and-fifty-fourth session**
+
+`decode_jpeg` asked `zune-jpeg` for four components out only where the input space was `CMYK`, so
+a `YCCK` codestream fell through to the default three and `convert_channels` refused. It now asks
+for whichever four-component space the codestream states, and `ycck_to_cmyk` does Adobe's
+transform 2 here — because `zune-jpeg` has no YCCK → CMYK conversion at all, only two YCCK → RGB
+arms that composite the black channel away. The inversion is deliberately **not** undone: an Adobe
+four-component JPEG stores CMYK inverted whichever transform it uses, and the file's own
+`/Decode [1 0 1 0 1 0 1 0]` is what undoes it one step later. ADR 0203.
+
+On page one at 72 dpi: ours 222.689, `poppler` 223.742, `mupdf` 224.255, and **ours is 0.0113 from
+`poppler` where `mupdf` is 0.0384**. Pages 1, 2, 5, 10 and 40 all report `unsupported []`.
+
+## What it looked like before
 
 The viewer prints one line about an image:
 

@@ -1494,6 +1494,61 @@ fn pack_bits(samples: &[u8], width: u32, height: u32) -> Vec<u8> {
 /// JPEG with no `/Decode`, whose samples are ordinary CMYK. Read as inverted, its sky comes
 /// out **black**; read as the clause states, it is the photograph all four references draw.
 /// So a CMYK codestream is asked for as CMYK and converted where every other colour is.
+/// Adobe's APP14 transform 2, in place: four YCCK channels become the four CMYK ones.
+///
+/// §7.4.8 hands a `DCTDecode` codestream's syntax to ISO/IEC 10918, and the four-component
+/// transform is Adobe's extension to it (APP14, `transform = 2`): the first three channels carry
+/// a JFIF luminance-chrominance transform of what would otherwise be the first three *inverted*
+/// CMYK channels, and the fourth carries K unchanged. So undoing it is JFIF's own YCbCr → RGB
+/// followed by the inversion the convention already assumes:
+///
+/// ```text
+/// C = 255 − R    M = 255 − G    Y = 255 − B    K = K
+/// ```
+///
+/// **The inversion is not undone here, and that is the point.** An Adobe four-component JPEG
+/// stores CMYK inverted whichever transform it uses, and a PDF that means the ordinary reading
+/// says so with `/Decode [1 0 1 0 1 0 1 0]` — §8.9.5.2's entry, applied by
+/// [`apply_decode_to_channels`] one step later. A decoder that un-inverted here would undo the
+/// file's `/Decode` twice. What this function owes is only that transform 2 and transform 0
+/// deliver the *same convention*, which is what libjpeg's `ycck_cmyk_convert` also does.
+///
+/// **Why not ask `zune-jpeg` for CMYK directly**: it has no `YCCK → CMYK` conversion. Its two
+/// YCCK arms both go to RGB and composite the black channel in on the way, which throws away the
+/// component §8.9.5.1 needs `/ColorSpace` to interpret. Asking for `YCCK` out takes the raw four.
+///
+/// The witness is outside this repository — a 92-page commercial catalogue whose every page is one
+/// such image, and which drew nothing at all until this (`doc/todo/28`).
+fn ycck_to_cmyk(pixels: &mut [u8]) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        let (Some(y), Some(cb), Some(cr)) = (
+            pixel.first().copied(),
+            pixel.get(1).copied(),
+            pixel.get(2).copied(),
+        ) else {
+            continue;
+        };
+        let (y, cb, cr) = (f32::from(y), f32::from(cb) - 128.0, f32::from(cr) - 128.0);
+        // ITU-T T.871's inverse, which is the one JFIF states and the one every JPEG decoder
+        // implements; the clamp is the standard's own, since the transform's range exceeds a byte.
+        let clamp = |value: f32| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "clamped to 0..=255 on the line above, which is what makes it a byte"
+            )]
+            let byte = value.clamp(0.0, 255.0).round() as u8;
+            255_u8.saturating_sub(byte)
+        };
+        let red = clamp(1.402_f32.mul_add(cr, y));
+        let green = clamp((-0.714_136_f32).mul_add(cr, (-0.344_136_f32).mul_add(cb, y)));
+        let blue = clamp(1.772_f32.mul_add(cb, y));
+        if let Some(three) = pixel.get_mut(..3) {
+            three.copy_from_slice(&[red, green, blue]);
+        }
+    }
+}
+
 fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize), ImageError> {
     // `ZCursor` is the reader `zune-jpeg` wants; a bare slice does not implement its
     // trait because the decoder needs to seek.
@@ -1504,10 +1559,28 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize),
         .map_err(|e| ImageError::Malformed {
             detail: format!("JPEG headers: {e}"),
         })?;
-    if decoder.input_colorspace() == Some(zune_jpeg::zune_core::colorspace::ColorSpace::CMYK) {
+    // **Four components stay four**, whichever of the two ways a codestream spells them.
+    //
+    // `zune-jpeg`'s default output is RGB, and its own conversions for both four-component inputs
+    // composite the black channel away — which is exactly what §8.9.5.1 must not have: the
+    // dictionary's `/ColorSpace` is what interprets the components, and a decoder that had
+    // already turned them into three has answered the clause's question for it.
+    //
+    // `CMYK` is Adobe's APP14 transform 0 and needs only asking. `YCCK` is transform 2, where the
+    // first three channels are a luminance-chrominance transform of the other three and the
+    // fourth is carried alongside — and asking for `YCCK` out gets the four *raw* channels, which
+    // is why the conversion below is here rather than in the decoder.
+    let input = decoder.input_colorspace();
+    let four = matches!(
+        input,
+        Some(
+            zune_jpeg::zune_core::colorspace::ColorSpace::CMYK
+                | zune_jpeg::zune_core::colorspace::ColorSpace::YCCK
+        )
+    );
+    if let Some(space) = input.filter(|_| four) {
         decoder.set_options(
-            zune_jpeg::zune_core::options::DecoderOptions::default()
-                .jpeg_set_out_colorspace(zune_jpeg::zune_core::colorspace::ColorSpace::CMYK),
+            zune_jpeg::zune_core::options::DecoderOptions::default().jpeg_set_out_colorspace(space),
         );
     }
 
@@ -1517,9 +1590,12 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize),
     let components = decoder
         .output_colorspace()
         .map_or(3, |space| space.num_components());
-    let pixels = decoder.decode().map_err(|e| ImageError::Malformed {
+    let mut pixels = decoder.decode().map_err(|e| ImageError::Malformed {
         detail: format!("JPEG data: {e}"),
     })?;
+    if input == Some(zune_jpeg::zune_core::colorspace::ColorSpace::YCCK) {
+        ycck_to_cmyk(&mut pixels);
+    }
     let count = usize::from(info.width).saturating_mul(usize::from(info.height));
 
     // The dictionary and the JPEG both state the dimensions; they must agree, because the
@@ -2466,6 +2542,46 @@ mod tests {
             convert_three(&space, &mut split, Some(band));
             assert_eq!(split, serial, "band of {band} pixels");
         }
+    }
+
+    /// Adobe's APP14 transform 2, arithmetic first — §7.4.8's codestream through ISO/IEC 10918.
+    ///
+    /// Three values whose answers are exact and need no reference: white, black, and a colour
+    /// whose YCbCr is a whole number in every channel. What is being checked is that the four
+    /// channels stay four and that the transform is JFIF's inverse followed by the inversion an
+    /// Adobe four-component JPEG already assumes — the same convention transform 0 delivers, so
+    /// that a file's own `/Decode [1 0 1 0 1 0 1 0]` undoes exactly one of them.
+    ///
+    /// **No corpus document carries a YCCK JPEG**, which is why this is arithmetic rather than a
+    /// picture. The witness is a 92-page commercial catalogue outside this repository whose every
+    /// page is one such image and which drew nothing at all until this (`doc/todo/28`); on its
+    /// first page ours is 0.0113 from `poppler` where `mupdf` is 0.0384, so the picture is
+    /// checked — it is simply not checkable *here*.
+    #[test]
+    fn a_ycck_codestreams_four_channels_stay_four() {
+        // Y = 255, Cb = Cr = 128 is white: R = G = B = 255, so C = M = Y = 0.
+        let mut white = [255, 128, 128, 17];
+        super::ycck_to_cmyk(&mut white);
+        assert_eq!(white, [0, 0, 0, 17], "K passes through untouched");
+
+        // Y = 0 is black: R = G = B = 0, so C = M = Y = 255.
+        let mut black = [0, 128, 128, 200];
+        super::ycck_to_cmyk(&mut black);
+        assert_eq!(black, [255, 255, 255, 200]);
+
+        // And a chrominance that separates the channels, so that a transform which dropped Cb or
+        // Cr would fail rather than pass by symmetry. Y = 128, Cb = 128, Cr = 255: red is
+        // 128 + 1.402 × 127 = 306, clamped to 255, so C is 0; blue is 128 + 1.772 × 0 = 128.
+        let mut red = [128, 128, 255, 0];
+        super::ycck_to_cmyk(&mut red);
+        assert_eq!(red[0], 0, "cyan: the red channel saturated");
+        assert!(
+            red[1] > 200,
+            "magenta: green fell a long way, got {}",
+            red[1]
+        );
+        assert_eq!(red[2], 127, "yellow: blue is unmoved at 128");
+        assert_eq!(red[3], 0);
     }
 
     /// The memo answers with what the conversion would have answered, and nothing else.

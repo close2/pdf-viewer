@@ -45,7 +45,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [25](25-view-dependent-annotations.md) | `/FixedPrint`, which waits on a printing path | 15 |
 | [26](26-icons-a-clause-only-recommends.md) | `Stamp`'s icon, whose standard names are legends rather than symbols | 1 |
 | [27](27-the-interfaces-own-font.md) | The interface's own font: a character it cannot set is a box now; what is open is *coverage* | 74 |
-| [28](28-a-catalogue-that-draws-nothing.md) | A 92-page catalogue whose every page is one YCCK JPEG this tree refuses — so it draws nothing | 0, and that is the point |
+| [28](28-a-catalogue-that-draws-nothing.md) | A catalogue that drew nothing: the YCCK image is decoded; §11.6.6 and §11.4.7 are what is left, and this document is their witness | 0, and that is the point |
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` | — |
 | [32](32-presentation-player.md) | Draw a transition's frames | — |
