@@ -1,9 +1,10 @@
 # A transfer function that changes what a screen shows
 
-Status: **found and measured in the three-hundred-and-fifty-seventh session; not implemented, and
-the reason it is not is a sentence in `CLAUDE.md` rather than a cost.** §10.5's ledger row is
-`silent` — the first row to carry that status since the thirty-fifth session — and this file is
-the evidence behind it.
+Status: **found in the three-hundred-and-fifty-seventh session and implemented in the
+three-hundred-and-fifty-eighth**, after the project owner amended `CLAUDE.md`'s scope line on the
+evidence below. §10.5's ledger row was `silent` for one round — the first since the thirty-fifth
+session — and is `implemented` now. Kept because the *argument* is what took the round, and because
+`doc/todo/01`'s sweeps look here.
 Priority: 13 — a defect: a wrong picture with nothing said about it
 Corpus: **1 document draws wrong**; how many state a `/TR` at all is unmeasured (see below)
 Clauses: §10.5, §8.4.5 (Table 57's `/TR` and `/TR2`), §11.7.5.2
@@ -115,7 +116,28 @@ producer too and says nothing about a reader's obligation to a file that already
 output device", is deprecated, and "[a] display's calibration is not a property this document may
 state". This document states one; it is not a calibration; and it decides what a reader sees.
 
-## Why this is not simply a defect to fix
+## What was done
+
+The project owner's answer was to split the scope line rather than to drop it: §10.6's halftones
+stay inapplicable **on the standard's own condition**, and §10.5's transfer functions are in scope.
+`CLAUDE.md` says so now, with §10.1's two bullets and §10.6.1's sentence as the reason.
+
+**The census first**, which this file said a round taking the clause owes:
+`examples/transfer_function_census` walks every page's `/ExtGState` and every form `XObject`'s over
+all 974 documents. **13 state a `/TR` or `/TR2`; exactly one states anything but `/Identity` or
+`/Default`**, and it is this file's witness. `/TR2 /Default` appears 165 times and `/TR /Identity`
+13. So the clause is one page rather than a population, and implementing it could not move anything
+else — which the corpus and oracle gates then confirmed to the digit.
+
+`content.rs` gained `Transfer`, three functions wide, read from Table 57 with `/TR2` in preference
+to `/TR`, and applied in `fill_paint`, `stroke_paint` and to an image's samples. Three answers
+rather than two — `Stated::{Unsaid, None, Set}` — because "says nothing" and "says `/Identity`" are
+different instructions and this very file uses both, one state after the other.
+
+`issue6931_reduced.pdf` page one: **20.3861 → 3.61878**, against `poppler` 3.12869, `ghostscript`
+3.70614 and `hayro` 3.67272. `mupdf` stays at 20.6726.
+
+## Why it was not simply a defect to fix
 
 `CLAUDE.md`'s scope section says, in the owner's own words:
 

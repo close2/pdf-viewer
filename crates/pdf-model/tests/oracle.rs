@@ -4274,7 +4274,7 @@ const AMBIGUOUS_INSIDE_A_ROUNDING_ERROR: [&str; 3] = [
 ///
 /// The panels are not all one size on two of the three — 595 × 842, 596 × 842 and 595 × 841 — so
 /// the numbers above are means, for `doc/todo/00`'s reason.
-/// Ambiguous, and **this page is drawn wrong** — §10.5's transfer function, unapplied.
+/// Ambiguous, and it took a scope decision rather than a fix — §10.5's transfer function.
 ///
 /// `issue6931_reduced.pdf` page 1 says, in words, *The color should be red*, and it is the entry
 /// that proves this bucket's whole premise: a page can be plainly wrong inside an `ambiguous`
@@ -4291,9 +4291,21 @@ const AMBIGUOUS_INSIDE_A_ROUNDING_ERROR: [&str; 3] = [
 /// `/TR` to three type-0 sampled functions that map **2/255 to 0.992**. Three renderers apply the
 /// function and show a red heart on white; ours and `mupdf` do not and show a black square.
 ///
-/// **It is listed here rather than fixed** because implementing §10.5 crosses `CLAUDE.md`'s own
-/// scope sentence, which calls transfer functions inapplicable. §10.5's ledger row is `silent` —
-/// the first since the thirty-fifth session — and `doc/todo/13` carries the evidence and the cost.
+/// **It was drawn wrong until the three-hundred-and-fifty-eighth session**, and what took the
+/// round was the argument rather than the code: implementing §10.5 crossed `CLAUDE.md`'s own scope
+/// sentence, which called transfer functions inapplicable. The standard settles it — §10.1's list
+/// of rendering steps makes halftoning conditional on the device and the transfer function not,
+/// and §10.6.1 keeps the transfer for a device that needs no halftone — so the project owner split
+/// the scope line and the clause was implemented. Ours is **3.61878** now:
+///
+/// ```text
+/// ours 3.61878 │ poppler 3.12869 │ ghostscript 3.70614 │ hayro 3.67272 │ mupdf 20.6726
+/// ```
+///
+/// **`mupdf` is now the only renderer of the five that does not apply it**, which is what turns
+/// this from a page we were wrong about into a page that stays `ambiguous` because one reference
+/// draws something else. The remaining spread among the four is 0.58 of 255 on a page whose ink is
+/// 3.6, which is the ordinary difference between five CMYK-to-RGB conversions of one photograph.
 const AMBIGUOUS_TRANSFER_FUNCTION_UNAPPLIED: [&str; 1] = ["issue6931_reduced.pdf page 1"];
 
 const AMBIGUOUS_OURS_ON_THE_LIMIT: [&str; 3] = [

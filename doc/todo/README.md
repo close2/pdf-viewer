@@ -54,6 +54,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser, not only the codecs | — |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out | — |
 | [37](37-what-a-native-host-would-not-draw-itself.md) | Five of six chrome populations already cross as data; **form fields are the gap** — audited at the owner's request | — |
+| [38](38-a-documents-restrictions-have-levels.md) | A document's restrictions are the reader's to set: four levels, no UI yet, and the shape they need | — |
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect | 1 |
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
 | [42](42-the-launch-path.md) | The launch path: 145 ms to 110, four of five items closed, the fifth is quorra's | all |

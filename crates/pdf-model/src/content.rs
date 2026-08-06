@@ -523,6 +523,132 @@ struct TransparencyGroup {
     colour_space: Object,
 }
 
+/// ISO 32000-2 §10.5's transfer function, as Table 57's `/TR` and `/TR2` state it.
+///
+/// > In the sequence of steps for processing colours, the PDF processor shall apply the transfer
+/// > function after performing any needed conversions between colour spaces.
+///
+/// **Why a screen has one at all**, since this tree called it inapplicable for three hundred and
+/// fifty-seven sessions: the standard never uses the phrase "marking device" — §8.3.2.2's term is
+/// a "raster output device *such as a display or a printer*" — and §10.1's list of rendering steps
+/// makes halftoning conditional on the device and the transfer function not. §10.6.1 says it for
+/// the case of a screen outright: "[h]alftoning is not required for such devices; **after gamma
+/// correction by the transfer functions**, the colour components shall be transmitted directly to
+/// the device."
+///
+/// One function or four. The clause: "[i]f only a single function is specified, it shall apply to
+/// all components. An RGB device shall use the first three" — and this device is RGB, so the
+/// fourth is read and never asked.
+///
+/// Both ends are additive by the clause's own rule — "the greater the numeric value, the lighter
+/// the colour" — which is what makes applying it to an RGB colour the whole of it: nothing here
+/// has to subtract anything from 1.0, because nothing here is subtractive by the time it arrives.
+#[derive(Debug, Clone)]
+struct Transfer {
+    /// Red, green and blue. One stated function fills all three (`Arc` so it is not cloned).
+    channels: [Arc<crate::function::Function>; 3],
+}
+
+impl Transfer {
+    /// Table 57's two entries, read from an `/ExtGState`, with `/TR2` in preference to `/TR`.
+    ///
+    /// Table 57 makes that precedence explicit — `/TR2` "shall be used in preference to `TR`" —
+    /// and both take a function, an array of four, or a name.
+    ///
+    /// Three answers, not two, which is what [`Stated`] exists to say: the state says nothing, the
+    /// state turns an inherited transfer **off** (`/Identity`, or `/TR2`'s `/Default`), or the
+    /// state sets one. Folding the middle into the first would leave an inherited transfer running
+    /// through a `q … /Identity gs … Q` that exists to stop it.
+    fn read(document: &Document, state: &Dictionary) -> Stated {
+        let Some(entry) = ["TR2", "TR"]
+            .into_iter()
+            .map(|key| document.get_key(state, key))
+            .find(|value| !value.is_null())
+        else {
+            return Stated::Unsaid;
+        };
+        if let Some(name) = entry.as_name() {
+            // The two names that mean "no transfer". Any other name is a function this file did
+            // not supply, and leaving the state alone is what a name nobody defined can mean.
+            return match name.as_bytes() {
+                b"Identity" | b"Default" => Stated::None,
+                _ => Stated::Unsaid,
+            };
+        }
+        let read = |object: &Object| {
+            crate::function::Function::parse(document, object)
+                .ok()
+                .map(Arc::new)
+        };
+        let channels = match entry.as_array() {
+            // "[A]n array of four separate transfer functions, one each for red, green, blue, and
+            // gray or their complements" — an RGB device uses the first three.
+            Some(items) if items.len() >= 3 => {
+                let mut out = Vec::with_capacity(3);
+                for item in items.iter().take(3) {
+                    let Some(function) = read(&document.resolve(item)) else {
+                        return Stated::Unsaid;
+                    };
+                    out.push(function);
+                }
+                match (out.first(), out.get(1), out.get(2)) {
+                    (Some(first), Some(second), Some(third)) => {
+                        [first.clone(), second.clone(), third.clone()]
+                    }
+                    _ => return Stated::Unsaid,
+                }
+            }
+            // An array of any other length is not what the clause states, and a state this reader
+            // cannot make sense of leaves the one in force alone.
+            Some(_) => return Stated::Unsaid,
+            None => {
+                let Some(one) = read(&entry) else {
+                    return Stated::Unsaid;
+                };
+                [one.clone(), one.clone(), one]
+            }
+        };
+        Stated::Set(Self { channels })
+    }
+
+    /// The colour a device would receive, with the alpha untouched.
+    ///
+    /// Alpha is not a colour component: §10.5 speaks of "the value of a colour component in the
+    /// device's native colour space", and §11's shape and opacity are a different quantity in a
+    /// different clause.
+    fn apply(&self, colour: Color) -> Color {
+        let map = |function: &crate::function::Function, value: f32| {
+            function
+                .eval(&[value.clamp(0.0, 1.0)])
+                .first()
+                .copied()
+                .map_or(value, |out| out.clamp(0.0, 1.0))
+        };
+        Color {
+            r: map(&self.channels[0], colour.r),
+            g: map(&self.channels[1], colour.g),
+            b: map(&self.channels[2], colour.b),
+            a: colour.a,
+        }
+    }
+}
+
+/// What an `/ExtGState` said about §10.5's transfer function.
+///
+/// Three answers rather than two, because "says nothing" and "says `/Identity`" are different
+/// instructions: the first leaves whatever is in force, and the second is how a file turns an
+/// inherited transfer off. `issue6931_reduced.pdf` uses both — one state sets three functions and
+/// the next sets `/Identity` — so a reader that could not tell them apart would carry the transfer
+/// on past the object it was written for.
+enum Stated {
+    /// The dictionary has neither entry, or has one this reader cannot make sense of.
+    Unsaid,
+    /// `/Identity`, or `/TR2`'s `/Default`: no transfer from here on.
+    None,
+    /// A function, or four of them.
+    Set(Transfer),
+}
+
 /// One level of PDF graphics state.
 #[derive(Debug, Clone)]
 struct GraphicsState {
@@ -553,6 +679,12 @@ struct GraphicsState {
     fill_space: ColourSpace,
     /// As above, for stroking.
     stroke_space: ColourSpace,
+    /// §10.5's transfer function, where an `/ExtGState` sets one.
+    ///
+    /// `None` is the initial value and what `/Identity` or `/TR2`'s `/Default` restores. Saved and
+    /// restored by `q`/`Q` like every other parameter here, and inherited by a form `XObject` and by
+    /// a tiling pattern's replay, which is what §8.4's "graphics state" means.
+    transfer: Option<Arc<Transfer>>,
     /// Table 57's `/SM`, §10.7.3's smoothness tolerance, if the file states one.
     ///
     /// `None` is the initial value in the sense that matters: no document has asked for
@@ -812,6 +944,58 @@ fn any_command(commands: &[Command], wanted: &dyn Fn(&Command) -> bool) -> bool 
     })
 }
 
+/// One decoded image through §10.5's transfer function, or unchanged where none is in effect.
+///
+/// Straight alpha in, straight alpha out: the samples are RGBA and only the three colour
+/// components are mapped, for [`Transfer::apply`]'s reason.
+///
+/// **The cost is one lookup per sample and it is paid only where a file states a transfer** — 1 of
+/// the 974 corpus documents, measured by `examples/transfer_function_census`, and 13 state a `/TR`
+/// at all with the other 12 saying `/Identity`. An image with no transfer is moved rather than
+/// touched.
+fn transferred_image(image: pdf_render::Image, transfer: Option<&Transfer>) -> pdf_render::Image {
+    let Some(transfer) = transfer else {
+        return image;
+    };
+    let mut image = image;
+    // A memo over the 8-bit triple, because a transfer is a pure function of a colour and a
+    // photograph repeats its colours: the same argument `image::Conversion` records for
+    // §8.6's spaces, one clause along.
+    let mut memo: std::collections::HashMap<[u8; 3], [u8; 3]> = std::collections::HashMap::new();
+    // The samples are shared, so a transfer takes a copy — which is right rather than merely
+    // necessary: the same XObject drawn twice under two graphics states is two pictures, and
+    // writing through the `Arc` would make the second overwrite the first.
+    let mut data = image.data.to_vec();
+    for pixel in data.chunks_exact_mut(4) {
+        let Some(rgb) = pixel.get(..3) else { continue };
+        let key = [rgb[0], rgb[1], rgb[2]];
+        let mapped = *memo.entry(key).or_insert_with(|| {
+            let out = transfer.apply(Color {
+                r: f32::from(key[0]) / 255.0,
+                g: f32::from(key[1]) / 255.0,
+                b: f32::from(key[2]) / 255.0,
+                a: 1.0,
+            });
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "clamped to 0..=1 by Transfer::apply, so the product is a byte"
+            )]
+            let bytes = [
+                (out.r * 255.0).round() as u8,
+                (out.g * 255.0).round() as u8,
+                (out.b * 255.0).round() as u8,
+            ];
+            bytes
+        });
+        if let Some(three) = pixel.get_mut(..3) {
+            three.copy_from_slice(&mapped);
+        }
+    }
+    image.data = Arc::from(data.as_slice());
+    image
+}
+
 /// Whether a command asks to be blended with what is under it, rather than painted over it.
 fn command_blends(command: &Command) -> bool {
     match command {
@@ -1064,6 +1248,7 @@ impl GraphicsState {
             transform: base,
             clip: None,
             soft_mask: None,
+            transfer: None,
             smoothness: None,
             fill: Color::BLACK,
             fill_pattern: None,
@@ -1094,10 +1279,13 @@ impl GraphicsState {
         if let Some(PatternPaint::Shading(shading, _)) = &self.fill_pattern {
             return Paint::Shading(shading_with_alpha(shading, self.fill_alpha));
         }
-        Paint::Solid(Color {
+        // §10.5's transfer function, applied here because here is where a colour becomes the
+        // value a device receives: the clause puts it "after performing any needed conversions
+        // between colour spaces", and by this point `fill` is already RGB.
+        Paint::Solid(self.transferred(Color {
             a: self.fill.a * self.fill_alpha,
             ..self.fill
-        })
+        }))
     }
 
     /// Whether painting under this state composites with what is already on the page.
@@ -1117,10 +1305,17 @@ impl GraphicsState {
         if let Some(PatternPaint::Shading(shading, _)) = &self.stroke_pattern {
             return Paint::Shading(shading_with_alpha(shading, self.stroke_alpha));
         }
-        Paint::Solid(Color {
+        Paint::Solid(self.transferred(Color {
             a: self.stroke_colour.a * self.stroke_alpha,
             ..self.stroke_colour
-        })
+        }))
+    }
+
+    /// One colour through §10.5's transfer function, or unchanged where none is in effect.
+    fn transferred(&self, colour: Color) -> Color {
+        self.transfer
+            .as_ref()
+            .map_or(colour, |transfer| transfer.apply(colour))
     }
 }
 
@@ -2639,6 +2834,11 @@ impl Interpreter<'_> {
 
 /// Applies an `/ExtGState` resource.
 impl Interpreter<'_> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Table 57 read once, entry by entry, in the table's own order — which is where a \
+                  reader looking for \"does this tree read /SA\" should find the answer"
+    )]
     fn apply_ext_gstate(
         &mut self,
         operands: &[Object],
@@ -2711,6 +2911,15 @@ impl Interpreter<'_> {
         // different route; ADR 0028 has that argument and the ledger's §10.7.5 row records it.
         if let Object::Boolean(adjust) = self.document.get_key(dict, "SA") {
             state.stroke.adjust = adjust;
+        }
+        // Table 57's `/TR` and `/TR2`: §10.5's transfer function. `Transfer::read` answers `None`
+        // for a state that names neither and `Some(None)` for one that names `/Identity` or
+        // `/Default` — a state that turns an inherited transfer *off* rather than one that says
+        // nothing, which are different things and only one of them clears the field.
+        match Transfer::read(self.document, dict) {
+            Stated::Unsaid => {}
+            Stated::None => state.transfer = None,
+            Stated::Set(transfer) => state.transfer = Some(Arc::new(transfer)),
         }
         // Table 57's `/SM`: §10.7.3's smoothness tolerance, "the maximum error tolerance for
         // rendering shadings", expressed "as a fraction of the range of each colour
@@ -3826,7 +4035,13 @@ impl Interpreter<'_> {
         // the current transform and nothing else.
         match crate::image::decode(self.document, stream, resources, state.fill) {
             Ok(image) => self.list.push(Command::Image {
-                image,
+                // §10.5 applies to "any object for which transfer functions are in effect", and an
+                // image is one object however many samples it has: the clause's input is "the
+                // value of a colour component in the device's native colour space", which by this
+                // point every sample is. Done here rather than in `image::decode` because a
+                // transfer belongs to the *graphics state* the image is drawn under and not to the
+                // image, and the same XObject drawn twice under two states is two pictures.
+                image: transferred_image(image, state.transfer.as_deref()),
                 transform: state.transform,
                 alpha: state.fill_alpha,
                 clip: state.clip,
@@ -6406,8 +6621,116 @@ fn known_blend_mode(name: &[u8]) -> Option<BlendMode> {
 mod tests {
     use pdf_render::Point;
 
-    use super::{base_transform, displayed_size};
+    use super::{Stated, Transfer, base_transform, displayed_size};
     use crate::page::Page;
+
+    /// One page whose `/ExtGState` sets §10.5's transfer function, as PDF bytes.
+    ///
+    /// `entry` is written verbatim into the graphics state, so one builder serves an array of
+    /// three, a single function, `/Identity` and a name nobody defined.
+    fn with_transfer(entry: &str) -> pdf_syntax::Document {
+        use std::fmt::Write as _;
+        // A type-2 exponential function, which is §7.10.3's two-line form: f(x) = 1 - x here,
+        // because `/C0 [1]`, `/C1 [0]` and `/N 1` is the straight line between them.
+        let body = format!(
+            "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+             2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+             3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] \
+             /Resources << /ExtGState << /G << /Type /ExtGState /TR {entry} >> >> >> \
+             /Contents 4 0 R >> endobj\n\
+             4 0 obj << /Length 0 >> stream\n\nendstream endobj\n\
+             5 0 obj << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> endobj\n"
+        );
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for object in body.split_inclusive("endobj\n") {
+            offsets.push(out.len());
+            out.push_str(object);
+        }
+        let at = out.len();
+        let size = offsets.len().saturating_add(1);
+        let _ = writeln!(out, "xref\n0 {size}");
+        out.push_str("0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+        );
+        pdf_syntax::Document::open(out.into_bytes()).expect("the fixture parses")
+    }
+
+    /// The `/ExtGState` of the fixture above.
+    fn state(document: &pdf_syntax::Document) -> pdf_syntax::Dictionary {
+        let pages = crate::Pages::new(document);
+        let page = pages.get(0).expect("one page");
+        let graphics = document.get_key(&page.resources, "ExtGState");
+        let dict = graphics.as_dict().expect("the fixture states one");
+        document
+            .get_key(dict, "G")
+            .as_dict()
+            .cloned()
+            .expect("the fixture names it /G")
+    }
+
+    /// ISO 32000-2 §10.5, read and applied: every colour component through its own function.
+    ///
+    /// > The transfer function shall be called with a numeric operand in the range 0.0 to 1.0 and
+    /// > shall return a number in the same range.
+    ///
+    /// Three shapes, because the clause states three: an array — "one each for red, green, blue,
+    /// and gray" of which "[a]n RGB device shall use the first three" — a single function, which
+    /// "shall apply to all components", and `/Identity`. The fourth case is a name nobody defined,
+    /// which the clause does not describe and which leaves the state alone rather than clearing it.
+    #[test]
+    fn a_transfer_function_maps_every_colour_component() {
+        let document = with_transfer("[5 0 R 5 0 R 5 0 R 5 0 R]");
+        let Stated::Set(transfer) = Transfer::read(&document, &state(&document)) else {
+            panic!("an array of four is a transfer function");
+        };
+        let out = transfer.apply(pdf_render::Color {
+            r: 0.25,
+            g: 0.5,
+            b: 1.0,
+            a: 0.75,
+        });
+        assert!((out.r - 0.75).abs() < 1e-4, "{out:?}");
+        assert!((out.g - 0.5).abs() < 1e-4, "{out:?}");
+        assert!(out.b.abs() < 1e-4, "{out:?}");
+        // Alpha is not a colour component: §10.5 speaks of "the value of a colour component in the
+        // device's native colour space", and §11's opacity is a different clause's quantity.
+        assert!((out.a - 0.75).abs() < 1e-6, "{out:?}");
+
+        // "If only a single function is specified, it shall apply to all components."
+        let one = with_transfer("5 0 R");
+        let Stated::Set(transfer) = Transfer::read(&one, &state(&one)) else {
+            panic!("a single function is a transfer function");
+        };
+        let out = transfer.apply(pdf_render::Color {
+            r: 0.25,
+            g: 0.25,
+            b: 0.25,
+            a: 1.0,
+        });
+        assert!(
+            (out.r - 0.75).abs() < 1e-4 && (out.b - 0.75).abs() < 1e-4,
+            "{out:?}"
+        );
+
+        // `/Identity` turns an inherited transfer *off*, which is not the same as saying nothing —
+        // and `issue6931_reduced.pdf` states both, one graphics state after the other.
+        let identity = with_transfer("/Identity");
+        assert!(matches!(
+            Transfer::read(&identity, &state(&identity)),
+            Stated::None
+        ));
+        let nonsense = with_transfer("/NoSuchThing");
+        assert!(matches!(
+            Transfer::read(&nonsense, &state(&nonsense)),
+            Stated::Unsaid
+        ));
+    }
 
     /// A page 400 wide and 200 tall, with no crop offset, at `rotate` degrees.
     fn landscape(rotate: u16) -> Page {

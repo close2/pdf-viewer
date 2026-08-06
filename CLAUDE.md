@@ -95,6 +95,25 @@ it is the easiest thing to lose gradually to unnoticed initialisation. Rules:
 - Any C dependency (notably JBIG2 / JPEG2000, both historically severe attack surfaces)
   must be isolated in the sandboxed process and justified in writing.
 
+#### A document's restrictions are the reader's to set, and they have levels
+
+Stated by the project owner. This is about the permissions a *document* asserts over the
+person reading it — Table 22's `/P` flags, §12.8.2.2's `/DocMDP`, §12.8.6's usage rights —
+and not about the sandbox, which is the opposite direction and is not negotiable.
+
+- **They are low priority**, and **it shall always be possible to turn them off.** A
+  restriction a reader cannot switch off is a restriction imposed on the reader by somebody
+  else's file, and this program is the reader's.
+- **The finished product has four levels**: `off`, `on`, *ask before the operation*, and
+  *warn before the operation*. There is no user interface for them yet and none is to be
+  built now.
+- **What binds today is the shape rather than the feature.** Whenever a restriction is
+  implemented or touched for any reason, it is written so that those four levels can be
+  added later without revisiting the decision: the *policy* is asked, once, in a place a
+  host can supply — not hard-coded as a refusal at the point of the operation, and not
+  decided inside `pdf-model` where no host can reach it. A refusal that cannot become an
+  "ask" is the thing to avoid.
+
 ### 4. Exemplary — a project others can learn from
 
 The aim is for this codebase to be worth showing to students as an example of how to
@@ -164,12 +183,30 @@ In scope, without exclusions:
 - **What a reader does with an open document**: selecting its text, filling a field, adding an
   annotation or a markup. A viewer that can only look is not the target and never was; this
   became explicit in the hundred-and-thirtieth session, and the exclusion it amends is below.
-- **Clause 10 where it applies to a screen.** Halftones and transfer functions describe a
-  marking device; those are *inapplicable*, which is not the same as excluded, and the ledger
-  keeps them apart. Flatness and smoothness are **not** inapplicable, and the difference is
-  worth the words: §10.7.2 makes ignoring flatness an explicit permission, and §10.7.3 says
-  "each output device may have internal limits" on smoothness — a clause that permits is a
-  clause that has been read, and it is a stronger answer than one that does not apply.
+- **Clause 10 where it applies to a screen**, and the standard decides which clauses those are
+  rather than this file. **This entry used to say "[h]alftones and transfer functions describe a
+  marking device; those are *inapplicable*", and it was wrong about the second of the two** —
+  found in the three-hundred-and-fifty-seventh session on a corpus document that draws wrong
+  because of it. ISO 32000-2 never uses the phrase *marking device*; §8.3.2.2's term is a
+  "raster output device **such as a display or a printer**", and §10.1's own list of rendering
+  steps separates the two: "[f]or any object for which transfer functions are in effect, apply
+  those transfer functions" against "**[i]f** the raster output device supports PDF-defined
+  halftoning, apply halftoning". §10.6.1 says it for a screen outright — "[h]alftoning is not
+  required for such devices; **after gamma correction by the transfer functions**, the colour
+  components shall be transmitted directly to the device."
+
+  So **§10.6's halftones are inapplicable on the standard's own condition**, and **§10.5's
+  transfer functions are in scope**: they decide what a screen shows. Flatness and smoothness are
+  **not** inapplicable either, and the difference is worth the words: §10.7.2 makes ignoring
+  flatness an explicit permission, and §10.7.3 says "each output device may have internal limits"
+  on smoothness — a clause that permits is a clause that has been read, and it is a stronger
+  answer than one that does not apply.
+
+  **The lesson is more general than the clause**, and it is the project owner's: the restrictions
+  in this file were drawn early, around the most important functionality, and they come off step
+  by step as each is read against the standard rather than staying because they are written down.
+  An entry here that says a clause does not apply is a *claim about the specification*, and it
+  decays exactly the way a ledger row's does.
 - **Clause 14** — output intents, and tagged PDF as far as accessibility needs it.
 
 The exclusions, closed, each with its reason:
