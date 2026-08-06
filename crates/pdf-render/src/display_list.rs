@@ -256,6 +256,34 @@ impl Command {
         }
     }
 
+    /// The geometry this command draws, or `None` where it draws none.
+    ///
+    /// A group's is its elements', which a caller walking them reads one at a time; an image's is
+    /// the unit square its transform places, which is not a path.
+    #[must_use]
+    pub fn path(&self) -> Option<&Arc<Path>> {
+        match self {
+            Self::Fill { path, .. } | Self::Stroke { path, .. } => Some(path),
+            Self::Image { .. } | Self::Group { .. } => None,
+        }
+    }
+
+    /// The geometry this command draws, for a caller replacing it, or `None` where it draws
+    /// none.
+    ///
+    /// Exists for one caller and states its reason here rather than there, as
+    /// [`Self::set_clip`] does: a tiling pattern's cell may state a mark that a neighbouring
+    /// cell states again a whole lattice step away, and folding the pair to the one mark of the
+    /// tiling they both describe is an edit to the path of a command already emitted
+    /// (§8.7.3.1, §11.6.2 — see [`crate::repeat`]). Doing it by editing the command is what
+    /// saves running the cell's content stream a second time to find out.
+    pub fn path_mut(&mut self) -> Option<&mut Arc<Path>> {
+        match self {
+            Self::Fill { path, .. } | Self::Stroke { path, .. } => Some(path),
+            Self::Image { .. } | Self::Group { .. } => None,
+        }
+    }
+
     /// The region of the target this command can mark, ignoring its clip, or `None` where
     /// this cannot say.
     ///

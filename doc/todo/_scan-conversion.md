@@ -61,7 +61,13 @@ departure explains and one it does not:
 - `AMBIGUOUS_TILING_CELL_CLIP` — `issue16038.pdf`: the departure did **not** explain it. Two
   anti-aliasing renderers (`hayro`, and `mupdf`'s left square) land on the geometry's own
   0.1333 while we were at 0.1114, and the 16% was a redundant clip's anti-aliased edge (ADR
-  0155). **Anti-aliasing gives the shape's area; coming out *under* it is a defect.**
+  0155). **Anti-aliasing gives the shape's area; coming out *under* it is a defect.** The same
+  page's *other* square was 13% under for the same reason at one remove — a rule the cell states
+  on both box edges, halved by the clip and reassembled from two cells, the halves compositing
+  rather than adding — and §11.6.2 is what settles that one: the tiles are portions of one object,
+  which "shall not be composited with one another", so the two statements are the one mark they
+  describe and it is drawn once (ADR 0213). Both squares are now within 1% to 3% of the geometry
+  and within 1% of each other at every scale.
 
 ## The one rule this tree does not apply, deliberately
 

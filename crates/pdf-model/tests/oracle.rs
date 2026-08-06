@@ -1972,6 +1972,11 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// documented departure that draws it at 0.4. What is *not* a departure is coming out under
 /// the area, and that is what the 1× row is.
 ///
+/// **Our three rows are from before ADR 0155 and ADR 0213**, which is why they are the only
+/// ones that move. Measured the same way with `examples/render_at` in the
+/// three-hundred-and-seventy-fourth session: **299.89** at 1× (94.8%), **315.18** at 8× (99.6%)
+/// and 313.84 at 24×.
+///
 /// # The two squares are the second instrument, and they need no reference at all
 ///
 /// Interior coverage of each square, ours against the geometry's 0.1333:
@@ -2010,12 +2015,35 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// cannot show containment for the shape that most needs it — and `pdf_render::outline` is that
 /// bound.
 ///
-/// **What is left is the right square, at 0.1159 against 0.1333.** There the clip is
-/// load-bearing: the rule sits on the cell's edge and is *meant* to be halved, so each half is
-/// drawn by a different cell and the two composite rather than add. Removing that clip would
-/// draw the rule twice at full width, which is what `mupdf` does. Fixing it means rasterising
-/// the tiling's coverage once rather than cell by cell, which is a different construction
-/// altogether — and the page stays here until somebody takes it.
+/// # And the right square, taken in the three-hundred-and-seventy-fourth session
+///
+/// There the clip is load-bearing: the rule sits on the cell's edge and is *meant* to be halved,
+/// so each half was drawn by a different cell and the two composited. Removing the clip would
+/// draw the rule twice at full width, which is what `mupdf` does; **what the two halves are is
+/// one mark**, stated twice by a cell whose figure repeats at a whole `/YStep`, and §11.6.2
+/// forbids compositing them — "[p]ortions of an object shall not be composited with one another"
+/// — because §11.6.7 makes the tiling one object's paint. So one of the two statements is kept,
+/// the box comes off it and the rule is drawn whole (ADR 0213).
+///
+/// Interior coverage of each square as a fraction of the geometry's own answer, measured over
+/// eight whole periods with `examples/render_at` at four scales:
+///
+/// ```text
+///                1×      2×      4×      8×
+/// left        0.983   0.985   0.967   1.002
+/// right       0.858   0.771   0.901   0.951     before
+/// right       0.989   0.971   0.972   1.003     after
+/// ```
+///
+/// The two squares state the same rules and now weigh the same at every scale, which is the
+/// instrument that needs no reference. Total ink over the page against the 316.29 square points
+/// the geometry states: **287.16 → 299.89** at 1× and **309.14 → 315.18** at 8×.
+///
+/// The page keeps its `ambiguous` verdict, and for the honest reason: the three C references
+/// disagree with each other about the weight by more than anybody disagrees with us. What is
+/// left in both squares is 1.5% to 3% at 2× and 4×, and it is the rules' *ends* meeting column by
+/// column — the same seam one axis over, one pixel column per three rather than the whole length
+/// of every rule.
 const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 
 /// Ambiguous, and it is a page made almost entirely of sub-pixel line work.

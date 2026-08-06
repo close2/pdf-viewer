@@ -179,7 +179,11 @@ const DIFFERS_AT_THE_EDGES: [&str; 27] = [
 /// sub-step coverage differences drag the similarity score below the threshold without any
 /// shape moving. `knockout_groups_test.pdf` and `issue840.pdf` differ on 2 and 4 pixels
 /// respectively. The rest are the hairline-and-texture family — sub-half-pixel rules
-/// (`issue16038`, `issue12295`, `issue20232`, `22060_A1_01_Plans`), 8-px text
+/// (`issue16038`, `issue12295`, `issue20232`, `22060_A1_01_Plans`; the first of those went from
+/// mean 6.1643 to **6.5359** in the three-hundred-and-seventy-fourth session, when its pattern's
+/// rule became one 0.53-pixel stroke instead of two clipped 0.27-pixel halves — the same ink for
+/// two rasterisers to distribute differently, in one mark instead of two, and the page moved 4%
+/// toward the geometry's own answer while doing it, ADR 0213), 8-px text
 /// (`issue16316`, `standard_fonts`), halftone photographs under the stated linear-sampler
 /// variance (`issue269_2`) — where the two rasterisers put the same ink on different sides
 /// of a pixel boundary. Matching `tiny-skia`'s sub-pixel distribution byte-for-byte would be

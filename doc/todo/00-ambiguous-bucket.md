@@ -193,6 +193,20 @@ clause. The absolute values here are a hair off the numbers above because this r
 `255 − mean` over a straight `L` conversion; what is compared across runs is the same instrument
 before and after, and it is unchanged.
 
+**Re-run whole in the three-hundred-and-seventy-fourth**, the round that folded a tiling's repeated
+mark (ADR 0213), over all 786 and filtered to the same 743. **The head moved and nothing else did**:
+`issue16038.pdf` **−6.404 → −5.398**, `issue12295.pdf` −1.708, `issue7821.pdf` −1.069,
+`jpx_smaskindata.pdf` −0.839, `issue16473.pdf` −0.717 and nothing past −0.536 — every entry but the
+round's own page unchanged to a thousandth, and the positive side identical.
+
+**And the head is expected to stay there, which is worth writing down rather than leaving as a
+puzzle.** The gap is our ink minus the *lightest live* reference's, and on this page every reference
+paints more than the geometry — `hayro` 139% of it, `mupdf` 115%, `poppler` 157%, `ghostscript` 299%
+— because a rule 0.4 of a device pixel wide is a whole painted pixel under §10.7.4 read literally.
+Ours is at 95% of the geometry now against 91% before. **A page can sit at the head of this ranking
+because the references are heavy rather than because we are light**, and the way to tell the two
+apart is the one this page carries: a closed form for the ink the document asks for.
+
 **And the run's *positive* side produced a name off the undiagnosed list**, which it had not done
 before. `bug920426.pdf` page 1 at **+21.07** — ours 25.49 against a lightest live reference of 4.42
 — is `poppler` drawing fourteen `.notdef` boxes where the other four draw *Checkliste Service*;

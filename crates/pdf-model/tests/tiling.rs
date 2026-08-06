@@ -667,3 +667,39 @@ fn a_cell_far_from_the_patterns_origin_still_tiles_onto_the_path() {
     }
     assert_eq!(pixel(&raster, 15, 85).3, 0, "and the gaps are still gaps");
 }
+
+/// A rule stated on both edges of its cell is one rule of the tiling, and weighs one rule.
+///
+/// This is `issue16038.pdf`'s `/pgfpat22`: the cell strokes a line along the bottom of its box
+/// and another along the top, so Table 74's clip keeps half of each and the halves meet. In
+/// geometry they do; on the raster the boundary pixel keeps a fraction of one half and a
+/// fraction of the other, and two fractions composite as `1 − (1−a)(1−b)` rather than adding.
+///
+/// The expected coverage is the geometry's own — one rule 0.3985 wide every 2.98883 units — and
+/// it is the same number `a_rule_spanning_its_whole_cell_deposits_the_ink_its_geometry_states`
+/// checks for the other phase of the same figure, which is the point: the two patterns state
+/// the same rules and must weigh the same.
+#[test]
+fn a_rule_stated_at_both_cell_edges_weighs_one_rule() {
+    let content = "0 0 0 RG 0.3985 w 0 0 m 2.98883 0 l 0 2.98883 m 2.98883 2.98883 l S";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 \
+         /BBox [0 0 2.98883 2.98883] /XStep 2.98883 /YStep 2.98883 \
+         /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    );
+    let raster = render(pdf_with(&pattern, "/Pattern cs /P0 scn 0 0 100 100 re f"));
+
+    let ink: f64 = raster
+        .data
+        .chunks_exact(4)
+        .map(|pixel| f64::from(pixel[3]) / 255.0)
+        .sum();
+    let covered = ink / f64::from(raster.width.saturating_mul(raster.height));
+    let expected = 0.3985 / 2.98883;
+    assert!(
+        (covered - expected).abs() < expected / 50.0,
+        "the rules cover {covered:.4} of the page where their own width and spacing say \
+         {expected:.4}"
+    );
+}

@@ -479,6 +479,14 @@ impl Accessible {
     }
 }
 
+/// What one pattern cell's commands fold, by position within the cell.
+///
+/// Each entry names a command's offset from the cell's first and which of its subpaths are the
+/// second statement of a mark another cell also makes (§8.7.3.1, §11.6.2 — ADR 0213). The first
+/// cell decides it and every cell after it follows, for the reason
+/// [`Interpreter::fold_repeated_marks`] gives.
+type CellFold = Vec<(usize, pdf_render::Repeats)>;
+
 /// A tiling pattern: a cell of content, and how to repeat it.
 #[derive(Debug)]
 struct Tiling {
@@ -3849,6 +3857,190 @@ impl Interpreter<'_> {
         self.unclip_redundant(mark, box_in_pattern, to_pattern, outer)
     }
 
+    /// Runs the pattern's content stream once, for the cell `to_page` places.
+    ///
+    /// Returns the clip Table 74's box produced for it, which is what
+    /// [`Interpreter::settle_cell_box`] may take back off the commands afterwards, or `None`
+    /// where the pattern states no usable box or the first cell already showed it removes
+    /// nothing.
+    fn run_cell(
+        &mut self,
+        tiling: &Tiling,
+        to_page: Transform,
+        outer: Option<ClipId>,
+        box_clips: bool,
+    ) -> Option<ClipId> {
+        let mut cell = GraphicsState::initial(to_page);
+        // Table 74: "These boundaries shall be used to clip the pattern cell." The box is in
+        // pattern space, so it travels with the cell's own offset, and it sits *inside* the
+        // path's clip rather than replacing it — a cell is bounded by both. A file whose box
+        // is unusable keeps the path clip alone.
+        let box_clip = tiling
+            .bbox
+            .filter(|_| box_clips)
+            .and_then(|corners| self.rect_clip(corners, to_page, outer));
+        cell.clip = box_clip.or(outer);
+        // An uncoloured pattern is a stencil: the colour given alongside the pattern name is
+        // what pours through it. §8.6.8 is what makes that true of a cell whose content stream
+        // *does* try to set a colour — it is the second of the clause's two circumstances, and
+        // the colour operators inside it "shall be ignored" exactly as they are inside a `d1`
+        // glyph description.
+        let saved_uncoloured = self.uncoloured;
+        if let Some(tint) = tiling.tint {
+            cell.fill = tint;
+            cell.stroke_colour = tint;
+            self.uncoloured = true;
+        }
+        self.run(
+            &tiling.content,
+            &tiling.resources,
+            &cell,
+            MAX_FORM_DEPTH - 1,
+        );
+        self.uncoloured = saved_uncoloured;
+        box_clip
+    }
+
+    /// What Table 74's box clip is doing to the first cell, answered once for the whole tiling.
+    ///
+    /// Returns whether the box still has to be applied to the cells that follow, and whether
+    /// they have a repeated mark to fold. The two questions are asked in this order because
+    /// they are the same question at two strengths: [`Interpreter::unclip_redundant_cell`]
+    /// removes a box that cuts nothing at all, and [`Interpreter::fold_repeated_marks`] deals
+    /// with a box that cuts a mark the cell states again a step away — a rule drawn on the
+    /// box's own edge, which is one mark of the tiling described twice.
+    fn settle_cell_box(
+        &mut self,
+        mark: usize,
+        corners: [f32; 4],
+        placement: (Transform, Transform),
+        step: (f32, f32),
+        clips: (Option<ClipId>, Option<ClipId>),
+    ) -> (bool, CellFold) {
+        let (offset, to_pattern) = placement;
+        if self.unclip_redundant_cell(mark, corners, offset, to_pattern, clips.1) {
+            return (false, CellFold::new());
+        }
+        (
+            true,
+            self.plan_repeated_marks(mark, corners, placement, step, clips.0),
+        )
+    }
+
+    /// Finds a mark the cell states twice, a lattice step apart (§8.7.3.1, §11.6.2).
+    ///
+    /// Returns one entry per command that has one, by position within the cell.
+    /// [`Interpreter::fold_repeated_marks`] carries the answer out, on this cell and on every
+    /// cell after it: they are one figure at translations of each other, so what folds in one
+    /// folds in all.
+    ///
+    /// # The figure this is for, and why the clip is not the answer
+    ///
+    /// A producer builds a continuous rule out of a repeating cell by drawing it **on** the
+    /// box's edge and stating it twice, at the bottom of the cell and at the top. Table 74's
+    /// clip is what keeps that from painting the rule twice at full width — each cell keeps the
+    /// half inside its own box — and the halves meet exactly, in geometry. They do not meet on
+    /// the raster: a clip mask is anti-aliased, so the boundary pixel keeps a fraction of one
+    /// half and a fraction of the other, and two fractions painted one after another composite
+    /// as `1 − (1−a)(1−b)` rather than adding. `issue16038.pdf`'s second square came out 13%
+    /// under the ink its own geometry states, where §10.7.4 asks for at least it.
+    ///
+    /// §11.6.2 says the two halves may not composite at all:
+    ///
+    /// > Portions of an object shall not be composited with one another, even if they are
+    /// > described in a way that would seem to cause overlaps
+    ///
+    /// and §11.6.7 is what makes the whole tiling one object's paint rather than many —
+    /// "the colour, shape, and opacity values resulting from the evaluation of the pattern
+    /// definition shall be used as the object's source colour ( 𝐶𝑠 ), object shape ( f j ), and
+    /// object opacity ( qi )". So the tiling is evaluated to one shape first, and two cells'
+    /// contributions to one device pixel are two portions of that shape.
+    ///
+    /// The fix is therefore neither a buffer nor a clip: it is to notice that the cell's two
+    /// copies of the rule are **one mark of the tiling**, keep one of them, and draw it whole.
+    /// [`pdf_render::repeated_subpaths`] carries the conditions under which that paints the same set
+    /// of points, and refuses where it would not.
+    fn plan_repeated_marks(
+        &self,
+        mark: usize,
+        corners: [f32; 4],
+        placement: (Transform, Transform),
+        step: (f32, f32),
+        box_clip: Option<ClipId>,
+    ) -> CellFold {
+        let (offset, to_pattern) = placement;
+        // No box clip was built — `rect_clip` refused it — so nothing halves a mark and there is
+        // nothing to fold away from.
+        let Some(box_clip) = box_clip else {
+            return CellFold::new();
+        };
+        let [x0, y0, x1, y1] = corners;
+        let tiles = pdf_render::Tiles {
+            step,
+            cell: Rect::from_corners(
+                offset.apply(Point::new(x0, y0)),
+                offset.apply(Point::new(x1, y1)),
+            ),
+        };
+        let mut plan = CellFold::new();
+        for (at, command) in self.list.commands().iter().enumerate().skip(mark) {
+            // A command the cell's own content clipped further is skipped, for the reason
+            // `unclip_redundant` leaves one alone: the box is then only part of what bounds it.
+            if command.clip() != Some(box_clip) {
+                continue;
+            }
+            if let Some(repeats) = pdf_render::repeated_subpaths(command, tiles, to_pattern) {
+                plan.push((at.saturating_sub(mark), repeats));
+            }
+        }
+        plan
+    }
+
+    /// Carries out what [`Interpreter::plan_repeated_marks`] decided, on the cell at `mark`.
+    ///
+    /// Every cell states the same figure at a translation, so one cell's answer is every cell's.
+    /// The guard is that the command at each planned position still draws a path with the number
+    /// of subpaths the answer counted, and a cell that does not is reported rather than cut by
+    /// index into something else. Nothing in the interpreter can produce one — the content stream
+    /// and the graphics state are identical from cell to cell and only the transform differs — so
+    /// the report is there to make a surprise audible rather than to describe a known case.
+    fn fold_repeated_marks(
+        &mut self,
+        mark: usize,
+        plan: &CellFold,
+        clips: (Option<ClipId>, Option<ClipId>),
+    ) {
+        let (box_clip, outer) = clips;
+        let mut commands = self.list.split_off_commands(mark);
+        let mut owed = false;
+        for (at, repeats) in plan {
+            let folded = commands
+                .get(*at)
+                .filter(|command| command.clip() == box_clip)
+                .and_then(Command::path)
+                .and_then(|path| pdf_render::without_subpaths(path, repeats));
+            match (folded, commands.get_mut(*at)) {
+                (Some(path), Some(command)) => {
+                    if let Some(slot) = command.path_mut() {
+                        *slot = Arc::new(path);
+                        command.set_clip(outer);
+                    } else {
+                        owed = true;
+                    }
+                }
+                _ => owed = true,
+            }
+        }
+        for command in commands {
+            self.list.push(command);
+        }
+        if owed {
+            self.note(Unsupported::Shading {
+                name: "a tiling pattern's cells do not all state the same figure".to_owned(),
+            });
+        }
+    }
+
     /// Takes a `/BBox` clip back off the commands it enclosed, where it removes no geometry.
     ///
     /// The rule and its whole argument are `unclip_redundant_cell`'s, and the argument is not
@@ -5519,6 +5711,11 @@ impl Interpreter<'_> {
         // [`Interpreter::unclip_redundant_cell`], which answers it from the first cell and
         // takes the clip back off it when the answer is no.
         let mut box_clips = tiling.bbox.is_some();
+        // Which of the cell's marks it states twice, a lattice step apart, so that the box clip
+        // halves each and a neighbouring cell draws the other half; see
+        // [`Interpreter::plan_repeated_marks`]. Answered from the first cell for the same reason,
+        // and followed by every cell after it.
+        let mut plan = CellFold::new();
         for row in first_row..=last_row {
             for column in first_column..=last_column {
                 let offset = Transform::translate(
@@ -5527,42 +5724,24 @@ impl Interpreter<'_> {
                 );
                 let first_cell = self.list.command_count();
                 let to_page = offset.then(tiling.to_page);
-                let mut cell = GraphicsState::initial(to_page);
-                // Table 74: "These boundaries shall be used to clip the pattern cell." The
-                // box is in pattern space, so it travels with the cell's own offset, and it
-                // sits *inside* the path's clip rather than replacing it — a cell is bounded
-                // by both. A file whose box is unusable keeps the path clip alone.
-                cell.clip = tiling
-                    .bbox
-                    .filter(|_| box_clips)
-                    .and_then(|corners| self.rect_clip(corners, to_page, clip))
-                    .or(clip);
-                // An uncoloured pattern is a stencil: the colour given alongside the
-                // pattern name is what pours through it. §8.6.8 is what makes that true of a
-                // cell whose content stream *does* try to set a colour — it is the second of
-                // the clause's two circumstances, and the colour operators inside it "shall
-                // be ignored" exactly as they are inside a `d1` glyph description.
-                let saved_uncoloured = self.uncoloured;
-                if let Some(tint) = tiling.tint {
-                    cell.fill = tint;
-                    cell.stroke_colour = tint;
-                    self.uncoloured = true;
-                }
-                self.run(
-                    &tiling.content,
-                    &tiling.resources,
-                    &cell,
-                    MAX_FORM_DEPTH - 1,
-                );
-                self.uncoloured = saved_uncoloured;
+                let box_clip = self.run_cell(tiling, to_page, clip, box_clips);
                 // Asked once, of the first cell, and the answer holds for every one of them:
                 // the cells are one figure at translations of each other.
-                if first_cell == mark
+                if let Some(corners) = tiling.bbox
                     && box_clips
-                    && let Some(corners) = tiling.bbox
-                    && self.unclip_redundant_cell(mark, corners, offset, to_pattern, clip)
                 {
-                    box_clips = false;
+                    if first_cell == mark {
+                        (box_clips, plan) = self.settle_cell_box(
+                            mark,
+                            corners,
+                            (offset, to_pattern),
+                            tiling.step,
+                            (box_clip, clip),
+                        );
+                    }
+                    if !plan.is_empty() {
+                        self.fold_repeated_marks(first_cell, &plan, (box_clip, clip));
+                    }
                 }
             }
         }

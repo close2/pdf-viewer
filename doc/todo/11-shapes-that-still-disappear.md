@@ -1,18 +1,20 @@
 # Shapes that still disappear
 
-Status: **measured, not fixed — and since the three-hundred-and-forty-fourth session two of the
-three are known to be *one backend's*.** Items 1 and 3 are `render-cpu`'s alone: the graphics
-device draws every shape they lose, to within 2% of its area.
+Status: **item 2 is fixed as far as any corpus document exercises it (ADR 0213); items 1 and 3 are
+measured, not fixed, and since the three-hundred-and-forty-fourth session are known to be *one
+backend's*.** Those two are `render-cpu`'s alone: the graphics device draws every shape they lose,
+to within 2% of its area.
 Priority: 11
-Corpus: 4 known witnesses; all three shapes are general
+Corpus: 3 known witnesses; all three shapes are general
 Clauses: §10.7.4 — see `_scan-conversion.md`
 Code: `crates/render-cpu/src/lib.rs`, `crates/pdf-model/src/content.rs`'s `tile`,
+`crates/pdf-render/src/repeat.rs`,
 `crates/render-quorra/examples/sub_pixel_marks.rs` (the instrument),
 `crates/render-quorra/tests/sub_pixel_coverage.rs` (the gate on the half that is right)
 
-Two leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §10.7.4's
+Leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §10.7.4's
 "no shape ever disappears" for a fill with *no* area (ADR 0154) and for a redundant pattern-cell
-clip (ADR 0155). Both of these are the same sentence one step along, and neither is the
+clip (ADR 0155). All three are the same sentence one step along, and none of them is the
 anti-aliasing departure.
 
 ## 1. A fill under an eighth of a device pixel thick
@@ -62,21 +64,38 @@ demonstrates is *achievable*, so the remaining question is whether `tiny-skia` c
 or whether a sub-quantum fill has to be converted to something else before it reaches the
 rasteriser. A rasteriser-level rule either way, not a display-list one.
 
-## 2. A tiling cell's two halves, composited rather than added
+## 2. Two marks that abut across a cell's box edge without repeating
 
-`issue16038.pdf`'s second square: the pattern's rule sits **on** the cell's `/BBox` edge and is
-*meant* to be halved, so each half is drawn by a different cell and the two composite as
-`1 − (1−a)(1−b)` rather than adding. Interior coverage 0.1159 against the geometry's 0.1333 —
-13% short, where the first square is now within 0.8% (ADR 0155).
+**The witness closed in the three-hundred-and-seventy-fourth session and this is what is left of
+the item.** `issue16038.pdf`'s second square drew a rule its cell states on *both* box edges, so
+Table 74's clip halved it and the two halves composited as `1 − (1−a)(1−b)` rather than adding —
+0.1159 against the geometry's 0.1333. The two statements are one mark of the tiling, a whole
+`/YStep` apart, and §11.6.2 forbids compositing portions of one object; folding them to the one
+mark they describe puts the right square within 1% of the left at every scale (ADR 0213).
 
-Removing that clip is not the answer: it would draw the rule twice at full width, which is what
-`mupdf` does and what makes its two squares differ by a factor of 1.63 where they should be
-equal. **The fix is rasterising a tiling's coverage once rather than cell by cell**, which is a
-different construction from anything in the tree today — the cells would have to accumulate into
-one coverage buffer before compositing. §8.7.3.1's NOTE 2 recommends treating all tiles as a
-single transparency group for a related reason ("artifacts due to multiple marking of pixels
-along the boundaries between adjacent tiles"), and `tile` already builds that group where the
-state composites non-trivially; the group does not fix this, because the loss is *inside* it.
+Three things that were written here and are worth keeping:
+
+- **Removing the clip alone is not the answer.** It draws the rule twice at full width, which is
+  what `mupdf` does and what makes its two squares differ by a factor of 1.63.
+- **The NOTE that looks like the answer is not one.** §11.6.7's NOTE 2 recommends treating all
+  tiles as a single transparency group against "artifacts due to multiple marking of pixels along
+  the boundaries between adjacent tiles", and `tile` has built that group since the
+  hundred-and-seventeenth session. Compositing inside a group is still compositing; the loss was
+  *inside* it. (This file said §8.7.3.1's NOTE 2 for four sessions. The note is §11.6.7's.)
+- **The general case is still open, and no page in the corpus names it.** Two *different* marks
+  hanging out of opposite edges of the box and meeting at the boundary: the clipped pair is then
+  the right set of points, there is no repeat to fold, and joining them would mean either a
+  coverage buffer per tiling or a boolean intersection of path against box — the second of which
+  would bake a flattening resolution into a display list that has none. `repeated_subpaths`
+  refuses the case by name: the fold's condition is that the mark's lattice copy reaching into the
+  box is itself stated. What is left over is a seam one boundary pixel wide, which is what this
+  item was about all along; `issue16038.pdf` was the family's only witness and its figure repeats,
+  so the residual is *unwitnessed* rather than measured-and-left.
+
+There is also a residual on the *witness*, which is not this and is smaller: both squares sit 1.5%
+to 3% under the geometry at 2× and 4×, and that is the rules' **ends** abutting column by column —
+the same seam one axis over, over one pixel column per three rather than the whole length of every
+rule. It is `AMBIGUOUS_TILING_CELL_CLIP`'s own last paragraph.
 
 ## 3. A sub-pixel *stroke* within half a pixel of the raster's edge
 
