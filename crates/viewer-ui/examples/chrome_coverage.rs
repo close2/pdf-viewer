@@ -146,6 +146,7 @@ fn open(bytes: Vec<u8>) -> Option<Viewer> {
             id: DocumentId(1),
             bytes,
             password: None,
+            fragment: None,
         })
         .any(|event| matches!(event, viewer_core::Event::Opened { .. }));
     opened.then_some(viewer)

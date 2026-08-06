@@ -34,7 +34,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | | item | corpus |
 |---|---|---|
 | [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 8 names |
-| [01](01-ledger-partial-rows.md) | Read the ledger's 237 `partial` rows against the code — and the seven sweeps | — |
+| [01](01-ledger-partial-rows.md) | Read the ledger's 240 `partial` rows against the code — and the seven sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; a tiling cell's two halves; a hairline at the raster's edge | 4 |
 | [13](13-the-transfer-function.md) | §10.5's `/TR` decides what a screen shows, and this tree ignores it — the ledger's first `silent` row since session 35, and a question for the owner | 1 draws wrong |
@@ -55,7 +55,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out | — |
 | [37](37-what-a-native-host-would-not-draw-itself.md) | Five of six chrome populations already cross as data; **form fields are the gap** — audited at the owner's request | — |
 | [38](38-a-documents-restrictions-have-levels.md) | A document's restrictions are the reader's to set: four levels, no UI yet, and the shape they need | — |
-| [39](39-a-fragment-that-says-where-to-open.md) | Annex O's fragment identifiers: eleven `shall`s about what a URI opens, none implemented, none reported — the ledger's only `silent` rows | 0, and no file could ever have one |
+| [39](39-a-fragment-that-says-where-to-open.md) | Annex O's fragment identifiers: **seven of eleven carried out**, four reported by name — `search` wants a document-wide search, `fdf` a fetch, `ef` todo 38's levels, `highlight` a concept the vocabulary lacks | 0, and no file could ever have one |
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect | 1 |
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
 | [42](42-the-launch-path.md) | The launch path: 145 ms to 110, four of five items closed, the fifth is quorra's | all |

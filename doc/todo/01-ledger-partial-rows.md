@@ -1,6 +1,6 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~176 of the 237 rows have not been re-read. **The seventh sweep, below,
+Status: **standing task.** ~176 of the 240 rows have not been re-read. **The seventh sweep, below,
 is the first to read the `inapplicable` rows** — 81 of them, never swept before the
 three-hundred-and-fifty-ninth session, and its first run corrected five.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
@@ -9,11 +9,13 @@ Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 ## Why
 
 All 823 subclauses of the eight technical clauses have been read against this code since the
-fifty-sixth session, and the statuses are gated: `silent` is **zero**, `REVIEW_OWED` is empty and
+fifty-sixth session, and so are the 52 of the eight normative annexes since the
+three-hundred-and-sixtieth; the statuses are gated: `silent` is **zero** — it was five from the
+three-hundred-and-sixtieth to the three-hundred-and-sixty-ninth, when Annex O was built — `REVIEW_OWED` is empty and
 fails the build the moment a cited-but-unread clause appears, and `FILE_ONLY_EVIDENCE_CEILING` is
 zero and asserted with `==`.
 
-What no gate can watch is a **note that has gone stale**, and the 229 `partial` rows are where
+What no gate can watch is a **note that has gone stale**, and the 240 `partial` rows are where
 those live. Six failure shapes, in the order they were found:
 
 1. A note that *understates* what the code does (five in session 115).

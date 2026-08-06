@@ -86,6 +86,7 @@ fn the_sidebar_does_not_depend_on_the_pages_magnification() {
             id: DocumentId(1),
             bytes,
             password: None,
+            fragment: None,
         })
         .any(|event| matches!(event, viewer_core::Event::Opened { .. }));
     assert!(opened, "the fixture opens");

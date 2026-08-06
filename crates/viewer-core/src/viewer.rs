@@ -220,7 +220,8 @@ impl Viewer {
                 id,
                 bytes,
                 password,
-            } => self.open(id, bytes, password.as_deref(), events),
+                fragment,
+            } => self.open(id, bytes, password.as_deref(), fragment.as_deref(), events),
             Command::Close(id) => {
                 if self.documents.remove(&id).is_some() {
                     events.push(Event::Closed(id));
@@ -333,12 +334,23 @@ impl Viewer {
         id: DocumentId,
         bytes: Vec<u8>,
         password: Option<&str>,
+        fragment: Option<&str>,
         events: &mut Vec<Event>,
     ) {
         match Open::new(bytes, password) {
-            Ok(open) => {
+            Ok(mut open) => {
                 let pages = open.page_count;
-                let notes = crate::notes::about(&open.document);
+                let mut notes = crate::notes::about(&open.document);
+                // Annex O's open parameters, and this is where the annex puts them: §O.2.2 says
+                // they "should be processed immediately after any other document-specified open
+                // parameters have been processed", and `Open::around` has just processed Table
+                // 29's `/OpenAction`. So the document states where it opens and the URI overrules
+                // it, in that order, which is what a fragment identifier is for.
+                if let Some(fragment) = fragment {
+                    notes.extend(
+                        open.apply_fragment(&pdf_model::fragment::Fragment::parse(fragment)),
+                    );
+                }
                 self.documents.insert(id, open);
                 self.focused = Some(id);
                 events.push(Event::Opened {
@@ -355,7 +367,7 @@ impl Viewer {
                 self.announce_page(events);
                 // §12.6.3 puts `/PO` "after … the OpenAction entry in the document Catalog",
                 // and `Open::around` has already applied that entry's destination — the page it
-                // names is `open.page_index` and its view is waiting in `pending_view` — so the
+                // names is `open.page_index` and its view is waiting in `pending_views` — so the
                 // first page's events are raised here, in the clause's order. An `/OpenAction`
                 // that is an action rather than a destination is still not *performed*; that is
                 // §12.6.4's row and not this one's, and it changes nothing about this ordering.
@@ -698,8 +710,8 @@ impl Viewer {
         }
         // Even a destination naming the page already showing states where to look at it, which
         // is what an outline item pointing at a heading half way down a page is for.
-        if outcome.view.is_some() {
-            open.pending_view = outcome.view;
+        if let Some(view) = outcome.view {
+            open.pending_views = vec![view];
         }
         if let Some(target) = outcome.target
             && target != open.page_index
@@ -1287,9 +1299,15 @@ impl Viewer {
         // §12.3.2.1's location and magnification, applied here because this is the first place
         // both of the things they need exist: a viewport, and — for the three `/FitB` forms —
         // a display list to measure the page's contents from. ADR 0162.
-        if let Some(view) = open.pending_view.take() {
+        if !open.pending_views.is_empty() {
             let bounds = content_bounds(&list);
-            if open.apply_view(view, viewport, scale, bounds) {
+            let mut changed = false;
+            // In order: §O.2 makes left-to-right normative for a fragment identifier, and a
+            // document's own `/OpenAction` states at most one of these.
+            for view in std::mem::take(&mut open.pending_views) {
+                changed |= open.apply_view(view, viewport, scale, bounds);
+            }
+            if changed {
                 open.shown = None;
             }
         }

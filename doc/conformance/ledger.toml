@@ -6565,32 +6565,42 @@ note = "One normative table: which standard structure element may be the child o
 [[clause]]
 clause = "O"
 title = "Fragment identifiers"
-status = "silent"
-note = "Aggregate of the four below, and **the finding of the three-hundred-and-sixtieth session**: a normative annex of `shall`s addressed to \"the PDF processor\", none of them implemented and none of them reported. `page`, `nameddest`, `structelem`, `comment`, `ef`, `zoom`, `view`, `viewrect`, `highlight`, `search` and `fdf` — eleven parameters that say what a document shows when it is opened through a URI. Nine of the eleven are things this tree can already *do*: §12.3.2's destinations, §12.4.2's page numbers, §12.5.2's `/NM`, §7.11.4's embedded files, the magnification and the scroll position `viewer-core` owns since the hundred-and-thirty-second session. What is missing is the sentence that connects a URI's fragment to them, and nothing in `Command::Open` can carry one. `doc/todo/39`."
+status = "partial"
+code = ["crates/pdf-model/src/fragment.rs", "crates/viewer-core/src/open.rs"]
+test = ["crates/viewer-core/tests/fragments.rs::a_fragment_opens_the_page_it_names"]
+note = "Aggregate of the four below. **Was `silent` from the three-hundred-and-sixtieth session, when it was found, to the three-hundred-and-sixty-ninth, when it was built** — the ledger's only `silent` rows, and the only ones no file could ever have triggered, because a fragment identifier arrives with the *request* rather than in the document. `pdf_model::fragment` reads all eleven parameters and `viewer_core::Open::apply_fragment` carries out **seven**: `page`, `nameddest`, `structelem` and `comment` from Table Annex O.3, `zoom`, `view` and `viewrect` from Table Annex O.4. **Four are refused by name** rather than dropped — `ef`, `highlight`, `search`, `fdf` — each with its reason on `Parameter::unhonoured`, and `pdf-viewer doc.pdf#page=5` is the first caller. **`doc/todo/01`'s arithmetic sweep flags this row and the answer is one level further down**: its two direct children are settled and what it owes is §O.2's own children, §O.2.1 and §O.2.2. ADR 0209."
 
 [[clause]]
 clause = "O.1"
 title = "General"
-status = "silent"
-note = "What a fragment identifier is: text after the URI that \"anchor[s] onto specific content or characteristics of the document\". Descriptive, and it is the definition the three rows below need. Recorded `silent` with them rather than `implemented` alone, because a definition nobody has built against is not a requirement met."
+status = "implemented"
+code = ["crates/pdf-model/src/fragment.rs"]
+test = ["crates/pdf-model/src/fragment.rs::every_parameter_the_two_tables_define_is_read"]
+note = "What a fragment identifier is: text after the URI that \"anchor[s] onto specific content or characteristics of the document\". Descriptive, and it is the definition the three rows below rest on — including the one thing the annex uses it for that nothing else states, which is that these are a *URI's* parameters and so are spelled the way a URI's are. Recorded `silent` beside them until the three-hundred-and-sixty-ninth session on the argument that a definition nobody has built against is not a requirement met; something is built against it now."
 
 [[clause]]
 clause = "O.2"
 title = "Fragment identifiers"
-status = "silent"
-note = "The grammar, and it is three `shall`s this tree meets vacuously by never parsing one: parameters separated by `&`, arguments by `,`, and \"[f]ragment identifiers shall be processed and (if required) executed from left to right as they appear\". The ordering rule is the one that will matter first — `page=3&comment=x` selects a comment on page 3 and the reverse does not, which the `comment` parameter's own NOTE spells out."
+status = "implemented"
+code = ["crates/pdf-model/src/fragment.rs", "crates/viewer-core/src/open.rs"]
+test = ["crates/pdf-model/src/fragment.rs::the_order_the_fragment_states_is_the_order_that_comes_back", "crates/viewer-core/tests/fragments.rs::a_comment_is_looked_for_on_the_page_chosen_before_it"]
+note = "The grammar, and its three `shall`s are met: parameters separated by `&`, arguments by `,`, and \"[f]ragment identifiers shall be processed and (if required) executed from left to right as they appear\" — which `apply_fragment` does in one pass, so `page=3&comment=x` selects a comment on page 3 and the reverse does not, exactly as the `comment` row's own NOTE says. **Two things the annex does not state and one it states wrongly, all three found in the three-hundred-and-sixty-ninth session.** It prints \"the AMPERSAND (28h) character\" and 28h is `(`; Table D.2 gives AMPERSAND 0x26, so the reader takes the character the sentence *names*. It never states the `=` that joins a parameter to its arguments, nor gives one example, so that is a documented choice rather than a reading. And it says nothing about case, so the names are matched as the tables print them. ADR 0209."
 
 [[clause]]
 clause = "O.2.1"
 title = "PDF object identifiers"
-status = "silent"
-note = "Table Annex O.3's object identifiers: `page`, `nameddest`, `structelem`, `comment` and `ef`. Each is a `shall` on opening — \"the PDF processor shall open the document to the specified page\" — and each names a mechanism this tree has: §12.3.2.4's named destinations, §14.7's structure elements, Table 166's `/NM`, §7.11.4's `EmbeddedFiles` name tree. `ef`'s own sentence is the one to read twice before implementing it: \"[s]ecurity should be strongly considered when opening an embedded file\", which is `Command::Extract`'s existing argument."
+status = "partial"
+code = ["crates/pdf-model/src/fragment.rs", "crates/viewer-core/src/open.rs", "crates/pdf-model/src/destination.rs"]
+test = ["crates/viewer-core/tests/fragments.rs::a_named_destination_opens_the_page_the_document_files_it_under", "crates/pdf-model/src/destination.rs::a_structure_element_named_by_id_identifies_its_page"]
+note = "Table Annex O.3's five, and **four of them are carried out**: `page` against §12.4.2's numbering from one, `nameddest` through §12.3.2.4's two tables, `structelem` through §14.7.2's `/IDTree` and then §12.3.2.3's algorithm — including the annex's own fallback, \"the first page in the document shall be identified\" — and `comment` through Table 166's `/NM` on the page selected so far, which becomes §12.5.1's focus because the annex says a comment shall be \"selected\" and nothing about what that looks like. **`ef` is reported and not performed**, and the reason is its own two sentences rather than effort: \"[s]ecurity should be strongly considered when opening an embedded file\", which is a policy a host owns (`doc/todo/38`), and \"[a]ny remaining parameters after this parameter apply to the selected embedded file\", so everything after it names a document this program has not opened — `apply_fragment` stops there and says how many parameters it did not apply. **No corpus document has an `/IDTree`**, so `structelem`'s positive half is tested against a document written for it. ADR 0209."
 
 [[clause]]
 clause = "O.2.2"
 title = "PDF open parameters"
-status = "silent"
-note = "Table Annex O.4's open parameters: `zoom`, `view`, `viewrect`, `highlight`, `search` and `fdf`. `view` defers to §12.3.2.2's explicit destinations, which are implemented; `zoom`, `viewrect` and `highlight` are stated \"in the default user space coordinate system\", which is the arithmetic ADR 0118 found wrong once and which lives in one place now; `fdf` imports through §12.7.8's reader, which exists. The annex's own placement rule is a requirement on the *host*: these \"should be processed immediately after any other document-specified open parameters have been processed\", so §12.3.2's `/OpenAction` runs first and the fragment overrides it."
+status = "partial"
+code = ["crates/pdf-model/src/fragment.rs", "crates/viewer-core/src/open.rs"]
+test = ["crates/viewer-core/tests/fragments.rs::a_zoom_is_a_percentage_and_a_view_is_a_factor", "crates/viewer-core/tests/fragments.rs::a_view_rectangle_is_measured_from_the_top_left_corner_of_the_page"]
+note = "Table Annex O.4's six, and **three are carried out**: `view` is Table 149 read where §12.3.2.2 already reads it (`View::from_keyword`, one spelling of the table and two callers), `zoom` is `/XYZ` with two differences the annex states three rows apart — a percentage against a factor, and a corner measured from the page's top left against default user space's own origin — and `viewrect` is `/FitR` after the same conversion. The clause's coordinate rule has two halves that pull apart and both are true at once only one way: \"[a]ll coordinate values … shall be expressed in the default user space coordinate system\" gives the *units*, each row's \"top left corner of the page\" gives the *origin*. **Three are reported**: `highlight` because what this program can highlight is a range of a page's text and a rectangle is not one — a concept the vocabulary lacks rather than a feature nobody wrote; `search` because there is no document-wide search; `fdf` because fetching a URI is a host's and principle 3 keeps it out of the renderer. The annex's placement rule is met — these run \"immediately after any other document-specified open parameters\", which is Table 29's `/OpenAction` and then the fragment. ADR 0209."
 
 [[clause]]
 clause = "Q"

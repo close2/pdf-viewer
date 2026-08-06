@@ -4,7 +4,10 @@
 //! cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf
 //! ``
 //!
-//! `--page N` opens at a page. Arrows, Page Up and Down or Space turn pages, Home and End jump,
+//! `--page N` opens at a page, and so does ISO 32000-2 Annex O's fragment identifier —
+//! `document.pdf#page=5`, `#nameddest=Chapter3`, `#zoom=150,0,792` — which this program splits off
+//! the argument and `viewer-core` carries out, saying by name what it cannot.
+//! Arrows, Page Up and Down or Space turn pages, Home and End jump,
 //! `+` and `-` zoom and **Ctrl + the wheel zooms about the pointer**, the wheel alone scrolls
 //! whatever is under it, `a` selects the whole page and dragging selects part of it, `o` shows
 //! the sidebar — §12.3.3's outline, §8.11's layers and §7.11.4's embedded files — `s` saves what
@@ -164,6 +167,8 @@ struct Arguments {
     processor: bool,
     /// The page `--page` named, counting from one.
     opens_at: Option<usize>,
+    /// Annex O's fragment identifier, where the argument carried one after a `#`.
+    fragment: Option<String>,
 }
 
 /// Reads the command line, applies the two settings that must be applied before anything opens a
@@ -203,16 +208,17 @@ fn arguments() -> Arguments {
                 std::process::exit(2);
             }
         } else if path.is_none() {
-            path = Some(PathBuf::from(argument));
+            path = Some(argument);
         } else {
             eprintln!("unexpected argument: {}", argument.to_string_lossy());
             std::process::exit(2);
         }
     }
-    let Some(path) = path else {
+    let Some(argument) = path else {
         usage();
         std::process::exit(2);
     };
+    let (path, fragment) = split_fragment(&argument);
 
     // What this *build* can confine, said before anything is opened, because it is a fact
     // about the executable rather than about a document and a person choosing a viewer for
@@ -244,6 +250,35 @@ fn arguments() -> Arguments {
         trace,
         processor,
         opens_at,
+        fragment,
+    }
+}
+
+/// Splits `document.pdf#page=5` into the file and ISO 32000-2 Annex O's fragment identifier.
+///
+/// **The filesystem decides, not the punctuation**, and that is this host's choice rather than
+/// anything the annex says. A `#` is an ordinary character in a file name on every system this
+/// program runs on, so an argument that names an existing file is taken whole; only when it does
+/// not is it read as a URI-shaped reference and split at its first `#`, which is where RFC 3986
+/// puts the boundary. The cost is one `stat` on the launch path and a file called `a#b.pdf` that
+/// still opens; the alternative — splitting first — makes that file unopenable and says nothing.
+///
+/// `viewer-core` never sees this decision: what crosses is the fragment alone, undecoded, because
+/// splitting a URI is the host's job and percent-decoding belongs to whoever knows which component
+/// it is decoding.
+fn split_fragment(argument: &std::ffi::OsStr) -> (PathBuf, Option<String>) {
+    let whole = PathBuf::from(argument);
+    if whole.exists() {
+        return (whole, None);
+    }
+    let text = argument.to_string_lossy();
+    match text.split_once('#') {
+        Some((path, fragment)) if !path.is_empty() => {
+            (PathBuf::from(path), Some(fragment.to_owned()))
+        }
+        // No `#`, or nothing before it. Hand the whole thing on and let the read fail by name:
+        // a path that does not exist is a better message than a fragment nobody asked for.
+        _ => (whole, None),
     }
 }
 
@@ -255,7 +290,11 @@ fn arguments() -> Arguments {
 ///
 /// **Rule 2 lives here**: the host owns the filesystem, and this is the only place a path becomes
 /// bytes.
-fn open_document(path: &std::path::Path, opens_at: Option<usize>) -> (Viewer, Vec<Event>) {
+fn open_document(
+    path: &std::path::Path,
+    opens_at: Option<usize>,
+    fragment: Option<&str>,
+) -> (Viewer, Vec<Event>) {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -271,8 +310,12 @@ fn open_document(path: &std::path::Path, opens_at: Option<usize>) -> (Viewer, Ve
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: fragment.map(str::to_owned),
         })
         .collect();
+    // After the fragment rather than before it: Annex O's parameters are what the *URI* asked
+    // for and `--page` is what the person at the keyboard asked for a moment later, so where
+    // both name a page the second one wins.
     if let Some(page) = opens_at {
         let turned: Vec<Event> = viewer
             .handle(Command::GoTo(PageTarget::Index(page.saturating_sub(1))))
@@ -289,6 +332,7 @@ fn main() {
         trace,
         processor,
         opens_at,
+        fragment,
     } = arguments();
     launch.mark("arguments");
 
@@ -304,7 +348,8 @@ fn main() {
     // of its own scheduling. What crosses is a `Viewer` and a `Vec<Event>`, both `Send`.
     let opening = std::thread::spawn({
         let path = path.clone();
-        move || open_document(&path, opens_at)
+        let fragment = fragment.clone();
+        move || open_document(&path, opens_at, fragment.as_deref())
     });
 
     // **And the graphics instance on a second thread**, since the two-hundred-and-eighty-eighth:
@@ -331,6 +376,7 @@ fn main() {
         viewer: Viewer::new(0, 0, 1.0),
         title: path.to_string_lossy().into_owned(),
         path: PathBuf::from(&path),
+        fragment,
         // §12.7.6.4's import-data action names a file, and this is the only place that name is
         // allowed to mean anything: a *sibling of the document being shown*. See `supply`.
         directory: std::path::Path::new(&path)
@@ -387,6 +433,11 @@ fn usage() {
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
     eprintln!("                round trip; appropriate only for documents you trust.");
     eprintln!("  --page N      open at page N, counting from 1 as the title bar does.");
+    eprintln!("  doc.pdf#...   ISO 32000-2 Annex O's fragment identifier, which says where to");
+    eprintln!("                open: page=5, nameddest=Chapter3, zoom=150,0,792, view=FitH,700,");
+    eprintln!("                viewrect=..., comment=..., structelem=.... Parameters are");
+    eprintln!("                separated by & and carried out left to right; whatever this");
+    eprintln!("                program cannot do is named rather than ignored.");
     eprintln!("  --cpu         draw with the processor rather than the graphics device. Slower,");
     eprintln!("                and the same rasteriser the reference comparison is built on: a");
     eprintln!("                page that appears with this and not without it is the device's.");
@@ -422,6 +473,11 @@ struct App {
     /// The path rather than the bytes: a host that held a copy of every document it had failed
     /// to open would be holding a copy of every document.
     path: PathBuf,
+    /// Annex O's fragment identifier, kept for the same reason as the path.
+    ///
+    /// A document that asked for a password and got one is opened a second time, and the URI that
+    /// named it said `#page=5` both times.
+    fragment: Option<String>,
     /// The directory the open document is in, where one can be named.
     ///
     /// The whole of this program's answer to "which files may a document ask for". §12.7.6.4's
@@ -1209,6 +1265,7 @@ impl App {
                     id: document,
                     bytes,
                     password: Some(password),
+                    fragment: self.fragment.clone(),
                 });
             }
             Event::Closed(_) => {}

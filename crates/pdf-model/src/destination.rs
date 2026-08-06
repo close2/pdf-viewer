@@ -97,14 +97,34 @@ impl View {
     /// required parameters are absent — `/FitR` is the only form with any, and a `/FitR`
     /// short of its four numbers states no rectangle at all.
     fn read(document: &Document, name: &[u8], rest: &[Object]) -> Option<Self> {
-        let number = |index: usize| {
-            rest.get(index)
-                .map(|object| document.resolve(object))
-                .and_then(|object| object.as_number())
-                .map(narrow)
-                .filter(|value| value.is_finite())
-        };
-        Some(match name {
+        let numbers: Vec<Option<f32>> = rest
+            .iter()
+            .map(|object| {
+                document
+                    .resolve(object)
+                    .as_number()
+                    .map(narrow)
+                    .filter(|value| value.is_finite())
+            })
+            .collect();
+        Self::from_keyword(name, &numbers)
+    }
+
+    /// Table 149's eight forms, from the keyword and the numbers that follow it.
+    ///
+    /// The one place Table 149 is spelled, and it has two callers because the standard gives it
+    /// two spellings: §12.3.2.2's array, where the numbers are objects, and Annex O's `view`
+    /// parameter, where they are text in a URI and the table is named outright — "[t]he keyword
+    /// shall correspond to one of the keywords defined in "Table 149 - Destination syntax" with
+    /// appropriate position values".
+    ///
+    /// A `None` in `numbers` is the clause's own null and a number the caller did not supply is
+    /// the same thing, which is what lets a short list stand for a destination that states
+    /// nothing after its keyword.
+    #[must_use]
+    pub fn from_keyword(keyword: &[u8], numbers: &[Option<f32>]) -> Option<Self> {
+        let number = |index: usize| numbers.get(index).copied().flatten();
+        Some(match keyword {
             b"XYZ" => Self::Xyz {
                 left: number(0),
                 top: number(1),
@@ -392,6 +412,25 @@ fn is_structure_element(document: &Document, element: &Dictionary) -> bool {
     has_type || document.get_key(element, "S").as_name().is_some()
 }
 
+/// The page a structure element's content sits on, for a caller holding the element itself.
+///
+/// §12.3.2.3's algorithm, reached without a [`Destination`]. Annex O's `structelem` parameter is
+/// the caller that needs it: Table Annex O.3 names a structure element by the `/ID` §14.7.2's
+/// `/IDTree` files it under rather than by a reference, so there is no destination array to read
+/// and the same question — which page is this element's content on — still has to be answered.
+///
+/// `None` where the element identifies no page. Annex O states what to do then and so does
+/// §12.3.2.3, in the same words, and both are the caller's to apply: "the first page in the
+/// document shall be identified".
+#[must_use]
+pub fn structure_element_page(
+    document: &Document,
+    element: &Dictionary,
+    pages: &Pages<'_>,
+) -> Option<usize> {
+    structure_page(document, element, 0).and_then(|page| pages.index_of(page))
+}
+
 /// §12.3.2.3's algorithm for the page a structure element's content sits on.
 ///
 /// > The kids of the structure element shall be processed in linear array order. If the first
@@ -484,7 +523,7 @@ impl Key<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Destination, Target, View};
+    use super::{Destination, Target, View, structure_element_page};
     use pdf_syntax::{Document, Object};
 
     /// Builds a one-page document from object bodies numbered from 1.
@@ -772,5 +811,52 @@ mod tests {
         .expect("a destination");
         assert_eq!(destination.target, Target::Number(2));
         assert_eq!(destination.page_index(&doc, &pages), None);
+    }
+
+    /// Annex O's `structelem`, end to end at the model's level: §14.7.2's `/IDTree` for the
+    /// element and §12.3.2.3's algorithm for its page.
+    ///
+    /// Written by hand because **no corpus document has an `/IDTree` at all** — the 89 tagged
+    /// ones state none — so this is trap 8's case: a rule the standard states and no file we
+    /// have exercises. §14.7.7's own worked example is the shape being imitated, down to the
+    /// `Chap1` key.
+    #[test]
+    fn a_structure_element_named_by_id_identifies_its_page() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R >>",
+            "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [6 0 R] /IDTree 8 0 R >>",
+            "<< /Type /StructElem /S /Sect /ID (Chap2) /K [7 0 R] >>",
+            "<< /Type /MCR /Pg 4 0 R /MCID 0 >>",
+            "<< /Names [(Chap2) 6 0 R] >>",
+        ]);
+        let pages = crate::page::Pages::new(&doc);
+        let tree = crate::structure::Tree::of(&doc).expect("a structure tree");
+        let element = tree
+            .element_by_id(&doc, b"Chap2")
+            .expect("the element the /IDTree files under Chap2");
+        assert_eq!(
+            structure_element_page(&doc, &element, &pages),
+            Some(1),
+            "its only content item is a marked-content reference to the second page"
+        );
+
+        // "If no content is contained within the hierarchy of the structure element … the first
+        // page in the document shall be identified" — stated by Annex O and by §12.3.2.3, and
+        // applied by the caller, so what this answers is `None` rather than page one.
+        let empty = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /IDTree 6 0 R >>",
+            "<< /Type /StructElem /S /Sect /ID (Chap2) >>",
+            "<< /Names [(Chap2) 5 0 R] >>",
+        ]);
+        let pages = crate::page::Pages::new(&empty);
+        let tree = crate::structure::Tree::of(&empty).expect("a structure tree");
+        let element = tree.element_by_id(&empty, b"Chap2").expect("the element");
+        assert_eq!(structure_element_page(&empty, &element, &pages), None);
     }
 }

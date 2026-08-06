@@ -85,6 +85,7 @@ fn opened(width: u32, height: u32) -> (Viewer, Vec<Event>) {
             id: DOCUMENT,
             bytes: specification_bytes(),
             password: None,
+            fragment: None,
         })
         .collect();
     (viewer, events)
@@ -317,6 +318,7 @@ fn a_document_that_is_not_a_pdf_is_refused_by_name() {
             id: DOCUMENT,
             bytes: b"this is not a PDF".to_vec(),
             password: None,
+            fragment: None,
         })
         .collect();
     assert!(
@@ -343,6 +345,7 @@ fn an_encrypted_document_asks_for_a_password_and_opens_with_it() {
             id: DOCUMENT,
             bytes: bytes.clone(),
             password: None,
+            fragment: None,
         })
         .collect();
     assert!(
@@ -363,6 +366,7 @@ fn an_encrypted_document_asks_for_a_password_and_opens_with_it() {
             id: DOCUMENT,
             bytes,
             password: Some("abc".to_owned()),
+            fragment: None,
         })
         .collect();
     assert!(
@@ -417,6 +421,7 @@ fn a_page_that_could_not_be_drawn_whole_says_so() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .collect();
     let reported: Vec<&String> = events
@@ -550,6 +555,7 @@ fn a_click_on_a_link_shows_the_page_it_names() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let on_link = device_point(&viewer, LINK_RECT, PAGE_HEIGHT);
@@ -603,6 +609,7 @@ fn a_press_dragged_off_a_link_does_not_activate_it() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let on_link = device_point(&viewer, LINK_RECT, PAGE_HEIGHT);
@@ -644,6 +651,7 @@ fn a_uri_is_handed_over_rather_than_opened() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     // §12.6.4.8's link on `TAMReview.pdf`'s first page, as the document states it.
@@ -685,6 +693,7 @@ fn a_document_says_what_it_carries_before_a_page_is_drawn() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .collect();
     let about: Vec<&String> = events
@@ -727,6 +736,7 @@ fn a_file_newer_than_this_program_says_so_before_a_page_is_drawn() {
                 id: DOCUMENT,
                 bytes,
                 password: None,
+                fragment: None,
             })
             .filter_map(|event| match event {
                 Event::Reported {
@@ -887,6 +897,7 @@ fn the_tab_key_walks_the_pages_annotations() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .collect();
     let request = request(&events).clone();
@@ -1041,6 +1052,7 @@ fn a_field_is_typed_into_undone_and_redone() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .collect();
     let first = request(&events).clone();
@@ -1130,6 +1142,7 @@ fn a_visible_pages_list_mode_keeps_the_groups_the_page_reaches() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let Answer::Layers(layers) = viewer.query(Query::Layers) else {
@@ -1175,6 +1188,7 @@ fn a_press_on_a_widget_draws_the_page_again() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .collect();
     let first = request(&events).clone();
@@ -1244,6 +1258,7 @@ fn a_click_finds_the_field_it_landed_on() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
@@ -1302,6 +1317,7 @@ fn a_field_states_the_name_a_user_interface_is_to_show() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
@@ -1342,6 +1358,7 @@ fn a_saved_document_carries_the_edit_and_the_file_under_it() {
             id: DOCUMENT,
             bytes: bytes.clone(),
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     viewer
@@ -1388,6 +1405,7 @@ fn a_saved_document_carries_the_edit_and_the_file_under_it() {
             id: DOCUMENT,
             bytes: saved,
             password: None,
+            fragment: None,
         })
         .collect();
     assert!(
@@ -1477,6 +1495,7 @@ fn a_query_about_the_page_on_the_screen_costs_less_than_finding_it() {
             id: DOCUMENT,
             bytes: bytes.clone(),
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let page = 900;
@@ -1573,6 +1592,7 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     assert!(matches!(
@@ -1592,6 +1612,7 @@ fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
             id: DOCUMENT,
             bytes: with_durations(),
             password: None,
+            fragment: None,
         })
         .for_each(drop);
 
@@ -1679,6 +1700,7 @@ fn a_thread_action_shows_the_bead_and_not_merely_its_page() {
             id: DOCUMENT,
             bytes: with_a_thread(),
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let Answer::Geometry(before) = viewer.query(Query::PageGeometry(0)) else {
@@ -1869,6 +1891,7 @@ fn an_outline_item_whose_action_is_a_uri_hands_it_over() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let Answer::Outline(outline) = viewer.query(Query::Outline) else {
@@ -1957,6 +1980,7 @@ fn an_embedded_file_comes_out_of_the_document() {
             id: DOCUMENT,
             bytes,
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let Answer::Attachments(files) = viewer.query(Query::Attachments) else {
@@ -2016,6 +2040,7 @@ fn the_catalog_says_which_panel_a_host_should_open() {
             id: DOCUMENT,
             bytes: specification_bytes(),
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     // The committed note asks for both: its outline panel, and one continuous column of pages.
@@ -2038,6 +2063,7 @@ fn the_catalog_says_which_panel_a_host_should_open() {
             id: DOCUMENT,
             bytes: with_durations(),
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let Answer::Opening(opening) = plain.query(Query::Opening) else {
@@ -2104,6 +2130,7 @@ fn a_document_hands_over_what_it_says_about_itself() {
             id: DOCUMENT,
             bytes: with_durations(),
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     let Answer::Properties {
@@ -2140,6 +2167,7 @@ fn the_pointer_raises_table_197s_events() {
             id: DOCUMENT,
             bytes: with_triggers(),
             password: None,
+            fragment: None,
         })
         .collect();
     assert_eq!(
@@ -2220,6 +2248,7 @@ fn a_press_gives_a_widget_the_focus_and_a_press_elsewhere_takes_it_away() {
             id: DOCUMENT,
             bytes: with_focus_triggers(),
             password: None,
+            fragment: None,
         })
         .collect();
     assert_eq!(marks(&opened), Some(0), "the layer opens off");
@@ -2405,6 +2434,7 @@ fn geometry_in(destination: &str, width: u32, height: u32) -> viewer_core::PageG
             id: DOCUMENT,
             bytes: with_open_action(destination),
             password: None,
+            fragment: None,
         })
         .count();
     let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
@@ -2614,6 +2644,7 @@ fn a_page_turn_raises_the_events_the_clause_orders() {
             id: DOCUMENT,
             bytes: with_page_triggers(),
             password: None,
+            fragment: None,
         })
         .collect();
     assert_eq!(
@@ -2660,6 +2691,7 @@ fn a_zoom_holds_the_point_it_is_given() {
             id: DOCUMENT,
             bytes: with_open_action("[3 0 R /Fit]"),
             password: None,
+            fragment: None,
         })
         .count();
     let geometry = |viewer: &Viewer| {
@@ -2766,6 +2798,7 @@ fn a_no_zoom_annotation_is_the_one_thing_a_zoom_re_interprets() {
             id: DOCUMENT,
             bytes: with_no_zoom_annotation(),
             password: None,
+            fragment: None,
         })
         .collect();
     let first = request(&opened).clone();
@@ -2870,6 +2903,7 @@ fn popup_viewer(open: bool) -> Viewer {
             id: DOCUMENT,
             bytes: with_a_popup(open),
             password: None,
+            fragment: None,
         })
         .for_each(drop);
     viewer

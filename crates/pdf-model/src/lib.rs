@@ -42,6 +42,7 @@ pub mod destination;
 pub mod document_part;
 pub mod file_spec;
 pub mod forms_data;
+pub mod fragment;
 pub mod function;
 pub mod icc;
 mod icon;

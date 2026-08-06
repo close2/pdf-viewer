@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pdf_model::content::{Interpretation, Placed};
+use pdf_model::fragment::{Fragment, Parameter};
 use pdf_model::outline::Outline;
 use pdf_model::page_label::PageLabels;
 use pdf_model::view::ViewState;
@@ -23,7 +24,7 @@ use pdf_syntax::ObjectId;
 
 /// The zoom a document opens at, where its `/OpenAction` states none.
 ///
-/// Where one does, [`Self::pending_view`] carries it and `apply_view` replaces this on the first
+/// Where one does, [`Open::pending_views`] carries it and `apply_view` replaces this on the first
 /// settled frame — which is why this is still a mode rather than a number: a document with no
 /// opinion should follow the window, and one with an opinion should be obeyed.
 const INITIAL_ZOOM: Zoom = Zoom::FitPage;
@@ -67,7 +68,14 @@ pub(crate) struct Open {
     /// document and is applied at once, while the other two need to know how large the window is
     /// and — for `/FitB`, `/FitBH` and `/FitBV` — what the page's contents cover. Both are known
     /// in `Viewer::settle` and nowhere earlier, so the view waits here until then. ADR 0162.
-    pub(crate) pending_view: Option<pdf_model::destination::View>,
+    ///
+    /// **Several, and in order, because Annex O made it possible to state more than one.** A URI's
+    /// fragment may say `zoom=150,0,792&view=FitH,500`, and §O.2 requires that both be "processed
+    /// and (if required) executed from left to right"; applying them in sequence is what makes
+    /// Table 149's null — "the current value of that parameter shall be retained unchanged" — mean
+    /// what it says about the value the previous parameter left. Table 29's `/OpenAction` puts at
+    /// most one here, so nothing that existed before this list can tell the difference.
+    pub(crate) pending_views: Vec<pdf_model::destination::View>,
     /// How far the page is scrolled under the viewport, in device pixels.
     ///
     /// Positive means the content has moved up and left — the top-left of the raster is off the
@@ -334,7 +342,7 @@ impl Open {
             page_count,
             page_index,
             zoom: INITIAL_ZOOM,
-            pending_view: open_view,
+            pending_views: open_view.into_iter().collect(),
             scroll: (0.0, 0.0),
             current: None,
             shown_for: 0.0,
@@ -636,6 +644,239 @@ impl Open {
         self.scroll = (hold(at.0, origin.0), hold(at.1, origin.1));
     }
 
+    /// Carries out ISO 32000-2 Annex O's fragment identifier, and names what it could not.
+    ///
+    /// The returned strings are for a person: every parameter this program refuses is refused *by
+    /// name*, because a URI that says `#page=5` and opens page one has told its reader something
+    /// false about the document. Nothing here fails and nothing here refuses to open the file.
+    ///
+    /// **In the fragment's own order**, which §O.2 makes a requirement rather than a convenience:
+    ///
+    /// > Fragment identifiers shall be processed and (if required) executed from left to right as
+    /// > they appear in the character string that makes up the fragment identifier.
+    ///
+    /// and the `comment` parameter is what turns that into behaviour — it names an annotation on
+    /// *the page selected so far*, so `page=3&comment=x` and `comment=x&page=3` mean different
+    /// things and the annex says so in a NOTE.
+    ///
+    /// Called immediately after Table 29's `/OpenAction`, which is where §O.2.2 puts it: these
+    /// "should be processed immediately after any other document-specified open parameters have
+    /// been processed". A page and a view stated by both is the document's opinion overruled by
+    /// the URI's, which is the order that makes a fragment identifier useful.
+    ///
+    /// # Where the coordinates are
+    ///
+    /// §O.2.2 states one rule for its own three rectangles and the rule has two halves that pull
+    /// apart:
+    ///
+    /// > All coordinate values … shall be expressed in the default user space coordinate system.
+    ///
+    /// while each parameter's own row measures from "the top left corner of the page". Default
+    /// user space has its origin at the *bottom* left (§8.3.2.3), so the two sentences together
+    /// say: the *units* are default user space's, and the origin is the page's top-left corner.
+    /// That is the reading this takes — `top` counts downward from `display_box`'s upper edge and
+    /// `left` rightward from its left one — and it is the only one under which both sentences are
+    /// true at once. `display_box` rather than the media box because §12.2's `/ViewArea` decides
+    /// what "the page" is on a screen, and it is the crop box for every document that states none.
+    ///
+    /// `view`, alone among them, is *not* measured that way: its arguments "shall correspond to
+    /// those found in 12.3.2.2", which are default user space's own, origin and all.
+    pub(crate) fn apply_fragment(&mut self, fragment: &Fragment) -> Vec<String> {
+        let mut notes = Vec::new();
+        let mut parameters = fragment.parameters.iter();
+        while let Some(parameter) = parameters.next() {
+            if let Some(reason) = parameter.unhonoured() {
+                notes.push(format!(
+                    "this URI's fragment asks for `{}`, which this program does not do: {reason}",
+                    parameter.name()
+                ));
+                // "Any remaining parameters after this parameter apply to the selected embedded
+                // file." So everything after `ef` is about a document this program has not
+                // opened, and applying it to *this* one would take a person somewhere the URI did
+                // not name. Stop, and say how much was left.
+                if matches!(parameter, Parameter::EmbeddedFile(_)) {
+                    let left = parameters.as_slice().len();
+                    if left > 0 {
+                        notes.push(format!(
+                            "and the {left} parameter(s) after it apply to that embedded file \
+                             rather than to this document, so none of them was applied"
+                        ));
+                    }
+                    break;
+                }
+                continue;
+            }
+            self.apply_parameter(parameter, &mut notes);
+        }
+        for unread in &fragment.unread {
+            notes.push(format!(
+                "this URI's fragment says `{}`, which is {}",
+                unread.name,
+                unread.reason.as_str()
+            ));
+        }
+        notes
+    }
+
+    /// One of Annex O's parameters, applied. Split from [`Self::apply_fragment`] for its length.
+    fn apply_parameter(&mut self, parameter: &Parameter, notes: &mut Vec<String>) {
+        match parameter {
+            // Table Annex O.3: "The first page in the document has a pageNum value of 1", against
+            // this crate's own zero-based index.
+            Parameter::Page(number) => {
+                let index = usize::try_from(number.saturating_sub(1)).unwrap_or(usize::MAX);
+                if index < self.page_count {
+                    self.go_to(index);
+                } else {
+                    notes.push(format!(
+                        "this URI's fragment asks for page {number} and this document has {}",
+                        self.page_count
+                    ));
+                }
+            }
+            Parameter::NamedDestination(name) => self.go_to_named(name, notes),
+            Parameter::StructureElement(id) => self.go_to_structure_element(id, notes),
+            // Table 166's `/NM`, on the page chosen so far — which is what makes this parameter's
+            // position in the fragment matter.
+            Parameter::Comment(name) => {
+                let found = self.page(self.page_index).and_then(|page| {
+                    pdf_model::fragment::annotation_named(&self.document, &page, name)
+                });
+                if let Some(id) = found {
+                    // "[T]he PDF processor shall open the document with the specified comment
+                    // selected", and the annex says nothing about what selecting one looks like.
+                    // This program has one way of indicating an annotation without changing the
+                    // page — §12.5.1's focus, which is what the tab key moves and what a host
+                    // draws a ring around — so that is what a selected comment is here. A choice,
+                    // and written down as one.
+                    self.focus = Some(id);
+                } else {
+                    notes.push(format!(
+                        "this URI's fragment names the comment {}, which page {} does not carry",
+                        text(name),
+                        self.page_index.saturating_add(1)
+                    ));
+                }
+            }
+            // Table Annex O.4's `zoom` is Table 149's `/XYZ` in every respect but two: it states
+            // a percentage where `/XYZ` states a factor, and it measures its corner from the top
+            // left of the page where `/XYZ` measures from default user space's own origin.
+            Parameter::Zoom { percent, offset } => {
+                let corner = offset.map(|(left, top)| self.in_default_user_space(left, top));
+                self.pending_views.push(pdf_model::destination::View::Xyz {
+                    left: corner.map(|(left, _)| left),
+                    top: corner.map(|(_, top)| top),
+                    // Table 149 makes a zoom of zero the same as none, and this is the same
+                    // magnification stated as a percentage, so zero says "leave it alone" here
+                    // too rather than magnifying a page to nothing.
+                    zoom: Some(percent / 100.0).filter(|zoom| *zoom > 0.0),
+                });
+            }
+            Parameter::View(view) => self.pending_views.push(*view),
+            // "Open the document with the specified window view rectangle", which is what Table
+            // 149's `/FitR` already means — "magnified just enough to fit the rectangle" — so the
+            // rectangle is converted to that clause's corners and nothing new is invented.
+            Parameter::ViewRect {
+                left,
+                top,
+                width,
+                height,
+            } => {
+                let (x, y) = self.in_default_user_space(*left, *top);
+                self.pending_views.push(pdf_model::destination::View::FitR {
+                    rect: [x, y - height, x + width, y],
+                });
+            }
+            // The four [`Parameter::unhonoured`] names never reach here.
+            Parameter::EmbeddedFile(_)
+            | Parameter::Highlight { .. }
+            | Parameter::Search(_)
+            | Parameter::Fdf(_) => {}
+        }
+    }
+
+    /// Annex O's `nameddest`, through §12.3.2.4's lookup.
+    ///
+    /// Both of the tables that clause defines are asked, in the order it introduces them, which is
+    /// what `Destination::read` does for a name or a string alike.
+    fn go_to_named(&mut self, name: &[u8], notes: &mut Vec<String>) {
+        let destination = pdf_model::destination::Destination::read(
+            &self.document,
+            &pdf_syntax::Object::String(name.into()),
+        );
+        let Some(destination) = destination else {
+            notes.push(format!(
+                "this URI's fragment names the destination {}, which this document does not \
+                 define",
+                text(name)
+            ));
+            return;
+        };
+        let index = {
+            let pages = Pages::new(&self.document);
+            destination.page_index(&self.document, &pages)
+        };
+        if let Some(index) = index.filter(|index| *index < self.page_count) {
+            self.go_to(index);
+        } else {
+            // A destination naming a page in another file (§12.3.2.2's remote form) or naming
+            // nothing. Its view still stands: it says how to look at whatever page is showing.
+            notes.push(format!(
+                "this URI's fragment names the destination {}, which does not name a page of \
+                 this document",
+                text(name)
+            ));
+        }
+        self.pending_views.push(destination.view);
+    }
+
+    /// Annex O's `structelem`: §14.7.2's `/IDTree` for the element, §12.3.2.3's algorithm for its
+    /// page.
+    fn go_to_structure_element(&mut self, id: &[u8], notes: &mut Vec<String>) {
+        let index = pdf_model::structure::Tree::of(&self.document)
+            .and_then(|tree| tree.element_by_id(&self.document, id))
+            .and_then(|element| {
+                let pages = Pages::new(&self.document);
+                pdf_model::destination::structure_element_page(&self.document, &element, &pages)
+            });
+        if let Some(index) = index.filter(|index| *index < self.page_count) {
+            self.go_to(index);
+            return;
+        }
+        // The annex states this outcome rather than leaving it open: "[i]f no content is
+        // contained within the hierarchy of the structure element or structID does not match a
+        // structure element, the first page in the document shall be identified." So page one is
+        // the answer and not a failure — said out loud because a person who typed an identifier
+        // wants to know that it matched nothing.
+        self.go_to(0);
+        notes.push(format!(
+            "this URI's fragment names the structure element {}, which identifies no page here, \
+             so the first page is shown",
+            text(id)
+        ));
+    }
+
+    /// Shows a page named by a fragment, with the state a page turn resets.
+    fn go_to(&mut self, index: usize) {
+        if index == self.page_index {
+            return;
+        }
+        self.page_index = index;
+        self.scroll = (0.0, 0.0);
+        self.shown_for = 0.0;
+    }
+
+    /// Annex O's corner — measured from the page's top left — as a point in default user space.
+    ///
+    /// The page's own upper-left corner is `display_box`'s left edge and its *top* edge, and the
+    /// axis runs downward from there while default user space's runs up.
+    fn in_default_user_space(&self, left: f32, top: f32) -> (f32, f32) {
+        let box_ = self
+            .page(self.page_index)
+            .map_or([0.0, 0.0, 0.0, 0.0], |page| page.display_box);
+        (box_[0] + left, box_[3] - top)
+    }
+
     /// Applies §12.3.2.1's other two items — where the window sits, and how large.
     ///
     /// Table 149's eight forms, and every one of them is two decisions: a **magnification**,
@@ -871,6 +1112,16 @@ pub(crate) fn interpret(open: &Open, index: usize) -> Option<(Interpretation, Ve
         .map(crate::report::describe)
         .collect();
     Some((interpretation, reports, page))
+}
+
+/// A byte string out of a URI's fragment, worded for a person to read.
+///
+/// Lossy, and this is the one place that is right: Annex O gives its byte strings no character
+/// encoding — which is why `pdf_model::fragment` keeps them as bytes — and a sentence somebody
+/// reads is where a guess costs nothing, while a comparison against the document's own bytes is
+/// where it would cost everything.
+fn text(bytes: &[u8]) -> String {
+    format!("`{}`", String::from_utf8_lossy(bytes))
 }
 
 #[cfg(test)]

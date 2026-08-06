@@ -83,6 +83,7 @@ fn main() {
             id: DocumentId(1),
             bytes: bytes.clone(),
             password: None,
+            fragment: None,
         })
         .any(|event| matches!(event, viewer_core::Event::Opened { .. }));
     assert!(opened, "the document opens");

@@ -68,6 +68,7 @@ fn opened() -> Viewer {
             id: DocumentId(1),
             bytes: two_page_thread(),
             password: None,
+            fragment: None,
         })
         .any(|event| matches!(event, Event::Opened { .. }));
     assert!(opened, "the fixture is a valid PDF");
@@ -155,6 +156,7 @@ fn a_document_with_no_threads_answers_with_an_empty_list() {
             id: DocumentId(1),
             bytes,
             password: None,
+            fragment: None,
         })
         .any(|event| matches!(event, Event::Opened { .. }));
     assert!(opened);

@@ -22,6 +22,12 @@ pub enum Command {
     /// The password is §7.6.4.1's, where the host already has one. A document that needs one
     /// and was given none — or the wrong one — produces [`crate::Event::PasswordRequired`] and
     /// no open document, which is the prompt this project has owed since encryption landed.
+    ///
+    /// The fragment is Annex O's, and it is the text after `#` in the URI the bytes came from,
+    /// exactly as the URI spells it. **Undecoded**: percent-decoding is done per argument after
+    /// the fragment is split on its own separators, because a `%26` inside a destination's name is
+    /// data rather than a separator. Splitting the *URI* is the host's — RFC 3986 is not this
+    /// crate's business and a host that opened a file from a path has no fragment to give.
     Open {
         /// What the host will call this document.
         id: DocumentId,
@@ -29,6 +35,8 @@ pub enum Command {
         bytes: Vec<u8>,
         /// §7.6.4.1's user or owner password, where one is already known.
         password: Option<String>,
+        /// Annex O's fragment identifier — the text after `#`, or nothing.
+        fragment: Option<String>,
     },
     /// Time has passed, in milliseconds — ISO 32000-2 §12.4.4.1's `/Dur`, driven by the host.
     ///

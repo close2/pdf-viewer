@@ -216,8 +216,10 @@ In scope, without exclusions:
   method for determining transparency) — and the ledger carries a row for each because a
   requirement is a requirement wherever the standard prints it. The other nine say *informative*
   on their own title line and state nothing. Annex O is the reason this entry is not a
-  formality: eleven `shall`s addressed to "the PDF processor", none of them implemented and none
-  of them reported.
+  formality: eleven `shall`s addressed to "the PDF processor", and when this entry was written
+  none of them was implemented and none of them reported. **Seven are carried out and four are
+  reported since the three-hundred-and-sixty-ninth session** (ADR 0209), which is what an annex
+  being in scope is supposed to lead to.
 
 The exclusions, closed, each with its reason:
 

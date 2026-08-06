@@ -84,3 +84,10 @@ path = "fuzz_targets/xmp.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fragment"
+path = "fuzz_targets/fragment.rs"
+test = false
+doc = false
+bench = false
