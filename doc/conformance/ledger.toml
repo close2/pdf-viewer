@@ -3737,7 +3737,7 @@ title = "Printer's mark annotations"
 status = "partial"
 code = ["crates/pdf-model/src/annotation.rs"]
 test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
-note = "A printer's mark annotation is a registration target, colour bar or cut mark added for production, and §14.11.3 is where it is discussed. Its /AP is drawn like any other annotation's. Table 190's /MN names the mark and §14.11.3 says nothing about what any name looks like, so an appearance-less one is refused and named. Whether such a mark belongs on a screen at all is a §14.11.3 question this row does not settle."
+note = "A printer's mark annotation is a registration target, colour bar or cut mark added for production, and §14.11.3 is where it is discussed. Its /AP is drawn like any other annotation's. Table 190's /MN names the mark and §14.11.3 says nothing about what any name looks like, so an appearance-less one is refused and named. **\"Whether such a mark belongs on a screen at all is a §14.11.3 question this row does not settle\" — and §14.11.3's row settled it the wrong way for a hundred sessions**, calling itself `inapplicable` because \"a screen is not a printer\" while this row said the mark is drawn. The clause answers it outright: \"[t]he Print and ReadOnly flags in the F entry shall be set and **all others clear**\", so `NoView` is clear on a conforming mark and it is displayed. Two rows about one mechanism, disagreeing — `doc/todo/01`'s fourth sweep across a pair — corrected in the three-hundred-and-fifty-ninth session."
 
 [[clause]]
 clause = "12.5.6.21"
@@ -3745,7 +3745,7 @@ title = "Trap network annotations"
 status = "partial"
 code = ["crates/pdf-model/src/annotation.rs"]
 test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
-note = "A trap network annotation, deprecated in PDF 2.0, defines trapping for a marking device; §14.11.6 owns the subject. Its /AP is drawn like any other, and there is nothing else here a screen can show: trapping compensates for misregistration between printing plates, which a display does not have."
+note = "A trap network annotation, deprecated in PDF 2.0, defines trapping for a raster output device that has plates; §14.11.6 owns the subject. Its /AP is drawn like any other, and there is nothing else here a screen can show: trapping compensates for misregistration between printing plates, which a display does not have. **That last sentence is about what the traps *mean*, not about whether they are drawn, and §14.11.6.2's row read it as the latter for a hundred sessions** — calling itself `inapplicable` while this row said the appearance is drawn. §14.11.6.2 settles it: the flags \"shall be present, with the Print and ReadOnly flags set and all others clear\", so `NoView` is clear and a conforming trap network annotation is one whose flags say display me. Corrected in the three-hundred-and-fifty-ninth session, alongside the identical pair at §14.11.3 and §12.5.6.20."
 
 [[clause]]
 clause = "12.5.6.22"
@@ -5928,8 +5928,10 @@ note = "`/E`, an abbreviation's expansion, read from both places the clause name
 [[clause]]
 clause = "14.9.6"
 title = "Pronunciation hints"
-status = "inapplicable"
-note = "Pronunciation hints — `/PhoneticAlphabet` and `/Phoneme` on a structure element, `/PronunciationLexicons` on the structure tree root — and the clause states its own obligation: \"A PDF processor is not required to process pronunciation hints.\" So nothing is owed and nothing is silent, which is the same reading §10.7.2's flatness permission gets. The NOTE says why the omission is usually harmless: a text-to-speech function does well enough \"based on text provided in Unicode encoding combined with an indication of the language that applies to that text\", which is §14.9.2's job and not this one's."
+status = "implemented"
+code = ["crates/pdf-model/src/accessibility.rs"]
+test = ["crates/pdf-model/src/accessibility.rs::a_sequence_overrides_the_documents_language"]
+note = "Pronunciation hints — `/PhoneticAlphabet` and `/Phoneme` on a structure element, `/PronunciationLexicons` on the structure tree root — and the clause states its own obligation: \"A PDF processor is not required to process pronunciation hints.\" So nothing is owed and nothing is silent, which is the same reading §10.7.2's flatness permission gets. **And that sentence was this row's own contradiction until the three-hundred-and-fifty-ninth session**: §10.7.2 is `implemented` — `CLAUDE.md` says in as many words that \"a clause that permits is a clause that has been read, and it is a stronger answer than one that does not apply\" — while this row claiming the same reading was `inapplicable`. Two statuses for one argument. `implemented`, on the permission the clause states and the evidence that the alternative it names is what this tree does: §14.9.2's language and Unicode text, which `accessibility.rs` answers `Query::AccessibilityTree` with. The NOTE says why the omission is usually harmless: a text-to-speech function does well enough \"based on text provided in Unicode encoding combined with an indication of the language that applies to that text\", which is §14.9.2's job and not this one's."
 
 [[clause]]
 clause = "14.10"
@@ -6073,13 +6075,15 @@ note = "The crop box is honoured: it is inherited down the page tree, defaults t
 clause = "14.11.2.2"
 title = "Display of page boundaries"
 status = "inapplicable"
-note = "`/BoxColorInfo`, the colours an *interactive* processor draws page-boundary guidelines in. The clause makes both the guidelines and the entry optional — \"interactive PDF processors **may** offer the ability to display guidelines\" — and this one does not offer it, so there is nothing for the entry to colour. It becomes a row to fill the day a viewer grows a prepress view."
+note = "`/BoxColorInfo`, the colours an *interactive* processor draws page-boundary guidelines in. The clause makes both the guidelines and the entry optional — \"[i]nteractive PDF processors **may** offer the ability to display guidelines\" — and this one does not offer it, so there is nothing for the entry to colour. It becomes a row to fill the day a viewer grows a prepress view. **`inapplicable` here means a permission declined, not a device this program is not**, and the three-hundred-and-fifty-ninth session's sweep found the ledger using one word for both: §10.7.2's flatness permission is `implemented` on `CLAUDE.md`'s rule that \"a clause that permits is a clause that has been read\", and it earns that status because there is code that reads `i` and discards it. There is no code here to name, so the row stays `inapplicable` with its reason said precisely rather than borrowing a status it has no evidence for. Table 397's `/C`, `/W`, `/S` and `/D` are a dash pattern and a colour this tree already knows how to draw; what is missing is a person who asked to see the boxes."
 
 [[clause]]
 clause = "14.11.3"
 title = "Printer's marks"
-status = "inapplicable"
-note = "Printer's marks — registration targets, colour bars, cut marks — are annotations \"of subtype PrinterMark\" placed \"outside the boundaries of the page's trim box\", which is by construction outside what this viewer draws. Table 167's Print flag governs them and a screen is not a printer (trap 9's second shape, and the same reading §12.5.3 already uses)."
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing"]
+note = "**Was `inapplicable` on two reasons and both were wrong**, found in the three-hundred-and-fifty-ninth session by re-reading every `inapplicable` row the way §10.5 was re-read. The row said printer's marks are \"placed \\\"outside the boundaries of the page's trim box\\\", which is by construction outside what this viewer draws\" and that \"Table 167's Print flag governs them and a screen is not a printer\". (1) **This viewer draws the crop box**, not the trim box, and the clause's only `should` is \"[t]he annotation rectangle should not intersect the TrimBox\" — a mark between the trim box and the crop box is inside what is drawn, and the clause's own word for the wider claim is *typically*. (2) The clause settles the display question in the opposite direction: \"[t]he Print and ReadOnly flags in the F entry shall be set and **all others clear**\", and `NoView` is among all others — so a conforming printer's mark is one whose flags say *display me*. **And §12.5.6.20's own row already said the code draws them** — \"[i]ts /AP is drawn like any other annotation's\" — so the two rows contradicted each other, which is `doc/todo/01`'s sixth shape across a pair rather than inside one note. `annotation.rs` has never special-cased the subtype. What the clause requires of a *processor* is met by §12.5.5's route, which this tree implements including the `/N` subdictionary selected by `/AS` and NOTE 2's rule that `/R` and `/D` are never displayed. `partial` for Table 399's `/MarkStyle` — \"a text string representing the printer's mark in human-readable form and suitable for presentation to the user\" — which is a label for a panel this program has no printer's-mark list in, and for Table 398's `/MN`, read and reported by §12.5.6.20 where a mark states no appearance. **No corpus document states one**, so nothing here is exercised by a file."
 
 [[clause]]
 clause = "14.11.4"
@@ -6110,8 +6114,10 @@ note = "See §14.11.6."
 [[clause]]
 clause = "14.11.6.2"
 title = "Trap network annotations"
-status = "inapplicable"
-note = "A trap network annotation carries the traps as a content stream, one per page, and Table 167's Print flag is what draws it. Deprecated with §14.11.6, and drawing it on a screen would paint the artefact-hiding overlaps *as* artefacts."
+status = "partial"
+code = ["crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/appearance.rs"]
+test = ["crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"]
+note = "**The second of the two prepress rows corrected in the three-hundred-and-fifty-ninth session, and the same defect as §14.11.3's.** The row said \"drawing it on a screen would paint the artefact-hiding overlaps *as* artefacts\" — a claim about a behaviour this tree does not have, since `TrapNet` is in `annotation.rs`'s `STANDARD_SUBTYPES` and its `/AP` is drawn like any other's, which **§12.5.6.21's own row said in as many words**. Two rows, one mechanism, opposite claims. And the clause decides the display question itself, in the same sentence §14.11.3 uses: the `/AP`, `/AS` and `/F` entries \"shall be present, with the Print and ReadOnly flags set and **all others clear**\" — `NoView` among all others. The clause's `/N` subdictionary keyed by `/AS`, which is how alternate trap networks are selected, is §12.5.5's route and implemented. `partial` for Table 403: `/Version` and `/AnnotStates` bind \"any PDF writer that generates a new trap network\" and `/FontFauxing` records what a trapping engine substituted — writer-side, all three. **One reader-side sentence is unread and is not writer-side**: if the page object's `/LastModified` is more recent than the annotation's, \"the page's trap networks are invalid and shall be regenerated\", and a reader that cannot regenerate them is drawing traps the clause has called invalid. `doc/todo/01` carries it; **no corpus document states a `/TrapNet` at all**, so nothing here is exercised by a file."
 
 [[clause]]
 clause = "14.11.6.3"
@@ -6152,14 +6158,18 @@ note = "How the tree connects to pages, and again every requirement is on the wr
 [[clause]]
 clause = "14.12.4"
 title = "Data structures"
-status = "inapplicable"
-note = "Aggregate of the two below: Table 408's `DPartRoot` and Table 409's `DPart`. Neither is read, and neither reaches a screen."
+status = "partial"
+code = ["crates/pdf-model/src/document_part.rs"]
+test = ["crates/pdf-model/src/document_part.rs::a_leaf_begins_at_the_page_its_start_names"]
+note = "Aggregate of the two below: Table 408's `DPartRoot` and Table 409's `DPart`. **The note here read \"[n]either is read, and neither reaches a screen\" until the three-hundred-and-fifty-ninth session, and its own parent row said the opposite**: §14.12 names `document_part::first_page` and the sentence that puts Table 409's `/Start` on the screen through §12.6.4.5's `GoToDp` action. `doc/todo/01`'s first shape — a note that outlived the code — found this time by the seventh sweep, which greps each `inapplicable` row's own vocabulary against the source. Table 409's `/Start` and `/DParts` are read; Table 408 is not, and `partial` is for that half."
 
 [[clause]]
 clause = "14.12.4.1"
 title = "General"
-status = "inapplicable"
-note = "Table 408 and Table 409. Two entries touch families this project does read and neither changes that: a `/DPart`'s `/AF` is §14.13.8's associated files, `silent` on their own rows, and its `/Metadata` is §14.3.2's metadata stream, read since ADR 0186 at the document level and not consumed at the object level, which §14.3.2's own row states. `/DParts` and `/Start`/`/End` are exclusive — the clause's NOTE says only leaf nodes may name pages."
+status = "partial"
+code = ["crates/pdf-model/src/document_part.rs"]
+test = ["crates/pdf-model/src/document_part.rs::a_leaf_begins_at_the_page_its_start_names"]
+note = "Table 408 and Table 409. **Table 409's `/Start` and `/DParts` are read** — `document_part::first_page` follows `/DParts` depth-first to the leaf a `GoToDp` names and answers with the page `/Start` points at, which §14.12.3 makes the first page of the range. Table 408's `/DPartRoot` is not read, because the action names a `DPart` dictionary directly and nothing here enumerates the tree from its root; that half is what `partial` is for. Two entries touch families this project does read and neither changes that: Two entries touch families this project does read and neither changes that: a `/DPart`'s `/AF` is §14.13.8's associated files, `silent` on their own rows, and its `/Metadata` is §14.3.2's metadata stream, read since ADR 0186 at the document level and not consumed at the object level, which §14.3.2's own row states. `/DParts` and `/Start`/`/End` are exclusive — the clause's NOTE says only leaf nodes may name pages, which is why `first_page` descends rather than reading both."
 
 [[clause]]
 clause = "14.12.4.2"

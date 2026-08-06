@@ -189,10 +189,10 @@ fifty-sixth session. Counts come from `cargo run -p conformance --bin ledger`, w
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 389 | every normative requirement in the clause is executed |
-| `partial` | 228 | some are; the note says which are not |
+| `implemented` | 390 | every normative requirement in the clause is executed |
+| `partial` | 232 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so |
-| `inapplicable` | 84 | a marking device, a layout engine, a production workflow |
+| `inapplicable` | 79 | a press, a layout engine, a production workflow — **and read at last** |
 | `out-of-scope` | 87 | principle 5's closed exclusions, which the row names |
 | `reported` | 29 | not implemented, detected and named at runtime |
 | `writer-side` | 6 | addresses a PDF *generator* |
@@ -210,6 +210,18 @@ owner split the scope line rather than dropping it, and the clause is implemente
 There is no requirement in the eight technical clauses that this program
 fails without saying so. That is a narrow claim: `partial` and `reported` are 257 rows between
 them and each names what it owes.
+
+**A seventh way was found in the three-hundred-and-fifty-ninth, in the population no sweep had
+ever read: the `inapplicable` rows.** Every sweep in `doc/todo/01` walks the rows that *owe*
+something, which is the property that let five wrong reasons sit undisturbed. §14.11.3's printer's
+marks and §14.11.6.2's trap networks were `inapplicable` because "a screen is not a printer" —
+while `PrinterMark` and `TrapNet` have been in `annotation.rs`'s `STANDARD_SUBTYPES` from the
+start, and **§12.5.6.20 and §12.5.6.21 said so in their own notes**. Both clauses settle it in one
+sentence each uses verbatim: the flags "shall be set and **all others clear**", which leaves
+`NoView` clear. §14.12.4 said Table 409 was unread while `document_part.rs` reads it, and its own
+parent row said the opposite. **Shape 7 is two rows about one mechanism, disagreeing** — cousins
+rather than parent and child, which is why the arithmetic sweep cannot see them — and the tell is
+that one row gives a *capability* reason where the other names *code*. ADR 0205.
 
 **And a sixth was found in the two-hundred-and-sixteenth, by a sweep that is one `grep`:** a
 sentence a session *retired* in one row, still standing in the other row that describes the same
@@ -1390,7 +1402,7 @@ and is above.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets     # must be silent of lints
 cargo test --workspace
-cargo test -p conformance -- --nocapture   # 4243 citations, 429 quotations, 194 tables, 823 rows
+cargo test -p conformance -- --nocapture   # 4379 citations, 438 quotations, 195 tables, 823 rows
 cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
 # Both gates decode images in a separate program, and -p pdf-model does not rebuild another
 # package's binaries. Build it first or the numbers below are somebody else's (trap 10).
@@ -2907,3 +2919,4 @@ above rather than here.
 | 356 | Five more, four of them where step 6's ladders bracket ours inside a fifth of a level — twice with ours at 8× *equal* to a reference's limit to six figures — and a 10 × 10 page whose whole spread is less than half a pixel's ink | — |
 | 357 | The ledger's first `silent` row since session 35: §10.5's transfer function decides what a screen shows on `issue6931_reduced.pdf`, three references apply it and we do not, and the page's own text says what it should look like. Found by step 7's positive side, and a question for the owner | — |
 | 358 | §10.5 implemented, after the project owner split `CLAUDE.md`'s scope line on the standard's own evidence: 13 of 974 documents state a `/TR` and one states a real one, so the census made it a small change rather than a brave one. And a `CLAUDE.md` rule for a document's restrictions — four levels, and the shape they need before any of them exists | 0204 |
+| 359 | The `inapplicable` rows read for the first time, at the owner's instruction: five were wrong and all five the same shape — a §14 row saying a screen does not do this, beside a §12 row saying the tree draws it. No page changed and no corpus document states any of the four entries, which is the point | 0205 |

@@ -1,6 +1,8 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~172 of the 228 rows have not been re-read.
+Status: **standing task.** ~176 of the 232 rows have not been re-read. **The seventh sweep, below,
+is the first to read the `inapplicable` rows** — 81 of them, never swept before the
+three-hundred-and-fifty-ninth session, and its first run corrected five.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -361,6 +363,60 @@ two-hundred-and-seventeenth — "**split a refusal into one claim per entry befo
 and this is that rule applied to a *capability* reason rather than to an architectural one. Five
 entries, one sentence, and only one of them named a capability that had arrived.
 
+## A seventh sweep, and it reads the rows the sweeps had never looked at: **the `inapplicable` ones**
+
+Every sweep in this file walks `partial`, `reported` and `unreviewed` rows, because those are the
+ones that owe something. **`inapplicable` was never swept**, and it is the status a row goes to
+when nobody expects to come back — which is exactly the property that lets a wrong reason live
+there. The project owner asked for the re-read in the three-hundred-and-fifty-eighth session, after
+§10.5's transfer function turned out to be `inapplicable` on a phrase — "marking device" — the
+standard does not contain.
+
+The sweep is twenty lines and mechanical: for each `inapplicable` row, take the capitalised
+identifiers and `/Key` names out of its own title and note, and grep `crates/*/src` for each. **A
+row claiming the tree does not do a thing, whose own vocabulary the source names, is a row to
+read.** It hit 49 of 81; most are noise (`DeviceCMYK`, `XObject`, and the sweep's own English —
+`Nothing`, `Whether`), and the signal is a *rare* word: `GoToDp` in three files under a `§14.12`
+row, `DPart` in four.
+
+**Its first run corrected five rows and amended two more**, and all five were the same shape — a
+`§14` row saying a screen does not do this, beside a `§12` row saying the tree draws it:
+
+| row | said | the clause says |
+|---|---|---|
+| §14.11.3 printer's marks | "outside what this viewer draws … a screen is not a printer" | "[t]he Print and ReadOnly flags … shall be set and **all others clear**" — `NoView` clear |
+| §14.11.6.2 trap networks | "drawing it on a screen would paint the artefact-hiding overlaps *as* artefacts" | the same flags sentence, verbatim |
+| §14.12.4, §14.12.4.1 document parts | "[n]either is read, and neither reaches a screen" | Table 409's `/Start` is what §12.6.4.5's `GoToDp` shows |
+| §14.9.6 pronunciation | `inapplicable`, "the same reading §10.7.2's flatness permission gets" | §10.7.2 is `implemented`, on `CLAUDE.md`'s own rule |
+
+`PrinterMark` and `TrapNet` are both in `annotation.rs`'s `STANDARD_SUBTYPES` and always have
+been, and §12.5.6.20 and §12.5.6.21 said so in their own notes. **So the ledger held both answers at
+once, in two families, for a hundred sessions.** The sixth sweep cannot see this: it compares a
+parent with its children, and these pairs are cousins.
+
+**What that adds to the method, and it is the sweep's own generalisation**: a mechanism gets one row
+per clause that mentions it, and the rows are written in different sessions by different reasoning.
+Shape 7 is **two rows about one mechanism, disagreeing** — and the tell is that one of them names a
+*capability* ("a screen is not a printer") while the other names *code*. When a row's reason is
+about what this program is rather than about what the clause says, find the other row.
+
+**Run over the 87 `out-of-scope` rows in the same sitting, it produced no hit.** 26 of them name
+something the source names — `RichMedia` in two files, `ECMAScript` in seven, `Rendition` in one —
+and every one is a refusal the row already describes: §12.5.6.25 says in its own note that a
+`RichMedia` annotation's "appearance streams are drawn where they exist, like any other
+annotation's, because nothing in the placement path switches on subtype", which is exactly the
+sentence §14.11.3's row was missing. **A clean run on a population is worth recording**, because it
+is the only way this file knows a population has been read at all.
+
+**And one distinction the run had to make rather than blur.** §14.11.2.2's guidelines are
+`inapplicable` for a different reason than §14.10's web capture: the first is a **permission this
+program declines** ("[i]nteractive PDF processors **may** offer the ability to display guidelines"),
+the second is a clause about a thing this program is not. `CLAUDE.md` says a permission read is the
+stronger answer, and §10.7.2 is `implemented` for exactly that — but it earns the status by naming
+code that reads `i` and discards it. §14.11.2.2 has no code to name, so it keeps `inapplicable` with
+its reason stated precisely. **The status vocabulary has one word for two situations**, and until
+that is worth a status of its own the defence is that every such note says which it means.
+
 ## What is still owed, named
 
 - ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).
@@ -369,7 +425,13 @@ entries, one sentence, and only one of them named a capability that had arrived.
   all four corpus documents carrying a `/UR3` grant what this program does, so no file here can
   trip it. What is still owed under §12.8.2.3 is §12.8.2.2.2's comparison of two revisions, which
   needs the digest.
-- **~180 `partial` rows** not yet re-read against the code.
+- **~176 `partial` rows** not yet re-read against the code.
+- **§14.11.6.2's one reader-side sentence**, found by the seventh sweep and left unread: if the
+  page object's `/LastModified` is more recent than the trap network annotation's, "the page's
+  trap networks are invalid and shall be regenerated" — and a reader that cannot regenerate them
+  is drawing traps the clause has called invalid. No corpus document states a `/TrapNet`, so this
+  is a clause to read rather than a defect to fix, and the round that takes it owes the count
+  first, the way `doc/todo/13` did.
 - **§7.9.3 closed in the three-hundred-and-forty-sixth**, and it is the first `reported` row to close by a capability this tree gave *itself* one round earlier. The row named its own expiry condition — "this closes the day an entry in scope uses the type" — and ADR 0199's reading of Table 172's `/RC` was that day. Six entries in the whole standard are typed `text string or text stream` and `/RC` is the only one in scope, so implementing the clause was implementing it once. **A row that states its own trigger still has to be re-read by somebody**, and this one waited a round.
 - **The 29 `reported` rows are worked out** — all read in the hundred-and-twenty-first and
   -second, and none is of the two known failure classes (a true observation about the wrong half
