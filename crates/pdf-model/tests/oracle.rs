@@ -2754,7 +2754,43 @@ const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
 ///
 /// So the page carries both of this file's standing arguments at once: whether a link has a
 /// border, and how heavy a sub-pixel one is. Neither is ours to be wrong about.
-const AMBIGUOUS_LINK_BORDER: [&str; 2] = ["bug766086.pdf page 1", "issue18030.pdf page 1"];
+/// **`bug886717.pdf` page 1 is the third, and it asks a different question with the same picture.**
+/// A thesis's table of contents, 595 × 842, with 45 links over its entries. Two renderers draw a
+/// red box round every one:
+///
+/// ```text
+/// ours 6.6024 │ mupdf 6.5896 │ hayro 6.0302 │ poppler 10.0075 │ ghostscript 10.9182
+/// ```
+///
+/// Ours and `mupdf` agree to **0.013 of 255** and the two that draw boxes are 3.4 and 4.3 above.
+/// But the file is not the other two's file: every one of these links states
+///
+/// ```text
+/// /Border [0 0 1]   /C [1 0 0]   /F 4   /AP << /N 9 0 R >>
+/// ```
+///
+/// and **object 9 is a form XObject with a `/BBox` and an empty content stream**. `Length 10` of
+/// `FlateDecode` that decodes to `""`. So the producer did not omit an appearance: it wrote one,
+/// and what it says is *draw nothing*.
+///
+/// That makes this page's question narrower than the other two's. It is not whether a link has a
+/// border — §12.5.5 settles it: "[a]n annotation may define as many as three separate
+/// appearances", the normal one "shall be used when the annotation is not interacting with the
+/// user", and §12.5.2's obligation is to draw it. A stated appearance outranks the entries a
+/// border would be *built* from, and Table 174's `/Border` and Table 166's `/C` are exactly
+/// those entries. Ours, `mupdf` and `hayro` draw the empty stream; `poppler` and `ghostscript`
+/// synthesise a border anyway.
+///
+/// **The panels are not all the same size**, and it is worth saying so where somebody will
+/// measure them: 595 × 842 for ours and `ghostscript`, 596 × 842 for `poppler` and `mupdf`,
+/// 595 × 841 for `hayro`. `doc/todo/00`'s step 6 rule about `magick identify` applies to the
+/// oracle's own artefacts too — the numbers above are means, which survive a column of difference,
+/// and a pairwise metric would not.
+const AMBIGUOUS_LINK_BORDER: [&str; 3] = [
+    "bug766086.pdf page 1",
+    "issue18030.pdf page 1",
+    "bug886717.pdf page 1",
+];
 
 /// Ambiguous, and §12.5.6.10 states the region and not one number about the marks in it.
 ///
