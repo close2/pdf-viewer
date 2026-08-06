@@ -45,7 +45,8 @@ pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{
-    BlendMode, Color, FillRule, Image, LineCap, LineJoin, Paint, Stroke, thinnest_line,
+    BlendMode, Color, DeferredImage, FillRule, Grid, Image, ImageAtDeviceScale, ImageSource,
+    LineCap, LineJoin, Paint, Stroke, thinnest_line,
 };
 pub use shading::{
     MeshRaster, Radial, RadialRaster, Ramp, Shading, ShadingKind, Stop, Triangle, blend_parameter,

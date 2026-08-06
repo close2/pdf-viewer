@@ -1062,7 +1062,7 @@ impl CpuRasterizer {
     fn draw_image(
         &self,
         pixmap: &mut tiny_skia::PixmapMut<'_>,
-        image: &pdf_render::Image,
+        source: &pdf_render::ImageSource,
         placement: ImagePlacement,
         clip: Option<&tiny_skia::Mask>,
     ) -> Result<(), CpuRasterError> {
@@ -1072,6 +1072,13 @@ impl CpuRasterizer {
             blend,
             to_device,
         } = placement;
+        let placement = transform.then(to_device);
+        // Where a command's samples do not exist until the device scale does — §11.6.5.2's
+        // soft mask on a grid of its own is the case — this is where they are produced, and
+        // `pdf_render` decides the grid so that the three backends cannot ask for different
+        // ones. An ordinary image borrows and costs nothing.
+        let resolved = source.at(placement);
+        let image: &pdf_render::Image = &resolved;
         if !image.is_consistent() {
             return Err(CpuRasterError::InvalidImage {
                 width: image.width,
@@ -1080,7 +1087,6 @@ impl CpuRasterizer {
             });
         }
 
-        let placement = transform.then(to_device);
         // Blocks of samples that would share one device pixel are averaged before
         // `tiny-skia` sees them, because its bilinear filter reads four neighbours whatever
         // the reduction and an eleven-fold shrink never looks at most of the source. The

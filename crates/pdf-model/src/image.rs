@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use pdf_render::Image;
 use pdf_sandbox::{Decoded, Request};
-use pdf_syntax::{Dictionary, Document, ImageStream, Object, Stream};
+use pdf_syntax::{Dictionary, Document, ImageStream, Object, ObjectId, Stream};
 use rayon::iter::ParallelIterator as _;
 use rayon::slice::ParallelSliceMut as _;
 
@@ -285,10 +285,56 @@ impl Decode {
     }
 }
 
-/// Decodes an image `XObject`.
+/// An image `XObject` decoded as far as a grid the *file* states can take it.
+///
+/// Two of the standard's rasters share a unit square without sharing a grid — §8.9.6.3's
+/// explicit mask and §11.6.5.2's soft-mask image — and where their refinement is small enough
+/// to build, [`combine_on_the_finer_grid`] builds it and the answer is one raster. Where it is
+/// not, §10.7.4's answer is the device's own grid, and this carries the two parts to whoever
+/// knows it.
+#[derive(Debug)]
+pub enum Parts {
+    /// One raster, with every mask the dictionary states already in it.
+    Complete(Image),
+    /// The base raster, and the soft mask that belongs with it at device resolution.
+    Masked {
+        /// The image's own samples, on the grid the file states.
+        base: Image,
+        /// §11.6.5.2's mask, still packed.
+        opacity: SoftMaskAtDeviceScale,
+    },
+}
+
+impl Parts {
+    /// What a display list carries, with `over_base` given the graphics state's say first.
+    ///
+    /// The interpreter has one thing to add to an image's samples that the image dictionary
+    /// knows nothing about: §10.5's transfer function, which belongs to the graphics state the
+    /// image is drawn under rather than to the image. It is applied to the base raster here,
+    /// **before** the mask is attached, which is the same order the eager route uses and is
+    /// available to it for the same reason — a transfer maps colour components and a mask
+    /// scales alpha, so neither can see the other's work.
+    #[must_use]
+    pub fn source(self, over_base: impl FnOnce(Image) -> Image) -> pdf_render::ImageSource {
+        match self {
+            Self::Complete(image) => pdf_render::ImageSource::Decoded(over_base(image)),
+            Self::Masked { base, opacity } => {
+                pdf_render::ImageSource::AtDeviceScale(opacity.over(over_base(base)))
+            }
+        }
+    }
+}
+
+/// Decodes an image `XObject` to one raster on the grid the file states.
 ///
 /// `fill` is the current fill colour, used for a stencil mask, which paints the *current*
 /// colour through its set bits rather than carrying colour of its own.
+///
+/// A mask [`decode_parts`] would have deferred is resolved here at the base image's **own**
+/// grid, which is the finest one a caller that wants a single raster can be given without
+/// knowing a device. Every caller of this wants exactly that: a thumbnail is a small picture by
+/// construction (§12.3.4), and a stencil painted through a pattern becomes a soft mask whose
+/// grid is the stencil's.
 ///
 /// # Errors
 ///
@@ -299,6 +345,39 @@ pub fn decode(
     resources: &Dictionary,
     fill: pdf_render::Color,
 ) -> Result<Image, ImageError> {
+    let mut masks = MaskCache::default();
+    Ok(
+        match decode_parts(document, stream, resources, fill, &mut masks)? {
+            Parts::Complete(image) => image,
+            Parts::Masked { base, opacity } => {
+                let grid = pdf_render::Grid {
+                    width: base.width,
+                    height: base.height,
+                };
+                opacity.over(base).samples(grid)
+            }
+        },
+    )
+}
+
+/// Decodes an image `XObject`, leaving a mask the device must place where it is.
+///
+/// The route the content interpreter takes, because a display list is rasterised at a scale the
+/// interpreter does not know. [`decode`] is the same work with the parts put back together.
+///
+/// `masks` is the caller's memo of masks already read; see [`MaskCache`] for what it is worth
+/// and why the key is sound.
+///
+/// # Errors
+///
+/// See [`ImageError`].
+pub fn decode_parts(
+    document: &Document,
+    stream: &Stream,
+    resources: &Dictionary,
+    fill: pdf_render::Color,
+    masks: &mut MaskCache,
+) -> Result<Parts, ImageError> {
     let dict = &stream.dict;
     let at = Dictionaries {
         document,
@@ -334,27 +413,96 @@ pub fn decode(
             detail: "stream did not decode".to_owned(),
         })?;
 
-    let (rgba, opacity_came_with_the_samples) = match source.codec.as_deref() {
+    let (rgba, opacity_came_with_the_samples) =
+        samples_of(at, &source, (width, height), is_mask, fill, colour_key)?;
+
+    let image = Image {
+        width,
+        height,
+        data: Arc::from(rgba.as_slice()),
+        // §8.9.5.3, and Table 87's default of false. The entry is a hint about what to do
+        // when the image is magnified, so it travels with the samples and the backends
+        // decide what to make of it.
+        interpolate: matches!(document.get_key(dict, "Interpolate"), Object::Boolean(true)),
+    };
+    let image = if opacity_came_with_the_samples {
+        // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
+        // the image samples, `/SMask` "shall not be present", and the embedded mask
+        // overrides any that is. Applying one on top would multiply two alphas together.
+        image
+    } else {
+        // A mask whose grid the finer of the two cannot hold leaves this function in two
+        // parts, for the device to put together. Everything below is about one raster.
+        if let Some(opacity) = masks.read(document, dict, resources) {
+            return Ok(Parts::Masked {
+                base: image,
+                opacity,
+            });
+        }
+        // Applied last so a soft mask cannot resurrect an inconsistent buffer.
+        apply_soft_mask(document, dict, resources, image)
+    };
+
+    // §11.6.4.3 makes the two mutually exclusive — an `/SMask` "shall override any explicit
+    // or colour key mask" — so `mask_entry` has already returned [`MaskEntry::Overridden`]
+    // for anything reached here after a soft mask was applied, and this arm runs only where
+    // there was none. The sequence is therefore an ordering of two things that never both
+    // happen, kept in the order the clauses rank them.
+    match &mask {
+        MaskEntry::Explicit(stencil) => {
+            apply_explicit_mask(document, &image, resources, stencil).map(Parts::Complete)
+        }
+        _ => Ok(Parts::Complete(image)),
+    }
+}
+
+/// The image's samples as straight-alpha RGBA8, and whether the opacity came with them.
+///
+/// One arm per route from bytes to colour: §7.4.8's `DCTDecode`, §7.4.7's `JBIG2Decode`,
+/// §7.4.9's `JPXDecode`, §7.4.6's `CCITTFaxDecode`, and [`unpack`] for the four filters that
+/// leave samples behind rather than a codestream. Split out of [`decode_parts`] because the
+/// route a stream takes is a question about its filter chain and nothing else, while
+/// everything around it is about masks.
+///
+/// The second half of the answer is §11.6.5.2's `/SMaskInData`, which only `JPXDecode` can
+/// carry: an opacity that arrived inside the codestream is already in the alpha channel, and
+/// applying `/SMask` on top of it would multiply two alphas together.
+///
+/// # Errors
+///
+/// See [`ImageError`].
+fn samples_of(
+    at: Dictionaries,
+    source: &ImageStream,
+    (width, height): (u32, u32),
+    is_mask: bool,
+    fill: pdf_render::Color,
+    colour_key: Option<&[(u32, u32)]>,
+) -> Result<(Vec<u8>, bool), ImageError> {
+    let Dictionaries {
+        document,
+        dict,
+        resources,
+    } = at;
+    match source.codec.as_deref() {
         Some(b"DCTDecode" | b"DCT") => {
             let (mut rgba, components) = decode_jpeg(&source.data, width, height)?;
             apply_decode_to_channels(document, dict, components, &mut rgba);
             convert_channels(at, is_mask, components, &mut rgba)?;
-            (rgba, false)
+            Ok((rgba, false))
         }
-        Some(b"JBIG2Decode") => (
-            decode_jbig2(at, &source, width, height, is_mask, fill)?,
+        Some(b"JBIG2Decode") => Ok((
+            decode_jbig2(at, source, width, height, is_mask, fill)?,
             false,
-        ),
-        Some(b"JPXDecode") => decode_jpx(at, &source, width, height, is_mask, fill)?,
-        Some(b"CCITTFaxDecode" | b"CCF") => (
-            decode_ccitt(at, &source, width, height, is_mask, fill)?,
+        )),
+        Some(b"JPXDecode") => decode_jpx(at, source, width, height, is_mask, fill),
+        Some(b"CCITTFaxDecode" | b"CCF") => Ok((
+            decode_ccitt(at, source, width, height, is_mask, fill)?,
             false,
-        ),
-        Some(other) => {
-            return Err(ImageError::UnsupportedFilter {
-                filter: String::from_utf8_lossy(other).into_owned(),
-            });
-        }
+        )),
+        Some(other) => Err(ImageError::UnsupportedFilter {
+            filter: String::from_utf8_lossy(other).into_owned(),
+        }),
         None => {
             let bits = if is_mask {
                 1
@@ -373,51 +521,20 @@ pub fn decode(
                 colour_space(document, dict, resources)?
             };
             let decode = Decode::read(document, dict, &space, bits);
-            (
-                unpack(
-                    &source.data,
-                    width,
-                    height,
-                    &Samples {
-                        bits,
-                        space: &space,
-                        decode: &decode,
-                        colour_key,
-                        fill,
-                    },
-                )?,
-                false,
-            )
+            let rgba = unpack(
+                &source.data,
+                width,
+                height,
+                &Samples {
+                    bits,
+                    space: &space,
+                    decode: &decode,
+                    colour_key,
+                    fill,
+                },
+            )?;
+            Ok((rgba, false))
         }
-    };
-
-    let image = Image {
-        width,
-        height,
-        data: Arc::from(rgba.as_slice()),
-        // §8.9.5.3, and Table 87's default of false. The entry is a hint about what to do
-        // when the image is magnified, so it travels with the samples and the backends
-        // decide what to make of it.
-        interpolate: matches!(document.get_key(dict, "Interpolate"), Object::Boolean(true)),
-    };
-    let image = if opacity_came_with_the_samples {
-        // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
-        // the image samples, `/SMask` "shall not be present", and the embedded mask
-        // overrides any that is. Applying one on top would multiply two alphas together.
-        image
-    } else {
-        // Applied last so a soft mask cannot resurrect an inconsistent buffer.
-        apply_soft_mask(document, dict, resources, image)
-    };
-
-    // §11.6.4.3 makes the two mutually exclusive — an `/SMask` "shall override any explicit
-    // or colour key mask" — so `mask_entry` has already returned [`MaskEntry::Overridden`]
-    // for anything reached here after a soft mask was applied, and this arm runs only where
-    // there was none. The sequence is therefore an ordering of two things that never both
-    // happen, kept in the order the clauses rank them.
-    match &mask {
-        MaskEntry::Explicit(stencil) => apply_explicit_mask(document, &image, resources, stencil),
-        _ => Ok(image),
     }
 }
 
@@ -2211,6 +2328,12 @@ fn apply_explicit_mask(
 enum SoftMaskEntry {
     /// No `/SMask`, or one that is not a stream.
     Absent,
+    /// §11.6.5.2, on a grid whose refinement with the image's is too large to build.
+    ///
+    /// The mask is carried to the backend beside the image instead, and the two are combined
+    /// where the device scale is known — which is what §10.7.4 asks for in the first place.
+    /// See [`device_scaled_soft_mask`] for what makes a mask eligible.
+    AtDeviceScale,
     /// §11.6.5.2: a `DeviceGray` image whose samples are this image's opacity.
     ///
     /// `matte` is Table 144's colour, in the raster's own components, when the image's samples
@@ -2305,6 +2428,18 @@ fn soft_mask_entry(
     }
 
     if let Err(grid) = combined_grid(width, height, mask_width, mask_height) {
+        // The refinement of the two grids is too large to build, which is where §10.7.4's
+        // answer — combine at device resolution — stops being an improvement and becomes the
+        // only answer. It needs the mask's samples readable at a chosen grid; see
+        // [`device_scaled_soft_mask`] for the three things that decides.
+        if eligible_for_the_device_scale(document, &mask.dict, resources)
+            && matches!(
+                matte_colour(document, dict, resources, &mask.dict),
+                Matte::Absent
+            )
+        {
+            return SoftMaskEntry::AtDeviceScale;
+        }
         return SoftMaskEntry::Unusable(format!(
             "/SMask is {mask_width}x{mask_height} against a {width}x{height} image, needing a \
              grid of {grid} samples"
@@ -2439,8 +2574,309 @@ pub fn unapplied_soft_mask(
         | SoftMaskEntry::Image {
             owed: Some(reason), ..
         } => Some(reason),
-        SoftMaskEntry::Absent | SoftMaskEntry::Image { owed: None, .. } => None,
+        // Nothing is owed for a mask carried to the backend: §11.6.5.2 is met there, at the
+        // resolution §10.7.4 states, and a report would name a gap that has been closed.
+        SoftMaskEntry::Absent
+        | SoftMaskEntry::AtDeviceScale
+        | SoftMaskEntry::Image { owed: None, .. } => None,
     }
+}
+
+/// Whether a soft mask's samples can be read at a grid chosen by the device.
+///
+/// Three things decide it, and each is the clause's own restriction rather than a convenience:
+///
+/// - **The stream carries no image codec.** [`unpack`]'s samples are packed rows in the file's
+///   own bytes, so any grid can be read out of them by indexing; a `DCTDecode` or `JPXDecode`
+///   codestream has to be decoded before a sample has a position at all, and decoding it whole
+///   is the cost this route exists to avoid. JPEG 2000 is the one format that *can* decode at a
+///   chosen resolution, and asking it to is still owed — `doc/todo/24`.
+/// - **The colour space is `DeviceGray`.** Table 143 requires it — "Required; shall be
+///   `DeviceGray`" — and it is what makes a sample's opacity a lookup rather than a colour
+///   conversion. `soft_mask_entry` tolerates any one-component space for the ordinary route,
+///   which decodes through the whole colour module; this route reads a byte.
+/// - **The depth is one Table 87 names.** The same five [`unpack`] admits, for the same
+///   reason: a depth the standard does not name says nothing about how the bytes are packed.
+fn eligible_for_the_device_scale(
+    document: &Document,
+    mask_dict: &Dictionary,
+    resources: &Dictionary,
+) -> bool {
+    if image_codec(document, mask_dict).is_some() {
+        return false;
+    }
+    if !matches!(
+        colour_space(document, mask_dict, resources),
+        Ok(ColourSpace::Gray)
+    ) {
+        return false;
+    }
+    matches!(
+        document
+            .get_key(mask_dict, "BitsPerComponent")
+            .as_integer()
+            .unwrap_or(8),
+        1 | 2 | 4 | 8 | 16
+    )
+}
+
+/// §11.6.5.2's soft-mask image, kept in the file's own packed samples.
+///
+/// The alternative is one byte of RGBA per sample per channel, which is what
+/// [`combine_on_the_finer_grid`] would need and what `issue16263.pdf`'s 34862×4332 mask makes
+/// impossible: 604 MB for two distinct colours. Packed, the same mask is the 19 MB its
+/// `FlateDecode` stream inflates to, and a raster of any grid can be read out of it.
+///
+/// Everything the read needs is settled before a sample is touched — the layout, and §8.9.5.2's
+/// map from an integer sample to a component value — so this holds no document and no lifetime,
+/// which is what lets it travel in a display list. That is not incidental: `Document` caches
+/// what it parses behind `RefCell`, so it is not `Sync`, and a display list is drawn on every
+/// core.
+#[derive(Clone)]
+pub struct SoftMaskAtDeviceScale {
+    /// The stream's bytes with every non-image filter applied, packed as Table 87 describes.
+    data: Arc<[u8]>,
+    /// The grid the file states.
+    width: u32,
+    /// The grid the file states.
+    height: u32,
+    /// Bits per sample: 1, 2, 4, 8 or 16.
+    bits: u32,
+    /// §8.9.5.2's map from a raw sample to an opacity, as one table.
+    ///
+    /// Shared because [`MaskCache`] hands the same mask to every command that draws it.
+    decode: Arc<Decode>,
+}
+
+impl std::fmt::Debug for SoftMaskAtDeviceScale {
+    /// The shape of the mask, never its samples: this exists to hold a raster too large to
+    /// print, and a display list is printed by `Command`'s own derive.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SoftMaskAtDeviceScale")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("bits", &self.bits)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SoftMaskAtDeviceScale {
+    /// This mask over `base`, as one raster a backend produces at the grid it draws at.
+    ///
+    /// The two rasters travel together from here on, which is the whole of what the display
+    /// list needed to be told: §8.9.6.3 and Table 143 both put an image and its mask on the
+    /// same unit square without putting them on the same grid, so nothing but the device can
+    /// say where a sample of one lies in the other.
+    #[must_use]
+    pub fn over(self, base: Image) -> pdf_render::DeferredImage {
+        pdf_render::DeferredImage::new(Arc::new(MaskedAtDeviceScale { base, mask: self }))
+    }
+
+    /// The mask's samples as a grey raster, on a grid no finer than `grid`.
+    ///
+    /// ISO 32000-2 §10.7.4, of a sampled image drawn at a lower resolution than its own:
+    ///
+    /// > The position of the centre of such a pixel -in other words, the point whose
+    /// > coordinate values have fractional parts of one-half -shall be mapped back into
+    /// > source space to determine how to colour the pixel. There shall not be averaging over
+    /// > the pixel area. If the resolution of the source image is higher than that of device
+    /// > space, some source samples might not be used.
+    ///
+    /// That is the rule this follows, centre and all: output sample `i` of `cells` reads
+    /// source sample `⌊(2i + 1) × samples ÷ 2 cells⌋`. It is a **departure from the departure**
+    /// [`pdf_render::Image::area_averaged`] records — this renderer averages a reduced image
+    /// where the clause says not to, on ADR 0025's argument — and the difference is deliberate:
+    /// that argument rests on a measured witness whose thin features vanish, and averaging here
+    /// would mean decoding every one of a mask's samples, which is the cost this whole route
+    /// exists to avoid. What it costs is a mask feature thinner than a device pixel, which is
+    /// exactly what the clause's last sentence says happens.
+    fn raster(&self, grid: pdf_render::Grid) -> Image {
+        let cells = self.cells(grid);
+        let row_bytes = (self.width as usize)
+            .saturating_mul(self.bits as usize)
+            .saturating_add(7)
+            / 8;
+        let mut data = Vec::with_capacity(
+            (cells.width as usize)
+                .saturating_mul(cells.height as usize)
+                .saturating_mul(4),
+        );
+        for down in 0..u64::from(cells.height) {
+            let y = centre(down, u64::from(cells.height), u64::from(self.height));
+            let from = y.saturating_mul(row_bytes);
+            let row = self
+                .data
+                .get(from..from.saturating_add(row_bytes))
+                .unwrap_or_default();
+            for across in 0..u64::from(cells.width) {
+                let x = centre(across, u64::from(cells.width), u64::from(self.width));
+                let grey = self.decode.channel(0, index_of(row, x, self.bits));
+                data.extend_from_slice(&[grey, grey, grey, u8::MAX]);
+            }
+        }
+        Image {
+            width: cells.width,
+            height: cells.height,
+            data: Arc::from(data.as_slice()),
+            // Table 143 lists `/Interpolate` as "Optional" and the entry is about magnifying
+            // an image's own samples; what a backend does with the *combined* raster is
+            // decided by the base image's entry, which is where §8.9.5.3's hint was stated.
+            interpolate: false,
+        }
+    }
+
+    /// The grid this will actually produce: no finer than asked, than stated, or than fits.
+    ///
+    /// The third bound is the one a document controls. A backend asks for the device pixels the
+    /// image covers, which a magnification the user chooses can make arbitrarily large, so the
+    /// same [`MAX_MASK_GRID`] that refused the eager combination bounds this one — halving both
+    /// axes until the product fits, so the raster stays the shape of the request.
+    fn cells(&self, grid: pdf_render::Grid) -> pdf_render::Grid {
+        let mut cells = pdf_render::Grid {
+            width: grid.width.min(self.width).max(1),
+            height: grid.height.min(self.height).max(1),
+        };
+        while u64::from(cells.width).saturating_mul(u64::from(cells.height)) > MAX_MASK_GRID
+            && (cells.width > 1 || cells.height > 1)
+        {
+            cells.width = (cells.width / 2).max(1);
+            cells.height = (cells.height / 2).max(1);
+        }
+        cells
+    }
+}
+
+/// §10.7.4's centre of output cell `index` of `cells`, mapped back into a source of `samples`.
+///
+/// Integer arithmetic, and the last sample is never passed: `cells` is at most `samples`, so
+/// `(2 × index + 1) × samples ÷ (2 × cells)` is below `samples` for every `index` below `cells`.
+fn centre(index: u64, cells: u64, samples: u64) -> usize {
+    let numerator = index
+        .saturating_mul(2)
+        .saturating_add(1)
+        .saturating_mul(samples);
+    let at = numerator
+        .checked_div(cells.saturating_mul(2))
+        .unwrap_or(0)
+        .min(samples.saturating_sub(1));
+    usize::try_from(at).unwrap_or(0)
+}
+
+/// An image and the soft mask that belongs with it, combined where the device scale is known.
+#[derive(Debug)]
+struct MaskedAtDeviceScale {
+    base: Image,
+    mask: SoftMaskAtDeviceScale,
+}
+
+impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
+    /// §11.6.5.2's mask applied to the base image, both resolved onto the device's grid.
+    ///
+    /// The combination itself is [`combine_on_the_finer_grid`]'s, unchanged: once the mask has
+    /// been read at a grid the device can use, the two rasters are an ordinary pair and the one
+    /// rule this crate has for combining a pair applies. What is different is only which grid
+    /// the pair is on, which is the whole of what deferring bought.
+    ///
+    /// No `/Matte`: Table 143 makes the mask's `/Width` and `/Height` "the same as the ... value
+    /// of the parent image" wherever one is present, so a pair whose grids differ enough to
+    /// reach this route cannot have one, and `soft_mask_entry` checks it rather than assuming.
+    fn samples(&self, grid: pdf_render::Grid) -> Image {
+        let mask = self.mask.raster(grid);
+        combine_on_the_finer_grid(&self.base, &mask, |colour, sample| {
+            (colour, sample.first().copied().unwrap_or(0))
+        })
+    }
+}
+
+/// Soft masks already read for the device to place, keyed by the object that states them.
+///
+/// # Why this exists, with the measurement that asked for it
+///
+/// The same reason [`crate::shading::Cache`] does, one clause over: a page draws the same
+/// `XObject` many times and the samples do not depend on where. `issue16263.pdf` runs `Do` on
+/// one image **55 times**, and its mask's `FlateDecode` stream inflates to 18.9 MB — so
+/// reading it per painting operation put **750 MB** through one 960×540 page against 15.6 MB
+/// before this route existed, and 27 MB with the cache. Nothing about the answer changes:
+/// every input is the mask object's own — its packed bytes, its `/BitsPerComponent`, its
+/// `/Decode` — which is what makes the object's identity a sound key here where a shading
+/// needed its colour space in the key as well.
+///
+/// A mask with no object number of its own — one written directly into the image dictionary —
+/// is not cached and is read each time, which is exact rather than approximately right.
+#[derive(Debug, Default)]
+pub struct MaskCache {
+    read: std::collections::BTreeMap<ObjectId, SoftMaskAtDeviceScale>,
+}
+
+impl MaskCache {
+    /// Reads a mask, reusing an earlier read of the same object.
+    fn read(
+        &mut self,
+        document: &Document,
+        dict: &Dictionary,
+        resources: &Dictionary,
+    ) -> Option<SoftMaskAtDeviceScale> {
+        let key = dict.get("SMask").and_then(Object::as_reference);
+        if let Some(id) = key
+            && let Some(mask) = self.read.get(&id)
+        {
+            return Some(mask.clone());
+        }
+        let mask = device_scaled_soft_mask(document, dict, resources)?;
+        if let Some(id) = key {
+            self.read.insert(id, mask.clone());
+        }
+        Some(mask)
+    }
+}
+
+/// Reads a soft mask this crate will combine at device resolution, or `None`.
+///
+/// `None` where the entry is not that kind of mask, and where its stream will not decode — the
+/// second being the one case [`unapplied_soft_mask`] does not cover and does not here either:
+/// an image visibly present and opaque beats one dropped entirely, which is the same choice
+/// [`apply_soft_mask`] makes for the same reason.
+fn device_scaled_soft_mask(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+) -> Option<SoftMaskAtDeviceScale> {
+    if !matches!(
+        soft_mask_entry(document, dict, resources),
+        SoftMaskEntry::AtDeviceScale
+    ) {
+        return None;
+    }
+    let smask = document.get_key(dict, "SMask");
+    let mask = smask.as_stream()?;
+    let mask_dict = &mask.dict;
+    let dimension = |key| {
+        document
+            .get_key(mask_dict, key)
+            .as_integer()
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value > 0)
+    };
+    let (width, height) = (dimension("Width")?, dimension("Height")?);
+    let bits = u32::try_from(
+        document
+            .get_key(mask_dict, "BitsPerComponent")
+            .as_integer()
+            .unwrap_or(8),
+    )
+    .ok()?;
+    // `eligible_for_the_device_scale` established that the space is `DeviceGray`, which is the
+    // one this reads a byte out of.
+    let space = ColourSpace::Gray;
+    let decode = Decode::read(document, mask_dict, &space, bits);
+    let source = document.image_stream(mask)?;
+    Some(SoftMaskAtDeviceScale {
+        data: source.data,
+        width,
+        height,
+        bits,
+        decode: Arc::new(decode),
+    })
 }
 
 /// Applies §11.6.5.2's soft mask: each of its samples is the image's opacity there.
@@ -2582,6 +3018,45 @@ mod tests {
         );
         assert_eq!(red[2], 127, "yellow: blue is unmoved at 128");
         assert_eq!(red[3], 0);
+    }
+
+    /// §10.7.4's centre rule, which is what maps a device pixel back to a mask sample.
+    ///
+    /// > The position of the centre of such a pixel -in other words, the point whose
+    /// > coordinate values have fractional parts of one-half -shall be mapped back into
+    /// > source space to determine how to colour the pixel.
+    ///
+    /// Three properties, and the first is the one a corner rule fails: a grid that is not
+    /// reduced at all reads every sample once and in order, so nothing shifts when a mask
+    /// happens to be the size the device wants. The second is the rule itself at a four-fold
+    /// reduction — cell `i` of 2 over 8 samples reads the sample at `(2i + 1) x 8 / 4`, which
+    /// is 2 and 6, the centres of the two halves rather than their corners. The third is that
+    /// no index ever leaves the source, which is what a bounds check would otherwise have to
+    /// do once per sample.
+    #[test]
+    fn a_device_cell_reads_the_sample_under_its_centre() {
+        for index in 0..8u64 {
+            assert_eq!(
+                super::centre(index, 8, 8),
+                usize::try_from(index).expect("a literal under eight"),
+                "the identity"
+            );
+        }
+        assert_eq!((super::centre(0, 2, 8), super::centre(1, 2, 8)), (2, 6));
+        assert_eq!(
+            (
+                super::centre(0, 3, 7),
+                super::centre(1, 3, 7),
+                super::centre(2, 3, 7)
+            ),
+            (1, 3, 5),
+            "an odd reduction that divides nothing evenly"
+        );
+        for cells in 1..=32u64 {
+            for index in 0..cells {
+                assert!(super::centre(index, cells, 32) < 32);
+            }
+        }
     }
 
     /// The memo answers with what the conversion would have answered, and nothing else.

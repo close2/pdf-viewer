@@ -882,12 +882,17 @@ fn apply_mask(
 /// rather than a translation — see [`pdf_render::Image::is_smoothed`].
 fn draw_image(
     scene: &mut vello::Scene,
-    image: &pdf_render::Image,
+    source: &pdf_render::ImageSource,
     placement: Transform,
     alpha: f32,
     (compose, blend): (Compose, BlendMode),
 ) -> Result<(), GpuRasterError> {
     let layer = compose.layer(blend);
+    // Samples the display list deferred — §11.6.5.2's mask on a grid of its own — are produced
+    // here, at the grid `pdf_render` derives from the placement, so that the three backends ask
+    // for the same one. An ordinary image borrows.
+    let resolved = source.at(placement);
+    let image: &pdf_render::Image = &resolved;
     if !image.is_consistent() {
         return Err(GpuRasterError::InvalidImage {
             width: image.width,

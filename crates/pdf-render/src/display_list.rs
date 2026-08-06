@@ -5,7 +5,7 @@ use std::hash::{Hash as _, Hasher as _};
 use std::sync::Arc;
 
 use crate::geom::{Path, Point, Rect, Size, Transform};
-use crate::paint::{BlendMode, FillRule, Image, Paint, Stroke};
+use crate::paint::{BlendMode, FillRule, ImageSource, Paint, Stroke};
 use crate::soft_mask::{SoftMask, SoftMaskId};
 
 /// Identifies a clip region within a [`DisplayList`].
@@ -115,8 +115,14 @@ pub enum Command {
     /// space requires. Keeping that convention here rather than baking a flip into the
     /// samples means the image data is exactly what the file contained.
     Image {
-        /// The decoded samples.
-        image: Image,
+        /// Where the samples come from.
+        ///
+        /// Usually [`ImageSource::Decoded`], which is the raster on the grid the file states.
+        /// An image whose grid is not settled until the device scale is — §11.6.5.2's
+        /// soft-mask image on a grid of its own is the case this exists for — arrives as
+        /// [`ImageSource::AtDeviceScale`] and is produced by the backend at the resolution it
+        /// is about to draw at.
+        image: ImageSource,
         /// Transform mapping the unit square into page space.
         transform: Transform,
         /// Constant alpha applied on top of the image's own, in `0.0..=1.0`.

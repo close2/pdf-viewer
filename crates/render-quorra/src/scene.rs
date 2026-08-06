@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, ClipId, Color, Command, DisplayList, FillRule, Image, Paint, Path, PathCommand,
-    Point, Shading, ShadingKind, SoftMaskId, SoftMaskKind, TargetSpec, Transform,
+    BlendMode, ClipId, Color, Command, DisplayList, FillRule, Image, ImageSource, Paint, Path,
+    PathCommand, Point, Shading, ShadingKind, SoftMaskId, SoftMaskKind, TargetSpec, Transform,
 };
 use quorra_scene::{ResourceId, SceneBuilder};
 
@@ -443,7 +443,7 @@ impl<'a> Encoder<'a> {
     fn image(
         &mut self,
         builder: &mut SceneBuilder,
-        image: &Image,
+        source: &ImageSource,
         transform: Transform,
         alpha: f32,
         (clip, mask, blend): (Option<ClipId>, Option<SoftMaskId>, BlendMode),
@@ -454,6 +454,15 @@ impl<'a> Encoder<'a> {
         let mask = self.mask_id(builder, mask)?;
         let placement = transform.then(self.target.transform);
 
+        // Samples the display list deferred are produced here, where the device scale is
+        // known — §11.6.5.2's mask on a grid of its own, at the grid `pdf_render` derives from
+        // the placement so that no backend picks its own. A produced raster is *transient*
+        // rather than cached: it belongs to this placement, and the cache is keyed by the
+        // display list's own image.
+        let resolved = source.at(placement);
+        let image: &Image = &resolved;
+        let deferred = matches!(source, ImageSource::AtDeviceScale(_));
+
         // The two decisions RENDER_LIBRARY.md section 4.5 settles on this side of the boundary: area
         // averaging for minification, and the resolved smoothing for the placement.
         let (id, smoothed) = match image.area_averaged(placement) {
@@ -462,6 +471,11 @@ impl<'a> Encoder<'a> {
                 let id = self.device.upload_image(&spec(&reduced))?;
                 self.transient.push(id.into());
                 (id, smoothed)
+            }
+            None if deferred => {
+                let id = self.device.upload_image(&spec(image))?;
+                self.transient.push(id.into());
+                (id, image.is_smoothed(placement))
             }
             None => (self.cached_image(image)?, image.is_smoothed(placement)),
         };

@@ -18,3 +18,12 @@ Four populations, and the count beside each is what it costs on the corpus's fir
 Each is refused *by name* rather than approximated, which is the rule that keeps the corpus count
 honest. Taking any of them means compositing in a space the backends do not have, so the first
 question is not the clause but the display list: what would a backend have to be handed.
+
+**There is a precedent for that question now**, from the three-hundred-and-seventieth session:
+`pdf_render::ImageSource` carries a raster the display list *names* rather than holds, and a
+backend produces it at `Grid::for_placement` (ADR 0210). Two of these four populations are the
+same shape one level up — a group whose shape is not its coverage, and a group composited in a
+space the backends do not have, are both "the display list can only say one thing where the clause
+says two". What ADR 0210 settles is that adding a second thing to say is not blocked by the
+interpreter's ignorance of the device; what it does not settle is what the second thing should be
+here, which is a compositing question rather than a resolution one.

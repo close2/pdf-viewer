@@ -1,5 +1,8 @@
 //! Colour, fill rules, and stroke parameters.
 
+use std::borrow::Cow;
+use std::sync::Arc;
+
 use crate::geom::Transform;
 
 /// A colour in device RGB with straight (non-premultiplied) alpha.
@@ -76,7 +79,7 @@ pub enum Paint {
     /// Shared rather than owned because one shading commonly paints many commands: a
     /// pattern set as the fill colour applies to every path filled until the colour
     /// changes again.
-    Shading(std::sync::Arc<crate::shading::Shading>),
+    Shading(Arc<crate::shading::Shading>),
 }
 
 /// Which points count as inside a path.
@@ -320,7 +323,7 @@ pub struct Image {
     /// Height in samples.
     pub height: u32,
     /// Row-major RGBA8 samples, top row first, with no row padding.
-    pub data: std::sync::Arc<[u8]>,
+    pub data: Arc<[u8]>,
     /// Whether the samples may be smoothed when the image is drawn larger than its grid.
     ///
     /// ISO 32000-2 §8.9.5.3, the image dictionary's `/Interpolate`, whose default is false.
@@ -578,6 +581,185 @@ impl Image {
         }
         out[3] = round_div(alpha_sum, count);
         out
+    }
+}
+
+/// How many samples a raster drawn under a placement is wanted at, per axis.
+///
+/// The unit square is where every PDF image lives (§8.9.5.1), so a placement — the transform
+/// carrying that square onto the device — states how many device pixels the image covers, and
+/// that is the only resolution at which any question about its samples has an answer.
+///
+/// ISO 32000-2 §10.7.4 is where the standard says so, of a sampled image:
+///
+/// > The position of the centre of such a pixel -in other words, the point whose
+/// > coordinate values have fractional parts of one-half -shall be mapped back into
+/// > source space to determine how to colour the pixel.
+///
+/// One sample per device pixel is therefore the finest grid a device can distinguish, and it
+/// is what [`Self::for_placement`] answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Grid {
+    /// Samples across, at least one.
+    pub width: u32,
+    /// Samples down, at least one.
+    pub height: u32,
+}
+
+impl Grid {
+    /// The grid a raster placed by `placement` is wanted at.
+    ///
+    /// `placement` maps the unit square onto the device, so [`crate::geom::length`] of each of
+    /// its columns is the device length of that edge — the same quantity
+    /// [`Image::is_smoothed`] and [`Image::area_averaged`] measure, by the same function and
+    /// for the reason that function gives.
+    ///
+    /// Rounded **up**, so a raster asked for at this grid never has fewer samples than the
+    /// pixels it will be drawn across, and clamped to at least one sample in each axis: a
+    /// placement that has collapsed the square to a line still names a raster, and a grid of
+    /// zero would name none.
+    #[must_use]
+    pub fn for_placement(placement: Transform) -> Self {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 1.0 ..= u32::MAX before the cast, so it is a positive number \
+                      inside a u32's range"
+        )]
+        fn axis(device: f32) -> u32 {
+            if !device.is_finite() {
+                return 1;
+            }
+            device.ceil().clamp(1.0, f64::from(u32::MAX) as f32) as u32
+        }
+
+        Self {
+            width: axis(crate::geom::length(placement.a, placement.b)),
+            height: axis(crate::geom::length(placement.c, placement.d)),
+        }
+    }
+}
+
+/// Samples the display list names rather than holds, produced once the device scale is known.
+///
+/// # Why the display list cannot hold them
+///
+/// Two of ISO 32000-2's rasters have no grid of their own until something says how large they
+/// will be drawn. §11.6.5.2's soft-mask image is the standing case: Table 143 makes its
+/// `/Width` and `/Height`
+///
+/// > independent of it. Both images shall be mapped to the unit square in user space (as are
+/// > all images), regardless of whether the samples coincide individually.
+///
+/// so an image and its mask can state grids that share no common refinement small enough to
+/// build — `issue16263.pdf` writes a 2×2 image with a 34862×4332 mask, which is 604 MB of
+/// RGBA on the finer of the two. §10.7.4 answers the question at *device* resolution, and the
+/// interpreter deliberately does not know that: a display list is re-rasterisable at any zoom
+/// without being interpreted again, which is what `zooming_rasterises_again_without_interpreting_again`
+/// asserts. So the interpreter carries this instead, and a backend resolves it where it knows
+/// the scale.
+///
+/// # What an implementation owes
+///
+/// [`Self::samples`] is asked for a grid and answers with a raster **no finer than it**, which
+/// is the whole of the contract: a producer that can only offer its stated grid may return
+/// that, and one that can decode at a chosen resolution — JPEG 2000's levels are the case this
+/// is next owed for — may meet the request exactly. It is infallible because everything a
+/// producer can check without decoding has already been checked and reported by the
+/// interpreter; what is left is a decode that fails at draw time, and the answer to that is
+/// the same one [`crate::Command`] gives everywhere else — draw what there is.
+///
+/// Implementations are `Send + Sync` because a display list is drawn on every core.
+pub trait ImageAtDeviceScale: std::fmt::Debug + Send + Sync {
+    /// The samples, on a grid no finer than `grid` in either axis.
+    fn samples(&self, grid: Grid) -> Image;
+}
+
+/// A shared [`ImageAtDeviceScale`], so that a command carrying one stays cloneable.
+#[derive(Clone)]
+pub struct DeferredImage(Arc<dyn ImageAtDeviceScale>);
+
+impl DeferredImage {
+    /// Wraps a producer of samples.
+    #[must_use]
+    pub fn new(source: Arc<dyn ImageAtDeviceScale>) -> Self {
+        Self(source)
+    }
+
+    /// The samples, on a grid no finer than `grid`.
+    #[must_use]
+    pub fn samples(&self, grid: Grid) -> Image {
+        self.0.samples(grid)
+    }
+}
+
+impl std::fmt::Debug for DeferredImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DeferredImage").field(&self.0).finish()
+    }
+}
+
+impl PartialEq for DeferredImage {
+    /// Two deferred images are the same one when they are the same object.
+    ///
+    /// Comparing the rasters would mean producing them, and the whole point of the type is
+    /// that producing one is a decision about the device rather than about the display list.
+    /// Identity is what the display list's own `PartialEq` needs — it exists so a test can say
+    /// a list was rebuilt unchanged — and identity is what it gets.
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// Where a backend's image samples come from.
+///
+/// Almost every image in a document decodes to one raster on the grid the file states, and
+/// [`Self::Decoded`] is that. The variant beside it is the vocabulary described on
+/// [`ImageAtDeviceScale`]: an image whose samples cannot be settled until the device scale is.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum ImageSource {
+    /// Samples on the grid the file states, ready to draw at any scale.
+    Decoded(Image),
+    /// Samples produced at whatever grid the device turns out to want.
+    AtDeviceScale(DeferredImage),
+}
+
+impl ImageSource {
+    /// The samples to draw under `placement`, borrowed where they already exist.
+    ///
+    /// `placement` maps the unit square onto the device. A [`Self::Decoded`] source borrows;
+    /// a deferred one is produced at [`Grid::for_placement`], which is the one place this
+    /// renderer decides what "at device resolution" means, so that the two backends cannot
+    /// answer it differently — the same reason [`Image::area_averaged`] lives in this crate.
+    #[must_use]
+    pub fn at(&self, placement: Transform) -> Cow<'_, Image> {
+        match self {
+            Self::Decoded(image) => Cow::Borrowed(image),
+            Self::AtDeviceScale(deferred) => {
+                Cow::Owned(deferred.samples(Grid::for_placement(placement)))
+            }
+        }
+    }
+
+    /// Whether every sample is fully opaque, without producing any that do not yet exist.
+    ///
+    /// Asked by `pdf-model` about the elements of a knockout group (§11.4.6), where the
+    /// question is whether an element's shape is its coverage. A deferred source answers
+    /// **no**, which is not a conservative guess but the fact: the only reason this crate has
+    /// a deferred source at all is a second raster contributing per-sample alpha.
+    #[must_use]
+    pub fn is_opaque(&self) -> bool {
+        match self {
+            Self::Decoded(image) => image.is_opaque(),
+            Self::AtDeviceScale(_) => false,
+        }
+    }
+}
+
+impl From<Image> for ImageSource {
+    fn from(image: Image) -> Self {
+        Self::Decoded(image)
     }
 }
 
@@ -870,6 +1052,140 @@ mod resampling {
                 .area_averaged(Transform::scale(f32::NAN, f32::NAN))
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod device_scale {
+    use std::sync::Arc;
+
+    use super::{Grid, Image, ImageAtDeviceScale, ImageSource, Transform};
+
+    /// A source that records nothing and answers with the grid it was asked for.
+    ///
+    /// One opaque white sample per cell, so a test can read a dimension off the answer and
+    /// know it came from the request rather than from a raster somebody stored.
+    #[derive(Debug)]
+    struct AsAsked;
+
+    impl ImageAtDeviceScale for AsAsked {
+        fn samples(&self, grid: Grid) -> Image {
+            let count = (grid.width as usize).saturating_mul(grid.height as usize);
+            Image {
+                width: grid.width,
+                height: grid.height,
+                data: vec![u8::MAX; count.saturating_mul(4)].into(),
+                interpolate: false,
+            }
+        }
+    }
+
+    /// The grid is the device pixels the unit square covers, in each of its own axes.
+    ///
+    /// ISO 32000-2 §10.7.4 puts one sample under the centre of each device pixel, so the
+    /// count is the pixels — rounded up, because a raster with fewer samples than pixels
+    /// would be answering a question nobody asked. At more than one scale and with the two
+    /// axes different, because a single square scale cannot tell one axis from the other.
+    #[test]
+    fn the_grid_is_the_device_pixels_the_unit_square_covers() {
+        assert_eq!(
+            Grid::for_placement(Transform::scale(120.0, 80.0)),
+            Grid {
+                width: 120,
+                height: 80
+            }
+        );
+        assert_eq!(
+            Grid::for_placement(Transform::scale(10.25, 0.5)),
+            Grid {
+                width: 11,
+                height: 1
+            },
+            "rounded up, and never to nothing"
+        );
+    }
+
+    /// A quarter turn carries the axes with it, which is the same measurement
+    /// [`Image::area_averaged`] makes and by the same function.
+    #[test]
+    fn a_rotated_placement_is_measured_along_the_squares_own_edges() {
+        let quarter_turn = Transform::new(0.0, 40.0, -90.0, 0.0, 0.0, 0.0);
+        assert_eq!(
+            Grid::for_placement(quarter_turn),
+            Grid {
+                width: 40,
+                height: 90
+            }
+        );
+    }
+
+    /// A collapsed or infinite placement asks for one sample rather than for none.
+    #[test]
+    fn a_degenerate_placement_still_names_a_grid() {
+        for placement in [
+            Transform::scale(0.0, 0.0),
+            Transform::scale(f32::NAN, 4.0),
+            Transform::scale(f32::INFINITY, 4.0),
+        ] {
+            let grid = Grid::for_placement(placement);
+            assert!(grid.width >= 1 && grid.height >= 1, "{grid:?}");
+        }
+    }
+
+    /// A decoded source is borrowed unchanged; a deferred one is produced at the device's
+    /// grid, and produced *again* when the device's grid changes.
+    ///
+    /// The second half is what the whole vocabulary exists for: the interpreter does not know
+    /// the scale, so a display list drawn at two magnifications has to ask twice.
+    #[test]
+    fn a_deferred_source_is_produced_at_the_grid_it_is_drawn_at() {
+        let ready = ImageSource::Decoded(Image {
+            width: 3,
+            height: 2,
+            data: vec![0u8; 24].into(),
+            interpolate: false,
+        });
+        let borrowed = ready.at(Transform::scale(600.0, 400.0));
+        assert_eq!(
+            (borrowed.width, borrowed.height),
+            (3, 2),
+            "a decoded raster is what the file states, whatever the scale"
+        );
+
+        let deferred = ImageSource::AtDeviceScale(super::DeferredImage::new(Arc::new(AsAsked)));
+        let small = deferred.at(Transform::scale(16.0, 9.0));
+        let large = deferred.at(Transform::scale(160.0, 90.0));
+        assert_eq!((small.width, small.height), (16, 9));
+        assert_eq!((large.width, large.height), (160, 90));
+    }
+
+    /// A deferred source is never opaque, because the only reason one exists is a second
+    /// raster contributing alpha (§11.6.5.2).
+    ///
+    /// §11.4.6's knockout report asks this of every element, and it may not decode anything
+    /// to answer: a knockout group is a question about the display list, not about a device.
+    #[test]
+    fn a_deferred_source_is_not_opaque() {
+        let deferred = ImageSource::AtDeviceScale(super::DeferredImage::new(Arc::new(AsAsked)));
+        assert!(!deferred.is_opaque());
+        assert!(
+            deferred.at(Transform::scale(4.0, 4.0)).is_opaque(),
+            "even where every sample it produces happens to be"
+        );
+    }
+
+    /// Two handles on one producer are the same source; two producers are not.
+    ///
+    /// `Command`'s own `PartialEq` is what a test uses to say a display list was rebuilt
+    /// unchanged, and comparing the rasters would mean producing them.
+    #[test]
+    fn two_handles_on_one_producer_compare_equal() {
+        let shared: Arc<dyn ImageAtDeviceScale> = Arc::new(AsAsked);
+        let one = super::DeferredImage::new(Arc::clone(&shared));
+        let same = super::DeferredImage::new(shared);
+        let other = super::DeferredImage::new(Arc::new(AsAsked));
+        assert_eq!(one, same);
+        assert_ne!(one, other);
     }
 }
 

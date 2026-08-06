@@ -573,7 +573,8 @@ fn cpu_and_gpu_agree_on_an_image() {
             // same *sampler*: sixteen samples over 120x80 pixels is magnification, where
             // one backend filtering and the other not would be visible everywhere.
             interpolate: false,
-        },
+        }
+        .into(),
         // Deliberately not the whole page, and not square, so that an inverted or
         // transposed mapping moves colours rather than merely permuting a symmetry.
         transform: Transform::scale(120.0, 80.0).then(Transform::translate(40.0, 60.0)),
@@ -782,7 +783,8 @@ fn cpu_and_gpu_agree_on_a_deeply_reduced_image() {
             height,
             data: data.into(),
             interpolate: false,
-        },
+        }
+        .into(),
         // Five samples per pixel across and ten down, so the two axes reduce by different
         // factors and a filter that used one factor for both would show.
         transform: Transform::scale(160.0, 80.0).then(Transform::translate(20.0, 60.0)),

@@ -1370,6 +1370,7 @@ pub fn interpret_with(
         base: base_transform(page),
         page: size,
         shadings: crate::shading::Cache::default(),
+        image_masks: crate::image::MaskCache::default(),
         structure: crate::structure::ParentTree::for_page(document, &page.dict),
         output_intent: output_intent_space(document),
         optional_content: state.optional_content().cloned(),
@@ -1737,6 +1738,12 @@ struct Interpreter<'a> {
     /// same every time. This is what keeps `Function::parse` from running once per painting
     /// operation; `shading::Cache` has the measurement and the one case it refuses.
     shadings: crate::shading::Cache,
+    /// §11.6.5.2's soft masks already read for the device to place (§10.7.4).
+    ///
+    /// The same argument as [`Self::shadings`], and the same shape: a page draws one
+    /// `XObject` many times and its mask's samples do not depend on where.
+    /// `crate::image::MaskCache` carries the measurement.
+    image_masks: crate::image::MaskCache,
     /// §14.7.5.4's structural parent tree for this page, empty for most documents.
     ///
     /// Read once when the page is interpreted, because the lookup it answers — a
@@ -3996,9 +4003,10 @@ impl Interpreter<'_> {
         }
 
         // A soft mask whose grid is not the image's is mapped onto the same unit square and
-        // combined at output resolution (§11.6.5.2 Table 143). We combine two rasters
-        // instead, so a mask of a different size is not applied — and saying so is what
-        // keeps `issue16263.pdf`'s black bars from passing as a page we drew.
+        // combined at output resolution (§11.6.5.2 Table 143). Two rasters are combined
+        // instead — on the finer of the two grids where that grid can be built, and by the
+        // backend at device resolution where it cannot. What is left to report is a mask
+        // neither route can read, which `image::unapplied_soft_mask` names.
         if let Some(detail) =
             crate::image::unapplied_soft_mask(self.document, &stream.dict, resources)
         {
@@ -4033,15 +4041,21 @@ impl Interpreter<'_> {
 
         // A PDF image occupies the unit square in user space, so the command's transform is
         // the current transform and nothing else.
-        match crate::image::decode(self.document, stream, resources, state.fill) {
-            Ok(image) => self.list.push(Command::Image {
+        match crate::image::decode_parts(
+            self.document,
+            stream,
+            resources,
+            state.fill,
+            &mut self.image_masks,
+        ) {
+            Ok(decoded) => self.list.push(Command::Image {
                 // §10.5 applies to "any object for which transfer functions are in effect", and an
                 // image is one object however many samples it has: the clause's input is "the
                 // value of a colour component in the device's native colour space", which by this
-                // point every sample is. Done here rather than in `image::decode` because a
+                // point every sample is. Done here rather than in `image::decode_parts` because a
                 // transfer belongs to the *graphics state* the image is drawn under and not to the
                 // image, and the same XObject drawn twice under two states is two pictures.
-                image: transferred_image(image, state.transfer.as_deref()),
+                image: decoded.source(|image| transferred_image(image, state.transfer.as_deref())),
                 transform: state.transform,
                 alpha: state.fill_alpha,
                 clip: state.clip,
@@ -4129,7 +4143,7 @@ impl Interpreter<'_> {
         };
         let mask = pdf_render::SoftMask {
             commands: vec![Command::Image {
-                image,
+                image: image.into(),
                 transform: state.transform,
                 alpha: 1.0,
                 clip: None,

@@ -229,6 +229,9 @@ fn a_cmyk_jpegs_samples_are_the_colour_spaces_and_not_the_decoders() {
             _ => None,
         })
         .expect("the page draws one image");
+    // The samples as the file states them: this image carries no mask, so the identity
+    // placement asks for nothing the decode did not already produce.
+    let image = image.at(pdf_render::Transform::IDENTITY);
     let top_left = (image.data[0], image.data[1], image.data[2]);
 
     let stored = [122.0 / 255.0, 55.0 / 255.0, 14.0 / 255.0, 1.0 / 255.0];

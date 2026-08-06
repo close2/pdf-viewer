@@ -42,7 +42,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [21](21-font-substitution.md) | `Identity` orderings; a font reported as a whole; per-character fallback, with no witness left | 40 |
 | [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: a `/DA` font `/DR` lacks, a list box, and Table 231's `DoNotScroll` — a `shall` | 3 |
 | [23](23-transparency-departures.md) | §11.4, §11.5.3 and §11.6.6, each reported where it can change a pixel | 19 |
-| [24](24-image-sampling-intent.md) | Carry an image *and its sampling intent* to the backends | 3 |
+| [24](24-image-sampling-intent.md) | Carry an image *and its sampling intent* to the backends — **the vocabulary is built and the mask is on it** (ADR 0210); JPEG 2000's resolution level and `render-gpu`'s sampled shading are what is left | 1 |
 | [25](25-view-dependent-annotations.md) | `/FixedPrint`, which waits on a printing path | 15 |
 | [26](26-icons-a-clause-only-recommends.md) | `Stamp`'s icon, whose standard names are legends rather than symbols | 1 |
 | [27](27-the-interfaces-own-font.md) | The interface's own font: a character it cannot set is a box now; what is open is *coverage* | 74 |

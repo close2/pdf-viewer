@@ -1516,7 +1516,7 @@ fn draw_thumbnail(
     // top row at the box's own top takes a flip — the same composition `render-quorra`'s
     // presenter makes for a CPU raster.
     list.push(Command::Image {
-        image: image.clone(),
+        image: image.clone().into(),
         transform: Transform {
             a: drawn_w,
             b: 0.0,

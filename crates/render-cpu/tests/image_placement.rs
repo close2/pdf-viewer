@@ -77,7 +77,7 @@ fn quadrants() -> Image {
 fn image_page(transform: Transform) -> DisplayList {
     let mut list = DisplayList::new(Size::new(PAGE, PAGE));
     list.push(Command::Image {
-        image: quadrants(),
+        image: quadrants().into(),
         transform,
         alpha: 1.0,
         clip: None,

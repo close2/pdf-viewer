@@ -615,3 +615,134 @@ fn a_colour_key_array_of_the_wrong_length_is_reported() {
         "a malformed colour key must say so: {reported}"
     );
 }
+
+/// The grid a mask and its image would share, in samples, above which they are not combined.
+///
+/// `crate::image`'s own `MAX_MASK_GRID`, restated here because a fixture has to straddle it
+/// and a test that only knew "large" would stop testing the boundary the day it moved.
+const MAX_MASK_GRID: usize = 1 << 24;
+
+/// One `DeviceGray` soft mask of `width` × `height` one-bit samples, opaque in its top-left
+/// quadrant and transparent everywhere else.
+///
+/// Asymmetric in both axes, for [`stencil`]'s reason: a quadrant distinguishes a correct read
+/// from one mirrored either way, where a half would not.
+fn quadrant_mask(width: usize, height: usize) -> Vec<u8> {
+    let row_bytes = width.div_ceil(8);
+    let mut data = vec![0u8; row_bytes * height];
+    for row in data.chunks_exact_mut(row_bytes).take(height / 2) {
+        row[..row_bytes / 2].fill(0xFF);
+    }
+    data
+}
+
+/// §11.6.5.2 with §10.7.4: a mask too large to combine on the finer grid is combined by the
+/// device instead.
+///
+/// Table 143 makes a soft mask's grid "independent of" its image's, and
+/// [`a_soft_mask_finer_than_its_image_keeps_its_own_resolution`] combines the two on the finer
+/// of them — which discards nothing and costs the product of the two larger dimensions. That
+/// product is what a document controls: `issue16263.pdf` gives a 2×2 image a 34862×4332 mask,
+/// which is 151 million samples and 604 MB of RGBA, and until this test the mask was refused
+/// by name and the image drawn opaque — black bars across a page of vector arithmetic.
+///
+/// §10.7.4 answers the question at *device* resolution, which the interpreter deliberately
+/// does not know, so the display list carries the image and the mask separately and the
+/// backend puts them together. The fixture is the smallest pair that reaches that route: 8192
+/// × 2049 is 16 785 408 samples, 8 192 above the limit, against a 2 × 2 image.
+///
+/// What is asserted is the picture and the silence — the top-left quadrant of the page keeps
+/// the image and the other three are cut out, with nothing reported.
+#[test]
+fn a_soft_mask_too_large_to_combine_is_placed_by_the_device() {
+    let (width, height) = (8192usize, 2049usize);
+    assert!(
+        width * height > MAX_MASK_GRID,
+        "the fixture must exceed the grid that is built eagerly"
+    );
+    let raster = render(page_with_image(
+        "/Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R",
+        &rgb_image([BLUE; 8])[..12],
+        &[stream_object(
+            6,
+            &format!(
+                "/Type /XObject /Subtype /Image /Width {width} /Height {height} \
+                 /ColorSpace /DeviceGray /BitsPerComponent 1"
+            ),
+            &quadrant_mask(width, height),
+        )],
+    ));
+
+    assert!(
+        about(&raster, 5, 30, BLUE),
+        "top left, where the mask marks"
+    );
+    assert!(cut_out(&raster, 35, 30), "top right");
+    assert!(cut_out(&raster, 5, 5), "bottom left");
+    assert!(cut_out(&raster, 35, 5), "bottom right");
+}
+
+/// One display list, two magnifications, two grids for the same mask.
+///
+/// This is the property the vocabulary was added for, and it is not visible in any single
+/// picture: `zooming_rasterises_again_without_interpreting_again` makes a display list
+/// re-rasterisable at any zoom without being interpreted again, so a mask resolved *during*
+/// interpretation would be frozen at whatever scale the first frame happened to use. Asking
+/// the same `ImageSource` under two placements and getting two grids is what says it was not.
+///
+/// The grids are the device pixels the unit square covers (§10.7.4), so they are the
+/// placements' own extents — 64 and 256 — rather than anything the file states.
+#[test]
+fn the_same_display_list_asks_for_the_mask_at_the_scale_it_is_drawn() {
+    let (width, height) = (8192usize, 2049usize);
+    let interpretation = interpret(page_with_image(
+        "/Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R",
+        &rgb_image([BLUE; 8])[..12],
+        &[stream_object(
+            6,
+            &format!(
+                "/Type /XObject /Subtype /Image /Width {width} /Height {height} \
+                 /ColorSpace /DeviceGray /BitsPerComponent 1"
+            ),
+            &quadrant_mask(width, height),
+        )],
+    ));
+    assert!(
+        interpretation.is_complete(),
+        "a mask the device places is not a gap: {:?}",
+        interpretation.unsupported
+    );
+
+    let source = interpretation
+        .display_list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            pdf_render::Command::Image { image, .. } => Some(image),
+            _ => None,
+        })
+        .expect("the page draws one image");
+    assert!(
+        matches!(source, pdf_render::ImageSource::AtDeviceScale(_)),
+        "the mask travels to the backend rather than into the samples"
+    );
+
+    let small = source.at(pdf_render::Transform::scale(64.0, 64.0));
+    let large = source.at(pdf_render::Transform::scale(256.0, 256.0));
+    assert_eq!((small.width, small.height), (64, 64));
+    assert_eq!((large.width, large.height), (256, 256));
+    // And the picture is the same one at both: opaque in the top-left quadrant of the image,
+    // which is its *first* rows, and transparent in the last column of the first row.
+    let alpha = |image: &pdf_render::Image, x: u32, y: u32| {
+        image.data[((y * image.width + x) * 4 + 3) as usize]
+    };
+    assert_eq!((alpha(&small, 1, 1), alpha(&large, 4, 4)), (255, 255));
+    assert_eq!(
+        (
+            alpha(&small, 63, 1),
+            alpha(&large, 255, 4),
+            alpha(&small, 1, 63)
+        ),
+        (0, 0, 0)
+    );
+}
