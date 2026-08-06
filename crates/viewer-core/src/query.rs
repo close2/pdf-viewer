@@ -36,6 +36,15 @@ pub enum Query<'a> {
     Layers,
     /// §7.11.4's embedded files, listed rather than extracted.
     Attachments,
+    /// §12.3.5's portable collection, where the catalog states one.
+    ///
+    /// The clause is a `shall` on a *viewer*: "[i]f this dictionary is present in a PDF document,
+    /// the interactive PDF processor shall present the document as a portable collection". What
+    /// crosses is Table 153 whole — the schema's columns, §12.3.5.2's folder tree, the initial
+    /// view — and presenting it is a host's, in the same sense §12.3.3's outline is.
+    ///
+    /// [`Answer::None`] for the 974 corpus documents that state none, which is all of them.
+    Collection,
     /// §12.4.3's article threads, as a panel would list them.
     ///
     /// The clause states the *structure* and leaves the way in to a viewer — "[i]nteractive PDF
@@ -202,6 +211,8 @@ pub enum Answer<'a> {
     Attachments(Vec<pdf_model::attachment::Attachment>),
     /// §12.4.3's article threads, in the `/Threads` array's own order.
     Articles(Vec<pdf_model::article::Thread>),
+    /// §12.3.5's collection dictionary, read.
+    Collection(pdf_model::collection::Collection),
     /// §12.4.2's label for the page asked about, or [`Answer::None`] where it states none.
     Label(String),
     /// §12.3.4's thumbnail for the page asked about, decoded.

@@ -604,6 +604,12 @@ pub struct Content<'a> {
     pub attachments: &'a [pdf_model::attachment::Attachment],
     /// [`viewer_core::Query::Articles`]: §12.4.3's threads, in the `/Threads` array's order.
     pub articles: &'a [pdf_model::article::Thread],
+    /// [`viewer_core::Query::Collection`]: §12.3.5's collection, where the document states one.
+    ///
+    /// `None` for every document anyone has opened. Where it is `Some`, the files tab draws
+    /// §12.3.5.2's folder tree and the schema's visible columns instead of a flat list — the same
+    /// files, presented as the clause says a collection shall be presented.
+    pub collection: Option<&'a pdf_model::collection::Collection>,
     /// §14.3.3's Table 349, from [`viewer_core::Query::Properties`].
     pub information: &'a pdf_model::metadata::Information,
     /// §14.3.2's metadata stream, read — `None` where the catalog names none.
@@ -856,17 +862,25 @@ impl Sidebar {
                 }
             }
             Tab::Files => {
-                for file in content.attachments {
-                    let mut row = Row::plain(
-                        0,
-                        file.file_name.clone().unwrap_or_else(|| file.name.clone()),
-                    );
-                    row.detail = describe(file);
-                    // §7.11.4's whole point from a person's side: the bytes are inside the
-                    // document and a click takes them out. The key is the tree's, which is what
-                    // `Command::Extract` names a file by.
-                    row.act = Act::Extract(file.name.clone());
-                    out.push(row);
+                match content.collection {
+                    // §12.3.5: "[i]f this dictionary is present in a PDF document, the interactive
+                    // PDF processor shall present the document as a portable collection." The same
+                    // files, in §12.3.5.2's folders and with the schema's columns beside them.
+                    Some(collection) => collection_rows(collection, content.attachments, &mut out),
+                    None => {
+                        for file in content.attachments {
+                            let mut row = Row::plain(
+                                0,
+                                file.file_name.clone().unwrap_or_else(|| file.name.clone()),
+                            );
+                            row.detail = describe(file);
+                            // §7.11.4's whole point from a person's side: the bytes are inside the
+                            // document and a click takes them out. The key is the tree's, which is
+                            // what `Command::Extract` names a file by.
+                            row.act = Act::Extract(file.name.clone());
+                            out.push(row);
+                        }
+                    }
                 }
                 if out.is_empty() {
                     out.push(nothing("This document embeds no files."));
@@ -1145,6 +1159,117 @@ fn tab_at(x: f32, scale: f32) -> Tab {
     )]
     let index = (x / each.max(1.0)) as usize;
     Tab::ALL.get(index).copied().unwrap_or(Tab::Document)
+}
+
+/// §12.3.5's collection, as rows: the folder tree, with each file under the folder it names.
+///
+/// **The container's pages stay on the screen**, and that is the one decision this panel makes
+/// that the clause leaves open. §12.3.5 says a processor "shall present the document as a portable
+/// collection" and does not say *instead of what*; §7.6.7's unencrypted wrapper is the case that
+/// settles it — a wrapper's whole purpose is a page saying the payload is encrypted, and Table
+/// 153's `/View H` is how such a document asks for the file list to start hidden. A viewer that
+/// replaced the page with a file browser would hide the sentence the wrapper exists to show. So
+/// the collection is a panel over a page, like every other tab.
+///
+/// §12.3.5.2's key format is what files a folder: a name-tree key `<3>report.pdf` is *report.pdf*
+/// in folder 3, and `collection::folder_of` reads it. A key that does not conform names no folder,
+/// and the clause says such files "shall be treated as associated with the root folder" — so they
+/// are drawn at depth zero, above the folders, which is where the root's own files belong.
+fn collection_rows(
+    collection: &pdf_model::collection::Collection,
+    files: &[pdf_model::attachment::Attachment],
+    out: &mut Vec<Row>,
+) {
+    // The schema's visible columns in Table 155's `/O` order, which is "[t]he relative order of
+    // the field name in the user interface". A field with no `/O` sorts after the ones that state
+    // one, by key, which is the only order left when the file states none.
+    let mut columns: Vec<(&String, &pdf_model::collection::Field)> = collection
+        .schema
+        .iter()
+        .filter(|(_, field)| field.visible)
+        .collect();
+    columns.sort_by_key(|(key, field)| (field.order.unwrap_or(i64::MAX), (*key).clone()));
+
+    let mut under = |folder: Option<u32>, out: &mut Vec<Row>, depth: usize| {
+        for file in files {
+            let (id, name) = match pdf_model::collection::folder_of(&file.name) {
+                Some((id, name)) => (Some(id), name.to_owned()),
+                None => (None, file.name.clone()),
+            };
+            if id != folder {
+                continue;
+            }
+            let mut row = Row::plain(depth, file.file_name.clone().unwrap_or(name));
+            row.detail = columns_of(&columns, file).or_else(|| describe(file));
+            row.act = Act::Extract(file.name.clone());
+            out.push(row);
+        }
+    };
+
+    under(None, out, 0);
+    if let Some(root) = collection.folders.as_ref() {
+        folder_rows(root, 0, &mut under, out);
+    }
+}
+
+/// One folder and everything under it.
+fn folder_rows(
+    folder: &pdf_model::collection::Folder,
+    depth: usize,
+    under: &mut impl FnMut(Option<u32>, &mut Vec<Row>, usize),
+    out: &mut Vec<Row>,
+) {
+    let mut row = Row::plain(depth, folder.name.clone());
+    row.detail.clone_from(&folder.description);
+    // A folder is not a file: it has no bytes to extract, so its row acts through its children.
+    row.act = Act::None;
+    out.push(row);
+    under(Some(folder.id), out, depth.saturating_add(1));
+    for child in &folder.children {
+        folder_rows(child, depth.saturating_add(1), under, out);
+    }
+}
+
+/// The schema's columns for one file, as `name: value` joined — the detail line of its row.
+///
+/// Table 47's `/P` prefix is concatenated with the value and not with the name, which is what the
+/// table says it is for: "[a] prefix string that shall be concatenated with the text string
+/// presented to the user".
+fn columns_of(
+    columns: &[(&String, &pdf_model::collection::Field)],
+    file: &pdf_model::attachment::Attachment,
+) -> Option<String> {
+    let shown: Vec<String> = columns
+        .iter()
+        .filter_map(|(key, field)| {
+            let value = collection_value(key, field, file)?;
+            Some(format!("{}: {value}", field.name))
+        })
+        .collect();
+    (!shown.is_empty()).then(|| shown.join("  ·  "))
+}
+
+/// One column's value for one file.
+///
+/// Table 155's `/Subtype` decides *where the value lives*, which is the distinction
+/// `collection::FieldKind` exists for: the first three kinds read §7.11.6's collection item, and
+/// the file-related ones read the file specification this host already has. Only the second group
+/// is answered here — the item is on the file specification's `/CI` and `Attachment` does not
+/// carry it, which is a gap this row records rather than papers over.
+fn collection_value(
+    _key: &str,
+    field: &pdf_model::collection::Field,
+    file: &pdf_model::attachment::Attachment,
+) -> Option<String> {
+    use pdf_model::collection::FieldKind;
+    match field.kind {
+        FieldKind::FileName => file.file_name.clone(),
+        FieldKind::Description => file.description.clone(),
+        FieldKind::Size => file.size.map(|size| format!("{size}")),
+        FieldKind::ModificationDate => file.modified.clone(),
+        FieldKind::CreationDate => file.created.clone(),
+        _ => None,
+    }
 }
 
 /// A row that says why a list is empty.

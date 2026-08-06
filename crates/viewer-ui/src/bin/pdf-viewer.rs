@@ -354,6 +354,7 @@ fn main() {
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
         articles: Vec::new(),
+        collection: None,
         typing: None,
         pages: Vec::new(),
         information: pdf_model::metadata::Information::default(),
@@ -496,6 +497,11 @@ struct App {
     /// §12.4.3's article threads, likewise: `Query::Articles` reads them on demand and the list
     /// belongs to a document that no edit reaches.
     articles: Vec<pdf_model::article::Thread>,
+    /// §12.3.5's collection, where the catalog states one — read once, like the rest.
+    ///
+    /// `None` for every document anyone has opened. Where it is `Some`, the files tab draws
+    /// §12.3.5.2's folder tree and the schema's columns instead of a flat list.
+    collection: Option<pdf_model::collection::Collection>,
     /// §14.3.3's Table 349, likewise.
     information: pdf_model::metadata::Information,
     /// §14.3.2's metadata stream, read — `None` where the catalog names none.
@@ -658,6 +664,10 @@ impl App {
         if let Answer::Articles(threads) = self.viewer.query(Query::Articles) {
             self.articles = threads;
         }
+        self.collection = match self.viewer.query(Query::Collection) {
+            Answer::Collection(collection) => Some(collection),
+            _ => None,
+        };
         if let Answer::Properties {
             information,
             metadata,
@@ -787,6 +797,7 @@ impl App {
             layers,
             attachments: &self.attachments,
             articles: &self.articles,
+            collection: self.collection.as_ref(),
             information: &self.information,
             metadata: self.metadata.as_ref(),
             pages: &self.pages,
@@ -840,6 +851,7 @@ impl App {
                 layers: &layers,
                 attachments: &self.attachments,
                 articles: &self.articles,
+                collection: self.collection.as_ref(),
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
                 pages: &self.pages,
@@ -999,6 +1011,7 @@ impl App {
                 layers: &layers,
                 attachments: &self.attachments,
                 articles: &self.articles,
+                collection: self.collection.as_ref(),
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
                 pages: &self.pages,
@@ -1092,6 +1105,7 @@ impl App {
                     layers: &layers,
                     attachments: &self.attachments,
                     articles: &self.articles,
+                    collection: self.collection.as_ref(),
                     information: &self.information,
                     metadata: self.metadata.as_ref(),
                     pages: &self.pages,

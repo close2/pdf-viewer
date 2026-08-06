@@ -140,6 +140,10 @@ impl Viewer {
             Query::Articles => {
                 Answer::Articles(pdf_model::article::Articles::read(&open.document).threads)
             }
+            // Read on demand for the same reason: not one of the 974 corpus documents states a
+            // `/Collection`, and a read at launch would walk a folder tree that is never there.
+            Query::Collection => pdf_model::collection::Collection::read(&open.document)
+                .map_or(Answer::None, Answer::Collection),
             Query::PageLabel(index) => label(open, index).map_or(Answer::None, Answer::Label),
             Query::Thumbnail(index) => pdf_model::Pages::new(&open.document)
                 .get(index)

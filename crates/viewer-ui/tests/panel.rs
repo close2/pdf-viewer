@@ -56,6 +56,7 @@ fn only(outline: &Outline) -> Content<'_> {
         layers: &[],
         attachments: &[],
         articles: &[],
+        collection: None,
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -327,6 +328,7 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
         layers: &layers,
         attachments: &[],
         articles: &[],
+        collection: None,
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -380,6 +382,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         layers: &[],
         attachments: &[],
         articles: &[],
+        collection: None,
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -410,6 +413,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         layers: &[],
         attachments: &files,
         articles: &[],
+        collection: None,
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -421,6 +425,145 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         panel.click((80.0, 36.0), listed, 1.0),
         Some(Hit::Extract(files[0].name.clone()))
     );
+}
+
+/// §12.3.5's collection: the same files, in folders, with the schema's columns.
+///
+/// > If this dictionary is present in a PDF document, the interactive PDF processor shall present
+/// > the document as a portable collection.
+///
+/// The files tab *becomes* that presentation where a document states one, rather than a seventh
+/// tab: it is the same files, and §12.3.5.2's folder tree is how a collection says they are
+/// arranged. **Not one of the 974 corpus documents states a `/Collection`**, so the fixture is
+/// written here — trap 8's converse again.
+#[test]
+fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
+    use pdf_model::collection::{Collection, Field, FieldKind, Folder, Item};
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let outline = Outline::default();
+
+    let schema = [
+        (
+            "FN".to_owned(),
+            Field {
+                kind: FieldKind::FileName,
+                name: "File".to_owned(),
+                order: Some(1),
+                visible: true,
+                editable: false,
+            },
+        ),
+        (
+            "SZ".to_owned(),
+            Field {
+                kind: FieldKind::Size,
+                name: "Bytes".to_owned(),
+                order: Some(2),
+                visible: true,
+                editable: false,
+            },
+        ),
+        // A field the schema hides is a field the panel does not draw: Table 155's `/V` is "[t]he
+        // initial visibility of the field", and a hidden column with a value is the case that
+        // separates "read the schema" from "read the item".
+        (
+            "HD".to_owned(),
+            Field {
+                kind: FieldKind::Description,
+                name: "Hidden".to_owned(),
+                order: Some(3),
+                visible: false,
+                editable: false,
+            },
+        ),
+    ]
+    .into_iter()
+    .collect();
+
+    let collection = Collection {
+        schema,
+        folders: Some(Folder {
+            id: 3,
+            name: "Chapters".to_owned(),
+            description: Some("the parts of it".to_owned()),
+            item: Item::default(),
+            has_thumbnail: false,
+            children: Vec::new(),
+        }),
+        ..Collection::default()
+    };
+    // Two files: one whose key names folder 3 and one whose key names no folder at all, which
+    // §12.3.5.2 puts in the root.
+    let files = vec![
+        attachment("<3>report.pdf", 4096),
+        attachment("readme.txt", 12),
+    ];
+    let content = Content {
+        outline: &outline,
+        layers: &[],
+        attachments: &files,
+        articles: &[],
+        collection: Some(&collection),
+        information: &NOTHING,
+        metadata: None,
+        pages: &[],
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    assert_eq!(panel.click((tab(3), 8.0), content, 1.0), Some(Hit::Redraw));
+
+    // Three rows: the rootless file, the folder, and the file inside it.
+    let list = panel.draw(&chrome, content, HEIGHT, 1.0);
+    for rows in [26..46, 46..66, 66..86] {
+        assert!(ink(&list, rows.clone()) > 40, "row {rows:?} is drawn");
+    }
+    // The click still extracts, by the *tree's* key — which is what carries the folder number.
+    assert_eq!(
+        panel.click((80.0, 36.0), content, 1.0),
+        Some(Hit::Extract("readme.txt".to_owned())),
+        "the rootless file is first, above the folders"
+    );
+    assert_eq!(
+        panel.click((80.0, 56.0), content, 1.0),
+        Some(Hit::Nothing),
+        "a folder has no bytes to take out, so its row acts through its children"
+    );
+    assert_eq!(
+        panel.click((80.0, 76.0), content, 1.0),
+        Some(Hit::Extract("<3>report.pdf".to_owned()))
+    );
+
+    // And with no collection the same files are a flat list, which is the case every corpus
+    // document is in.
+    let flat = Content {
+        collection: None,
+        ..content
+    };
+    assert_eq!(
+        panel.click((80.0, 36.0), flat, 1.0),
+        Some(Hit::Extract("<3>report.pdf".to_owned())),
+        "a flat list is the /EmbeddedFiles tree's own order"
+    );
+}
+
+/// One embedded file, as `Query::Attachments` answers with it.
+fn attachment(name: &str, size: i64) -> pdf_model::attachment::Attachment {
+    pdf_model::attachment::Attachment {
+        name: name.to_owned(),
+        file_name: Some(name.rsplit('>').next().unwrap_or(name).to_owned()),
+        description: Some("a description the schema hides".to_owned()),
+        media_type: None,
+        size: Some(size),
+        created: None,
+        modified: None,
+        checksum: None,
+        relationship: pdf_model::attachment::Relationship::default(),
+        stream: std::sync::Arc::new(pdf_syntax::Stream {
+            dict: pdf_syntax::Dictionary::new(),
+            data: std::sync::Arc::from(&b""[..]),
+            decryption_failed: false,
+        }),
+    }
 }
 
 /// §12.4.3's threads, listed and followed — the sixth tab.
@@ -442,6 +585,7 @@ fn the_read_tab_lists_a_thread_and_a_click_follows_it() {
         layers: &[],
         attachments: &[],
         articles: &[],
+        collection: None,
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -477,6 +621,7 @@ fn the_read_tab_lists_a_thread_and_a_click_follows_it() {
         layers: &[],
         attachments: &[],
         articles: &threads,
+        collection: None,
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -587,6 +732,7 @@ fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
         layers: &[],
         attachments: &[],
         articles: &[],
+        collection: None,
         information: &information,
         metadata: None,
         pages: &[],
@@ -693,6 +839,7 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
         layers: &[],
         attachments: &[],
         articles: &[],
+        collection: None,
         information: &NOTHING,
         metadata: None,
         pages: &pages,

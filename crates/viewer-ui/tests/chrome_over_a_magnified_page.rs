@@ -184,6 +184,7 @@ fn sidebar(viewer: &Viewer) -> (pdf_render::DisplayList, u32) {
         layers: &[],
         attachments: &[],
         articles: &[],
+        collection: None,
         information: &information,
         metadata: None,
         pages: &[],
