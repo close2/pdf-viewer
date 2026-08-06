@@ -5185,7 +5185,30 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 /// **The two ladders close from opposite sides and end 0.109 of 255 apart**, and ours at 8× is
 /// **0.005 from `mupdf`'s limit** and inside both. This group's standing sentence, one more time:
 /// a page that is nothing but nine-point text is a page of glyph edges.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 22] = [
+/// # Two more specimens, in the three-hundred-and-sixty-second
+///
+/// `issue13193.pdf` is 300 × 50 and sets one line of italic mathematics —
+/// `∘∠⊥ABCDEFGHMORSabcm−△` — and `issue3584.pdf` is 200 × 50 and sets the single word *waves* in
+/// a blue serif face. Both came off the ranking at 0.19 from the nearest reference, which is the
+/// bottom of it, and both answer to step 6 without a picture being needed:
+///
+/// ```text
+///                    1x        4x        8x
+/// issue13193  ours   15.5932   15.6568   15.6619
+///             poppler 15.6538  15.6570   15.6505
+/// issue3584   ours    4.39376   4.46974   4.46574
+///             poppler 4.83001   4.54540   4.52264
+/// ```
+///
+/// **On `issue13193` the two limits are 0.011 of 255 apart** — 15.6619 against 15.6505 — so every
+/// bit of the 1× difference is where the edges land, and there is nothing else to find. On
+/// `issue3584` they end 0.057 apart, and the five renderers split into two camps at the page's own
+/// scale: ours 4.394, `hayro` 4.382 and `mupdf` 4.441 against `ghostscript` 4.732 and `poppler`
+/// 4.830. A 0.35 spread on a page whose whole ink is 4.5 is stem darkening on a 12-point serif,
+/// and the two camps are the two answers to it.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 24] = [
+    "issue13193.pdf page 1",
+    "issue3584.pdf page 1",
     "issue5896.pdf page 1",
     "issue7406.pdf page 1",
     "issue13201.pdf page 1",
@@ -5209,6 +5232,42 @@ const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 22] = [
     "issue4402_reduced.pdf page 1",
     "pr12564.pdf page 1",
 ];
+
+/// Ambiguous because five renderers set two thousand rows of five-point text.
+///
+/// `issue1905.pdf` is a one-page poster — *TDF NUMBERS*, seven charts, three 3-D pie charts and a
+/// paragraph of licence text at four points — 1247 × 1984 at the page's own scale and 2731
+/// commands. It sat at the head of `doc/todo/00`'s ranking at **0.42 from the nearest reference
+/// and 1.24 from the furthest**, which is the shape step 1 calls *we are alone*.
+///
+/// It is not. Every one of the five draws it, and the ink at the page's own scale is:
+///
+/// ```text
+/// ours 51.4731 │ hayro 51.6848 │ mupdf 52.1001 │ poppler 52.2025 │ ghostscript 52.4447
+/// ```
+///
+/// **A spread of 0.97 of 255 across the references alone**, with ours 0.21 below the lowest of
+/// them. The per-row profile says the same from the other end: the mean row-by-row difference over
+/// all 1984 rows is **1.87 of 255 between ours and `poppler`, and 2.16 between `ghostscript` and
+/// `poppler`** — so this tree is closer to `poppler` than another C renderer is, and the rows that
+/// differ most are the licence paragraph (1861, 1885) and the masthead (56), which are the rows
+/// with the smallest type on the page.
+///
+/// Step 6 closes it:
+///
+/// ```text
+///             1x/72dpi   4x/288dpi   8x/576dpi
+/// ours        51.4731    51.5939     51.6171
+/// poppler     52.2025    51.8299     51.8933
+/// ```
+///
+/// **Both ladders converge and their limits are 0.25 of 255 apart**, against a reference-to-
+/// reference spread four times that. The marks are the right marks; what is left is where the
+/// edges of five-point glyphs land, on a page that is almost entirely five-point glyphs. Same
+/// argument as `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s and `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`'s, and
+/// its own group because it is neither a specimen nor a book: it is one sheet carrying both, and
+/// the number that identifies it is the *reference* spread rather than ours.
+const AMBIGUOUS_DENSE_CHART_POSTER: [&str; 1] = ["issue1905.pdf page 1"];
 
 /// Ambiguous because Table 179 names ten shapes and gives not one dimension.
 ///
@@ -5388,6 +5447,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
         .chain(&AMBIGUOUS_GLYPH_SCAN_CONVERSION)
+        .chain(&AMBIGUOUS_DENSE_CHART_POSTER)
         .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
         .chain(&AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG)
         .copied()
