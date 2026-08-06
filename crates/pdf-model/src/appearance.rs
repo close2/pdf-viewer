@@ -1810,6 +1810,48 @@ fn field_text(
         .map_err(Refusal::Text)
 }
 
+/// The text a text or combo-box field would be laid out with, as §12.7.4.3 sees it.
+///
+/// The value a *host* is told a field holds, which is not simply Table 226's `/V`: it is whichever
+/// of the four statements about a value is current (`value`), read through §12.7.4.1's `/Parent`
+/// chain and decoded from §7.9.2.2's text string type — and for a password field it is the bullets
+/// Table 231 bit 14 requires be echoed instead, because a host may not be handed a secret it is
+/// only allowed to draw as asterisks.
+///
+/// **`None` and `Some("")` are different answers and the difference is the point.** `None` is a
+/// field whose value is not text at all — §12.7.5.2's buttons select an appearance, §12.7.5.5's
+/// signatures hold a dictionary, §12.7.5.4's list box states which items are selected — and
+/// `Some("")` is a text field with nothing in it, which is what 147 of the corpus's first-page
+/// widgets are. A host deciding where to send the keyboard needs exactly that distinction.
+///
+/// [`crate::view::ViewState::field_value`] is the caller and its doc comment is why this exists.
+pub(crate) fn field_text_value(
+    document: &Document,
+    annotation: &Dictionary,
+    value: FieldValue<'_>,
+) -> Option<String> {
+    let field = Field::read(document, annotation, value);
+    if field.too_deep {
+        return None;
+    }
+    if !matches!(
+        field.kind,
+        Some(FieldKind::Text | FieldKind::Choice { combo: true })
+    ) {
+        return None;
+    }
+    let text = field
+        .value
+        .as_ref()
+        .and_then(|value| variable_text::value_text(document, value))
+        .unwrap_or_default();
+    if field.flags & FLAG_PASSWORD == 0 {
+        Some(text)
+    } else {
+        Some("\u{2022}".repeat(text.chars().count()))
+    }
+}
+
 /// How much of a value one widget will take, where §12.7.5.3's Table 231 bit 24 binds.
 ///
 /// > If set, the field shall not scroll (horizontally for single-line fields, vertically for

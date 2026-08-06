@@ -683,6 +683,38 @@ impl ViewState {
         applied
     }
 
+    /// What one field's value is *now*, as §12.7.4.3 would lay it out.
+    ///
+    /// The four statements about a value in their own order — what a person typed, what §12.7.8's
+    /// import replaced it with, what §12.7.6.3's reset put back, and Table 226's `/V` — which is
+    /// the order [`ViewState::annotation`] already resolves them in, asked here by *field* rather
+    /// than by widget because §12.7.4.1 makes a value shared by all of a field's widgets.
+    ///
+    /// `None` means the field's value is **not text** — a button selects an appearance, a
+    /// signature holds a dictionary — and `Some("")` means a text field with nothing in it. A host
+    /// deciding where to send the keyboard needs those to be two answers, which is why an empty
+    /// field is not folded into the absent one.
+    ///
+    /// A field a person **cleared** and one that never had a value both answer `Some("")`: the
+    /// difference between them is a fact about the edit log rather than about what is on the page,
+    /// and a host asking "what does this field say" is asking the second question.
+    ///
+    /// **Why a host needs this at all.** Since ADR 0197 a field carrying §12.7.5.3's `DoNotScroll`
+    /// takes only as much of a value as fits its rectangle, so a host that kept its own buffer of
+    /// what it had typed would diverge from the field on the first character past the edge. A host
+    /// that reads this back after every keystroke cannot: the value it appends to is the value the
+    /// document has.
+    #[must_use]
+    pub fn field_value(&self, document: &Document, name: &str) -> Option<String> {
+        let table = widgets_by_field_name(document);
+        let widget = table.get(name)?.first().copied()?;
+        let object = document.get(widget);
+        let dict = object.as_dict()?;
+        // The same `Field::read` the appearance takes, so that a host is told what will be drawn
+        // rather than a second reading of the same four statements.
+        crate::appearance::field_text_value(document, dict, self.annotation(widget).value)
+    }
+
     /// Forgets what a person typed into one field, leaving whatever the file and the actions say.
     ///
     /// The operation an undo needs, and it is deliberately not "set it back to the old value":

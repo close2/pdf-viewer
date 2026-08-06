@@ -1209,10 +1209,14 @@ fn a_click_finds_the_field_it_landed_on() {
         geometry.origin.0 + 120.0 * geometry.scale,
         geometry.origin.1 + (geometry.page.height - 738.0) * geometry.scale,
     );
-    let Answer::Field(name) = viewer.query(Query::FieldAt(at)) else {
+    let Answer::Field { name, value } = viewer.query(Query::FieldAt(at)) else {
         panic!("a field is there");
     };
     assert_eq!(name.qualified, "Text1");
+    // An empty text field answers with an empty string rather than with nothing: `None` is
+    // reserved for a field whose value is not text at all, and a host deciding where to send the
+    // keyboard needs those to be two answers. 147 of the corpus's first-page widgets are this.
+    assert_eq!(value.as_deref(), Some(""));
     // This form states no `/TU`, so §14.9.3's alternative is absent and the name a user
     // interface shows is the field's own — which is the case the clause's "if present" covers.
     assert_eq!(name.alternative, None);
@@ -1264,7 +1268,7 @@ fn a_field_states_the_name_a_user_interface_is_to_show() {
         geometry.origin.0 + 240.7 * geometry.scale,
         geometry.origin.1 + (geometry.page.height - 681.0) * geometry.scale,
     );
-    let Answer::Field(name) = viewer.query(Query::FieldAt(at)) else {
+    let Answer::Field { name, .. } = viewer.query(Query::FieldAt(at)) else {
         panic!("a field is there");
     };
     assert_eq!(

@@ -225,7 +225,27 @@ pub enum Answer<'a> {
     /// when an interactive PDF processor identifies the field in a user-interface" while the
     /// first is what [`crate::Edit::SetField`] addresses. A host needs each for a different job
     /// and this crate cannot choose between them on its behalf.
-    Field(pdf_model::view::FieldName),
+    Field {
+        /// The two names §14.9.3 makes a processor distinguish.
+        name: pdf_model::view::FieldName,
+        /// What the field says **now**, as §12.7.4.3 would lay it out.
+        ///
+        /// **`None` and `Some("")` are different answers.** `None` is a field whose value is not
+        /// text at all — a button selects an appearance, a signature holds a dictionary, a list
+        /// box states which items are selected — and `Some("")` is a text field with nothing in
+        /// it. A host deciding where to send the keyboard needs exactly that distinction, and
+        /// `viewer-ui` uses it for exactly that.
+        ///
+        /// **Not the file's `/V`**: whichever of the four statements about a value is current,
+        /// which is what a host has to append to. Since ADR 0197 a field carrying §12.7.5.3's
+        /// `DoNotScroll` takes only as much of a value as fits its rectangle, so a host keeping
+        /// its own buffer would diverge from the field on the first character past the edge —
+        /// reading this back after every keystroke is what makes that impossible.
+        ///
+        /// A password field answers with Table 231 bit 14's bullets rather than with its
+        /// characters: a host is allowed to draw them and not to know them.
+        value: Option<String>,
+    },
     /// Where a string occurs, one entry per occurrence in the order they are shown.
     ///
     /// Each is the shapes covering one occurrence, merged per run of a line, in device pixels of

@@ -354,6 +354,7 @@ fn main() {
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
         articles: Vec::new(),
+        typing: None,
         pages: Vec::new(),
         information: pdf_model::metadata::Information::default(),
         metadata: None,
@@ -504,6 +505,17 @@ struct App {
     /// host and only to a host: a document that states no metadata and one whose metadata this
     /// program could not read get two different sentences in the properties tab.
     metadata: Option<Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
+    /// The field a person is typing into, and the point on the page that named it.
+    ///
+    /// **The host keeps the point, not the text.** §12.7.5.3's `DoNotScroll` makes a field take
+    /// only as much of a value as fits its rectangle (ADR 0197), so a buffer of what had been
+    /// typed would diverge from the field on the first character past the edge — while a point is
+    /// a place, and the field does not move. Every keystroke re-asks `Query::FieldAt` for the
+    /// value the *document* now holds and sends that value plus one character back, which makes
+    /// divergence impossible rather than unlikely.
+    ///
+    /// `None` is a host that is not typing, which is every host until somebody clicks a field.
+    typing: Option<(f32, f32)>,
     /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
     ///
     /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:
@@ -874,6 +886,81 @@ impl App {
     fn has_selection(&self) -> bool {
         matches!(self.viewer.query(Query::Selection),
             Answer::Selected(selection) if !selection.quads.is_empty())
+    }
+
+    /// Starts or stops typing, from where the pointer just went down.
+    ///
+    /// A press inside a field somebody can type into aims the keyboard at it; a press anywhere
+    /// else puts the keyboard back on the page. §12.7.5.1's four field types are not equal here —
+    /// a button has no text and a signature field's value is a dictionary — and the *core* is what
+    /// draws that line: `Answer::Field`'s value is `None` for a field whose value is not text and
+    /// `Some("")` for an empty one, which is the same distinction §12.7.4.3 makes when it decides
+    /// what to lay out.
+    fn aim_at_field(&mut self) {
+        let at = self.on_page(self.cursor);
+        let was = self.typing.is_some();
+        self.typing = match self.viewer.query(Query::FieldAt(at)) {
+            Answer::Field {
+                name,
+                value: Some(_),
+            } => {
+                println!("note: typing into the field {}", name.shown());
+                Some(at)
+            }
+            _ => None,
+        };
+        if was && self.typing.is_none() {
+            println!("note: the keyboard is back on the page");
+        }
+    }
+
+    /// One key press, while a field has the keyboard. Answers whether it was consumed.
+    ///
+    /// **Nothing is buffered here.** Every press re-asks the core what the field says and sends
+    /// back that value with one character added or one removed, so §12.7.5.3's `DoNotScroll`
+    /// truncating a value is a thing the host *reads* rather than a thing it has to predict
+    /// (ADR 0197). It costs a query per keystroke, which is a walk of one page's annotations.
+    fn typed(&mut self, key: &Key<&str>) -> bool {
+        let Some(at) = self.typing else {
+            return false;
+        };
+        let Answer::Field { name, value } = self.viewer.query(Query::FieldAt(at)) else {
+            // The field went away — a page turned under the pointer — so the keyboard goes back.
+            self.typing = None;
+            return false;
+        };
+        let field = name.qualified.clone();
+        let current = value.unwrap_or_default();
+        let next = match *key {
+            Key::Named(NamedKey::Escape) => {
+                self.typing = None;
+                println!("note: the keyboard is back on the page");
+                return true;
+            }
+            Key::Named(NamedKey::Backspace) => {
+                let mut text = current;
+                text.pop();
+                text
+            }
+            Key::Named(NamedKey::Enter) => {
+                // §12.7.5.3's Multiline decides whether a return is a character or the end of
+                // typing, and the core is what knows: a value with a newline in it lays out on two
+                // lines only where Table 231 bit 13 is set, and `variable_text::wrap` is where
+                // that is read. So the host offers the newline and the field decides what to keep.
+                format!("{current}\n")
+            }
+            Key::Character(text) if !text.is_empty() => format!("{current}{text}"),
+            Key::Named(NamedKey::Space) => format!("{current} "),
+            _ => return false,
+        };
+        // Through `dispatch`, not through `Viewer::handle` directly: the events an edit raises
+        // are what asks for the next frame, and a host that counted them instead of pumping them
+        // would type into a page that never redraws. (It did, for one run.)
+        self.dispatch(Command::Edit(Edit::SetField {
+            field,
+            value: Some(next),
+        }));
+        true
     }
 
     /// Whether the pointer is over the panel rather than over the page.
@@ -1658,6 +1745,11 @@ impl ApplicationHandler for App {
         });
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "every window event this host answers, in one match — which is where a reader \
+                  looking for \"what does this program do with a click\" should find them all"
+    )]
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         if self.state.is_none() {
             return;
@@ -1703,6 +1795,13 @@ impl ApplicationHandler for App {
                 if self.about.shown {
                     return;
                 }
+                // A field being typed into takes the keyboard, which is what makes `+` a plus
+                // sign there and a magnification everywhere else. Escape leaves the field rather
+                // than the program — the one binding this state changes the meaning of, and the
+                // one a person expects it to.
+                if self.typing.is_some() && self.typed(&logical_key.as_ref()) {
+                    return;
+                }
                 let Some(command) = key_command(&logical_key.as_ref(), self.shift) else {
                     return;
                 };
@@ -1738,6 +1837,14 @@ impl ApplicationHandler for App {
                         self.click_panel();
                     }
                     return;
+                }
+                // §12.5.1's activation, for the one subtype that takes a keyboard: a press
+                // inside a text field's rectangle is how a person says "type here". The core
+                // already raises §12.6.3's focus events from the same press; what this adds is
+                // the host's own state, because *where the keys go* is chrome and `viewer-core`
+                // has no opinion about chrome by construction (rule 5).
+                if element == ElementState::Pressed {
+                    self.aim_at_field();
                 }
                 self.dragging = element == ElementState::Pressed;
                 self.dispatch(Command::Pointer {

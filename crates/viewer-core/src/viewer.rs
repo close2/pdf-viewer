@@ -158,7 +158,13 @@ impl Viewer {
                     let (x, y) = pdf_model::content::user_space_at(page, x, y)?;
                     pdf_model::view::field_at(&open.document, page, x, y)
                 })
-                .map_or(Answer::None, Answer::Field),
+                .map_or(Answer::None, |name| {
+                    // The value is the *view*'s and the names are the document's, which is why
+                    // they are gathered here rather than inside `field_at`: `pdf_model::view`'s
+                    // walk knows the widget and this knows what has been typed into it.
+                    let value = open.view.field_value(&open.document, &name.qualified);
+                    Answer::Field { name, value }
+                }),
             Query::Dirty => Answer::Dirty(open.dirty()),
             Query::Properties => Answer::Properties {
                 information: pdf_model::metadata::Information::read(&open.document),
