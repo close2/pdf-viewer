@@ -33,7 +33,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 
 | | item | corpus |
 |---|---|---|
-| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 10 names |
+| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 8 names |
 | [01](01-ledger-partial-rows.md) | Read the ledger's 237 `partial` rows against the code — and the seven sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [10](10-hairline-mark-snapping.md) | A §10.7.4 mark that moves with sub-pixel placement | 1 |

@@ -5256,6 +5256,67 @@ const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 24] = [
     "pr12564.pdf page 1",
 ];
 
+/// Ambiguous because one reference smooths an image the file did not ask it to.
+///
+/// `issue10339_reduced.pdf` page 1 draws two **39 × 40** indexed images at 23 ppi on a 280 × 150
+/// page — an enlargement of about three and a half, and each image is a small grid of flat
+/// coloured cells. It sat at the *bottom* of `doc/todo/00`'s ranking at **0.00 from the nearest
+/// reference and 6.84 from the furthest**, which is the ranking saying as loudly as it can that
+/// the page is not ours to answer for.
+///
+/// ```text
+/// ours 57.3291 │ ghostscript 57.3291 │ hayro 57.3872 │ mupdf 57.3987 │ poppler 58.3126
+/// ```
+///
+/// **Our raster and `ghostscript`'s are identical**: mean absolute difference **0**, not rounded —
+/// every one of the 42 000 pixels the same byte. `hayro` is 0.00034 away and `mupdf` 0.0041.
+/// `poppler` is alone, and the picture says what it is doing: its cells have soft edges where the
+/// other four have hard ones.
+///
+/// Neither image states `/Interpolate`, so Table 87's default applies — "[a] flag indicating
+/// whether image interpolation should be performed by a PDF processor … Default value: false" —
+/// and §8.9.5.3 is careful about what the entry is even when it *is* stated:
+///
+/// > However, this is only a hint, and a PDF processor may ignore it.
+///
+/// A hint that may be ignored when present cannot oblige anybody when absent, so smoothing here is
+/// a choice rather than an error, and the clause is why this is `ambiguous` rather than
+/// `CONTRADICTED`: four renderers take the default and one does not, on a page where the default
+/// is the only thing stated.
+const AMBIGUOUS_UNASKED_INTERPOLATION: [&str; 1] = ["issue10339_reduced.pdf page 1"];
+
+/// Ambiguous because a gradient band is one shading and five anti-aliasings of its edges.
+///
+/// `issue6769_no_matrix.pdf` page 1 is 100 × 100 and draws one diagonal band filled with an
+/// axial shading running blue to teal. Its name is the corpus telling you what it is for: the
+/// pattern states no `/Matrix`, so Table 75's default — the identity — is the whole test.
+///
+/// ```text
+/// mupdf 16.7318 │ ours 16.7509 │ hayro 16.8162 │ poppler 17.0354 │ ghostscript 18.401
+/// ```
+///
+/// **Ours is 0.019 of 255 from `mupdf` and 0.065 from `hayro`**, and the mean absolute difference
+/// per pixel says the same more sharply: 0.00029 against `mupdf` and 0.00028 against `hayro`,
+/// which on a 100 × 100 page is the same band in the same place. So the default matrix is not in
+/// question; what is left is the edges of a diagonal band, which is the group's usual subject.
+///
+/// Step 6 separates the two renderers above us, and they are not the same case:
+///
+/// ```text
+///                72 dpi    576 dpi
+/// ours (1x/8x)  16.7509   16.7852
+/// poppler       17.0354   16.8227
+/// ghostscript   18.4010   17.2192
+/// ```
+///
+/// **Ours and `poppler` end 0.0375 of 255 apart** — converging from opposite sides, which is this
+/// bucket's signature for a scan-conversion difference. **`ghostscript` does not converge**: it
+/// sheds 1.18 of its 1.65 excess and keeps 0.43 at eight times the resolution, so it is drawing a
+/// larger band rather than a differently-sampled one. That residue is a fact about `ghostscript`
+/// and about this page, and it is the reason the page is `ambiguous` rather than agreeing: one
+/// renderer out of five is far enough away to widen the bound past what the other four need.
+const AMBIGUOUS_GRADIENT_BAND_EDGES: [&str; 1] = ["issue6769_no_matrix.pdf page 1"];
+
 /// Ambiguous because two references clip a soft mask with an axis-aligned box.
 ///
 /// `issue16742.pdf` page 1 is **one command**: a 200 × 200 green square, rotated ten degrees,
@@ -5634,6 +5695,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_SUB_PIXEL_BARS)
         .chain(&AMBIGUOUS_ENLARGED_BILEVEL)
         .chain(&AMBIGUOUS_ROTATED_MASK_BOUNDING_BOX)
+        .chain(&AMBIGUOUS_GRADIENT_BAND_EDGES)
+        .chain(&AMBIGUOUS_UNASKED_INTERPOLATION)
         .chain(&AMBIGUOUS_HAIRLINE_BORDERS)
         .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
         .chain(&AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG)
