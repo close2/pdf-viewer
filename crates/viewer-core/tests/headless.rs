@@ -706,6 +706,51 @@ fn a_document_says_what_it_carries_before_a_page_is_drawn() {
 }
 
 #[test]
+fn a_file_newer_than_this_program_says_so_before_a_page_is_drawn() {
+    // Annex I: "[i]f a PDF processor opens a PDF file with a version number newer than the
+    // version that it supports … it should warn the user that it is unlikely to be able to read
+    // the document successfully". No corpus document can reach this — the newest of the 974
+    // states 2.0, which is what this program implements — so the witness is built here, and the
+    // pair is the point: the same document one version lower says nothing.
+    let about = |header: &str| -> Vec<String> {
+        let bytes = format!(
+            "{header}\n\
+             1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
+             trailer\n<< /Root 1 0 R /Size 4 >>\n"
+        )
+        .into_bytes();
+        let mut viewer = Viewer::new(800, 1000, 1.0);
+        viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes,
+                password: None,
+            })
+            .filter_map(|event| match event {
+                Event::Reported {
+                    page: None, notes, ..
+                } => Some(notes),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+
+    let newer = about("%PDF-2.1");
+    assert!(
+        newer.iter().any(|note| note.contains("newer than the 2.0")),
+        "a 2.1 file is newer than what this program implements: {newer:?}"
+    );
+    let current = about("%PDF-2.0");
+    assert!(
+        !current.iter().any(|note| note.contains("newer than")),
+        "2.0 is the version this program implements: {current:?}"
+    );
+}
+
+#[test]
 fn a_drag_across_a_line_selects_what_it_crossed() {
     // Selection is not in ISO 32000-2 — the standard says where a glyph is and what character it
     // stands for, and the rest is a choice. What can be asserted is that the choice is coherent:

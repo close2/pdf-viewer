@@ -34,6 +34,7 @@ pub mod object;
 pub mod parser;
 pub mod text_string;
 pub mod tree;
+pub mod version;
 pub mod write;
 pub mod xref;
 
@@ -45,4 +46,5 @@ pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
 pub use parser::{Limits, Parser};
 pub use text_string::text_string;
+pub use version::Version;
 pub use xref::{Location, XrefTable};

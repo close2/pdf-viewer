@@ -153,7 +153,7 @@ const MAX_XREF_SECTIONS: usize = 1024;
 /// §7.5.2 puts it on the first line; files served through mail gateways acquire junk in front of
 /// it, and NOTE 1 licenses that — "[t]his provision allows for arbitrary bytes preceding the
 /// %PDF- without impacting the viability of the PDF file and its byte offsets".
-const HEADER_SEARCH_WINDOW: usize = 1024;
+pub(crate) const HEADER_SEARCH_WINDOW: usize = 1024;
 
 /// Reads the cross-reference information for a file, recovering if necessary.
 ///

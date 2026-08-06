@@ -426,11 +426,9 @@ that is worth a status of its own the defence is that every such note says which
   trip it. What is still owed under §12.8.2.3 is §12.8.2.2.2's comparison of two revisions, which
   needs the digest.
 - **~176 `partial` rows** not yet re-read against the code.
-- **Annex I.2's version number**, found in the three-hundred-and-sixtieth session when the ledger
-  grew the normative annexes: the header's `%PDF-n.m` is located to fix the byte offsets and its
-  digits are discarded, the catalog's `/Version` is not read, and Annex I says a processor "should
-  warn the user" that a newer file "is unlikely to be able to be read successfully". A `should`,
-  and the cheapest half of it is two lines beside a parser that is already standing on the number.
+- ~~**Annex I.2's version number**~~ — closed in the three-hundred-and-sixty-first session, the
+  round after the sweep that found it (ADR 0207). It was worth one line here for exactly one round:
+  a `should` nobody had read, two lines from a parser already standing on the number.
 - **A dangling `doc/todo/20`** in §8.9.6.2's note — a stencil painted with a tiling pattern, whose
   file no longer exists. Either the work is real and wants a file, or the sentence wants rewriting;
   the three-hundred-and-sixtieth session fixed the other two dangling references it found and left

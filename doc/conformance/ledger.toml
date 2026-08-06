@@ -6508,7 +6508,7 @@ title = "PDF versions and compatibility"
 status = "partial"
 code = ["crates/pdf-model/src/requirements.rs", "crates/viewer-core/src/notes.rs"]
 test = ["crates/pdf-model/src/requirements.rs::the_requirements_this_program_cannot_meet_are_named"]
-note = "Aggregate of the three below. The annex's obligations are `should` rather than `shall`, and this tree meets one of the two: §12.11's requirements it cannot process are named to the reader, and the file's **version number is not read at all**, so a document written to a newer PDF than this program understands opens without a word. `doc/todo/01` carries it."
+note = "Aggregate of the three below. The annex's obligations are `should` rather than `shall`, and this tree meets one of the two: §12.11's requirements it cannot process are named to the reader, and the version number was not read at all until the three-hundred-and-sixty-first session, so a document written to a newer PDF than this program understands opened without a word. Both halves are met now (ADR 0207); `partial` is for I.2's writer-side sentence."
 
 [[clause]]
 clause = "I.1"
@@ -6522,9 +6522,9 @@ note = "Why the annex exists, and its one instruction to a processor is a choice
 clause = "I.2"
 title = "PDF version numbers"
 status = "partial"
-code = ["crates/pdf-syntax/src/xref.rs"]
-test = ["crates/pdf-syntax/tests/robustness.rs::junk_before_the_header_shifts_every_offset_in_the_file"]
-note = "The version number: the header's `%PDF-n.m` and the catalog's `/Version`, and \"[i]f a PDF processor opens a PDF file with a version number newer than the version that it supports … it should warn the user\". **The header is located and its number is thrown away** — `xref::header_at` searches for `%PDF-` to fix the byte offsets and reads no digits — and the catalog's `/Version` is not read either. That is a `should` this program does not meet and says nothing about, which is the one shape the ledger's `silent` row exists to name; it is `partial` rather than `silent` because the other half of I.2's paragraph binds a writer saving the file, and this tree's incremental update leaves the version where it found it."
+code = ["crates/pdf-syntax/src/version.rs"]
+test = ["crates/pdf-syntax/src/version.rs::the_catalogs_version_counts_only_when_it_is_later"]
+note = "The version number, in the two places the standard states it and in the order it ranks them. §7.5.2's header is \"'%PDF1. n ' or '%PDF2. n ' followed by a single EOL marker, where ' n ' is a single digit number\", and Table 29's `/Version` counts \"if later than the version specified in the file's header\" — \"[i]f the header specifies a later version, or if this entry is absent, the document shall conform to the version specified in the header\". `Document::version` reads both and takes the later, as a pair of numbers rather than a name, because `1.10` beside `1.7` is the string comparison that gets *later* backwards. **Read at last in the three-hundred-and-sixty-first session**; until then `xref::read` located `%PDF-` to fix the byte offsets and discarded the digits, which is what this row said. Annex I's `should` is met with it: `viewer_core::notes` says a file states a version newer than the 2.0 this program implements, before any page is drawn. `partial` for the half that addresses a writer saving the file — \"a PDF file's version should never be changed to an older version\" — which §7.5.6's incremental update meets by leaving the header where it found it and writing no `/Version` of its own. **No corpus document reaches the warning**: of 974, the headers are 354 at 1.7, 235 at 1.4, 212 at 1.6, 104 at 1.5, 41 at 1.3, 9 at 2.0, 7 at 1.2, 5 at 1.1 and 5 at 1.0, so the note exists for a file nobody has written yet — which is the difference between coverage and demand said in one row."
 
 [[clause]]
 clause = "I.3"

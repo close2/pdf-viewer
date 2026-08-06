@@ -1,8 +1,8 @@
 //! What a document says about itself, said out loud once when it opens.
 //!
-//! Four clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
-//! §7.11.4's embedded files and §7.5's recovered cross-reference table are all claims about the
-//! *file*, and a person deciding whether to trust what they are looking at needs them before any
+//! Five clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
+//! §7.11.4's embedded files, §7.5's recovered cross-reference table and Annex I's version are all
+//! claims about the *file*, and a person deciding whether to trust what they are looking at needs them before any
 //! page is drawn. That is why they are a [`crate::Event::Reported`] with no page rather than
 //! part of the page's own report.
 //!
@@ -20,6 +20,28 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
         notes.push(
             "this file's cross-reference table was broken and was rebuilt by scanning".to_owned(),
         );
+    }
+
+    // Annex I, and it is the annex's own instruction rather than an inference from it:
+    //
+    // > If a PDF processor opens a PDF file with a version number newer than the version that it
+    // > supports or it identifies document requirements (12.11, "Document requirements") that it
+    // > is not prepared to process, it should warn the user that it is unlikely to be able to
+    // > read the document successfully and that the user may not be able to change or save the
+    // > document.
+    //
+    // The second half of that sentence is the loop below; this is the first, and it was owed for
+    // three hundred and sixty sessions because Annex I had no ledger row until ADR 0206. **No
+    // corpus document reaches it**: the newest of the 974 states 2.0, which is what this program
+    // is written against, so this note exists for the file that has not been written yet.
+    if let Some(version) = document.version()
+        && version > pdf_syntax::Version::SUPPORTED
+    {
+        notes.push(format!(
+            "this document states PDF {version}, which is newer than the {} this program \
+             implements — it is unlikely to be read successfully",
+            pdf_syntax::Version::SUPPORTED
+        ));
     }
 
     // §12.11's document requirements. The clause makes this a statement about the *document*
