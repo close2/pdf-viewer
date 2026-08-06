@@ -55,7 +55,42 @@ the page `ambiguous`, and §3a's ranking put it nowhere near the top. It came of
 **step 7** — our ink minus the lightest live reference's, at **+17.26** — which is the instrument
 built for exactly this: a page nobody is far from, drawing something nobody else draws.
 
-## What the clause says
+## What the clause says, and what "marking device" turned out to mean
+
+**The standard does not use the phrase "marking device" once.** `grep` over the whole of ISO
+32000-2 finds zero occurrences; the term is this project's own. What the standard says is **raster
+output device**, and §8.3.2.2 defines it in the same breath:
+
+> The contents of a page ultimately appear on a raster output device **such as a display or a
+> printer**.
+
+§8.1 says the same from the other end — "[t]he facilities described in this clause are intended for
+both printer and display applications" — and §10.1 closes the door on the escape route:
+
+> For the purpose of clause 10, it is irrelevant whether a raster output device physically exists
+> and is actually used for rendering, or is just assumed.
+
+**And §10.1 separates §10.5 from §10.6 by exactly the criterion this project conflated.** Its list
+of rendering steps reads:
+
+> - For any object for which transfer functions are in effect, apply those transfer functions …
+> - **If the raster output device supports PDF-defined halftoning**, apply halftoning according to
+>   10.6, "Halftones".
+
+One is conditional on the device and the other is not. §10.6.1 then says it outright for the case
+of a screen:
+
+> Some output devices can reproduce continuous-tone colours directly. Halftoning is not required
+> for such devices; **after gamma correction by the transfer functions**, the colour components
+> shall be transmitted directly to the device.
+
+So on a device that needs no halftone the transfer functions still run, and the clause says so in
+the sentence that excuses the halftone. **§10.6 is genuinely inapplicable to a screen and §10.5 is
+not**, and the standard draws that line itself.
+
+## What §10.5 says
+
+
 
 §10.5 is `shall` throughout and never says *printer*:
 
