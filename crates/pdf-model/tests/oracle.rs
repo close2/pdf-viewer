@@ -4219,8 +4219,66 @@ const AMBIGUOUS_BOUNDARY_PIXELS: [&str; 3] = [
 /// column is more than 1% of it, which is `doc/todo/00`'s `magick identify` rule at the scale
 /// where it bites hardest — and the reason the numbers above are means rather than a pairwise
 /// metric.
-const AMBIGUOUS_INSIDE_A_ROUNDING_ERROR: [&str; 2] =
-    ["issue4246.pdf page 1", "bug1872721.pdf page 1"];
+/// # And `issue15150.pdf`, which is **10 × 10**
+///
+/// A hundred pixels, and the five span 1.06 of 255 — which on a page this size is less than half
+/// of one pixel's worth of ink, since a single fully covered pixel is 2.55 of the mean.
+///
+/// ```text
+///                72 dpi     576 dpi
+/// poppler       1.30699    0.517679
+/// mupdf         0.440913   0.501932
+/// ours (1x/8x)  0.684989   0.501932
+/// ```
+///
+/// **Ours at eight times equals `mupdf`'s limit exactly** — 0.501932 both — and `poppler`'s is
+/// 0.0158 above it. There is no bound a page of a hundred pixels can meet and no disagreement
+/// underneath this one.
+const AMBIGUOUS_INSIDE_A_ROUNDING_ERROR: [&str; 3] = [
+    "issue4246.pdf page 1",
+    "bug1872721.pdf page 1",
+    "issue15150.pdf page 1",
+];
+
+/// Ambiguous, and step 6's two ladders bracket ours inside a fifth of a level.
+///
+/// Three pages the three-hundred-and-fifty-sixth session took off §3a's ranking. Each has two
+/// clusters at the page's own scale — which is the shape that looks like a defect — and on each
+/// the ladders say the clusters are one renderer's first rung rather than two readings of the
+/// file.
+///
+/// ```text
+///                                72 dpi     576 dpi
+/// images_1bit_grayscale  poppler 13.5551   13.3466
+///                        mupdf   13.5348   13.3913
+///                        ours    13.3326   13.3466
+///
+/// decodeACSuccessive     poppler  6.58517   6.42541
+///                        mupdf    6.46243   6.40702
+///                        ours     6.39351   6.40981
+///
+/// ccitt_EndOfBlock_false poppler 86.3513   85.7700
+///                        mupdf   85.4370   85.5363
+///                        ours    85.5844   85.6742
+/// ```
+///
+/// - **`images_1bit_grayscale.pdf`**: ours at eight times **equals `poppler`'s limit to six
+///   figures** — 13.3466 both — and at the page's own scale ours is byte-for-byte
+///   `ghostscript`'s (13.3550 each).
+/// - **`decodeACSuccessive.pdf`** is a progressive JPEG's AC successive approximation, and the
+///   three ladders end within **0.018 of 255** with ours between the other two. At 72 dpi ours and
+///   `hayro` are equal to five decimals.
+/// - **`ccitt_EndOfBlock_false.pdf`** is §7.4.6's `/EndOfBlock false`, and ours lands **between**
+///   the two limits — 0.096 under `poppler`'s and 0.138 over `mupdf`'s, which are 0.234 apart. At
+///   72 dpi ours is byte-for-byte `ghostscript`'s again (85.7282 each).
+///
+/// The panels are not all one size on two of the three — 595 × 842, 596 × 842 and 595 × 841 — so
+/// the numbers above are means, for `doc/todo/00`'s reason.
+const AMBIGUOUS_OURS_ON_THE_LIMIT: [&str; 3] = [
+    "images_1bit_grayscale.pdf page 1",
+    "decodeACSuccessive.pdf page 1",
+    "ccitt_EndOfBlock_false.pdf page 1",
+];
 
 /// Ambiguous, and §11.4.6's knockout groups are the whole of it.
 ///
@@ -4514,12 +4572,24 @@ const AMBIGUOUS_LOCA_OUT_OF_ORDER: [&str; 1] = ["issue11131_reduced.pdf page 1"]
 /// **`colorspace_sin` and `colorspace_cos` render byte-identically** — the same md5 for our own
 /// panel — so they are one page under two names, which is `doc/todo/00`'s own check and the reason
 /// their numbers agree to the digit rather than merely closely.
-const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 5] = [
+/// # And a sixth, where the blank one is `hayro` and a fifth renderer is halfway
+///
+/// `issue2840.pdf` page 1 is 200 × 50. `hayro` draws **nothing**; `ghostscript` draws 13.68 where
+/// ours is 21.32; `poppler` is 19.91; `mupdf` is 21.30. Ours and `mupdf` agree to **0.03 of 255**
+/// at the page's own scale and to **0.0025** at the limit — 21.4514 against 21.4489 — while
+/// `poppler`'s ladder is flat at 19.90, a level and a half below both.
+///
+/// So this page carries two of this file's shapes at once: a reference that drew nothing, and a
+/// second that draws something else. Neither is a consensus, which is why the verdict is
+/// `ambiguous` rather than contradicted, and the pair that agrees to two thousandths of a level
+/// includes us.
+const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 6] = [
     "issue6006.pdf page 1",
     "bug920426.pdf page 1",
     "colorspace_sin.pdf page 1",
     "colorspace_cos.pdf page 1",
     "colorspace_atan.pdf page 1",
+    "issue2840.pdf page 1",
 ];
 
 /// Ambiguous, and both pages are gradients on a page too small for a bound to be loose.
@@ -5266,6 +5336,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_FOUR_ANSWERS)
         .chain(&AMBIGUOUS_BOUNDARY_PIXELS)
         .chain(&AMBIGUOUS_INSIDE_A_ROUNDING_ERROR)
+        .chain(&AMBIGUOUS_OURS_ON_THE_LIMIT)
         .chain(&AMBIGUOUS_KNOCKOUT_GROUP)
         .chain(&AMBIGUOUS_TABLE_RULE_EDGES)
         .chain(&AMBIGUOUS_ONE_LADDER)
