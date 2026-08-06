@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **34 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **33 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **752 diagnosed, 34 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **753 diagnosed, 33 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -172,6 +172,28 @@ page is one text annotation with `/Rect [50 50 50 50]`, this tree drew **nothing
 0.73 from the nearest reference — a nearly blank page resembles a nearly blank page — so no
 ranking would ever have produced it. **This is the instrument's first positive result and the
 reason it exists.**
+
+**Re-run whole in the three-hundred-and-forty-eighth, over all 786, and the alarm held again**:
+twenty names at or past −1, **seventeen of them documents this tree already calls incomplete**, and
+the other three are the same three session 265 named — `issue16038.pdf` at −6.70
+(`AMBIGUOUS_TILING_CELL_CLIP`, whose own note measures the interior 13% short), `issue12295.pdf` at
+−1.71 (`AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY`) and `issue7821.pdf` at −1.00
+(`AMBIGUOUS_GRADIENT_QUANTISATION`). Fourteen rounds of change and the negative tail has not moved,
+which is what a standing alarm is for.
+
+**And the run's *positive* side produced a name off the undiagnosed list**, which it had not done
+before. `bug920426.pdf` page 1 at **+21.07** — ours 25.49 against a lightest live reference of 4.42
+— is `poppler` drawing fourteen `.notdef` boxes where the other four draw *Checkliste Service*;
+ours and `hayro` agree to 0.006 of 255. The ranking had it at 0.35 from the nearest and 2.62 from
+the furthest, which accuses nobody, so no amount of reading the ranking would have produced it.
+`AMBIGUOUS_REFERENCE_DREW_NOTHING`'s second.
+
+**What the positive side is and is not.** It takes the **minimum** over live references, so one
+outlier is the whole comparison — which is exactly what makes it good at finding a reference that
+failed and useless as a measure of how much we over-paint. The largest entry in the run,
+`recursiveCompositGlyf.pdf` at +198.65, is that property at full stretch: ours, `poppler` and
+`hayro` all paint the page's red box, `mupdf` paints nothing and is dropped, and `ghostscript`
+paints only the words — so the minimum is 2.12 and the gap is a fact about `ghostscript`.
 
 **And the sweep itself had a defect the same run exposed**: `min` over the references includes a
 reference that drew *nothing*, and a blank is not a lower bound on the geometry. Four pages came

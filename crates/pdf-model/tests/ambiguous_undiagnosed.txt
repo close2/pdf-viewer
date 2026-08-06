@@ -15,7 +15,6 @@ bug1872721.pdf page 1
 bug1889122.pdf page 1
 bug886717.pdf page 1
 bug911034.pdf page 1
-bug920426.pdf page 1
 ccitt_EndOfBlock_false.pdf page 1
 colorspace_atan.pdf page 1
 colorspace_cos.pdf page 1

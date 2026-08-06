@@ -4358,7 +4358,27 @@ const AMBIGUOUS_LOCA_OUT_OF_ORDER: [&str; 1] = ["issue11131_reduced.pdf page 1"]
 /// **Not to be confused with `AMBIGUOUS_RADIAL_CONE`**, which was a radial defect this tree did have until ADR 0171: that
 /// is §8.7.4.5.4's greatest *admissible* root on a cone whose circles do not contain one
 /// another, and this page's circles are concentric, where every gradient implementation agrees.
-const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 1] = ["issue6006.pdf page 1"];
+/// # And one where the reference drew *something*, which is harder to see
+///
+/// `bug920426.pdf` page 1 is 200 × 50 and shows two words — *Checkliste Service* — in a bold sans
+/// face. Four of the five renderers draw them:
+///
+/// ```text
+/// ours 25.4879 │ hayro 25.4815 │ mupdf 25.7350 │ ghostscript 26.5349 │ poppler 4.4150
+/// ```
+///
+/// **Ours and `hayro` agree to 0.006 of 255** and the four span 1.05. `poppler` draws fourteen
+/// **`.notdef` boxes** — the four-panel strip says it without a number — so its 4.415 is the ink
+/// of an outline per character instead of a glyph per character, and the 21 of 255 between it and
+/// everyone else is a reference failing to map a code rather than anything about this page.
+///
+/// It came off `doc/todo/00`'s **step 7** rather than off the ranking, in the
+/// three-hundred-and-forty-eighth session, and that is the entry worth keeping: the step's
+/// *positive* side is "content nobody else is drawing", and taking the **minimum** over live
+/// references makes one outlier the whole comparison. Here that outlier is the finding. The
+/// ranking had it at 0.35 from the nearest and 2.62 from the furthest, which accuses nobody.
+const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 2] =
+    ["issue6006.pdf page 1", "bug920426.pdf page 1"];
 
 /// Ambiguous, and both pages are gradients on a page too small for a bound to be loose.
 ///
