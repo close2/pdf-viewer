@@ -1,8 +1,8 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **8 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **5 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **778 diagnosed, 8 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **781 diagnosed, 5 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
@@ -391,6 +391,52 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**Three in the three-hundred-and-seventy-second, and two of them turned a group's argument into
+arithmetic.** The ranking's whole head is now pages whose *nearest* is under 0.4, so step 1's
+"prefer a page whose two numbers are close" has nothing left to prefer; what these three had
+instead is a page small enough, or a placement regular enough, for a **closed form** to exist
+without a ladder.
+
+- **`issue14953.pdf`** (0.28 / 3.64) is 200 × 50 with fifteen codes from ConTeXt's embedded Type 3
+  face, and **every glyph description begins `wx 0 0 0 0 0 d1`** with `/FontBBox [0 0 0 0]` beside
+  it. §9.6.4 Table 111 names that exact situation — "[i]f any marks fall outside this bounding box,
+  the result is implementation-dependent" — so it is the bucket's sharpest instance of shape 3. The
+  measurement that makes it a diagnosis rather than a citation is **a synthetic A/B this project
+  wrote**: two 100 × 40 pages, one Type 3 glyph, one stroke, identical in every byte but the four
+  `d1` operands. Ours and `mupdf` are byte-identical across the pair at 72, 288, 576 and 1152 dpi;
+  `ghostscript` draws *exactly nothing* above 72 dpi; `poppler` is byte-identical at 72 and then
+  diverges as the pixels shrink. That is also the corpus page's ladder — `poppler` 13.68 → 3.95 →
+  1.48 → 0.26, drift rather than a limit — explained by a file the corpus does not contain.
+  `AMBIGUOUS_DEGENERATE_GLYPH_BOX`.
+- **`issue4379.pdf`** (0.19 / 3.67) is one command placing a 1000 × 800 stencil-masked image onto
+  device x `[36, 536)`, an exact **two-to-one reduction onto integer coordinates** — which makes it
+  the first page in `AMBIGUOUS_IMAGE_REDUCTION` whose clause can be *evaluated*. §10.7.4 names one
+  raster sample by sample; the samples themselves are settled by rendering at 2×, where ours,
+  `mupdf` and `ghostscript` are byte-identical over 1190 × 1684. Against the raster the clause
+  states: `ghostscript` differs on **0** of 500 990 pixels and this tree on **3 927**, 0.78% of the
+  page. **The five renderers' ink agrees to 0.023 of 255**, so no ink measurement could ever have
+  seen it — and this is ADR 0025's stated cost, measured on a real page for the first time.
+- **`bug1889122.pdf`** (0.13 / 2.94) is one text field on a 231 × 85 crop box whose whole appearance
+  is `q 0 G 0.5 0.5 149 21 re s Q` under an identity §12.5.5 map, so its ink is **arithmetic**:
+  `150 × 22 − 148 × 20 = 340` square points over 19 635 pixels is 4.4156 of 255. Ours is 0.05% over
+  it, `mupdf` 0.39% over, `poppler` 2.3% under, `ghostscript` **26.7% over** and `hayro` 17% under —
+  the same two outliers in the same two directions `AMBIGUOUS_WIDGET_BORDER` has now seen six times,
+  and the first time against a number the file states rather than a limit two references agreed on.
+
+**The step this adds**: before taking a ladder, ask whether the page's marks have an area you can
+*write down*. A single stroked rectangle does; an image whose placement is an integer reduction
+does; and where they do, the closed form is exact where a limit is only an agreement. **None of the
+three was a defect**, and the round's ledger work came out of them instead — two rows citing a
+sentence Table 111 does not contain (below).
+
+**Step 7 was re-run whole after them**, over all 786, filtered to the 743 on documents this tree
+calls complete: `issue16038.pdf` −6.404, `issue12295.pdf` −1.708, `issue7821.pdf` −1.069, then
+`jpx_smaskindata.pdf` −0.839 and `issue16473.pdf` −0.717 and nothing past −0.536. **Three names at
+or past −1 and all three diagnosed**, unchanged from the three-hundred-and-sixty-eighth's run to
+within a thousandth — the fifth consecutive time the alarm has held. The positive side corroborated
+this round's own work without being asked: `issue14953.pdf` sits at **+11.37**, because the lightest
+live reference on it is a `ghostscript` that clipped the page away.
 
 **Three in the three-hundred-and-thirtieth, and one of them is why step 3 exists.**
 `issue13343.pdf`'s two pages are **eight commands** each — a line reading `( 57)【要約】` in a

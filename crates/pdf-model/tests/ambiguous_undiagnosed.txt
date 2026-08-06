@@ -11,10 +11,7 @@
 # One page per line, exactly as the gate names it. Blank lines and lines beginning with `#`
 # are ignored.
 bug1308536.pdf page 1
-bug1889122.pdf page 1
 bug911034.pdf page 1
 issue12705.pdf page 1
-issue14953.pdf page 1
-issue4379.pdf page 1
 issue4665.pdf page 1
 issue9084.pdf page 1

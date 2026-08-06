@@ -1615,7 +1615,58 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// 0.0013 and to `mupdf` 0.0019, while `poppler` is 0.0098 to `mupdf`, 0.0101 to `hayro` and
 /// 0.0107 to ours — one renderer 0.01 from everybody, on a page where all five are within 0.66 of
 /// 255 in ink.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
+/// # An eighteenth, and the first whose clause can be evaluated rather than argued
+///
+/// `issue4379.pdf` page 1 came off `doc/todo/00`'s ranking in the three-hundred-and-seventy-second
+/// session at 0.19 from the nearest reference and 3.67 from the furthest. It is **one command** —
+/// `q 500 0 0 400 36 406 cm /img1 Do Q` — where `/img1` is a 1000 × 800 one-bit indexed image
+/// carrying §8.9.6.3's explicit `/Mask`, itself a 1000 × 800 `CCITTFaxDecode` stencil spelling
+/// *Image Mask Example*.
+///
+/// Every other member of this group is settled by two ladders agreeing on a limit. This one does
+/// not need them, because the placement is a **two-to-one reduction onto integer device
+/// coordinates**: the image rectangle is device x `[36, 536)` and y `[36, 436)` on a 595 × 842
+/// page, so §10.7.4 names one raster sample by sample and leaves nothing to interpret.
+///
+/// > However, only those pixels whose centres lie within the region shall be painted. The position
+/// > of the centre of such a pixel -in other words, the point whose coordinate values have
+/// > fractional parts of one-half -shall be mapped back into source space to determine how to
+/// > colour the pixel. There shall not be averaging over the pixel area.
+///
+/// Device column `i` has centre `i + 0.5`, so its source column is `floor(2(i − 36) + 1)`, the
+/// **odd** samples, and the same in y.
+///
+/// **The source samples are settled without trusting anybody.** Rendered at 2× the image covers
+/// 1000 × 800 device pixels from 1000 × 800 samples, one to one, and ours, `mupdf` and
+/// `ghostscript` are **byte-identical over the whole 1190 × 1684 raster** — `magick compare
+/// -metric AE` exactly 0, twice — while `poppler` differs on 3 702 pixels. Subsampling that raster
+/// at the odd rows and columns *is* the clause's answer. Against it, at the page's own scale, over
+/// 500 990 pixels:
+///
+/// ```text
+///                pixels differing   worst channel   MAE of 255
+/// ghostscript                   0               0      0.00000
+/// ours                      3 927              94      0.44667
+/// poppler                   8 610             126      1.67094
+/// mupdf                    11 570              98      0.58306
+/// hayro                    35 326             101      0.62554
+/// ```
+///
+/// **`ghostscript` reproduces §10.7.4 exactly and this tree departs on 0.78% of the page**, which
+/// is ADR 0025's stated cost measured on a real page for the first time rather than argued from
+/// the clause. The ADR's own sentence — "a producer who relied on a particular sample surviving
+/// the reduction gets a softened version of it instead of that sample" — is 0.447 of 255 here, and
+/// the softening is what the ADR bought `bug1001080.pdf`'s legibility with.
+///
+/// **The ink cannot see any of it**, which is why the page is in this group rather than fixed: all
+/// five renderers land within **0.023 of 255** of each other (ours 7.7404, `ghostscript` 7.7410,
+/// `hayro` 7.7438, `mupdf` 7.7555, `poppler` 7.7637), and three ladders converge on **7.74035** to
+/// five decimal places at 8× with ours already 0.0001 from that limit at 72 dpi. Step 5's closed
+/// form answers "how much" and is silent on "where"; this is the page where only the pixel count
+/// speaks. The pairwise distances say the same and say the outlier is not us: ours is 0.143 of 255
+/// from `hayro` and 0.152 from `mupdf`, while every pair involving `poppler` exceeds 1.26.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 18] = [
+    "issue4379.pdf page 1",
     "issue12841_reduced.pdf page 1",
     "issue269_2.pdf page 1",
     "blendmode.pdf page 1",
@@ -2702,7 +2753,44 @@ const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 2] = [
 /// nothing else in the corpus reaches: `poppler` at the page's own scale is **2.70 of 255 over
 /// its own limit**, 18% of the page's ink, on a page whose marks are mostly one-unit rules. Ours
 /// is 0.003 from its own limit at 72 dpi.
-const AMBIGUOUS_WIDGET_BORDER: [&str; 5] = [
+/// # A sixth, whose geometry is arithmetic rather than a ladder's limit
+///
+/// `bug1889122.pdf` page 1 came off `doc/todo/00`'s ranking in the three-hundred-and-seventy-second
+/// session at 0.13 from the nearest reference and 2.94 from the furthest. It is **one command** on
+/// a 231 × 85 crop box: one text field, `/Rect [66.7639 663.309 216.764 685.309]`, whose stored
+/// `/AP /N` has `/BBox [0.0 0.0 150.0 22.0]` and an identity `/Matrix`, so §12.5.5's map onto the
+/// rectangle is the identity and the whole of what is drawn is the stream's four operators:
+/// `q 0 G 0.5 0.5 149 21 re s Q`.
+///
+/// **That is a page whose ink can be written down.** A default-width stroke on that rectangle
+/// covers the region between (0, 0)–(150, 22) and (1, 1)–(149, 21) — `150 × 22 − 148 × 20 = 340`
+/// square points — in black on white paper, over a raster of `231 × 85 = 19 635` pixels. The ink
+/// the geometry states is therefore `255 × 340 / 19 635 = 4.4156 of 255`, exactly, with no
+/// reference and no limit involved.
+///
+/// ```text
+///                     72 dpi     288      576     1152
+/// geometry            4.4156   4.4286   4.4286   4.4328
+/// poppler             4.3159   4.4286   4.4286   4.4331
+/// mupdf               4.4329   4.4324   4.4308   4.4342
+/// ours (1x/4x/8x/16x) 4.4177   4.4286   4.4286   4.4320
+/// ```
+///
+/// (The geometry moves along the row because a raster of 231 × 85 holds a 230.94 × 84.63 crop box
+/// with a fraction of a row spare; the last column is against `poppler`'s and `mupdf`'s
+/// 3 695 × 1 355, ours against 3 696 × 1 355, whose own figure is 4.4323.)
+///
+/// **At the page's own scale ours is 0.05% over the closed form** and `mupdf` 0.39% over, while
+/// `poppler` is 2.3% under and `ghostscript` — 5.5965 — is **26.7% over**. `hayro` rasterises this
+/// crop box as 230 × 84, and against *that* raster's geometry of 4.4876 its 3.7258 is **17%
+/// under**.
+///
+/// So: **the same two outliers in the same two directions** as `bug1863910.pdf`'s 28% over and 22%
+/// under, `textfields.pdf`'s 27% and 19% and `issue19083.pdf`'s one raster row against our two —
+/// the sixth time, and the first time measured against a number the file states rather than
+/// against a limit two references had to agree on first.
+const AMBIGUOUS_WIDGET_BORDER: [&str; 6] = [
+    "bug1889122.pdf page 1",
     "160F-2019.pdf page 1",
     "issue19083.pdf page 1",
     "multiline.pdf page 1",
@@ -4673,6 +4761,85 @@ const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 6] = [
     "issue2840.pdf page 1",
 ];
 
+/// Ambiguous, and the file declares a glyph bounding box that encloses nothing.
+///
+/// `issue14953.pdf` page 1 came off `doc/todo/00`'s ranking in the three-hundred-and-seventy-second
+/// session at 0.28 from the nearest reference and 3.64 from the furthest. It is 200 × 50 device
+/// pixels: fifteen codes shown at 20 points from an embedded Type 3 font — ConTeXt's
+/// `ContextRuntimeFont-1`, `/FontMatrix [0.04 0 0 0.04 0 0]` — whose glyph descriptions draw a
+/// handwriting face out of `1 w` and `2 w` strokes, 0.8 and 1.6 device units at the page's own
+/// scale.
+///
+/// **Every one of the fifteen descriptions begins `wx 0 0 0 0 0 d1`**, and the font dictionary's
+/// `/FontBBox` is `[0 0 0 0]` beside it. So the file declares, sixteen times over, a box that
+/// encloses none of the marks it then makes.
+///
+/// # What the clause determines: that nothing here is determined
+///
+/// §9.6.4 Table 111, on `d1`:
+///
+/// > The declared bounding box shall be correct - in other words, sufficiently large to enclose
+/// > the entire glyph. If any marks fall outside this bounding box, the result is
+/// > implementation-dependent.
+///
+/// and Table 110 on the font's own box, which this file also zeroes:
+///
+/// > If all four elements of the rectangle are zero, a PDF processor shall make no assumptions
+/// > about glyph sizes based on the font bounding box.
+///
+/// This is `doc/todo/00`'s third shape — the clause puts the answer beyond itself and says so —
+/// and it is the sharpest instance of it in the bucket, because the standard names the very
+/// situation the file is in and hands the outcome to the implementation in the same sentence. Five
+/// renderers may therefore draw five things and none of them can be called wrong. **What this tree
+/// chooses is to ignore the declared box**, which `content.rs`'s `d0 | d1` arm has said in a
+/// comment since the tenth session: clipping to a box the clause requires to be correct can only
+/// remove marks a correct file does not have, and on an incorrect one it hides the defect instead
+/// of drawing what the producer drew.
+///
+/// # What the five actually do, and one ladder that is not a limit
+///
+/// ```text
+///               72 dpi      288       576      1152
+/// poppler      13.6783    3.9541    1.4760    0.2577
+/// mupdf        11.9546   12.1528   12.2232   12.2611
+/// ours         11.6675   12.2806   12.2958   12.2939     (1x, 4x, 8x, 16x)
+/// ghostscript   0.2962
+/// hayro        11.9743
+/// ```
+///
+/// Ours is flat from 8× and `mupdf` climbs onto it, the two **0.033 of 255 apart at the top rung
+/// and still closing**; `poppler` descends towards *nothing*, which is drift rather than
+/// convergence and is the two-hundred-and-sixteenth session's lesson met a second time. Its 576
+/// dpi panel says what the number cannot: it draws the first few hundredths of an inch of each
+/// stroke and stops.
+///
+/// # The mechanism, isolated by a file this project wrote
+///
+/// Two synthetic 100 × 40 pages, one Type 3 glyph apiece, one `1 w` stroke from (2, 0) to (14, 20)
+/// in glyph space, **identical in every byte but the four bounding-box operands of `d1`** —
+/// `1 -1 15 21` against `0 0 0 0`, degenerate before the slash:
+///
+/// ```text
+///                72 dpi           288             576            1152
+/// ours       1.6935/1.6935   1.9758/1.9758   1.9637/1.9637   1.9694/1.9694
+/// mupdf      2.0338/2.0338   1.9681/1.9681   1.9617/1.9617   1.9674/1.9674
+/// poppler    2.3290/2.3290   1.0216/2.0470   0.3900/2.0057   0.0528/1.9920
+/// ghostscr.  0.1275/2.0400   0.0000/2.8767   0.0000/2.3847   0.0000/2.1934
+/// ```
+///
+/// **Ours and `mupdf` are byte-identical across the pair at all four rungs** — `magick compare
+/// -metric AE` exactly 0, eight times — so neither reads the box at all. `ghostscript` loses the
+/// glyph at every rung and draws *exactly nothing* above 72 dpi. `poppler` is byte-identical at 72
+/// dpi and then diverges as the pixels shrink (AE 271, 1 648, 7 820), which is precisely the shape
+/// of its corpus ladder above. Both are clipping the marks to the declared box; one does it in
+/// device space with enough slack that a small page hides it.
+///
+/// That leaves what separates us from the *nearest* reference, and it is this file's other
+/// subject: a 0.8-device-unit stroke. Ours and `mupdf` agree to **0.002 of 255** at the synthetic
+/// page's limit (1.9694 against 1.9674) and to 0.033 on the corpus page's, which is
+/// `AMBIGUOUS_SUB_PIXEL_LINE_WORK`'s sentence and not a second finding.
+const AMBIGUOUS_DEGENERATE_GLYPH_BOX: [&str; 1] = ["issue14953.pdf page 1"];
+
 /// Ambiguous, and both pages are gradients on a page too small for a bound to be loose.
 ///
 /// `issue4706.pdf` is an A4 page of vector artwork and `issue18529.pdf` is 65×50 with a red
@@ -5691,6 +5858,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_OUTLINED_TEXT)
         .chain(&AMBIGUOUS_TILED_STROKES)
         .chain(&AMBIGUOUS_REFERENCE_DREW_NOTHING)
+        .chain(&AMBIGUOUS_DEGENERATE_GLYPH_BOX)
         .chain(&AMBIGUOUS_LOCA_OUT_OF_ORDER)
         .chain(&AMBIGUOUS_SPACE_DRAWN_AS_A_MARK)
         .chain(&AMBIGUOUS_NEAREST_THE_GEOMETRY)
