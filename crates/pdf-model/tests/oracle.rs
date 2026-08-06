@@ -1593,7 +1593,30 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// **Its sibling `issue269_1.pdf` is `AMBIGUOUS_DEVICE_CMYK_CONVERSION`**, four rounds earlier and
 /// for a reason nothing about the name would suggest: a common stem is a reason to look, not an
 /// answer. `issue840.pdf`'s two pages are the same caution inside one file.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 16] = [
+/// # A seventeenth, and the largest reduction the group has had, in the three-hundred-and-sixty-third
+///
+/// `issue12841_reduced.pdf` page 1 stood at the **head** of `doc/todo/00`'s ranking, 0.55 from the
+/// nearest reference and 9.36 from the furthest. It is one photograph of a mirror and nothing
+/// else: a **5280 × 3792** RGB `DCTDecode` at 144 ppi placed on a 612 × 792 page, so the image is
+/// reduced by about nine — three times the largest reduction any other member of this group
+/// carries.
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler       78.7713   78.2404
+/// mupdf         78.1782   78.2116
+/// ours (1x/8x)  78.1065   78.2101
+/// ```
+///
+/// **Three ladders inside 0.03 of 255**, and ours at 8× is **0.0015 from `mupdf`'s limit**. At the
+/// page's own scale — which is what the oracle judges — `poppler` is 0.53 *above* its own limit
+/// while ours is 0.10 under and `mupdf` 0.03 under, which is this group's sentence for the
+/// seventeenth time. The pairwise distances agree that the odd one out is not us: ours to `hayro`
+/// 0.0013 and to `mupdf` 0.0019, while `poppler` is 0.0098 to `mupdf`, 0.0101 to `hayro` and
+/// 0.0107 to ours — one renderer 0.01 from everybody, on a page where all five are within 0.66 of
+/// 255 in ink.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
+    "issue12841_reduced.pdf page 1",
     "issue269_2.pdf page 1",
     "blendmode.pdf page 1",
     "bug1703683_page2_reduced.pdf page 1",
@@ -5233,6 +5256,51 @@ const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 24] = [
     "pr12564.pdf page 1",
 ];
 
+/// Ambiguous because a barcode is a page of bars narrower than a pixel.
+///
+/// `issue8187.pdf` page 1 is 200 × 50 and holds one Code-39 barcode and nothing else. It sat
+/// second on `doc/todo/00`'s ranking at 0.54 from the nearest reference, and the ink says at once
+/// that the difference is not how much is drawn:
+///
+/// ```text
+/// ours 34.3200 │ poppler 34.3095 │ hayro 34.2825 │ mupdf 34.2105 │ ghostscript 26.7750
+/// ```
+///
+/// **Four renderers inside 0.11 of 255** — ours and `poppler` inside 0.011 — and one 7.5 below
+/// them all. So the area is agreed and the *distribution* is not, which is what a mean-per-pixel
+/// metric measures and an ink measurement cannot see.
+///
+/// The per-column profile is the instrument for a page of vertical bars, and it is the row
+/// profile of `doc/todo/00`'s step 6 turned ninety degrees:
+///
+/// ```text
+/// mean |ours - poppler| per column   5.76
+/// mean |mupdf - poppler| per column  5.25
+/// mean |gs - poppler| per column    29.46
+/// ```
+///
+/// **Our column-wise disagreement with `poppler` is the same size as another C renderer's**, and
+/// the columns say what the disagreement is: ours reads a flat 211 across the bar field where
+/// `poppler` alternates 181 and 237. That is the difference between spreading a sub-pixel bar
+/// across the pixels it covers and snapping it to one — §10.7.4's subject, and
+/// `doc/todo/_scan-conversion.md` is where this tree's choice is written down.
+///
+/// Step 6 closes it, and it closes `ghostscript` too:
+///
+/// ```text
+///                 72 dpi     576 dpi
+/// ours (1x/8x)    34.3200    34.3277
+/// poppler         34.3095    34.3022
+/// ghostscript     26.7750    33.4687
+/// ```
+///
+/// **The two ladders end 0.026 of 255 apart.** `ghostscript` climbs 6.7 of its 7.5 deficit as the
+/// pixels shrink, which is the proof that its outlier at the page's own scale is a scan-conversion
+/// choice — thin bars given a minimum width and less ink than they cover — rather than a different
+/// barcode. Its rasters were taken without a crop flag and are the same 1600 × 400 as the other
+/// two, which is the check `doc/todo/00`'s step 6 asks for before any number is believed.
+const AMBIGUOUS_SUB_PIXEL_BARS: [&str; 1] = ["issue8187.pdf page 1"];
+
 /// Ambiguous because five renderers set two thousand rows of five-point text.
 ///
 /// `issue1905.pdf` is a one-page poster — *TDF NUMBERS*, seven charts, three 3-D pie charts and a
@@ -5448,6 +5516,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)
         .chain(&AMBIGUOUS_GLYPH_SCAN_CONVERSION)
         .chain(&AMBIGUOUS_DENSE_CHART_POSTER)
+        .chain(&AMBIGUOUS_SUB_PIXEL_BARS)
         .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
         .chain(&AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG)
         .copied()
