@@ -147,7 +147,7 @@ fn the_boxes_are_on_the_page_and_read_left_to_right() {
 
 #[test]
 fn a_glyphs_box_is_as_wide_as_its_advance_and_as_tall_as_the_font() {
-    // The box is the advance by the font's own reach above and below the baseline (Table 122's
+    // The box is the advance by the font's own reach above and below the baseline (Table 120's
     // `/Ascent` and `/Descent`), mapped by §9.4.4's text rendering matrix. On an unrotated page
     // at the default scale that makes each box exactly the glyph's advance wide, so the boxes of
     // a word abut: the right edge of one is the left edge of the next, with no gap and no

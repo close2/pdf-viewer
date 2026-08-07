@@ -69,3 +69,18 @@ variant changes and every consumer fails to compile.
 
 **And a caret is the other half**, which is `33`'s: a truncation is what this looks like to a host
 that sends whole values, and *nothing happening as you type* is what the clause describes.
+
+## A field's baseline reads the same two entries with a weaker guard — **new in the three-hundred-and-seventy-eighth session**
+
+`Metrics::read` here and `pdf_font::vertical_extent` both build a line from Table 120's `/Ascent`
+and `/Descent`, and since ADR 0216 only the second of them asks whether the pair could be a
+measurement. This one's guard is `ascent > 0 && descent < 0`, which is stricter than the ordering
+ADR 0216 replaced and still accepts `/Ascent 4000 /Descent -1140` — a face `PDFJS-9279-reduced.pdf`
+states — and still refuses the 42 font dictionaries that write a `/Descent` without its sign, where
+the em-relative fallback stands in and the baseline lands somewhere the file did not ask for.
+
+**It was left alone deliberately**: this one *draws*, so sharing the band would move pixels, and the
+round that took ADR 0216 measured none. What it owes is small and known — call `measured_extent`,
+keep `DEFAULT_ASCENT`/`DEFAULT_DESCENT` as the fallback for a pair it rejects, and re-run the
+oracle and `variable_text`'s own ink gates before and after. `examples/font_metric_census` already
+counts the population.

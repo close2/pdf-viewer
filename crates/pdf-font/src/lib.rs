@@ -325,7 +325,7 @@ pub struct LoadedFont {
     widths: BTreeMap<u32, f32>,
     /// Advance for a code with no entry.
     default_width: f32,
-    /// Table 122's `/Ascent` and `/Descent`, in ems.
+    /// Table 120's `/Ascent` and `/Descent`, in ems.
     extent: (f32, f32),
     /// §9.7.4.3's second set of metrics, for a composite font in writing mode 1.
     vertical: Option<Vertical>,
@@ -731,7 +731,7 @@ impl LoadedFont {
         })
     }
 
-    /// Table 122's `/Ascent` and `/Descent`, in ems, for a caller measuring a line's height.
+    /// Table 120's `/Ascent` and `/Descent`, in ems, for a caller measuring a line's height.
     ///
     /// See [`vertical_extent`], including what a font that states neither gets and why.
     #[must_use]
@@ -2015,20 +2015,77 @@ struct SimpleMetrics<'a> {
     units_per_em: f32,
 }
 
-/// Builds a simple font's advance table, in thousandths of an em.
+/// The em, in the glyph-space units a font descriptor's dimensions are stated in.
 ///
-/// Three sources, in descending order of authority. `/Widths` is the document's own
-/// statement and always wins. Failing that — which only the standard 14 are allowed to do
-/// — the specification's published metrics for the face apply, which keeps the layout a
-/// property of the document rather than of this machine. Anything still unanswered falls
-/// to the substitute's own advances, which in practice means glyphs outside the standard
-/// character set.
+/// ISO 32000-2 §9.8.1 puts every entry of Table 120 in that space —
 ///
-/// Resolved once here rather than at each lookup, so [`LoadedFont::advance`] stays free of
-/// work and of allocation on the per-character path.
-/// How far a font's glyphs reach above and below the baseline, in ems.
+/// > All dimensional values shall be units in glyph space.
 ///
-/// ISO 32000-2 §9.8.1's Table 122 requires both entries of every font descriptor. `/Ascent`:
+/// — and §9.2.4 says how big one of them is:
+///
+/// > For all font types except Type 3, the units of glyph space are one-thousandth of a unit of
+/// > text space
+///
+/// A text space unit is the font size (§9.4.4), so a thousand glyph-space units is one em at
+/// whatever size the text is set. That is what makes a *band* on these entries derivable rather
+/// than invented: they are not free numbers, they are multiples of a fixed quantity.
+const EM: f32 = 1000.0;
+
+/// The height of one line of text, as the standard's own multiple of the font size.
+///
+/// §14.8.5.4.4's Table 380 defines a `/LineHeight` of `Normal` by leaving the value to the
+/// processor and then saying what a processor should choose:
+///
+/// > The meaning of the term "reasonable value" is left to the PDF processor to determine. It
+/// > should be approximately 1.2 times the font size, but this value may vary depending on the
+/// > export format.
+///
+/// The same entry's NOTE 1 says where that height comes from when nothing states it, and it is
+/// this crate's two entries:
+///
+/// > In the absence of a numeric value for LineHeight or an explicit value for the font size, a
+/// > reasonable method of calculating the line height from the information in a tagged PDF file
+/// > is to find the difference between the associated font's Ascent and Descent values (see 9.8,
+/// > "Font descriptors"), map it from glyph space to default user space (see 9.4.4, "Text space
+/// > details"), and use the maximum resulting value for any character in the line.
+///
+/// So the standard both states the arithmetic `/Ascent` − `/Descent` and states what its answer
+/// is worth in font sizes. This is the anchor [`measured_extent`] measures a stated pair against.
+///
+/// **The standard states the same quantity a second time and at a different number**, which is
+/// why the band around this one is a band rather than a tolerance. §9.2.2, on the size a font
+/// defines its glyphs at:
+///
+/// > A font defines the glyphs at one standard size. This standard is arranged so that the
+/// > nominal height of tightly spaced lines of text is 1 unit.
+///
+/// One unit of text space is one em, so that is the same height *tightly* spaced where Table 380
+/// is a line with room around it. Both readings are inside the band below, and neither was
+/// chosen because a corpus wanted it: 1.0 is what the em-box fallback in [`vertical_extent`]
+/// already was, on other grounds, before this constant existed.
+const REASONABLE_LINE: f32 = 1.2 * EM;
+
+/// How far from [`REASONABLE_LINE`] a stated pair may fall and still be believed.
+///
+/// **A choice, and the one number here that is not printed in the standard.** A factor of two
+/// each way accepts every line from 0.6 em to 2.4 em, which is a wider spread of faces than
+/// exists; what it rejects is a statement no measurement of a face could produce. The size of
+/// the factor is decided by the asymmetry of the two mistakes rather than by any corpus:
+/// disbelieving a true pair costs a highlight bounded by the em box, one the person can still
+/// see and still click, while believing a false one costs the highlight altogether or puts it on
+/// a line the person did not select. So the band is set wide enough that only a statement well
+/// outside every face falls out of it — and the cost of that width is that a pair which is wrong
+/// by less than a factor of two is still believed.
+const TOLERANCE: f32 = 2.0;
+
+/// The line a descriptor's `/Ascent` and `/Descent` measure, in ems, where they measure one.
+///
+/// Both arguments in glyph space, which is the unit §9.8.1 states Table 120's dimensions in; see
+/// [`EM`]. `None` means the pair cannot be a measurement of any face, and the caller answers
+/// with the em box instead.
+///
+/// Table 120's own definitions are what make this answerable at all, because each entry is
+/// defined as a *measurement of the font* rather than as a free parameter. `/Ascent`:
 ///
 /// > The maximum height above the baseline reached by glyphs in this font. The height of glyphs
 /// > for accented characters shall be excluded.
@@ -2038,14 +2095,72 @@ struct SimpleMetrics<'a> {
 /// > The maximum depth below the baseline reached by glyphs in this font. The value shall be a
 /// > negative number.
 ///
-/// Glyph space, so both are divided by a thousand (§9.2.2: "1/1000 of a unit in text space").
+/// Three conditions follow, in order:
+///
+/// - **the ascent is above the baseline.** A "maximum height above the baseline reached by
+///   glyphs" that is zero or negative describes a font whose glyphs reach nothing above the
+///   baseline, which is not a font anybody sets text in;
+/// - **the descent is not above it.** Zero is accepted as the statement that no glyph goes below
+///   the baseline, which is a thing a face can be;
+/// - **the line the two describe is within [`TOLERANCE`] of [`REASONABLE_LINE`]**, which is the
+///   height the standard itself calls reasonable for a line, computed the way the standard
+///   itself computes it.
+///
+/// **What that rejects is mostly a number in the wrong unit.** `/Ascent 8 /Descent -2` and
+/// `/Ascent 4000 /Descent -1140` are both in the corpus, and neither is a lie about a face so
+/// much as a face measured in a glyph space that is not §9.2.4's; the em box is the answer to
+/// both, because it is the one quantity that is defined whatever the file says.
+///
+/// # The one repair
+///
+/// A positive `/Descent` is read as the depth it states, with Table 120's sign convention put
+/// back. That is a **choice**, and the argument for it is that the entry's definition and its
+/// sign are two different sentences: "the maximum depth below the baseline reached by glyphs in
+/// this font" defines a depth, which is a magnitude, and "[t]he value shall be a negative
+/// number" is the convention for writing it down. A file that writes `905` and `211` for a face
+/// whose real metrics are 905 and −211 has broken the convention and stated the measurement, and
+/// this is by a distance the commonest malformed shape the corpus holds — **42 font dictionaries
+/// of 1629**, against 40 the band rejects outright. Refusing it would cost those fonts a
+/// highlight that stops at the baseline and misses every descender's tail; the cost of accepting
+/// it is that a file which meant something else by a positive descent gets a box the band already
+/// tolerates for anybody. Nothing here reads the *rendering* of a page, so a mistaken repair
+/// cannot move a glyph.
+///
+/// Public because two other things ask the same question the interpreter does: the gate over
+/// `pdf-model`'s selection geometry, and `font_metric_census`, which counts what the corpus
+/// states — and a census measuring a *copy* of the rule would measure something that can drift
+/// from it.
+#[must_use]
+pub fn measured_extent(ascent: f32, descent: f32) -> Option<(f32, f32)> {
+    let descent = if descent > 0.0 { -descent } else { descent };
+    let line = ascent - descent;
+    let band = REASONABLE_LINE / TOLERANCE..=REASONABLE_LINE * TOLERANCE;
+    let measured = ascent > 0.0 && band.contains(&line);
+    measured.then(|| (ascent / EM, descent / EM))
+}
+
+/// How far a font's glyphs reach above and below the baseline, in ems.
+///
+/// ISO 32000-2 §9.8.1's Table 120 requires both `/Ascent` and `/Descent` of every font
+/// descriptor, in glyph space, so both are divided by [`EM`].
 ///
 /// **This is not used to place anything.** It answers a question the standard does not ask —
 /// how tall is a line of this text — which a viewer needs to lay a selection highlight over a
 /// run of glyphs. Where a font states neither entry (the standard 14, which need no descriptor,
 /// and every malformed file) the answer is the em box, 1 above the baseline and 0 below: that is
-/// a *defined* quantity rather than a guess, and it is the one place a fallback here could
-/// invent a number.
+/// a *defined* quantity rather than a guess, and §9.2.2 is where it is defined —
+///
+/// > A font defines the glyphs at one standard size. This standard is arranged so that the
+/// > nominal height of tightly spaced lines of text is 1 unit.
+///
+/// — so the fallback is the standard's own nominal line, and it is the one place a fallback here
+/// could invent a number.
+///
+/// **A stated pair is believed only where it could be a measurement**, which is
+/// [`measured_extent`] and which the em box is also the answer to. The guard used to be
+/// `ascent > descent` — an ordering rather than a plausibility — and it accepted three shapes a
+/// scanned page's OCR layer routinely states, each of which puts a selection highlight where the
+/// text is not (ADR 0216).
 fn vertical_extent(document: &Document, descriptor: Option<&Dictionary>) -> (f32, f32) {
     let entry = |key: &str| {
         descriptor
@@ -2055,7 +2170,7 @@ fn vertical_extent(document: &Document, descriptor: Option<&Dictionary>) -> (f32
             .filter(|value| value.is_finite())
     };
     match (entry("Ascent"), entry("Descent")) {
-        (Some(ascent), Some(descent)) if ascent > descent => (ascent / 1000.0, descent / 1000.0),
+        (Some(ascent), Some(descent)) => measured_extent(ascent, descent).unwrap_or((1.0, 0.0)),
         _ => (1.0, 0.0),
     }
 }
@@ -2071,6 +2186,17 @@ fn missing_width(document: &Document, descriptor: Option<&Dictionary>) -> f32 {
         .map_or(DEFAULT_WIDTH, narrow)
 }
 
+/// Builds a simple font's advance table, in thousandths of an em.
+///
+/// Three sources, in descending order of authority. `/Widths` is the document's own
+/// statement and always wins. Failing that — which only the standard 14 are allowed to do
+/// — the specification's published metrics for the face apply, which keeps the layout a
+/// property of the document rather than of this machine. Anything still unanswered falls
+/// to the substitute's own advances, which in practice means glyphs outside the standard
+/// character set.
+///
+/// Resolved once here rather than at each lookup, so [`LoadedFont::advance`] stays free of
+/// work and of allocation on the per-character path.
 fn simple_widths(
     document: &Document,
     dict: &Dictionary,
@@ -4526,6 +4652,67 @@ mod missing_width_tests {
     }
 }
 
+/// The band on a descriptor's line, as arithmetic (ADR 0216).
+///
+/// Stated here rather than only through a fixture because the rule is arithmetic on two numbers:
+/// `crates/pdf-model/tests/selection_geometry.rs` checks that the rule reaches a quadrilateral,
+/// and these check the rule.
+#[cfg(test)]
+mod measured_extent_tests {
+    use super::measured_extent;
+
+    /// A face's real measurements are believed to the number, and the corpus's malformed shapes
+    /// are not.
+    ///
+    /// Every rejected row is a pair the corpus actually states — `font_metric_census` names the
+    /// document beside each — and every one of them passed the `ascent > descent` guard this
+    /// replaced.
+    #[test]
+    fn a_pair_is_believed_where_it_could_be_a_measurement() {
+        assert_eq!(measured_extent(718.0, -207.0), Some((0.718, -0.207)));
+        // Table 120 permits a face no glyph of which goes below the baseline.
+        assert_eq!(measured_extent(1000.0, 0.0), Some((1.0, 0.0)));
+
+        assert_eq!(measured_extent(0.0, -205.0), None, "zero_descent.pdf");
+        assert_eq!(measured_extent(8.0, -2.0), None, "bug868745.pdf");
+        assert_eq!(
+            measured_extent(4000.0, -1140.0),
+            None,
+            "PDFJS-9279-reduced.pdf"
+        );
+        assert_eq!(measured_extent(3116.0, -2463.0), None, "issue13193.pdf");
+        assert_eq!(measured_extent(282.0, 0.0), None, "pr4922.pdf");
+        assert_eq!(measured_extent(f32::NAN, -200.0), None, "not a number");
+    }
+
+    /// The band's own edges, which are §14.8.5.4.4's 1.2 em either multiplied or divided by two.
+    #[test]
+    fn the_band_is_closed_at_six_tenths_of_an_em_and_at_two_and_two_fifths() {
+        assert!(measured_extent(600.0, 0.0).is_some(), "0.6 em is inside");
+        assert!(
+            measured_extent(599.0, 0.0).is_none(),
+            "and just under is not"
+        );
+        assert!(measured_extent(2400.0, 0.0).is_some(), "2.4 em is inside");
+        assert!(
+            measured_extent(2401.0, 0.0).is_none(),
+            "and just over is not"
+        );
+    }
+
+    /// A `/Descent` written without Table 120's sign is the depth it states.
+    ///
+    /// 42 of the corpus's 1629 font dictionaries do this, and `905 211` is Arial's real metrics
+    /// with the sign dropped.
+    #[test]
+    fn a_positive_descent_is_read_as_a_depth() {
+        assert_eq!(measured_extent(905.0, 211.0), Some((0.905, -0.211)));
+        assert_eq!(measured_extent(891.0, 216.0), Some((0.891, -0.216)));
+        // The repair is not a licence: the band still applies to what it produces.
+        assert_eq!(measured_extent(100.0, 50.0), None, "still a sliver");
+    }
+}
+
 /// ISO 32000-2 §9.7.4.3's vertical metrics: `/DW2` and `/W2`, in glyph space.
 ///
 /// > Glyphs from a CIDFont may be shown in vertical writing mode. This is selected by the
@@ -4541,7 +4728,7 @@ mod missing_width_tests {
 struct Vertical {
     /// `/DW2`'s two numbers: the vertical component of `v`, then that of `w1`.
     ///
-    /// Table 122's default is `[880 -1000]`, and the sign is the clause's own NOTE: "a
+    /// Table 115's default is `[880 -1000]`, and the sign is the clause's own NOTE: "a
     /// negative value for the vertical component places the origin of the next glyph below
     /// the current glyph because vertical coordinates in a standard coordinate system
     /// increase from bottom to top".

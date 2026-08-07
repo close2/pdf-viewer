@@ -38,9 +38,8 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; two marks abutting across a cell's box edge; a hairline at the raster's edge | 3 |
 | [13](13-the-transfer-function.md) | §10.5's `/TR` decides what a screen shows, and this tree ignores it — the ledger's first `silent` row since session 35, and a question for the owner | 1 draws wrong |
-| [14](14-selection-over-a-bad-ocr-font.md) | Selection over a badly built OCR font: the vertical extent is invented and its guard only checks ordering — and no gate here can see it. Raised by the owner | unmeasured |
 | [21](21-font-substitution.md) | `Identity` orderings; a font reported as a whole; per-character fallback, with no witness left | 40 |
-| [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: a `/DA` font `/DR` lacks, a list box, and Table 231's `DoNotScroll` — a `shall` | 3 |
+| [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: a `/DA` font `/DR` lacks, a list box, a value a host cannot read back — and a field's baseline reading Table 120 with a weaker guard than ADR 0216's | 3 |
 | [23](23-transparency-departures.md) | §11.4, §11.5.3 and §11.6.6, each reported where it can change a pixel | 19 |
 | [24](24-image-sampling-intent.md) | Carry an image *and its sampling intent* to the backends — **the vocabulary is built and the mask is on it** (ADR 0210); JPEG 2000's resolution level and `render-gpu`'s sampled shading are what is left | 1 |
 | [25](25-view-dependent-annotations.md) | `/FixedPrint`, which waits on a printing path | 15 |

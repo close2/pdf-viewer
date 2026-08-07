@@ -6,7 +6,7 @@
 //!
 //! What it is built on is not a choice: `Interpretation::text_layer` is one entry per character
 //! code with the range of the readback it produced and the quadrilateral it occupies, both
-//! derived from §9.4.4's text rendering matrix and Table 122's font metrics (ADR 0118).
+//! derived from §9.4.4's text rendering matrix and Table 120's font metrics (ADR 0118).
 
 use pdf_model::content::Placed;
 
@@ -183,7 +183,63 @@ fn matches_at(text: &str, needle: &[char]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::find;
+    use super::{find, quads_for};
+    use pdf_model::content::Placed;
+
+    /// One line of an OCR layer: six glyph boxes, each `width` wide and `height` tall, abutting.
+    fn line(width: f32, height: f32) -> Vec<Placed> {
+        (0..6_usize)
+            .map(|index| {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "test code: six boxes, and the index is exact in f32"
+                )]
+                let left = index as f32 * width;
+                Placed {
+                    span: index..index.saturating_add(1),
+                    quad: [
+                        left,
+                        0.0,
+                        left + width,
+                        0.0,
+                        left + width,
+                        height,
+                        left,
+                        height,
+                    ],
+                }
+            })
+            .collect()
+    }
+
+    /// A run of glyphs on one line becomes one shape, and it needs the boxes to have a height.
+    ///
+    /// The merge in [`super::joins`] measures the gap it will step over against the *line's own
+    /// height*, so a layer whose boxes had no height would come back as one shape per glyph — a
+    /// highlight of six abutting rectangles under one alpha, with a seam at every edge, which is
+    /// the thing the merge exists to prevent. That makes this a consumer-side witness for
+    /// `pdf_font::measured_extent`: the band that keeps a font descriptor from stating a
+    /// zero-height line is what keeps this merge working (ADR 0216).
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "test code: the fixture's coordinates are whole numbers, exactly representable, \
+                  and the merge is expected to carry them across unchanged"
+    )]
+    fn one_line_of_an_ocr_layer_is_one_shape() {
+        let merged = quads_for(&line(10.0, 12.0), (0, 6));
+        assert_eq!(merged.len(), 1, "one run: {merged:?}");
+        assert_eq!(merged[0][0], 0.0, "from the first glyph's left edge");
+        assert_eq!(merged[0][2], 60.0, "to the last one's right");
+        assert_eq!(merged[0][5], 12.0, "with the line's height");
+
+        let slivers = quads_for(&line(10.0, 0.0), (0, 6));
+        assert_eq!(
+            slivers.len(),
+            6,
+            "a zero-height line cannot merge, which is why the extent has a band"
+        );
+    }
 
     /// Case folding, overlap and the character-boundary trap in one place.
     ///

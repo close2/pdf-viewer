@@ -2414,7 +2414,7 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 ///
 /// `issue9291.pdf` is 500 × 50 and its one line of text reads **"Non-embedded LucidaSans-Demi,
 /// should be bold."** That is a corpus document acting as a conformance test, which outranks
-/// every renderer here, and §9.8.1's Table 122 says where the answer comes from: the descriptor
+/// every renderer here, and §9.8.1's Table 120 says where the answer comes from: the descriptor
 /// gives `/FontWeight 700` and `/StemV 144`, with `/Flags 32` — nonsymbolic, and **no**
 /// ForceBold bit, so the weight is the whole of the evidence and it is unambiguous.
 ///

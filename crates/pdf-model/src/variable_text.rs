@@ -489,7 +489,7 @@ const LINE_HEIGHT: f32 = 13.0 / 12.0;
 ///
 /// **A choice.** Nothing in ISO 32000-2 says where in a field's box its text sits vertically —
 /// the clause asks only for "positioning values [the processor] determines to be appropriate".
-/// A font descriptor that states Table 122's `/Ascent` and `/Descent` is the document
+/// A font descriptor that states Table 120's `/Ascent` and `/Descent` is the document
 /// answering the question and outranks this; a standard-14 font has no descriptor at all, and
 /// this is what stands in. Splitting the em three-to-one puts the baseline where Latin text
 /// normally sits, and being a constant it makes the layout independent of which fonts are
@@ -701,7 +701,7 @@ struct Set<'a> {
 /// The identity text matrix, which is what a `/DA` stating no `Tm` leaves.
 const IDENTITY: [f32; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
-/// Table 122's `/Ascent` and `/Descent`, in text-space units where one em is 1.0.
+/// Table 120's `/Ascent` and `/Descent`, in text-space units where one em is 1.0.
 struct Metrics {
     ascent: f32,
     descent: f32,
@@ -710,7 +710,7 @@ struct Metrics {
 impl Metrics {
     /// Reads the font descriptor's vertical metrics, or falls back to the documented split.
     ///
-    /// Table 122: `/Ascent` is "the maximum height above the baseline reached by glyphs in
+    /// Table 120: `/Ascent` is "the maximum height above the baseline reached by glyphs in
     /// this font" and `/Descent` "the maximum depth below the baseline", both in glyph space,
     /// whose unit is one thousandth of an em. Both are required of every font descriptor and
     /// a descriptor is required of every font but the standard 14 — which is exactly the case

@@ -304,7 +304,7 @@ pub struct Interpretation {
     ///
     /// **Nothing in ISO 32000-2 asks for this.** Selecting text is not a thing the standard
     /// describes; what it describes is where a glyph is drawn (§9.4.4's text rendering matrix)
-    /// and how tall the font's glyphs are (Table 122's `/Ascent` and `/Descent`), and this is
+    /// and how tall the font's glyphs are (Table 120's `/Ascent` and `/Descent`), and this is
     /// those two, per code, kept rather than discarded.
     ///
     /// Includes text in rendering modes 3 and 7 — the invisible ones — because that is exactly
@@ -5000,8 +5000,8 @@ impl Interpreter<'_> {
         // end: see `tally_glyph` for why it is not applied per code.
         let mut coverage = Coverage::default();
 
-        // Table 122's `/Ascent` and `/Descent`, which say how tall this font's line is. Read
-        // once per show operation: they are a property of the font. Table 122 requires neither
+        // Table 120's `/Ascent` and `/Descent`, which say how tall this font's line is. Read
+        // once per show operation: they are a property of the font. Table 120 requires neither
         // of a Type 3 font, so its box is the em box.
         let extent = match &font {
             Font::Program(program) => program.extent(),

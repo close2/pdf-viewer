@@ -14,7 +14,7 @@
 //! # Which font of the collection, and why that is a derivation rather than a choice
 //!
 //! The container holds several faces, so reading one is a decision — and the file makes it.
-//! Table 122 gives the descriptor a `/FontName`, which §9.6.2.1 requires to be "the PostScript
+//! Table 120 gives the descriptor a `/FontName`, which §9.6.2.1 requires to be "the PostScript
 //! name of the font", and every face in a collection carries its own PostScript name in its
 //! `name` table. Matching the two is reading the document rather than guessing at it, and it is
 //! what [`extract`] does; **taking face zero is the fallback and it is recorded as one**,

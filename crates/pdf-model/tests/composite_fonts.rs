@@ -330,7 +330,7 @@ fn a_predefined_cmap_is_resolved_by_name() {
 /// the horizontal origin to the vertical one.
 ///
 /// `vertical.pdf` sets two columns down the right edge of a page, and it states no `/W2` at
-/// all — so what places its glyphs is Table 122's default `/DW2` of `[880 -1000]`, one em
+/// all — so what places its glyphs is Table 115's default `/DW2` of `[880 -1000]`, one em
 /// down per glyph and a position vector of half the glyph's width across.
 #[test]
 #[expect(
