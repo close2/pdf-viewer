@@ -546,6 +546,60 @@ fn a_free_text_annotation_draws_its_contents() {
     );
 }
 
+/// Table 177's `/RC` generates the appearance where the file states no `/Contents` (§12.5.6.6).
+///
+/// > A rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification,
+/// > version 3.3 ) that shall be used to generate the appearance of the annotation.
+///
+/// A `shall` about this annotation's own marks, which is what separates it from the entry of the
+/// same name on Table 172: the NOTE beside it says "[a]s freetext annotations do not have an open
+/// state this cannot apply to the popup window". The characters are taken and the XFA markup is
+/// not, which is ADR 0199's reading applied to the second of the standard's two `/RC` entries.
+/// Nothing in the corpus reaches this — 22 free text annotations state `/RC` and every one of
+/// them also states `/Contents` (`examples/markup_text_census`) — so this test is the whole
+/// defence. ADR 0224.
+#[test]
+fn a_free_text_annotations_rich_text_draws_where_it_states_no_contents() {
+    let (reports, raster) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 \
+         /RC (<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>visible</p></body>) \
+         /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+    let (start, end) = ink_span(&raster);
+    assert!(
+        start >= 20 && end <= 180,
+        "the rich text escaped the annotation: {start}..{end}"
+    );
+}
+
+/// `/Contents` outranks `/RC`, which is §12.5.6.2's NOTE 1 read for this subtype.
+///
+/// > When both Contents and RC entries are present, it is expected that the contents of both
+/// > entries are textually equivalent.
+///
+/// Expected rather than required, so the two can disagree — and the plain string is the one this
+/// crate can hand over without reading a specification it does not have. The fixture makes them
+/// disagree in *width*, which is the only thing a raster can be asked: a one-character
+/// `/Contents` beside a long `/RC` must ink like the short one.
+#[test]
+fn a_free_text_annotations_contents_outranks_its_rich_text() {
+    let (reports, raster) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (i) \
+         /RC (<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>wwwwwwwwwwwwwwww</p></body>) \
+         /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+    let (start, end) = ink_span(&raster);
+    let width = end.saturating_sub(start);
+    assert!(
+        width < 20,
+        "the /Contents is one narrow character; /RC must not have been laid out: {start}..{end}"
+    );
+}
+
 /// Table 224's `/NeedAppearances` rewrites the `/Tx` region and leaves the rest (§12.7.4.3).
 ///
 /// > The interactive PDF processor shall then replace the existing contents of the appearance

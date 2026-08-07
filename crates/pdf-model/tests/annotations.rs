@@ -756,11 +756,20 @@ fn a_widget_stating_no_appearance_characteristics_draws_nothing_and_reports_noth
     );
 }
 
-/// A widget with a background draws it *and* reports the value it cannot set.
+/// A widget with a background draws it *and* reports the value it cannot lay out.
 ///
-/// Table 192's `/BG` is derivable and §12.7.4.3's variable text is not, so both statements are
-/// made: the frame is on the page and the text is named as missing. Suppressing either would
-/// lose information — the same pairing `/NeedAppearances` and `/Matte` already use.
+/// Table 192's `/BG` is derivable and this fixture's value is not, so both statements are made:
+/// the frame is on the page and the text is named as missing. Suppressing either would lose
+/// information — the same pairing `/NeedAppearances` and `/Matte` already use.
+///
+/// **What makes the value underivable here is the absence of a `/DA`, not §12.7.4.3.** This
+/// comment said "§12.7.4.3's variable text is not [derivable]" until the
+/// three-hundred-and-eighty-seventh session, and it had been false since the twenty-third:
+/// `appearance::field_text` lays a text field's `/V` out. The fixture states no `/DA` anywhere up
+/// its chain, which is `variable_text::Owed::NoFont` — one of the eight cases that still report —
+/// and the clause named in the report is §12.7.4.3 because that is the clause requiring the entry:
+/// "[a]t a minimum, the string shall include a Tf (text font) operator along with its two
+/// operands". §12.5.6.19's ledger row carried the same misreading for the same reasons.
 #[test]
 fn a_widget_draws_its_background_and_reports_its_field_value() {
     let interpretation = interpret(pdf_with(

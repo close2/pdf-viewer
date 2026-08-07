@@ -226,7 +226,7 @@ pub(crate) enum Done {
         kind: pdf_model::view::Markup,
         /// Table 166's `/C`.
         colour: [f32; 3],
-        /// Table 179's `/QuadPoints`, one entry per run of a line.
+        /// Table 182's `/QuadPoints`, one entry per run of a line.
         quads: Vec<[f32; 8]>,
     },
 }

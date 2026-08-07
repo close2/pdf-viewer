@@ -4,11 +4,14 @@
 //! cargo run -p pdfref -- [--dpi N] [--work-dir DIR] <file.pdf>...
 //! ```
 //!
-//! # Why this is useful before we can render a PDF ourselves
+//! # Why this maps the references against each other and not against us
 //!
-//! Our own renderer needs a parser, which does not exist yet, so this cannot compare
-//! *us* against anything. What it can do is map the ground where the references
-//! themselves disagree — and that map is worth having in advance.
+//! **This paragraph said "[o]ur own renderer needs a parser, which does not exist yet" until the
+//! three-hundred-and-eighty-seventh session**, which was true when the tool was written and false
+//! from the round that opened a document. What is still true is the division of labour, and it is
+//! deliberate rather than left over: comparing *us* against the references is
+//! `pdf-model`'s oracle gate (ADR 0011), which votes and ratchets; this program votes on nothing
+//! and answers the prior question — where the references disagree with **each other**.
 //!
 //! Every file the references disagree on is a page where the specification is ambiguous,
 //! or where at least one implementation is wrong. Those are exactly the pages that would

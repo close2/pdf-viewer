@@ -162,7 +162,9 @@ pub enum Markup {
 }
 
 impl Markup {
-    /// Table 179's `/Subtype` for this markup.
+    /// Table 182's `/Subtype` for this markup, which the table requires to be one of
+    /// `Highlight`, `Underline`, `Squiggly` or `StrikeOut`. (This cited Table 179 — the line
+    /// ending styles — until the three-hundred-and-eighty-seventh session.)
     const fn subtype(self) -> &'static [u8] {
         match self {
             Self::Highlight => b"Highlight",

@@ -434,7 +434,7 @@ pub enum Layer {
     Group {
         /// The group's object, which is what [`crate::Command::SetGroup`] names.
         group: ObjectId,
-        /// Table 98's `/Name`. ISO 32000-2 §8.11.2.1:
+        /// Table 96's `/Name`. ISO 32000-2 §8.11.2.1:
         ///
         /// > The name of the optional content group, suitable for presentation in an
         /// > interactive PDF processor's user interface.

@@ -73,7 +73,7 @@ how this project has been wrong four times.
 
 ## 4. Sweep, after a round that adds a verb
 
-**Four** greps and one piece of arithmetic now, twenty lines of Python apiece, each of which has paid on its first run: a
+**Four** greps, one piece of arithmetic and four more that are neither, twenty lines of Python apiece, each of which has paid on its first run: a
 note whose stated blocker has expired ("while §X does not exist", "needs §Y"), a note claiming an
 entry is unread where the tree reads it, a note whose reason is a *capability* — "this program
 has no ___", "no panel", "which this is not" — and the string a correction retired, grepped over
@@ -81,6 +81,13 @@ every *other* row. The third found a `shall` binding for fifty-six sessions; the
 §8.9.6.1 still carrying a sentence §11.6.4.3 had retired fourteen sessions earlier.
 
 **The arithmetic one needs no round to justify it**: print every ledger row that is `partial`, `reported` or `unreviewed` while every one of its direct children is settled. Its first run found five and four were wrong, three of them in a shape no grep can see — the note corrected and the status left behind.
+
+**Nine now, and the ninth checks a *number* rather than a claim**: every `Table NNN`'s `/Key`
+citation, against the entries ISO 32000-2 actually puts in that table. `tools/conformance` verifies
+a cited table *exists* and prints its title; a number that exists and names the wrong table reads
+exactly like a right one, and it arrives in **blocks** — a run of consecutive rows written in one
+sitting against the older standard. Its first run, in the three-hundred-and-eighty-seventh,
+corrected nine ledger rows and five source comments. It is not a gate and `doc/todo/01` says why.
 
 **And run all four greps over `crates/` as well as over `ledger.toml`.** The ledger has a gate and the
 source does not, which is why the two-hundred-and-twenty-first session found four claims in the

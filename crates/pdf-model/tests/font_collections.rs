@@ -1,6 +1,6 @@
 //! A `TrueType` Collection embedded where ISO 32000-2 §9.9 states a font program.
 //!
-//! Table 127 makes `/FontFile2` "a TrueType font program"; a collection is a *container* of
+//! Table 124 makes `/FontFile2` "a TrueType font program"; a collection is a *container* of
 //! several, introduced by a `ttcf` header rather than by a table directory, so a file embedding
 //! one is malformed. Two of the pdf.js corpus's first pages do it, and until the
 //! hundred-and-fifty-seventh session both drew no text at all and said `Invalid sfnt version

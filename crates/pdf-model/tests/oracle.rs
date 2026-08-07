@@ -2381,7 +2381,7 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// reference.
 ///
 /// **The positioning is the document's and every renderer here honours it, which is checkable
-/// and checked.** Table 111 makes `/Widths` "the glyph width for the character code that equals
+/// and checked.** Table 109 makes `/Widths` "the glyph width for the character code that equals
 /// FirstChar plus the array index", in thousandths of text space. `NuptialScript`'s array gives
 /// `N` 778, so at 20 pt the second glyph starts 15.56 points along — and `mutool`'s own
 /// structured text puts it at 25.560 against an origin of 10.000. Every one of the five
@@ -3009,7 +3009,7 @@ const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
 /// border — §12.5.5 settles it: "[a]n annotation may define as many as three separate
 /// appearances", the normal one "shall be used when the annotation is not interacting with the
 /// user", and §12.5.2's obligation is to draw it. A stated appearance outranks the entries a
-/// border would be *built* from, and Table 174's `/Border` and Table 166's `/C` are exactly
+/// border would be *built* from, and Table 166's `/Border` and `/C` are exactly
 /// those entries. Ours, `mupdf` and `hayro` draw the empty stream; `poppler` and `ghostscript`
 /// synthesise a border anyway.
 ///
@@ -5883,7 +5883,7 @@ const AMBIGUOUS_GRADIENT_BAND_EDGES: [&str; 1] = ["issue6769_no_matrix.pdf page 
 /// > Outside the transparency group's bounding box, the mask value shall be derived by
 /// > transforming the BC colour to luminosity and applying the transfer function to the result.
 ///
-/// with Table 145's `/BC` absent and its default "the colour space's initial value, representing
+/// with Table 142's `/BC` absent and its default "the colour space's initial value, representing
 /// black" — luminosity 0, so nothing is painted there. And §8.10.2 puts the box in the *form's*
 /// coordinate space, which here is the rotated one: the `gs` that sets the mask is executed after
 /// `0.9848077 0.17364818 -0.17364818 0.9848077 0 0 cm`.

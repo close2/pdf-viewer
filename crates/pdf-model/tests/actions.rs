@@ -286,7 +286,7 @@ fn an_annotations_trigger_events_perform_their_actions() {
     );
 }
 
-/// §12.6.3's one precedence rule: Table 197's `/A` beats `/AA /U`.
+/// §12.6.3's one precedence rule: Table 166's `/A` beats Table 197's `/AA /U`.
 ///
 /// > For backward compatibility, the A entry in an annotation dictionary, if present, takes
 /// > precedence over this entry

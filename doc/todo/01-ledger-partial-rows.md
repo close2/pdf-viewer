@@ -1,10 +1,11 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~147 of the 240 rows have not been re-read — 29 more went in the
-three-hundred-and-seventy-fifth. **The eighth sweep, at the bottom, is the first to check that a
-note's *citations* still exist**, and its first run found the dangling `doc/todo/20` this file had
-carried as owed for fifteen sessions, plus six dead pointers in `crates/` that nothing had ever
-looked for.
+Status: **standing task.** ~140 of the **249** rows have not been re-read — 29 went in the
+three-hundred-and-seventy-fifth and 16 in the three-hundred-and-eighty-seventh, against a
+population that grew by 9 in between. **The ninth sweep, at the bottom, is the first to check that
+a citation names the *right* table**, and its first run corrected nine ledger rows and nine source
+comments — a whole block of §12.5.6's annotation tables and a whole block of §14.8.5's attribute
+tables, every one of them ISO 32000-1's number for something else.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -17,7 +18,7 @@ three-hundred-and-sixtieth to the three-hundred-and-sixty-ninth, when Annex O wa
 fails the build the moment a cited-but-unread clause appears, and `FILE_ONLY_EVIDENCE_CEILING` is
 zero and asserted with `==`.
 
-What no gate can watch is a **note that has gone stale**, and the 240 `partial` rows are where
+What no gate can watch is a **note that has gone stale**, and the 249 `partial` rows are where
 those live. Six failure shapes, in the order they were found:
 
 1. A note that *understates* what the code does (five in session 115).
@@ -542,6 +543,126 @@ unnamed and is called by `examples/confined_panels`. The sweep greps `crates/*/s
 neither — so a function whose only caller is a *demonstration* reads as unread. That is the right
 default (an example is not a host) and it is worth knowing the sweep cannot see one.
 
+## All eight run again in the three-hundred-and-eighty-seventh, after eleven rounds with no sweep
+
+The longest gap this file has had. `viewer-accessibility` (376), a signature's DER and CMS (377),
+a font-metric band and a selection gate (378), §11.5.3's device branch and its residues (380, 383),
+a confined interpreter and rasteriser (381, 386), `--backend` and `--cpu` (384) had all landed
+since the last run. Over `ledger.toml` and over `crates/`:
+
+- **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, both of which this file already records as
+  read and kept. Clean.
+- **Expired blockers**: 7 over the ledger and 25 over `crates/`. Three of the ledger's are the
+  quoted retired wording inside a correction; §12.10.2's wait on §12.10.3 and §12.5.6.22's on
+  printing are real. **Two source hits were live**, and both are below.
+- **Entries claimed unread**: 14, twelve of them the known one-short-key-three-clauses population.
+  **The thirteenth was §12.5.6.6's `/RC`** and it is the round's implementation.
+- **Capability reasons**: 33 over the ledger, 108 over `crates/`, and every source hit was a true
+  statement about a boundary a crate keeps — no clock, no filesystem, no toolkit, no trust store,
+  no printer. §12.8.2.3's "this program has no feature behind such a gate" reads like the sentence
+  §12.8.6's row was corrected for in the hundred-and-ninety-first and is not: it is about the
+  *granting* half, and both rows say so in the same words on purpose.
+- **Retired claim**, run over the nouns eleven rounds gave the tree — `AccessKit`, `DER`, `CMS`,
+  `luminosity`, `backend`, `confined`, `variable text`, `/RC`. Clean but for `/RC`, which paid
+  for the third time.
+- **Caller sweep**: 231 `pub fn`s in `pdf-model`, 84 named by no host — the same numbers and the
+  same three populations as the three-hundred-and-eighty-sixth, `Collection::initial_document`
+  included and still open (`doc/todo/34`).
+- **`inapplicable` (sweep 7)**: 25 of 83 rows name vocabulary the source names, and none was
+  wrong. Annex Q's five are worth recording as the strongest kind of `inapplicable` there is —
+  each carries the annex's own NOTE saying "this method is not required by this document".
+- **Citations (sweep 8)**: clean. Two hits, both §8.9.6.1 quoting the `doc/todo/20` its own
+  correction retired, which is this sweep's known false positive.
+
+**And the first sweep's ledger hit is the longest-lived stale claim this file has recorded: 364
+sessions.** §12.5.6.19 said "[w]hat is owed is the value: a text field's /V, a check box's or radio
+button's state, and a push-button's /CA caption all need §12.7.4.3's variable text, so a widget
+holding one draws its frame and reports the rest". It was written in the **twenty-first** session,
+when constructing an appearance arrived, and it was false from the **twenty-third**, two commits
+later, when `variable_text::lay_out` did. `appearance::field_text` lays out all three.
+
+Three things make this the sweeps' own shape rather than an accident:
+
+- **The row was corrected four times after the sentence went false** — sessions 105, 132, 138 and
+  253 all added to it, by appending. Failure shape 6, and this is its record holder.
+- **Its `test` array names a test that reads as confirmation and is not.**
+  `a_widget_draws_its_background_and_reports_its_field_value` states no `/DA` anywhere, so the
+  report it asserts is `Owed::NoFont` — one of the eight cases that genuinely still report — and
+  the test's *own doc comment* had drifted into repeating the row's claim. A row and the evidence
+  it cites can go stale together, because the same session writes both.
+- **No grep in this file finds it from the ledger side.** "need §12.7.4.3's variable text" is the
+  first sweep's shape only because §12.7.4.3 is a clause number; the sentence names no capability,
+  no retired string and no unread key.
+
+**Two live source hits from the first sweep**, neither of which any ledger row could have shown:
+
+- **`tools/pdfref/src/main.rs`** opened "[o]ur own renderer needs a parser, which does not exist
+  yet, so this cannot compare *us* against anything" — true when the tool was written and false
+  from the round that opened a document. The division of labour it describes is still real, so
+  what replaced it says *why* the tool compares the references with each other rather than
+  claiming it cannot do otherwise.
+- **`annotations.rs`'s `a_widget_draws_its_background_and_reports_its_field_value`** said "Table
+  192's `/BG` is derivable and §12.7.4.3's variable text is not". The second half is the same
+  claim §12.5.6.19's row carried, below, and it lived in the *test the row cites as its evidence*.
+
+## A ninth sweep, and it is the first to check that a citation names the **right** table
+
+The eight above read what a row claims, what it points at, and what its vocabulary implies. None
+of them reads a *number*. `tools/conformance` checks that a cited table **exists** and prints its
+title — a check the eighty-second session added after finding three ISO 32000-1 numbers in the
+ledger — and a number that exists and names the wrong table reads exactly like a right one.
+
+Twenty lines: parse every `Table N -Title` heading out of `doc/md/ISO_32000-2_sponsored_EC3.md`
+with its first-column keys, then take every `Table NNN`'s `/Key` citation in `ledger.toml` and in
+`crates/` and ask whether that key is one of that table's entries.
+
+**Its first run produced 94 suspects, and eighteen were wrong.** Most of the rest are prose that
+names a table and then a key belonging to the dictionary the table describes rather than to the
+table itself ("Table 227's `/Ff`", where 227 is the flags inside `/Ff` and 226 is the entry) —
+read the hit before believing it, as with every sweep here.
+
+Nine of the eighteen are two **blocks**, which is what makes this sweep different from the others: a wrong
+table number does not arrive alone, it arrives as a run of consecutive rows written in one sitting
+against the older standard.
+
+| row or file | said | ISO 32000-2 |
+|---|---|---|
+| §12.5.6.17 movie | Table 188, and a `/Aw` | Table **189**; there is no `/Aw` anywhere in the standard |
+| §12.5.6.18 screen | Table 189, and a `/P` | Table **190**, whose five entries do not include `/P` |
+| §12.5.6.19 widget | Table 192's `/H` | Table **191**'s; 192 is the `/MK` dictionary the rest of the row is about |
+| §12.5.6.20 printer's mark | Table 190's `/MN` | Table **398**'s — which §14.11.3's row already said |
+| §12.5.6.22 watermark | Table 191's `/FixedPrint` | Table **193**'s, whose value is Table 194 |
+| §14.8.5.5 list | Table 381 | Table **382** |
+| §14.8.5.7 table | Table 383 | Table **384** |
+| §14.8.5.8 artifact | Table 384, with a `/Subtype` | Table **385**, which has two entries; `/Subtype` is Table 363's |
+| §14.11.7 OPI | Table 402's `/OPI` | Tables 87 and 93 state the entry; **405** is its value |
+| `pdf-font/src/collection.rs` | Table 127 defines `/FontFile2` | Table **124** |
+| `pdf-model/tests/font_collections.rs` | the same sentence | Table **124** |
+| `pdf-model/tests/oracle.rs` | Table 111 defines `/Widths` | Table **109** — and the quotation beside it is 109's |
+| `pdf-model/tests/oracle.rs` | Table 174's `/Border` | Table **166**'s, beside the `/C` the same sentence puts there |
+| `pdf-model/src/view.rs` | Table 179's `/Subtype` | Table **182**'s; 179 is the line ending styles |
+| `pdf-model/tests/oracle.rs` | Table 145's `/BC` | Table **142**'s; 145 is the group attributes |
+| `viewer-core/src/open.rs` | Table 179's `/QuadPoints` | Table **182**'s — the same pair as `view.rs` |
+| `viewer-core/src/query.rs` | Table 98's `/Name` | Table **96**'s, which is the clause its own blockquote cites |
+| `pdf-model/tests/actions.rs` | Table 197's `/A` | Table **166**'s; 197 is where the `/AA /U` it beats lives |
+
+**§12.5.6.23's own note is why this sweep should have been run two hundred and eighty sessions
+ago.** It says, in the row: "[t]he row previously cited "Table 193", which is the watermark
+annotation's table and an ISO 32000-1 number; the redaction table is 195." The hundred-and-fifth
+session found *one* of these, named the mechanism exactly, corrected its own row, and swept
+nothing. Four of its immediate neighbours were carrying the same error, and one of them —
+§12.5.6.22 — is the very watermark row whose table number §12.5.6.23 had been given by mistake.
+
+**What it adds to the method**: a sweep is worth building the moment a correction names a
+*mechanism* rather than a sentence, and "an ISO 32000-1 number" is a mechanism. The other place
+this rule has already paid is the fourth sweep's "run it over the noun, not the string".
+
+**A gate is not the answer here and that is a decision, not a deferral.** 94 suspects and 18
+defects is the wrong ratio for a build failure, and tightening the heuristic enough to gate would
+mean deciding which of English's ways of saying "the flags in Table 227's `/Ff`" are legitimate —
+a checker that has to be right every time, which is the standard `citation.rs` already sets itself
+for `another_document`. It stays a sweep, and it is cheap: one run is under a second.
+
 ## What is still owed, named
 
 - ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).
@@ -550,7 +671,17 @@ default (an example is not a host) and it is worth knowing the sweep cannot see 
   all four corpus documents carrying a `/UR3` grant what this program does, so no file here can
   trip it. What is still owed under §12.8.2.3 is §12.8.2.2.2's comparison of two revisions, which
   needs the digest.
-- **~147 `partial` rows** not yet re-read against the code.
+- **~140 `partial` rows** not yet re-read against the code, of 249.
+- ~~**§12.5.6.6's `/RC`**~~ — closed in the three-hundred-and-eighty-seventh by the second sweep
+  (ADR 0224). It is the **fourth** row to have carried "`/RC` … is XFA rich text, which principle 5
+  excludes", after §12.5.6.2's in the three-hundred-and-forty-second and §12.5.2's in the
+  three-hundred-and-seventy-fifth — and the first where the sentence hid a *different* `shall`:
+  Table 177's `/RC` "shall be used to generate the appearance of the annotation", so a free text
+  annotation stating only that entry drew a blank page.
+- **§12.5.6.19's seven unread Table 192 entries** — `/I`, `/RI`, `/IX`, `/IF`, `/AC`, `/RC` and
+  `/TP`, a push-button's three icons, their fit, its two other captions and where the caption sits
+  relative to the icon. They are what keeps that row `partial` now that the false claim above it
+  is gone, and they were nowhere in the row until the three-hundred-and-eighty-seventh session.
 - ~~**Annex I.2's version number**~~ — closed in the three-hundred-and-sixty-first session, the
   round after the sweep that found it (ADR 0207). It was worth one line here for exactly one round:
   a `should` nobody had read, two lines from a parser already standing on the number.

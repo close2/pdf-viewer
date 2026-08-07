@@ -212,7 +212,22 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
 /// XML, exceeds [`MAX_RICH_TEXT`], or carries no characters at all — a window with nothing to
 /// show is the same answer as no entry, and a malformed one may not become a refusal of the
 /// window itself.
-fn rich_text(document: &Document, dict: &Dictionary) -> Option<String> {
+///
+/// # Two tables spell `/RC`, and this reads both
+///
+/// Table 177 states the entry a second time, on a free text annotation, and its sentence is a
+/// different `shall` — §12.5.6.6:
+///
+/// > A rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification,
+/// > version 3.3 ) that shall be used to generate the appearance of the annotation.
+///
+/// The same NOTE says why the two cannot be one function's two callers by accident: "[a]s
+/// freetext annotations do not have an open state this cannot apply to the popup window as
+/// described for the RC key in "Table 172 - Additional entries in an annotation dictionary
+/// specific to markup annotations"." So the *characters* are extracted identically and the
+/// destination differs — a window here, the page in [`crate::appearance`] — which is why this is
+/// `pub(crate)` rather than inlined (ADR 0224).
+pub(crate) fn rich_text(document: &Document, dict: &Dictionary) -> Option<String> {
     let value = document.get_key(dict, "RC");
     let bytes: Vec<u8> = match &value {
         pdf_syntax::Object::String(bytes) => bytes.to_vec(),

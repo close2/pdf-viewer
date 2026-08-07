@@ -2064,14 +2064,34 @@ pub(crate) fn accepted_prefix(
 /// 166's `/C` is the icon background, the popup title bar and a link's border, none of which a
 /// free text annotation has. So a border is refused on the same grounds as §12.5.6.10's marks,
 /// and reported only where a width is stated for it.
+///
+/// # Where the text comes from, and Table 177's second source for it
+///
+/// Table 166's `/Contents` first, and Table 177's `/RC` where the file states none. That entry is
+/// a `shall` about *this annotation's appearance* rather than about a window — §12.5.6.6:
+///
+/// > A rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification,
+/// > version 3.3 ) that shall be used to generate the appearance of the annotation.
+///
+/// and its own NOTE separates it from the identically named entry [`crate::popup`] reads: "As
+/// freetext annotations do not have an open state this cannot apply to the popup window as
+/// described for the RC key in "Table 172 - Additional entries in an annotation dictionary
+/// specific to markup annotations"." ADR 0199's reading carries over unchanged — the *characters*
+/// are what the clause requires and the XFA markup is what `CLAUDE.md` excludes — and the
+/// ordering is §12.5.6.2 NOTE 1's, which makes the two "textually equivalent" where a file states
+/// both, so no document stating `/Contents` changes at all. ADR 0224.
+///
+/// Until the three-hundred-and-eighty-seventh session a free text annotation stating only `/RC`
+/// drew nothing and reported nothing, which on this subtype is a blank page: the text *is* the
+/// annotation.
 fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
     let rect = rectangle(document, annotation)?;
-    let Some(text) = variable_text::string(document, &[annotation], "Contents") else {
+    let text = variable_text::string(document, &[annotation], "Contents")
+        .filter(|contents| !contents.is_empty())
+        .or_else(|| crate::popup::rich_text(document, annotation));
+    let Some(text) = text.filter(|text| !text.is_empty()) else {
         return Ok(Painted::EMPTY);
     };
-    if text.is_empty() {
-        return Ok(Painted::EMPTY);
-    }
 
     let form = interactive_form(document).unwrap_or_default();
     let sources = [annotation, &form];

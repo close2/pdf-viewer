@@ -1,6 +1,6 @@
 //! A `TrueType` Collection embedded where ISO 32000-2 §9.9 states a font program.
 //!
-//! Table 127 says what `/FontFile2` holds:
+//! Table 124 says what `/FontFile2` holds:
 //!
 //! > ( PDF 1.1 ) TrueType font program, as described in the TrueType Reference Manual .
 //!
