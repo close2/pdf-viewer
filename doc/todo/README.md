@@ -37,6 +37,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [01](01-ledger-partial-rows.md) | Read the ledger's 240 `partial` rows against the code — and the seven sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
 | [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; two marks abutting across a cell's box edge; a hairline at the raster's edge | 3 |
+| [12](12-a-strip-that-moves-a-pixel.md) | ADR 0139's "the picture does not depend on how it was divided" is false by one pixel on a committed document — one strip against any number above one, found by the confined viewer (ADR 0218) | 0 corpus, 1 committed |
 | [13](13-the-transfer-function.md) | §10.5's `/TR` decides what a screen shows, and this tree ignores it — the ledger's first `silent` row since session 35, and a question for the owner | 1 draws wrong |
 | [21](21-font-substitution.md) | `Identity` orderings; a font reported as a whole; per-character fallback, with no witness left | 40 |
 | [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: a `/DA` font `/DR` lacks, a list box, a value a host cannot read back — and a field's baseline reading Table 120 with a weaker guard than ADR 0216's | 3 |
@@ -50,7 +51,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` — **built and read back off a real AT-SPI bus** (ADR 0214); a `TH`'s axis, a `Form`'s control role, the `Text` interface and actions are what is left | — |
 | [32](32-presentation-player.md) | Draw a transition's frames | — |
 | [33](33-annotation-editing.md) | Free text, and a click that places the caret inside a value — §12.5.6.10's markup, §14.8.2.5's logical order and the caret itself are done | — |
-| [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser, not only the codecs | — |
+| [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser — **built and drawing real pages behind seccomp** (ADR 0218); eleven queries do not cross, the window is tier 2, and a hostile document has no cancel | — |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out | — |
 | [37](37-what-a-native-host-would-not-draw-itself.md) | Five of six chrome populations already cross as data; **form fields are the gap** — audited at the owner's request | — |
 | [38](38-a-documents-restrictions-have-levels.md) | A document's restrictions are the reader's to set: **the shape is built and Table 22 is consulted at last** (ADR 0212); *ask* and *warn* wait for a host that can answer, and bit 5's copy for a host that can name it | 7 assert something |

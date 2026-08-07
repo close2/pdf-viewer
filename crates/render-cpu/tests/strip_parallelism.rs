@@ -15,6 +15,13 @@
 //! planner exists to deliver: over a suite of scenes and a range of divisions **the bytes are
 //! equal**.
 //!
+//! **And the suite is where its limit is.** The three-hundred-and-eighty-first session drew a
+//! *real* page in one strip on purpose — a confined process may not ask how many cores it has —
+//! and `doc/PDF20_AN001-BPC.pdf` page 1 differs by one pixel between one strip and every number
+//! above one. So what this file establishes is the property over these scenes, and the property
+//! at large is `doc/todo/12`'s open question. That is trap 12b said about the guard rather than
+//! about the code it guards.
+//!
 //! # Why the scenes are these scenes
 //!
 //! ADR 0138's equality test failed on exactly the three scenes with a *curve* crossing a cut.

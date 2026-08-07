@@ -28,6 +28,37 @@
 //! is the failure this design exists to prevent; a caller that is told, in the same sentence
 //! every other refusal in this program uses, is not that failure.
 
+/// What the confined process is going to do, which is what decides the allow-list.
+///
+/// **A profile rather than a set of options.** Which system calls a program needs is not a
+/// preference a caller should be able to widen a little at a time; it is a property of the work,
+/// found by running that work under `strace` and reading what appeared. So there are two, each
+/// named for a program in this workspace, and adding a third means measuring a third.
+///
+/// The difference between them is exactly two things — threads, and how much address space —
+/// and both follow from the second doing more than decode one image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Profile {
+    /// One image, decoded on one thread: `pdf-sandbox-worker`.
+    ///
+    /// The narrower of the two, and the default because a caller who has not thought about it
+    /// should get the list that permits less. It creates no thread, so `clone` is absent.
+    #[default]
+    Decoder,
+    /// A document, its interpretation and its rasterisation: `pdf-view-worker`.
+    ///
+    /// Wider in two ways, both measured rather than assumed (ADR 0218):
+    ///
+    /// - **Threads.** `render-cpu` draws a page on every core, so `clone3`, `rseq`,
+    ///   `set_robust_list` and `sched_getaffinity` are on the list. A thread is not a new
+    ///   program: `execve`, `execveat`, `fork` and `vfork` stay off, so what this permits is
+    ///   another thread of the code that is already confined and nothing else.
+    /// - **Address space.** A rasteriser holds a page's pixels, and `viewer_core`'s own budget
+    ///   for one is 2²⁸ pixels — a gibibyte of RGBA before the document, the display list or a
+    ///   glyph cache is counted.
+    Interpreter,
+}
+
 /// How thoroughly Landlock could be applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LandlockLevel {
@@ -181,12 +212,31 @@ pub const ENFORCED_BY_THIS_BUILD: bool = cfg!(target_os = "linux");
 /// enforced, which is the one thing this crate promises never to lose quietly.
 #[must_use = "the confinement reached is what a host has to report"]
 pub fn apply() -> Result<Confinement, LockdownError> {
+    apply_for(Profile::Decoder)
+}
+
+/// Confines the calling thread for one kind of work. There is no way to undo this.
+///
+/// [`apply`] is this with [`Profile::Decoder`], which is what `pdf-sandbox-worker` wants and what
+/// this crate meant by "confined" before there was a second program to confine.
+///
+/// # Errors
+///
+/// Returns [`LockdownError`] if a limit or the seccomp filter could not be installed. A caller
+/// that gets an error must not continue with the work it intended to confine. On a platform with
+/// no confinement to install this cannot fail, and answers [`Confinement::NONE`].
+///
+/// `#[must_use]` for [`apply`]'s reason: off Linux the error type has no reachable variants, so
+/// the compiler would let a caller drop the part of the answer that says what was *not* enforced.
+#[must_use = "the confinement reached is what a host has to report"]
+pub fn apply_for(profile: Profile) -> Result<Confinement, LockdownError> {
     #[cfg(target_os = "linux")]
     {
-        crate::lockdown_linux::apply()
+        crate::lockdown_linux::apply(profile)
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = profile;
         Ok(Confinement::NONE)
     }
 }

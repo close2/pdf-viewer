@@ -58,11 +58,13 @@ impl CpuRasterizer {
 
     /// Asks for a fixed number of horizontal strips instead of one per available core.
     ///
-    /// **This changes how long a page takes and not what it looks like**, which is the whole
-    /// claim of [`CpuRasterizer::encode_in_strips`] and is why the knob is public: the property
-    /// is only checkable by rendering one page several ways and comparing the bytes, which is
-    /// what `strip_parallelism.rs` does. A page still gets fewer strips than asked for where
-    /// its curves forbid the cuts.
+    /// **This changes how long a page takes and, on one known page, one pixel of what it looks
+    /// like**, which is the claim of [`CpuRasterizer::encode_in_strips`] and its correction: the
+    /// property is only checkable by rendering one page several ways and comparing the bytes,
+    /// which is what `strip_parallelism.rs` does over six scenes and what found the exception on
+    /// a seventh — `plan_strips` has it, `doc/todo/12` has the diagnosis. **One** is the value
+    /// that departs, and it is the value a caller with no filesystem must pass (ADR 0218). A page
+    /// still gets fewer strips than asked for where its curves forbid the cuts.
     #[must_use]
     pub fn with_strips(mut self, strips: u32) -> Self {
         self.strips = Some(strips);
@@ -1304,16 +1306,30 @@ fn misses_target(command: &Command, target: TargetSpec) -> bool {
 ///
 /// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
 /// [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only made at a row no
-/// curve crosses. **The picture does not depend on the answer**, which is the property ADR 0139
-/// exists to establish and `strip_parallelism.rs` asserts: a machine with four cores and one
-/// with thirty-two draw the same bytes.
+/// curve crosses. **The picture is very nearly independent of the answer**, which is the property
+/// ADR 0139 exists to establish and `strip_parallelism.rs` asserts over six scenes: a machine with
+/// four cores and one with thirty-two draw the same bytes.
+///
+/// **"Very nearly" is a correction the three-hundred-and-eighty-first session made**, and it is a
+/// pixel wide. This doc comment said the picture does not depend on the answer *at all*, and
+/// `doc/PDF20_AN001-BPC.pdf` page 1 at 500×708 says otherwise: one strip against any number from
+/// two to thirty-two differs at (117, 636), 127 against 111. Every division above one agrees with
+/// every other, so what departs is the whole-page path — the only one that draws under
+/// `target.transform` itself rather than under it composed with a strip's translation.
+/// `doc/todo/12` has the diagnosis and what to do; ADR 0218 is where it was found, by a confined
+/// process that draws in one strip because it may not ask how many cores it has.
 fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Vec<u32> {
-    let cores = std::thread::available_parallelism()
-        .map_or(1, std::num::NonZero::get)
-        .try_into()
-        .unwrap_or(MAX_STRIPS);
+    // Asked of the machine only where the caller did not say, and that is not tidiness:
+    // `available_parallelism` reads `/proc/self/cgroup` on Linux, and a caller drawing inside a
+    // confinement with no filesystem is *killed* for it rather than told no. Such a caller states
+    // the number with `with_strips` (ADR 0218).
     let wanted = asked
-        .unwrap_or(cores)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map_or(1, std::num::NonZero::get)
+                .try_into()
+                .unwrap_or(MAX_STRIPS)
+        })
         .min(MAX_STRIPS)
         .min(target.height.checked_div(MIN_STRIP_ROWS).unwrap_or(0));
     if wanted < 2 {

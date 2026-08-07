@@ -1,0 +1,36 @@
+[package]
+name = "viewer-confined"
+description = "The viewer's document, interpretation and rasterisation in a confined process."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pdf-model.workspace = true
+pdf-render.workspace = true
+pdf-sandbox.workspace = true
+pdf-syntax.workspace = true
+# The confined process must *state* how many threads to rasterise with. `rayon`'s own default
+# asks the machine, and asking the machine reads `/proc/self/cgroup` — which a process with no
+# filesystem is killed for rather than told no. So the pool is built here, after the confinement,
+# from a number taken before it. See `worker::confine`.
+rayon.workspace = true
+render-cpu.workspace = true
+thiserror.workspace = true
+viewer-core.workspace = true
+
+[dev-dependencies]
+# `examples/confined_page` writes the raster it was handed, so that a person can look at the page
+# a confined process drew rather than at a count of its dark pixels.
+png.workspace = true
+
+[lints]
+workspace = true
+
+# The confinement probes need signal numbers to tell "killed by the seccomp filter" apart from
+# every other way a process can end — which is a question only the platform with a filter can be
+# asked.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc.workspace = true

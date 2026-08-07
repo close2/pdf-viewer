@@ -3610,6 +3610,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "viewer-confined"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "pdf-model",
+ "pdf-render",
+ "pdf-sandbox",
+ "pdf-syntax",
+ "png",
+ "rayon",
+ "render-cpu",
+ "thiserror 2.0.19",
+ "viewer-core",
+]
+
+[[package]]
 name = "viewer-core"
 version = "0.1.0"
 dependencies = [

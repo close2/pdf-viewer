@@ -28,6 +28,7 @@ pdfref = { path = "tools/pdfref", version = "0.1.0" }
 viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
 viewer-accessibility = { path = "crates/viewer-accessibility", version = "0.1.0" }
+viewer-confined = { path = "crates/viewer-confined", version = "0.1.0" }
 
 # External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
 # developed against that brief in its own repository and wired in here at its final

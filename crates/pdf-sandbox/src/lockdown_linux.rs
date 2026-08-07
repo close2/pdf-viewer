@@ -41,18 +41,25 @@
 //!
 //! Both Landlock and seccomp attach to the calling thread and to threads it creates
 //! afterwards. The seccomp filter is installed with `TSYNC` so that it reaches threads that
-//! already exist, but the Landlock domain is not synchronised that way. The worker is
-//! therefore single-threaded by construction, and [`apply`] is called before it does
-//! anything else.
+//! already exist, but the Landlock domain is not synchronised that way. So the rule for every
+//! caller is the same one: **[`apply`] runs before any thread is made**, and a thread made
+//! afterwards inherits both.
+//!
+//! The decoder worker keeps that trivially by being single-threaded. The interpreter worker
+//! ([`Profile::Interpreter`]) does make threads — `render-cpu` draws a page on every core — and
+//! keeps it because `rayon`'s pool is built on its first use, which is inside a render, which is
+//! after the confinement. A caller that warmed a thread pool first would have threads outside
+//! the Landlock domain and inside the seccomp filter, which is the weaker of the two arrangements
+//! and not one this crate offers.
 
-use crate::lockdown::{Confinement, LandlockLevel, LockdownError, SystemCalls};
+use crate::lockdown::{Confinement, LandlockLevel, LockdownError, Profile, SystemCalls};
 use landlock::{
     ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible as _, RulesetAttr as _,
     RulesetStatus, Scope,
 };
 use seccompiler::{SeccompAction, SeccompFilter, TargetArch};
 
-/// Ceiling on the worker's address space, in bytes.
+/// Ceiling on a decoder's address space, in bytes.
 ///
 /// A bilevel page at 600 dpi is 35 megabytes as one byte per pixel and the decoders hold a
 /// handful of such planes at once, so a gigabyte is roughly thirty times the largest
@@ -60,6 +67,17 @@ use seccompiler::{SeccompAction, SeccompFilter, TargetArch};
 /// ever reach: crossing it aborts the worker, which the parent reports as an undecodable
 /// image.
 const ADDRESS_SPACE_LIMIT: u64 = 1 << 30;
+
+/// Ceiling on an interpreter's address space, in bytes.
+///
+/// Four times the decoder's, and the multiplier is derived rather than chosen. A rasteriser is
+/// asked for a whole page at a whole magnification, and `viewer_core`'s own `MAX_PIXELS` bounds
+/// one at 2²⁸ pixels — which is [`ADDRESS_SPACE_LIMIT`] exactly, in RGBA, for the raster alone.
+/// Beside it live the document's bytes, the display list, the glyph outlines and a rasteriser's
+/// scratch sheet on every core, so a ceiling equal to the pixel budget would refuse pages the
+/// viewer permits. Four gibibytes leaves room for all of that and is still a bound: a document
+/// that reaches it has asked for more than any page needs.
+const INTERPRETER_ADDRESS_SPACE_LIMIT: u64 = 4 << 30;
 
 /// Ceiling on open descriptors.
 ///
@@ -73,19 +91,23 @@ const DESCRIPTOR_LIMIT: u64 = 8;
 ///
 /// Returns [`LockdownError`] if a limit or the seccomp filter could not be installed. A
 /// caller that gets an error must not continue with the work it intended to confine.
-pub(crate) fn apply() -> Result<Confinement, LockdownError> {
-    limit_resources()?;
+pub(crate) fn apply(profile: Profile) -> Result<Confinement, LockdownError> {
+    let address_space_limit = match profile {
+        Profile::Decoder => ADDRESS_SPACE_LIMIT,
+        Profile::Interpreter => INTERPRETER_ADDRESS_SPACE_LIMIT,
+    };
+    limit_resources(address_space_limit)?;
     let landlock = deny_filesystem_and_network();
-    restrict_system_calls()?;
+    restrict_system_calls(profile)?;
     Ok(Confinement {
         landlock,
-        address_space_limit: ADDRESS_SPACE_LIMIT,
+        address_space_limit,
         system_calls: SystemCalls::Filtered,
     })
 }
 
 /// Installs the resource ceilings.
-fn limit_resources() -> Result<(), LockdownError> {
+fn limit_resources(address_space_limit: u64) -> Result<(), LockdownError> {
     use rustix::process::{Resource, Rlimit, setrlimit};
 
     let fixed = |value: u64| Rlimit {
@@ -93,7 +115,7 @@ fn limit_resources() -> Result<(), LockdownError> {
         maximum: Some(value),
     };
     for (resource, name, value) in [
-        (Resource::As, "RLIMIT_AS", ADDRESS_SPACE_LIMIT),
+        (Resource::As, "RLIMIT_AS", address_space_limit),
         (Resource::Nofile, "RLIMIT_NOFILE", DESCRIPTOR_LIMIT),
         (Resource::Fsize, "RLIMIT_FSIZE", 0),
     ] {
@@ -187,6 +209,34 @@ const PERMITTED: &[i64] = &[
     libc::SYS_clock_gettime,
 ];
 
+/// What an interpreter is permitted beyond [`PERMITTED`].
+///
+/// Found the same way that list was: `strace -f -c` over a real page of a real document
+/// interpreted and rasterised — `pdf-model`'s `render_at` example on `doc/PDF20_AN001-BPC.pdf`
+/// — and every call it issued after process start is either here or above. Four entries, and
+/// they are one fact: **`render-cpu` draws a page on every core**.
+///
+/// - `clone3` — the thread. `clone` is beside it because `glibc` falls back to it on a kernel
+///   that answers `ENOSYS`, and a worker that died on such a kernel would look like a defect in
+///   this program rather than in the list.
+/// - `rseq`, `set_robust_list` — per-thread registrations `glibc` performs inside a new thread
+///   before it runs anything of ours.
+/// - `sched_getaffinity` — `std::thread::available_parallelism`, which is how the pool learns
+///   how many threads to make.
+///
+/// **What is deliberately still absent is what makes this a thread and not a program**:
+/// `execve`, `execveat`, `fork` and `vfork` are on no list here, so nothing confined can start
+/// anything. That is also why the interpreter decodes its own images rather than spawning
+/// `pdf-sandbox-worker` for them (ADR 0218) — it could not, and a filter that let it would have
+/// given the confined process the one capability the confinement is for.
+const PERMITTED_INTERPRETER_EXTRA: &[i64] = &[
+    libc::SYS_clone3,
+    libc::SYS_clone,
+    libc::SYS_rseq,
+    libc::SYS_set_robust_list,
+    libc::SYS_sched_getaffinity,
+];
+
 /// Installs the seccomp-BPF allow-list.
 ///
 /// The mismatch action is `KillProcess` rather than `Errno`: a worker that reaches a
@@ -194,15 +244,20 @@ const PERMITTED: &[i64] = &[
 /// is the one that reaches the parent as an unmistakable signal rather than as an error
 /// return the code might paper over. It also means an exploit's first step, not its tenth,
 /// is what ends the process.
-fn restrict_system_calls() -> Result<(), LockdownError> {
+fn restrict_system_calls(profile: Profile) -> Result<(), LockdownError> {
     let architecture = TargetArch::try_from(std::env::consts::ARCH)
         .map_err(|_| LockdownError::UnknownArchitecture(std::env::consts::ARCH.to_owned()))?;
 
+    let extra: &[i64] = match profile {
+        Profile::Decoder => &[],
+        Profile::Interpreter => PERMITTED_INTERPRETER_EXTRA,
+    };
     // An empty rule vector means "this call, unconditionally". Conditions exist for
     // narrowing by argument; nothing here needs one, because every permitted call is
     // permitted for every argument the worker could pass.
     let rules = PERMITTED
         .iter()
+        .chain(extra)
         .map(|number| (*number, Vec::new()))
         .collect();
 
