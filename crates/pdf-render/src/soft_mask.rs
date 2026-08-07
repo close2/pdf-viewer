@@ -63,7 +63,18 @@ pub enum SoftMaskKind {
     /// > value at any given point shall then be defined to be the luminosity of the
     /// > resulting colour.
     Luminosity {
-        /// §11.6.5.1's `/BC`, resolved to device RGB and forced opaque.
+        /// §11.6.5.1's `/BC`, resolved into whatever the group's elements are painted in.
+        ///
+        /// > Outside the transparency group's bounding box, the mask value shall be derived
+        /// > by transforming the BC colour to luminosity and applying the transfer function
+        /// > to the result.
+        ///
+        /// Ordinarily that is the backdrop's own colour, in the device's three components,
+        /// which is what a group composited in `DeviceRGB` or in a CIE-based space needs.
+        /// **Where the group's blending colour space is subtractive it is a grey**, because
+        /// `pdf_model` paints such a group in §10.4.2.3's grey rather than in colour: a
+        /// backdrop and the elements composited onto it have to be the same quantity or the
+        /// compositing is not the clause's, and this is the field where they meet.
         ///
         /// The default is "the colour space's initial value, representing black", which is
         /// what makes the area outside a mask group's own marks mask everything away.
@@ -158,10 +169,14 @@ impl SoftMask {
             // §11.5.3, for a device colour space: "convert the colour to DeviceGray by
             // implementation-defined means and use the resulting gray value as the
             // luminosity, with no compensation for gamma or other colour calibration", for
-            // which EXAMPLE 2 gives Y = 0.30 R + 0.59 G + 0.11 B. Those coefficients, and
-            // not the sRGB or Rec. 709 ones both rasterisers offer for a luminance mask:
-            // the clause states the formula, so a library's own is a different formula
-            // rather than the same one.
+            // which EXAMPLE 2 gives Y = 0.30 R + 0.59 G + 0.11 B — [`Color::grey_level`],
+            // §10.4.2.2's own formula.
+            //
+            // That is the whole of the derivation *for a group composited in the device's
+            // three components*. A group whose blending space is subtractive is painted in a
+            // grey by `pdf_model` instead, and this arithmetic then reads that grey back
+            // unchanged — the three coefficients sum to 1.0 — leaving what the grey *means*
+            // to [`Transfer`], which is where the second half of §10.4.2.3 lives.
             SoftMaskKind::Luminosity { backdrop } => {
                 let alpha = f32::from(pixel[3]) / 255.0;
                 // Source-over onto an opaque backdrop, in straight alpha: the result is
@@ -169,12 +184,10 @@ impl SoftMask {
                 let over = |channel: u8, backdrop: f32| {
                     (f32::from(channel) / 255.0).mul_add(alpha, backdrop * (1.0 - alpha))
                 };
-                let luminosity = 0.30_f32.mul_add(
+                let composited = Color::rgb(
                     over(pixel[0], backdrop.r),
-                    0.59_f32.mul_add(
-                        over(pixel[1], backdrop.g),
-                        0.11 * over(pixel[2], backdrop.b),
-                    ),
+                    over(pixel[1], backdrop.g),
+                    over(pixel[2], backdrop.b),
                 );
                 #[expect(
                     clippy::cast_possible_truncation,
@@ -182,7 +195,7 @@ impl SoftMask {
                     reason = "clamped to 0..=255 on the line above the cast"
                 )]
                 {
-                    (luminosity * 255.0).round().clamp(0.0, 255.0) as u8
+                    (composited.grey_level() * 255.0).round().clamp(0.0, 255.0) as u8
                 }
             }
         };

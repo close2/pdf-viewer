@@ -1516,6 +1516,13 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// over both content regions, largest 0.469 where the photograph and its red labels are — which
 /// is `stamps.pdf`'s lesson one page along: the quantity is settled and what is left is where
 /// each filter puts an edge.
+///
+/// **It left this group in the three-hundred-and-eightieth session without being fixed or being
+/// wrong**, and the diagnosis above still holds of the page: it started *reporting*, so the
+/// oracle stopped judging it. Its `/Luminosity` soft mask blends in `/DeviceGray` and the group
+/// draws a `/DeviceN` shading, whose colours rest on `DeviceCMYK` and so reach the mask as the
+/// grey of an RGB rather than as §10.4.2.3's grey (ADR 0217). That is a real departure this tree
+/// had never named, and the page is the corpus's only witness for it.
 /// **`two_pages.pdf` page 1 is the fourteenth**, off §3a's ranking in the two-hundred-and-eighty-sixth
 /// session at 0.68 from the nearest reference and 1.38 from the furthest. It is the group's
 /// simplest instance and the reason it is worth adding: **one command**, which `open_one` prints
@@ -1665,12 +1672,11 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// form answers "how much" and is silent on "where"; this is the page where only the pixel count
 /// speaks. The pairwise distances say the same and say the outlier is not us: ours is 0.143 of 255
 /// from `hayro` and 0.152 from `mupdf`, while every pair involving `poppler` exceeds 1.26.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 18] = [
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
     "issue4379.pdf page 1",
     "issue12841_reduced.pdf page 1",
     "issue269_2.pdf page 1",
     "blendmode.pdf page 1",
-    "bug1703683_page2_reduced.pdf page 1",
     "two_pages.pdf page 1",
     // Taken out of the book beside it in the two-hundred-and-sixty-second session, by the band
     // rather than by the ranking: its worst tile is 81.57 where nothing else in `freeculture.pdf`

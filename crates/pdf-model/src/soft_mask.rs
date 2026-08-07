@@ -35,14 +35,16 @@ pub(crate) struct SoftMaskRequest {
     /// Table 142's `/G`: "A transparency group `XObject` … that shall be used as the source
     /// of alpha or colour values for deriving the mask."
     pub group: std::sync::Arc<Stream>,
-    /// Which of §11.5's two derivations applies, with `/BC` already resolved into the
-    /// device's components for the luminosity one.
+    /// Which of §11.5's two derivations applies, with `/BC` already resolved for the
+    /// luminosity one.
     pub kind: SoftMaskKind,
     /// Table 142's `/TR`, sampled, or `None` for the `/Identity` it defaults to.
     pub transfer: Option<Transfer>,
-    /// The group's `/CS` if compositing the mask in it would differ from compositing in the
-    /// device's RGB, for the caller to report.
-    pub colour_space_departure: Option<String>,
+    /// Whether the group's elements are painted in §11.5.3's luminosity rather than in
+    /// colour, which is what [`space_is_subtractive`] decides.
+    pub in_luminosity: bool,
+    /// Everything about this mask §11.5.3 asks for and does not get, for the caller to report.
+    pub departures: Vec<String>,
 }
 
 /// Reads `/SMask` from a graphics state parameter dictionary.
@@ -82,15 +84,39 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
     let Some(subtype) = subtype.as_name().map(|name| name.as_bytes().to_vec()) else {
         return SoftMaskEntry::Unusable("/SMask has no /S subtype".to_owned());
     };
-    let (kind, departure) = match subtype.as_slice() {
-        b"Alpha" => (SoftMaskKind::Alpha, None),
+    let transfer = match transfer(document, mask) {
+        Ok(transfer) => transfer,
+        Err(detail) => return SoftMaskEntry::Unusable(detail),
+    };
+
+    let (kind, in_luminosity, departures) = match subtype.as_slice() {
+        b"Alpha" => (SoftMaskKind::Alpha, false, Vec::new()),
         b"Luminosity" => {
             let space = ColourSpace::parse(document, &space, &Dictionary::new());
+            let subtractive = space.as_ref().is_some_and(space_is_subtractive);
+            let ink = backdrop(document, mask, space.as_ref());
+            let backdrop = if subtractive {
+                // The group's elements are painted in §10.4.2.3's grey, so its backdrop is
+                // one too: a backdrop and the elements composited onto it have to be the
+                // same quantity, or the compositing is not the clause's.
+                Color::grey(1.0 - ink.min(1.0))
+            } else {
+                Color {
+                    a: 1.0,
+                    ..space.as_ref().map_or(Color::BLACK, |space| {
+                        space.to_rgb(&backdrop_values(document, mask, space))
+                    })
+                }
+            };
+            let mut departures: Vec<String> = Vec::new();
+            departures.extend(space.as_ref().and_then(luminosity_departure));
+            if subtractive && ink > 1.0 {
+                departures.push(OVER_INKED.to_owned());
+            }
             (
-                SoftMaskKind::Luminosity {
-                    backdrop: backdrop(document, mask, space.as_ref()),
-                },
-                space.as_ref().and_then(luminosity_departure),
+                SoftMaskKind::Luminosity { backdrop },
+                subtractive,
+                departures,
             )
         }
         other => {
@@ -101,20 +127,68 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
         }
     };
 
-    let transfer = match transfer(document, mask) {
-        Ok(transfer) => transfer,
-        Err(detail) => return SoftMaskEntry::Unusable(detail),
-    };
-
     SoftMaskEntry::Mask(Box::new(SoftMaskRequest {
         group,
         kind,
         transfer,
-        colour_space_departure: departure,
+        in_luminosity,
+        departures,
     }))
 }
 
-/// Resolves Table 142's `/BC` into the opaque device colour the group is composited onto.
+/// What a colour weighing more than one unit of §10.4.2.3's ink costs inside a mask group.
+///
+/// §10.4.2.3 converts a subtractive colour to a grey level as `1 − min(1, ink)`, and §11.5.3
+/// puts that `min` **after** the group has been composited with its backdrop. A rendered
+/// channel holds `0..=1` and an ink reaches 2.0 — `/BC [1 1 1 1]`, registration black, is the
+/// commonest backdrop a `DeviceCMYK` mask has on this corpus — so a colour above one unit has
+/// its excess taken here instead, before the compositing rather than after.
+///
+/// **What that costs is one closed form, and it is worth writing down** because it is what a
+/// later round has to beat. For artwork of ink `s` at coverage `α` over a backdrop of ink
+/// `1 + e`, the clause gives `max(0, 1 − α·s − (1 − α)(1 + e))` and this gives `α · (1 − s)`
+/// — equal at `α = 0` and at `α = 1`, and apart by at most `(1 − α) · e` in between. So the
+/// departure lives at the partly covered pixels of a mask group's own marks and nowhere else,
+/// which on this corpus's five witnesses is the one-pixel rim of a photograph. Carrying it
+/// exactly needs every colour in the group — an image's samples included — scaled into a
+/// channel that can hold `1 + e`, which `doc/todo/23` now owns.
+pub(crate) const OVER_INKED: &str = "a soft mask's group composites a colour of more than one unit of ink, whose §10.4.2.3 \
+     minimum this takes before the compositing rather than after it (§11.5.3)";
+
+/// Whether §11.5.3 sends this blending space to `DeviceGray` without passing through RGB.
+///
+/// §11.6.5.1 makes the group's `/CS` "the colour space in which the compositing computation
+/// is to be performed", and §11.5.3 converts the composited colour to luminosity afterwards.
+/// This tree composites on the three components of the device raster, so the two agree only
+/// where the space's luminosity is a function of that RGB — and §10.4.2 says exactly when
+/// that is:
+///
+/// - **`DeviceRGB`** is the space §10.4.2.2's `gray = 0.3 R + 0.59 G + 0.11 B` is written
+///   for, so compositing there and converting afterwards is the clause.
+/// - **A CIE-based space** — `CalRGB`, `CalGray`, `Lab`, `ICCBased` — asks for §11.5.3's
+///   *colorimetric* branch, the `Y` of the colour in CIE 1931 XYZ, and this tree answers with
+///   the grey of the sRGB it converts every such space to. That is the same page-wide choice
+///   recorded in [`luminosity_departure`] rather than a second view of it, and it does not
+///   become truer by being computed one component at a time.
+/// - **A subtractive space** — `DeviceCMYK`, `DeviceGray`, and a `Separation`, `DeviceN` or
+///   `Indexed` space resting on one — is the case this answers `true` for. §10.4.2.3 converts
+///   it to a grey level without going near RGB, so a group composited in the device's three
+///   components is a different arithmetic and this tree's `DeviceCMYK` → RGB table (ADR 0009)
+///   has no business standing in the way of a formula the clause prints in full.
+///
+/// `DeviceGray` counts as subtractive here, which is worth the sentence: §10.4.2.3 calls a
+/// grey level "the complement of the black component of CMYK", and a `k` operator inside a
+/// `/DeviceGray` mask group is the same departure one component narrower.
+fn space_is_subtractive(space: &ColourSpace) -> bool {
+    match space {
+        ColourSpace::Cmyk | ColourSpace::Gray => true,
+        ColourSpace::Separation { alternate, .. } => space_is_subtractive(alternate),
+        ColourSpace::Indexed { base, .. } => space_is_subtractive(base),
+        _ => false,
+    }
+}
+
+/// Resolves Table 142's `/BC` into the components the group is composited onto.
 ///
 /// §11.6.5.1 Table 142, of the entry:
 ///
@@ -130,14 +204,8 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
 /// `/DeviceCMYK` backdrop is four. Where `/BC` is absent the default is "the colour space's
 /// initial value, representing black", which `ColourSpace::initial_colour` already holds
 /// for every space this crate reads (§8.6.8's five cases).
-///
-/// A `/CS` this crate cannot parse leaves opaque black, which is what every space's initial
-/// value converts to and what §11.5.3's NOTE 2 calls the useful backdrop.
-fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>) -> Color {
-    let Some(space) = space else {
-        return Color::BLACK;
-    };
-    let values: Vec<f32> = document
+fn backdrop_values(document: &Document, mask: &Dictionary, space: &ColourSpace) -> Vec<f32> {
+    document
         .get_key(mask, "BC")
         .as_array()
         .map(|items| {
@@ -157,55 +225,58 @@ fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>)
                 .collect()
         })
         .filter(|values: &Vec<f32>| values.len() == space.components())
-        .unwrap_or_else(|| space.initial_colour());
-
-    // Opaque by construction: §11.5.3 composites the group onto "a fully opaque backdrop of
-    // a specified colour", so whatever alpha a conversion produces is not this colour's.
-    Color {
-        a: 1.0,
-        ..space.to_rgb(&values)
-    }
+        .unwrap_or_else(|| space.initial_colour())
 }
 
-/// Names a mask group's `/CS` if compositing it in device RGB changes the mask's values.
+/// The ink §10.4.2.3 weighs in Table 142's `/BC`.
 ///
-/// A mask group is composited here on the three components of the device raster and its
-/// luminosity taken there, which is §11.5.3's device branch: "For device colour spaces,
-/// convert the colour to `DeviceGray` by implementation-defined means and use the resulting
-/// gray value as the luminosity" — the means being EXAMPLE 2's
-/// `Y = 0.30 R + 0.59 G + 0.11 B`, which `pdf_render::SoftMask::value` computes. Four
-/// answers ask for nothing else, and are silent:
+/// A `/CS` this crate cannot parse leaves one whole unit, which is what every space's initial
+/// value weighs and what §11.5.3's NOTE 2 calls the useful backdrop.
 ///
-/// - **`DeviceRGB`** is the space that formula is written for.
-/// - **A three-component `CalRGB` or ICC space** is what §11.6.6 already treats as the
-///   device's own, page-wide and as a documented choice; a mask is not the place to take a
-///   different view of the same question. What it costs is §11.5.3's colorimetric branch —
-///   `Y` of the colour converted to CIE XYZ — against the device luminosity of the sRGB
-///   this tree converts everything to. That is a difference in the same class as compositing
-///   in device RGB at all, and it is recorded as such rather than reported per mask.
-/// - **`DeviceGray`, `CalGray` and a one-component ICC space** are *exact*, which is worth
-///   showing rather than assuming: each converts to an `R = G = B` triple, and the three
-///   coefficients sum to 1, so the luminosity of a grey is that grey whatever route it took.
-///   That is 64 of the corpus's 134 mask dictionaries.
+/// No alpha is taken from the conversion, and that is the clause rather than a simplification:
+/// §11.5.3 composites the group onto "a fully opaque backdrop of a specified colour", so an
+/// alpha a conversion happens to produce — a `/None` colourant's zero, say — is not this
+/// colour's.
+fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>) -> f32 {
+    space.map_or(1.0, |space| {
+        space.ink(&backdrop_values(document, mask, space))
+    })
+}
+
+/// Names a mask group's `/CS` if neither of this tree's two routes is §11.5.3's.
 ///
-/// What is left is a space whose components are not those — `DeviceCMYK` above all, which is
-/// 45 more of the 134. Compositing four inks as three has no reason to agree, and neither
-/// does the luminosity: EXAMPLE 2's second formula is `Y = 1 − min(1, 0.3 C + 0.59 M +
-/// 0.11 Y + K)`, where this takes the luminosity of whatever RGB `ColourSpace::to_rgb`
-/// produced — and that conversion is a documented choice of ours (ADR 0009) rather than
-/// anything the standard defines. Process black alone is the visible case: `K = 1` is a
-/// mask value of 0 under the clause's formula and 32 under this route, so content the
-/// producer masked away is faintly there.
+/// §11.5.3 converts a mask group's composited colour to luminosity "in one of the following
+/// ways, depending on the group's colour space", and there are two ways. This tree has two
+/// routes to answer them with, and this function is what is left over.
+///
+/// **The device branch** — "For device colour spaces, convert the colour to `DeviceGray` by
+/// implementation-defined means and use the resulting gray value as the luminosity" — is
+/// carried out exactly, and since the three-hundred-and-eightieth session in the space the
+/// group names rather than in the device's:
+///
+/// - **`DeviceRGB`** is the space EXAMPLE 2's `Y = 0.30 R + 0.59 G + 0.11 B` is written for,
+///   and `pdf_render::SoftMask::value` computes it on the rendered pixel.
+/// - **`DeviceCMYK` and `DeviceGray`** send a colour to grey by §10.4.2.3 without passing
+///   through RGB, so the group's elements are painted in that grey instead of in colour —
+///   [`space_is_subtractive`], and `crate::content`'s `Compositing::Luminosity`. What still
+///   reports is a colour that arrives *already* rasterised in such a group, which the
+///   interpreter cannot redirect: an image's samples and a shading's ramp.
+///
+/// **The colorimetric branch** — "For CIE-based spaces, convert to the CIE 1931 XYZ space and
+/// use the Y component as the luminosity" — is answered with the grey of the sRGB this tree
+/// converts every CIE-based space to. `CalGray`, `CalRGB` and an ICC profile are silent for
+/// that reason and it is a *choice*: §11.6.6 already treats a three-component CIE space as
+/// the device's own, page-wide, and a mask is not the place to take a different view of the
+/// same question. That covers 12 of the 90 luminosity mask groups the corpus's census reaches;
+/// 76 are the two subtractive device spaces above and 2 are `DeviceRGB`.
+///
+/// What is left, and reported, is a `Lab` group. Its three components are not a linear map of
+/// the device's, so neither route is the clause's: compositing `L*a*b*` on the device's RGB
+/// is a different arithmetic *and* `0.3 R + 0.59 G + 0.11 B` of the sRGB is not the `Y` of the
+/// XYZ the clause asks for. No corpus document states one, which is said out loud rather than
+/// around — this is a report with no members, kept because the alternative is a silence.
 fn luminosity_departure(space: &ColourSpace) -> Option<String> {
-    let exact = match space {
-        ColourSpace::Rgb
-        | ColourSpace::Gray
-        | ColourSpace::CalRgb { .. }
-        | ColourSpace::CalGray { .. } => true,
-        ColourSpace::Icc { profile } => matches!(profile.channels(), 1 | 3),
-        _ => false,
-    };
-    (!exact).then(|| {
+    matches!(space, ColourSpace::Lab { .. }).then(|| {
         "a soft mask's group is composited in device RGB and its luminosity taken there, \
          rather than in the blending colour space its /CS names"
             .to_owned()

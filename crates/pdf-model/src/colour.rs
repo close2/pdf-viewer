@@ -550,6 +550,147 @@ impl ColourSpace {
         }
     }
 
+    /// The colourant §10.4.2.3 weighs, before the clause's own `min`.
+    ///
+    /// ISO 32000-2 §10.4.2.3 states the conversion from `DeviceCMYK` to a grey level:
+    ///
+    /// > To obtain the equivalent gray level for a given CMYK value, the contributions of all
+    /// > components shall be taken into account:
+    ///
+    /// and the formula it then prints is
+    /// `gray = 1.0 − min(1.0, 0.3 × cyan + 0.59 × magenta + 0.11 × yellow + black)` — set out
+    /// here rather than quoted because the standard sets its formulas in mathematical italics
+    /// that no transcription survives. §11.5.3's EXAMPLE 2 prints the same formula for a `/Luminosity` soft mask. This
+    /// returns the sum *inside* that `min`, which is what makes it worth a function of its
+    /// own: the sum is **linear in the components** and the `min` is not, so a compositing
+    /// computation that has to happen before the clamp can happen on this one number instead
+    /// of on four (see [`Self::luminosity`] and `pdf_render::SoftMaskKind`). It can exceed
+    /// 1.0 — registration black, all four components at 1.0, weighs 2.0.
+    ///
+    /// **Only `DeviceCMYK` needs an arm of its own here, and that is a result rather than an
+    /// omission.** For every other device space §10.4.2's conversion to grey composes with
+    /// this one exactly. §10.4.2.2 sends a grey to `red = green = blue = grey` and an RGB
+    /// colour to `0.3 × red + 0.59 × green + 0.11 × blue`. §10.4.2.4 sends an RGB colour to
+    /// `c = 1 − red`, `m = 1 − green`, `y = 1 − blue`, `k = min(c, m, y)` with the black
+    /// generated and removed again — and because §10.4.2.3's three weights sum to 1.0, every
+    /// `k` term cancels: `0.3(c − k) + 0.59(m − k) + 0.11(y − k) + k = 0.3c + 0.59m + 0.11y`,
+    /// whatever the black-generation and undercolour-removal functions produced. So an RGB
+    /// colour taken through `DeviceCMYK` and back to grey is `0.3R + 0.59G + 0.11B`, which is
+    /// what §10.4.2.2 gives it directly, and a grey taken through `DeviceCMYK` is itself.
+    /// One arm, and the rest is `1 −` this tree's single RGB conversion.
+    #[must_use]
+    pub fn ink(&self, values: &[f32]) -> f32 {
+        self.ink_at(values, 0)
+    }
+
+    /// [`Self::ink`], carrying the recursion depth a nested space costs.
+    fn ink_at(&self, values: &[f32], depth: usize) -> f32 {
+        if depth > MAX_DEPTH {
+            return 1.0;
+        }
+        let at = |index: usize| channel(values.get(index).copied().unwrap_or(0.0));
+        match self {
+            Self::Cmyk => 0.3_f32.mul_add(
+                at(0),
+                0.59_f32.mul_add(at(1), 0.11_f32.mul_add(at(2), at(3))),
+            ),
+            // §11.6.5.1 makes this the *only* reading available inside a mask group: "[i]f
+            // the group XObject's content stream specifies a Separation or DeviceN colour
+            // space that uses spot colour components, the alternate colour space shall be
+            // substituted", which is what evaluating the tint transform does.
+            Self::Separation {
+                alternate,
+                transform,
+                ..
+            } => alternate.ink_at(&transform.eval(values), depth.saturating_add(1)),
+            Self::Indexed { base, .. } => {
+                base.ink_at(&self.entry_of(values), depth.saturating_add(1))
+            }
+            Self::Pattern { base } => base
+                .as_ref()
+                .map_or(1.0, |base| base.ink_at(values, depth.saturating_add(1))),
+            // Every other space is one this tree resolves to RGB, and §10.4.2.2's grey of
+            // that RGB is the luminosity — so its ink is one minus it. That covers the
+            // CIE-based branch of §11.5.3 as well, where the clause asks for the `Y` of the
+            // colour in CIE 1931 XYZ and this tree answers with the grey of the sRGB it
+            // converts everything to: the same page-wide choice `crate::soft_mask` records
+            // rather than a second view of it.
+            _ => 1.0 - self.to_rgb(values).grey_level(),
+        }
+    }
+
+    /// Whether a colour of this space still carries its own luminosity once it is a pixel.
+    ///
+    /// The two answers are the two arms of [`Self::ink_at`], and saying so here is what keeps
+    /// them from drifting: every space whose ink is `1 −` the grey level of the RGB this tree
+    /// resolves it to survives being rasterised, because that grey level is exactly what
+    /// `pdf_render::SoftMask::value` reads back off the raster. `DeviceCMYK` is the one that
+    /// does not — §10.4.2.3 weighs its four components directly and this tree's route to RGB
+    /// is a table of ink appearances (ADR 0009), so the two are different numbers.
+    ///
+    /// Asked of an image's samples and a shading's ramp, which reach a display list as colour
+    /// and can be redirected by nothing downstream — see `crate::content`'s `Compositing`.
+    #[must_use]
+    pub fn luminosity_survives_a_raster(&self) -> bool {
+        match self {
+            Self::Cmyk => false,
+            Self::Separation { alternate, .. } => alternate.luminosity_survives_a_raster(),
+            Self::Indexed { base, .. } => base.luminosity_survives_a_raster(),
+            Self::Pattern { base } => base
+                .as_ref()
+                .is_none_or(|base| base.luminosity_survives_a_raster()),
+            _ => true,
+        }
+    }
+
+    /// The mask value §11.5.3 derives from a colour in this space.
+    ///
+    /// > The colour C shall then be converted to luminosity in one of the following ways,
+    /// > depending on the group's colour space
+    ///
+    /// For the device branch the clause says to "convert the colour to `DeviceGray` by
+    /// implementation-defined means and use the resulting gray value as the luminosity", and
+    /// §10.4.2 states those means for every device space — so this is [`Self::ink`] under
+    /// §10.4.2.3's `min`, and nothing here is implementation-defined after all.
+    #[must_use]
+    pub fn luminosity(&self, values: &[f32]) -> f32 {
+        1.0 - self.ink(values).min(1.0)
+    }
+
+    /// The `Indexed` table entry `values` selects, in the base space's components.
+    ///
+    /// Shared by [`Self::to_rgb_at`] and [`Self::ink_at`] so that an index is rounded and
+    /// clamped once: two readings of §8.6.6.3's table would be two chances to round it
+    /// differently.
+    fn entry_of(&self, values: &[f32]) -> Vec<f32> {
+        let Self::Indexed { base, lookup, high } = self else {
+            return values.to_vec();
+        };
+        let components = base.components();
+        let raw = values.first().copied().unwrap_or(0.0);
+        let index = if raw.is_nan() || raw <= 0.0 {
+            0
+        } else {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "guarded finite and positive; a float-to-integer cast saturates \
+                          rather than wrapping, and the result is clamped to `high` below"
+            )]
+            let rounded = raw.round() as usize;
+            rounded
+        };
+        let start = index.min(*high).saturating_mul(components);
+        (0..components)
+            .map(|offset| {
+                lookup
+                    .get(start.saturating_add(offset))
+                    .copied()
+                    .unwrap_or(0.0)
+            })
+            .collect()
+    }
+
     /// Converts a colour in this space to RGB.
     ///
     /// Black point compensation is applied where the space is an ICC profile, which is
@@ -628,33 +769,8 @@ impl ColourSpace {
                 }
                 cie_to_srgb(xyz, *white)
             }
-            Self::Indexed { base, lookup, high } => {
-                let components = base.components();
-                let raw = at(0);
-                let index = if raw.is_nan() || raw <= 0.0 {
-                    0
-                } else {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "guarded finite and positive; a float-to-integer cast \
-                                  saturates rather than wrapping, and the result is \
-                                  clamped to `high` immediately below"
-                    )]
-                    let rounded = raw.round() as usize;
-                    rounded
-                };
-                let index = index.min(*high);
-                let start = index.saturating_mul(components);
-                let slice: Vec<f32> = (0..components)
-                    .map(|offset| {
-                        lookup
-                            .get(start.saturating_add(offset))
-                            .copied()
-                            .unwrap_or(0.0)
-                    })
-                    .collect();
-                base.to_rgb_at(&slice, depth.saturating_add(1), black_point)
+            Self::Indexed { base, .. } => {
+                base.to_rgb_at(&self.entry_of(values), depth.saturating_add(1), black_point)
             }
             Self::Separation {
                 alternate,
@@ -1147,6 +1263,92 @@ mod tests {
         assert_eq!(ColourSpace::Gray.to_rgb(&[0.5]).r, 0.5);
         let rgb = ColourSpace::Rgb.to_rgb(&[0.1, 0.2, 0.3]);
         assert_eq!((rgb.r, rgb.g, rgb.b), (0.1, 0.2, 0.3));
+    }
+
+    /// §10.4.2.3's ink and grey level, on the four colours the clause's own formula fixes.
+    ///
+    /// `gray = 1.0 − min(1.0, 0.3 × cyan + 0.59 × magenta + 0.11 × yellow + black)`, which is
+    /// what §11.5.3's EXAMPLE 2 prints for a `/Luminosity` soft mask. The last row is the one
+    /// that needs the `min` and the one a rendered channel cannot hold: registration black
+    /// weighs 2.0 and every mixture of it is decided before the clamp, not after.
+    #[test]
+    fn cmyk_ink_and_grey_are_the_clauses_own_arithmetic() {
+        let ink = |c, m, y, k| ColourSpace::Cmyk.ink(&[c, m, y, k]);
+        let grey = |c, m, y, k| ColourSpace::Cmyk.luminosity(&[c, m, y, k]);
+
+        assert_eq!(ink(0.0, 0.0, 0.0, 0.0), 0.0, "no ink at all");
+        assert_eq!(grey(0.0, 0.0, 0.0, 0.0), 1.0, "and so, white");
+        assert_eq!(ink(0.0, 0.0, 0.0, 1.0), 1.0, "process black");
+        assert_eq!(grey(0.0, 0.0, 0.0, 1.0), 0.0, "which masks everything away");
+        assert!(
+            (ink(1.0, 0.0, 0.0, 0.0) - 0.3).abs() < 1e-6,
+            "cyan alone weighs 0.3"
+        );
+        assert!(
+            (grey(1.0, 0.0, 0.0, 0.0) - 0.7).abs() < 1e-6,
+            "and leaves 0.7"
+        );
+        assert_eq!(ink(1.0, 1.0, 1.0, 1.0), 2.0, "registration black");
+        assert_eq!(grey(1.0, 1.0, 1.0, 1.0), 0.0, "clamped by the clause's min");
+    }
+
+    /// A grey and an RGB colour weigh the same ink whichever device space states them.
+    ///
+    /// This is the result that lets a mask group be painted in one number without converting
+    /// each colour into the group's space first, and it is arithmetic rather than a
+    /// convention. §10.4.2.3 sends a grey `g` to `(0, 0, 0, 1 − g)`, whose ink is `1 − g`.
+    /// §10.4.2.4 sends an RGB colour to `c = 1 − red`, `m = 1 − green`, `y = 1 − blue`,
+    /// `k = min(c, m, y)`, with the black generated and then removed from the other three —
+    /// and because §10.4.2.3's three weights sum to 1.0, every `k` term cancels:
+    /// `0.3(c − k) + 0.59(m − k) + 0.11(y − k) + k = 0.3c + 0.59m + 0.11y`. So the ink of an
+    /// RGB colour is `1 − (0.3 R + 0.59 G + 0.11 B)` whatever the black-generation function
+    /// did, and §10.4.2.2 gives that same grey level directly.
+    #[test]
+    fn a_grey_and_an_rgb_colour_weigh_the_same_ink_in_either_device_space() {
+        for level in [0.0_f32, 0.25, 0.5, 1.0] {
+            let grey = ColourSpace::Gray.luminosity(&[level]);
+            assert!(
+                (grey - level).abs() < 1e-6,
+                "a grey of {level} is its own luminosity, and got {grey}"
+            );
+            let through_cmyk = ColourSpace::Cmyk.luminosity(&[0.0, 0.0, 0.0, 1.0 - level]);
+            assert!(
+                (through_cmyk - level).abs() < 1e-6,
+                "and the same after §10.4.2.3 sends it to (0, 0, 0, 1 − g)"
+            );
+        }
+
+        let rgb = ColourSpace::Rgb.luminosity(&[0.2, 0.7, 0.4]);
+        let expected = 0.3_f32.mul_add(0.2, 0.59_f32.mul_add(0.7, 0.11 * 0.4));
+        assert!(
+            (rgb - expected).abs() < 1e-6,
+            "§10.4.2.2's own formula, and got {rgb}"
+        );
+        let (c, m, y) = (1.0 - 0.2_f32, 1.0 - 0.7_f32, 1.0 - 0.4_f32);
+        let k = c.min(m).min(y);
+        let through_cmyk = ColourSpace::Cmyk.luminosity(&[c - k, m - k, y - k, k]);
+        assert!(
+            (through_cmyk - expected).abs() < 1e-6,
+            "and §10.4.2.4's black generation cancels out of it, leaving {through_cmyk}"
+        );
+    }
+
+    /// A `DeviceCMYK` colour's luminosity is *not* the grey level of the RGB it renders as.
+    ///
+    /// The one space where the two routes differ, which is why `luminosity_survives_a_raster`
+    /// exists and why a `DeviceCMYK` image inside a mask group is reported rather than drawn.
+    /// Process black is the case a reader can check: `CMYK_CORNERS` puts it at `(35, 31, 32)`,
+    /// whose §10.4.2.2 grey level is 32 of 255, against the clause's 0.
+    #[test]
+    fn only_cmyk_loses_its_luminosity_to_a_raster() {
+        assert!(!ColourSpace::Cmyk.luminosity_survives_a_raster());
+        assert!(ColourSpace::Gray.luminosity_survives_a_raster());
+        assert!(ColourSpace::Rgb.luminosity_survives_a_raster());
+
+        let process_black = [0.0, 0.0, 0.0, 1.0];
+        let rendered = ColourSpace::Cmyk.to_rgb(&process_black).grey_level();
+        assert_eq!(bytes(pdf_render::Color::grey(rendered)).0, 32);
+        assert_eq!(ColourSpace::Cmyk.luminosity(&process_black), 0.0);
     }
 
     /// The eight-bit sRGB a colour converts to, for comparing against measured output.

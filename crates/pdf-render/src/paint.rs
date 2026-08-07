@@ -63,6 +63,36 @@ impl Color {
     pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
+
+    /// Creates an opaque grey, whose [`Self::grey_level`] is the value given.
+    #[must_use]
+    pub const fn grey(level: f32) -> Self {
+        Self::rgb(level, level, level)
+    }
+
+    /// This colour's grey level, ignoring its alpha (ISO 32000-2 §10.4.2.2).
+    ///
+    /// > The gray value for a given RGB value shall be computed according to the NTSC video
+    /// > standard, which determines how a colour television signal is rendered on a
+    /// > black-and-white television set:
+    ///
+    /// The formula the clause then prints, whose weights are set out below the quotation
+    /// because the standard sets them in mathematical italics that no transcription survives:
+    /// `gray = 0.3 × red + 0.59 × green + 0.11 × blue`.
+    ///
+    /// §11.5.3's EXAMPLE 2 prints the same three weights for a `/Luminosity` soft mask, which
+    /// is why this lives on the colour rather than in the mask: `pdf_model`'s
+    /// `ColourSpace::ink` needs the same number for a colour it has *not* yet painted, and
+    /// two copies of a three-constant formula is exactly the shape that made three
+    /// `DeviceCMYK` conversions disagree in this tree once.
+    ///
+    /// Not the sRGB or Rec. 709 luminance coefficients both rasterisers offer: the clause
+    /// states these three, so a library's own are a different formula rather than the same
+    /// one.
+    #[must_use]
+    pub fn grey_level(&self) -> f32 {
+        0.30_f32.mul_add(self.r, 0.59_f32.mul_add(self.g, 0.11 * self.b))
+    }
 }
 
 /// How a region is painted.

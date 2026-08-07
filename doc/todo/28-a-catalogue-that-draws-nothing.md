@@ -1,9 +1,9 @@
 # A 92-page catalogue whose pages draw nothing, and the four things it asks for
 
 Status: **the image is decoded and the catalogue draws, since the three-hundred-and-fifty-fourth
-session** (ADR 0203). Items 2 and 3 are `doc/todo/23`'s and stay open, with this document as their
-witness. Measured in the three-hundred-and-thirty-sixth, from a document the project owner opened
-and the notes it printed.
+session** (ADR 0203). **Item 2's clause was taken in the three-hundred-and-eightieth** (ADR 0217)
+and item 3 is `doc/todo/23`'s and stays open, with this document as its witness. Measured in the
+three-hundred-and-thirty-sixth, from a document the project owner opened and the notes it printed.
 Priority: 28
 Corpus: **0** — and that is the point. This is a real document from outside the pdf.js corpus, and
 the gates cannot see it.
@@ -71,10 +71,27 @@ The same document prints the four populations `doc/todo/23` names, on one page:
 - a blending colour space of `/DeviceCMYK` (§11.4.7) — **four times**;
 - non-isolated, and an element blends with the backdrop it excludes (§11.4.4's NOTE 5) — **twice**.
 
-`doc/todo/23` counts these over the pdf.js corpus at 19 documents and says the first question is
+`doc/todo/23` counted these over the pdf.js corpus at 19 documents and said the first question is
 "what would a backend have to be handed". This document is what that work is *for*: a commercial
 catalogue in CMYK, which is the case where compositing in the wrong space is visible rather than
-theoretical. Any round that takes todo 23 should measure it here as well as on the corpus.
+theoretical.
+
+**The first of the three was answered in the three-hundred-and-eightieth session** (ADR 0217): a
+`/Luminosity` mask group whose blending space is subtractive is now painted in §10.4.2.3's grey
+and composited in that, so its luminosity is the clause's. **What the twelve reports on this page
+become is the measurement nobody in this tree can take**, because the file is the owner's — and
+it is the sharpest question this document still asks:
+
+- if they are **gone**, the catalogue's masks were grey artwork over ordinary backdrops, as every
+  one of the pdf.js corpus's 90 mask groups turned out to be;
+- if they say **"a colour of more than one unit of ink"**, the file uses registration or rich
+  black as a mask backdrop, and `doc/todo/23`'s residue 1 has a witness at last;
+- if they say **"draws an image in …"** or **"draws a shading in …"**, the masks are built from
+  CMYK artwork, which is residue 2 and is the case a commercial catalogue is most likely to be.
+
+One run of the viewer over this file answers which, and the answer decides what a later round
+builds. The other two, §11.4.7's `/DeviceCMYK` blending space and §11.4.4's NOTE 5, are untouched
+and stand exactly as below.
 
 ## 3. §7.7.2's `TwoColumnRight`, said once and correctly
 
@@ -90,7 +107,8 @@ the layout, the scroll and the page-turn arithmetic to change together.
 
 1. **The image.** Decode a four-component JPEG whose Adobe marker says YCCK, and hand
    `convert_channels` four components. Until then the document is blank.
-2. **The soft masks.** §11.6.6's blending space inside a mask, which is `doc/todo/23`'s first
-   population and the one this file witnesses twelve times on one page.
+2. ~~**The soft masks.** §11.6.6's blending space inside a mask~~ — **done in the
+   three-hundred-and-eightieth session** (ADR 0217), with two named residues a run over this file
+   would say whether it needs.
 3. **The groups.** §11.4.7's `/DeviceCMYK` blending space, which is the same change one level out.
 4. Nothing else. The layout note is a statement about this host, and the file is otherwise read.

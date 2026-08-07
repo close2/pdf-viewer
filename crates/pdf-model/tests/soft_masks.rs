@@ -30,9 +30,19 @@ const GENEROUS: u64 = 1 << 30;
 /// A one-page PDF whose content stream is `content`, with one `/ExtGState` named `/GS`.
 ///
 /// `gstate` is what goes inside that dictionary and `group` is the content stream of the
-/// form `XObject` its `/SMask` names, which is object 6 and always a transparency group in
-/// `/DeviceGray` covering the left half of the page.
+/// form `XObject` its `/SMask` names, which is object 6 and always a transparency group
+/// covering the left half of the page, blending in `/DeviceGray`.
 fn page(gstate: &str, content: &str, group: &str) -> Vec<u8> {
+    page_blending_in("/DeviceGray", gstate, content, group)
+}
+
+/// [`page`], with the mask group's own blending colour space named.
+///
+/// §11.6.5.1 makes that entry required for a luminosity mask — "the group attributes
+/// dictionary shall contain a CS entry defining the colour space in which the compositing
+/// computation is to be performed" — and §11.5.3 makes it decide the arithmetic, so it is
+/// the parameter these fixtures vary.
+fn page_blending_in(space: &str, gstate: &str, content: &str, group: &str) -> Vec<u8> {
     let objects = vec![
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
         b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
@@ -43,8 +53,10 @@ fn page(gstate: &str, content: &str, group: &str) -> Vec<u8> {
         format!("5 0 obj\n<< /Type /ExtGState {gstate} >>\nendobj\n").into_bytes(),
         stream_object(
             6,
-            "/Type /XObject /Subtype /Form /BBox [0 0 20 40] \
-             /Group << /Type /Group /S /Transparency /CS /DeviceGray >>",
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 40] \
+                 /Group << /Type /Group /S /Transparency /CS {space} >>"
+            ),
             group.as_bytes(),
         ),
     ];
@@ -348,5 +360,115 @@ fn a_soft_mask_group_is_not_bound_by_an_uncoloured_glyphs_restriction() {
         level(&raster, 20, 30),
         128,
         "the glyph is painted at the mask's own value",
+    );
+}
+
+/// §11.5.3's luminosity is computed in the space the group's `/CS` names, not in the device's.
+///
+/// §11.6.5.1 makes that entry "the colour space in which the compositing computation is to be
+/// performed", and §11.5.3 then converts the result: "For device colour spaces, convert the
+/// colour to `DeviceGray` by implementation-defined means and use the resulting gray value as
+/// the luminosity". §10.4.2.3 states those means for `DeviceCMYK`, and its formula is the one
+/// §11.5.3's EXAMPLE 2 prints —
+/// `gray = 1 − min(1, 0.3 × cyan + 0.59 × magenta + 0.11 × yellow + black)`.
+///
+/// The fixture's mask group blends in `/DeviceCMYK` and paints three colours whose grey levels
+/// the clause fixes exactly:
+///
+/// | `k` operands | ink | `gray` | black through it, over white |
+/// |---|---|---|---|
+/// | `0 0 0 1` (process black) | 1.00 | 0.00 | 255 — nothing painted |
+/// | `0 0 0 0` (no ink at all)  | 0.00 | 1.00 | 0 — painted solid |
+/// | `0 0 0 0.5`                | 0.50 | 0.50 | 128 |
+///
+/// **The first row is what this test exists for.** Until the three-hundred-and-eightieth
+/// session the group was composited on the device's three components, so process black went
+/// through this tree's `DeviceCMYK` → RGB table (ADR 0009) to `(35, 31, 32)` and came back as
+/// a mask value of 32 — content its producer had masked away, faintly there at 12.5%. The
+/// clause's own arithmetic gives 0.
+#[test]
+fn a_cmyk_mask_group_takes_its_luminosity_from_the_clauses_own_formula() {
+    let raster = render(page_blending_in(
+        "/DeviceCMYK",
+        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0 0 0 1] >>",
+        "q /GS gs 0 g 0 0 40 40 re f Q",
+        "0 0 0 1 k 0 0 7 40 re f  0 0 0 0 k 7 0 6 40 re f  0 0 0 0.5 k 13 0 7 40 re f",
+    ));
+
+    near(
+        level(&raster, 3, 20),
+        255,
+        "1 - min(1, 1) = 0 masks process black away entirely",
+    );
+    near(level(&raster, 10, 20), 0, "1 - min(1, 0) = 1 paints it all");
+    near(level(&raster, 16, 20), 128, "1 - min(1, 0.5) = 0.5");
+    near(
+        level(&raster, 30, 20),
+        255,
+        "outside the /BBox, /BC [0 0 0 1] is the same process black and the same 0",
+    );
+}
+
+/// An absent `/BC` in a `DeviceCMYK` group is process black, and process black masks fully.
+///
+/// Table 142 gives `/BC` the default "the colour space's initial value, representing black",
+/// and §8.6.8 makes that `[0.0 0.0 0.0 1.0]` for `DeviceCMYK` — one whole unit of §10.4.2.3's
+/// ink, so a grey level of exactly 0. `issue14200.pdf` is the corpus's witness: a mask group
+/// whose content stream is `q Q` and whose `/BC` is absent, so its mask is that one number
+/// everywhere.
+#[test]
+fn an_absent_backdrop_in_a_cmyk_group_masks_everything_away() {
+    let raster = render(page_blending_in(
+        "/DeviceCMYK",
+        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R >>",
+        "q /GS gs 0 g 0 0 40 40 re f Q",
+        "",
+    ));
+
+    for x in [3, 10, 16, 30] {
+        near(
+            level(&raster, x, 20),
+            255,
+            "an empty group over the default backdrop masks the whole page",
+        );
+    }
+}
+
+/// A grey painted in a `DeviceCMYK` group is the same mask value as in a `DeviceGray` one.
+///
+/// Worth a test rather than an assumption, because it is the reason this tree needs no
+/// conversion from a painted colour's space into the group's. §10.4.2.3 sends a grey `g` to
+/// `(0, 0, 0, 1 − g)` and back to `1 − min(1, 1 − g) = g`; §10.4.2.4 sends an RGB colour
+/// through a black generation whose every term cancels, because §10.4.2.3's three weights sum
+/// to 1. So the two fixtures below differ in one name and in nothing a mask can see.
+#[test]
+fn a_grey_masks_the_same_whichever_of_the_two_device_spaces_the_group_blends_in() {
+    let group = "0.25 g 0 0 10 40 re f 1 g 10 0 10 40 re f";
+    let content = "q /GS gs 0 g 0 0 40 40 re f Q";
+    let state = "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0.5] >>";
+    let grey = render(page_blending_in("/DeviceGray", state, content, group));
+    let cmyk = render(page_blending_in(
+        "/DeviceCMYK",
+        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0 0 0 0.5] >>",
+        content,
+        group,
+    ));
+
+    for x in [5, 15, 30] {
+        assert_eq!(
+            level(&grey, x, 20),
+            level(&cmyk, x, 20),
+            "the same grey artwork masks the same at x = {x}"
+        );
+    }
+    near(
+        level(&cmyk, 5, 20),
+        191,
+        "a mask of 0.25 leaves 75% of white",
+    );
+    near(
+        level(&cmyk, 30, 20),
+        128,
+        "/BC [0 0 0 0.5] is a grey of 0.5",
     );
 }

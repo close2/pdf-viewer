@@ -1388,6 +1388,7 @@ pub fn interpret_with(
         soft_mask_depth: 0,
         uncoloured: false,
         inside_knockout: false,
+        compositing: Compositing::Device,
     };
 
     for issue in issues {
@@ -1836,11 +1837,112 @@ struct Interpreter<'a> {
     /// into a knockout parent would stop being *one* element of that parent and become several,
     /// which is precisely what §11.4.6 makes different.
     inside_knockout: bool,
+    /// What the content being run is painting into, which decides what a colour becomes.
+    compositing: Compositing,
+}
+
+/// What a colour is resolved *for*.
+///
+/// Every colour in a PDF becomes three device components on its way to a raster, and for a
+/// page that is the whole story. §11.5.3's second derivation is where it stops being one: a
+/// `/Luminosity` soft mask's group is composited "in the colour space in which the compositing
+/// computation is to be performed" (§11.6.5.1) and only *then* converted to a single value, so
+/// where that space is subtractive the group's own arithmetic is not the device's.
+///
+/// A whole second raster format would be one answer, and it is not this one. §10.4.2.3's
+/// conversion to grey is linear in the components except for one `min`, so the group can be
+/// painted in that linear quantity — one channel, composited by the ordinary rasteriser — and
+/// the `min` applied once at the end by `pdf_render::SoftMask::value`. That is ADR 0210's shape
+/// one level up: the display list names a quantity a backend resolves rather than carrying the
+/// components a backend would have to be taught.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Compositing {
+    /// The page, or any group this tree composites on the device's three components.
+    Device,
+    /// A `/Luminosity` mask group whose blending space §10.4.2.3 sends to grey without passing
+    /// through RGB, so a colour is painted as the grey `1 − min(1, ink)` that clause gives it.
+    Luminosity,
 }
 
 impl Interpreter<'_> {
     fn note(&mut self, item: Unsupported) {
         self.unsupported.insert(item.clone(), item);
+    }
+
+    /// Converts a colour for whatever is being composited into, reporting what cannot go.
+    ///
+    /// [`convert`] carries the arithmetic; this carries the one case it cannot. §10.4.2.3's
+    /// conversion to grey ends in `min(1.0, …)`, and §11.5.3 puts that `min` *after* the
+    /// group has been composited — so a colour weighing more than one whole unit of ink,
+    /// which registration black and most rich blacks do, loses its excess here rather than in
+    /// `pdf_render::SoftMask::value` where the clause spends it. A half-covered pixel of such
+    /// a colour is the difference, and it is reported rather than approximated.
+    ///
+    /// The backdrop is not subject to this, and that is not an inconsistency: `/BC` is one
+    /// colour per mask, so its ink travels to the backend as a number rather than through a
+    /// channel of a raster (`pdf_render::SoftMaskKind::Luminosity`).
+    fn colour(&mut self, space: &ColourSpace, values: &[f32], black_point: BlackPoint) -> Color {
+        if self.compositing == Compositing::Luminosity && space.ink(values) > 1.0 {
+            self.note(Unsupported::TransparencyGroup {
+                detail: crate::soft_mask::OVER_INKED.to_owned(),
+            });
+        }
+        convert(space, values, black_point, self.compositing)
+    }
+
+    /// Reports colour that reaches a `/Luminosity` mask group already rasterised (§11.5.3).
+    ///
+    /// Inside a mask group whose blending space is subtractive, [`Interpreter::colour`] paints
+    /// what the clause would have composited: the grey §10.4.2.3 converts each colour to. Two
+    /// things arrive as colour this interpreter never sees a component of — an image's samples
+    /// and a shading's ramp, both resolved to RGB before a display list can carry them — and
+    /// where their own space is `DeviceCMYK`, or rests on one, the grey of that RGB is not
+    /// §10.4.2.3's grey. Both would need a raster produced in the group's space, which is the
+    /// second half of `doc/todo/23` and is not this.
+    ///
+    /// Asked of the dictionary's `/ColorSpace`, which is the key an image `XObject` (Table 87)
+    /// and a shading dictionary (Table 78) both state it under; a stencil mask states none and
+    /// paints the current colour, which has been redirected already.
+    ///
+    /// **The space is named in the report**, because a condition worked out from a clause is
+    /// worth no more than what it turns out to match (trap 11): it was this sentence that said
+    /// `bug1703683_page2_reduced.pdf` draws a `DeviceCMYK` shading inside a `DeviceGray` mask
+    /// group, which nothing in this tree had said before.
+    fn note_rasterised_colour(&mut self, what: &str, object: &Object, resources: &Dictionary) {
+        if self.compositing != Compositing::Luminosity {
+            return;
+        }
+        let resolved = self.document.resolve(object);
+        let entry = match &resolved {
+            Object::Dictionary(dict) => self.document.get_key(dict, "ColorSpace"),
+            Object::Stream(stream) => self.document.get_key(&stream.dict, "ColorSpace"),
+            _ => return,
+        };
+        if ColourSpace::parse(self.document, &entry, resources)
+            .is_none_or(|space| space.luminosity_survives_a_raster())
+        {
+            return;
+        }
+        let named = match self.document.resolve(&entry) {
+            Object::Name(name) => format!("/{}", String::from_utf8_lossy(name.as_bytes())),
+            // The family, which is the first element of every array form §8.6 defines, and
+            // the part of it that says why the luminosity does not survive.
+            Object::Array(items) => items
+                .first()
+                .map(|first| self.document.resolve(first))
+                .and_then(|first| first.as_name().map(|name| name.as_bytes().to_vec()))
+                .map_or_else(
+                    || "an array-formed space".to_owned(),
+                    |name| format!("a /{} space", String::from_utf8_lossy(&name)),
+                ),
+            _ => "an array-formed space".to_owned(),
+        };
+        self.note(Unsupported::TransparencyGroup {
+            detail: format!(
+                "a soft mask's group draws {what} in {named}, whose colours are composited in \
+                 device RGB rather than in the blending colour space its /CS names"
+            ),
+        });
     }
 
     /// Adds one show string's worth of coverage to a font's tally.
@@ -2225,21 +2327,21 @@ impl Interpreter<'_> {
                 b"g" | b"G" => {
                     if let Some(grey) = number_at(&operands, 0) {
                         let space = self.device_space("DeviceGray", resources);
-                        let colour = convert(&space, &[grey], state.black_point);
+                        let colour = self.colour(&space, &[grey], state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"g", colour, space);
                     }
                 }
                 b"rg" | b"RG" => {
                     if let Some(values) = numbers_from(&operands, 3) {
                         let space = self.device_space("DeviceRGB", resources);
-                        let colour = convert(&space, &values, state.black_point);
+                        let colour = self.colour(&space, &values, state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"rg", colour, space);
                     }
                 }
                 b"k" | b"K" => {
                     if let Some(values) = numbers_from(&operands, 4) {
                         let space = self.device_space("DeviceCMYK", resources);
-                        let colour = convert(&space, &values, state.black_point);
+                        let colour = self.colour(&space, &values, state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"k", colour, space);
                     }
                 }
@@ -3100,7 +3202,7 @@ impl Interpreter<'_> {
             .cloned()
             .unwrap_or_default();
 
-        if let Some(detail) = &request.colour_space_departure {
+        for detail in &request.departures {
             self.note(Unsupported::TransparencyGroup {
                 detail: detail.clone(),
             });
@@ -3128,7 +3230,21 @@ impl Interpreter<'_> {
         // was skipped by §8.6.8's image rule, the mask came out zero and the text vanished.
         // Ink 2.87 against `mupdf`'s 7.63 and `hayro`'s 8.11 (ADR 0173).
         let saved_uncoloured = std::mem::replace(&mut self.uncoloured, false);
+        // §11.6.5.1 makes the group's `/CS` "the colour space in which the compositing
+        // computation is to be performed", and `crate::soft_mask` has already decided which of
+        // this tree's two routes answers that space. A mask group nested inside another one
+        // may name a different space, so this is saved and restored like `uncoloured` rather
+        // than set once.
+        let saved_compositing = std::mem::replace(
+            &mut self.compositing,
+            if request.in_luminosity {
+                Compositing::Luminosity
+            } else {
+                Compositing::Device
+            },
+        );
         self.run(&content, &resources, &inner, 0);
+        self.compositing = saved_compositing;
         self.uncoloured = saved_uncoloured;
         self.soft_mask_depth = self.soft_mask_depth.saturating_sub(1);
         let commands = self.list.split_off_commands(mark);
@@ -3203,7 +3319,7 @@ impl Interpreter<'_> {
         let colour = if initial.is_empty() {
             Color::TRANSPARENT
         } else {
-            convert(&space, &initial, state.black_point)
+            self.colour(&space, &initial, state.black_point)
         };
         if fill {
             state.fill_space = space;
@@ -3266,10 +3382,13 @@ impl Interpreter<'_> {
         // a device space with a matching component count is the likeliest intent.
         let colour = match (values.len(), space.components()) {
             (0, _) => return,
-            (given, expected) if given == expected => convert(space, &values, state.black_point),
-            (1, _) => ColourSpace::Gray.to_rgb(&values),
-            (3, _) => ColourSpace::Rgb.to_rgb(&values),
-            (4, _) => ColourSpace::Cmyk.to_rgb(&values),
+            (given, expected) if given == expected => {
+                let space = space.clone();
+                self.colour(&space, &values, state.black_point)
+            }
+            (1, _) => self.colour(&ColourSpace::Gray, &values, state.black_point),
+            (3, _) => self.colour(&ColourSpace::Rgb, &values, state.black_point),
+            (4, _) => self.colour(&ColourSpace::Cmyk, &values, state.black_point),
             (given, expected) => {
                 self.note(Unsupported::Shading {
                     name: format!("{given} colour components (expected {expected})"),
@@ -4236,6 +4355,7 @@ impl Interpreter<'_> {
                 name: format!("{name}: {detail}"),
             });
         }
+        self.note_rasterised_colour("an image", &Object::Stream(Arc::clone(stream)), resources);
         // §8.9.6.2 with §8.7.3.3: a stencil "does not specify colours; instead, it
         // designates places where the current colour is painted", and the current colour may
         // be a *pattern*, which is not a colour this or any other command can carry.
@@ -5833,6 +5953,7 @@ impl Interpreter<'_> {
             self.rect_clip(corners, state.transform, state.clip)
                 .or(state.clip)
         });
+        self.note_rasterised_colour("a shading", &object, resources);
         match self.shadings.build(
             self.document,
             &object,
@@ -5911,6 +6032,7 @@ impl Interpreter<'_> {
         // Unresolved on purpose: `shading::Cache` is keyed by the reference, and a pattern
         // painted a thousand times states the same one every time.
         let shading_object = dict.get("Shading").cloned().unwrap_or(Object::Null);
+        self.note_rasterised_colour("a shading", &shading_object, resources);
 
         match self.shadings.build(
             self.document,
@@ -6016,7 +6138,11 @@ impl Interpreter<'_> {
                     },
                     other => other.clone(),
                 };
-                Some(space.to_rgb(tint))
+                // Through `convert`, so that an uncoloured cell painted inside a
+                // `/Luminosity` mask group is poured through §11.5.3's luminosity like every
+                // other colour there. `BlackPoint::Default`: the tint arrived with `scn` and
+                // §8.6.5.9's setting belongs to the state that paints the cell.
+                Some(convert(&space, tint, BlackPoint::Default, self.compositing))
             }
             _ => None,
         };
@@ -6702,11 +6828,40 @@ fn expected_components(name: &str) -> usize {
 }
 
 /// Converts a colour, honouring the graphics state's black point setting.
-fn convert(space: &ColourSpace, values: &[f32], black_point: BlackPoint) -> Color {
-    if black_point.applies() {
+///
+/// Inside a `/Luminosity` mask group whose blending space is subtractive, what is painted is
+/// §11.5.3's luminosity rather than the colour — as a grey, so that
+/// `pdf_render::SoftMask::value` reads it back through §10.4.2.2's own formula and gets the
+/// number this put there. Two properties make that exact rather than approximate, and both are
+/// the clause's:
+///
+/// - `ColourSpace::ink` is **linear** in a subtractive space's components, and source-over
+///   compositing is affine in each component, so mixing greys is mixing the components the
+///   clause would have mixed. §10.4.2.3's `min` is the one non-linear step and it is applied
+///   after the mixing, in `SoftMask::value`, where the clause puts it.
+/// - The three weights sum to 1.0, so the grey of a grey is that grey.
+///
+/// The alpha comes from the ordinary conversion rather than from the luminosity, because it is
+/// not a colour component: §8.6.6.4's `/None` colourant "shall have no effect on the current
+/// page", which this tree says with a transparent paint, and a mask group is not the place for
+/// it to start painting black instead.
+fn convert(
+    space: &ColourSpace,
+    values: &[f32],
+    black_point: BlackPoint,
+    into: Compositing,
+) -> Color {
+    let colour = if black_point.applies() {
         space.to_rgb(values)
     } else {
         space.to_rgb_without_black_point(values)
+    };
+    match into {
+        Compositing::Device => colour,
+        Compositing::Luminosity => Color {
+            a: colour.a,
+            ..Color::grey(space.luminosity(values))
+        },
     }
 }
 
