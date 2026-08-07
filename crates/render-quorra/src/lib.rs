@@ -147,7 +147,7 @@ impl QuorraRasterizer {
     /// [`QuorraPresenter::present`] is the same scene onto a swapchain, and this is the only way
     /// to look at one without a window. It exists because a defect lived where no instrument
     /// reached: `viewer-ui`'s sidebar stops being drawn above about 2000% magnification on the
-    /// graphics device and not on the processor (`doc/todo/12`), and every gate in this tree
+    /// graphics device and not on the processor (ADR 0198), and every gate in this tree
     /// rasterises **one** display list — the corpus and the oracle a page, `tests/corpus.rs` a
     /// page at 1×, 2× and 4×. None of them puts chrome over a magnified page, which is exactly
     /// the combination that breaks.

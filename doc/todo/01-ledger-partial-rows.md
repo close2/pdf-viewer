@@ -1,8 +1,10 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~176 of the 240 rows have not been re-read. **The seventh sweep, below,
-is the first to read the `inapplicable` rows** — 81 of them, never swept before the
-three-hundred-and-fifty-ninth session, and its first run corrected five.
+Status: **standing task.** ~147 of the 240 rows have not been re-read — 29 more went in the
+three-hundred-and-seventy-fifth. **The eighth sweep, at the bottom, is the first to check that a
+note's *citations* still exist**, and its first run found the dangling `doc/todo/20` this file had
+carried as owed for fifteen sessions, plus six dead pointers in `crates/` that nothing had ever
+looked for.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -365,6 +367,54 @@ two-hundred-and-seventeenth — "**split a refusal into one claim per entry befo
 and this is that rule applied to a *capability* reason rather than to an architectural one. Five
 entries, one sentence, and only one of them named a capability that had arrived.
 
+## All seven run again in the three-hundred-and-seventy-fifth, after five rounds that added verbs
+
+`Query::Caret`, `pdf_model::restriction`, `pdf_render::repeat`, `ImageSource` and
+`pdf_model::fragment` had landed in five consecutive rounds and none of them had re-swept, which is
+the condition these exist for. Over `ledger.toml` and over `crates/`:
+
+- **Arithmetic (sweep 6)**: two hits, §7.9.2 which this file already records as read and kept, and
+  §O — whose own note already answers it, written by the session that built the annex.
+- **Expired blockers**: four, and three are the *quoted retired wording* inside a correction
+  (§11.3.7.2, §11.6.4.3, §11.7.4.4 all say "this row used to say"). The live one is §12.10.2's
+  wait on §12.10.3, which is real.
+- **Capability reasons**: 21 over the ledger, 69 over `crates/`, and every source hit was a true
+  statement about a boundary a crate keeps — no clock, no filesystem, no toolkit, no trust store.
+- **Entries claimed unread**: 12, eleven of them the known one-short-key-three-clauses population
+  (`/Name`, `/Metadata`, `/ID` against `thumbnail.rs`'s key list). **The twelfth was §12.5.2 and
+  two of its entries were live**: `/RC`, read since ADR 0199 thirty-three sessions earlier — the
+  *same clause* §12.5.6.2's row was corrected for, and this row was never read against it — and
+  `/NM`, which `fragment::annotation_named` resolves Annex O's `comment` against since the round
+  before last.
+- **Caller sweep**: 209 `pub fn`s in `pdf-model`, 75 named by neither host. The new name is
+  `restriction::withheld`, and it is the known "functions `pdf-model` calls itself" population —
+  `asserted` calls it, and its own doc comment says why it is separate.
+- **Retired claim**, run over the nouns rather than the strings, and it paid twice on one phrase.
+  **"Marking device"** is what ADR 0204 retired from `CLAUDE.md` in the three-hundred-and-fifty-
+  seventh session, and eighteen sessions later it was still in six places: the ledger's own
+  *definition of the `inapplicable` status* and the same sentence in `tools/conformance` twice,
+  §8.4's parent row, §11.7.5's parent row, §11.7.5.2 (which contradicted itself four sentences
+  later), and `requirements::unmet`'s `SeparationSimulation` arm. **A phrase inside a status's
+  definition is the worst place for it**: §10.5 spent three hundred and fifty-seven sessions
+  `inapplicable` partly because the word the status was explained with named a device the standard
+  does not have.
+- **The eighth sweep**, below, which is new and which found the `doc/todo/20` this file had been
+  carrying as owed.
+
+**And one of the phrase's six places was a defect rather than a comment.** `content.rs` explained
+§8.6.8's list by saying `/TR` and `/TR2` "describe a marking device and are read nowhere here",
+thirty lines below the `Transfer::read` that has read both since the three-hundred-and-fifty-eighth
+— and the `/ExtGState` reader for them was **not** behind the uncoloured-figure flag the rest of
+that list is behind, so a transfer function inside an uncoloured tiling pattern or a `d1` glyph
+description decided a colour §8.6.8 reserves for whoever uses the figure. Seventeen sessions, and
+the stale comment is why nobody looked. `an_uncoloured_cell_that_sets_a_transfer_function_is_ignored`
+fails without the guard, painting black where the clause requires the `scn` blue.
+
+**What that adds to the method**: a comment explaining *why* a list is what it is will be read as
+the reason not to check the list. The sweeps hunt claims about capabilities; this was a claim about
+**which entries a rule covers**, and the code drifted out from under it while the sentence stayed
+plausible.
+
 ## A seventh sweep, and it reads the rows the sweeps had never looked at: **the `inapplicable` ones**
 
 Every sweep in this file walks `partial`, `reported` and `unreviewed` rows, because those are the
@@ -419,6 +469,52 @@ code that reads `i` and discards it. §14.11.2.2 has no code to name, so it keep
 its reason stated precisely. **The status vocabulary has one word for two situations**, and until
 that is worth a status of its own the defence is that every such note says which it means.
 
+## An eighth sweep, and it is the first that checks a note's *citations*: **does the file it names exist?**
+
+The seven above read what a row *claims*. None of them reads what a row *points at*, and a
+pointer decays the same way a claim does — faster, because deleting a file is a thing sessions do
+on purpose. `tools/conformance` already checks the `code` and `test` arrays; nothing checks the
+paths inside a note's prose, or inside a doc comment.
+
+Twenty lines: pull every `doc/todo/NN`, `doc/adr/NNNN`, `crates/….rs` and `examples/…` out of the
+ledger's notes and out of every `//` comment in `crates/`, and glob for each one.
+
+**Its first run, in the three-hundred-and-seventy-fifth, produced seven and every one was dead.**
+
+- **§8.9.6.1's `doc/todo/20`**, which this file has carried under "what is still owed" since the
+  three-hundred-and-sixtieth session as *a dangling reference whose sentence might still be real*.
+  It was not: the sentence said §8.9.6.2 "refuses a stencil painted with a *tiling* pattern", and
+  ADR 0169 implemented exactly that in the two-hundred-and-eighteenth session and deleted
+  `doc/todo/20` in the same commit — while §8.9.6.2's own row has said so ever since. **The file
+  it named was deleted by the session that made the sentence false**, which is what makes this
+  sweep cheaper than reading the row: the pointer and the claim died together, and only one of
+  them is greppable without knowing anything about the clause.
+- **`doc/todo/12`, six times in `crates/`** — `render-quorra/src/lib.rs`, `viewer-ui`'s
+  `chrome_ladder` example and its `chrome_over_a_magnified_page` test. The todo was *done* and
+  deleted; ADR 0198 is where its argument lives, and the comments now say so.
+
+**What it costs to keep clean, and the one false positive it has.** A corrected note that quotes
+its own retired wording reproduces the dead path inside quotation marks, so §8.9.6.1 will hit
+every run from now on — the same shape the fourth sweep's oldest false positive has (a note
+quoting itself). Read the hit before believing it; one line of context is enough to tell a
+citation from a quotation.
+
+**And the shape generalises past files.** A note that cites `crates/foo.rs::some_test` is making
+the same kind of claim, and the checker only verifies the ones in the `test` array. A round that
+wants a ninth sweep could take the *symbol* halves of every citation in a note's prose.
+
+## A ninth sweep was tried and it is worth knowing it produced noise: **parents *ahead* of their children**
+
+The sixth sweep asks which parents are behind their children. The inverse looks like it should be
+stronger — a row saying `implemented` while one of its own direct children still owes something is
+claiming every normative requirement in the clause is executed while the ledger itself says one is
+not. **It produced 25 hits and none was wrong**, because this ledger's convention is that a parent
+row covers the clause's *own* prose and its children own theirs: §7.4's framing is implemented
+while five filters are `partial`, and that is a true pair of statements rather than a contradiction.
+
+Run it once to know that; do not run it every round. The one hit worth reading was §O.2, and its
+answer was already written into §O's note by the session that built the annex.
+
 ## What is still owed, named
 
 - ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).
@@ -427,14 +523,15 @@ that is worth a status of its own the defence is that every such note says which
   all four corpus documents carrying a `/UR3` grant what this program does, so no file here can
   trip it. What is still owed under §12.8.2.3 is §12.8.2.2.2's comparison of two revisions, which
   needs the digest.
-- **~176 `partial` rows** not yet re-read against the code.
+- **~147 `partial` rows** not yet re-read against the code.
 - ~~**Annex I.2's version number**~~ — closed in the three-hundred-and-sixty-first session, the
   round after the sweep that found it (ADR 0207). It was worth one line here for exactly one round:
   a `should` nobody had read, two lines from a parser already standing on the number.
-- **A dangling `doc/todo/20`** in §8.9.6.2's note — a stencil painted with a tiling pattern, whose
-  file no longer exists. Either the work is real and wants a file, or the sentence wants rewriting;
-  the three-hundred-and-sixtieth session fixed the other two dangling references it found and left
-  this one because the refusal behind it has not been re-read.
+- ~~**A dangling `doc/todo/20`**~~ — closed in the three-hundred-and-seventy-fifth by the eighth
+  sweep. It was in §8.9.6.**1**'s note rather than §8.9.6.2's, which is part of why nobody found it
+  by reading the clause it was about: the refusal had been implemented sixteen sessions before this
+  entry was written and a hundred and fifty-seven before it was corrected (ADR 0169), and
+  §8.9.6.2's own row had said so all along.
 - **§14.11.6.2's one reader-side sentence**, found by the seventh sweep and left unread: if the
   page object's `/LastModified` is more recent than the trap network annotation's, "the page's
   trap networks are invalid and shall be regenerated" — and a reader that cannot regenerate them

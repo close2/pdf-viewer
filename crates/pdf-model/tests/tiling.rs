@@ -24,6 +24,14 @@ const GENEROUS: u64 = 1 << 30;
 
 /// Assembles a one-page PDF whose `/Pattern` resource is the given object.
 fn pdf_with(pattern: &str, content: &str) -> Vec<u8> {
+    with_extra_object(pattern, content, "")
+}
+
+/// [`pdf_with`], plus one more numbered object appended after the pattern.
+///
+/// Object 6 onwards, so a pattern's own resources can name something the page does not — which
+/// is what a cell holding an `/ExtGState` needs.
+fn with_extra_object(pattern: &str, content: &str, extra: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
@@ -31,7 +39,7 @@ fn pdf_with(pattern: &str, content: &str) -> Vec<u8> {
          /Resources << /Pattern << /P0 5 0 R >> \
          /ExtGState << /Half << /ca 0.5 >> >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
-         5 0 obj\n{pattern}\nendobj\n",
+         5 0 obj\n{pattern}\nendobj\n{extra}",
         content.len().saturating_add(1)
     );
 
@@ -214,6 +222,70 @@ fn an_uncoloured_cell_that_sets_a_colour_is_ignored() {
     assert!(
         b > 240 && r < 15 && g < 15,
         "the cell's own `rg` is ignored, so this stays the scn blue: got {r},{g},{b}"
+    );
+}
+
+/// A transfer function inside an uncoloured cell is ignored, like every other colour entry.
+///
+/// ISO 32000-2 §8.6.8 states the rule as a list rather than as a principle, and `/TR` is on it:
+///
+/// > All of the following entries, if present in the graphics state parameter dictionary of a gs
+/// > operator shall be ignored:
+///
+/// followed by a table whose members are `TR`, `TR2`, `BG`, `BG2`, `UCR`, `UCR2`, `HT` and
+/// `UseBlackPtComp`. §10.5's transfer function arrived in the three-hundred-and-fifty-eighth
+/// session and its `/ExtGState` reader was not put behind that flag, so an uncoloured cell could
+/// decide a colour §8.6.8 reserves for whoever uses the pattern — found in the
+/// three-hundred-and-seventy-fifth by a sweep of the phrase the same clause's comment used.
+///
+/// The fixture's function is `{ pop 0 }`: every component to zero, which would paint the cell
+/// black. `scn` supplies blue, and blue is what must come out.
+#[test]
+fn an_uncoloured_cell_that_sets_a_transfer_function_is_ignored() {
+    let function = "6 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1] /Length 10 >>\n\
+                    stream\n{ pop 0 }\nendstream\nendobj\n";
+    let cell = dotted_cell(2, "/Dark gs").replace(
+        "/Resources << >>",
+        "/Resources << /ExtGState << /Dark << /TR 6 0 R >> >> >>",
+    );
+    let raster = render(with_extra_object(
+        &cell,
+        "/Pattern cs 0 0 1 /P0 scn 0 0 100 100 re f",
+        function,
+    ));
+
+    let (r, g, b, a) = pixel(&raster, 4, 95);
+    assert_eq!(a, 255, "the stencil should paint");
+    assert!(
+        b > 240 && r < 15 && g < 15,
+        "§8.6.8 ignores the cell's own /TR, so this stays the scn blue: got {r},{g},{b}"
+    );
+}
+
+/// The same fixture *outside* an uncoloured cell, where the transfer function does apply.
+///
+/// The pair is what makes the test above a statement about §8.6.8 rather than about
+/// `Transfer::read` having been broken: the identical function on a coloured tiling turns its
+/// blue cell black, which is §10.5 working.
+#[test]
+fn the_same_transfer_function_applies_to_a_coloured_cell() {
+    let function = "6 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1] /Length 10 >>\n\
+                    stream\n{ pop 0 }\nendstream\nendobj\n";
+    let cell = dotted_cell(1, "/Dark gs 0 0 1 rg").replace(
+        "/Resources << >>",
+        "/Resources << /ExtGState << /Dark << /TR 6 0 R >> >> >>",
+    );
+    let raster = render(with_extra_object(
+        &cell,
+        "/Pattern cs /P0 scn 0 0 100 100 re f",
+        function,
+    ));
+
+    let (r, g, b, a) = pixel(&raster, 4, 95);
+    assert_eq!(a, 255, "the cell should paint");
+    assert!(
+        r < 15 && g < 15 && b < 15,
+        "every component maps to zero, so the blue cell is black: got {r},{g},{b}"
     );
 }
 

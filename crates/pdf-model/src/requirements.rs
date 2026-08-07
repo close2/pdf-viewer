@@ -210,11 +210,20 @@ impl Kind {
     /// **A claim about this tree rather than about the standard**, which is why every arm names
     /// its reason and why the answer is a sentence rather than a boolean. It decays exactly as a
     /// ledger row does: a session that builds a layer panel has to come back and change
-    /// `OCInteract`.
+    /// `OCInteract`. **It has decayed twice** — three arms in the two-hundred-and-twenty-first
+    /// session and nine more in the three-hundred-and-seventy-fifth — so the warning is a record
+    /// of what happens rather than a caution that works.
     ///
     /// `None` means met. The three shapes of "not met" are all here on purpose — a feature this
     /// project *excludes* (`CLAUDE.md` principle 5), a feature that is a viewer's rather than a
     /// renderer's and is not built, and a feature nobody has written yet.
+    ///
+    /// **A reason names what is missing, never a clause as unread.** Every one of the nine arms
+    /// corrected in the three-hundred-and-seventy-fifth session was of that second shape — "§12.8
+    /// is unread", "§12.10 is unread", "§14.12 is unread" — and a clause this tree reads is
+    /// exactly what a later session makes false without noticing. Table 275's own wording is the
+    /// discipline: several of its types say "in addition to the requirements of" another, so a
+    /// reason has to name the *increment* rather than the whole.
     #[must_use]
     pub fn unmet(&self) -> Option<&'static str> {
         Some(match self {
@@ -222,6 +231,12 @@ impl Kind {
             // usage application dictionaries for the `View` event (ADR 0044), §12.5.6.5's
             // links with §12.3.3's outline and the three actions §12.11's own table lists
             // (ADR 0070), and §7.6's encryption at every revision and method (ADR 0031).
+            //
+            // `Encryption` is answered *by type* while Table 274's `/Encrypt` states "the
+            // specific set of encryption parameters" the document needs, and that is sound
+            // rather than lucky: §7.6.4.2 implements every `/V` and `/R` the standard defines,
+            // and the one value refused is `/R` 5, which Table 21 itself calls "Shall not be
+            // used". A parameter set outside that does not exist to be asked about.
             //
             // **Met since the sessions named, and this arm said otherwise for between forty and
             // eighty-six of them.** The doc comment above anticipated exactly that — "a session
@@ -241,27 +256,88 @@ impl Kind {
             // **The claim is about the program this crate is part of and not about the crate**,
             // which is what makes it decay: the capability is two crates away in every one of
             // these three cases, and no compiler notices when it arrives.
+            //
+            // **`Collection` joined them in the three-hundred-and-seventy-fifth**, on the same
+            // sweep and for the same reason — ADR 0202's collection view is two crates away.
+            // Table 275 asks for two things and both are here: "displaying the embedded files
+            // referenced from the document's collection dictionary (12.3.5, "Collections") along
+            // with any associated metadata", which is `Query::Collection` and the columns
+            // `viewer_ui::chrome` builds from Table 43's `/Schema` and each file's Table 44
+            // collection item dictionary; and "that the user can extract or otherwise view the
+            // contents of each item in the collection", which is `Command::Extract` — a
+            // collection's items *are* the `/EmbeddedFiles` tree's entries, which is the key that
+            // command takes.
             Self::OcAutoStates
             | Self::Navigation
             | Self::Encryption
             | Self::OcInteract
             | Self::AcroFormInteract
-            | Self::Attachment => return None,
-            Self::Markup => "no annotation editing: markup annotations are drawn, not created",
-            Self::AttachmentEditing => "no attachment editing, and no attachment list",
-            Self::Collection => "no collection view: §12.3.5's collections are unread",
-            Self::CollectionEditing => "no collection editing, and no collection view",
-            Self::Action => "some §12.6 actions are performed and most are refused by name",
+            | Self::Attachment
+            | Self::Collection => return None,
+            // **Eight reasons below were false or expired when the three-hundred-and-seventy-fifth
+            // session read them against the code, between six and about a hundred and eighty
+            // sessions after each stopped being true.** Every one named a clause as *unread* that
+            // this tree reads, which is the cheapest of `doc/todo/01`'s shapes to check and the
+            // one nothing fires on. What each says now is the part that is genuinely missing.
+            Self::Markup => {
+                // Table 275 asks for "the creation, modification and deletion of markup
+                // annotations". `Edit::Markup` creates one and writes its appearance (ADR 0196);
+                // the other two verbs have no command.
+                "markup annotations are created and saved, but not modified or deleted"
+            }
+            Self::AttachmentEditing => {
+                // "In addition to the requirements of the Attachment value" — which is met — so
+                // the list is not what is missing.
+                "no attachment editing: attachments are listed and extracted, never added, \
+                 deleted or renamed"
+            }
+            Self::CollectionEditing => {
+                // Likewise "in addition to the requirements of the Collection value".
+                "no collection editing: §12.3.5's collection is displayed, never added to or \
+                 changed"
+            }
+            Self::Action => {
+                // Table 275 subsumes `GoTo` and `URI` under `Navigation` and `Attachment`,
+                // `SetOCGState` under `OCInteract`, and `JavaScript` under `EnableJavaScripts`,
+                // leaving 16 of Table 201's 20 types. Eight are performed — `GoToE`, `GoToDp`,
+                // `Thread`, `Hide`, `Named`, `ResetForm`, `ImportData` and `Trans` — and eight
+                // are refused by name in `action::refused`.
+                "eight of the sixteen §12.6.4 action types this requirement covers are performed \
+                 and eight are refused by name"
+            }
             Self::Transitions => {
-                "no presentation mode: §12.4.4 is read as data and nothing plays it"
+                // §12.4.4's data is acted on as far as a crate with no clock can: a `/Dur` page
+                // advances on `Command::Tick` and `Event::Transition` names what would play.
+                "no transition player: §12.4.4's timing is obeyed and the animation between two \
+                 pages is not drawn"
             }
-            Self::DPartInteract => "no document part navigation: §14.12 is unread",
+            Self::DPartInteract => {
+                // Table 275 asks for two things. §12.6.4.5's `GoToDp` navigates to a part
+                // (`document_part::first_page`, §14.12.4.1); the hierarchy is not displayed.
+                "no document part panel: a GoToDp action navigates §14.12's parts, and the DPart \
+                 hierarchy is not displayed"
+            }
             Self::DigSigValidation | Self::DigSig | Self::DigSigMdp => {
-                "no signature handling: §12.8 is unread"
+                // §12.8 is read since the ninety-eighth session — the signature dictionary,
+                // Table 257's `/DocMDP` level, Table 258's usage rights — and what a validator
+                // needs is a trust store, which is the decision `doc/todo/51` holds.
+                "no signature validation or signing: §12.8 is read and reported, and verifying a \
+                 signature needs a certificate store"
             }
-            Self::Geospatial2D | Self::Geospatial3D => "no geospatial support: §12.10 is unread",
+            Self::Geospatial2D | Self::Geospatial3D => {
+                // §12.10's dictionaries are all read (§12.10.2, §12.10.3); the projection needs
+                // the EPSG registry and ISO 19162's WKT, both outside this standard.
+                "no geospatial projection: §12.10's dictionaries are read, and turning a page \
+                 point into a coordinate needs the EPSG registry"
+            }
             Self::SeparationSimulation => {
-                "no separation simulation: §10.8 describes a marking device and this is a screen"
+                // §10.8.2 is implemented — the alternate space and its tint transform — and
+                // §10.8.3's simulation is what is absent. The reason this arm used to give was
+                // "§10.8 describes a marking device", the phrase ADR 0204 retired: ISO 32000-2
+                // does not contain it, and §10.8.3's own condition is a user's request rather
+                // than a device's nature.
+                "no separation simulation: §10.8.3 is performed when a user asks for it and this \
+                 program offers no such control"
             }
             // Excluded by CLAUDE.md principle 5's closed list.
             Self::EnableJavaScripts => "ECMAScript is excluded by this project's principle 5",
@@ -547,6 +623,79 @@ mod tests {
                 .is_some_and(|(_, reason)| reason.contains("principle 5")),
             "an exclusion says so: {unmet:?}"
         );
+    }
+
+    /// A collection this program displays and can extract from is a requirement it meets.
+    ///
+    /// Table 275's `Collection` states two conditions and both are answered two crates away:
+    /// "displaying the embedded files referenced from the document's collection dictionary
+    /// (12.3.5, "Collections") along with any associated metadata" is `Query::Collection` drawn
+    /// by `viewer_ui::chrome` (ADR 0202), and "that the user can extract or otherwise view the
+    /// contents of each item in the collection" is `Command::Extract`, whose key is the
+    /// `/EmbeddedFiles` name a collection's items are filed under.
+    ///
+    /// `CollectionEditing` is *not* met, and the pair is what this test is for: Table 275 words
+    /// the second as "[i]n addition to the requirements of the Collection value", so the two
+    /// answers must differ and the second's reason must name the increment rather than repeat
+    /// the first. It said "no collection view" until the three-hundred-and-seventy-fifth session,
+    /// forty-odd after the view arrived.
+    #[test]
+    fn a_collection_is_met_and_editing_one_is_not() {
+        let doc = document(
+            "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
+             << /S /Collection >> << /S /CollectionEditing >> ] >>",
+        );
+        let unmet = unmet(&doc);
+        let kinds: Vec<&str> = unmet.iter().map(|(r, _)| r.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["CollectionEditing"]);
+        assert!(
+            unmet
+                .first()
+                .is_some_and(|(_, reason)| reason.contains("never added to or changed")),
+            "the reason names the increment the type asks for: {unmet:?}"
+        );
+    }
+
+    /// No reason says a clause is unread, because that is the claim that decays.
+    ///
+    /// Nine of these strings were wrong in the three-hundred-and-seventy-fifth session and every
+    /// one was of this shape: `DigSig` said "§12.8 is unread" with §12.8 read since the
+    /// ninety-eighth, `Geospatial2D` said "§12.10 is unread" with every dictionary of it read,
+    /// `DPartInteract` said "§14.12 is unread" with `GoToDp` navigating parts. A reason that
+    /// names a *clause* as absent is a claim about the tree that no compiler and no gate watches;
+    /// a reason that names the missing *capability* stays true until that capability arrives.
+    /// This is the gate `doc/todo/01`'s fifth sweep had to be run by hand to be.
+    #[test]
+    fn no_reason_claims_a_clause_is_unread() {
+        for kind in [
+            Kind::Markup,
+            Kind::AttachmentEditing,
+            Kind::Collection,
+            Kind::CollectionEditing,
+            Kind::Action,
+            Kind::Transitions,
+            Kind::DPartInteract,
+            Kind::DigSigValidation,
+            Kind::DigSig,
+            Kind::DigSigMdp,
+            Kind::Geospatial2D,
+            Kind::Geospatial3D,
+            Kind::SeparationSimulation,
+            Kind::EnableJavaScripts,
+            Kind::Multimedia,
+            Kind::RichMedia,
+            Kind::ThreeDMarkup,
+            Kind::U3d,
+            Kind::Prc,
+            Kind::Other("Reticulation".to_owned()),
+        ] {
+            let Some(reason) = kind.unmet() else { continue };
+            assert!(
+                !reason.contains("is unread") && !reason.contains("are unread"),
+                "{}: a reason names what is missing, not a clause as unread — {reason}",
+                kind.as_str()
+            );
+        }
     }
 
     /// §7.12's own EXAMPLE 3: both the dictionary form and PDF 2.0's array form.

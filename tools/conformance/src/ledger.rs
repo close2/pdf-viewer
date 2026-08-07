@@ -79,8 +79,15 @@ pub enum Status {
     /// knockout groups composite as if they were not knockouts. Reading the clause is the
     /// only thing that finds those, and this status is where the finding goes.
     Silent,
-    /// The requirement describes a marking device rather than a screen. Not the same as
-    /// excluded: nothing is owed, because nothing applies.
+    /// The requirement has no meaning for this device. Not the same as excluded: nothing is
+    /// owed, because nothing applies.
+    ///
+    /// **The wording was "describes a marking device rather than a screen" until the
+    /// three-hundred-and-seventy-fifth session**, and ISO 32000-2 does not contain that
+    /// phrase: §8.3.2.2's term is a "raster output device *such as a display or a
+    /// printer*", which is why §10.5's transfer function spent three hundred and
+    /// fifty-seven sessions in this status wrongly (ADR 0204). A status whose *definition*
+    /// names a device the standard does not is a status that invites the mistake.
     Inapplicable,
     /// The requirement addresses a PDF writer, and we do not create files.
     WriterSide,

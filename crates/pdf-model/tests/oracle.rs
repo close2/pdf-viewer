@@ -4048,8 +4048,9 @@ const AMBIGUOUS_RECOVERED_PAGE_TREE: [&str; 1] = ["issue21436.pdf page 1"];
 ///
 /// `ghostscript` paints solid red blocks — the mask ignored entirely — which is §8.6.8's
 /// `/ExtGState` list read as though `/SMask` were on it. It is not: the list is `TR`, `TR2`,
-/// `HT`, `BG`, `BG2`, `UCR`, `UCR2` and `UseBlackPtComp`, and every one of them describes a
-/// marking device. `poppler` at 16.64 is between the two, which is a mask applied at some other
+/// `HT`, `BG`, `BG2`, `UCR`, `UCR2` and `UseBlackPtComp`, and every one of them is a colour
+/// decision §8.6.8 reserves for whoever uses an uncoloured figure rather than a shape it may
+/// state. `poppler` at 16.64 is between the two, which is a mask applied at some other
 /// strength.
 ///
 /// What is left between ours, `mupdf` and `hayro` is half a level of 255 on a blur, and it is

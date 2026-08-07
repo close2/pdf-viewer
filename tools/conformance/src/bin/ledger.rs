@@ -41,7 +41,7 @@ project owing in silence, and the requirement having no meaning for a screen.
   partial       some are; the note says which, which are not, and what is reported
   reported      not implemented yet, but detected and reported at runtime. Still owed
   silent        not implemented, and nothing says so. A page is drawn wrong without a word
-  inapplicable  describes a marking device rather than a screen. Nothing is owed
+  inapplicable  the requirement has no meaning for this device. Nothing is owed
   writer-side   addresses a PDF writer; we do not create files
   out-of-scope  covered by CLAUDE.md principle 5's closed exclusion list, which the row names
   unreviewed    nobody has read this clause against this code

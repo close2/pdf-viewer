@@ -1,6 +1,6 @@
 //! Does the sidebar survive a magnified page? The window's whole frame, offscreen.
 //!
-//! `doc/todo/12`'s first half: open a page in a window, press `+` until the magnification passes
+//! ADR 0198's first half: open a page in a window, press `+` until the magnification passes
 //! about 2000%, and §12.3.3's outline panel stops being drawn on the graphics device — the
 //! background rectangle survives, the rows and the tab strip do not, and the whole thing shifts
 //! down by an amount that grows with the zoom. Under `--cpu` it is drawn whole at every rung.
@@ -38,7 +38,7 @@ use render_quorra::{PresentFrame, QuorraRasterizer};
 use viewer_core::{Answer, Command, DocumentId, Layer, Query, Viewer};
 use viewer_ui::chrome::{Chrome, Content, Sidebar, Tab};
 
-/// The window this pretends to be — `doc/todo/12`'s own 900 × 1100.
+/// The window this pretends to be — ADR 0198's own 900 × 1100.
 const WINDOW: (u32, u32) = (900, 1100);
 
 /// The magnification `viewer-ui` switches quorra to its GPU coverage lane above.
@@ -58,7 +58,7 @@ const SAME: f64 = 0.01;
 
 /// The rungs, as multiples of the page fitted to the window.
 ///
-/// Chosen to straddle `doc/todo/12`'s table: the panel is whole at 12 presses (about 19×) and
+/// Chosen to straddle ADR 0198's table: the panel is whole at 12 presses (about 19×) and
 /// gone at 14 (about 30×).
 const RUNGS: [f32; 7] = [1.0, 4.0, 12.0, 19.0, 30.0, 46.0, 64.0];
 

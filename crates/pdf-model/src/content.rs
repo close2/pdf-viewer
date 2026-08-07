@@ -2931,10 +2931,22 @@ impl Interpreter<'_> {
         // for a state that names neither and `Some(None)` for one that names `/Identity` or
         // `/Default` — a state that turns an inherited transfer *off* rather than one that says
         // nothing, which are different things and only one of them clears the field.
-        match Transfer::read(self.document, dict) {
-            Stated::Unsaid => {}
-            Stated::None => state.transfer = None,
-            Stated::Set(transfer) => state.transfer = Some(Arc::new(transfer)),
+        //
+        // **Skipped inside an uncoloured figure**, which §8.6.8 requires and which this did not
+        // do between the three-hundred-and-fifty-eighth session and the
+        // three-hundred-and-seventy-fifth. The clause names both entries in the list it applies
+        // to a `d1` glyph description and to an uncoloured tiling pattern's stream: "[a]ll of the
+        // following entries, if present in the graphics state parameter dictionary of a gs
+        // operator shall be ignored" — `TR`, `TR2`, `BG`, `BG2`, `UCR`, `UCR2`, `HT` and
+        // `UseBlackPtComp`. A transfer function is a colour mapping and such a figure's colour is
+        // "specified separately each time [it is] used", so honouring one here would let the cell
+        // decide a colour the caller supplies.
+        if !self.uncoloured {
+            match Transfer::read(self.document, dict) {
+                Stated::Unsaid => {}
+                Stated::None => state.transfer = None,
+                Stated::Set(transfer) => state.transfer = Some(Arc::new(transfer)),
+            }
         }
         // Table 57's `/SM`: §10.7.3's smoothness tolerance, "the maximum error tolerance for
         // rendering shadings", expressed "as a fraction of the range of each colour
@@ -2960,11 +2972,16 @@ impl Interpreter<'_> {
         // Default, and a rendering intent of AbsColorimetric forces it off regardless.
         //
         // Both are skipped inside an uncoloured figure. §8.6.8 lists the `/ExtGState` entries
-        // such a stream may not set, and these two are the only ones on that list this tree
-        // reads at all: `/UseBlackPtComp` by name, and `/RI` because the `ri` operator that
-        // sets the same parameter is on the operator half of the same list. `/TR`, `/TR2`,
-        // `/BG`, `/BG2`, `/UCR`, `/UCR2` and `/HT` describe a marking device and are read
-        // nowhere here. The rest of this dictionary is not colour and still applies — the
+        // such a stream may not set, and this tree reads three of them: `/UseBlackPtComp` by
+        // name, `/RI` because the `ri` operator that sets the same parameter is on the operator
+        // half of the same list, and — since the three-hundred-and-fifty-eighth session — `/TR`
+        // and `/TR2` above. `/BG`, `/BG2`, `/UCR`, `/UCR2` and `/HT` are §10.4's and §10.6's,
+        // which a screen does not perform, and are read nowhere. **This comment said the two
+        // here were "the only ones on that list this tree reads at all", and listed `/TR` and
+        // `/TR2` among the unread, until the three-hundred-and-seventy-fifth session** — thirty
+        // lines below the `Transfer::read` that had read both for seventeen sessions, and the
+        // sentence was the reason nobody noticed §8.6.8 was being broken. The rest of this
+        // dictionary is not colour and still applies — the
         // line width §9.6.4 asks a glyph description to set explicitly among it.
         if !self.uncoloured {
             if let Object::Name(value) = self.document.get_key(dict, "UseBlackPtComp") {
