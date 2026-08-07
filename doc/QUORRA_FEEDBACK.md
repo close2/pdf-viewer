@@ -779,3 +779,74 @@ been argued since that section's first run.
 answered: there is nothing to mitigate. And this side now has a gate for the overlay shape —
 `viewer-ui/tests/chrome_over_a_magnified_page.rs`, seven frames on a software adapter — checked
 by pinning `0a1ffb13` back for one run and watching it fail with the number above.
+
+---
+
+## 12. A caller cannot choose the backend, and on Windows wgpu chooses Vulkan — **open**
+
+**New, 2026-08-07, and it is a request rather than a defect** — the defect it is a way around is
+an Intel Vulkan driver's. The project owner ran this viewer on a Windows machine with Intel
+graphics and **it crashed inside the Vulkan driver**. That is nobody's code here; what makes it a
+report is that there is no way to ask for the other backend, and the machine has one.
+
+### What a caller can ask for today, read out of `0a1ffb1`
+
+- `quorra_gpu::create_instance()` is `wgpu::Instance::new(InstanceDescriptor::new_without_display_handle())`.
+  That descriptor's `backends` is `Backends::default()`, which is `Backends::all()` — on Windows,
+  Vulkan **and** DX12 **and** GL — and it is built **without** `.with_env()`, so `WGPU_BACKEND` is
+  not consulted either. There is no parameter and no second entry point.
+- `Options` carries `adapter: Option<String>`, `max_frame_bytes`, `max_resource_bytes`,
+  `atlas_budget`, `glyph_quantum`, `coverage` and `coverage_samples`. None of them names a backend.
+- So the answer is: **not at all**, by any route — argument, option or environment.
+
+**And `Options::adapter` is not a way round it**, which is worth saying because it looks like one.
+`select_adapter` enumerates `Backends::all()` and filters on a case-insensitive substring of
+`get_info().name`. One GPU is enumerated once per backend that can drive it, and the name it
+reports is the *device's* — so on a machine with one Intel GPU, "Intel" matches the Vulkan adapter
+and the DX12 adapter equally, ties are broken by name order, and a name cannot express "this GPU,
+through DX12". The filter selects hardware; the question here is which driver stack talks to it.
+
+**Which one wgpu picks with no filter is not the caller's choice either.** `select_adapter`'s
+`None` arm asks `request_adapter` with `PowerPreference::HighPerformance`; among adapters of equal
+device type that resolves in wgpu's own hub order, and Vulkan precedes DX12. On Windows that is
+how the machine above reached the driver that crashed it. We are not asking you to change the
+preference — `HighPerformance` is right — only to make the set it chooses from something a caller
+can state.
+
+### The ask, in the same shape as §8's
+
+**One parameter, at the instance**, because backends are an instance-level choice and the instance
+is made before `Options` exists:
+
+```rust
+pub fn create_instance_with(backends: wgpu::Backends) -> wgpu::Instance;
+```
+
+`create_instance()` stays exactly as it is and keeps its meaning. A host that has been told by its
+user to use DX12 passes `Backends::DX12`; a host that has not, calls the existing function and
+nothing changes for it. `Backends` is already in your public surface through the `wgpu` re-export,
+so this adds no type.
+
+**A second question, and it is yours rather than ours**: whether `create_instance` should read
+`WGPU_BACKEND` — `wgpu-types` offers `.with_env()` for exactly this and you are deliberately not
+calling it. There is an argument for not calling it (a library that changes behaviour from the
+environment is hard to reason about, and §4.6's determinism is a stated value of this project), and
+an argument for calling it (every other wgpu program on the machine honours that variable, so a
+person debugging a driver expects it to work). We have no preference and would rather it were
+decided than defaulted. **What we would not want is the environment being the *only* route**: a
+viewer needs to be able to put the choice on its own command line.
+
+### What this side will do meanwhile
+
+Nothing that hides it. `pdf-viewer` will gain a `--backend` flag whose whole implementation is the
+parameter above, and until it exists the flag cannot be honest, so it is not being added. The
+half of the owner's report that **is** ours — that `--cpu` brings a graphics device up anyway, so
+a driver that crashes during bring-up crashes a run that asked for the processor — is
+`doc/todo/12` in this tree and is not your problem.
+
+### What we cannot measure
+
+**No machine here runs Windows.** Everything above is read out of your source and wgpu's; the
+crash is the project owner's report from their own machine, and this project has no Intel adapter
+and no DX12 to reproduce it on. Treat the mechanism as argued rather than observed, and the
+missing parameter as the only claim we are certain of.
