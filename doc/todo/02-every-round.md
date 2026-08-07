@@ -69,14 +69,21 @@ at.** So at the end of every round, copy what a person would run into the projec
 `target/`:
 
 ```sh
+cargo build --release -p viewer-ui --bin pdf-viewer
+cargo build --release -p pdf-sandbox --bins
+cargo build --release -p viewer-confined --bins
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer          target/pdf-viewer
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker  target/pdf-sandbox-worker
+install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-view-worker     target/pdf-view-worker
 ```
 
-Both, and both beside each other: `pdf_sandbox::WORKER_PROGRAM` is a separate executable the
-viewer spawns for JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images
-rather than falling back (there is deliberately no in-process fallback — see "the sandbox is a
-flag and the default is the safe one").
+**Three, not two** — this section named two for three rounds after the third arrived, which the
+three-hundred-and-eighty-third flagged and the three-hundred-and-eighty-fourth fixed. All three
+beside each other: `pdf_sandbox::WORKER_PROGRAM` is a separate executable the viewer spawns for
+JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather than falling
+back (there is deliberately no in-process fallback — see "the sandbox is a flag and the default
+is the safe one"); `pdf-view-worker` is the whole viewer confined, which
+`viewer_confined::Confined` spawns and `pdf-viewer` does not yet (ADR 0218).
 
 Build them first, in release. `cargo test` only ever builds the debug binaries, and a stale
 executable is a measurement of the past — the hundred-and-forty-second session was reported as

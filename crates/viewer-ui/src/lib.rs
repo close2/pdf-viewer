@@ -17,3 +17,4 @@
 
 #![forbid(unsafe_code)]
 pub mod chrome;
+pub mod software;

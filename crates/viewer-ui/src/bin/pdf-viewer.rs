@@ -65,6 +65,7 @@ use viewer_core::{
     RenderRequest, Rendered, RestrictionLevel, Selection, Viewer, Zoom,
 };
 use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar, Tab};
+use viewer_ui::software::SoftwareSurface;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -89,6 +90,77 @@ const NOTICE: &str = include_str!("../../../../NOTICE");
 /// `viewer-core` keeps a set of them because §12.6.4.4's embedded go-to and a tabbed host both
 /// need one; this window shows one at a time, so it names one.
 const DOCUMENT: DocumentId = DocumentId(0);
+
+/// A driver stack `--backend` can name: what talks to the GPU, not which GPU.
+///
+/// **The distinction is the whole reason this exists.** One GPU is enumerated once per backend
+/// that can drive it, under the *device's* name each time, so a name filter selects hardware and
+/// cannot express "this card, through DX12". The set of backends is an instance-level choice and
+/// the instance is made before anything else, which is why this is decided on the command line
+/// and carried to `QuorraPresenter::instance_with` (quorra's ADR 0017; ours is 0221).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    /// Vulkan: Linux's and Android's, and one of Windows' two.
+    Vulkan,
+    /// Direct3D 12, Windows only.
+    Dx12,
+    /// Metal, macOS and iOS only.
+    Metal,
+    /// OpenGL / OpenGL ES, everywhere and last.
+    Gl,
+}
+
+impl Backend {
+    /// Every value `--backend` accepts, in the order the usage message lists them.
+    ///
+    /// Two of wgpu's backends are deliberately absent. `BROWSER_WEBGPU` needs a `wasm32` target,
+    /// which this program has none of; `NOOP` is compiled only under a wgpu feature this build
+    /// does not enable and refuses to initialise without a second opt-in, so naming it would
+    /// offer a choice that cannot be honoured — which is the trap `Device::adapter_names_on`
+    /// exists to close one level down.
+    const ALL: [Self; 4] = [Self::Vulkan, Self::Dx12, Self::Metal, Self::Gl];
+
+    /// What a person types after `--backend`.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Vulkan => "vulkan",
+            Self::Dx12 => "dx12",
+            Self::Metal => "metal",
+            Self::Gl => "gl",
+        }
+    }
+
+    /// The value `--backend` names, or `None` for a word that is not one of them.
+    fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|backend| backend.name() == word)
+    }
+
+    /// The one-backend set this restricts an instance to.
+    fn backends(self) -> quorra_gpu::wgpu::Backends {
+        match self {
+            Self::Vulkan => quorra_gpu::wgpu::Backends::VULKAN,
+            Self::Dx12 => quorra_gpu::wgpu::Backends::DX12,
+            Self::Metal => quorra_gpu::wgpu::Backends::METAL,
+            Self::Gl => quorra_gpu::wgpu::Backends::GL,
+        }
+    }
+}
+
+/// The backend this program asks for when nobody said, on Windows: **DX12**.
+///
+/// A choice this project now makes, where it used to be wgpu's hub order making it — which puts
+/// Vulkan ahead of DX12 among adapters of equal rank, and is how the project owner's machine
+/// reached an Intel Vulkan driver that crashed it. The argument is in ADR 0221, and the honest
+/// part of it is that **no machine in this project runs Windows**, so this default is reasoned
+/// rather than measured. `--backend vulkan` overrides it, and a machine that has no DX12 adapter
+/// falls back to every backend with a note rather than refusing to start.
+#[cfg(windows)]
+const DEFAULT_BACKEND: Option<Backend> = Some(Backend::Dx12);
+
+/// No default anywhere else: one driver stack is the norm, and where there are two the platform's
+/// own ranking is the one this project has evidence for. See the Windows arm above.
+#[cfg(not(windows))]
+const DEFAULT_BACKEND: Option<Backend> = None;
 
 /// How far a touchpad must be dragged under Ctrl for one zoom step.
 ///
@@ -164,7 +236,16 @@ struct Arguments {
     /// Whether to say what is happening, from `--trace`.
     trace: bool,
     /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
+    ///
+    /// **And therefore whether a graphics device is created at all**, since the
+    /// three-hundred-and-eighty-fourth session: this flag now decides the presenter as well as
+    /// the rasteriser, so a run that asks for the processor opens no driver. See ADR 0221.
     processor: bool,
+    /// The driver stack `--backend` named, or [`DEFAULT_BACKEND`] where it did not.
+    backend: Option<Backend>,
+    /// Whether [`Arguments::backend`] is a person's answer or this program's default, which is
+    /// what decides between a refusal and a fallback when no adapter matches it.
+    backend_asked_for: bool,
     /// The page `--page` named, counting from one.
     opens_at: Option<usize>,
     /// Annex O's fragment identifier, where the argument carried one after a `#`.
@@ -189,6 +270,8 @@ fn arguments() -> Arguments {
     let mut sandbox = true;
     let mut trace = false;
     let mut processor = false;
+    let mut backend = DEFAULT_BACKEND;
+    let mut backend_asked_for = false;
     let mut opens_at = None;
     let mut restrictions = RestrictionLevel::On;
     let mut arguments = std::env::args_os().skip(1);
@@ -204,6 +287,24 @@ fn arguments() -> Arguments {
             speak_up();
         } else if argument == "--cpu" {
             processor = true;
+        } else if argument == "--backend" {
+            // Refused here rather than carried as a string and refused later: a word that names
+            // no backend is a typing mistake, and the list of what would have worked is a better
+            // answer than a launch that quietly ignored the flag.
+            let Some(word) = arguments.next() else {
+                eprintln!("--backend wants one of: {}", backend_names());
+                std::process::exit(2);
+            };
+            let Some(named) = Backend::parse(&word.to_string_lossy()) else {
+                eprintln!(
+                    "--backend {}: not a backend. One of: {}",
+                    word.to_string_lossy(),
+                    backend_names()
+                );
+                std::process::exit(2);
+            };
+            backend = Some(named);
+            backend_asked_for = true;
         } else if argument == "--ignore-restrictions" {
             restrictions = RestrictionLevel::Off;
         } else if argument == "--page" {
@@ -268,10 +369,41 @@ fn arguments() -> Arguments {
         path,
         trace,
         processor,
+        backend,
+        backend_asked_for,
         opens_at,
         fragment,
         restrictions,
     }
+}
+
+/// The thread that creates the graphics instance, or `None` where this run will not have one.
+///
+/// **A function rather than three lines in `main`, so that the promise `--cpu` makes has a
+/// test.** Creating a `wgpu::Instance` *is* loading the driver — it is where quorra measured
+/// roughly 80% of what bring-up blocks for, and it is where the project owner's machine crashed —
+/// so a flag that means "no graphics device" has to mean this thread is not spawned. The
+/// difference between a flag that chooses a rasteriser and a flag that avoids a driver is exactly
+/// the `None` below, and `cpu_creates_no_graphics_instance` is what keeps it there.
+fn spawn_instancing(
+    processor: bool,
+    backend: Option<Backend>,
+) -> Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>> {
+    (!processor).then(|| {
+        std::thread::spawn(move || match backend {
+            Some(named) => QuorraPresenter::instance_with(named.backends()),
+            None => QuorraPresenter::instance(),
+        })
+    })
+}
+
+/// The backends `--backend` accepts on this build, for a message that has to list them.
+fn backend_names() -> String {
+    Backend::ALL
+        .iter()
+        .map(|backend| backend.name())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Splits `document.pdf#page=5` into the file and ISO 32000-2 Annex O's fragment identifier.
@@ -357,6 +489,8 @@ fn main() {
         path,
         trace,
         processor,
+        backend,
+        backend_asked_for,
         opens_at,
         fragment,
         restrictions,
@@ -386,7 +520,13 @@ fn main() {
     // difference is not style: the device *needs* the instance and does not need the document, so
     // the instance is joined before the presenter is built and the document after it — one thread
     // for both would make the first join wait for the second's work.
-    let instancing = std::thread::spawn(QuorraPresenter::instance);
+    //
+    // **Not under `--cpu`, and that is the whole of the flag's new meaning.** Creating the
+    // instance *is* loading the driver, so a run that will not draw on the device must not make
+    // one: the thread is not spawned, `resumed` builds no presenter, and nothing in the process
+    // opens an ICD. Before the three-hundred-and-eighty-fourth session this line ran regardless
+    // and a driver that faulted while loading took `--cpu` down with it (ADR 0221).
+    let instancing = spawn_instancing(processor, backend);
 
     let chrome = match Chrome::new() {
         Ok(chrome) => Some(chrome),
@@ -414,6 +554,8 @@ fn main() {
         acknowledged: true,
         trace,
         processor,
+        backend,
+        backend_asked_for,
         cursor: (0.0, 0.0),
         dragging: false,
         control: false,
@@ -434,7 +576,7 @@ fn main() {
         metadata: None,
         state: None,
         opening: Some(opening),
-        instancing: Some(instancing),
+        instancing,
         launch,
         accessibility: None,
         spoken: None,
@@ -467,9 +609,16 @@ fn usage() {
     eprintln!("                viewrect=..., comment=..., structelem=.... Parameters are");
     eprintln!("                separated by & and carried out left to right; whatever this");
     eprintln!("                program cannot do is named rather than ignored.");
-    eprintln!("  --cpu         draw with the processor rather than the graphics device. Slower,");
-    eprintln!("                and the same rasteriser the reference comparison is built on: a");
-    eprintln!("                page that appears with this and not without it is the device's.");
+    eprintln!("  --cpu         draw with the processor rather than the graphics device, and open");
+    eprintln!("                no graphics driver at all: no instance, no adapter, no device. The");
+    eprintln!("                page reaches the window through a software surface instead.");
+    eprintln!("                Slower, and the same rasteriser the reference comparison is built");
+    eprintln!("                on: a page that appears with this and not without it is the");
+    eprintln!("                device's, and so is a launch that only works with it.");
+    eprintln!("  --backend B   which driver stack talks to the GPU, not which GPU: vulkan, dx12,");
+    eprintln!("                metal or gl. What to reach for when one stack on this machine is");
+    eprintln!("                broken and another is not. Refused, rather than quietly ignored,");
+    eprintln!("                where this machine has no adapter behind the one named.");
     eprintln!("  --trace       print every command, every event and every frame, with the time");
     eprintln!("                each took, and whatever the graphics stack has to say. What to");
     eprintln!("                run when a page will not appear: the last line printed is the");
@@ -541,7 +690,25 @@ struct App {
     /// The same rasteriser the reference oracle is built on, and the same one that draws a page
     /// the device refuses. As a *flag* it is a diagnostic a person can pull without a debugger:
     /// if a page appears under `--cpu` and not without it, the difference is the device.
+    ///
+    /// **And it now decides whether there is a device at all.** A run with this flag creates no
+    /// instance, selects no adapter and makes no device, and presents through
+    /// [`SoftwareSurface`] instead — so it is also the answer to a driver that will not load,
+    /// which is what the project owner needed it to be and what it was not. ADR 0221.
     processor: bool,
+    /// The driver stack asked for, from `--backend` or from [`DEFAULT_BACKEND`].
+    ///
+    /// Kept past `main` for one job: `resumed` needs it to say what was asked for when no adapter
+    /// matched, and to decide between refusing and falling back.
+    backend: Option<Backend>,
+    /// Whether a person named [`App::backend`] or this program defaulted to it.
+    ///
+    /// **A backend a person named is honoured or refused; one this program chose gives way.** A
+    /// machine that has no adapter for the flag is a question with an answer — "this machine has
+    /// no such adapter, here is what it has" — and answering it beats starting on a stack the
+    /// person was trying to avoid. A machine that has no adapter for the *default* is a machine
+    /// this project guessed wrong about, and it gets a note and every backend.
+    backend_asked_for: bool,
     /// Whether the button is down, which is what separates a move from a drag.
     dragging: bool,
     /// Whether Ctrl is held, which is what separates a wheel scroll from a wheel zoom.
@@ -635,6 +802,10 @@ struct App {
     /// nothing else in this file knows a thread was involved.
     opening: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
     /// The thread creating the graphics instance, which is 80% of what bring-up blocks for.
+    ///
+    /// **`None` under `--cpu`, where it was never spawned** — the one place in this program that
+    /// distinguishes "the instance is not ready yet" from "there will not be one", and both read
+    /// as `None` here only because `resumed` asks `processor` first.
     instancing: Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>>,
     /// The launch path's milestones, printed once under `--trace` when the first frame lands.
     launch: Launch,
@@ -689,6 +860,47 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
         quorra_gpu::Coverage::Gpu
     } else {
         quorra_gpu::Coverage::Cpu
+    }
+}
+
+/// Draws the page with [`CpuRasterizer`] and puts it on the window, whichever surface it has.
+///
+/// **This is one of the two jobs `CLAUDE.md` keeps the CPU backend for**: the correctness oracle,
+/// and the frame the graphics device refuses. (It was three until the two-hundred-and-seventy-third
+/// session, where the project owner decided page one goes to the device.) So a page the device
+/// refuses is a page this program can still show — more slowly, which is a cost a person can see
+/// past, where a page that never appears is not.
+///
+/// **Two ways back to the window, and the difference is where the overlays are composited.** With
+/// a device, the raster is handed over as one image and quorra draws the overlays over it as
+/// geometry, because its surface is the only path pixels take. Without one, `SoftwareSurface`
+/// composites them on the processor and copies the result. `--cpu` takes the second, and so does
+/// a machine whose device would not come up.
+///
+/// The error is a sentence rather than a type because both of its sources are already strings by
+/// the time they reach the caller, which formats them into one report.
+fn on_the_processor(
+    surface: &mut Surface,
+    list: &pdf_render::DisplayList,
+    target: TargetSpec,
+    overlays: &[&pdf_render::DisplayList],
+) -> Result<(), String> {
+    let raster = CpuRasterizer::new()
+        .rasterize(list, target)
+        .map_err(|problem| format!("the processor {problem}"))?;
+    match surface {
+        Surface::Device(presenter) => presenter
+            .present(PresentFrame {
+                width: target.width,
+                height: target.height,
+                page: None,
+                raster: Some(&raster),
+                overlays,
+            })
+            .map_err(|problem| format!("presenting the processor's page {problem}")),
+        Surface::Processor(surface) => surface
+            .present(&raster, overlays)
+            .map_err(|problem| format!("presenting the processor's page {problem}")),
     }
 }
 
@@ -760,14 +972,37 @@ struct Typing {
     caret: usize,
 }
 
-/// The window, and the presenter that owns its surface.
-struct State {
-    window: Arc<Window>,
+/// How this window's pixels reach it: with a graphics device, or without one.
+///
+/// **Never both, and that is the point.** A process holding [`Surface::Processor`] has created no
+/// `wgpu::Instance`, selected no adapter and made no device, so a driver that faults while it
+/// loads cannot reach it. Before the three-hundred-and-eighty-fourth session there was one
+/// variant and `--cpu` chose only which rasteriser drew into it (ADR 0221).
+enum Surface {
     /// quorra's device holds the surface; one call draws and presents a frame,
     /// and a refused frame is a typed error naming what refused — the banding
     /// machinery, the owned intermediate texture and the blitter of the Vello
     /// host all fell away with the backend that needed them.
-    presenter: QuorraPresenter,
+    Device(Box<QuorraPresenter>),
+    /// The processor's raster copied onto the window, with the overlays composited into it
+    /// first. `--cpu`, and a device that would not come up.
+    Processor(SoftwareSurface),
+}
+
+impl std::fmt::Debug for Surface {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Device(presenter) => formatter.debug_tuple("Device").field(presenter).finish(),
+            Self::Processor(surface) => formatter.debug_tuple("Processor").field(surface).finish(),
+        }
+    }
+}
+
+/// The window, and whatever puts pixels on it.
+struct State {
+    window: Arc<Window>,
+    /// The graphics device's surface, or the software one. See [`Surface`].
+    surface: Surface,
     /// The surface size in device pixels, updated on `WindowEvent::Resized`.
     size: (u32, u32),
 }
@@ -2041,76 +2276,63 @@ impl App {
         overlays.extend(chrome.about.as_ref());
 
         let state = self.state.as_mut()?;
-        let drawn = if self.processor {
-            Err("was not asked, because --cpu".to_owned())
-        } else {
-            // Which lane draws this frame's coverage, decided from this frame's
-            // magnification: see `coverage_for`. Set every frame rather than when it
-            // changes, because it is a field write and tracking the change would be
-            // more state than the thing it saved.
-            state.presenter.set_coverage(coverage_for(target.transform));
-            match state.presenter.present(PresentFrame {
-                width,
-                height,
-                page: Some((&request.list, target)),
-                raster: None,
-                overlays: &overlays,
-            }) {
-                Ok(()) => Ok(()),
-                // Swapchain states are events, not failures: nothing was presented,
-                // nothing is stale, and the processor cannot help a window that is
-                // not presentable — so these return rather than fall back.
-                Err(render_quorra::QuorraRasterError::Render(
-                    quorra_gpu::RenderError::SurfaceUnavailable { reason },
-                )) => {
-                    return match reason {
-                        quorra_gpu::SurfaceProblem::Outdated | quorra_gpu::SurfaceProblem::Lost => {
-                            state.window.request_redraw();
-                            None
-                        }
-                        quorra_gpu::SurfaceProblem::Timeout
-                        | quorra_gpu::SurfaceProblem::Occluded => None,
-                        quorra_gpu::SurfaceProblem::Validation => {
-                            Some(Rendered::Failed("swapchain validation failed".to_owned()))
-                        }
-                    };
+        let drawn = match &mut state.surface {
+            // No device to ask. Not a refusal either: the software surface below is this run's
+            // only path, and calling it a failure would print a note on every frame.
+            Surface::Processor(_) => Err(String::new()),
+            Surface::Device(presenter) => {
+                // Which lane draws this frame's coverage, decided from this frame's
+                // magnification: see `coverage_for`. Set every frame rather than when it
+                // changes, because it is a field write and tracking the change would be
+                // more state than the thing it saved.
+                presenter.set_coverage(coverage_for(target.transform));
+                match presenter.present(PresentFrame {
+                    width,
+                    height,
+                    page: Some((&request.list, target)),
+                    raster: None,
+                    overlays: &overlays,
+                }) {
+                    Ok(()) => Ok(()),
+                    // Swapchain states are events, not failures: nothing was presented,
+                    // nothing is stale, and the processor cannot help a window that is
+                    // not presentable — so these return rather than fall back.
+                    Err(render_quorra::QuorraRasterError::Render(
+                        quorra_gpu::RenderError::SurfaceUnavailable { reason },
+                    )) => {
+                        return match reason {
+                            quorra_gpu::SurfaceProblem::Outdated
+                            | quorra_gpu::SurfaceProblem::Lost => {
+                                state.window.request_redraw();
+                                None
+                            }
+                            quorra_gpu::SurfaceProblem::Timeout
+                            | quorra_gpu::SurfaceProblem::Occluded => None,
+                            quorra_gpu::SurfaceProblem::Validation => {
+                                Some(Rendered::Failed("swapchain validation failed".to_owned()))
+                            }
+                        };
+                    }
+                    Err(error) => Err(error.to_string()),
                 }
-                Err(error) => Err(error.to_string()),
             }
         };
         if let Err(problem) = drawn {
-            // **The CPU backend draws it instead**, and this is one of the two jobs `CLAUDE.md`
-            // keeps that backend for: the correctness oracle, and the frame the device refuses.
-            // (It was three until the two-hundred-and-seventy-third session, where the project
-            // owner decided page one goes to the graphics device.) So a page the GPU refuses is
-            // a page this program can still show — more slowly, which is a cost a person can see
-            // past, where a page that never appears is not. The raster is
-            // presented through the same quorra surface as one image, so a working window is
-            // the only path pixels take to the screen.
-            //
-            // Reported either way. A page drawn by the slower of two backends is a fact about
-            // this build worth saying out loud, and saying it is what would have made the
-            // hundred-and-forty-second session's report a sentence rather than a mystery.
-            let raster = match CpuRasterizer::new().rasterize(&request.list, target) {
-                Ok(raster) => raster,
-                Err(second) => {
-                    return Some(Rendered::Failed(format!(
-                        "the graphics device {problem}, and the processor {second}"
-                    )));
-                }
-            };
-            if let Err(second) = state.presenter.present(PresentFrame {
-                width,
-                height,
-                page: None,
-                raster: Some(&raster),
-                overlays: &overlays,
-            }) {
-                return Some(Rendered::Failed(format!(
-                    "the graphics device {problem}, and presenting the processor's page {second}"
-                )));
+            if let Err(second) =
+                on_the_processor(&mut state.surface, &request.list, target, &overlays)
+            {
+                return Some(Rendered::Failed(if problem.is_empty() {
+                    second
+                } else {
+                    format!("the graphics device {problem}, and {second}")
+                }));
             }
-            if !self.processor {
+            // Reported when there *was* a device that refused. A page drawn by the slower of two
+            // backends is a fact about this build worth saying out loud, and saying it is what
+            // would have made the hundred-and-forty-second session's report a sentence rather
+            // than a mystery — but under `--cpu` there is nothing to report, which is why the
+            // empty `problem` above is a sentinel rather than a message.
+            if !problem.is_empty() {
                 println!(
                     "note: page {}: the graphics device {problem}, so it was drawn on the \
                      processor instead",
@@ -2119,6 +2341,174 @@ impl App {
             }
         }
         Some(Rendered::Presented)
+    }
+
+    /// Brings up whatever will put pixels on this window, or says why nothing can.
+    ///
+    /// **Two paths, and `--cpu` chooses between them.** With the flag, no `wgpu::Instance` is
+    /// created, no adapter is enumerated and no device is made — the driver is never loaded, which
+    /// is what makes the flag an answer to a driver that faults while loading. Without it, the
+    /// device is brought up as it always was, and the processor's path is what a machine falls to
+    /// when the device will not come at all.
+    ///
+    /// `None` means neither worked, which is the one launch failure this program cannot show a
+    /// page past.
+    fn bring_up(&mut self, window: &Arc<Window>) -> Option<Surface> {
+        if self.processor {
+            let surface = Self::software(window);
+            self.launch.mark("software surface");
+            return surface;
+        }
+
+        // Shaders compile on a background thread and nothing here waits for them —
+        // `CLAUDE.md`'s rule, since page one goes to the graphics device: what bringing the
+        // device up costs is part of time-to-first-page, so it is measured rather than
+        // assumed. The presenter reports uncaptured device errors itself, for the same
+        // silent-window reason the Vello host did.
+        let mut instance = self
+            .instancing
+            .take()
+            .map(|thread| thread.join().expect("the thread creating the instance"));
+        self.launch.mark("graphics instance");
+        let began = std::time::Instant::now();
+        let mut attempt = match instance.as_ref() {
+            Some(instance) => QuorraPresenter::with_instance(instance, window.clone()),
+            None => QuorraPresenter::new(window.clone()),
+        };
+
+        // **A default gives way; a flag does not.** This arm is only reachable where this build
+        // restricted the backends by itself — today that is Windows and DX12 — and the machine
+        // turned out to have no adapter behind it. Refusing there would be this project's guess
+        // deciding that somebody's machine cannot start, so it is a note and a second attempt
+        // with everything. `QuorraPresenter::new` makes its own all-backends instance, which is
+        // why the old one is dropped rather than reused.
+        if attempt.is_err()
+            && !self.backend_asked_for
+            && let Some(named) = self.backend.take()
+        {
+            println!(
+                "note: no graphics adapter behind the {} backend, which is the one this build \
+                 asks for first on this platform, so every backend was offered instead",
+                named.name()
+            );
+            instance = None;
+            attempt = QuorraPresenter::new(window.clone());
+        }
+
+        let presenter = match attempt {
+            Ok(presenter) => presenter,
+            Err(problem) => return self.no_device(window, instance.as_ref(), &problem),
+        };
+        let brought_up = began.elapsed();
+        self.launch.mark("graphics device");
+        if self.trace {
+            let startup = presenter.startup();
+            // Two lines about one choice, and they answer different questions. The first is what
+            // was *asked for* — which is a fact about this command line — and the second ends in
+            // the backend that was actually chosen, because quorra's adapter description carries
+            // it: `llvmpipe (LLVM 22.1.8, 256 bits) (Cpu, Vulkan)`. A person diagnosing a driver
+            // crash needs both, and before the three-hundred-and-eighty-fourth session there was
+            // no way to ask for the first at all.
+            println!("trace: backend asked for: {}", self.backend_description());
+            println!("trace: rendering with {}", presenter.adapter_description());
+            println!(
+                "trace: device up in {brought_up:?} — instance {:?}, surface {:?}, adapter {:?}, \
+                 device {:?}, pipelines {}",
+                startup.instance_creation,
+                startup.surface_creation,
+                startup.adapter_selection,
+                startup.device_creation,
+                startup
+                    .pipeline_compilation
+                    .map_or_else(|| "still compiling".to_owned(), |d| format!("{d:?}"))
+            );
+        }
+        Some(Surface::Device(Box::new(presenter)))
+    }
+
+    /// What this run asked the graphics stack for, in words, for `--trace` and for a refusal.
+    fn backend_description(&self) -> String {
+        match (self.backend, self.backend_asked_for) {
+            (Some(named), true) => format!("{} (--backend)", named.name()),
+            (Some(named), false) => format!("{} (this platform's default)", named.name()),
+            (None, _) => "every backend this build has".to_owned(),
+        }
+    }
+
+    /// The window written to by the processor, or a sentence saying why there is not one.
+    fn software(window: &Arc<Window>) -> Option<Surface> {
+        match SoftwareSurface::new(Arc::clone(window)) {
+            Ok(surface) => Some(Surface::Processor(surface)),
+            Err(problem) => {
+                eprintln!(
+                    "this window cannot be drawn on without a graphics device: {problem}\n\
+                     The software path is compiled for X11 and Wayland here; a session that is \
+                     neither has no way to show a page without a device."
+                );
+                None
+            }
+        }
+    }
+
+    /// What to say — and what to do — when the graphics device will not come up.
+    ///
+    /// **This was `.expect("presenter creation")` until the three-hundred-and-eighty-fourth
+    /// session**, which is `CLAUDE.md` principle 1's rule about panics in the one place a person
+    /// most needs a sentence: a device that will not come up is a fact about the machine, not a
+    /// defect in this program, and the shape to use is `Confinement::shortfall`'s — name the
+    /// stage, name what was seen, name what to try.
+    ///
+    /// The two outcomes are deliberately different. A backend a **person** named is honoured or
+    /// refused, because "this machine has no DX12 adapter" is an answer to the question they
+    /// asked and starting on the stack they were avoiding is not. A device that failed with no
+    /// backend named is a broken machine rather than a mistaken command line, so the page is
+    /// drawn on the processor and the note says so.
+    fn no_device(
+        &self,
+        window: &Arc<Window>,
+        instance: Option<&quorra_gpu::wgpu::Instance>,
+        problem: &render_quorra::QuorraRasterError,
+    ) -> Option<Surface> {
+        eprintln!("the graphics device could not be brought up: {problem}");
+        eprintln!("  asked for: {}", self.backend_description());
+        if let Some(instance) = instance {
+            // What *this* instance could see, which is the number that distinguishes a backend
+            // this machine does not have (none) from a driver that failed later (some).
+            let visible = QuorraPresenter::adapters_on(instance);
+            eprintln!(
+                "  adapters behind it: {}",
+                if visible.is_empty() {
+                    "none — this machine has no adapter for that backend".to_owned()
+                } else {
+                    visible.join(", ")
+                }
+            );
+        }
+        // And what the machine has by every route, which is the list a person picks their next
+        // `--backend` out of. Its own all-backends instance, so it costs a driver load — which is
+        // acceptable here and nowhere else on this path: this run has already failed.
+        let every = quorra_gpu::Device::adapter_names();
+        eprintln!(
+            "  adapters on this machine: {}",
+            if every.is_empty() {
+                "none".to_owned()
+            } else {
+                every.join(", ")
+            }
+        );
+        if self.backend_asked_for {
+            eprintln!(
+                "Refused rather than started on another backend: --backend named one, and a flag \
+                 that silently did something else would be worse than no flag. Try --backend with \
+                 one of {}, or --cpu, which opens no graphics driver at all.",
+                backend_names()
+            );
+            return None;
+        }
+        eprintln!(
+            "Drawing on the processor instead, which opens no graphics driver. Pages will be slower."
+        );
+        Self::software(window)
     }
 
     /// Draws the frame the window asked for, and tells the core what became of it.
@@ -2182,39 +2572,12 @@ impl ApplicationHandler for App {
         self.launch.mark("window");
 
         let size = window.inner_size();
-        // Shaders compile on a background thread and nothing here waits for them —
-        // `CLAUDE.md`'s rule, since page one goes to the graphics device: what bringing the
-        // device up costs is part of time-to-first-page, so it is measured rather than
-        // assumed. The presenter reports uncaptured device errors itself, for the same
-        // silent-window reason the Vello host did.
-        let instance = self
-            .instancing
-            .take()
-            .map(|thread| thread.join().expect("the thread creating the instance"));
-        self.launch.mark("graphics instance");
-        let began = std::time::Instant::now();
-        let presenter = match instance.as_ref() {
-            Some(instance) => QuorraPresenter::with_instance(instance, window.clone()),
-            None => QuorraPresenter::new(window.clone()),
-        }
-        .expect("presenter creation");
-        let brought_up = began.elapsed();
-        self.launch.mark("graphics device");
-        if self.trace {
-            let startup = presenter.startup();
-            println!("trace: rendering with {}", presenter.adapter_description());
-            println!(
-                "trace: device up in {brought_up:?} — instance {:?}, surface {:?}, adapter {:?}, \
-                 device {:?}, pipelines {}",
-                startup.instance_creation,
-                startup.surface_creation,
-                startup.adapter_selection,
-                startup.device_creation,
-                startup
-                    .pipeline_compilation
-                    .map_or_else(|| "still compiling".to_owned(), |d| format!("{d:?}"))
-            );
-        }
+        let Some(surface) = self.bring_up(&window) else {
+            // Nothing can put pixels on this window: said above, in a sentence, and not survived.
+            // An event loop that runs with nothing to present to shows a blank window for ever,
+            // which is the failure this program spends its rounds removing.
+            std::process::exit(1);
+        };
 
         #[expect(
             clippy::cast_possible_truncation,
@@ -2223,7 +2586,7 @@ impl ApplicationHandler for App {
         let scale = window.scale_factor() as f32;
         self.state = Some(State {
             window,
-            presenter,
+            surface,
             size: (size.width.max(1), size.height.max(1)),
         });
 
@@ -2724,7 +3087,10 @@ fn ask_password(name: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GPU_COVERAGE_MAGNIFICATION, after, before, caret_boundary, coverage_for, spliced};
+    use super::{
+        Backend, DEFAULT_BACKEND, GPU_COVERAGE_MAGNIFICATION, QuorraPresenter, after,
+        backend_names, before, caret_boundary, coverage_for, spawn_instancing, spliced,
+    };
     use pdf_render::Transform;
 
     /// The lane follows the magnification, and the page transform a frame is drawn
@@ -2798,5 +3164,56 @@ mod tests {
         // Backspace at the end, and an insertion in the middle.
         assert_eq!(spliced(value, before(value, 5), 5, ""), "caf");
         assert_eq!(spliced(value, 1, 1, "X"), "cXafé");
+    }
+
+    /// **The whole of what `--cpu` promises.** A run on the processor creates no
+    /// `wgpu::Instance`, which is what loads the driver: before the
+    /// three-hundred-and-eighty-fourth session the flag chose which rasteriser drew the page
+    /// and the driver was loaded regardless, so a driver that faulted while loading took the
+    /// run down whether or not the flag was given. That is the defect the project owner hit on
+    /// Windows, and this test is what stops it coming back.
+    ///
+    /// A backend named alongside `--cpu` changes nothing: there is nothing to name a backend
+    /// *for*.
+    #[test]
+    fn cpu_creates_no_graphics_instance() {
+        assert!(spawn_instancing(true, None).is_none());
+        assert!(spawn_instancing(true, Some(Backend::Vulkan)).is_none());
+        assert!(spawn_instancing(true, Some(Backend::Dx12)).is_none());
+    }
+
+    /// And the control, without which the test above passes on a function that never spawns:
+    /// a run that did *not* ask for the processor makes one, and it is a real instance.
+    #[test]
+    fn without_cpu_an_instance_is_created() {
+        let thread = spawn_instancing(false, None).expect("a run without --cpu creates one");
+        let instance = thread.join().expect("the thread creating the instance");
+        // Enumerating proves the instance is usable rather than merely constructed. The list
+        // may be empty on a machine with no adapter at all, which is not what is being asked.
+        let _ = QuorraPresenter::adapters_on(&instance);
+    }
+
+    /// Every value `--backend` accepts is parsed by the name it prints, and nothing else is.
+    #[test]
+    fn a_backend_is_named_by_the_word_it_prints() {
+        for backend in Backend::ALL {
+            assert_eq!(Backend::parse(backend.name()), Some(backend));
+        }
+        assert_eq!(Backend::parse("Vulkan"), None, "the match is exact");
+        assert_eq!(Backend::parse("webgpu"), None, "not a value on this build");
+        assert_eq!(Backend::parse(""), None);
+        assert_eq!(backend_names(), "vulkan, dx12, metal, gl");
+    }
+
+    /// The platform default, stated as a test because it is a decision rather than a detail:
+    /// on Windows this project asks for DX12 first, and everywhere else it asks for nothing and
+    /// leaves the choice where it was. ADR 0221 argues it; no machine in this project can run
+    /// the Windows arm, which is why the arm is written down here as well as there.
+    #[test]
+    fn the_default_backend_is_dx12_on_windows_and_nothing_elsewhere() {
+        #[cfg(windows)]
+        assert_eq!(DEFAULT_BACKEND, Some(Backend::Dx12));
+        #[cfg(not(windows))]
+        assert_eq!(DEFAULT_BACKEND, None);
     }
 }

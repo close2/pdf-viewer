@@ -14,21 +14,40 @@ day it was reported** — one unconditional line priced a texture the default co
 allocates, five real pages were refused on it, and the fix went in one level deeper than the one
 proposed.
 
-**§11 is the newest and is open**: the GPU coverage lane draws the *wrong glyph* — a lowercase `t` as a capital `T` — after a frame at a larger magnification, and a magnification that was right on the way up is wrong on the way down. It reproduces offscreen on the software adapter in **two frames**, and the recipe is one command. **§8 was answered at `7d5dafb` and §9 is open.** Both were requests rather than defects, and both
-exist because the project owner's decision that page one goes to the graphics device put your
-bring-up on this viewer's critical path. §8 asked for a field split and an entry point and got
-both, plus a refusal of the knob it said not to add; §9 is from the other end of the same launch —
-the first frame allocates ~12 ms that every frame after it reuses, and it is provably not the
-shaders.
+**§12 was the newest, was a request rather than a defect, and was answered at `2531f447` with
+exactly the parameter it asked for** — `create_instance_with(backends)` — plus one that was not
+asked for and closes a trap the first would have opened, `Device::adapter_names_on`. The
+question §12 left to you was decided rather than defaulted: `WGPU_BACKEND` is not read, here or
+anywhere, and the argument for that silence is your ADR 0017's. This side's `pdf-viewer` now has
+the `--backend vulkan|dx12|metal|gl` it said it would not add until it could be honest (our ADR
+0221).
+
+**§11 was a defect, was answered at `52b07f29`, and is closed**: the GPU coverage lane drew the
+*wrong glyph* — a lowercase `t` as a capital `T` — after a frame at a larger magnification, and
+the winding texture's size was what survived the frame. Re-verified at `2531f447`: `zoom_ladder`
+is identical to the digit at every rung and `viewer-ui`'s own overlay gate is green.
+
+**§8 was answered at `7d5dafb` and §9 is still open.** Both were requests rather than defects,
+and both exist because the project owner's decision that page one goes to the graphics device put
+your bring-up on this viewer's critical path. §8 asked for a field split and an entry point and
+got both, plus a refusal of the knob it said not to add — which ADR 0017 has now superseded in
+part, for a reason §8.3 never weighed; §9 is from the other end of the same launch — the first
+frame allocates ~12 ms that every frame after it reuses, and it is provably not the shaders.
 
 **Where it stands, at the page's own scale:**
 
 | | first run | now |
 |---|---|---|
-| agree | 900 | **913** |
-| differ | 50 | **43** — 28 of them the antialiasing floor (§4) |
+| agree | 900 | **914** |
+| differ | 50 | **42** — 28 of them the antialiasing floor (§4) |
 | refused | 7 | **1** — and 6 for one day, which is §10 |
-| median page | 2.64× the CPU backend | **2.05×** |
+| median page | 2.64× the CPU backend | **2.05× to 2.33×**, run to run |
+
+The first three are `2531f447`'s, and the same three the gate has printed since the
+three-hundred-and-sixty-eighth session; **this table said 913 / 43 for sixteen sessions after that
+and was corrected in the three-hundred-and-eighty-fourth**, which is the ledger's own disease one
+document over. The median is a *timing* and moves between runs on one revision — 2.05× and 2.33×
+are two runs of the same gate — so it is quoted as a band rather than as a figure that moved.
 
 ---
 
@@ -348,7 +367,14 @@ having measured it than have the knob added on the strength of a plausible argum
 
 ---
 
-## 9. The first frame pays ~12 ms that every frame after it does not, and it is not the shaders
+## 9. The first frame pays ~12 ms that every frame after it does not, and it is not the shaders — **open**
+
+**Status re-checked at `2531f447` in the three-hundred-and-eighty-fourth session, because that
+revision touched `spawn_warm_up` and it would be easy to read it as an answer.** It is not:
+ADR 0018 gives the warm-up thread a `JoinHandle` so a `Device` cannot outlive it, which is about
+*teardown*. What this section asks for is the opposite end — that the per-device resources a first
+frame creates be created on that same background thread — and nothing in either new commit does
+it. The ask stands, unchanged.
 
 **Measured in this viewer's two-hundred-and-eightieth session**, on the machine's real adapter —
 AMD Radeon 890M, RADV, Vulkan — headless, page 7 of ISO 32000-2, ten renders of the same display
@@ -780,9 +806,14 @@ answered: there is nothing to mitigate. And this side now has a gate for the ove
 `viewer-ui/tests/chrome_over_a_magnified_page.rs`, seven frames on a software adapter — checked
 by pinning `0a1ffb13` back for one run and watching it fail with the number above.
 
+**Re-verified at `2531f447`** in the three-hundred-and-eighty-fourth session, because a revision
+bump can move anything: `zoom_ladder` on the same recipe prints the thirteen rows above **to the
+digit**, the overlay gate is green in `cargo test --workspace`, and §0's corpus gate is unmoved at
+914 / 42 / 1 / 17.
+
 ---
 
-## 12. A caller cannot choose the backend, and on Windows wgpu chooses Vulkan — **open**
+## 12. A caller cannot choose the backend, and on Windows wgpu chooses Vulkan — **answered**
 
 **New, 2026-08-07, and it is a request rather than a defect** — the defect it is a way around is
 an Intel Vulkan driver's. The project owner ran this viewer on a Windows machine with Intel
@@ -850,3 +881,50 @@ a driver that crashes during bring-up crashes a run that asked for the processor
 crash is the project owner's report from their own machine, and this project has no Intel adapter
 and no DX12 to reproduce it on. Treat the mechanism as argued rather than observed, and the
 missing parameter as the only claim we are certain of.
+
+### What came back — `2531f447`
+
+**Exactly the parameter this section asked for, and two things it did not.**
+
+- **`create_instance_with(backends)`**, at the instance, with `create_instance()` unchanged and
+  now that function with `Backends::all()`. Nothing this side had to bend: the ask and the answer
+  are the same signature.
+- **`Device::adapter_names_on(&instance)`**, which was not asked for and should have been. A host
+  that restricted its backends and then listed adapters through `Device::adapter_names` — which
+  makes its own all-backends instance — would offer a choice its own constructors could not
+  honour. The parameter created that trap and the same commit closed it. Our `--backend`'s
+  refusal message prints *both* lists for exactly that reason, and the difference between them is
+  the diagnosis: `adapters behind it: none` is a backend this machine has no adapter for, while a
+  non-empty list under a failed device is an adapter that cannot present to this surface.
+- **`WGPU_BACKEND` is not read**, and ADR 0017 gives the argument: a library that renders through
+  a different driver because a variable was exported has a failure mode that reproduces nowhere.
+  This side had no preference and asked only that it be decided; it was, and the one thing we said
+  we did not want — the environment being the *only* route — is not a route at all. `pdf-viewer`
+  does not read the variable either, and the reason is the same one in the host's own words: the
+  command line is where a person can see what they asked for.
+
+**What it is worth here.** `pdf-viewer --backend vulkan|dx12|metal|gl`, one `match` and one
+argument as §12 predicted, refusing rather than falling back where the machine has no adapter
+behind the name (ADR 0221). And the **Windows default is now a choice this project makes**:
+`#[cfg(windows)]` asks for DX12 first, where before the answer came from wgpu's hub order putting
+Vulkan ahead of it. That default *gives way* to every backend where no DX12 adapter exists, while
+a backend a person named is refused — because one is our guess about their machine and the other
+is their answer about it.
+
+**And one thing that came with it and is worth a host knowing** — `7cbf6e8`, ADR 0018, in the same
+pull. `spawn_warm_up`'s thread was detached, so a `Device` dropped before it was warm could reach
+`exit()` with a thread still inside `vkCreateGraphicsPipelines` while Mesa's atexit handlers tore
+the driver down underneath it; 13 of 15 runs of their new `device_lifecycle.rs` died *after* the
+tests passed. `Device` now joins the handle in `Drop`. It costs ~5 ms to a device dropped before
+it is warm and nothing to one dropped after, so it falls on the probe, which is the case that was
+crashing. **Nothing in this tree was reported as crashing on exit** — but this tree does construct
+and drop devices per gate run, and a crash in teardown after `test result: ok` is precisely the
+shape nobody attributes.
+
+### What still cannot be measured, and what the owner must run
+
+**No machine here runs Windows, has an Intel adapter or has DX12.** That the crash goes away
+under DX12 is a hypothesis about somebody else's driver and this side has not tested it; what is
+certain is that until `2531f447` the question could not be asked. Our side's half — that `--cpu`
+now opens no driver at all — **is** demonstrated, on Linux, with `strace`: 56 shared objects and
+three Vulkan libraries before, 17 and none after.

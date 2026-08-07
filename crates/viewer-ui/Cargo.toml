@@ -27,6 +27,11 @@ viewer-core.workspace = true
 # the render path or the parse path may reach it. ADR 0214.
 viewer-accessibility.workspace = true
 winit.workspace = true
+# The window with no graphics device behind it, which is what `--cpu` now means. See the
+# workspace manifest's note for what it costs and ADR 0221 for why it is taken.
+softbuffer.workspace = true
+# The software path's refusals are typed, like every other error in this tree.
+thiserror.workspace = true
 
 # The interactive spike example needs a scene, a target and a device. These are
 # dev-dependencies because the shell itself will drive rendering through `viewer-core`

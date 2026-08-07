@@ -62,6 +62,36 @@ impl QuorraPresenter {
         quorra_gpu::create_instance()
     }
 
+    /// [`Self::instance`], restricted to the driver stacks the host names.
+    ///
+    /// **An escape hatch from a driver, not a speed knob**, and the distinction is quorra's ADR
+    /// 0017 as much as this project's ADR 0221: restricting the instance to one backend halves
+    /// `wgpu::Instance::new` and gives every millisecond of it back in `request_adapter`, so the
+    /// total is unchanged. What it is for is a machine with two driver stacks and one of them
+    /// broken — the project owner's Windows machine, whose Intel Vulkan driver crashed while
+    /// wgpu's hub order was choosing Vulkan over DX12 (`doc/QUORRA_FEEDBACK.md` §12).
+    ///
+    /// Naming a set this machine cannot supply is not an error here; it becomes
+    /// [`quorra_gpu::DeviceError::NoAdapter`] with an **empty** `available` list at
+    /// [`Self::with_instance`], which is the signature a caller should report as "this machine
+    /// has no such adapter" rather than as a broken driver.
+    #[must_use]
+    pub fn instance_with(backends: quorra_gpu::wgpu::Backends) -> quorra_gpu::wgpu::Instance {
+        quorra_gpu::create_instance_with(backends)
+    }
+
+    /// The adapters *an instance* can see, which is the only list a host that restricted its
+    /// backends may offer.
+    ///
+    /// `quorra_gpu::Device::adapter_names` makes its own all-backends instance and so answers a
+    /// different question — what the machine has, rather than what these constructors will
+    /// choose among. One GPU appears once per backend that can drive it, under the same device
+    /// name each time, so a repeated name is that and not a second card.
+    #[must_use]
+    pub fn adapters_on(instance: &quorra_gpu::wgpu::Instance) -> Vec<String> {
+        quorra_gpu::Device::adapter_names_on(instance)
+    }
+
     /// A presenter owning a surface on `window`, on an instance the caller made earlier.
     ///
     /// See [`Self::instance`] for why a host would. Everything else is [`Self::new`]'s.

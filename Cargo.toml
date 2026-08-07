@@ -97,6 +97,31 @@ winit = { version = "0.30.13", default-features = false, features = [
     "wayland-dlopen",
 ] }
 
+# The software present path, and the only reason it is here: **`--cpu` has to mean *no graphics
+# device*.** Until the three-hundred-and-eighty-fourth session the flag chose the rasteriser and
+# nothing else — the presenter still loaded the driver, selected an adapter and made a device, and
+# the processor's raster went back through that device because a surface was the only path pixels
+# took to the screen. So a driver that faults while it is loading took `--cpu` down with it, which
+# is what the project owner hit on Windows. Putting a raster on a window without a device is what
+# this crate does and nothing else does; it is `rust-windowing`'s, beside `winit`, and shares
+# `raw-window-handle` 0.6 with it.
+#
+# What it costs is written down in ADR 0221, including the part that is not the crate's own: its
+# X11 backend reaches Xlib through `tiny-xlib`, which loads libX11 in a `ctor` — before `main`,
+# on every launch, whether or not a software surface is ever made. That is measured there rather
+# than assumed, and it is the one line of this dependency that argues against it.
+#
+# `kms` is **off**, and with it `drm` and `gbm`: a document viewer draws into a window, not onto
+# a bare console framebuffer. The rest of the feature set is winit's own — X11 and Wayland, both
+# dlopened rather than linked, so a binary built here still runs on a machine with only one of
+# them.
+softbuffer = { version = "0.4.8", default-features = false, features = [
+    "x11",
+    "x11-dlopen",
+    "wayland",
+    "wayland-dlopen",
+] }
+
 # Fonts. Memory-safe replacement for FreeType; covers OpenType/TrueType/CFF.
 # Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.
 skrifa = "0.45.1"

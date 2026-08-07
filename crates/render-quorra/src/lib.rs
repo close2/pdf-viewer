@@ -41,8 +41,15 @@ pub use present::{PresentFrame, QuorraPresenter};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum QuorraRasterError {
-    /// quorra refused a resource upload (validation or budget, named inside).
-    #[error("resource upload refused: {0}")]
+    /// quorra's device said no: bringing it up, or a resource upload (named inside).
+    ///
+    /// **The prefix is gone, and it was wrong.** This read `resource upload refused: {0}` until
+    /// the three-hundred-and-eighty-fourth session, which is true of three of `DeviceError`'s
+    /// seven variants and false of the four that are about *construction* — so a machine with no
+    /// adapter for the backend it was given reported "resource upload refused: surface creation
+    /// failed", which is two claims and one of them invented. Every variant already names what
+    /// happened, so there is nothing for a prefix to add.
+    #[error("{0}")]
     Device(#[from] quorra_gpu::DeviceError),
     /// quorra refused the frame (budget, limits, or a dangling resource id).
     #[error("frame refused: {0}")]
