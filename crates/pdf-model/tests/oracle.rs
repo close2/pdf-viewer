@@ -3835,7 +3835,33 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 /// what the 0.90 similarity tolerance was measured over 153 reference-against-reference pairs to
 /// express. Ours lands 0.024 from `poppler`'s end and 0.68 from `mupdf`'s, and `ghostscript` is
 /// 4.3 above every one of the four.
-const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 180] = [
+/// # And one this gate had never judged, in the three-hundred-and-eighty-third
+///
+/// `issue14297.pdf` page 1 is an A3 financial statement — two consolidated tables of five-point
+/// type and nothing else — and it reached this bucket by being *drawn*: it reported a soft mask
+/// group compositing more than one unit of ink until ADR 0220, so the oracle had never judged it
+/// at all. Its verdict is the text tolerance's (mean 4.41 against a bound of 5.00, similarity
+/// 0.9102 against 0.9000), and its ink at the page's own scale is 1.15 of 255 *below* the
+/// lightest reference, which is the shape that looks like missing marks.
+///
+/// It is not. Two ladders and ours beside them:
+///
+/// ```text
+///              72 dpi   288 dpi   576 dpi
+/// poppler     10.1206   8.73678   8.75421
+/// mupdf        9.83978  8.99105   8.87480
+/// ours         8.69405  8.74804   8.82076
+/// ```
+///
+/// The references' 72-dpi ink is what their scan conversion adds to type this small, and it falls
+/// away as the pixels do: `poppler` loses 1.37 of 255 between 72 and 576 dpi and `mupdf` 0.96,
+/// while ours *rises* 0.13 and is within 0.06 of `poppler`'s limit at the page's own scale.
+/// At eight times ours is 8.821, between `poppler`'s 8.754 and `mupdf`'s 8.875 — this group's
+/// premise exactly, one axis over: on five-point type five glyph rasterisers cannot agree more
+/// closely than the tolerance allows, and here they cannot even agree with *themselves* until the
+/// resolution is eight times the page's.
+const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 181] = [
+    "issue14297.pdf page 1",
     "issue6127.pdf page 3",
     "issue7014.pdf page 1",
     "issue15012.pdf page 1",
@@ -4157,6 +4183,32 @@ const AMBIGUOUS_RECOVERED_PAGE_TREE: [&str; 1] = ["issue21436.pdf page 1"];
 const AMBIGUOUS_TRANSPARENCY_GROUP: [&str; 1] = ["transparency_group.pdf page 1"];
 
 const AMBIGUOUS_MASKED_BLUR: [&str; 1] = ["issue19634.pdf page 1"];
+
+/// Ambiguous, and ours is on `poppler`'s limit while `mupdf` is 0.14 of 255 below both.
+///
+/// `bug1703683_page2_reduced.pdf` page 1 is a photograph of a power adapter whose LED highlight is
+/// drawn through a `/Luminosity` soft mask: a `/DeviceGray` group containing a `/DeviceN` shading
+/// whose alternate rests on `DeviceCMYK`. It reached this bucket by being *drawn* — the round
+/// before this one found that shading and reported it, and ADR 0220 made the ramp reach the mask
+/// in the components §11.5.3 composites, so the page stopped reporting and started being judged.
+///
+/// Its verdict is the ordinary tolerance's on everything but one tile: mean 0.40 against a bound
+/// of 1.00, similarity 0.9902 against 0.9900, and a worst tile of 10.10 against 5.00 — which is
+/// the highlight and nothing else, 192 pixels of 1.9 M.
+///
+/// ```text
+///              72 dpi   288 dpi   576 dpi
+/// poppler     5.42909   5.37225   5.36945
+/// mupdf       5.22151   5.22336   5.22575
+/// ours        5.36249   5.36410   5.36273
+/// ```
+///
+/// Ours is flat to four decimals across three scales — a page of large smooth fills has no edges
+/// to converge — and it ends **0.007 of 255** from `poppler`'s limit, which is two renderers
+/// agreeing rather than two renderers being close. `mupdf` is flat too, 0.14 below both, and
+/// `ghostscript` 0.11 above: five answers spanning a quarter of a level on a photograph, which is
+/// what `AMBIGUOUS_DEVICE_CMYK_CONVERSION` says about any page whose colour rests on a press.
+const AMBIGUOUS_SUBTRACTIVE_MASK_GROUP: [&str; 1] = ["bug1703683_page2_reduced.pdf page 1"];
 
 /// Ambiguous, and Table 87 defines the premultiplication and nothing else.
 ///
@@ -6181,6 +6233,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_STANDARD_FOURTEEN_FACE)
         .chain(&AMBIGUOUS_TRANSPARENCY_GROUP)
         .chain(&AMBIGUOUS_MASKED_BLUR)
+        .chain(&AMBIGUOUS_SUBTRACTIVE_MASK_GROUP)
         .chain(&AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)

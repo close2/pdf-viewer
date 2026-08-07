@@ -11,7 +11,7 @@
 use pdf_render::{Color, SoftMaskKind, Transfer};
 use pdf_syntax::{Dictionary, Document, Object, Stream};
 
-use crate::colour::ColourSpace;
+use crate::colour::{ColourSpace, Compositing, InkScale};
 use crate::function::Function;
 
 /// What a `gs` dictionary's `/SMask` entry holds, once read.
@@ -38,11 +38,12 @@ pub(crate) struct SoftMaskRequest {
     /// Which of §11.5's two derivations applies, with `/BC` already resolved for the
     /// luminosity one.
     pub kind: SoftMaskKind,
-    /// Table 142's `/TR`, sampled, or `None` for the `/Identity` it defaults to.
+    /// Everything between the group's rendered channel and the mask value: §11.5.3's
+    /// remaining arithmetic composed with Table 142's `/TR`, or `None` where that
+    /// composition is the identity.
     pub transfer: Option<Transfer>,
-    /// Whether the group's elements are painted in §11.5.3's luminosity rather than in
-    /// colour, which is what [`space_is_subtractive`] decides.
-    pub in_luminosity: bool,
+    /// What the group's elements are painted in, which is what [`ink_scale`] decides.
+    pub compositing: Compositing,
     /// Everything about this mask §11.5.3 asks for and does not get, for the caller to report.
     pub departures: Vec<String>,
 }
@@ -89,33 +90,40 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
         Err(detail) => return SoftMaskEntry::Unusable(detail),
     };
 
-    let (kind, in_luminosity, departures) = match subtype.as_slice() {
-        b"Alpha" => (SoftMaskKind::Alpha, false, Vec::new()),
+    let (kind, compositing, transfer, departures) = match subtype.as_slice() {
+        b"Alpha" => (
+            SoftMaskKind::Alpha,
+            Compositing::Device,
+            transfer,
+            Vec::new(),
+        ),
         b"Luminosity" => {
             let space = ColourSpace::parse(document, &space, &Dictionary::new());
-            let subtractive = space.as_ref().is_some_and(space_is_subtractive);
+            let scale = space.as_ref().and_then(ink_scale);
             let ink = backdrop(document, mask, space.as_ref());
-            let backdrop = if subtractive {
-                // The group's elements are painted in §10.4.2.3's grey, so its backdrop is
-                // one too: a backdrop and the elements composited onto it have to be the
-                // same quantity, or the compositing is not the clause's.
-                Color::grey(1.0 - ink.min(1.0))
-            } else {
-                Color {
+            let backdrop = match scale {
+                // The group's elements are painted in `1 − ink ÷ scale`, so its backdrop is
+                // too: a backdrop and the elements composited onto it have to be the same
+                // quantity, or the compositing is not the clause's.
+                Some(scale) => Color::grey(1.0 - (ink / scale.factor()).min(1.0)),
+                None => Color {
                     a: 1.0,
                     ..space.as_ref().map_or(Color::BLACK, |space| {
                         space.to_rgb(&backdrop_values(document, mask, space))
                     })
-                }
+                },
             };
-            let mut departures: Vec<String> = Vec::new();
-            departures.extend(space.as_ref().and_then(luminosity_departure));
-            if subtractive && ink > 1.0 {
-                departures.push(OVER_INKED.to_owned());
-            }
+            let departures = space
+                .as_ref()
+                .and_then(luminosity_departure)
+                .into_iter()
+                .collect();
             (
                 SoftMaskKind::Luminosity { backdrop },
-                subtractive,
+                scale.map_or(Compositing::Device, Compositing::Luminosity),
+                scale.map_or(transfer.clone(), |scale| {
+                    derivation(scale, transfer.as_ref())
+                }),
                 departures,
             )
         }
@@ -131,31 +139,60 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
         group,
         kind,
         transfer,
-        in_luminosity,
+        compositing,
         departures,
     }))
 }
 
-/// What a colour weighing more than one unit of §10.4.2.3's ink costs inside a mask group.
+/// Everything left between a scaled mask channel and the value §11.5.3 derives from it.
 ///
-/// §10.4.2.3 converts a subtractive colour to a grey level as `1 − min(1, ink)`, and §11.5.3
-/// puts that `min` **after** the group has been composited with its backdrop. A rendered
-/// channel holds `0..=1` and an ink reaches 2.0 — `/BC [1 1 1 1]`, registration black, is the
-/// commonest backdrop a `DeviceCMYK` mask has on this corpus — so a colour above one unit has
-/// its excess taken here instead, before the compositing rather than after.
+/// The group is painted in `1 − ink ÷ scale` so that the compositing happens on the ink
+/// itself; what remains is [`InkScale::mask_value`] — §10.4.2.3's `1 − min(1, ink)` with the
+/// `min` where §11.5.3 puts it, *after* the group has been composited — and then Table 142's
+/// `/TR`, which §11.5.3 puts last of all:
 ///
-/// **What that costs is one closed form, and it is worth writing down** because it is what a
-/// later round has to beat. For artwork of ink `s` at coverage `α` over a backdrop of ink
-/// `1 + e`, the clause gives `max(0, 1 − α·s − (1 − α)(1 + e))` and this gives `α · (1 − s)`
-/// — equal at `α = 0` and at `α = 1`, and apart by at most `(1 − α) · e` in between. So the
-/// departure lives at the partly covered pixels of a mask group's own marks and nowhere else,
-/// which on this corpus's five witnesses is the one-pixel rim of a photograph. Carrying it
-/// exactly needs every colour in the group — an image's samples included — scaled into a
-/// channel that can hold `1 + e`, which `doc/todo/23` now owns.
-pub(crate) const OVER_INKED: &str = "a soft mask's group composites a colour of more than one unit of ink, whose §10.4.2.3 \
-     minimum this takes before the compositing rather than after it (§11.5.3)";
+/// > Following this conversion, the result shall be passed through a separately specified
+/// > transfer function, allowing the masking effect to be customised.
+///
+/// The two are composed into one table rather than applied in turn, and the reason is not
+/// economy. A backend that can express a luminosity mask *natively* — `render-quorra` does —
+/// takes a backdrop colour and a 256-entry table and computes the luminosity in a shader of
+/// its own, so a second arithmetic step outside the table would be a step the CPU oracle
+/// takes and the graphics device does not. Composed here, both backends are handed the same
+/// 256 bytes and cannot disagree by construction.
+///
+/// **What that costs is one rounding, and it is worth writing down.** The channel is eight
+/// bits, so at [`InkScale::Double`] a mask value is recovered in steps of `2 ÷ 255` rather
+/// than `1 ÷ 255`: at most one more level of 255 than the raster already rounds away, against
+/// a departure the same clause puts at up to `(1 − α) · e` — half the mask's whole range at a
+/// half-covered pixel over registration black. At [`InkScale::Unit`] the map is the identity
+/// and this returns the `/TR` it was handed, so a `DeviceGray` group pays nothing at all.
+fn derivation(scale: InkScale, transfer: Option<&Transfer>) -> Option<Transfer> {
+    if scale == InkScale::Unit {
+        return transfer.cloned();
+    }
+    let mut table = [0_u8; 256];
+    for (index, entry) in table.iter_mut().enumerate() {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "index of a 256-entry table is exactly representable"
+        )]
+        let channel = index as f32 / 255.0;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0..=255 before the cast, and NaN clamps to the low bound"
+        )]
+        let derived = (scale.mask_value(channel) * 255.0)
+            .clamp(0.0, 255.0)
+            .round() as u8;
+        *entry = transfer.map_or(derived, |transfer| transfer.apply(derived));
+    }
+    Some(Transfer::from_samples(table))
+}
 
-/// Whether §11.5.3 sends this blending space to `DeviceGray` without passing through RGB.
+/// How much ink a group blending in this space can weigh, or `None` if §11.5.3 sends it to
+/// `DeviceGray` through RGB rather than through §10.4.2.3.
 ///
 /// §11.6.5.1 makes the group's `/CS` "the colour space in which the compositing computation
 /// is to be performed", and §11.5.3 converts the composited colour to luminosity afterwards.
@@ -164,27 +201,40 @@ pub(crate) const OVER_INKED: &str = "a soft mask's group composites a colour of 
 /// that is:
 ///
 /// - **`DeviceRGB`** is the space §10.4.2.2's `gray = 0.3 R + 0.59 G + 0.11 B` is written
-///   for, so compositing there and converting afterwards is the clause.
+///   for, so compositing there and converting afterwards is the clause. `None`.
 /// - **A CIE-based space** — `CalRGB`, `CalGray`, `Lab`, `ICCBased` — asks for §11.5.3's
 ///   *colorimetric* branch, the `Y` of the colour in CIE 1931 XYZ, and this tree answers with
 ///   the grey of the sRGB it converts every such space to. That is the same page-wide choice
 ///   recorded in [`luminosity_departure`] rather than a second view of it, and it does not
-///   become truer by being computed one component at a time.
+///   become truer by being computed one component at a time. `None`.
 /// - **A subtractive space** — `DeviceCMYK`, `DeviceGray`, and a `Separation`, `DeviceN` or
-///   `Indexed` space resting on one — is the case this answers `true` for. §10.4.2.3 converts
-///   it to a grey level without going near RGB, so a group composited in the device's three
-///   components is a different arithmetic and this tree's `DeviceCMYK` → RGB table (ADR 0009)
-///   has no business standing in the way of a formula the clause prints in full.
+///   `Indexed` space resting on one — is the case this answers with a scale. §10.4.2.3
+///   converts it to a grey level without going near RGB, so a group composited in the
+///   device's three components is a different arithmetic and this tree's `DeviceCMYK` → RGB
+///   table (ADR 0009) has no business standing in the way of a formula the clause prints in
+///   full.
 ///
 /// `DeviceGray` counts as subtractive here, which is worth the sentence: §10.4.2.3 calls a
 /// grey level "the complement of the black component of CMYK", and a `k` operator inside a
-/// `/DeviceGray` mask group is the same departure one component narrower.
-fn space_is_subtractive(space: &ColourSpace) -> bool {
+/// `/DeviceGray` mask group is the same conversion one component narrower. It is also why
+/// the two spaces get *different* scales rather than one: §11.6.6's `/CS` is "[t]he colour
+/// space into which colours shall be converted when painted into the group", and converting
+/// into `DeviceGray` applies §10.4.2.3's `min` on the way in, so nothing in such a group can
+/// weigh more than one unit. A `DeviceCMYK` group keeps four components until §11.5.3 and can
+/// hold two. [`InkScale`] has the arithmetic.
+///
+/// A `Separation`, `DeviceN` or `Indexed` group colour space is one §11.6.6 excludes outright:
+/// the restrictions there "exclude `Lab` and lightness-chromaticity `ICCBased` colour spaces,
+/// as well as the special colour spaces `Pattern` , `Indexed` , `Separation` , and `DeviceN`",
+/// so the recursion here is about a malformed file rather than a valid one, and it answers
+/// with the scale of the space the file would have had to mean.
+fn ink_scale(space: &ColourSpace) -> Option<InkScale> {
     match space {
-        ColourSpace::Cmyk | ColourSpace::Gray => true,
-        ColourSpace::Separation { alternate, .. } => space_is_subtractive(alternate),
-        ColourSpace::Indexed { base, .. } => space_is_subtractive(base),
-        _ => false,
+        ColourSpace::Cmyk => Some(InkScale::Double),
+        ColourSpace::Gray => Some(InkScale::Unit),
+        ColourSpace::Separation { alternate, .. } => ink_scale(alternate),
+        ColourSpace::Indexed { base, .. } => ink_scale(base),
+        _ => None,
     }
 }
 
@@ -257,10 +307,11 @@ fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>)
 /// - **`DeviceRGB`** is the space EXAMPLE 2's `Y = 0.30 R + 0.59 G + 0.11 B` is written for,
 ///   and `pdf_render::SoftMask::value` computes it on the rendered pixel.
 /// - **`DeviceCMYK` and `DeviceGray`** send a colour to grey by §10.4.2.3 without passing
-///   through RGB, so the group's elements are painted in that grey instead of in colour —
-///   [`space_is_subtractive`], and `crate::content`'s `Compositing::Luminosity`. What still
-///   reports is a colour that arrives *already* rasterised in such a group, which the
-///   interpreter cannot redirect: an image's samples and a shading's ramp.
+///   through RGB, so the group's elements are painted in the ink that clause weighs instead
+///   of in colour — [`ink_scale`], and `crate::colour`'s `Compositing::Luminosity`. Since the
+///   three-hundred-and-eighty-third session that reaches an image's samples and a shading's
+///   ramp as well as an operator's colour, and the `min` waits for the compositing the way
+///   §11.5.3 states (ADR 0220).
 ///
 /// **The colorimetric branch** — "For CIE-based spaces, convert to the CIE 1931 XYZ space and
 /// use the Y component as the luminosity" — is answered with the grey of the sRGB this tree
@@ -284,6 +335,9 @@ fn luminosity_departure(space: &ColourSpace) -> Option<String> {
 }
 
 /// Samples Table 142's `/TR` onto the 256 values an eight-bit mask value can take.
+///
+/// This is the document's function alone; [`derivation`] is what composes it with the rest of
+/// §11.5.3's arithmetic for a group painted in a scaled channel.
 ///
 /// `Ok(None)` is the identity, which is both the default and what the name `/Identity`
 /// selects. An unreadable function is an error rather than a silently identity one: a

@@ -21,7 +21,7 @@
 use pdf_render::{Color, Point, Triangle};
 use pdf_syntax::{Dictionary, Document, Stream};
 
-use crate::colour::ColourSpace;
+use crate::colour::{ColourSpace, Compositing};
 use crate::function::{BitReader, Function};
 
 /// How finely a Bézier patch is evaluated along each axis.
@@ -47,6 +47,7 @@ pub(crate) fn read(
     kind: i64,
     space: &ColourSpace,
     functions: &[Function],
+    into: Compositing,
 ) -> Option<Vec<Triangle>> {
     let dict = &stream.dict;
     let data = document.decoded_stream_data(stream)?;
@@ -86,6 +87,7 @@ pub(crate) fn read(
         flag_bits,
         space,
         functions,
+        into,
     };
 
     let mut bits = BitReader::new(&data);
@@ -163,6 +165,8 @@ struct MeshReader<'a> {
     flag_bits: u32,
     space: &'a ColourSpace,
     functions: &'a [Function],
+    /// What the mesh's vertex colours are being composited into (`crate::colour`).
+    into: Compositing,
 }
 
 impl MeshReader<'_> {
@@ -203,13 +207,13 @@ impl MeshReader<'_> {
     /// Turns the stream's components into a colour, through the functions if there are any.
     fn to_colour(&self, values: &[f32]) -> Color {
         if self.functions.is_empty() {
-            return self.space.to_rgb(values);
+            return self.into.paint(self.space, values, true);
         }
         let mut components = Vec::new();
         for function in self.functions {
             components.extend(function.eval(values));
         }
-        self.space.to_rgb(&components)
+        self.into.paint(self.space, &components, true)
     }
 
     /// Reads a vertex, including the byte padding each one carries in a triangle mesh.

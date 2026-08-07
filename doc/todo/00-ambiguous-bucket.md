@@ -189,6 +189,37 @@ the other three are the same three session 265 named — `issue16038.pdf` at −
 (`AMBIGUOUS_GRADIENT_QUANTISATION`). Fourteen rounds of change and the negative tail has not moved,
 which is what a standing alarm is for.
 
+**Re-run before and after in the three-hundred-and-eighty-third**, the round that carried an image's
+samples and a shading's ramp into the quantity §11.5.3 composites (ADR 0220), which moves pixels.
+**Every negative entry is identical to a thousandth** — twenty at or past −1, sixteen of them
+documents this tree calls incomplete, head `issue16038.pdf` −5.642, then `issue12295.pdf` −1.712,
+`checkbox_no_appearance.pdf` −1.200 and `issue14297.pdf` −1.146. That last one is the only line
+whose *label* changed: it lost its `[incomplete]`, the same number on a page that stopped reporting
+and now carries a diagnosis instead, and the diagnosis is two ladders — `poppler` 10.121 → 8.754 and
+`mupdf` 9.840 → 8.875 from 72 to 576 dpi against ours 8.694 → 8.821, so the references' extra ink at
+the page's own scale is their scan conversion of five-point type and ours is already at the limit.
+That is the alarm doing what it is for: a page arriving in the negative tail with an explanation
+rather than a shrug.
+
+**Three lines on the *positive* side did move, and they are the round**: `issue13520.pdf` +3.804 →
++2.554, `bug1703683_page2_reduced.pdf` +0.142 → +0.141 and `issue12798_page1_reduced.pdf` in the
+fourth decimal at +0.068. Every one of the three is a mask group whose raster this round redirected,
+and a positive gap shrinking is ours coming *down* toward the lightest reference. Worth saying
+plainly because the two halves of this sweep answer different questions: the negative tail is the
+alarm, and it did not move; the positive side is where a round that changes what gets drawn is
+expected to show up, and a round that moved nothing there would be a round that had not run.
+
+**And the head's number was already stale, which only a *before* sweep can say.** The
+three-hundred-and-eighty-second recorded `issue16038.pdf` at **−5.398** and called the sweep
+byte-identical; run on that same commit before a line of this round existed, it is **−5.642**. This
+round did not move it — both of its sweeps agree — so the change happened between the two sessions
+with nothing in `crates/` to account for it, and the candidate is the reference side: the oracle's
+run reported 16 renders *produced* against 6173 from the cache, and a reference re-rendered by a
+newer `poppler` or `mupdf` moves `min(live)` under a page whose own ink never changed. **The lesson
+is the sweep's, not the page's**: this number is a difference between two programs, so a "head
+unchanged" claim is only worth what the before-run behind it is worth, and a round that reports one
+without re-running the before has reported the last session's arithmetic.
+
 **Re-run in the three-hundred-and-sixty-eighth**, after the round that snapped §10.7.4's marks to
 the pixel grid (ADR 0208), over all 786 and filtered to the 743 on documents this tree calls
 complete. **The head did not move**: `issue16038.pdf` −6.40, `issue12295.pdf` −1.71,

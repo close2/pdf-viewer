@@ -18,7 +18,7 @@ use std::sync::Arc;
 use pdf_render::{Color, Point, Ramp, Shading, ShadingKind, Transform};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
-use crate::colour::ColourSpace;
+use crate::colour::{ColourSpace, Compositing};
 use crate::function::Function;
 
 /// Samples across each axis of a function-based shading.
@@ -68,7 +68,7 @@ pub enum ShadingError {
 pub struct Cache {
     /// The kind and the shading's own matrix, which is `/Matrix` for a type 1 and the
     /// identity for every other type.
-    built: BTreeMap<(ObjectId, usize), (Arc<ShadingKind>, Transform)>,
+    built: BTreeMap<(ObjectId, usize, Compositing), (Arc<ShadingKind>, Transform)>,
 }
 
 impl Cache {
@@ -90,6 +90,7 @@ impl Cache {
         resources: &Dictionary,
         transform: Transform,
         smoothness: Option<f32>,
+        into: Compositing,
     ) -> Result<Shading, ShadingError> {
         // §10.7.3's tolerance is part of the key rather than of the object: the same shading
         // painted under two `/SM` values is two sets of colours, and a page that changes it
@@ -106,18 +107,18 @@ impl Cache {
             !matches!(space, Some(Object::Name(_)))
         });
         if let Some(id) = key
-            && let Some((kind, own)) = self.built.get(&(id, resolution))
+            && let Some((kind, own)) = self.built.get(&(id, resolution, into))
         {
             return Ok(Shading {
                 kind: Arc::clone(kind),
                 transform: own.then(transform),
             });
         }
-        let (kind, own) = kind_of(document, object, resources, resolution)?;
+        let (kind, own) = kind_of(document, object, resources, resolution, into)?;
         let kind = Arc::new(kind);
         if let Some(id) = key {
             self.built
-                .insert((id, resolution), (Arc::clone(&kind), own));
+                .insert((id, resolution, into), (Arc::clone(&kind), own));
         }
         Ok(Shading {
             kind,
@@ -151,7 +152,13 @@ pub fn build(
     resources: &Dictionary,
     transform: Transform,
 ) -> Result<Shading, ShadingError> {
-    let (kind, own) = kind_of(document, object, resources, Ramp::RESOLUTION)?;
+    let (kind, own) = kind_of(
+        document,
+        object,
+        resources,
+        Ramp::RESOLUTION,
+        Compositing::Device,
+    )?;
     Ok(Shading {
         kind: Arc::new(kind),
         transform: own.then(transform),
@@ -168,6 +175,7 @@ fn kind_of(
     object: &Object,
     resources: &Dictionary,
     resolution: usize,
+    into: Compositing,
 ) -> Result<(ShadingKind, Transform), ShadingError> {
     let resolved = document.resolve(object);
     let dict = match &resolved {
@@ -198,19 +206,19 @@ fn kind_of(
         // being carried separately, so the display list needs only one transform per
         // shading.
         1 => (
-            function_based(document, &dict, &space)?,
+            function_based(document, &dict, &space, into)?,
             matrix_of(document, &dict, "Matrix"),
         ),
         2 => (
-            axial(document, &dict, &space, resolution)?,
+            axial(document, &dict, &space, resolution, into)?,
             Transform::IDENTITY,
         ),
         3 => (
-            radial(document, &dict, &space, resolution)?,
+            radial(document, &dict, &space, resolution, into)?,
             Transform::IDENTITY,
         ),
         4..=7 => (
-            mesh(document, &resolved, &dict, &space, kind)?,
+            mesh(document, &resolved, &dict, &space, kind, into)?,
             Transform::IDENTITY,
         ),
         other => return Err(ShadingError::UnsupportedType { kind: other }),
@@ -302,6 +310,7 @@ fn ramp(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
+    into: Compositing,
 ) -> Result<Ramp, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
@@ -335,7 +344,7 @@ fn ramp(
 
     Ok(Ramp::sample_across_at(resolution, &breaks, |t| {
         let parameter = low + t * (high - low);
-        colour_from(&functions, &[parameter], space)
+        colour_from(&functions, &[parameter], space, into)
     }))
 }
 
@@ -343,12 +352,17 @@ fn ramp(
 ///
 /// A shading gives either one function producing every component or one function per
 /// component; both are handled by concatenating the outputs.
-fn colour_from(functions: &[Function], inputs: &[f32], space: &ColourSpace) -> Color {
+fn colour_from(
+    functions: &[Function],
+    inputs: &[f32],
+    space: &ColourSpace,
+    into: Compositing,
+) -> Color {
     let mut components: Vec<f32> = Vec::new();
     for function in functions {
         components.extend(function.eval(inputs));
     }
-    space.to_rgb(&components)
+    into.paint(space, &components, true)
 }
 
 fn axial(
@@ -356,6 +370,7 @@ fn axial(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
+    into: Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 4).ok_or_else(|| ShadingError::Malformed {
         detail: "an axial shading needs four /Coords".to_owned(),
@@ -363,7 +378,7 @@ fn axial(
     Ok(ShadingKind::Axial {
         start: Point::new(coords[0], coords[1]),
         end: Point::new(coords[2], coords[3]),
-        ramp: ramp(document, dict, space, resolution)?,
+        ramp: ramp(document, dict, space, resolution, into)?,
         extend: extend(document, dict),
     })
 }
@@ -373,6 +388,7 @@ fn radial(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
+    into: Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 6).ok_or_else(|| ShadingError::Malformed {
         detail: "a radial shading needs six /Coords".to_owned(),
@@ -388,7 +404,7 @@ fn radial(
         start_radius: coords[2],
         end: Point::new(coords[3], coords[4]),
         end_radius: coords[5],
-        ramp: ramp(document, dict, space, resolution)?,
+        ramp: ramp(document, dict, space, resolution, into)?,
         extend: extend(document, dict),
     })
 }
@@ -400,6 +416,7 @@ fn mesh(
     dict: &Dictionary,
     space: &ColourSpace,
     kind: i64,
+    into: Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
         detail: "a mesh shading must be a stream".to_owned(),
@@ -417,7 +434,7 @@ fn mesh(
     };
 
     let triangles =
-        crate::mesh::read(document, stream, kind, space, &functions).ok_or_else(|| {
+        crate::mesh::read(document, stream, kind, space, &functions, into).ok_or_else(|| {
             ShadingError::Malformed {
                 detail: format!("the type {kind} mesh stream could not be read"),
             }
@@ -432,6 +449,7 @@ fn function_based(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
+    into: Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
@@ -470,7 +488,7 @@ fn function_based(
             let fy = fraction(row);
             let x = x0 + fx * (x1 - x0);
             let y = y0 + fy * (y1 - y0);
-            pixels.push(colour_from(&functions, &[x, y], space));
+            pixels.push(colour_from(&functions, &[x, y], space, into));
         }
     }
 

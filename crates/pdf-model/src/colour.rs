@@ -42,6 +42,129 @@ use crate::function::Function;
 /// `ICCBased`. Real chains are two or three deep; a longer one is a cycle.
 const MAX_DEPTH: usize = 8;
 
+/// What a colour is resolved *for*.
+///
+/// Every colour in a PDF becomes three device components on its way to a raster, and for a
+/// page that is the whole story. §11.5.3's second derivation is where it stops being one: a
+/// `/Luminosity` soft mask's group is composited "in the colour space in which the
+/// compositing computation is to be performed" (§11.6.5.1) and only *then* converted to a
+/// single value, so where that space is subtractive the group's own arithmetic is not the
+/// device's.
+///
+/// A whole second raster format would be one answer, and it is not this one. §10.4.2.3's
+/// conversion to grey is linear in the components except for one `min`, so the group can be
+/// painted in that linear quantity — one channel, composited by the ordinary rasteriser —
+/// and the `min` applied once at the end, where §11.5.3 puts it. That is ADR 0210's shape one
+/// level up: the display list names a quantity a backend resolves rather than carrying the
+/// components a backend would have to be taught.
+///
+/// It lives here rather than in `crate::content` because a colour reaches a raster by three
+/// routes and only one of them is an operator: an image's samples (`crate::image`) and a
+/// shading's ramp (`crate::shading`) are colours too, and a group composited in one quantity
+/// cannot have two of its three sources painting in another (ADR 0220).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Compositing {
+    /// The page, or any group this tree composites on the device's three components.
+    Device,
+    /// A `/Luminosity` mask group whose blending space §10.4.2.3 sends to grey without
+    /// passing through RGB, painted in the ink that clause weighs rather than in colour.
+    Luminosity(InkScale),
+}
+
+impl Compositing {
+    /// The colour `values` become for what is being composited into.
+    ///
+    /// The alpha comes from the ordinary conversion in both branches, because it is not a
+    /// colour component: §8.6.6.4's `/None` colourant "shall have no effect on the current
+    /// page", which this tree says with a transparent paint, and a mask group is not the
+    /// place for it to start painting black instead.
+    ///
+    /// That costs the luminosity branch one conversion it does not use. It is paid per
+    /// *distinct* colour rather than per sample — `crate::image`'s memo and palette are keyed
+    /// on the samples, not on what they convert to — and buying it back would mean a second
+    /// function deciding which spaces mark the page, which is exactly the drift trap 6 exists
+    /// for.
+    #[must_use]
+    pub fn paint(self, space: &ColourSpace, values: &[f32], black_point: bool) -> Color {
+        let colour = if black_point {
+            space.to_rgb(values)
+        } else {
+            space.to_rgb_without_black_point(values)
+        };
+        match self {
+            Self::Device => colour,
+            Self::Luminosity(scale) => Color {
+                a: colour.a,
+                ..Color::grey(scale.grey_of(space, values))
+            },
+        }
+    }
+}
+
+/// How much ink one channel of a `/Luminosity` mask group's raster has to hold.
+///
+/// §11.5.3 composites the group *first* and takes §10.4.2.3's `1 − min(1, ink)` of the
+/// result, so the quantity that has to survive the compositing is the ink itself — and a
+/// rendered channel holds `0..=1` where an ink reaches 2.0. This is the divisor that makes it
+/// fit: the group is painted in `1 − ink ÷ scale` and the mask reads `1 − min(1, scale × (1 −
+/// channel))` back off it, which is the clause's own arithmetic with the `min` where the
+/// clause puts it.
+///
+/// **There are exactly two values and the blending space picks one**, because §11.6.6 makes
+/// the group's `/CS` "[t]he colour space into which colours shall be converted when painted
+/// into the group":
+///
+/// - A **`DeviceGray`** group converts a colour by §10.4.2.3 on the way in, and that
+///   conversion *is* the `min` — a grey level is `1 − min(1, ink)` and its own ink is one
+///   minus that, so nothing painted into such a group can weigh more than [`Self::Unit`].
+/// - A **`DeviceCMYK`** group keeps four components through the compositing, and the largest
+///   ink four clamped components can weigh is `0.3 + 0.59 + 0.11 + 1.0` — [`Self::Double`],
+///   which registration black `/BC [1 1 1 1]` reaches exactly.
+///
+/// A colour arriving from any *other* space weighs at most one unit in either: §10.4.2.4's
+/// black generation cancels out of §10.4.2.3's weights, so an RGB or CIE-based colour taken
+/// into `DeviceCMYK` weighs `1 − (0.3 R + 0.59 G + 0.11 B)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum InkScale {
+    /// One unit of ink, which is a `DeviceGray` group and costs the channel nothing.
+    Unit,
+    /// Two units, which is a `DeviceCMYK` group: the ink of registration black.
+    Double,
+}
+
+impl InkScale {
+    /// The divisor itself.
+    #[must_use]
+    pub fn factor(self) -> f32 {
+        match self {
+            Self::Unit => 1.0,
+            Self::Double => 2.0,
+        }
+    }
+
+    /// What a colour is painted as inside a group of this scale.
+    ///
+    /// `1 − ink ÷ scale`, which is [`ColourSpace::luminosity`] at [`Self::Unit`] and holds a
+    /// whole unit of excess ink at [`Self::Double`]. The clamp is not dead code at
+    /// [`Self::Unit`]: that is where §11.6.6's conversion into a `DeviceGray` group applies
+    /// §10.4.2.3's `min`, and a `k` operator inside such a group is the case that needs it.
+    #[must_use]
+    pub fn grey_of(self, space: &ColourSpace, values: &[f32]) -> f32 {
+        1.0 - (space.ink(values) / self.factor()).min(1.0)
+    }
+
+    /// The mask value §11.5.3 derives from a composited channel of this scale.
+    ///
+    /// The inverse of [`Self::grey_of`] with the clause's `min` applied after the
+    /// compositing rather than before it, which is the whole point of the scale. Written
+    /// beside its inverse so the two cannot drift; `a_scaled_channel_carries_the_clauses_own_grey`
+    /// is the arithmetic that pins them together.
+    #[must_use]
+    pub fn mask_value(self, channel: f32) -> f32 {
+        1.0 - (self.factor() * (1.0 - channel)).min(1.0)
+    }
+}
+
 /// A colour space, resolved far enough to convert colours.
 #[derive(Debug, Clone)]
 pub enum ColourSpace {
@@ -619,30 +742,6 @@ impl ColourSpace {
         }
     }
 
-    /// Whether a colour of this space still carries its own luminosity once it is a pixel.
-    ///
-    /// The two answers are the two arms of [`Self::ink_at`], and saying so here is what keeps
-    /// them from drifting: every space whose ink is `1 −` the grey level of the RGB this tree
-    /// resolves it to survives being rasterised, because that grey level is exactly what
-    /// `pdf_render::SoftMask::value` reads back off the raster. `DeviceCMYK` is the one that
-    /// does not — §10.4.2.3 weighs its four components directly and this tree's route to RGB
-    /// is a table of ink appearances (ADR 0009), so the two are different numbers.
-    ///
-    /// Asked of an image's samples and a shading's ramp, which reach a display list as colour
-    /// and can be redirected by nothing downstream — see `crate::content`'s `Compositing`.
-    #[must_use]
-    pub fn luminosity_survives_a_raster(&self) -> bool {
-        match self {
-            Self::Cmyk => false,
-            Self::Separation { alternate, .. } => alternate.luminosity_survives_a_raster(),
-            Self::Indexed { base, .. } => base.luminosity_survives_a_raster(),
-            Self::Pattern { base } => base
-                .as_ref()
-                .is_none_or(|base| base.luminosity_survives_a_raster()),
-            _ => true,
-        }
-    }
-
     /// The mask value §11.5.3 derives from a colour in this space.
     ///
     /// > The colour C shall then be converted to luminosity in one of the following ways,
@@ -1181,7 +1280,7 @@ fn narrow(value: f64) -> f32 {
 mod tests {
     use pdf_syntax::{Dictionary, Document, Object};
 
-    use super::ColourSpace;
+    use super::{ColourSpace, InkScale};
 
     /// A space's initial colour is the one ISO 32000-2 §8.6.8 gives it, which is often not
     /// black.
@@ -1335,20 +1434,75 @@ mod tests {
 
     /// A `DeviceCMYK` colour's luminosity is *not* the grey level of the RGB it renders as.
     ///
-    /// The one space where the two routes differ, which is why `luminosity_survives_a_raster`
-    /// exists and why a `DeviceCMYK` image inside a mask group is reported rather than drawn.
-    /// Process black is the case a reader can check: `CMYK_CORNERS` puts it at `(35, 31, 32)`,
-    /// whose §10.4.2.2 grey level is 32 of 255, against the clause's 0.
+    /// The one space where the two routes differ, and therefore the reason a raster inside a
+    /// mask group has to be produced in the group's own quantity rather than converted after
+    /// the fact (ADR 0220). Process black is the case a reader can check: `CMYK_CORNERS` puts
+    /// it at `(35, 31, 32)`, whose §10.4.2.2 grey level is 32 of 255, against the clause's 0.
     #[test]
-    fn only_cmyk_loses_its_luminosity_to_a_raster() {
-        assert!(!ColourSpace::Cmyk.luminosity_survives_a_raster());
-        assert!(ColourSpace::Gray.luminosity_survives_a_raster());
-        assert!(ColourSpace::Rgb.luminosity_survives_a_raster());
-
+    fn a_cmyk_colours_luminosity_is_not_the_grey_of_its_pixel() {
         let process_black = [0.0, 0.0, 0.0, 1.0];
         let rendered = ColourSpace::Cmyk.to_rgb(&process_black).grey_level();
         assert_eq!(bytes(pdf_render::Color::grey(rendered)).0, 32);
         assert_eq!(ColourSpace::Cmyk.luminosity(&process_black), 0.0);
+
+        // A grey and an RGB colour are the two that do survive, which is what makes the
+        // scaled channel exact for them and is the other half of the same statement.
+        for (space, values) in [
+            (ColourSpace::Gray, vec![0.25_f32]),
+            (ColourSpace::Rgb, vec![0.2, 0.7, 0.4]),
+        ] {
+            let through_the_pixel = space.to_rgb(&values).grey_level();
+            assert!(
+                (space.luminosity(&values) - through_the_pixel).abs() < 1e-6,
+                "{space:?} keeps its luminosity through a raster"
+            );
+        }
+    }
+
+    /// A scaled channel carries §10.4.2.3's grey, with the clause's `min` after the mixing.
+    ///
+    /// [`InkScale::grey_of`] and [`InkScale::mask_value`] are inverse over the ink each scale
+    /// admits, so a colour painted into a mask group and read straight back is the luminosity
+    /// [`ColourSpace::luminosity`] gives it — the property the whole construction rests on.
+    /// And the second half is the one that is *not* a round trip: registration black over a
+    /// half-covered white mark is `1 − min(1, ½·0 + ½·2) = 0` at [`InkScale::Double`], where
+    /// clamping each colour first gives 0.5.
+    #[test]
+    fn a_scaled_channel_carries_the_clauses_own_grey() {
+        for scale in [InkScale::Unit, InkScale::Double] {
+            for values in [
+                vec![0.0_f32, 0.0, 0.0, 0.0],
+                vec![0.0, 0.0, 0.0, 1.0],
+                vec![1.0, 0.0, 0.0, 0.0],
+                vec![1.0, 1.0, 1.0, 1.0],
+            ] {
+                let channel = scale.grey_of(&ColourSpace::Cmyk, &values);
+                assert!(
+                    (0.0..=1.0).contains(&channel),
+                    "a rendered channel holds 0..=1, and {values:?} gave {channel}"
+                );
+                let read_back = scale.mask_value(channel);
+                assert!(
+                    (read_back - ColourSpace::Cmyk.luminosity(&values)).abs() < 1e-6,
+                    "{scale:?} on {values:?} read back {read_back}"
+                );
+            }
+        }
+
+        // Half coverage of white artwork over registration black: the clause composites the
+        // ink and clamps once, which `Double` can express and `Unit` cannot.
+        let white = InkScale::Double.grey_of(&ColourSpace::Cmyk, &[0.0, 0.0, 0.0, 0.0]);
+        let backdrop = InkScale::Double.grey_of(&ColourSpace::Cmyk, &[1.0, 1.0, 1.0, 1.0]);
+        let half = 0.5_f32.mul_add(white, 0.5 * backdrop);
+        assert!(
+            InkScale::Double.mask_value(half).abs() < 1e-6,
+            "1 − min(1, ½·0 + ½·2) is 0, and got {}",
+            InkScale::Double.mask_value(half)
+        );
+        assert!(
+            (InkScale::Unit.mask_value(0.5_f32.mul_add(1.0, 0.5 * 0.0)) - 0.5).abs() < 1e-6,
+            "where clamping each colour first gives 0.5"
+        );
     }
 
     /// The eight-bit sRGB a colour converts to, for comparing against measured output.

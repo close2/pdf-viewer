@@ -72,9 +72,11 @@ pub enum SoftMaskKind {
         /// Ordinarily that is the backdrop's own colour, in the device's three components,
         /// which is what a group composited in `DeviceRGB` or in a CIE-based space needs.
         /// **Where the group's blending colour space is subtractive it is a grey**, because
-        /// `pdf_model` paints such a group in §10.4.2.3's grey rather than in colour: a
-        /// backdrop and the elements composited onto it have to be the same quantity or the
-        /// compositing is not the clause's, and this is the field where they meet.
+        /// `pdf_model` paints such a group in the ink §10.4.2.3 weighs rather than in colour:
+        /// a backdrop and the elements composited onto it have to be the same quantity or the
+        /// compositing is not the clause's, and this is the field where they meet. What
+        /// remains of §10.4.2.3 — the `min`, which §11.5.3 applies only after the compositing
+        /// — is in [`Transfer`], which is why that field carries more than Table 142's `/TR`.
         ///
         /// The default is "the colour space's initial value, representing black", which is
         /// what makes the area outside a mask group's own marks mask everything away.
@@ -82,12 +84,22 @@ pub enum SoftMaskKind {
     },
 }
 
-/// §11.6.5.1's `/TR`, sampled onto the 256 values an eight-bit mask can hold.
+/// Everything between the mask group's rendered channel and the mask value, sampled onto the
+/// 256 values an eight-bit mask can hold.
+///
+/// That is §11.6.5.1's `/TR` —
 ///
 /// > A function object (see 7.10, "Functions") specifying the transfer function that shall
 /// > be used in deriving the mask values. The function shall accept one input, the computed
 /// > group alpha or luminosity (depending on the value of the subtype S ), and shall return
 /// > one output, the resulting mask value.
+///
+/// — and, for a group `pdf_model` painted in §10.4.2.3's ink rather than in colour, the rest
+/// of §11.5.3's own arithmetic composed ahead of it: the `min` the clause applies *after* the
+/// compositing. Composed into one table on purpose, because a backend that expresses a
+/// luminosity mask natively computes the luminosity itself and applies this table to the
+/// result — so a step outside the table would be a step one backend takes and the other does
+/// not (`pdf_model::soft_mask`'s `derivation`).
 ///
 /// A table rather than the function itself for the same reason [`crate::Ramp`] is one: a
 /// backend has no business evaluating a PDF function, and colour and opacity are resolved
@@ -146,7 +158,9 @@ pub struct SoftMask {
     pub commands: Vec<Command>,
     /// Which derivation produces the mask values.
     pub kind: SoftMaskKind,
-    /// §11.6.5.1's `/TR`, or `None` for the identity it defaults to.
+    /// Everything between the computed alpha or luminosity and the mask value, or `None`
+    /// where that is the identity — see [`Transfer`], which since the
+    /// three-hundred-and-eighty-third session carries more than §11.6.5.1's `/TR`.
     pub transfer: Option<Transfer>,
 }
 
@@ -176,7 +190,9 @@ impl SoftMask {
             // three components*. A group whose blending space is subtractive is painted in a
             // grey by `pdf_model` instead, and this arithmetic then reads that grey back
             // unchanged — the three coefficients sum to 1.0 — leaving what the grey *means*
-            // to [`Transfer`], which is where the second half of §10.4.2.3 lives.
+            // to [`Transfer`], which is where the second half of §10.4.2.3 lives. It has
+            // lived there since the three-hundred-and-eighty-third session, which is what
+            // lets the clause's `min` wait for the compositing the way §11.5.3 states.
             SoftMaskKind::Luminosity { backdrop } => {
                 let alpha = f32::from(pixel[3]) / 255.0;
                 // Source-over onto an opaque backdrop, in straight alpha: the result is

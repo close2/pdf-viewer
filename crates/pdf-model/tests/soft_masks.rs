@@ -43,7 +43,23 @@ fn page(gstate: &str, content: &str, group: &str) -> Vec<u8> {
 /// computation is to be performed" — and §11.5.3 makes it decide the arithmetic, so it is
 /// the parameter these fixtures vary.
 fn page_blending_in(space: &str, gstate: &str, content: &str, group: &str) -> Vec<u8> {
-    let objects = vec![
+    page_with_group_resources(space, gstate, content, "<< >>", group, &[])
+}
+
+/// [`page_blending_in`], with resources and extra objects for the mask group to name.
+///
+/// A group that draws an image or a shading needs both, and they are the two things §11.5.3's
+/// second residue was about — colour that reaches the group already rasterised. `extra` is
+/// appended after object 6, so the first of them is object 7.
+fn page_with_group_resources(
+    space: &str,
+    gstate: &str,
+    content: &str,
+    group_resources: &str,
+    group: &str,
+    extra: &[Vec<u8>],
+) -> Vec<u8> {
+    let mut objects = vec![
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
         b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
         b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
@@ -54,12 +70,13 @@ fn page_blending_in(space: &str, gstate: &str, content: &str, group: &str) -> Ve
         stream_object(
             6,
             &format!(
-                "/Type /XObject /Subtype /Form /BBox [0 0 20 40] \
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 40] /Resources {group_resources} \
                  /Group << /Type /Group /S /Transparency /CS {space} >>"
             ),
             group.as_bytes(),
         ),
     ];
+    objects.extend_from_slice(extra);
     assemble(&objects)
 }
 
@@ -441,6 +458,13 @@ fn an_absent_backdrop_in_a_cmyk_group_masks_everything_away() {
 /// `(0, 0, 0, 1 − g)` and back to `1 − min(1, 1 − g) = g`; §10.4.2.4 sends an RGB colour
 /// through a black generation whose every term cancels, because §10.4.2.3's three weights sum
 /// to 1. So the two fixtures below differ in one name and in nothing a mask can see.
+///
+/// **To within one level of 255, which is the whole of what the scaled channel costs.** A
+/// `DeviceCMYK` group's channel carries `1 − ink ÷ 2` so that §10.4.2.3's `min` can wait for
+/// the compositing (`InkScale`, ADR 0220), and eight bits of that recover the ink in steps of
+/// `2 ÷ 255`; a `DeviceGray` group's channel is unscaled because §11.6.6's conversion *into*
+/// that space has already applied the `min`. `near` is the assertion, and it is the same one
+/// level every other line in this file allows an eight-bit mask.
 #[test]
 fn a_grey_masks_the_same_whichever_of_the_two_device_spaces_the_group_blends_in() {
     let group = "0.25 g 0 0 10 40 re f 1 g 10 0 10 40 re f";
@@ -455,10 +479,10 @@ fn a_grey_masks_the_same_whichever_of_the_two_device_spaces_the_group_blends_in(
     ));
 
     for x in [5, 15, 30] {
-        assert_eq!(
-            level(&grey, x, 20),
+        near(
             level(&cmyk, x, 20),
-            "the same grey artwork masks the same at x = {x}"
+            level(&grey, x, 20),
+            &format!("the same grey artwork masks the same at x = {x}"),
         );
     }
     near(
@@ -471,4 +495,215 @@ fn a_grey_masks_the_same_whichever_of_the_two_device_spaces_the_group_blends_in(
         128,
         "/BC [0 0 0 0.5] is a grey of 0.5",
     );
+}
+
+/// Half-covered artwork over registration black: §10.4.2.3's `min` waits for the compositing.
+///
+/// §11.5.3 composites the group with its backdrop *first* and takes the luminosity of the
+/// result, and §10.4.2.3's conversion to a grey level ends in `min(1.0, …)`. A `DeviceCMYK`
+/// colour can weigh two whole units of ink — `/BC [1 1 1 1]`, registration black, is exactly
+/// that — so a rendered channel holding `0..=1` cannot carry the group's arithmetic unless it
+/// is scaled, which `pdf_model::colour::InkScale` is (ADR 0220).
+///
+/// The fixture is the whole of the departure in one page. The group paints `0 0 0 0 k`, no
+/// ink at all, at a constant alpha of 0.5 over a backdrop weighing 2.0, so:
+///
+/// - the clause gives `1 − min(1, 0.5 × 0 + 0.5 × 2) = 0`, and the page keeps its white;
+/// - clamping each colour before the mixing gives `0.5 × 1 + 0.5 × 0 = 0.5`, a mask of 128,
+///   and half the page's black — which is what this tree drew until this round, and which
+///   putting the old route back still draws.
+///
+/// That is the closed form `(1 − α) · e` at its widest: `e` is one whole unit of ink and `α`
+/// is a half, so the two answers are 127 of 255 apart.
+#[test]
+fn half_covered_artwork_over_registration_black_is_clamped_after_the_compositing() {
+    let raster = render(page_with_group_resources(
+        "/DeviceCMYK",
+        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [1 1 1 1] >>",
+        "q /GS gs 0 g 0 0 40 40 re f Q",
+        "<< /ExtGState << /GA 7 0 R >> >>",
+        "q /GA gs 0 0 0 0 k 0 0 20 40 re f Q",
+        &[b"7 0 obj\n<< /Type /ExtGState /ca 0.5 >>\nendobj\n".to_vec()],
+    ));
+
+    for x in [5, 15] {
+        near(
+            level(&raster, x, 20),
+            255,
+            "half of no ink over two units of it still weighs one whole unit",
+        );
+    }
+    near(
+        level(&raster, 30, 20),
+        255,
+        "and outside the /BBox the backdrop's own two units mask everything away",
+    );
+}
+
+/// A `DeviceCMYK` image inside a mask group is decoded into the group's own components.
+///
+/// §11.6.6 makes the group's `/CS` "[t]he colour space into which colours shall be converted
+/// when painted into the group", and §11.6.2 is explicit that an image's samples are colours
+/// like any other: an object's source colour "shall be specified in the same way as in the
+/// opaque imaging model: by means of the current colour in the graphics state or the source
+/// samples in an image". So a sample has to reach the mask in the quantity §11.5.3
+/// composites, and until this round it reached it as RGB — which for `DeviceCMYK` is a
+/// different number, because this tree's route to a pixel is a table of ink appearances
+/// (ADR 0009) and §10.4.2.3 weighs the four components directly.
+///
+/// The image is two samples wide over the group's whole box: pure cyan, then no ink at all.
+/// §10.4.2.3 weighs cyan at `0.3` and gives it the grey level `0.7`, so the left half of the
+/// page keeps 30% of its black — `255 − 179`, and the mask arrives at 179 rather than 178
+/// because the group's channel carries `1 − ink ÷ 2` and eight bits of that is a step of two.
+/// The right half is a whole unit of no ink at all: `1 − min(1, 0) = 1`, and nothing masked.
+///
+/// **Cyan rather than process black, and the reason is worth the sentence.** Both routes send
+/// process black to a mask of zero — this tree renders it as `(35, 31, 32)`, whose §10.4.2.2
+/// grey is 32, and a `DeviceCMYK` group's scaled channel then crushes 32 to nothing — so it
+/// would pass whichever route drew it. Cyan separates them: the RGB this tree renders it as
+/// has a grey level of 0.516 against the clause's 0.7, and putting the old route back draws
+/// this fixture's left half at 254 instead of 76 — the scaled channel then crushing what is
+/// left of the difference, which is why the check is worth having on a colour that survives
+/// both steps.
+#[test]
+fn a_cmyk_image_in_a_mask_group_is_decoded_into_the_groups_own_components() {
+    let mut image = b"7 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 1 \
+          /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Length 8 >>\nstream\n"
+        .to_vec();
+    image.extend_from_slice(&[255, 0, 0, 0, 0, 0, 0, 0]);
+    image.extend_from_slice(b"\nendstream\nendobj\n");
+
+    let raster = render(page_with_group_resources(
+        "/DeviceCMYK",
+        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0 0 0 1] >>",
+        "q /GS gs 0 g 0 0 40 40 re f Q",
+        "<< /XObject << /Im 7 0 R >> >>",
+        "q 20 0 0 40 0 0 cm /Im Do Q",
+        &[image],
+    ));
+
+    near(
+        level(&raster, 5, 20),
+        76,
+        "cyan weighs 0.3 of a unit of ink and leaves a mask of 0.7",
+    );
+    near(
+        level(&raster, 15, 20),
+        0,
+        "and a sample of no ink at all masks nothing",
+    );
+    near(
+        level(&raster, 30, 20),
+        255,
+        "while /BC's one whole unit masks everything outside the box",
+    );
+}
+
+/// A `DeviceCMYK` shading inside a `/DeviceGray` mask group is sampled the same way.
+///
+/// The second half of the same rule, and the corpus's own shape:
+/// `bug1703683_page2_reduced.pdf` draws a `/DeviceN` shading whose alternate rests on
+/// `DeviceCMYK` inside a `/DeviceGray` luminosity mask group, and `issue13520.pdf` draws two
+/// more. A shading's colours reach a display list as a [`pdf_render::Ramp`] — 256 evaluations
+/// of §8.7.4.5.3's function — so the conversion happens once per stop and has to happen in
+/// the group's quantity for the same reason an image's samples do.
+///
+/// The ramp runs from no ink to pure cyan across the group's twenty units, so at a pixel whose
+/// centre is at parameter `t` the ink is `0.3 × t` and §10.4.2.3's grey level is `1 − 0.3 t`.
+/// A black page through that mask therefore keeps `255 × 0.3 t` of nothing — `76.5 t` — and
+/// the three columns below are that arithmetic at `t = 0.025`, `0.525` and `0.975`.
+///
+/// **The old route is far away rather than nearby**, which is what makes this a measurement:
+/// cyan renders as `(0.025, 0.687, 0.939)` at full tint, whose §10.4.2.2 grey is 0.516
+/// against the clause's 0.7, and putting it back draws the middle column at 66 instead of 40.
+#[test]
+fn a_cmyk_shading_in_a_grey_mask_group_is_sampled_into_the_groups_own_components() {
+    let extra = vec![
+        b"7 0 obj\n<< /ShadingType 2 /ColorSpace /DeviceCMYK /Coords [0 0 20 0] \
+          /Extend [true true] /Function 8 0 R >>\nendobj\n"
+            .to_vec(),
+        b"8 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 0 0 0] /N 1 >>\nendobj\n"
+            .to_vec(),
+    ];
+    let raster = render(page_with_group_resources(
+        "/DeviceGray",
+        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0] >>",
+        "q /GS gs 0 g 0 0 40 40 re f Q",
+        "<< /Shading << /Sh 7 0 R >> >>",
+        "q 0 0 20 40 re W n /Sh sh Q",
+        &extra,
+    ));
+
+    for (x, expected) in [(0, 2), (10, 40), (19, 75)] {
+        near(
+            level(&raster, x, 20),
+            expected,
+            &format!("76.5 × t of the page survives a mask of 1 − 0.3 t at x = {x}"),
+        );
+    }
+    near(
+        level(&raster, 30, 20),
+        255,
+        "and /BC [0] is a whole unit of ink, which masks everything outside the box",
+    );
+}
+
+/// A blend mode inside a `DeviceCMYK` mask group is reported, because one channel cannot hold
+/// four separable ones.
+///
+/// The condition `note_blended_luminosity` derives from §11.3.5.2, on the fixture that makes
+/// it fire: two overlapping marks inside the group, the upper one `/Multiply`. **No corpus
+/// document states one** — the whole population was checked when the report was written — so
+/// this is the only thing in the tree that can show the sentence is reachable, which is
+/// exactly why it is here (trap 11's other edge: a report nothing exercises is a report
+/// nobody has read).
+///
+/// The same group blending in `/DeviceGray` is *not* reported, and that is the load-bearing
+/// half: there the channel is the group's one component in additive form, so a separable
+/// blend function applied to it is the clause's own arithmetic.
+#[test]
+fn a_blend_mode_in_a_four_component_mask_group_is_reported_and_in_a_one_component_one_is_not() {
+    let group = "q 0 0 0 0.2 k 0 0 20 40 re f /GB gs 0 0 0 0.8 k 0 0 20 20 re f Q";
+    let grey_group = "q 0.8 g 0 0 20 40 re f /GB gs 0.2 g 0 0 20 20 re f Q";
+    let multiply = b"7 0 obj\n<< /Type /ExtGState /BM /Multiply >>\nendobj\n".to_vec();
+
+    let cmyk = reports(page_with_group_resources(
+        "/DeviceCMYK",
+        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0 0 0 1] >>",
+        "q /GS gs 0 g 0 0 40 40 re f Q",
+        "<< /ExtGState << /GB 7 0 R >> >>",
+        group,
+        std::slice::from_ref(&multiply),
+    ));
+    assert!(
+        cmyk.iter()
+            .any(|detail| detail.contains("blends in a space of four components")),
+        "a /Multiply inside a /DeviceCMYK mask group is a departure, and got {cmyk:?}"
+    );
+
+    let grey = reports(page_with_group_resources(
+        "/DeviceGray",
+        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0] >>",
+        "q /GS gs 0 g 0 0 40 40 re f Q",
+        "<< /ExtGState << /GB 7 0 R >> >>",
+        grey_group,
+        &[multiply],
+    ));
+    assert!(
+        !grey
+            .iter()
+            .any(|detail| detail.contains("blends in a space of")),
+        "one component in additive form blends exactly, and got {grey:?}"
+    );
+}
+
+/// Every departure a fixture's page one reports, as the sentences they are worded in.
+fn reports(bytes: Vec<u8>) -> Vec<String> {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    pdf_model::interpret(&document, &page)
+        .unsupported
+        .iter()
+        .map(|item| format!("{item:?}"))
+        .collect()
 }

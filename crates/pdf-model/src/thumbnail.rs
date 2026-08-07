@@ -139,13 +139,19 @@ pub fn read(document: &Document, page: &Dictionary) -> Option<Result<Thumbnail, 
     // three forms the clause permits are all stated inline.
     let resources = Dictionary::new();
     Some(
-        crate::image::decode(document, &stream, &resources, pdf_render::Color::BLACK).map(
-            |image| Thumbnail {
-                image,
-                permitted_colour_space,
-                permitted_subtype,
-            },
-        ),
+        crate::image::decode(
+            document,
+            &stream,
+            &resources,
+            pdf_render::Color::BLACK,
+            // A thumbnail is a picture on its own, never inside a transparency group.
+            crate::colour::Compositing::Device,
+        )
+        .map(|image| Thumbnail {
+            image,
+            permitted_colour_space,
+            permitted_subtype,
+        }),
     )
 }
 
