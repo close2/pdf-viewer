@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_render::Rasterizer as _;
 use render_cpu::CpuRasterizer;
-use viewer_confined::{Confined, ConfinedError, Reply};
+use viewer_confined::{Confined, Reply};
 use viewer_core::{Answer, Command, DocumentId, Event, PageTarget, Query, Rendered, Viewer, Zoom};
 
 /// A document committed in `doc/`, which every checkout has.
@@ -306,29 +306,293 @@ fn the_confined_viewer_reports_a_confinement_it_actually_has() {
     assert_eq!(confinement.shortfall(), None);
 }
 
-/// A question whose answer this transport does not carry is refused **by name**.
+/// A panel's worth of a document, asked across the boundary and asked here, on real content.
 ///
-/// The property that keeps the boundary honest: eleven of `viewer-core`'s questions answer with
-/// document-model types nothing here encodes yet, and a host asking for one is told which. A
-/// boundary that answered `Reply::None` instead would be indistinguishable from a document with
-/// no outline.
+/// **The property the three-hundred-and-eighty-sixth session added, checked where it matters.**
+/// `protocol`'s unit tests populate every field of every type and round trip it in memory; this
+/// one takes what a *document* actually says, sends it through a pipe and a process that cannot
+/// open a file, and compares it with what the same document says in this process. Three files
+/// rather than one, because no single committed document has an outline, a layer order, an
+/// attachment list, a thumbnail, a metadata packet and a structure tree at once — and an
+/// encoding is only exercised by an answer that is not empty.
 #[test]
-fn a_question_that_does_not_cross_is_refused_by_name() {
-    let (mut confined, _events) = opened();
-    let error = confined
-        .query(Query::Outline)
-        .expect_err("an outline does not cross yet");
-    let ConfinedError::Uncarried(uncarried) = error else {
-        panic!("a question that does not cross is refused as one");
-    };
-    assert_eq!(uncarried.message, "Query::Outline");
+#[expect(
+    clippy::too_many_lines,
+    reason = "eleven answers, each compared against the same answer read in this process; the \
+              length is the vocabulary's, and splitting it would hide which of the eleven a \
+              failure is in"
+)]
+fn every_panel_answer_crosses_a_real_document_unchanged() {
+    for name in [
+        // An outline of 37 visible items, a thumbnail, and an XMP packet.
+        "PDF20_AN002-AF.pdf",
+        // Two embedded files, §7.11.4's own subject.
+        "PDF-Declarations.pdf",
+        // An optional content group, and a tagged page: 988 outline items and §14.7's structure.
+        "ISO_32000-2_sponsored_EC3.pdf",
+    ] {
+        let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc")
+            .join(name);
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|error| panic!("{} is committed: {error}", path.display()));
 
-    // And the worker is still there afterwards, which is what makes a refusal a response rather
-    // than a transport failure.
-    assert!(matches!(
-        confined.query(Query::PageCount),
-        Ok(Reply::Count(5))
-    ));
+        let mut confined = Confined::start().expect("a confined viewer starts");
+        confined
+            .handle(&Command::Resize {
+                width: VIEWPORT.0,
+                height: VIEWPORT.1,
+                scale: 1.0,
+            })
+            .expect("a resize crosses");
+        confined
+            .handle(&Command::Open {
+                id: DOCUMENT,
+                bytes: bytes.clone(),
+                password: None,
+                fragment: None,
+            })
+            .expect("an open crosses");
+
+        let mut here = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
+        for _ in here.handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        }) {}
+
+        let ask = |confined: &mut Confined, query| {
+            confined
+                .query(query)
+                .unwrap_or_else(|error| panic!("{name}: {query:?} crosses: {error}"))
+        };
+
+        // §12.3.3.
+        match (
+            ask(&mut confined, Query::Outline),
+            here.query(Query::Outline),
+        ) {
+            (Reply::Outline(crossed), Answer::Outline(ours)) => {
+                assert_eq!(&crossed, ours, "{name}: an outline changed on the way over");
+            }
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => panic!("{name}: an outline came back as {crossed:?} for {ours:?}"),
+        }
+
+        // §8.11.4.3.
+        match (ask(&mut confined, Query::Layers), here.query(Query::Layers)) {
+            (Reply::Layers(crossed), Answer::Layers(ours)) => {
+                assert_eq!(crossed, ours, "{name}: a layer order changed");
+            }
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => panic!("{name}: layers came back as {crossed:?} for {ours:?}"),
+        }
+
+        // §7.11.4, whose stream deliberately stays where it is.
+        match (
+            ask(&mut confined, Query::Attachments),
+            here.query(Query::Attachments),
+        ) {
+            (Reply::Attachments(crossed), Answer::Attachments(ours)) => {
+                assert_eq!(
+                    crossed.len(),
+                    ours.len(),
+                    "{name}: an attachment went missing"
+                );
+                for (crossed, ours) in crossed.iter().zip(&ours) {
+                    assert_eq!(crossed.name, ours.name);
+                    assert_eq!(crossed.file_name, ours.file_name);
+                    assert_eq!(crossed.description, ours.description);
+                    assert_eq!(crossed.media_type, ours.media_type);
+                    assert_eq!(crossed.size, ours.size);
+                    assert_eq!(crossed.created, ours.created);
+                    assert_eq!(crossed.modified, ours.modified);
+                    assert_eq!(crossed.checksum, ours.checksum);
+                    assert_eq!(crossed.relationship, ours.relationship);
+                }
+            }
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => panic!("{name}: attachments came back as {crossed:?} for {ours:?}"),
+        }
+
+        // §12.4.3.
+        match (
+            ask(&mut confined, Query::Articles),
+            here.query(Query::Articles),
+        ) {
+            (Reply::Articles(crossed), Answer::Articles(ours)) => {
+                assert_eq!(crossed, ours, "{name}: an article thread changed");
+            }
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => panic!("{name}: articles came back as {crossed:?} for {ours:?}"),
+        }
+
+        // §12.3.4.
+        match (
+            ask(&mut confined, Query::Thumbnail(0)),
+            here.query(Query::Thumbnail(0)),
+        ) {
+            (Reply::Thumbnail(crossed), Answer::Thumbnail(ours)) => {
+                assert_eq!(crossed, ours, "{name}: a thumbnail changed");
+            }
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => panic!("{name}: a thumbnail came back as {crossed:?} for {ours:?}"),
+        }
+
+        // §14.3.3 and §14.3.2.
+        match (
+            ask(&mut confined, Query::Properties),
+            here.query(Query::Properties),
+        ) {
+            (
+                Reply::Properties {
+                    information: crossed,
+                    metadata: crossed_metadata,
+                },
+                Answer::Properties {
+                    information: ours,
+                    metadata: our_metadata,
+                },
+            ) => {
+                assert_eq!(*crossed, ours, "{name}: the information dictionary changed");
+                assert_eq!(
+                    crossed_metadata, our_metadata,
+                    "{name}: the metadata changed"
+                );
+            }
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => panic!("{name}: properties came back as {crossed:?} for {ours:?}"),
+        }
+
+        // Table 29 and Table 147.
+        match (
+            ask(&mut confined, Query::Opening),
+            here.query(Query::Opening),
+        ) {
+            (Reply::Opening(crossed), Answer::Opening(ours)) => assert_eq!(crossed, ours),
+            (crossed, ours) => {
+                panic!("{name}: an opening pair came back as {crossed:?} for {ours:?}")
+            }
+        }
+        match (
+            ask(&mut confined, Query::Preferences),
+            here.query(Query::Preferences),
+        ) {
+            (Reply::Preferences(crossed), Answer::Preferences(ours)) => assert_eq!(*crossed, ours),
+            (crossed, ours) => panic!("{name}: preferences came back as {crossed:?} for {ours:?}"),
+        }
+
+        // §12.5.6.14 and §14.7.
+        match (ask(&mut confined, Query::Popups), here.query(Query::Popups)) {
+            (Reply::Popups(crossed), Answer::Popups(ours)) => assert_eq!(crossed, ours),
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => panic!("{name}: popups came back as {crossed:?} for {ours:?}"),
+        }
+        match (
+            ask(&mut confined, Query::AccessibilityTree),
+            here.query(Query::AccessibilityTree),
+        ) {
+            (Reply::Accessibility(crossed), Answer::Accessibility(ours)) => {
+                assert_eq!(crossed, ours, "{name}: a structure tree changed");
+            }
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => {
+                panic!("{name}: a structure tree came back as {crossed:?} for {ours:?}")
+            }
+        }
+
+        // §12.3.5: no committed document states one, and `Answer::None` is the answer rather than
+        // an absence — so this checks that the *pair* agrees rather than that a collection crossed.
+        match (
+            ask(&mut confined, Query::Collection),
+            here.query(Query::Collection),
+        ) {
+            (Reply::Collection(crossed), Answer::Collection(ours)) => assert_eq!(*crossed, ours),
+            (Reply::None, Answer::None) => {}
+            (crossed, ours) => panic!("{name}: a collection came back as {crossed:?} for {ours:?}"),
+        }
+
+        // And the worker is still there afterwards.
+        assert!(matches!(
+            confined.query(Query::PageCount),
+            Ok(Reply::Count(_))
+        ));
+    }
+}
+
+/// An embedded file listed on one side of this boundary and extracted through the other.
+///
+/// **The gap `doc/todo/01`'s fifth sweep found in this round's own work.** §7.11.4's stream does
+/// not cross with the list — a panel drawing five rows would otherwise pull five payloads — so a
+/// host holds Table 45's `/CheckSum` from one message and the bytes from another, and the clause's
+/// own rule about the two of them together had no way to be asked. It has one now, and this is it
+/// end to end: list, extract, compare.
+#[test]
+fn an_attachment_is_listed_here_and_checked_against_what_the_worker_extracted() {
+    let path: PathBuf =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF-Declarations.pdf");
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("{} is committed: {error}", path.display()));
+
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .expect("an open crosses");
+
+    let Reply::Attachments(attachments) = confined
+        .query(Query::Attachments)
+        .expect("an attachment list crosses")
+    else {
+        panic!("this document states two embedded files");
+    };
+    assert_eq!(attachments.len(), 2, "§7.11.4's two files");
+
+    for attachment in &attachments {
+        let events = confined
+            .handle(&Command::Extract {
+                name: attachment.name.clone(),
+            })
+            .expect("an extraction crosses");
+        // `Event::Extracted` names the file by Table 43's `/UF` where it states one — "that is
+        // what a person would call it" — and by the tree's key otherwise, so the two names are
+        // not the same string and the event is found by being the only one.
+        let extracted = events
+            .iter()
+            .find_map(|event| match event {
+                Event::Extracted { name, bytes, .. } => {
+                    assert!(
+                        *name == attachment.name || Some(name) == attachment.file_name.as_ref(),
+                        "an extraction named {name:?}, which is neither of this file's names"
+                    );
+                    Some(bytes)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{} comes back: {events:?}", attachment.name));
+
+        // Table 45's `/Size` is "the size of the uncompressed embedded file, in bytes", which is
+        // the document's claim; the bytes are the measurement, and here they agree.
+        assert_eq!(
+            attachment.size,
+            Some(i64::try_from(extracted.len()).expect("a file this machine can hold")),
+            "{}: /Size against what was decoded",
+            attachment.name
+        );
+        // `None` for a file that states no checksum, which the clause permits and both of these
+        // do — so what is under test is that the question can be *asked* from this side at all.
+        assert_ne!(
+            attachment.checksum_matches(extracted),
+            Some(false),
+            "{}: the bytes do not match the checksum the file states",
+            attachment.name
+        );
+    }
 }
 
 /// A document whose images need a codec `pdf-sandbox` would ordinarily confine separately.

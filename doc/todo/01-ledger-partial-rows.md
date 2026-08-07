@@ -515,6 +515,33 @@ while five filters are `partial`, and that is a true pair of statements rather t
 Run it once to know that; do not run it every round. The one hit worth reading was §O.2, and its
 answer was already written into §O's note by the session that built the annex.
 
+## The fifth sweep run again in the three-hundred-and-eighty-sixth, and it paid on the round's own work
+
+**231 `pub fn`s in `pdf-model`, 84 named by no host** — up from 198 and 71, over four host crates now
+rather than two, `viewer-confined` having joined `viewer-core`, `viewer-ui` and
+`viewer-accessibility`. The populations are the three this file already knows. Two hits are worth
+recording and only one of them is closed.
+
+- **`Attachment::checksum_matches`, unreachable from the boundary the same round built.** §7.11.4's
+  stream deliberately does not cross with the attachment *list* — a panel drawing five rows would
+  otherwise pull five payloads across a pipe — so a confined host holds Table 45's `/CheckSum` in one
+  message and the decoded bytes in another, and the clause's rule about the two of them together had
+  no way to be asked. `pdf_model::attachment::checksum_matches` is a free function now; the method
+  calls it, `viewer_confined::Attachment` calls it, and `tests/confined.rs` asks it end to end.
+  **This is the sweep's shape at one round's remove**: nothing was unread when the round began, and
+  the round's own transport made it unreachable. A sweep run in the same session as the work is the
+  cheapest it will ever be, which this file already says about the fourth.
+- **`Collection::initial_document`, and no host can call it at all.** It answers §12.3.5.1's `/D`
+  fallbacks — the container, a named embedded file, the first file, or "an empty preview window" —
+  and needs the `&Document` that only `viewer-core` holds. Not a confinement gap: `viewer_ui::chrome`
+  draws the collection and cannot ask either. Written into §12.3.5.1's ledger row and into
+  `doc/todo/34`; closing it is a field on `Answer::Collection` and a consumer for it.
+
+**And one false positive worth naming, because it is new**: `Collection::all_folders` came back as
+unnamed and is called by `examples/confined_panels`. The sweep greps `crates/*/src` and an example is
+neither — so a function whose only caller is a *demonstration* reads as unread. That is the right
+default (an example is not a host) and it is worth knowing the sweep cannot see one.
+
 ## What is still owed, named
 
 - ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).

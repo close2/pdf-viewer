@@ -48,7 +48,10 @@ const MAX_DEPTH: usize = 32;
 const MAX_ITEMS: usize = 1 << 16;
 
 /// One entry in the outline.
-#[derive(Debug, Clone)]
+///
+/// `PartialEq` because an outline crosses a process boundary — `viewer_confined::Reply::Outline`
+/// — and a transport whose round trip cannot be asserted is a transport nobody has checked.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Item {
     /// The item's own object, which is how a caller asks for it to be *activated*.
     ///
@@ -90,7 +93,7 @@ pub struct Item {
 }
 
 /// A document's outline, read once.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Outline {
     /// The top-level items.
     pub items: Vec<Item>,

@@ -9,7 +9,9 @@
 //!
 //! **Nothing is dropped in silence.** Every `match` over a `viewer_core` enum here names every
 //! variant, so a message added to that crate fails to compile in this one rather than falling
-//! into a catch-all arm. The two messages this transport deliberately does not carry —
+//! into a catch-all arm — and every `let` over a `pdf-model` *struct* in [`panels`] names every
+//! field, which is the same property for a type that has no arms. The two messages this transport
+//! deliberately does not carry —
 //! [`viewer_core::Command::RenderReady`] and [`viewer_core::Event::NeedsRender`] — are named as
 //! [`Uncarried`], which is a refusal a caller can read, and they are not carried because the
 //! confined process answers them *itself*: it holds the rasteriser, so the render round trip
@@ -31,11 +33,13 @@ use viewer_core::{
 
 use crate::Reply;
 
+mod panels;
+
 /// Greeting bytes, changed whenever this format changes incompatibly.
 ///
 /// A host and a worker from different builds must not talk to each other, and the cheapest
 /// place to find that out is the first thing either says.
-const MAGIC: &[u8; 8] = b"PDFVCF01";
+const MAGIC: &[u8; 8] = b"PDFVCF02";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -52,6 +56,14 @@ pub(crate) const FRAME_HEADER_LEN: usize = 1 + 8;
 /// a length that is a claim rather than a size, which is the only thing it is for — the reader
 /// refuses before it allocates, rather than believing a header and asking for the machine.
 pub(crate) const MAX_MESSAGE: u64 = 2 << 30;
+
+/// How many elements a list reserves before it has read any of them.
+///
+/// See [`Reader::list`]: a count on the wire is a claim, and the claim's *reservation* is a
+/// separate cost from the claim's length. Two hundred and fifty-six is past every list a real
+/// document produces here — a page's popups, a document's schema columns, an outline level — so
+/// the growth path is the exceptional one and the reallocations it costs are nobody's hot loop.
+const RESERVE: usize = 256;
 
 /// Frame kind: a command for the viewer, from the host.
 pub(crate) const FRAME_COMMAND: u8 = 1;
@@ -134,6 +146,20 @@ pub enum ProtocolError {
         /// How many bytes were not consumed.
         left: usize,
     },
+    /// A tree on the wire nests deeper than this reader follows.
+    ///
+    /// Four of the answers a panel is made of are trees — the outline, the layer order,
+    /// §12.3.5.2's folders and a collection's own items — and a decoder that followed one as deep
+    /// as it was told to would let a message of a few hundred bytes exhaust the host's stack.
+    /// The bound is [`panels::MAX_TREE_DEPTH`] and it is well past what any of the readers that
+    /// *produce* these trees will hand over.
+    #[error("{what} nests deeper than the {limit} this reader follows")]
+    TooDeep {
+        /// Which tree.
+        what: &'static str,
+        /// How deep this reader goes.
+        limit: usize,
+    },
 }
 
 /// Appends fields to a message.
@@ -183,6 +209,12 @@ impl Writer {
         self
     }
 
+    /// An `f64` as its bits, for [`Writer::f32`]'s reason.
+    fn f64(&mut self, value: f64) -> &mut Self {
+        self.out.extend_from_slice(&value.to_bits().to_be_bytes());
+        self
+    }
+
     /// An `f32` as its bits.
     ///
     /// Bits rather than a decimal spelling, because a coordinate that made a round trip through
@@ -210,6 +242,69 @@ impl Writer {
     fn option_str(&mut self, value: Option<&str>) -> &mut Self {
         match value {
             Some(text) => self.u8(1).str(text),
+            None => self.u8(0),
+        }
+    }
+
+    fn option_bytes(&mut self, value: Option<&[u8]>) -> &mut Self {
+        match value {
+            Some(bytes) => self.u8(1).bytes(bytes),
+            None => self.u8(0),
+        }
+    }
+
+    fn option_f32(&mut self, value: Option<f32>) -> &mut Self {
+        match value {
+            Some(number) => self.u8(1).f32(number),
+            None => self.u8(0),
+        }
+    }
+
+    fn option_i64(&mut self, value: Option<i64>) -> &mut Self {
+        match value {
+            Some(number) => self.u8(1).i64(number),
+            None => self.u8(0),
+        }
+    }
+
+    fn option_usize(&mut self, value: Option<usize>) -> &mut Self {
+        match value {
+            Some(number) => self.u8(1).usize(number),
+            None => self.u8(0),
+        }
+    }
+
+    fn option_bool(&mut self, value: Option<bool>) -> &mut Self {
+        match value {
+            Some(flag) => self.u8(1).bool(flag),
+            None => self.u8(0),
+        }
+    }
+
+    fn option_object(&mut self, value: Option<ObjectId>) -> &mut Self {
+        match value {
+            Some(object) => {
+                self.u8(1);
+                self.object(object)
+            }
+            None => self.u8(0),
+        }
+    }
+
+    /// A fixed-length run of coordinates: a colour's three, a rectangle's four.
+    fn numbers(&mut self, values: &[f32]) -> &mut Self {
+        for value in values {
+            self.f32(*value);
+        }
+        self
+    }
+
+    fn option_numbers(&mut self, values: Option<&[f32]>) -> &mut Self {
+        match values {
+            Some(values) => {
+                self.u8(1);
+                self.numbers(values)
+            }
             None => self.u8(0),
         }
     }
@@ -320,6 +415,10 @@ impl<'a> Reader<'a> {
         Ok(f32::from_bits(self.u32(what)?))
     }
 
+    fn f64(&mut self, what: &'static str) -> Result<f64, ProtocolError> {
+        Ok(f64::from_bits(self.u64(what)?))
+    }
+
     fn bool(&mut self, what: &'static str) -> Result<bool, ProtocolError> {
         match self.u8(what)? {
             0 => Ok(false),
@@ -359,10 +458,104 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn strings(&mut self, what: &'static str) -> Result<Vec<String>, ProtocolError> {
+    fn option_bytes(&mut self, what: &'static str) -> Result<Option<Vec<u8>>, ProtocolError> {
+        if self.bool(what)? {
+            Ok(Some(self.bytes(what)?.to_vec()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn option_f32(&mut self, what: &'static str) -> Result<Option<f32>, ProtocolError> {
+        if self.bool(what)? {
+            Ok(Some(self.f32(what)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn option_i64(&mut self, what: &'static str) -> Result<Option<i64>, ProtocolError> {
+        if self.bool(what)? {
+            Ok(Some(self.i64(what)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn option_usize(&mut self, what: &'static str) -> Result<Option<usize>, ProtocolError> {
+        if self.bool(what)? {
+            Ok(Some(self.usize(what)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn option_bool(&mut self, what: &'static str) -> Result<Option<bool>, ProtocolError> {
+        if self.bool(what)? {
+            Ok(Some(self.bool(what)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn option_object(&mut self, what: &'static str) -> Result<Option<ObjectId>, ProtocolError> {
+        if self.bool(what)? {
+            Ok(Some(self.object(what)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// A colour's three components.
+    fn colour(&mut self, what: &'static str) -> Result<[f32; 3], ProtocolError> {
+        Ok([self.f32(what)?, self.f32(what)?, self.f32(what)?])
+    }
+
+    fn option_colour(&mut self, what: &'static str) -> Result<Option<[f32; 3]>, ProtocolError> {
+        if self.bool(what)? {
+            Ok(Some(self.colour(what)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// A rectangle's four numbers, in the order the file states them.
+    fn rect(&mut self, what: &'static str) -> Result<[f32; 4], ProtocolError> {
+        Ok([
+            self.f32(what)?,
+            self.f32(what)?,
+            self.f32(what)?,
+            self.f32(what)?,
+        ])
+    }
+
+    fn option_rect(&mut self, what: &'static str) -> Result<Option<[f32; 4]>, ProtocolError> {
+        if self.bool(what)? {
+            Ok(Some(self.rect(what)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// A length-prefixed list, read one element at a time.
+    ///
+    /// **Two bounds, and the second is the one that took a round to see.** The first is the
+    /// obvious one: every element of every list this format carries costs at least one byte, so a
+    /// count larger than the bytes that are left is a claim rather than a length and is refused
+    /// before anything is read.
+    ///
+    /// The second is what the count is allowed to *reserve*. `Vec::with_capacity(count)` after
+    /// that check is still `count × size_of::<T>()` bytes, and [`MAX_MESSAGE`] is two gibibytes —
+    /// so a subverted worker sending nine bytes of header and a count of 2^31 would have the host
+    /// ask its allocator for tens of gibibytes of `String` headers and abort. The list therefore
+    /// reserves at most [`RESERVE`] elements and grows into the rest, which costs a handful of
+    /// reallocations on a list longer than that and bounds a lie at a few kilobytes.
+    fn list<T>(
+        &mut self,
+        what: &'static str,
+        mut element: impl FnMut(&mut Self) -> Result<T, ProtocolError>,
+    ) -> Result<Vec<T>, ProtocolError> {
         let count = self.usize(what)?;
-        // One string is at least its own eight-byte length, so a count larger than what is left
-        // cannot be honest — and reserving from it would be allocating from a claim.
         if count > self.rest.len() {
             return Err(ProtocolError::Overlong {
                 what,
@@ -370,11 +563,15 @@ impl<'a> Reader<'a> {
                 available: self.rest.len(),
             });
         }
-        let mut out = Vec::with_capacity(count);
+        let mut out = Vec::with_capacity(count.min(RESERVE));
         for _ in 0..count {
-            out.push(self.string(what)?);
+            out.push(element(self)?);
         }
         Ok(out)
+    }
+
+    fn strings(&mut self, what: &'static str) -> Result<Vec<String>, ProtocolError> {
+        self.list(what, |reader| reader.string(what))
     }
 
     fn point(&mut self, what: &'static str) -> Result<(f32, f32), ProtocolError> {
@@ -1193,20 +1390,7 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, Uncarried> {
 pub(crate) fn decode_events(bytes: &[u8]) -> Result<Vec<Event>, ProtocolError> {
     let what = "a run of events";
     let mut reader = Reader::new(bytes);
-    let count = reader.usize(what)?;
-    // An event is at least its own nine bytes, so a count past what is left is a claim rather
-    // than a length — and reserving from a claim is what this refuses.
-    if count > reader.rest.len() {
-        return Err(ProtocolError::Overlong {
-            what,
-            claimed: count,
-            available: reader.rest.len(),
-        });
-    }
-    let mut events = Vec::with_capacity(count);
-    for _ in 0..count {
-        events.push(decode_event(reader.bytes(what)?)?);
-    }
+    let events = reader.list(what, |reader| decode_event(reader.bytes(what)?))?;
     reader.end(what)?;
     Ok(events)
 }
@@ -1329,32 +1513,36 @@ mod query_kind {
     pub(super) const FOCUS: u8 = 12;
     pub(super) const FRAME: u8 = 13;
     pub(super) const REPORTS: u8 = 14;
+    // The eleven a panel is made of, carried since the three-hundred-and-eighty-sixth session.
+    // Each answers with a `pdf-model` type, which is why they were second: `protocol::panels` is
+    // the encoding of those types and ADR 0223 is the argument.
+    pub(super) const OUTLINE: u8 = 15;
+    pub(super) const LAYERS: u8 = 16;
+    pub(super) const ATTACHMENTS: u8 = 17;
+    pub(super) const COLLECTION: u8 = 18;
+    pub(super) const ARTICLES: u8 = 19;
+    pub(super) const THUMBNAIL: u8 = 20;
+    pub(super) const PROPERTIES: u8 = 21;
+    pub(super) const OPENING: u8 = 22;
+    pub(super) const PREFERENCES: u8 = 23;
+    pub(super) const POPUPS: u8 = 24;
+    pub(super) const ACCESSIBILITY_TREE: u8 = 25;
 }
-
-/// Why a panel-shaped question does not cross yet.
-///
-/// One sentence, shared by the eleven of them, because they are one fact rather than eleven:
-/// each answers with a `pdf-model` type — an outline's tree, Table 147 whole, a decoded
-/// thumbnail, §14.7's structure — and encoding those is the second half of this boundary rather
-/// than a hole in the first. A host asking for one is told, which is the difference between a
-/// boundary that is incomplete and one that is quietly wrong.
-const PANEL_ANSWER: &str = "it answers with a document-model type this transport does not encode yet; \
-     doc/todo/34 is what is left";
 
 /// Encodes one question.
 ///
-/// # Errors
-///
-/// [`Uncarried`] for the eleven questions whose answers are document-model types.
+/// **Every question crosses**, which is the three-hundred-and-eighty-sixth session's change and
+/// the reason this function no longer returns [`Uncarried`] for anything. It still returns a
+/// `Result` because the answers do — see [`encode_answer`], where a collection value outside
+/// Table 47 and an `#[non_exhaustive]` metadata failure are the two refusals left in this module
+/// besides the render round trip.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the symmetry with `encode_command` and `encode_answer` is the shape a caller reads, \
+              and a question this transport cannot carry is a thing that has existed twice"
+)]
 pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
     use query_kind as k;
-
-    let uncarried = |message| {
-        Err(Uncarried {
-            message,
-            reason: PANEL_ANSWER,
-        })
-    };
 
     let mut writer = Writer::new();
     match query {
@@ -1400,17 +1588,39 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         Query::Reports => {
             writer.u8(k::REPORTS);
         }
-        Query::Outline => return uncarried("Query::Outline"),
-        Query::Layers => return uncarried("Query::Layers"),
-        Query::Attachments => return uncarried("Query::Attachments"),
-        Query::Collection => return uncarried("Query::Collection"),
-        Query::Articles => return uncarried("Query::Articles"),
-        Query::Thumbnail(_) => return uncarried("Query::Thumbnail"),
-        Query::Properties => return uncarried("Query::Properties"),
-        Query::Opening => return uncarried("Query::Opening"),
-        Query::Preferences => return uncarried("Query::Preferences"),
-        Query::Popups => return uncarried("Query::Popups"),
-        Query::AccessibilityTree => return uncarried("Query::AccessibilityTree"),
+        Query::Outline => {
+            writer.u8(k::OUTLINE);
+        }
+        Query::Layers => {
+            writer.u8(k::LAYERS);
+        }
+        Query::Attachments => {
+            writer.u8(k::ATTACHMENTS);
+        }
+        Query::Collection => {
+            writer.u8(k::COLLECTION);
+        }
+        Query::Articles => {
+            writer.u8(k::ARTICLES);
+        }
+        Query::Thumbnail(index) => {
+            writer.u8(k::THUMBNAIL).usize(index);
+        }
+        Query::Properties => {
+            writer.u8(k::PROPERTIES);
+        }
+        Query::Opening => {
+            writer.u8(k::OPENING);
+        }
+        Query::Preferences => {
+            writer.u8(k::PREFERENCES);
+        }
+        Query::Popups => {
+            writer.u8(k::POPUPS);
+        }
+        Query::AccessibilityTree => {
+            writer.u8(k::ACCESSIBILITY_TREE);
+        }
     }
     Ok(writer.finish())
 }
@@ -1443,6 +1653,17 @@ pub(crate) enum PlainQuery {
     Focus,
     Frame,
     Reports,
+    Outline,
+    Layers,
+    Attachments,
+    Collection,
+    Articles,
+    Thumbnail(usize),
+    Properties,
+    Opening,
+    Preferences,
+    Popups,
+    AccessibilityTree,
 }
 
 impl OwnedQuery {
@@ -1464,6 +1685,17 @@ impl OwnedQuery {
                 PlainQuery::Focus => Query::Focus,
                 PlainQuery::Frame => Query::Frame,
                 PlainQuery::Reports => Query::Reports,
+                PlainQuery::Outline => Query::Outline,
+                PlainQuery::Layers => Query::Layers,
+                PlainQuery::Attachments => Query::Attachments,
+                PlainQuery::Collection => Query::Collection,
+                PlainQuery::Articles => Query::Articles,
+                PlainQuery::Thumbnail(index) => Query::Thumbnail(index),
+                PlainQuery::Properties => Query::Properties,
+                PlainQuery::Opening => Query::Opening,
+                PlainQuery::Preferences => Query::Preferences,
+                PlainQuery::Popups => Query::Popups,
+                PlainQuery::AccessibilityTree => Query::AccessibilityTree,
             },
         }
     }
@@ -1500,6 +1732,17 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::FOCUS => OwnedQuery::Plain(PlainQuery::Focus),
         k::FRAME => OwnedQuery::Plain(PlainQuery::Frame),
         k::REPORTS => OwnedQuery::Plain(PlainQuery::Reports),
+        k::OUTLINE => OwnedQuery::Plain(PlainQuery::Outline),
+        k::LAYERS => OwnedQuery::Plain(PlainQuery::Layers),
+        k::ATTACHMENTS => OwnedQuery::Plain(PlainQuery::Attachments),
+        k::COLLECTION => OwnedQuery::Plain(PlainQuery::Collection),
+        k::ARTICLES => OwnedQuery::Plain(PlainQuery::Articles),
+        k::THUMBNAIL => OwnedQuery::Plain(PlainQuery::Thumbnail(reader.usize("a page index")?)),
+        k::PROPERTIES => OwnedQuery::Plain(PlainQuery::Properties),
+        k::OPENING => OwnedQuery::Plain(PlainQuery::Opening),
+        k::PREFERENCES => OwnedQuery::Plain(PlainQuery::Preferences),
+        k::POPUPS => OwnedQuery::Plain(PlainQuery::Popups),
+        k::ACCESSIBILITY_TREE => OwnedQuery::Plain(PlainQuery::AccessibilityTree),
         value => {
             return Err(ProtocolError::Unrecognised {
                 what,
@@ -1528,27 +1771,34 @@ mod answer_kind {
     pub(super) const LOGICAL_SELECTION: u8 = 13;
     pub(super) const FRAME: u8 = 14;
     pub(super) const REPORTS: u8 = 15;
+    // The eleven a panel is made of. `protocol::panels` is what each of them costs.
+    pub(super) const OUTLINE: u8 = 16;
+    pub(super) const LAYERS: u8 = 17;
+    pub(super) const ATTACHMENTS: u8 = 18;
+    pub(super) const COLLECTION: u8 = 19;
+    pub(super) const ARTICLES: u8 = 20;
+    pub(super) const THUMBNAIL: u8 = 21;
+    pub(super) const PROPERTIES: u8 = 22;
+    pub(super) const OPENING: u8 = 23;
+    pub(super) const PREFERENCES: u8 = 24;
+    pub(super) const POPUPS: u8 = 25;
+    pub(super) const ACCESSIBILITY: u8 = 26;
 }
 
 /// Encodes one answer.
 ///
 /// # Errors
 ///
-/// [`Uncarried`] for the answers whose questions [`encode_query`] refuses, which is the same
-/// list said from the other end: a host cannot ask for them, and a worker cannot send them.
+/// [`Uncarried`] in three places, and each names what it refused: a raster in a pixel layout this
+/// build cannot spell, a §7.11.6 collection value outside Table 47's three kinds, and a metadata
+/// failure `pdf_model::xmp` added after this build. The eleven panel answers that used to be here
+/// cross since the three-hundred-and-eighty-sixth session.
 #[expect(
     clippy::too_many_lines,
     reason = "one arm per variant of a `viewer-core` enum, and the count is that enum's. Splitting it would put half the vocabulary in another function and lose the property the whole module rests on: the compiler naming the variant nobody handled"
 )]
 pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
     use answer_kind as k;
-
-    let uncarried = |message| {
-        Err(Uncarried {
-            message,
-            reason: PANEL_ANSWER,
-        })
-    };
 
     let mut writer = Writer::new();
     match answer {
@@ -1655,17 +1905,53 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
                 writer.str(note);
             }
         }
-        Answer::Accessibility(_) => return uncarried("Answer::Accessibility"),
-        Answer::Outline(_) => return uncarried("Answer::Outline"),
-        Answer::Layers(_) => return uncarried("Answer::Layers"),
-        Answer::Attachments(_) => return uncarried("Answer::Attachments"),
-        Answer::Articles(_) => return uncarried("Answer::Articles"),
-        Answer::Collection(_) => return uncarried("Answer::Collection"),
-        Answer::Thumbnail(_) => return uncarried("Answer::Thumbnail"),
-        Answer::Popups(_) => return uncarried("Answer::Popups"),
-        Answer::Properties { .. } => return uncarried("Answer::Properties"),
-        Answer::Opening(_) => return uncarried("Answer::Opening"),
-        Answer::Preferences(_) => return uncarried("Answer::Preferences"),
+        Answer::Accessibility(nodes) => {
+            writer.u8(k::ACCESSIBILITY);
+            panels::encode_accessibility(&mut writer, nodes);
+        }
+        Answer::Outline(outline) => {
+            writer.u8(k::OUTLINE);
+            panels::encode_outline(&mut writer, outline);
+        }
+        Answer::Layers(layers) => {
+            writer.u8(k::LAYERS);
+            panels::encode_layers(&mut writer, layers);
+        }
+        Answer::Attachments(attachments) => {
+            writer.u8(k::ATTACHMENTS);
+            panels::encode_attachments(&mut writer, attachments);
+        }
+        Answer::Articles(threads) => {
+            writer.u8(k::ARTICLES);
+            panels::encode_articles(&mut writer, threads);
+        }
+        Answer::Collection(collection) => {
+            writer.u8(k::COLLECTION);
+            panels::encode_collection(&mut writer, collection)?;
+        }
+        Answer::Thumbnail(thumbnail) => {
+            writer.u8(k::THUMBNAIL);
+            panels::encode_thumbnail(&mut writer, thumbnail);
+        }
+        Answer::Popups(popups) => {
+            writer.u8(k::POPUPS);
+            panels::encode_popups(&mut writer, popups);
+        }
+        Answer::Properties {
+            information,
+            metadata,
+        } => {
+            writer.u8(k::PROPERTIES);
+            panels::encode_properties(&mut writer, information, metadata.as_ref())?;
+        }
+        Answer::Opening(opening) => {
+            writer.u8(k::OPENING);
+            panels::encode_opening(&mut writer, *opening);
+        }
+        Answer::Preferences(preferences) => {
+            writer.u8(k::PREFERENCES);
+            panels::encode_preferences(&mut writer, preferences);
+        }
     }
     Ok(writer.finish())
 }
@@ -1721,19 +2007,7 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         },
         k::FOUND => {
             let what = "a search result";
-            let count = reader.usize(what)?;
-            if count > reader.rest.len() {
-                return Err(ProtocolError::Overlong {
-                    what,
-                    claimed: count,
-                    available: reader.rest.len(),
-                });
-            }
-            let mut occurrences = Vec::with_capacity(count);
-            for _ in 0..count {
-                occurrences.push(read_quads(&mut reader, what)?);
-            }
-            Reply::Found(occurrences)
+            Reply::Found(reader.list(what, |reader| read_quads(reader, what))?)
         }
         k::DIRTY => Reply::Dirty(reader.bool("a dirty flag")?),
         k::FOCUS => Reply::Focus {
@@ -1787,6 +2061,23 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
             }
         }
         k::REPORTS => Reply::Reports(reader.strings("a report's notes")?),
+        k::OUTLINE => Reply::Outline(panels::decode_outline(&mut reader)?),
+        k::LAYERS => Reply::Layers(panels::decode_layers(&mut reader)?),
+        k::ATTACHMENTS => Reply::Attachments(panels::decode_attachments(&mut reader)?),
+        k::COLLECTION => Reply::Collection(Box::new(panels::decode_collection(&mut reader)?)),
+        k::ARTICLES => Reply::Articles(panels::decode_articles(&mut reader)?),
+        k::THUMBNAIL => Reply::Thumbnail(panels::decode_thumbnail(&mut reader)?),
+        k::PROPERTIES => {
+            let (information, metadata) = panels::decode_properties(&mut reader)?;
+            Reply::Properties {
+                information: Box::new(information),
+                metadata,
+            }
+        }
+        k::OPENING => Reply::Opening(panels::decode_opening(&mut reader)?),
+        k::PREFERENCES => Reply::Preferences(Box::new(panels::decode_preferences(&mut reader)?)),
+        k::POPUPS => Reply::Popups(panels::decode_popups(&mut reader)?),
+        k::ACCESSIBILITY => Reply::Accessibility(panels::decode_accessibility(&mut reader)?),
         value => {
             return Err(ProtocolError::Unrecognised {
                 what,
@@ -1800,21 +2091,7 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
 
 /// Reads a length-prefixed run of quadrilaterals.
 fn read_quads(reader: &mut Reader<'_>, what: &'static str) -> Result<Vec<[f32; 8]>, ProtocolError> {
-    let count = reader.usize(what)?;
-    // A quadrilateral is 32 bytes, so a count larger than what is left is not a short message,
-    // it is a claim — and `with_capacity` from a claim is the allocation this refuses.
-    if count > reader.rest.len() {
-        return Err(ProtocolError::Overlong {
-            what,
-            claimed: count,
-            available: reader.rest.len(),
-        });
-    }
-    let mut quads = Vec::with_capacity(count);
-    for _ in 0..count {
-        quads.push(reader.quad(what)?);
-    }
-    Ok(quads)
+    reader.list(what, |reader| reader.quad(what))
 }
 
 #[cfg(test)]
@@ -2098,13 +2375,15 @@ mod tests {
         assert_eq!(refused.message, "Event::NeedsRender");
     }
 
-    /// Every question that crosses, and every one that does not.
+    /// Every question `viewer-core` states, encoded and read back.
     ///
-    /// Both halves in one test on purpose: the list of what is refused is as much a part of this
-    /// boundary's description as the list of what is carried, and it is the thing `doc/todo/34`
-    /// is measured against.
+    /// **The list used to have two halves** — what crossed and what was refused by name — and the
+    /// second half is empty since the three-hundred-and-eighty-sixth session. All twenty-five are
+    /// here, written out rather than generated, so that a question added to `viewer-core` makes
+    /// `encode_query`'s match fail to compile and somebody then notices there is no round trip
+    /// for it.
     #[test]
-    fn every_query_is_either_carried_or_named() {
+    fn every_query_is_carried() {
         let carried = [
             Query::PageCount,
             Query::CurrentPage,
@@ -2123,7 +2402,19 @@ mod tests {
             Query::Focus,
             Query::Frame,
             Query::Reports,
+            Query::Outline,
+            Query::Layers,
+            Query::Attachments,
+            Query::Collection,
+            Query::Articles,
+            Query::Thumbnail(7),
+            Query::Properties,
+            Query::Opening,
+            Query::Preferences,
+            Query::Popups,
+            Query::AccessibilityTree,
         ];
+        assert_eq!(carried.len(), 25, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();
@@ -2133,26 +2424,624 @@ mod tests {
                 "a query changed on the way through"
             );
         }
+    }
 
-        let refused = [
-            Query::Outline,
-            Query::Layers,
-            Query::Attachments,
-            Query::Collection,
-            Query::Articles,
-            Query::Thumbnail(0),
-            Query::Properties,
-            Query::Opening,
-            Query::Preferences,
-            Query::Popups,
-            Query::AccessibilityTree,
+    /// A value for every field of every type the eleven panel answers are made of.
+    ///
+    /// **Nothing here is a default.** A round trip over `Default::default()` would pass with an
+    /// encoder that wrote nothing and a decoder that read nothing, which is the exact defect this
+    /// module has to be free of: an encoding that drops a field is a panel showing less on the
+    /// confined path than off it, and no gate in this tree looks at a panel. So every `Option` is
+    /// `Some`, every `bool` is the opposite of its default where the clause states one, and every
+    /// list has more than one element.
+    fn a_populated_outline() -> pdf_model::outline::Outline {
+        use pdf_model::destination::{Destination, Target, View};
+        use pdf_model::outline::{Item, Outline};
+
+        let leaf = Item {
+            id: ObjectId::new(9, 2),
+            title: "a leaf".to_owned(),
+            destination: Some(Destination {
+                target: Target::Number(11),
+                view: View::FitR {
+                    rect: [1.0, 2.0, 3.0, 4.0],
+                },
+            }),
+            open: false,
+            italic: true,
+            bold: false,
+            colour: [0.25, 0.5, 0.75],
+            children: Vec::new(),
+        };
+        Outline {
+            items: vec![
+                Item {
+                    id: ObjectId::new(4, 0),
+                    title: "a section".to_owned(),
+                    destination: Some(Destination {
+                        target: Target::Object(ObjectId::new(5, 0)),
+                        view: View::Xyz {
+                            left: Some(10.0),
+                            top: None,
+                            zoom: Some(2.0),
+                        },
+                    }),
+                    open: true,
+                    italic: false,
+                    bold: true,
+                    colour: [1.0, 0.0, 0.0],
+                    children: vec![leaf],
+                },
+                Item {
+                    id: ObjectId::new(6, 0),
+                    title: "an item with no destination".to_owned(),
+                    destination: None,
+                    open: false,
+                    italic: false,
+                    bold: false,
+                    colour: [0.0, 0.0, 0.0],
+                    children: Vec::new(),
+                },
+            ],
+            stated_count: Some(-3),
+        }
+    }
+
+    /// One of every shape §12.3.5's collection dictionary can take.
+    fn a_populated_collection() -> pdf_model::collection::Collection {
+        use pdf_model::collection::{
+            Collection, Colours, Field, FieldKind, Folder, Item, Layout, Navigator, Sort, Split,
+            SplitDirection, Value, View,
+        };
+
+        let mut values = std::collections::BTreeMap::new();
+        values.insert(
+            "author".to_owned(),
+            Value {
+                data: pdf_syntax::Object::String(b"a name".as_slice().into()),
+                prefix: Some("by ".to_owned()),
+            },
+        );
+        values.insert(
+            "revision".to_owned(),
+            Value {
+                data: pdf_syntax::Object::Real(1.5),
+                prefix: None,
+            },
+        );
+
+        let mut schema = std::collections::BTreeMap::new();
+        schema.insert(
+            "author".to_owned(),
+            Field {
+                kind: FieldKind::Text,
+                name: "Author".to_owned(),
+                order: Some(2),
+                visible: false,
+                editable: true,
+            },
+        );
+        schema.insert(
+            "custom".to_owned(),
+            Field {
+                kind: FieldKind::Other("Widget".to_owned()),
+                name: "Custom".to_owned(),
+                order: None,
+                visible: true,
+                editable: false,
+            },
+        );
+
+        Collection {
+            schema,
+            initial: Some("first.pdf".to_owned()),
+            view: View::Navigator,
+            sort: Some(Sort {
+                fields: vec!["author".to_owned(), "revision".to_owned()],
+                ascending: vec![true, false],
+            }),
+            navigator: Some(Navigator {
+                layouts: vec![
+                    Layout::View(View::Tile),
+                    Layout::FilmStrip,
+                    Layout::FreeForm,
+                    Layout::Linear,
+                    Layout::Tree,
+                    Layout::Custom("Mosaic".to_owned()),
+                ],
+            }),
+            colours: Colours {
+                background: Some([0.1, 0.2, 0.3]),
+                card_background: Some([0.4, 0.5, 0.6]),
+                card_border: None,
+                primary_text: Some([0.7, 0.8, 0.9]),
+                secondary_text: Some([1.0, 1.0, 1.0]),
+            },
+            split: Some(Split {
+                direction: SplitDirection::Vertical,
+                position: Some(30.0),
+            }),
+            folders: Some(Folder {
+                id: 0,
+                name: "root".to_owned(),
+                description: Some("everything".to_owned()),
+                item: Item {
+                    values: values.clone(),
+                },
+                has_thumbnail: true,
+                children: vec![Folder {
+                    id: 7,
+                    name: "drafts".to_owned(),
+                    description: None,
+                    item: Item { values },
+                    has_thumbnail: false,
+                    children: Vec::new(),
+                }],
+            }),
+        }
+    }
+
+    /// Every panel answer, encoded and read back, field for field.
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "eleven answers with every field of each one populated; the length is the \
+                  vocabulary's, and splitting it would hide which of the eleven a failure is in"
+    )]
+    fn every_panel_answer_round_trips() {
+        use pdf_model::article::{Bead, Thread};
+        use pdf_model::attachment::{Attachment as FileAttachment, Relationship};
+        use pdf_model::metadata::{Information, Trapped};
+        use pdf_model::page::Boundary;
+        use pdf_model::thumbnail::Thumbnail;
+        use pdf_model::viewer_preferences::{
+            Direction as TextDirection, Duplex, Opening, PageLayout, PageMode, PrintScaling,
+            ViewerPreferences,
+        };
+        use pdf_model::xmp::{Name as XmpName, Value as XmpValue, Xmp};
+        use viewer_core::{AccessibilityNode, Layer, PopupWindow};
+
+        // §12.3.3.
+        let outline = a_populated_outline();
+        let Reply::Outline(read) = round_trip(&Answer::Outline(&outline)) else {
+            panic!("an outline comes back as one");
+        };
+        assert_eq!(read, outline, "an outline changed on the way through");
+
+        // §8.11.4.3.
+        let layers = vec![
+            Layer::Collection {
+                label: Some("a heading".to_owned()),
+                children: vec![Layer::Group {
+                    group: ObjectId::new(12, 0),
+                    name: Some("a layer".to_owned()),
+                    on: false,
+                    locked: true,
+                }],
+            },
+            Layer::Group {
+                group: ObjectId::new(13, 1),
+                name: None,
+                on: true,
+                locked: false,
+            },
         ];
-        for query in refused {
-            let error = encode_query(query).unwrap_err();
-            assert!(
-                error.message.starts_with("Query::"),
-                "a refusal names the message it refused: {error}"
-            );
+        let Reply::Layers(read) = round_trip(&Answer::Layers(layers.clone())) else {
+            panic!("a layer order comes back as one");
+        };
+        assert_eq!(read, layers, "a layer order changed on the way through");
+
+        // §7.11.4. The stream is the one thing that does not cross, which is why the expected
+        // value is written out rather than derived from the input: an assertion that compared
+        // the two types field by field could not have been written at all.
+        let attachments = vec![FileAttachment {
+            name: "readme.txt".to_owned(),
+            file_name: Some("readme.txt".to_owned()),
+            description: Some("what this is".to_owned()),
+            media_type: Some("text/plain".to_owned()),
+            size: Some(42),
+            created: Some("D:20240101120000Z".to_owned()),
+            modified: Some("D:20240202120000Z".to_owned()),
+            checksum: Some(vec![0u8; 16]),
+            relationship: Relationship::Other("Annex".to_owned()),
+            stream: std::sync::Arc::new(pdf_syntax::Stream {
+                dict: pdf_syntax::Dictionary::new(),
+                data: b"hello".as_slice().into(),
+                decryption_failed: false,
+            }),
+        }];
+        let Reply::Attachments(read) = round_trip(&Answer::Attachments(attachments)) else {
+            panic!("an attachment list comes back as one");
+        };
+        assert_eq!(
+            read,
+            vec![crate::Attachment {
+                name: "readme.txt".to_owned(),
+                file_name: Some("readme.txt".to_owned()),
+                description: Some("what this is".to_owned()),
+                media_type: Some("text/plain".to_owned()),
+                size: Some(42),
+                created: Some("D:20240101120000Z".to_owned()),
+                modified: Some("D:20240202120000Z".to_owned()),
+                checksum: Some(vec![0u8; 16]),
+                relationship: Relationship::Other("Annex".to_owned()),
+            }],
+            "an attachment changed on the way through"
+        );
+
+        // §12.3.5.
+        let collection = a_populated_collection();
+        let Reply::Collection(read) = round_trip(&Answer::Collection(collection.clone())) else {
+            panic!("a collection comes back as one");
+        };
+        assert_eq!(*read, collection, "a collection changed on the way through");
+
+        // §12.4.3.
+        let threads = vec![Thread {
+            id: ObjectId::new(20, 0),
+            title: Some("a thread".to_owned()),
+            beads: vec![
+                Bead {
+                    id: ObjectId::new(21, 0),
+                    page: Some(ObjectId::new(3, 0)),
+                    rect: Some([0.0, 1.0, 2.0, 3.0]),
+                },
+                Bead {
+                    id: ObjectId::new(22, 0),
+                    page: None,
+                    rect: None,
+                },
+            ],
+        }];
+        let Reply::Articles(read) = round_trip(&Answer::Articles(threads.clone())) else {
+            panic!("article threads come back as themselves");
+        };
+        assert_eq!(
+            read, threads,
+            "an article thread changed on the way through"
+        );
+
+        // §12.3.4.
+        let thumbnail = Thumbnail {
+            image: pdf_render::Image {
+                width: 2,
+                height: 3,
+                data: (0u8..24).collect::<Vec<u8>>().into(),
+                interpolate: true,
+            },
+            permitted_colour_space: false,
+            permitted_subtype: false,
+        };
+        let Reply::Thumbnail(read) = round_trip(&Answer::Thumbnail(thumbnail.clone())) else {
+            panic!("a thumbnail comes back as one");
+        };
+        assert_eq!(read, thumbnail, "a thumbnail changed on the way through");
+
+        // §14.3.3 and §14.3.2.
+        let information = Information {
+            title: Some("a title".to_owned()),
+            author: Some("an author".to_owned()),
+            subject: Some("a subject".to_owned()),
+            keywords: Some("keywords".to_owned()),
+            creator: Some("a creator".to_owned()),
+            producer: Some("a producer".to_owned()),
+            created: Some("D:20200101000000Z".to_owned()),
+            modified: Some("D:20210101000000Z".to_owned()),
+            trapped: Trapped::Fully,
+        };
+        let xmp = Xmp::from_properties(vec![
+            (
+                XmpName {
+                    namespace: "http://purl.org/dc/elements/1.1/".to_owned(),
+                    local: "title".to_owned(),
+                },
+                XmpValue::Alt(vec![
+                    (Some("x-default".to_owned()), "a title".to_owned()),
+                    (None, "no language".to_owned()),
+                ]),
+            ),
+            (
+                XmpName {
+                    namespace: "http://purl.org/dc/elements/1.1/".to_owned(),
+                    local: "creator".to_owned(),
+                },
+                XmpValue::Seq(vec!["one".to_owned(), "two".to_owned()]),
+            ),
+            (
+                XmpName {
+                    namespace: String::new(),
+                    local: "unqualified".to_owned(),
+                },
+                XmpValue::Bag(vec!["a".to_owned()]),
+            ),
+            (
+                XmpName {
+                    namespace: "urn:x".to_owned(),
+                    local: "simple".to_owned(),
+                },
+                XmpValue::Text("plain".to_owned()),
+            ),
+            (
+                XmpName {
+                    namespace: "urn:x".to_owned(),
+                    local: "structured".to_owned(),
+                },
+                XmpValue::Structure,
+            ),
+        ]);
+        let Reply::Properties {
+            information: read_information,
+            metadata,
+        } = round_trip(&Answer::Properties {
+            information: information.clone(),
+            metadata: Some(Ok(xmp.clone())),
+        })
+        else {
+            panic!("properties come back as properties");
+        };
+        assert_eq!(*read_information, information);
+        assert_eq!(metadata, Some(Ok(xmp)));
+
+        // Every `XmpError` this build names, including the four budgets whose `&'static str` is
+        // reconstructed rather than allocated.
+        for error in [
+            pdf_model::xmp::XmpError::Undecodable,
+            pdf_model::xmp::XmpError::TooLarge { bytes: 1 << 21 },
+            pdf_model::xmp::XmpError::NotText,
+            pdf_model::xmp::XmpError::Malformed {
+                line: 3,
+                column: 7,
+                detail: "unexpected token".to_owned(),
+            },
+            pdf_model::xmp::XmpError::Unbalanced {
+                detail: "<a></b>".to_owned(),
+            },
+            pdf_model::xmp::XmpError::TooMuch {
+                what: "nesting depth",
+            },
+            pdf_model::xmp::XmpError::TooMuch { what: "properties" },
+            pdf_model::xmp::XmpError::TooMuch {
+                what: "array items",
+            },
+            pdf_model::xmp::XmpError::TooMuch {
+                what: "value length",
+            },
+        ] {
+            let Reply::Properties { metadata, .. } = round_trip(&Answer::Properties {
+                information: Information::default(),
+                metadata: Some(Err(error.clone())),
+            }) else {
+                panic!("properties come back as properties");
+            };
+            assert_eq!(metadata, Some(Err(error)));
+        }
+
+        // Table 29 and Table 147.
+        let opening = Opening {
+            mode: PageMode::UseAttachments,
+            layout: PageLayout::TwoPageRight,
+        };
+        let Reply::Opening(read) = round_trip(&Answer::Opening(opening)) else {
+            panic!("an opening pair comes back as one");
+        };
+        assert_eq!(read, opening);
+
+        let preferences = ViewerPreferences {
+            hide_toolbar: true,
+            hide_menubar: true,
+            hide_window_ui: true,
+            fit_window: true,
+            center_window: true,
+            display_doc_title: true,
+            non_full_screen_page_mode: PageMode::UseOptionalContent,
+            direction: TextDirection::RightToLeft,
+            view_area: Boundary::Media,
+            view_clip: Boundary::Bleed,
+            print_area: Boundary::Trim,
+            print_clip: Boundary::Art,
+            print_scaling: PrintScaling::NoScaling,
+            duplex: Some(Duplex::FlipShortEdge),
+            pick_tray_by_pdf_size: Some(true),
+            print_page_range: vec![(1, 4), (9, 9)],
+            num_copies: Some(3),
+            enforce_print_scaling: true,
+        };
+        let Reply::Preferences(read) = round_trip(&Answer::Preferences(preferences.clone())) else {
+            panic!("preferences come back as preferences");
+        };
+        assert_eq!(*read, preferences);
+
+        // §12.5.6.14.
+        let popups = vec![
+            PopupWindow {
+                annotation: ObjectId::new(30, 0),
+                parent: Some(ObjectId::new(31, 0)),
+                quad: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+                title: Some("a title".to_owned()),
+                text: Some("a note".to_owned()),
+                modified: Some("D:20240101000000Z".to_owned()),
+                colour: Some(pdf_render::Color {
+                    r: 0.1,
+                    g: 0.2,
+                    b: 0.3,
+                    a: 0.4,
+                }),
+            },
+            PopupWindow {
+                annotation: ObjectId::new(32, 0),
+                parent: None,
+                quad: [0.0; 8],
+                title: None,
+                text: None,
+                modified: None,
+                colour: None,
+            },
+        ];
+        let Reply::Popups(read) = round_trip(&Answer::Popups(popups.clone())) else {
+            panic!("popups come back as popups");
+        };
+        assert_eq!(read, popups);
+
+        // §14.7.
+        let nodes = vec![
+            AccessibilityNode {
+                parent: None,
+                role: "Document".to_owned(),
+                name: String::new(),
+                substituted: false,
+                language: Some("en-GB".to_owned()),
+                quads: Vec::new(),
+            },
+            AccessibilityNode {
+                parent: Some(0),
+                role: "Figure".to_owned(),
+                name: "a chart of sales".to_owned(),
+                substituted: true,
+                language: None,
+                quads: vec![[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]],
+            },
+        ];
+        let Reply::Accessibility(read) = round_trip(&Answer::Accessibility(nodes.clone())) else {
+            panic!("a structure tree comes back as one");
+        };
+        assert_eq!(read, nodes);
+    }
+
+    /// Encodes an answer and reads it back, failing loudly rather than returning a `Result`.
+    fn round_trip(answer: &Answer<'_>) -> Reply {
+        let encoded = encode_answer(answer).expect("this answer crosses");
+        decode_answer(&encoded).expect("what was written reads back")
+    }
+
+    /// A §7.11.6 value Table 47 does not describe is refused, and the refusal names the answer.
+    #[test]
+    fn a_collection_value_outside_table_47_is_refused_by_name() {
+        use pdf_model::collection::{Collection, Folder, Item, Value};
+
+        let mut values = std::collections::BTreeMap::new();
+        values.insert(
+            "odd".to_owned(),
+            Value {
+                // An array is not the text string, date string or number Table 47 describes.
+                data: pdf_syntax::Object::Array(vec![pdf_syntax::Object::Integer(1)]),
+                prefix: None,
+            },
+        );
+        let collection = Collection {
+            folders: Some(Folder {
+                id: 0,
+                name: "root".to_owned(),
+                description: None,
+                item: Item { values },
+                has_thumbnail: false,
+                children: Vec::new(),
+            }),
+            ..Collection::default()
+        };
+        let refused = encode_answer(&Answer::Collection(collection)).unwrap_err();
+        assert_eq!(refused.message, "Answer::Collection");
+    }
+
+    /// A tree that nests past what this reader follows is a refusal, not a deep recursion.
+    ///
+    /// Written by hand rather than by encoding a deep outline, because `pdf_model::outline` will
+    /// not build one — which is the point: these bytes cannot have come from that reader, and the
+    /// bound is on the *message*.
+    #[test]
+    fn a_tree_nested_past_the_bound_is_refused_rather_than_followed() {
+        let mut bytes = vec![answer_kind::LAYERS];
+        // One layer collection inside another, over and over: a count of one, the collection
+        // discriminant, and no label.
+        bytes.extend_from_slice(&1u64.to_be_bytes());
+        for _ in 0..(panels::MAX_TREE_DEPTH + 2) {
+            bytes.push(1);
+            bytes.push(0);
+            bytes.extend_from_slice(&1u64.to_be_bytes());
+        }
+        let error = decode_answer(&bytes).unwrap_err();
+        assert!(
+            matches!(error, ProtocolError::TooDeep { .. }),
+            "a tree past the bound is refused: {error}"
+        );
+    }
+
+    /// A structure tree whose parent links do not point backwards is refused.
+    ///
+    /// A host walking the answer follows `parent` upwards; a node naming itself, or naming one it
+    /// has not read yet, is a loop rather than a tree — and the confined side produces the answer
+    /// parent-first, so a single comparison is the whole check.
+    #[test]
+    fn a_structure_node_whose_parent_is_not_behind_it_is_refused() {
+        let mut bytes = vec![answer_kind::ACCESSIBILITY];
+        bytes.extend_from_slice(&1u64.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&0u64.to_be_bytes());
+        let error = decode_answer(&bytes).unwrap_err();
+        assert!(
+            matches!(error, ProtocolError::Unrecognised { .. }),
+            "a node that is its own parent is refused: {error}"
+        );
+    }
+
+    /// What each of the eleven costs to cross, on a document that has one of each.
+    ///
+    /// A measurement rather than a threshold, and it prints rather than asserts for a reason: the
+    /// numbers are a property of the *document*, so a bound written here would be a bound on
+    /// whichever file this test happens to open. What it does assert is the thing a number cannot
+    /// say — that each of them round trips on real content.
+    ///
+    /// Run it with `cargo test -p viewer-confined --lib -- --nocapture panels`.
+    #[test]
+    fn what_each_panel_costs_to_cross() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for name in [
+            "doc/PDF20_AN002-AF.pdf",
+            "doc/PDF-Declarations.pdf",
+            "doc/ISO_32000-2_sponsored_EC3.pdf",
+        ] {
+            let Ok(bytes) = std::fs::read(root.join(name)) else {
+                panic!("{name} is committed");
+            };
+            let mut viewer = viewer_core::Viewer::new(900, 1200, 1.0);
+            for _ in viewer.handle(Command::Open {
+                id: DocumentId(1),
+                bytes,
+                password: None,
+                fragment: None,
+            }) {}
+
+            println!("{name}");
+            for (label, query) in [
+                ("outline", Query::Outline),
+                ("layers", Query::Layers),
+                ("attachments", Query::Attachments),
+                ("collection", Query::Collection),
+                ("articles", Query::Articles),
+                ("thumbnail", Query::Thumbnail(0)),
+                ("properties", Query::Properties),
+                ("opening", Query::Opening),
+                ("preferences", Query::Preferences),
+                ("popups", Query::Popups),
+                ("structure", Query::AccessibilityTree),
+            ] {
+                let answer = viewer.query(query);
+                let at = std::time::Instant::now();
+                let encoded = encode_answer(&answer).expect("this answer crosses");
+                let encoded_in = at.elapsed();
+                let at = std::time::Instant::now();
+                let read = decode_answer(&encoded).expect("what was written reads back");
+                println!(
+                    "  {label:12} {:>9} bytes  encode {:>7.3} ms  decode {:>7.3} ms  {}",
+                    encoded.len(),
+                    encoded_in.as_secs_f64() * 1e3,
+                    at.elapsed().as_secs_f64() * 1e3,
+                    if matches!(read, Reply::None) {
+                        "(nothing to answer with)"
+                    } else {
+                        ""
+                    }
+                );
+            }
         }
     }
 

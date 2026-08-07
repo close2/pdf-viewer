@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1308 tests, 9 ignored
+cargo nextest run --workspace               # 1314 tests, 9 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -47,8 +47,8 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1308 + 1 = the
-  **1309** `cargo test --workspace` reports.
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1314 + 1 = the
+  **1315** `cargo test --workspace` reports.
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. Until
@@ -57,8 +57,8 @@ here:
   rather than in front of it, which is worth 7 s: the corpus gate compiles `pdf-model`'s rlib and
   its own test target in one graph, and `-p hayro-compare` on its own has nothing to overlap.
 
-**Ten fuzz targets, not five** — the handover's list had never included `object` and
-`document`, `sfnt` arrived in the two-hundred-and-forty-first, `xmp` in the two-hundred-and-ninety-fourth and `fragment` in the three-hundred-and-sixty-ninth. A round that touches a parser
+**Eleven fuzz targets, not five** — the handover's list had never included `object` and
+`document`, `sfnt` arrived in the two-hundred-and-forty-first, `xmp` in the two-hundred-and-ninety-fourth, `fragment` in the three-hundred-and-sixty-ninth and **`confined_wire` in the three-hundred-and-eighty-sixth** — the confined viewer's four decoders, whose input is a *process* rather than a document (ADR 0223). A round that touches a parser
 runs the one that covers it; a round that touches `pdf-font`'s glyph-table repairs runs `sfnt`
 **with its corpus seeded**, because unseeded it never forms a table directory and tests nothing.
 

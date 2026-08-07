@@ -30,9 +30,12 @@
 //! process with none of those three is exactly the environment it was written for.
 //!
 //! Two messages therefore never cross, and both because the confined side answers them itself:
-//! [`viewer_core::Event::NeedsRender`] and [`viewer_core::Command::RenderReady`]. Everything else
-//! a host can say crosses, and every question it can ask either crosses or is refused **by name**
-//! — see [`Uncarried`].
+//! [`viewer_core::Event::NeedsRender`] and [`viewer_core::Command::RenderReady`]. **Everything
+//! else crosses**, including all twenty-five questions — the eleven a panel is made of since the
+//! three-hundred-and-eighty-sixth session (ADR 0223). What is left of [`Uncarried`] is those two
+//! and three contents an *answer* can hold that this build cannot name; each is refused **by
+//! name**, which is the difference between a boundary that is incomplete and one that is quietly
+//! wrong.
 //!
 //! # What the host still owns
 //!
@@ -63,6 +66,82 @@ mod worker;
 
 pub use protocol::{ProtocolError, Uncarried};
 pub use worker::{confine, serve};
+
+/// The decoders on their own, without the process that produced the bytes.
+///
+/// [`Confined`] spawns a worker and holds both ends of the pipe, which is what a host normally
+/// wants. This is the *reading* half by itself, and it is public for one reason said twice:
+///
+/// - **The confined side is the untrusted side of this boundary.** A worker interprets hostile
+///   documents by design, so what it writes back is untrusted input in exactly the sense a content
+///   stream is — and this project's rule is that a parser is fuzzed. A fuzz target lives outside
+///   this crate and cannot reach a private module, which is why [`answer`](wire::answer) and
+///   [`events`](wire::events) are here: `fuzz/fuzz_targets/confined_wire.rs`.
+/// - **`pdf-view-worker` is a program**, so its standard input is whatever was piped into it
+///   rather than necessarily a host of this crate's making. [`command`](wire::command) and
+///   [`query`](wire::query) are the decoders it runs on those bytes, and they are fuzzed for the
+///   same reason.
+///
+/// A host that connects a worker over something other than a pipe reads its frames with the same
+/// four functions.
+pub mod wire {
+    use viewer_core::{Command, Event, Query};
+
+    use crate::{ProtocolError, Reply, protocol};
+
+    /// A question read from the wire, holding whatever its answer needs to outlive the message.
+    ///
+    /// [`Query::Find`] borrows the string a host already has, and there is no such string on the
+    /// receiving side — it arrived in the message. So this owns it, and [`Self::as_query`] lends
+    /// it back for as long as this value lives.
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Question(protocol::OwnedQuery);
+
+    impl Question {
+        /// The question, borrowed for as long as this value lives.
+        #[must_use]
+        pub fn as_query(&self) -> Query<'_> {
+            self.0.as_query()
+        }
+    }
+
+    /// Reads everything one command caused, as a worker writes it.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError`] where a field is truncated, a discriminant is not one this build defines,
+    /// a length is larger than the message that states it, or bytes are left over.
+    pub fn events(bytes: &[u8]) -> Result<Vec<Event>, ProtocolError> {
+        protocol::decode_events(bytes)
+    }
+
+    /// Reads one answer, as a worker writes it.
+    ///
+    /// # Errors
+    ///
+    /// See [`events`].
+    pub fn answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
+        protocol::decode_answer(bytes)
+    }
+
+    /// Reads one command, as a confined worker reads it.
+    ///
+    /// # Errors
+    ///
+    /// See [`events`].
+    pub fn command(bytes: &[u8]) -> Result<Command, ProtocolError> {
+        protocol::decode_command(bytes)
+    }
+
+    /// Reads one question, as a confined worker reads it.
+    ///
+    /// # Errors
+    ///
+    /// See [`events`].
+    pub fn query(bytes: &[u8]) -> Result<Question, ProtocolError> {
+        protocol::decode_query(bytes).map(Question)
+    }
+}
 
 use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
@@ -140,10 +219,10 @@ pub enum ConfinedError {
 /// The answer to a [`Query`], owned.
 ///
 /// [`viewer_core::Answer`] borrows the viewer's own state, and there is no viewer on this side of
-/// the pipe — so what arrives is the same answer with its parts owned. One variant per carried
-/// question; the eleven questions this transport does not carry have no variant here, which is
-/// how "the host cannot ask for what it cannot be told" is said in the type system rather than in
-/// a comment.
+/// the pipe — so what arrives is the same answer with its parts owned. **One variant per question
+/// [`viewer_core::Query`] states, since the three-hundred-and-eighty-sixth session**: the eleven
+/// that used to have none here were the eleven a panel is made of, and a host on this boundary
+/// therefore had no panels. ADR 0223.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reply {
     /// Nothing to answer with: no document is focused, or the question named a page that is not
@@ -218,6 +297,93 @@ pub enum Reply {
     },
     /// What the current page could not draw.
     Reports(Vec<String>),
+    /// §12.3.3's outline, whole.
+    Outline(pdf_model::outline::Outline),
+    /// §8.11.4.3's layers, in `/Order`.
+    Layers(Vec<viewer_core::Layer>),
+    /// §7.11.4's embedded files, listed.
+    ///
+    /// [`Attachment`] rather than [`pdf_model::attachment::Attachment`], and the difference is the
+    /// stream: see that type.
+    Attachments(Vec<Attachment>),
+    /// §12.3.5's portable collection, read.
+    ///
+    /// Boxed because it is Table 153, Table 155's columns, Table 156's sort, Table 158's split,
+    /// Table 159's folder tree and Table 160's navigator together, and an enumeration is as large
+    /// as its largest variant — a `Reply::Count` would otherwise cost what a collection costs.
+    Collection(Box<pdf_model::collection::Collection>),
+    /// §12.4.3's article threads, in the `/Threads` array's own order.
+    Articles(Vec<pdf_model::article::Thread>),
+    /// §12.3.4's thumbnail for the page asked about, decoded.
+    Thumbnail(pdf_model::thumbnail::Thumbnail),
+    /// §14.3.3's Table 349, and §14.3.2's metadata stream beside it.
+    Properties {
+        /// What the trailer's `/Info` says. Boxed for [`Self::Collection`]'s reason.
+        information: Box<pdf_model::metadata::Information>,
+        /// The catalog's `/Metadata`, read — `None` where the document names none, and
+        /// `Some(Err(_))` where it names one this reader refused.
+        metadata: Option<Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
+    },
+    /// Table 29's `/PageMode` and `/PageLayout`.
+    Opening(pdf_model::viewer_preferences::Opening),
+    /// §12.2's Table 147, whole. Boxed for [`Self::Collection`]'s reason.
+    Preferences(Box<pdf_model::viewer_preferences::ViewerPreferences>),
+    /// §12.5.6.14's open popup windows, in the `/Annots` array's order.
+    Popups(Vec<viewer_core::PopupWindow>),
+    /// §14.7's structure for the page being shown, in §14.8.2.5's logical order, parent-first.
+    Accessibility(Vec<viewer_core::AccessibilityNode>),
+}
+
+/// One of §7.11.4's embedded files, as a panel lists them.
+///
+/// [`pdf_model::attachment::Attachment`] without its stream, and **the absence is in the type
+/// rather than in a comment**. A panel showing five attachments shows five names, five
+/// descriptions and five sizes; making it also pull five payloads across the pipe would be paying
+/// a document's whole weight to draw a list. The bytes have their own channel and always did —
+/// [`viewer_core::Command::Extract`] names one file and [`viewer_core::Event::Extracted`] brings
+/// it back — and it is the channel a host uses when a person clicks *save*.
+///
+/// Everything else Table 43, Table 44 and Table 45 state crosses, field for field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attachment {
+    /// The name the `/EmbeddedFiles` tree filed it under, or the file specification's own name.
+    pub name: String,
+    /// Table 43's `/UF`, or `/F` where the file states no Unicode form.
+    pub file_name: Option<String>,
+    /// Table 43's `/Desc`.
+    pub description: Option<String>,
+    /// Table 44's `/Subtype`: the embedded file's MIME media type, as the file spells it.
+    pub media_type: Option<String>,
+    /// Table 45's `/Size`, which is the document's claim rather than a measurement.
+    pub size: Option<i64>,
+    /// Table 45's `/CreationDate`, as the §7.9.4 date string the file wrote.
+    pub created: Option<String>,
+    /// Table 45's `/ModDate`, likewise.
+    pub modified: Option<String>,
+    /// Table 45's `/CheckSum`, carried rather than checked — checking means inflating the stream,
+    /// and the stream is on the other side of this boundary.
+    pub checksum: Option<Vec<u8>>,
+    /// Table 43's `/AFRelationship`, §14.13's own subject.
+    pub relationship: pdf_model::attachment::Relationship,
+}
+
+impl Attachment {
+    /// Whether the bytes [`viewer_core::Event::Extracted`] brought back are the ones Table 45's
+    /// `/CheckSum` describes.
+    ///
+    /// The half of §7.11.4.1 this boundary would otherwise have taken away. `pdf-model` answers
+    /// it on an attachment that has its stream; a host on this boundary has the checksum in one
+    /// message and the payload in another, and asking would have meant reimplementing the clause
+    /// or not asking. [`pdf_model::attachment::checksum_matches`] is the one implementation.
+    ///
+    /// `None` where the file states none, which is most of them. The clause is explicit about
+    /// what an answer is worth: it "is strictly a checksum, and is not used for security
+    /// purposes", so a mismatch is a producer's mistake worth reporting rather than a reason to
+    /// withhold the bytes.
+    #[must_use]
+    pub fn checksum_matches(&self, bytes: &[u8]) -> Option<bool> {
+        pdf_model::attachment::checksum_matches(self.checksum.as_deref(), bytes)
+    }
 }
 
 /// A confined viewer: a worker process, the pipes to it, and what it reported about itself.
@@ -321,8 +487,10 @@ impl Confined {
     ///
     /// # Errors
     ///
-    /// See [`ConfinedError`]. [`ConfinedError::Uncarried`] for the eleven questions whose answers
-    /// are document-model types this transport does not encode yet.
+    /// See [`ConfinedError`]. **Every question crosses**; what can still come back is
+    /// [`ConfinedError::Refused`], where the *answer* held something this build cannot name — a
+    /// raster in a second pixel layout, a §7.11.6 collection value outside Table 47's three
+    /// kinds, or a metadata failure `pdf_model::xmp` grew after this build. Each says which.
     pub fn query(&mut self, query: Query<'_>) -> Result<Reply, ConfinedError> {
         let payload = protocol::encode_query(query)?;
         self.write_frame(protocol::FRAME_QUERY, &payload)?;

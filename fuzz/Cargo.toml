@@ -17,6 +17,10 @@ libfuzzer-sys = "0.4"
 pdf-syntax = { path = "../crates/pdf-syntax" }
 pdf-font = { path = "../crates/pdf-font" }
 pdf-model = { path = "../crates/pdf-model" }
+# The confined viewer's transport, whose *decoders* this fuzzes. A fuzz target cannot reach a
+# private module, which is why `viewer_confined::wire` is public — see that module.
+viewer-confined = { path = "../crates/viewer-confined" }
+viewer-core = { path = "../crates/viewer-core" }
 
 [profile.release]
 debug = true
@@ -95,6 +99,13 @@ bench = false
 [[bin]]
 name = "cms"
 path = "fuzz_targets/cms.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "confined_wire"
+path = "fuzz_targets/confined_wire.rs"
 test = false
 doc = false
 bench = false

@@ -1,8 +1,9 @@
 # Confine the interpreter and the rasteriser
 
-Status: **built, and not yet where a person would meet it.** The confined process exists and draws
-real pages (ADR 0218); the window does not use it, eleven of the twenty-five questions do not cross,
-and a hostile document has no cancel.
+Status: **built, answers every question, and not yet where a person would meet it.** The confined
+process exists, draws real pages (ADR 0218) and carries all twenty-five questions since the
+three-hundred-and-eighty-sixth (ADR 0223); what is left is that the window does not use it and a
+hostile document has no cancel.
 Priority: 34
 Clauses: —, this is `CLAUDE.md` principle 3
 Code: `crates/viewer-confined`, `crates/pdf-sandbox/src/lockdown.rs`
@@ -21,16 +22,33 @@ turn and a magnification; a JBIG2 document decoded *inside* the confinement; a c
 cannot open a file, cannot open a socket and cannot start a program; and `Confinement::shortfall`
 answering `None` because everything was enforced. `examples/confined_page` is what a person runs.
 
+## What the three-hundred-and-eighty-sixth session added
+
+`protocol/panels.rs`: the eleven answers a panel is made of, encoded field for field, with a round
+trip apiece and a comparison against the same answer read in this process on three real documents.
+`examples/confined_panels` prints a sidebar's worth of a document out of the confinement. The
+transport's stand-in test became `fuzz/fuzz_targets/confined_wire.rs`, clean at 44 723 045 runs.
+ADR 0223 has the argument, the measurements and what it refuses.
+
 ## What is left, in the order it matters
 
-### 1. Eleven questions do not cross, and four sidebar tabs are among them
+### 1. Two things the panel answers left behind, and neither is a hole in the transport
 
-`Query::Outline`, `Layers`, `Attachments`, `Collection`, `Articles`, `Thumbnail`, `Properties`,
-`Opening`, `Preferences`, `Popups` and `AccessibilityTree` answer with `pdf-model` types —
-an outline's tree, Table 147 whole, a decoded thumbnail, §14.7's structure. Each is refused **by
-name** rather than answered with nothing, so nothing is silently wrong; but a host on this boundary
-has no panels. This is the largest single piece and it is ordinary work: one encoding per type,
-beside the twenty-eight that are already there, with a round trip apiece.
+**§12.3.5.1's `/D` is decided by nobody.** `Collection::initial_document` answers the clause's own
+three fallbacks — the container, a named embedded file, the first file, or "an empty preview
+window" — and needs the `&Document` that only `viewer-core` holds, so no host can call it: not
+`viewer_ui::chrome`, which draws the collection, and not a confined one. Found by `doc/todo/01`'s
+fifth sweep in the three-hundred-and-eighty-sixth and written into §12.3.5.1's ledger row. Closing
+it is a field on `Answer::Collection` — the shape `Answer::Field` took in ADR 0167 — and a consumer
+for it, which is a panel marking the row a document asks to open first. Nothing is
+`#[non_exhaustive]`, so the change breaks every consumer's build, which is what that is for.
+
+**An outline row cannot say which page it goes to.** `Item::destination` crosses, but turning a
+`Destination` into a page index is `page_index_with(document, pages, …)` and a host has neither.
+This is *not* a gap the transport made: `viewer-ui` is in the same position and the answer for both
+is `Command::Activate(item.id)`, which follows §12.6's action machinery inside the core and crosses.
+Worth knowing rather than fixing; it becomes a question the day a panel wants to print a number
+beside a row.
 
 ### 2. The window is a tier-2 host and this boundary is tier 1
 

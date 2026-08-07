@@ -224,6 +224,23 @@ impl Xmp {
         &self.properties
     }
 
+    /// The packet a caller already holds the properties of.
+    ///
+    /// [`Self::properties`]'s inverse, and it exists because a packet read in one process is
+    /// needed in another: `viewer-confined` carries a confined viewer's `/Metadata` to its host,
+    /// and without this the host would have the properties and no [`Xmp`] to ask
+    /// [`Self::title`] of. A reader that can do something no caller can ask for is the failure
+    /// `doc/todo/01`'s fifth sweep looks for.
+    ///
+    /// **The parser's bounds are not this constructor's.** [`Self::parse`] refuses a packet that
+    /// states more properties, deeper nesting or longer values than its budgets allow, because
+    /// those bound what *hostile bytes* can make this reader build; a caller assembling a list it
+    /// already holds is not that, and the transport that does it bounds its own message.
+    #[must_use]
+    pub fn from_properties(properties: Vec<(Name, Value)>) -> Self {
+        Self { properties }
+    }
+
     /// The value of one property, by namespace URI and local name.
     #[must_use]
     pub fn value(&self, namespace: &str, local: &str) -> Option<&Value> {

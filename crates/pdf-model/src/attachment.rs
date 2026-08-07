@@ -133,9 +133,7 @@ impl Attachment {
     /// is a different thing from stating none.
     #[must_use]
     pub fn checksum_matches(&self, bytes: &[u8]) -> Option<bool> {
-        let stated = self.checksum.as_ref()?;
-        let digest = <md5::Md5 as md5::Digest>::digest(bytes);
-        Some(stated.as_slice() == digest.as_slice())
+        checksum_matches(self.checksum.as_deref(), bytes)
     }
 
     /// `/CreationDate` parsed as §7.9.4's date, where the producer wrote a conforming one.
@@ -149,6 +147,31 @@ impl Attachment {
     pub fn modified_date(&self) -> Option<pdf_syntax::Date> {
         pdf_syntax::Date::parse(self.modified.as_deref()?)
     }
+}
+
+/// Table 45's `/CheckSum` against bytes somebody has decoded, without an [`Attachment`] beside it.
+///
+/// ISO 32000-2 §7.11.4.1, Table 45:
+///
+/// > A 16-byte string that is the checksum of the bytes of the uncompressed embedded file. The
+/// > checksum shall be calculated by applying the standard MD5 message-digest algorithm (defined
+/// > in Internet RFC 1321 ) to the bytes of the embedded file stream.
+///
+/// [`Attachment::checksum_matches`] is this with the checksum taken from the file specification,
+/// and it is the ordinary caller. **This spelling exists because a host may hold the two halves
+/// apart**: `viewer_confined::Attachment` lists an embedded file without its stream, and the bytes
+/// arrive later in `viewer_core::Event::Extracted` — so the question is asked with a checksum from
+/// one message and a payload from another, and a rule with no way to ask it is `doc/todo/01`'s
+/// fifth sweep in miniature.
+///
+/// `None` where the file states no checksum, which is not a failure and is most of them.
+/// `Some(false)` for one that is not sixteen bytes: the file stated a checksum and stated it
+/// wrongly, which is a different thing from stating none.
+#[must_use]
+pub fn checksum_matches(stated: Option<&[u8]>, bytes: &[u8]) -> Option<bool> {
+    let stated = stated?;
+    let digest = <md5::Md5 as md5::Digest>::digest(bytes);
+    Some(stated == digest.as_slice())
 }
 
 /// Table 43's `/AFRelationship`: what an associated file is *to* the object that names it.

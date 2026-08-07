@@ -96,7 +96,11 @@ const IGNORED: [&str; 18] = [
 ];
 
 /// A page's thumbnail, decoded.
-#[derive(Debug, Clone)]
+///
+/// `PartialEq` because a thumbnail crosses a process boundary —
+/// `viewer_confined::Reply::Thumbnail` — and a transport whose round trip cannot be asserted is a
+/// transport nobody has checked.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Thumbnail {
     /// The miniature, as RGBA8 samples at the size the dictionary declares.
     pub image: Image,
